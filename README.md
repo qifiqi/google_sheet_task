@@ -47,52 +47,107 @@ app/
 
 ### 前端架构
 ```
-templates/
-├── admin/               # 管理面板模板
-│   ├── base.html       # 管理面板基础模板
-│   ├── dashboard.html  # 仪表盘
-│   ├── tasks.html      # 任务管理
-│   ├── config.html     # 配置管理
-│   └── logs.html       # 日志管理
-└── google_sheet/       # Google Sheet 模块模板
-    ├── base.html       # Google Sheet 基础模板
-    ├── index.html      # 首页
-    ├── create.html     # 创建任务
-    └── detail.html     # 任务详情
+frontend/                # Vue 3 前端项目
+├── src/
+│   ├── layouts/            # 布局组件
+│   │   ├── AdminLayout.vue     # 管理面板布局
+│   │   └── GoogleSheetLayout.vue # Google Sheet 布局
+│   ├── views/              # 页面组件
+│   │   ├── admin/              # 管理面板页面
+│   │   │   ├── Dashboard.vue       # 仪表盘
+│   │   │   ├── Tasks.vue          # 任务管理
+│   │   │   ├── Config.vue         # 系统配置
+│   │   │   └── Logs.vue           # 系统日志
+│   │   └── google-sheet/       # Google Sheet 页面
+│   │       ├── Index.vue          # 任务列表
+│   │       ├── Create.vue         # 创建任务
+│   │       └── Detail.vue         # 任务详情
+│   ├── stores/             # Pinia 状态管理
+│   ├── utils/              # 工具函数
+│   ├── styles/             # 样式文件
+│   └── router/             # Vue Router 配置
+└── static/dist/            # 构建输出目录
 ```
 
 ## 安装和配置
 
 ### 1. 环境要求
 - Python 3.8+
-- pip
+- Node.js 16+
+- npm 或 yarn
 
-### 2. 安装依赖
+### 2. 快速启动（开发模式）
+
+#### Windows
 ```bash
+# 双击运行或在命令行执行
+start_dev.bat
+```
+
+#### Linux/macOS
+```bash
+# 给脚本执行权限（首次运行）
+chmod +x start_dev.sh
+# 运行脚本
+./start_dev.sh
+```
+
+这将自动启动：
+- 后端服务器：`http://localhost:5000`
+- 前端开发服务器：`http://localhost:8080`
+
+### 3. 手动安装和配置
+
+#### 后端设置
+```bash
+# 安装Python依赖
 pip install -r requirements.txt
-```
 
-### 3. 初始化数据库
-```bash
+# 初始化数据库
 python run.py init-db
-```
 
-### 4. 初始化默认配置
-```bash
+# 初始化默认配置
 python run.py init-config
 ```
 
-### 5. 启动应用
+#### 前端设置
+```bash
+# 进入前端目录
+cd frontend
+
+# 安装依赖
+npm install
+
+# 开发模式
+npm run dev
+
+# 或构建生产版本
+npm run build
+```
+
+### 4. 生产环境部署
+
+#### 构建前端
+```bash
+# Windows
+build_production.bat
+
+# Linux/macOS
+./build_production.sh
+```
+
+#### 启动服务器
 ```bash
 python run.py
 ```
 
-应用将在 `http://localhost:5000` 启动。
+应用将在 `http://localhost:5000` 启动，包含完整的前后端功能。
 
 ## 使用指南
 
-### 1. 访问管理面板
-打开浏览器访问 `http://localhost:5000/admin/` 进入管理面板。
+### 1. 访问应用
+- **开发模式**：访问 `http://localhost:8080` (前端开发服务器)
+- **生产模式**：访问 `http://localhost:5000` (包含前后端)
 
 ### 2. 配置 Google Sheet
 1. 在管理面板中点击"系统配置"
@@ -259,13 +314,18 @@ flask db upgrade
 
 ## 更新日志
 
-### v2.0.0 (2024-01-XX)
-- 重构为现代化架构
-- 添加管理面板
-- 改进任务管理系统
-- 优化用户界面
-- 增强错误处理
+### v2.0.0 (2025-01-XX)
+- 🎨 **全新Vue 3前端**：采用现代化的Vue 3 + Element Plus技术栈
+- 🎯 **1Panel风格设计**：类似1Panel的现代化管理界面
+- 📱 **响应式布局**：完美支持桌面和移动设备
+- ⚡ **性能优化**：前后端分离，更快的加载速度
+- 🔄 **实时更新**：基于SSE的实时任务状态更新
+- 🛠 **改进的配置管理**：更直观的配置界面和验证
+- 📊 **增强的监控**：详细的任务执行状态和日志查看
+- 🚀 **开发体验**：热重载、自动构建等现代化开发工具
+- 🧹 **代码清理**：移除旧的HTML模板，简化项目结构
 
 ### v1.0.0 (2024-01-XX)
 - 初始版本
 - 基本的 Google Sheet 参数批量校验功能
+- Flask + Bootstrap 传统架构
