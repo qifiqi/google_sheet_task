@@ -1,0 +1,5 @@
+# 依赖预构建缓存
+node_modules/.vite/
+# 自动生成的类型文件
+auto-imports.d.ts
+components.d.ts

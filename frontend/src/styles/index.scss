@@ -1,0 +1,372 @@
+// 全局样式文件
+
+// 重置样式
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f5f7fa;
+}
+
+// 1Panel风格的变量
+:root {
+  // 主色调
+  --primary-color: #409eff;
+  --primary-light: #79bbff;
+  --primary-dark: #337ecc;
+  
+  // 背景色
+  --bg-color: #f5f7fa;
+  --bg-color-light: #ffffff;
+  --bg-color-dark: #f0f2f5;
+  
+  // 边框色
+  --border-color: #e4e7ed;
+  --border-color-light: #ebeef5;
+  --border-color-dark: #dcdfe6;
+  
+  // 文字色
+  --text-color-primary: #303133;
+  --text-color-regular: #606266;
+  --text-color-secondary: #909399;
+  --text-color-placeholder: #c0c4cc;
+  
+  // 状态色
+  --success-color: #67c23a;
+  --warning-color: #e6a23c;
+  --danger-color: #f56c6c;
+  --info-color: #909399;
+  
+  // 阴影
+  --box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  --box-shadow-light: 0 2px 4px rgba(0, 0, 0, 0.12), 0 0 6px rgba(0, 0, 0, 0.04);
+  
+  // 圆角
+  --border-radius: 4px;
+  --border-radius-small: 2px;
+  --border-radius-large: 8px;
+}
+
+// 布局样式
+.layout-container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.layout-header {
+  background: var(--bg-color-light);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: var(--box-shadow-light);
+  z-index: 1000;
+}
+
+.layout-sidebar {
+  background: var(--bg-color-light);
+  border-right: 1px solid var(--border-color);
+  box-shadow: var(--box-shadow-light);
+  transition: width 0.3s ease;
+}
+
+.layout-main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.layout-content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  background: var(--bg-color);
+}
+
+// 卡片样式
+.card {
+  background: var(--bg-color-light);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow-light);
+  margin-bottom: 20px;
+  
+  &-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-color-dark);
+    
+    .title {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-color-primary);
+      margin: 0;
+    }
+  }
+  
+  &-body {
+    padding: 20px;
+  }
+}
+
+// 统计卡片
+.stat-card {
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+  color: white;
+  border: none;
+  
+  &.success {
+    background: linear-gradient(135deg, var(--success-color) 0%, #5cb85c 100%);
+  }
+  
+  &.warning {
+    background: linear-gradient(135deg, var(--warning-color) 0%, #f0ad4e 100%);
+  }
+  
+  &.danger {
+    background: linear-gradient(135deg, var(--danger-color) 0%, #d9534f 100%);
+  }
+  
+  &.info {
+    background: linear-gradient(135deg, var(--info-color) 0%, #777 100%);
+  }
+  
+  .stat-number {
+    font-size: 28px;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+  
+  .stat-label {
+    font-size: 14px;
+    opacity: 0.9;
+  }
+  
+  .stat-icon {
+    font-size: 40px;
+    opacity: 0.8;
+  }
+}
+
+// 表格样式
+.table-container {
+  background: var(--bg-color-light);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  
+  .el-table {
+    border: none;
+    
+    th {
+      background: var(--bg-color-dark);
+      color: var(--text-color-primary);
+      font-weight: 500;
+    }
+    
+    td {
+      border-bottom: 1px solid var(--border-color-light);
+    }
+    
+    tr:hover > td {
+      background: var(--bg-color-dark);
+    }
+  }
+}
+
+// 侧边栏菜单样式
+.sidebar-menu {
+  .el-menu {
+    border-right: none;
+    
+    .el-menu-item {
+      height: 48px;
+      line-height: 48px;
+      margin: 4px 8px;
+      border-radius: var(--border-radius);
+      
+      &:hover {
+        background: var(--bg-color-dark);
+      }
+      
+      &.is-active {
+        background: var(--primary-color);
+        color: white;
+        
+        &:hover {
+          background: var(--primary-dark);
+        }
+      }
+    }
+    
+    .el-sub-menu {
+      .el-sub-menu__title {
+        height: 48px;
+        line-height: 48px;
+        margin: 4px 8px;
+        border-radius: var(--border-radius);
+        
+        &:hover {
+          background: var(--bg-color-dark);
+        }
+      }
+    }
+  }
+}
+
+// 页面标题
+.page-header {
+  margin-bottom: 24px;
+  
+  .title {
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--text-color-primary);
+    margin: 0 0 8px 0;
+  }
+  
+  .description {
+    color: var(--text-color-secondary);
+    font-size: 14px;
+  }
+}
+
+// 工具栏
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+}
+
+// 状态标签
+.status-tag {
+  &.pending {
+    background: var(--info-color);
+  }
+  
+  &.running {
+    background: var(--warning-color);
+  }
+  
+  &.completed {
+    background: var(--success-color);
+  }
+  
+  &.error {
+    background: var(--danger-color);
+  }
+  
+  &.cancelled {
+    background: var(--info-color);
+  }
+}
+
+// 日志容器
+.log-container {
+  background: #1e1e1e;
+  color: #00ff00;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 16px;
+  border-radius: var(--border-radius);
+  height: 400px;
+  overflow-y: auto;
+  
+  .log-line {
+    margin-bottom: 2px;
+    
+    &.error {
+      color: #ff6b6b;
+    }
+    
+    &.warning {
+      color: #ffd93d;
+    }
+    
+    &.info {
+      color: #6bcf7f;
+    }
+    
+    &.debug {
+      color: #74c0fc;
+    }
+  }
+}
+
+// 响应式
+@media (max-width: 768px) {
+  .layout-content {
+    padding: 16px;
+  }
+  
+  .card-body {
+    padding: 16px;
+  }
+  
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+}
+
+// 动画
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-enter-active,
+.slide-leave-active {
+  transition: transform 0.3s ease;
+}
+
+.slide-enter-from {
+  transform: translateX(-100%);
+}
+
+.slide-leave-to {
+  transform: translateX(100%);
+}
+
+// 滚动条样式
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-color-dark);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color-dark);
+  border-radius: 3px;
+  
+  &:hover {
+    background: var(--text-color-placeholder);
+  }
+}
