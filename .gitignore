@@ -66,3 +66,5 @@ static/dist/
 # Google API credentials (keep example files)
 data/token.json
 !data/token.json.example
+
+node_modules/
