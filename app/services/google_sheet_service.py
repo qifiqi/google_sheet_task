@@ -578,6 +578,10 @@ class GoogleSheetService:
                         is_valid, error_msgs = _validate_result_values(result_values)
                         if not is_valid:
                             self._log_warning(f"结果验证失败: {error_msgs}，继续等待...")
+                            # for i in error_msgs:
+                            #     if '无效值' in i and "#" in i:
+                            #         self._log_error(f"结果值无效: {i}")
+                            #         break
                             all_completed = False
                             continue
                         
@@ -634,7 +638,7 @@ class GoogleSheetService:
 
     def _log(self, level: str, message: str, log_type: str = 'general', **kwargs):
         """
-        统一的日志记录接口 - 完整版，包含前端推送和数据库保存
+        统一的日志记录接口 - 只记录到文件和推送到前端，不再保存到数据库
         
         Args:
             level: 日志级别 ('info', 'warning', 'error')
@@ -649,7 +653,7 @@ class GoogleSheetService:
             # 添加简洁的任务ID前缀
             prefixed_message = f"[Task-{self.task_id[:8]}] {formatted_message}"
             
-            # 1. 记录到系统日志（现在已经不会重复了）
+            # 1. 记录到系统日志文件
             if level == 'error':
                 self.task_logger.error(prefixed_message)
             elif level == 'warning':
@@ -657,10 +661,7 @@ class GoogleSheetService:
             else:
                 self.task_logger.info(prefixed_message)
             
-            # 2. 保存到数据库（TaskLog）
-            self._save_to_database(level, formatted_message)
-            
-            # 3. 推送到前端（SSE）
+            # 2. 推送到前端（SSE）
             self._push_to_frontend(level, formatted_message)
             
         except Exception as e:
@@ -689,26 +690,10 @@ class GoogleSheetService:
             return message
     
     def _save_to_database(self, level: str, message: str):
-        """保存日志到数据库，包含重试逻辑"""
-        def save_log_operation():
-            log = TaskLog(
-                task_id=self.task_id,
-                level=level,
-                message=message
-            )
-            db.session.add(log)
-            db.session.commit()
-        
-        try:
-            if self.app:
-                with self.app.app_context():
-                    safe_db_operation(save_log_operation)
-            else:
-                with current_app.app_context():
-                    safe_db_operation(save_log_operation)
-        except Exception as e:
-            # 数据库保存失败时静默处理，不影响主流程
-            pass
+        """保存日志到数据库（已废弃，不再使用）"""
+        # 此方法已废弃，不再向数据库写入日志
+        # 日志现在只记录到文件和推送到前端
+        pass
     
     def _push_to_frontend(self, level: str, message: str):
         """推送日志到前端"""

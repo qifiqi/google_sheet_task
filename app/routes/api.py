@@ -63,6 +63,32 @@ def get_task(task_id):
         logger.error(f"获取任务详情失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@api_bp.route('/tasks/<task_id>/config', methods=['PUT'])
+def update_task_config(task_id):
+    """更新任务配置"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "请求数据为空"}), 400
+        
+        config = data.get('config')
+        if not config:
+            return jsonify({"status": "error", "message": "配置信息不能为空"}), 400
+        
+        name = data.get('name')
+        description = data.get('description')
+        
+        result = task_manager.update_task_config(task_id, config, name, description)
+        
+        if result["status"] == "success":
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        logger.error(f"更新任务配置失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @api_bp.route('/tasks/<task_id>/cancel', methods=['POST'])
 def cancel_task(task_id):
     """取消任务"""
@@ -750,4 +776,41 @@ def get_latest_logs():
         return jsonify({"status": "success", "logs": latest_logs})
     except Exception as e:
         logger.error(f"获取最新日志失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# 数据库监控相关API
+@api_bp.route('/database/status', methods=['GET'])
+def get_database_status():
+    """获取数据库状态"""
+    try:
+        from app.utils.db_monitor import DatabaseMonitor
+        report = DatabaseMonitor.get_full_report()
+        return jsonify({"status": "success", "report": report})
+    except Exception as e:
+        logger.error(f"获取数据库状态失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@api_bp.route('/database/vacuum', methods=['POST'])
+def vacuum_database():
+    """压缩数据库"""
+    try:
+        from app.utils.db_monitor import DatabaseMonitor
+        result = DatabaseMonitor.vacuum_database()
+        if result.get('success'):
+            return jsonify({"status": "success", "result": result})
+        else:
+            return jsonify({"status": "error", "message": result.get('message', result.get('error'))}), 400
+    except Exception as e:
+        logger.error(f"压缩数据库失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@api_bp.route('/database/suggestions', methods=['GET'])
+def get_optimization_suggestions():
+    """获取数据库优化建议"""
+    try:
+        from app.utils.db_monitor import DatabaseMonitor
+        suggestions = DatabaseMonitor.suggest_optimizations()
+        return jsonify({"status": "success", "suggestions": suggestions})
+    except Exception as e:
+        logger.error(f"获取优化建议失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500

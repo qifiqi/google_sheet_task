@@ -9,8 +9,8 @@ class Task(db.Model):
     id = db.Column(db.String(36), primary_key=True)  # UUID
     name = db.Column(db.String(255), nullable=False)  # 任务名称
     description = db.Column(db.Text)  # 任务描述
-    status = db.Column(db.String(20), default='pending')  # pending, running, completed, cancelled, error
-    task_type = db.Column(db.String(50), default='google_sheet')  # 任务类型
+    status = db.Column(db.String(20), default='pending', index=True)  # 添加索引，常用于过滤
+    task_type = db.Column(db.String(50), default='google_sheet', index=True)  # 添加索引
     
     # 配置信息
     config = db.Column(db.Text)  # JSON格式的配置
@@ -23,12 +23,18 @@ class Task(db.Model):
     error_message = db.Column(db.Text)
     
     # 时间戳
-    created_at = db.Column(db.DateTime, default=datetime.now)
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)  # 添加索引，常用于排序
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     
-    # 关联
-    logs = db.relationship('TaskLog', backref='task', lazy=True, cascade='all, delete-orphan')
-    results = db.relationship('TaskResult', backref='task', lazy=True, cascade='all, delete-orphan')
+    # 关联 - 优化懒加载策略
+    logs = db.relationship('TaskLog', backref='task', lazy='dynamic', cascade='all, delete-orphan')
+    results = db.relationship('TaskResult', backref='task', lazy='dynamic', cascade='all, delete-orphan')
+    
+    # 复合索引 - 提升常用查询性能
+    __table_args__ = (
+        db.Index('idx_status_created', 'status', 'created_at'),  # 按状态和时间查询
+        db.Index('idx_type_status', 'task_type', 'status'),  # 按类型和状态查询
+    )
     
     def to_dict(self):
         return {
@@ -53,14 +59,20 @@ class Task(db.Model):
         return round((self.current_step / self.total_steps) * 100, 2)
 
 class TaskLog(db.Model):
-    """任务日志模型"""
+    """任务日志模型（已废弃，仅保留用于数据迁移）"""
     __tablename__ = 'task_logs'
     
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    task_id = db.Column(db.String(36), db.ForeignKey('tasks.id'), nullable=False)
-    level = db.Column(db.String(20), default='info')  # info, warning, error
+    task_id = db.Column(db.String(36), db.ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False, index=True)
+    level = db.Column(db.String(20), default='info', index=True)  # 添加索引
     message = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.now)
+    timestamp = db.Column(db.DateTime, default=datetime.now, index=True)  # 添加索引
+    
+    # 复合索引 - 提升查询性能
+    __table_args__ = (
+        db.Index('idx_task_timestamp', 'task_id', 'timestamp'),  # 按任务和时间查询
+        db.Index('idx_level_timestamp', 'level', 'timestamp'),  # 按级别和时间查询
+    )
     
     def to_dict(self):
         return {
@@ -75,13 +87,20 @@ class TaskResult(db.Model):
     __tablename__ = 'task_results'
     
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    task_id = db.Column(db.String(36), db.ForeignKey('tasks.id'), nullable=False)
-    step_index = db.Column(db.Integer, nullable=False)
+    task_id = db.Column(db.String(36), db.ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False, index=True)
+    step_index = db.Column(db.Integer, nullable=False, index=True)  # 添加索引
     parameters = db.Column(db.Text)  # JSON格式的参数
     result = db.Column(db.Text)  # JSON格式的结果
-    success = db.Column(db.Boolean, default=True)
+    success = db.Column(db.Boolean, default=True, index=True)  # 添加索引
     error_message = db.Column(db.Text)
-    timestamp = db.Column(db.DateTime, default=datetime.now)
+    timestamp = db.Column(db.DateTime, default=datetime.now, index=True)  # 添加索引
+    
+    # 复合索引 - 提升查询性能
+    __table_args__ = (
+        db.Index('idx_task_step', 'task_id', 'step_index'),  # 按任务和步骤查询
+        db.Index('idx_task_timestamp', 'task_id', 'timestamp'),  # 按任务和时间查询
+        db.Index('idx_success_timestamp', 'success', 'timestamp'),  # 按成功状态和时间查询
+    )
     
     def to_dict(self):
         return {

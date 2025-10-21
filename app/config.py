@@ -11,33 +11,64 @@ class Config:
     # 数据库配置
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///app.db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ECHO = os.environ.get('SQLALCHEMY_ECHO', 'False').lower() == 'true'  # SQL调试模式
     
     dd_access_token='a0fe95aac4a01a4c6826caf95087698baa6473804ee81dc2afaf4458e770eccc'
     dd_secret='SEC3309a1318e963385c7a805d2530cb7d6f2128fe4c9f26673cbad7f599927a498'
 
     BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
 
-    # 数据库引擎配置 - 根据数据库类型动态配置
+    # 数据库引擎配置 - 根据数据库类型动态配置，优化连接池
     def _get_engine_options():
         database_url = os.environ.get('DATABASE_URL', 'sqlite:///app.db')
         if database_url.startswith('sqlite'):
-            # SQLite 特定配置
+            # SQLite 特定配置 - 优化并发性能
+            return {
+                'pool_pre_ping': True,  # 连接前ping，确保连接有效
+                'pool_recycle': 3600,  # 1小时后回收连接，防止连接过期
+                'pool_size': 10,  # 连接池大小
+                'max_overflow': 20,  # 超出pool_size后最多创建的连接数
+                'pool_timeout': 30,  # 获取连接的超时时间
+                'connect_args': {
+                    'timeout': 30,  # SQLite锁超时时间（秒）
+                    'check_same_thread': False,  # 允许多线程访问
+                    'isolation_level': None,  # 自动提交模式，提升性能
+                }
+            }
+        elif database_url.startswith('postgresql'):
+            # PostgreSQL 配置 - 高性能优化
             return {
                 'pool_pre_ping': True,
-                'pool_recycle': 300,
+                'pool_recycle': 3600,
+                'pool_size': 20,  # PostgreSQL 可以支持更大的连接池
+                'max_overflow': 40,
+                'pool_timeout': 30,
                 'connect_args': {
-                    'timeout': 30,  # 连接超时时间（秒）
-                    'check_same_thread': False,  # 允许多线程访问
+                    'connect_timeout': 10,
+                    'options': '-c statement_timeout=30000',  # 30秒查询超时
+                }
+            }
+        elif database_url.startswith('mysql'):
+            # MySQL 配置
+            return {
+                'pool_pre_ping': True,
+                'pool_recycle': 3600,
+                'pool_size': 20,
+                'max_overflow': 40,
+                'pool_timeout': 30,
+                'connect_args': {
+                    'connect_timeout': 10,
+                    'charset': 'utf8mb4',
                 }
             }
         else:
-            # PostgreSQL 和其他数据库配置
+            # 通用数据库配置
             return {
                 'pool_pre_ping': True,
-                'pool_recycle': 300,
-                'connect_args': {
-                    'connect_timeout': 30,  # PostgreSQL 使用 connect_timeout
-                }
+                'pool_recycle': 3600,
+                'pool_size': 10,
+                'max_overflow': 20,
+                'pool_timeout': 30,
             }
     
     SQLALCHEMY_ENGINE_OPTIONS = _get_engine_options()

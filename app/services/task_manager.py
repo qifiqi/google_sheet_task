@@ -153,9 +153,15 @@ class TaskManager:
         # 检查内存中是否还有运行的线程
         memory_running = task_id in self.running_tasks
         
-        # 获取最新的任务结果和日志
+        # 获取最新的任务结果
         latest_result = TaskResult.query.filter_by(task_id=task_id).order_by(TaskResult.timestamp.desc()).first()
-        latest_log = TaskLog.query.filter_by(task_id=task_id).order_by(TaskLog.timestamp.desc()).first()
+        
+        # 从日志文件获取最新的日志时间
+        latest_log_time = None
+        task_logs = self.get_task_logs(task_id)
+        if task_logs:
+            # get_task_logs 返回按时间正序排列的日志，最后一条是最新的
+            latest_log_time = task_logs[-1]['timestamp']
         
         # 判断任务状态
         status_check = {
@@ -165,7 +171,7 @@ class TaskManager:
             "current_step": task.current_step,
             "total_steps": task.total_steps,
             "latest_result_time": latest_result.timestamp.isoformat() if latest_result else None,
-            "latest_log_time": latest_log.timestamp.isoformat() if latest_log else None,
+            "latest_log_time": latest_log_time,
             "can_restart": False,
             "restart_reason": None
         }
@@ -180,12 +186,17 @@ class TaskManager:
             timeout_seconds = self._get_config('task_status_check_timeout', 600)  # 默认10分钟
             
             now = datetime.datetime.now()
-            if latest_log:
-                time_diff = now - latest_log.timestamp
-                if time_diff.total_seconds() > timeout_seconds:
-                    timeout_minutes = timeout_seconds // 60
-                    status_check["can_restart"] = True
-                    status_check["restart_reason"] = f"任务超过{timeout_minutes}分钟没有日志更新，可能已挂死"
+            if latest_log_time:
+                try:
+                    # 将ISO格式时间字符串转换为datetime对象
+                    latest_time = datetime.datetime.fromisoformat(latest_log_time)
+                    time_diff = now - latest_time
+                    if time_diff.total_seconds() > timeout_seconds:
+                        timeout_minutes = timeout_seconds // 60
+                        status_check["can_restart"] = True
+                        status_check["restart_reason"] = f"任务超过{timeout_minutes}分钟没有日志更新，可能已挂死"
+                except:
+                    status_check["restart_reason"] = "任务正在正常运行"
             else:
                 status_check["restart_reason"] = "任务正在正常运行"
         else:
@@ -312,10 +323,80 @@ class TaskManager:
             logger.error(f"创建重启任务失败: {str(e)}")
             raise
     
-    def get_task_logs(self, task_id: str) -> list:
-        """获取任务日志"""
-        logs = TaskLog.query.filter_by(task_id=task_id).order_by(TaskLog.timestamp.asc()).all()
-        return [log.to_dict() for log in logs]
+    def get_task_logs(self, task_id: str, limit: int = 1000) -> list:
+        """获取任务日志（从日志文件读取，优化性能）"""
+        import os
+        import re
+        from datetime import datetime
+        from app.config import Config
+        
+        task_logs = []
+        log_file = Config.LOG_FILE
+        
+        if os.path.exists(log_file):
+            try:
+                # 解析日志格式: 2025-09-28 20:53:48,938 - __main__ - INFO - 消息
+                log_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([^-]+) - (\w+) - (.+)'
+                
+                # 生成任务相关的搜索模式
+                task_patterns = [
+                    f"[Task-{task_id[:8]}]",  # 任务日志前缀
+                    f"任务 {task_id}",        # 中文任务标识
+                    task_id                    # 完整任务ID
+                ]
+                
+                # 性能优化：只读取文件末尾的部分（最近的 100MB 或全文件）
+                file_size = os.path.getsize(log_file)
+                read_size = min(file_size, 100 * 1024 * 1024)  # 最多读取 100MB
+                
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    # 如果文件很大，从末尾读取
+                    if file_size > read_size:
+                        f.seek(file_size - read_size)
+                        # 跳过第一行（可能不完整）
+                        f.readline()
+                    
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        # 检查是否包含任务相关信息
+                        contains_task_info = any(pattern in line for pattern in task_patterns)
+                        if not contains_task_info:
+                            continue
+                            
+                        match = re.match(log_pattern, line)
+                        if match:
+                            timestamp_str, source, level, message = match.groups()
+                            
+                            # 转换时间格式
+                            try:
+                                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
+                                iso_timestamp = timestamp.isoformat()
+                            except:
+                                iso_timestamp = timestamp_str
+                            
+                            log_entry = {
+                                'id': None,  # 文件日志没有ID
+                                'level': level.lower(),
+                                'message': message.strip(),
+                                'timestamp': iso_timestamp
+                            }
+                            
+                            task_logs.append(log_entry)
+                
+                # 按时间正序排列
+                task_logs.sort(key=lambda x: x['timestamp'])
+                
+                # 限制返回数量，避免内存占用过大
+                if len(task_logs) > limit:
+                    task_logs = task_logs[-limit:]
+                
+            except Exception as e:
+                logger.error(f"读取任务日志文件失败: {str(e)}")
+        
+        return task_logs
     
     def get_task_results(self, task_id: str) -> list:
         """获取任务结果"""
@@ -341,8 +422,8 @@ class TaskManager:
                 # 删除任务结果
                 TaskResult.query.filter_by(task_id=task_id).delete()
                 
-                # 删除任务日志
-                TaskLog.query.filter_by(task_id=task_id).delete()
+                # 注意：日志已改为文件存储，不再需要从数据库删除
+                # 历史遗留的 TaskLog 数据可以通过清理脚本批量删除
                 
                 # 删除任务本身
                 db.session.delete(task)
@@ -363,6 +444,60 @@ class TaskManager:
             logger.error(f"删除任务失败: {task_id}, 错误: {str(e)}")
             db.session.rollback()
             return False
+    
+    @transaction_required
+    def update_task_config(self, task_id: str, new_config: Dict[str, Any], update_name: str = None, update_description: str = None) -> Dict[str, Any]:
+        """更新任务配置
+        
+        Args:
+            task_id: 任务ID
+            new_config: 新的配置字典
+            update_name: 可选的新任务名称
+            update_description: 可选的新任务描述
+            
+        Returns:
+            包含状态和消息的字典
+        """
+        try:
+            task = Task.query.get(task_id)
+            if not task:
+                return {"status": "error", "message": "任务不存在"}
+            
+            # 只允许修改非运行中的任务
+            if task.status == 'running':
+                return {"status": "error", "message": "正在运行的任务无法直接修改配置，请先停止任务"}
+            
+            # 验证配置
+            if not isinstance(new_config, dict):
+                return {"status": "error", "message": "配置格式不正确"}
+            
+            # 确保配置被正确序列化
+            config_str = json.dumps(new_config)
+            
+            # 更新配置
+            task.config = config_str
+            
+            # 如果提供了新名称或描述，也更新
+            if update_name:
+                task.name = update_name
+            if update_description:
+                task.description = update_description
+            
+            db.session.commit()
+            
+            # 记录日志
+            task_logger = get_task_logger(task_id, f"{__name__}.update_config")
+            task_logger.info(f"任务配置已更新")
+            
+            self._add_task_log(task_id, 'info', '任务配置已更新')
+            
+            logger.info(f"任务配置更新成功: {task_id}")
+            return {"status": "success", "message": "任务配置更新成功", "task": task.to_dict()}
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"更新任务配置失败: {task_id}, 错误: {str(e)}")
+            return {"status": "error", "message": f"更新任务配置失败: {str(e)}"}
     
     def _execute_google_sheet_task(self, task_id: str, app):
         """执行Google Sheet任务"""
@@ -457,31 +592,10 @@ class TaskManager:
             task_logger.info("任务执行器退出")
     
     def _add_task_log(self, task_id: str, level: str, message: str, app=None):
-        """添加任务日志"""
-        try:
-            if app:
-                # 在后台线程中使用传递的应用实例
-                with app.app_context():
-                    log = TaskLog(
-                        task_id=task_id,
-                        level=level,
-                        message=message
-                    )
-                    db.session.add(log)
-                    db.session.commit()
-            else:
-                # 在主线程中使用当前应用上下文
-                from flask import current_app
-                with current_app.app_context():
-                    log = TaskLog(
-                        task_id=task_id,
-                        level=level,
-                        message=message
-                    )
-                    db.session.add(log)
-                    db.session.commit()
-        except Exception as e:
-            logger.error(f"添加任务日志失败: {str(e)}")
+        """添加任务日志（已改为只写文件，不再写数据库）"""
+        # 不再写入数据库，只记录到文件日志
+        # 使用 TaskLogger 会自动将日志写入文件
+        pass
     
 
 # 全局任务管理器实例

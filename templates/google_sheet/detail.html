@@ -144,10 +144,13 @@
 
         <!-- 配置信息卡片 -->
         <div class="card mb-4">
-            <div class="card-header">
+            <div class="card-header d-flex justify-content-between align-items-center">
                 <h4 class="card-title mb-0">
                     <i class="bi bi-gear"></i> 配置信息
                 </h4>
+                <button class="btn btn-primary btn-sm" id="edit-config-btn" onclick="openEditConfigModal()" style="display:none;">
+                    <i class="bi bi-pencil"></i> 编辑配置
+                </button>
             </div>
             <div class="card-body">
                 <div class="row">
@@ -231,6 +234,110 @@
         </div>
     </div>
 </div>
+
+<!-- 编辑配置模态框 -->
+<div class="modal fade" id="editConfigModal" tabindex="-1" aria-labelledby="editConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editConfigModalLabel">
+                    <i class="bi bi-pencil-square"></i> 编辑任务配置
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i> 
+                    <strong>注意：</strong>修改配置后，建议从头重新执行任务以确保数据一致性。如果从断点继续，请确保参数组合数量和顺序没有改变。
+                </div>
+                
+                <form id="edit-config-form">
+                    <!-- 任务基本信息 -->
+                    <div class="mb-3">
+                        <label for="edit-task-name" class="form-label">任务名称</label>
+                        <input type="text" class="form-control" id="edit-task-name" placeholder="请输入任务名称">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit-task-description" class="form-label">任务描述</label>
+                        <textarea class="form-control" id="edit-task-description" rows="2" placeholder="请输入任务描述"></textarea>
+                    </div>
+                    
+                    <hr>
+                    
+                    <!-- Google Sheet 配置 -->
+                    <h6 class="mb-3"><i class="bi bi-file-spreadsheet"></i> Google Sheet 配置</h6>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="edit-spreadsheet-id" class="form-label">电子表格ID</label>
+                            <input type="text" class="form-control" id="edit-spreadsheet-id" placeholder="请输入电子表格ID">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="edit-sheet-name" class="form-label">工作表名称</label>
+                            <input type="text" class="form-control" id="edit-sheet-name" placeholder="请输入工作表名称">
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="edit-token-file" class="form-label">Token文件路径</label>
+                            <input type="text" class="form-control" id="edit-token-file" placeholder="data/token.json">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="edit-proxy-url" class="form-label">代理URL（可选）</label>
+                            <input type="text" class="form-control" id="edit-proxy-url" placeholder="http://proxy.example.com:8080">
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <!-- 参数配置 -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0"><i class="bi bi-list-ol"></i> 参数配置</h6>
+                        <button type="button" class="btn btn-sm btn-success" onclick="addParameterGroup()">
+                            <i class="bi bi-plus-circle"></i> 添加参数组
+                        </button>
+                    </div>
+                    
+                    <div id="parameters-editor">
+                        <!-- 参数组将在这里动态添加 -->
+                    </div>
+                    
+                    <hr>
+                    
+                    <!-- 位置配置 -->
+                    <h6 class="mb-3"><i class="bi bi-map"></i> 单元格位置配置</h6>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="edit-param-positions" class="form-label">参数位置</label>
+                            <input type="text" class="form-control" id="edit-param-positions" placeholder='["B6","B7","B9"]'>
+                            <small class="text-muted">JSON数组格式</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="edit-check-positions" class="form-label">检查位置</label>
+                            <input type="text" class="form-control" id="edit-check-positions" placeholder='["I6","I7","I9"]'>
+                            <small class="text-muted">JSON数组格式</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="edit-result-positions" class="form-label">结果位置</label>
+                            <input type="text" class="form-control" id="edit-result-positions" placeholder='["I15","I16"]'>
+                            <small class="text-muted">JSON数组格式</small>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveTaskConfig()">
+                    <i class="bi bi-save"></i> 保存配置
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -334,12 +441,21 @@
     let currentResultsFilter = 'all';
     let currentRefreshFrequency = 60000; // 默认1分钟，将从配置加载
     let taskStartTime = null; // 存储任务开始时间
+    let currentTaskData = null; // 存储当前任务数据
+    let editConfigModal = null; // 编辑配置模态框实例
 
     // 页面加载完成后获取任务详情
     document.addEventListener('DOMContentLoaded', function() {
         console.log('页面加载完成');
         currentTaskId = getTaskIdFromUrl();
         console.log('获取到的任务ID:', currentTaskId);
+        
+        // 初始化编辑配置模态框
+        const modalElement = document.getElementById('editConfigModal');
+        if (modalElement && typeof bootstrap !== 'undefined') {
+            editConfigModal = new bootstrap.Modal(modalElement);
+        }
+        
         if (currentTaskId) {
             // 从配置加载默认刷新频率
             ajaxRequest('/api/config', 'GET', null, function(err, data) {
@@ -433,6 +549,9 @@
                 const task = data.task;
                 console.log('任务数据:', task);
                 
+                // 保存任务数据供编辑使用
+                currentTaskData = task;
+                
                 // 填充基本信息
                 document.getElementById('task-id').textContent = task.id;
                 document.getElementById('task-name').textContent = task.name;
@@ -491,6 +610,14 @@
                     restartBtn.style.display = 'inline-block';
                 } else {
                     restartBtn.style.display = 'none';
+                }
+                
+                // 显示/隐藏编辑按钮（只有非运行状态才能编辑）
+                const editBtn = document.getElementById('edit-config-btn');
+                if (task.status !== 'running') {
+                    editBtn.style.display = 'inline-block';
+                } else {
+                    editBtn.style.display = 'none';
                 }
                 
                 // 填充配置信息
@@ -933,6 +1060,228 @@
                 showNotification(`创建重启任务失败: ${errorMessage}`, 'error');
             }
         });
+    }
+
+    // ========== 编辑配置相关函数 ==========
+    
+    // 打开编辑配置模态框
+    function openEditConfigModal() {
+        if (!currentTaskData) {
+            showNotification('任务数据未加载', 'error');
+            return;
+        }
+        
+        const config = currentTaskData.config || {};
+        
+        // 填充基本信息
+        document.getElementById('edit-task-name').value = currentTaskData.name || '';
+        document.getElementById('edit-task-description').value = currentTaskData.description || '';
+        
+        // 填充Google Sheet配置
+        document.getElementById('edit-spreadsheet-id').value = config.spreadsheet_id || '';
+        document.getElementById('edit-sheet-name').value = config.sheet_name || '';
+        document.getElementById('edit-token-file').value = config.token_file || 'data/token.json';
+        document.getElementById('edit-proxy-url').value = config.proxy_url || '';
+        
+        // 填充位置配置
+        document.getElementById('edit-param-positions').value = JSON.stringify(config.parameter_positions || []);
+        document.getElementById('edit-check-positions').value = JSON.stringify(config.check_positions || []);
+        document.getElementById('edit-result-positions').value = JSON.stringify(config.result_positions || []);
+        
+        // 填充参数配置
+        loadParametersEditor(config.parameters || []);
+        
+        // 显示模态框
+        if (editConfigModal) {
+            editConfigModal.show();
+        }
+    }
+    
+    // 加载参数编辑器
+    function loadParametersEditor(parameters) {
+        const container = document.getElementById('parameters-editor');
+        container.innerHTML = '';
+        
+        parameters.forEach((paramGroup, index) => {
+            addParameterGroupToEditor(paramGroup, index);
+        });
+        
+        // 如果没有参数，添加一个空组
+        if (parameters.length === 0) {
+            addParameterGroupToEditor([], 0);
+        }
+    }
+    
+    // 添加参数组到编辑器
+    function addParameterGroupToEditor(paramValues = [], index = null) {
+        const container = document.getElementById('parameters-editor');
+        const actualIndex = index !== null ? index : container.children.length;
+        
+        const paramGroupDiv = document.createElement('div');
+        paramGroupDiv.className = 'card mb-3';
+        paramGroupDiv.setAttribute('data-param-index', actualIndex);
+        
+        const valuesStr = Array.isArray(paramValues) ? paramValues.join(', ') : '';
+        
+        paramGroupDiv.innerHTML = `
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">参数组 ${actualIndex + 1}</h6>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeParameterGroup(${actualIndex})">
+                        <i class="bi bi-trash"></i> 删除
+                    </button>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">参数值（用逗号分隔）</label>
+                    <input type="text" class="form-control param-values" 
+                           placeholder="例如: 1, 2, 3, 4, 5" 
+                           value="${valuesStr}">
+                    <small class="text-muted">这些值会组合生成多个参数组合</small>
+                </div>
+            </div>
+        `;
+        
+        container.appendChild(paramGroupDiv);
+    }
+    
+    // 添加参数组
+    function addParameterGroup() {
+        addParameterGroupToEditor([], null);
+    }
+    
+    // 移除参数组
+    function removeParameterGroup(index) {
+        const container = document.getElementById('parameters-editor');
+        const paramGroups = container.querySelectorAll('[data-param-index]');
+        
+        if (paramGroups.length <= 1) {
+            showNotification('至少需要保留一个参数组', 'warning');
+            return;
+        }
+        
+        paramGroups.forEach(group => {
+            if (parseInt(group.getAttribute('data-param-index')) === index) {
+                group.remove();
+            }
+        });
+        
+        // 重新索引
+        reindexParameterGroups();
+    }
+    
+    // 重新索引参数组
+    function reindexParameterGroups() {
+        const container = document.getElementById('parameters-editor');
+        const paramGroups = container.querySelectorAll('[data-param-index]');
+        
+        paramGroups.forEach((group, index) => {
+            group.setAttribute('data-param-index', index);
+            const title = group.querySelector('h6');
+            if (title) {
+                title.textContent = `参数组 ${index + 1}`;
+            }
+            const deleteBtn = group.querySelector('button[onclick^="removeParameterGroup"]');
+            if (deleteBtn) {
+                deleteBtn.setAttribute('onclick', `removeParameterGroup(${index})`);
+            }
+        });
+    }
+    
+    // 保存任务配置
+    function saveTaskConfig() {
+        try {
+            // 收集基本信息
+            const name = document.getElementById('edit-task-name').value.trim();
+            const description = document.getElementById('edit-task-description').value.trim();
+            
+            if (!name) {
+                showNotification('请输入任务名称', 'error');
+                return;
+            }
+            
+            // 收集Google Sheet配置
+            const spreadsheetId = document.getElementById('edit-spreadsheet-id').value.trim();
+            const sheetName = document.getElementById('edit-sheet-name').value.trim();
+            const tokenFile = document.getElementById('edit-token-file').value.trim();
+            const proxyUrl = document.getElementById('edit-proxy-url').value.trim();
+            
+            if (!spreadsheetId) {
+                showNotification('请输入电子表格ID', 'error');
+                return;
+            }
+            
+            // 收集参数配置
+            const parameters = [];
+            const paramGroups = document.querySelectorAll('.param-values');
+            paramGroups.forEach(input => {
+                const valuesStr = input.value.trim();
+                if (valuesStr) {
+                    const values = valuesStr.split(',').map(v => {
+                        const trimmed = v.trim();
+                        // 尝试转换为数字
+                        const num = parseFloat(trimmed);
+                        return isNaN(num) ? trimmed : num;
+                    });
+                    parameters.push(values);
+                }
+            });
+            
+            if (parameters.length === 0) {
+                showNotification('请至少添加一组参数', 'error');
+                return;
+            }
+            
+            // 解析位置配置
+            let parameterPositions, checkPositions, resultPositions;
+            try {
+                parameterPositions = JSON.parse(document.getElementById('edit-param-positions').value || '[]');
+                checkPositions = JSON.parse(document.getElementById('edit-check-positions').value || '[]');
+                resultPositions = JSON.parse(document.getElementById('edit-result-positions').value || '[]');
+            } catch (e) {
+                showNotification('位置配置格式错误，请使用JSON数组格式', 'error');
+                return;
+            }
+            
+            // 构建完整配置
+            const config = {
+                spreadsheet_id: spreadsheetId,
+                sheet_name: sheetName,
+                token_file: tokenFile,
+                proxy_url: proxyUrl,
+                parameters: parameters,
+                parameter_positions: parameterPositions,
+                check_positions: checkPositions,
+                result_positions: resultPositions
+            };
+            
+            // 发送更新请求
+            const requestData = {
+                name: name,
+                description: description,
+                config: config
+            };
+            
+            ajaxRequest(`/api/tasks/${currentTaskId}/config`, 'PUT', requestData, function(err, data) {
+                if (!err && data && data.status === 'success') {
+                    showNotification('配置更新成功', 'success');
+                    
+                    // 关闭模态框
+                    if (editConfigModal) {
+                        editConfigModal.hide();
+                    }
+                    
+                    // 刷新任务详情
+                    loadTaskDetail();
+                } else {
+                    const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');
+                    showNotification(`配置更新失败: ${errorMessage}`, 'error');
+                }
+            });
+            
+        } catch (e) {
+            showNotification(`保存配置时出错: ${e.message}`, 'error');
+            console.error('保存配置错误:', e);
+        }
     }
 </script>
 {% endblock %}
