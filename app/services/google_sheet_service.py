@@ -446,9 +446,20 @@ class GoogleSheetService:
                     return None
                 # 随机选择一个键
                 random_key = random.choice(list(cell_updates.keys()))
-                self._log_info(f"防止模型卡顿，在随机位置写入：{random_key},当前是第{num + 1}轮检查")
+                random_value = cell_updates[random_key]
+                self._log_info(f"防止模型卡顿，在随机位置写入：{random_key} = {random_value} (类型: {type(random_value)}),当前是第{num + 1}轮检查")
+                
+                # 验证值的有效性
+                if random_value is None or str(random_value).strip() == "":
+                    self._log_warning(f"跳过写入空值到位置 {random_key}")
+                    return None
+                
                 # 使用选中的键和对应的值更新单元格
-                self.google_sheet.update_cell(random_key, cell_updates[random_key])
+                try:
+                    self.google_sheet.update_cell(random_key, random_value)
+                except Exception as e:
+                    self._log_error(f"更新单元格 {random_key} 失败，值: {random_value}, 错误: {str(e)}")
+                    raise e
                 return None
 
             def check_result(_position, _value=None):

@@ -152,7 +152,28 @@ class GoogleSheet:
 
     def update_cell(self, cell_address, cell_value):
         """更新单个单元格"""
-        self.worksheet.update(cell_address, cell_value)  # 更新 A1 单元格
+        try:
+            # 验证输入参数
+            if not cell_address:
+                raise ValueError("单元格地址不能为空")
+            
+            # 确保cell_value是可序列化的值
+            if cell_value is None:
+                cell_value = ""
+            elif isinstance(cell_value, (int, float, str, bool)):
+                # 这些类型是安全的
+                pass
+            else:
+                # 其他类型转换为字符串
+                cell_value = str(cell_value)
+            
+            logger.info(f"更新单元格 {cell_address} = {cell_value} (类型: {type(cell_value)})")
+            self.worksheet.update(cell_address, cell_value)
+            
+        except Exception as e:
+            error_msg = f"更新单元格 {cell_address} 失败，值: {cell_value}, 错误: {str(e)}"
+            logger.error(error_msg)
+            raise Exception(error_msg) from e
 
     def update_jumped_cells(self, cell_updates):
         """
