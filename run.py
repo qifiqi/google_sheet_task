@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from app import create_app
 from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, SystemConfig
+from app.models import Task, TaskLog, TaskResult, SystemConfig, ScheduledTask
 from app.config import init_config as init_config2
 from app.utils.logger import initialize_logging
 app = create_app()
@@ -18,7 +18,8 @@ def make_shell_context():
         'Task': Task,
         'TaskLog': TaskLog,
         'TaskResult': TaskResult,
-        'SystemConfig': SystemConfig
+        'SystemConfig': SystemConfig,
+        'ScheduledTask': ScheduledTask
     }
 
 @app.cli.command()
@@ -79,6 +80,26 @@ def check_and_cleanup_dead_tasks():
         except Exception as e:
             logger.error(f"检查任务状态时出错: {str(e)}")
 
+def init_scheduler():
+    """初始化定时任务调度器"""
+    from app.services.scheduler_service import scheduler_service
+    from app.utils.logger import get_logger
+    
+    logger = get_logger('scheduler')
+    
+    with app.app_context():
+        try:
+            # 启动调度器（延时30秒），传递应用实例
+            scheduler_service.start(delay_seconds=30, app=app)
+            
+            # 创建默认定时任务
+            scheduler_service.create_default_tasks()
+            
+            logger.info("定时任务调度器初始化完成")
+            
+        except Exception as e:
+            logger.error(f"初始化定时任务调度器失败: {e}")
+
 if __name__ == '__main__':
     # 确保必要的目录存在
     os.makedirs('data', exist_ok=True)
@@ -91,9 +112,16 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
         init_config2()
+        
+        # 确保定时任务表存在
+        from app.models import ScheduledTask
+        db.create_all()
 
     # 检查并清理挂死的任务
     check_and_cleanup_dead_tasks()
+
+    # 初始化定时任务调度器
+    init_scheduler()
 
     # 运行应用
     debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes', 'on')

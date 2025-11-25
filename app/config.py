@@ -153,6 +153,6 @@ def init_config():
         if not existing_config:
             config_manager.set_config(key, value)
             print(f"初始化默认配置: {key}")
-        else:
-            print(f"配置已存在，跳过: {key}")
+        # else:
+        #     print(f"配置已存在，跳过: {key}")
     

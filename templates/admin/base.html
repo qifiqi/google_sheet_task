@@ -18,6 +18,9 @@
         }
         .sidebar .nav-link {
             color: #adb5bd;
+            padding: 0.75rem 1rem;
+            border-radius: 0.375rem;
+            margin-bottom: 0.25rem;
         }
         .sidebar .nav-link:hover {
             color: #fff;
@@ -26,6 +29,36 @@
         .sidebar .nav-link.active {
             color: #fff;
             background-color: #007bff;
+        }
+        .sidebar .nav-group-title {
+            color: #6c757d;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 0.5rem 1rem;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .sidebar .nav-group-title:hover {
+            color: #adb5bd;
+        }
+        .sidebar .nav-group-title i {
+            transition: transform 0.2s ease;
+        }
+        .sidebar .nav-group-title.collapsed i {
+            transform: rotate(-90deg);
+        }
+        .sidebar .nav-group {
+            margin-bottom: 0.5rem;
+        }
+        .sidebar .nav-group .nav-link {
+            padding-left: 2.5rem;
+            font-size: 0.9rem;
         }
         .main-content {
             padding: 20px;
@@ -74,43 +107,89 @@
                     <div class="text-center mb-4">
                         <h4 class="text-white">任务管理系统</h4>
                     </div>
-                    <ul class="nav flex-column">
-                        <li class="nav-item">
+                    <div class="nav flex-column">
+                        <!-- 仪表盘 -->
+                        <div class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}" href="{{ url_for('admin.dashboard') }}">
                                 <i class="bi bi-speedometer2"></i> 仪表盘
                             </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'admin.tasks' %}active{% endif %}" href="{{ url_for('admin.tasks') }}">
-                                <i class="bi bi-list-task"></i> 任务管理
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'admin.config' %}active{% endif %}" href="{{ url_for('admin.config') }}">
-                                <i class="bi bi-gear"></i> 系统配置
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'admin.logs' %}active{% endif %}" href="{{ url_for('admin.logs') }}">
-                                <i class="bi bi-journal-text"></i> 系统日志
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'admin.templates' %}active{% endif %}" href="{{ url_for('admin.templates') }}">
-                                <i class="bi bi-file-earmark-text"></i> 任务模板
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'admin.results' %}active{% endif %}" href="{{ url_for('admin.results') }}">
-                                <i class="bi bi-clipboard-data"></i> 任务结果
-                            </a>
-                        </li>
-                        <li class="nav-item mt-3">
-                            <a class="nav-link" href="{{ url_for('google_sheet.index') }}">
-                                <i class="bi bi-table"></i> Google Sheet
-                            </a>
-                        </li>
-                    </ul>
+                        </div>
+
+                        <!-- 任务模块 -->
+                        <div class="nav-group">
+                            <div class="nav-group-title" data-bs-toggle="collapse" data-bs-target="#taskGroup" aria-expanded="true">
+                                <span><i class="bi bi-list-task me-2"></i>任务模块</span>
+                                <i class="bi bi-chevron-down"></i>
+                            </div>
+                            <div class="collapse show" id="taskGroup">
+                                <div class="nav-item">
+                                    <a class="nav-link {% if request.endpoint == 'admin.tasks' %}active{% endif %}" href="{{ url_for('admin.tasks') }}">
+                                        <i class="bi bi-play-circle"></i> 任务管理
+                                    </a>
+                                </div>
+                                <div class="nav-item">
+                                    <a class="nav-link {% if request.endpoint == 'admin.templates' %}active{% endif %}" href="{{ url_for('admin.templates') }}">
+                                        <i class="bi bi-file-earmark-text"></i> 任务模板
+                                    </a>
+                                </div>
+                                <div class="nav-item">
+                                    <a class="nav-link {% if request.endpoint == 'admin.results' %}active{% endif %}" href="{{ url_for('admin.results') }}">
+                                        <i class="bi bi-clipboard-data"></i> 任务结果
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 调度模块 -->
+                        <div class="nav-group">
+                            <div class="nav-group-title" data-bs-toggle="collapse" data-bs-target="#schedulerGroup" aria-expanded="true">
+                                <span><i class="bi bi-clock me-2"></i>调度模块</span>
+                                <i class="bi bi-chevron-down"></i>
+                            </div>
+                            <div class="collapse show" id="schedulerGroup">
+                                <div class="nav-item">
+                                    <a class="nav-link {% if request.endpoint == 'admin.scheduler' %}active{% endif %}" href="{{ url_for('admin.scheduler') }}">
+                                        <i class="bi bi-calendar-event"></i> 定时任务
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 系统模块 -->
+                        <div class="nav-group">
+                            <div class="nav-group-title" data-bs-toggle="collapse" data-bs-target="#systemGroup" aria-expanded="true">
+                                <span><i class="bi bi-gear me-2"></i>系统模块</span>
+                                <i class="bi bi-chevron-down"></i>
+                            </div>
+                            <div class="collapse show" id="systemGroup">
+                                <div class="nav-item">
+                                    <a class="nav-link {% if request.endpoint == 'admin.config' %}active{% endif %}" href="{{ url_for('admin.config') }}">
+                                        <i class="bi bi-sliders"></i> 系统配置
+                                    </a>
+                                </div>
+                                <div class="nav-item">
+                                    <a class="nav-link {% if request.endpoint == 'admin.logs' %}active{% endif %}" href="{{ url_for('admin.logs') }}">
+                                        <i class="bi bi-journal-text"></i> 系统日志
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 业务模块 -->
+                        <div class="nav-group">
+                            <div class="nav-group-title" data-bs-toggle="collapse" data-bs-target="#businessGroup" aria-expanded="false">
+                                <span><i class="bi bi-briefcase me-2"></i>业务模块</span>
+                                <i class="bi bi-chevron-down"></i>
+                            </div>
+                            <div class="collapse" id="businessGroup">
+                                <div class="nav-item">
+                                    <a class="nav-link" href="{{ url_for('google_sheet.index') }}">
+                                        <i class="bi bi-table"></i> Google Sheet
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </nav>
 
@@ -122,6 +201,83 @@
     </div>
 
     <script>
+        // 侧边栏折叠功能
+        document.addEventListener('DOMContentLoaded', function() {
+            // 处理分组标题点击事件
+            const groupTitles = document.querySelectorAll('.nav-group-title');
+            groupTitles.forEach(title => {
+                title.addEventListener('click', function() {
+                    const chevron = this.querySelector('.bi-chevron-down');
+                    const targetId = this.getAttribute('data-bs-target');
+                    const target = document.querySelector(targetId);
+                    
+                    // 切换图标旋转
+                    if (target.classList.contains('show')) {
+                        chevron.style.transform = 'rotate(-90deg)';
+                    } else {
+                        chevron.style.transform = 'rotate(0deg)';
+                    }
+                });
+            });
+            
+            // 监听Bootstrap折叠事件
+            const collapseElements = document.querySelectorAll('.collapse');
+            collapseElements.forEach(element => {
+                element.addEventListener('show.bs.collapse', function() {
+                    const groupTitle = document.querySelector(`[data-bs-target="#${this.id}"]`);
+                    const chevron = groupTitle.querySelector('.bi-chevron-down');
+                    chevron.style.transform = 'rotate(0deg)';
+                });
+                
+                element.addEventListener('hide.bs.collapse', function() {
+                    const groupTitle = document.querySelector(`[data-bs-target="#${this.id}"]`);
+                    const chevron = groupTitle.querySelector('.bi-chevron-down');
+                    chevron.style.transform = 'rotate(-90deg)';
+                });
+            });
+            
+            // 保存折叠状态到localStorage
+            const saveCollapseState = () => {
+                const collapseState = {};
+                collapseElements.forEach(element => {
+                    collapseState[element.id] = element.classList.contains('show');
+                });
+                localStorage.setItem('sidebarCollapseState', JSON.stringify(collapseState));
+            };
+            
+            // 恢复折叠状态
+            const restoreCollapseState = () => {
+                const savedState = localStorage.getItem('sidebarCollapseState');
+                if (savedState) {
+                    const collapseState = JSON.parse(savedState);
+                    Object.keys(collapseState).forEach(elementId => {
+                        const element = document.getElementById(elementId);
+                        const groupTitle = document.querySelector(`[data-bs-target="#${elementId}"]`);
+                        const chevron = groupTitle ? groupTitle.querySelector('.bi-chevron-down') : null;
+                        
+                        if (element && collapseState[elementId] !== element.classList.contains('show')) {
+                            if (collapseState[elementId]) {
+                                element.classList.add('show');
+                                if (chevron) chevron.style.transform = 'rotate(0deg)';
+                            } else {
+                                element.classList.remove('show');
+                                if (chevron) chevron.style.transform = 'rotate(-90deg)';
+                            }
+                        }
+                    });
+                }
+            };
+            
+            // 绑定状态保存事件
+            collapseElements.forEach(element => {
+                element.addEventListener('shown.bs.collapse', saveCollapseState);
+                element.addEventListener('hidden.bs.collapse', saveCollapseState);
+            });
+            
+            // 页面加载时恢复状态
+            restoreCollapseState();
+        });
+
         // 通用AJAX函数
         function ajaxRequest(url, method, data, callback) {
             const xhr = new XMLHttpRequest();

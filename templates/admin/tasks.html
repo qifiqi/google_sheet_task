@@ -86,11 +86,23 @@
         </div>
         
         <!-- 分页 -->
-        <nav aria-label="任务分页">
-            <ul class="pagination justify-content-center" id="pagination">
-                <!-- 分页将通过JavaScript动态生成 -->
-            </ul>
-        </nav>
+        <div class="d-flex justify-content-between align-items-center flex-wrap mt-3">
+            <div class="d-flex align-items-center">
+                <span class="text-muted me-2">显示</span>
+                <select class="form-select form-select-sm me-2" id="page-size-select" onchange="changePageSize()" style="width: auto;">
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+                <span class="text-muted">条/页</span>
+            </div>
+            <nav aria-label="任务分页">
+                <ul class="pagination pagination-sm mb-0" id="pagination">
+                    <!-- 分页将通过JavaScript动态生成 -->
+                </ul>
+            </nav>
+        </div>
     </div>
 </div>
 
@@ -221,7 +233,7 @@
     let allTasks = [];
     let filteredTasks = [];
     let currentPage = 1;
-    const itemsPerPage = 10;
+    let itemsPerPage = 10;
     let currentTaskId = null;
 
     // 页面加载完成后获取任务列表
@@ -351,21 +363,61 @@
         // 上一页
         const prevLi = document.createElement('li');
         prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
-        prevLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${currentPage - 1})">上一页</a>`;
+        prevLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${currentPage - 1})">上页</a>`;
         pagination.appendChild(prevLi);
 
-        // 页码
-        for (let i = 1; i <= totalPages; i++) {
+        // 计算要显示的页码范围
+        const maxVisiblePages = 5;
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+        
+        // 调整起始页，确保显示足够的页码
+        if (endPage - startPage + 1 < maxVisiblePages) {
+            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        }
+
+        // 第一页
+        if (startPage > 1) {
+            const li = document.createElement('li');
+            li.className = 'page-item';
+            li.innerHTML = `<a class="page-link" href="#" onclick="changePage(1)">1</a>`;
+            pagination.appendChild(li);
+            
+            if (startPage > 2) {
+                const ellipsis = document.createElement('li');
+                ellipsis.className = 'page-item disabled';
+                ellipsis.innerHTML = `<span class="page-link">...</span>`;
+                pagination.appendChild(ellipsis);
+            }
+        }
+
+        // 页码范围
+        for (let i = startPage; i <= endPage; i++) {
             const li = document.createElement('li');
             li.className = `page-item ${i === currentPage ? 'active' : ''}`;
             li.innerHTML = `<a class="page-link" href="#" onclick="changePage(${i})">${i}</a>`;
             pagination.appendChild(li);
         }
 
+        // 最后一页
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                const ellipsis = document.createElement('li');
+                ellipsis.className = 'page-item disabled';
+                ellipsis.innerHTML = `<span class="page-link">...</span>`;
+                pagination.appendChild(ellipsis);
+            }
+            
+            const li = document.createElement('li');
+            li.className = 'page-item';
+            li.innerHTML = `<a class="page-link" href="#" onclick="changePage(${totalPages})">${totalPages}</a>`;
+            pagination.appendChild(li);
+        }
+
         // 下一页
         const nextLi = document.createElement('li');
         nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
-        nextLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${currentPage + 1})">下一页</a>`;
+        nextLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${currentPage + 1})">下页</a>`;
         pagination.appendChild(nextLi);
     }
 
@@ -376,6 +428,14 @@
             renderTasks();
             renderPagination();
         }
+    }
+
+    function changePageSize() {
+        const pageSizeSelect = document.getElementById('page-size-select');
+        itemsPerPage = parseInt(pageSizeSelect.value);
+        currentPage = 1; // 重置到第一页
+        renderTasks();
+        renderPagination();
     }
 
     function showCreateTaskModal() {

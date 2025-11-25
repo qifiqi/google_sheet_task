@@ -51,3 +51,8 @@ def templates():
 def results():
     """任务结果管理页面"""
     return render_template('admin/results.html')
+
+@admin_bp.route('/scheduler')
+def scheduler():
+    """定时任务管理页面"""
+    return render_template('admin/scheduler.html')

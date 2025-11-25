@@ -10,3 +10,5 @@ requests
 tenacity
 gunicorn
 psycopg2-binary
+APScheduler
+croniter

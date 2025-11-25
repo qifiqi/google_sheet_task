@@ -105,6 +105,7 @@ class TaskResult(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
+            'task_id': self.task_id,
             'step_index': self.step_index,
             'parameters': json.loads(self.parameters) if self.parameters else {},
             'result': json.loads(self.result) if self.result else {},
@@ -150,6 +151,47 @@ class SystemConfig(db.Model):
             'key': self.key,
             'value': self.value,
             'description': self.description,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat()
+        }
+
+class ScheduledTask(db.Model):
+    """定时任务模型"""
+    __tablename__ = 'scheduled_tasks'
+    
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(255), nullable=False, index=True)  # 任务名称
+    description = db.Column(db.Text)  # 任务描述
+    cron_expression = db.Column(db.String(100), nullable=False)  # cron表达式
+    task_type = db.Column(db.String(50), nullable=False, default='cleanup')  # 任务类型
+    task_function = db.Column(db.String(255), nullable=False)  # 执行的函数名
+    task_params = db.Column(db.Text)  # JSON格式的任务参数
+    is_active = db.Column(db.Boolean, default=True, index=True)  # 是否启用
+    last_run_time = db.Column(db.DateTime)  # 上次执行时间
+    next_run_time = db.Column(db.DateTime, index=True)  # 下次执行时间
+    run_count = db.Column(db.Integer, default=0)  # 执行次数
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # 复合索引
+    __table_args__ = (
+        db.Index('idx_active_next_run', 'is_active', 'next_run_time'),
+        db.Index('idx_type_active', 'task_type', 'is_active'),
+    )
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'cron_expression': self.cron_expression,
+            'task_type': self.task_type,
+            'task_function': self.task_function,
+            'task_params': json.loads(self.task_params) if self.task_params else {},
+            'is_active': self.is_active,
+            'last_run_time': self.last_run_time.isoformat() if self.last_run_time else None,
+            'next_run_time': self.next_run_time.isoformat() if self.next_run_time else None,
+            'run_count': self.run_count,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
