@@ -49,8 +49,8 @@ def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ', 0, '0', 
                         empty_keys.append([key,value])
                     elif isinstance(value, str) and value.strip() == '':
                         empty_keys.append([key,value])
-                    elif isinstance(value, (int, float)) and value == 0:
-                        empty_keys.append([key,value])
+                    # elif isinstance(value, (int, float)) and value == 0:
+                    #     empty_keys.append([key,value])
                 
                 # 如果发现空值，记录日志并返回失败
                 if empty_keys:

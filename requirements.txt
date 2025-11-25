@@ -10,12 +10,3 @@ requests
 tenacity
 gunicorn
 psycopg2-binary
-
-# 日志处理模块
-# 解决Windows下多进程日志轮转问题
-concurrent-log-handler>=0.9.20
-
-# 其他可选的日志模块（根据需要选择）
-# loguru>=0.7.0  # 现代化的日志库，使用简单
-# structlog>=23.0.0  # 结构化日志
-# colorlog>=6.7.0  # 彩色日志输出

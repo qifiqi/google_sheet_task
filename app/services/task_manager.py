@@ -323,12 +323,15 @@ class TaskManager:
             logger.error(f"创建重启任务失败: {str(e)}")
             raise
     
-    def get_task_logs(self, task_id: str, limit: int = 1000) -> list:
-        """获取任务日志（从数据库读取）"""
+    def get_task_logs(self, task_id: str, limit: int = 500) -> list:
+        """获取任务日志（从数据库读取最新的日志）"""
         from app.models import TaskLog
         
         try:
-            logs = TaskLog.query.filter_by(task_id=task_id).order_by(TaskLog.timestamp.asc()).limit(limit).all()
+            # 获取最新的limit条日志，按时间倒序获取，然后再正序返回
+            logs = TaskLog.query.filter_by(task_id=task_id).order_by(TaskLog.timestamp.desc()).limit(limit).all()
+            # 反转列表，使其按时间正序排列（最早的在前）
+            logs.reverse()
             return [log.to_dict() for log in logs]
         except Exception as e:
             logger.error(f"获取任务日志失败: {str(e)}")

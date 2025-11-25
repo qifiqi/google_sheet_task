@@ -11,13 +11,51 @@ from typing import Optional
 _logger_lock = threading.Lock()
 _loggers_created = set()
 
-# 尝试导入concurrent-log-handler，如果没有安装则使用标准库
-try:
-    from concurrent_log_handler import ConcurrentRotatingFileHandler
-    HAS_CONCURRENT_LOG_HANDLER = True
-except ImportError:
-    HAS_CONCURRENT_LOG_HANDLER = False
-    print("建议安装 concurrent-log-handler 以获得更好的日志轮转支持: pip install concurrent-log-handler")
+
+class SafeTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
+    """安全的日志轮转处理器，处理Windows文件锁定问题"""
+    
+    def __init__(self, *args, **kwargs):
+        self._lock = threading.Lock()
+        super().__init__(*args, **kwargs)
+    
+    def doRollover(self):
+        """重写轮转方法，添加重试机制"""
+        with self._lock:
+            max_retries = 3
+            retry_delay = 0.1
+            
+            for attempt in range(max_retries):
+                try:
+                    super().doRollover()
+                    return
+                except (PermissionError, OSError) as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))  # 指数退避
+                        continue
+                    else:
+                        # 如果轮转失败，记录错误但不中断程序
+                        print(f"日志轮转失败: {e}")
+                        # 尝试创建新的日志文件
+                        try:
+                            self._create_new_log_file()
+                        except Exception as create_error:
+                            print(f"创建新日志文件失败: {create_error}")
+    
+    def _create_new_log_file(self):
+        """创建新的日志文件"""
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        
+        # 生成带时间戳的新文件名
+        timestamp = time.strftime("%Y%m%d")
+        base_name = Path(self.baseFilename)
+        new_name = base_name.parent / f"{base_name.stem}_{timestamp}{base_name.suffix}"
+        
+        # 更新文件名
+        self.baseFilename = str(new_name)
+        self.stream = self._open()
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -25,7 +63,6 @@ def get_logger(name: str) -> logging.Logger:
     with _logger_lock:
         logger = logging.getLogger(name)
 
-        # 如果logger已经有处理器，直接返回
         if logger.handlers:
             return logger
         
@@ -35,60 +72,50 @@ def get_logger(name: str) -> logging.Logger:
         
         _loggers_created.add(name)
 
-        # 设置日志级别
-        logger.setLevel(getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO))
+    # 设置日志级别
+    logger.setLevel(getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO))
 
-        # 创建格式器
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    # 创建格式器
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    # 确保日志目录存在
+    log_path = Path(Config.LOG_FILE)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 尝试创建文件处理器，如果失败则使用控制台处理器
+    file_handler = None
+    try:
+        # 使用安全的日志轮转处理器，处理Windows文件锁定问题
+        file_handler = SafeTimedRotatingFileHandler(
+            filename=Config.LOG_FILE,
+            when='midnight',  # 每天午夜切割
+            interval=1,  # 间隔1天
+            backupCount=30,  # 保留30天的日志
+            encoding='utf-8'
         )
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        file_handler.suffix = "%Y-%m-%d.log"  # 设置备份文件的后缀格式
+    except Exception as e:
+        print(f"创建日志文件处理器失败: {e}")
+        print("将仅使用控制台输出")
 
-        # 确保日志目录存在
-        log_path = Path(Config.LOG_FILE)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
+    # 创建控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
 
-        # 尝试创建文件处理器
-        file_handler = None
-        try:
-            if HAS_CONCURRENT_LOG_HANDLER:
-                # 使用concurrent-log-handler，专门处理多进程日志轮转
-                file_handler = ConcurrentRotatingFileHandler(
-                    filename=Config.LOG_FILE,
-                    maxBytes=10*1024*1024,  # 10MB
-                    backupCount=30,  # 保留30个备份文件
-                    encoding='utf-8'
-                )
-            else:
-                # 回退到标准库的RotatingFileHandler
-                file_handler = logging.handlers.RotatingFileHandler(
-                    filename=Config.LOG_FILE,
-                    maxBytes=10*1024*1024,  # 10MB
-                    backupCount=30,  # 保留30个备份文件
-                    encoding='utf-8'
-                )
-            
-            file_handler.setLevel(logging.INFO)
-            file_handler.setFormatter(formatter)
-            
-        except Exception as e:
-            print(f"创建日志文件处理器失败: {e}")
-            print("将仅使用控制台输出")
-            file_handler = None  # 确保file_handler为None
+    # 添加处理器
+    if file_handler:
+        logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
-        # 创建控制台处理器
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(formatter)
+    # 关键修复：阻止向父级logger传播，避免重复日志
+    logger.propagate = False
 
-        # 添加处理器
-        if file_handler is not None:
-            logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-
-        # 关键修复：阻止向父级logger传播，避免重复日志
-        logger.propagate = False
-
-        return logger
+    return logger
 
 
 class TaskLogger:
