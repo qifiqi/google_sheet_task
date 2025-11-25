@@ -439,10 +439,9 @@ class GoogleSheetService:
                 for i, position in enumerate(param_positions):
                     cell_updates[position] = combination[i]
                     results[position] = combination[i]
-
-                self._log_info(f"向Google Sheet写入参数: {cell_updates}")
-                self.google_sheet.update_jumped_cells(cell_updates)
                 if num <= 0:
+                    self._log_info(f"向Google Sheet写入参数: {cell_updates}")
+                    self.google_sheet.update_jumped_cells(cell_updates)
                     return None
                 # 随机选择一个键
                 random_key = random.choice(list(cell_updates.keys()))
@@ -554,7 +553,7 @@ class GoogleSheetService:
                 self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
                 time.sleep(_)
 
-                
+
                 # 定期刷新参数，防止模型卡顿
                 if attempt % 10 == 0 or attempt in [3, 5, 8]:
                     _update_cell(attempt)
@@ -649,7 +648,7 @@ class GoogleSheetService:
 
     def _log(self, level: str, message: str, log_type: str = 'general', **kwargs):
         """
-        统一的日志记录接口 - 只记录到文件和推送到前端，不再保存到数据库
+        统一的日志记录接口 - 完整版，包含前端推送和数据库保存
         
         Args:
             level: 日志级别 ('info', 'warning', 'error')
@@ -664,7 +663,7 @@ class GoogleSheetService:
             # 添加简洁的任务ID前缀
             prefixed_message = f"[Task-{self.task_id[:8]}] {formatted_message}"
             
-            # 1. 记录到系统日志文件
+            # 1. 记录到系统日志（现在已经不会重复了）
             if level == 'error':
                 self.task_logger.error(prefixed_message)
             elif level == 'warning':
@@ -672,7 +671,10 @@ class GoogleSheetService:
             else:
                 self.task_logger.info(prefixed_message)
             
-            # 2. 推送到前端（SSE）
+            # 2. 保存到数据库（TaskLog）
+            self._save_to_database(level, formatted_message)
+            
+            # 3. 推送到前端（SSE）
             self._push_to_frontend(level, formatted_message)
             
         except Exception as e:
@@ -701,10 +703,30 @@ class GoogleSheetService:
             return message
     
     def _save_to_database(self, level: str, message: str):
-        """保存日志到数据库（已废弃，不再使用）"""
-        # 此方法已废弃，不再向数据库写入日志
-        # 日志现在只记录到文件和推送到前端
-        pass
+        """保存日志到数据库，包含重试逻辑"""
+        from app.models import TaskLog
+        from app.utils.database import safe_db_operation
+        from flask import current_app
+        
+        def save_log_operation():
+            log = TaskLog(
+                task_id=self.task_id,
+                level=level,
+                message=message
+            )
+            db.session.add(log)
+            db.session.commit()
+        
+        try:
+            if self.app:
+                with self.app.app_context():
+                    safe_db_operation(save_log_operation)
+            else:
+                with current_app.app_context():
+                    safe_db_operation(save_log_operation)
+        except Exception as e:
+            # 数据库保存失败时静默处理，不影响主流程
+            pass
     
     def _push_to_frontend(self, level: str, message: str):
         """推送日志到前端"""

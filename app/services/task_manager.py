@@ -324,79 +324,15 @@ class TaskManager:
             raise
     
     def get_task_logs(self, task_id: str, limit: int = 1000) -> list:
-        """获取任务日志（从日志文件读取，优化性能）"""
-        import os
-        import re
-        from datetime import datetime
-        from app.config import Config
+        """获取任务日志（从数据库读取）"""
+        from app.models import TaskLog
         
-        task_logs = []
-        log_file = Config.LOG_FILE
-        
-        if os.path.exists(log_file):
-            try:
-                # 解析日志格式: 2025-09-28 20:53:48,938 - __main__ - INFO - 消息
-                log_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([^-]+) - (\w+) - (.+)'
-                
-                # 生成任务相关的搜索模式
-                task_patterns = [
-                    f"[Task-{task_id[:8]}]",  # 任务日志前缀
-                    f"任务 {task_id}",        # 中文任务标识
-                    task_id                    # 完整任务ID
-                ]
-                
-                # 性能优化：只读取文件末尾的部分（最近的 100MB 或全文件）
-                file_size = os.path.getsize(log_file)
-                read_size = min(file_size, 100 * 1024 * 1024)  # 最多读取 100MB
-                
-                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                    # 如果文件很大，从末尾读取
-                    if file_size > read_size:
-                        f.seek(file_size - read_size)
-                        # 跳过第一行（可能不完整）
-                        f.readline()
-                    
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        
-                        # 检查是否包含任务相关信息
-                        contains_task_info = any(pattern in line for pattern in task_patterns)
-                        if not contains_task_info:
-                            continue
-                            
-                        match = re.match(log_pattern, line)
-                        if match:
-                            timestamp_str, source, level, message = match.groups()
-                            
-                            # 转换时间格式
-                            try:
-                                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
-                                iso_timestamp = timestamp.isoformat()
-                            except:
-                                iso_timestamp = timestamp_str
-                            
-                            log_entry = {
-                                'id': None,  # 文件日志没有ID
-                                'level': level.lower(),
-                                'message': message.strip(),
-                                'timestamp': iso_timestamp
-                            }
-                            
-                            task_logs.append(log_entry)
-                
-                # 按时间正序排列
-                task_logs.sort(key=lambda x: x['timestamp'])
-                
-                # 限制返回数量，避免内存占用过大
-                if len(task_logs) > limit:
-                    task_logs = task_logs[-limit:]
-                
-            except Exception as e:
-                logger.error(f"读取任务日志文件失败: {str(e)}")
-        
-        return task_logs
+        try:
+            logs = TaskLog.query.filter_by(task_id=task_id).order_by(TaskLog.timestamp.asc()).limit(limit).all()
+            return [log.to_dict() for log in logs]
+        except Exception as e:
+            logger.error(f"获取任务日志失败: {str(e)}")
+            return []
     
     def get_task_results(self, task_id: str) -> list:
         """获取任务结果"""
@@ -422,8 +358,8 @@ class TaskManager:
                 # 删除任务结果
                 TaskResult.query.filter_by(task_id=task_id).delete()
                 
-                # 注意：日志已改为文件存储，不再需要从数据库删除
-                # 历史遗留的 TaskLog 数据可以通过清理脚本批量删除
+                # 删除任务日志
+                TaskLog.query.filter_by(task_id=task_id).delete()
                 
                 # 删除任务本身
                 db.session.delete(task)
@@ -592,10 +528,33 @@ class TaskManager:
             task_logger.info("任务执行器退出")
     
     def _add_task_log(self, task_id: str, level: str, message: str, app=None):
-        """添加任务日志（已改为只写文件，不再写数据库）"""
-        # 不再写入数据库，只记录到文件日志
-        # 使用 TaskLogger 会自动将日志写入文件
-        pass
+        """添加任务日志"""
+        from app.models import TaskLog
+        
+        try:
+            if app:
+                # 在后台线程中使用传递的应用实例
+                with app.app_context():
+                    log = TaskLog(
+                        task_id=task_id,
+                        level=level,
+                        message=message
+                    )
+                    db.session.add(log)
+                    db.session.commit()
+            else:
+                # 在主线程中使用当前应用上下文
+                from flask import current_app
+                with current_app.app_context():
+                    log = TaskLog(
+                        task_id=task_id,
+                        level=level,
+                        message=message
+                    )
+                    db.session.add(log)
+                    db.session.commit()
+        except Exception as e:
+            logger.error(f"添加任务日志失败: {str(e)}")
     
 
 # 全局任务管理器实例
