@@ -538,7 +538,7 @@ class GoogleSheetService:
                 return int(_)
 
             # 写入参数到Google Sheet
-            _update_cell()
+            # _update_cell()
 
             is_exit = 0
             max_error_num = 3

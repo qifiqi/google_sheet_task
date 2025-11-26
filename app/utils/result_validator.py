@@ -10,7 +10,7 @@ from app.services.config_manager import get_config_manager
 logger = get_logger(__name__)
 
 
-def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ', 0, '0', '0.0', '0.00')):
+def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ')):
     """
     装饰器：验证返回的字典中是否包含空值或无效值
     
@@ -99,11 +99,11 @@ def validate_google_sheet_result(result_dict: Dict[str, Any]) -> Tuple[bool, str
             empty_keys.append(key)
         elif isinstance(result_dict[key], str) and result_dict[key].strip() == '':
             empty_keys.append(key)
-        elif isinstance(result_dict[key], (int, float)) and result_dict[key] == 0:
-            # 对于某些键，0 可能是有效值，需要进一步检查
-            if key in result_keys:
-                # 结果键为0可能表示计算错误
-                empty_keys.append(key)
+        # elif isinstance(result_dict[key], (int, float)) and result_dict[key] == 0:
+        #     # 对于某些键，0 可能是有效值，需要进一步检查
+        #     if key in result_keys:
+        #         # 结果键为0可能表示计算错误
+        #         empty_keys.append(key)
     
     if missing_keys:
         return False, f"缺少必需的键: {missing_keys}"
@@ -114,7 +114,7 @@ def validate_google_sheet_result(result_dict: Dict[str, Any]) -> Tuple[bool, str
     return True, "验证通过"
 
 
-def is_valid_result_value(value: Any, allow_zero: bool = False) -> bool:
+def is_valid_result_value(value: Any, allow_zero: bool = True) -> bool:
     """
     检查单个值是否为有效的结果值
     
