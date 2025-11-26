@@ -5,6 +5,8 @@ from croniter import croniter
 import json
 import threading
 import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from flask import current_app
 from app.extensions import db
 from app.models import ScheduledTask, TaskLog, TaskResult
@@ -20,6 +22,10 @@ class SchedulerService:
         self.is_running = False
         self._lock = threading.Lock()
         self.app = None
+        # 创建线程池用于异步执行任务
+        self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="scheduler_task")
+        # 跟踪正在运行的异步任务
+        self.running_tasks = {}
     
     def start(self, delay_seconds=30, app=None):
         """启动调度器（延时启动）"""
@@ -71,6 +77,11 @@ class SchedulerService:
                 self.scheduler.shutdown()
                 self.is_running = False
                 logger.info("定时任务调度器已停止")
+            
+            # 关闭线程池
+            if self.executor:
+                self.executor.shutdown(wait=True)
+                logger.info("任务执行线程池已关闭")
     
     def load_tasks_from_database(self):
         """从数据库加载定时任务"""
@@ -105,9 +116,9 @@ class SchedulerService:
             # 创建cron触发器
             trigger = CronTrigger.from_crontab(scheduled_task.cron_expression)
             
-            # 添加任务
+            # 添加任务（使用异步执行包装器）
             self.scheduler.add_job(
-                func=self._execute_task,
+                func=self._execute_task_async,
                 trigger=trigger,
                 id=job_id,
                 args=[scheduled_task.id],
@@ -140,6 +151,57 @@ class SchedulerService:
             logger.error(f"移除定时任务失败: {e}")
         
         return False
+    
+    def _execute_task_async(self, task_id):
+        """异步执行定时任务的包装器"""
+        if not self.app:
+            logger.error("Flask应用实例未设置，无法执行定时任务")
+            return
+        
+        try:
+            # 在线程池中异步执行任务，避免阻塞主进程
+            future = self.executor.submit(self._execute_task, task_id)
+            
+            # 记录正在运行的任务
+            self.running_tasks[task_id] = {
+                'future': future,
+                'start_time': datetime.now(),
+                'status': 'running'
+            }
+            
+            logger.info(f"定时任务 {task_id} 已提交到线程池异步执行")
+            
+            # 添加回调处理任务完成或失败
+            future.add_done_callback(lambda f: self._task_completion_callback(task_id, f))
+            
+        except Exception as e:
+            logger.error(f"提交定时任务到线程池失败: {e}")
+    
+    def _task_completion_callback(self, task_id, future):
+        """任务完成后的回调函数"""
+        try:
+            result = future.result()  # 获取任务执行结果
+            
+            # 更新任务状态
+            if task_id in self.running_tasks:
+                self.running_tasks[task_id]['status'] = 'completed'
+                self.running_tasks[task_id]['end_time'] = datetime.now()
+                
+            logger.info(f"定时任务 {task_id} 异步执行完成")
+            
+        except Exception as e:
+            # 更新任务状态为失败
+            if task_id in self.running_tasks:
+                self.running_tasks[task_id]['status'] = 'failed'
+                self.running_tasks[task_id]['end_time'] = datetime.now()
+                self.running_tasks[task_id]['error'] = str(e)
+                
+            logger.error(f"定时任务 {task_id} 异步执行失败: {e}")
+        
+        finally:
+            # 清理完成的任务记录（可选：保留一段时间用于监控）
+            # 这里我们保留任务记录，可以后续添加清理机制
+            pass
     
     def _execute_task(self, task_id):
         """执行定时任务"""
@@ -196,16 +258,36 @@ class SchedulerService:
             return False
     
     def _cleanup_old_logs(self, params):
-        """清理旧日志"""
+        """清理旧日志（批量处理优化）"""
         try:
             days = params.get('days', 10)
+            batch_size = params.get('batch_size', 1000)  # 批量处理大小
             cutoff_date = datetime.now() - timedelta(days=days)
             
-            # 删除旧的任务日志
-            deleted_logs = TaskLog.query.filter(TaskLog.timestamp < cutoff_date).delete()
-            db.session.commit()
+            total_deleted = 0
+            while True:
+                # 分批删除，避免长时间锁定数据库
+                batch_query = TaskLog.query.filter(TaskLog.timestamp < cutoff_date).limit(batch_size)
+                batch_ids = [log.id for log in batch_query.all()]
+                
+                if not batch_ids:
+                    break
+                
+                # 删除当前批次
+                deleted_count = TaskLog.query.filter(TaskLog.id.in_(batch_ids)).delete(synchronize_session=False)
+                db.session.commit()
+                
+                total_deleted += deleted_count
+                logger.info(f"已清理 {deleted_count} 条日志记录，总计: {total_deleted}")
+                
+                # 如果删除的记录少于批次大小，说明已经清理完毕
+                if deleted_count < batch_size:
+                    break
+                
+                # 短暂休息，避免过度占用资源
+                time.sleep(0.1)
             
-            logger.info(f"清理了 {deleted_logs} 条超过 {days} 天的任务日志")
+            logger.info(f"清理完成，共删除 {total_deleted} 条超过 {days} 天的任务日志")
             return True
             
         except Exception as e:
@@ -214,16 +296,36 @@ class SchedulerService:
             return False
     
     def _cleanup_old_results(self, params):
-        """清理旧结果"""
+        """清理旧结果（批量处理优化）"""
         try:
             days = params.get('days', 10)
+            batch_size = params.get('batch_size', 1000)  # 批量处理大小
             cutoff_date = datetime.now() - timedelta(days=days)
             
-            # 删除旧的任务结果
-            deleted_results = TaskResult.query.filter(TaskResult.timestamp < cutoff_date).delete()
-            db.session.commit()
+            total_deleted = 0
+            while True:
+                # 分批删除，避免长时间锁定数据库
+                batch_query = TaskResult.query.filter(TaskResult.timestamp < cutoff_date).limit(batch_size)
+                batch_ids = [result.id for result in batch_query.all()]
+                
+                if not batch_ids:
+                    break
+                
+                # 删除当前批次
+                deleted_count = TaskResult.query.filter(TaskResult.id.in_(batch_ids)).delete(synchronize_session=False)
+                db.session.commit()
+                
+                total_deleted += deleted_count
+                logger.info(f"已清理 {deleted_count} 条结果记录，总计: {total_deleted}")
+                
+                # 如果删除的记录少于批次大小，说明已经清理完毕
+                if deleted_count < batch_size:
+                    break
+                
+                # 短暂休息，避免过度占用资源
+                time.sleep(0.1)
             
-            logger.info(f"清理了 {deleted_results} 条超过 {days} 天的任务结果")
+            logger.info(f"清理完成，共删除 {total_deleted} 条超过 {days} 天的任务结果")
             return True
             
         except Exception as e:
@@ -267,6 +369,34 @@ class SchedulerService:
                 'next_run_time': job.next_run_time.isoformat() if job.next_run_time else None
             }
         return None
+    
+    def get_async_task_status(self, task_id=None):
+        """获取异步任务执行状态"""
+        if task_id:
+            # 获取特定任务状态
+            return self.running_tasks.get(task_id)
+        else:
+            # 获取所有任务状态
+            return dict(self.running_tasks)
+    
+    def cleanup_completed_tasks(self, max_age_hours=24):
+        """清理已完成的任务记录"""
+        current_time = datetime.now()
+        to_remove = []
+        
+        for task_id, task_info in self.running_tasks.items():
+            if task_info['status'] in ['completed', 'failed']:
+                end_time = task_info.get('end_time', current_time)
+                age = current_time - end_time
+                
+                if age.total_seconds() > max_age_hours * 3600:
+                    to_remove.append(task_id)
+        
+        for task_id in to_remove:
+            del self.running_tasks[task_id]
+            
+        if to_remove:
+            logger.info(f"清理了 {len(to_remove)} 个已完成的任务记录")
     
     def create_default_tasks(self):
         """创建默认定时任务"""

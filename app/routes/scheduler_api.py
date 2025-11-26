@@ -274,18 +274,60 @@ def run_scheduled_task_now(task_id):
                 'message': '调度器未运行'
             }), 400
         
-        # 立即执行任务
-        scheduler_service._execute_task(task_id)
+        # 检查任务是否已在运行中
+        current_status = scheduler_service.get_async_task_status(task_id)
+        if current_status and current_status['status'] == 'running':
+            return jsonify({
+                'success': False,
+                'message': '任务正在执行中，请稍后再试'
+            }), 400
+        
+        # 立即执行任务（使用异步方式）
+        scheduler_service._execute_task_async(task_id)
         
         logger.info(f"立即执行定时任务: {task.name}")
         
         return jsonify({
             'success': True,
-            'message': '任务已开始执行'
+            'message': '任务已提交到后台异步执行',
+            'task_id': task_id
         })
         
     except Exception as e:
         logger.error(f"立即执行定时任务失败: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>/status', methods=['GET'])
+def get_task_execution_status(task_id):
+    """获取任务执行状态"""
+    try:
+        task = ScheduledTask.query.get_or_404(task_id)
+        
+        # 获取异步执行状态
+        async_status = scheduler_service.get_async_task_status(task_id)
+        
+        # 获取调度器中的任务状态
+        job_status = scheduler_service.get_job_status(task_id)
+        
+        return jsonify({
+            'success': True,
+            'task': {
+                'id': task.id,
+                'name': task.name,
+                'is_active': task.is_active,
+                'last_run_time': task.last_run_time.isoformat() if task.last_run_time else None,
+                'next_run_time': task.next_run_time.isoformat() if task.next_run_time else None,
+                'run_count': task.run_count
+            },
+            'async_status': async_status,
+            'job_status': job_status
+        })
+        
+    except Exception as e:
+        logger.error(f"获取任务执行状态失败: {e}")
         return jsonify({
             'success': False,
             'message': str(e)

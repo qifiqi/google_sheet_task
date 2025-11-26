@@ -1,7 +1,8 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
-from app.models import Task, TaskLog, db
+from app.services.scheduler_service import scheduler_service
+from app.models import Task, TaskLog, ScheduledTask, db
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -56,3 +57,69 @@ def results():
 def scheduler():
     """定时任务管理页面"""
     return render_template('admin/scheduler.html')
+
+@admin_bp.route('/api/scheduler/status')
+def scheduler_status():
+    """获取异步任务执行状态API"""
+    try:
+        # 获取所有异步任务状态
+        async_tasks = scheduler_service.get_async_task_status()
+        
+        # 获取调度器状态
+        scheduler_info = {
+            'is_running': scheduler_service.is_running,
+            'total_async_tasks': len(async_tasks),
+            'running_tasks': len([t for t in async_tasks.values() if t['status'] == 'running']),
+            'completed_tasks': len([t for t in async_tasks.values() if t['status'] == 'completed']),
+            'failed_tasks': len([t for t in async_tasks.values() if t['status'] == 'failed'])
+        }
+        
+        # 格式化任务信息
+        formatted_tasks = {}
+        for task_id, task_info in async_tasks.items():
+            formatted_tasks[task_id] = {
+                'status': task_info['status'],
+                'start_time': task_info['start_time'].isoformat() if task_info['start_time'] else None,
+                'end_time': task_info.get('end_time').isoformat() if task_info.get('end_time') else None,
+                'error': task_info.get('error'),
+                'duration': None
+            }
+            
+            # 计算执行时长
+            if task_info.get('end_time') and task_info['start_time']:
+                duration = task_info['end_time'] - task_info['start_time']
+                formatted_tasks[task_id]['duration'] = duration.total_seconds()
+        
+        return jsonify({
+            'success': True,
+            'scheduler': scheduler_info,
+            'async_tasks': formatted_tasks
+        })
+        
+    except Exception as e:
+        logger.error(f"获取调度器状态失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@admin_bp.route('/api/scheduler/cleanup', methods=['POST'])
+def cleanup_completed_tasks():
+    """清理已完成的异步任务记录"""
+    try:
+        max_age_hours = request.json.get('max_age_hours', 24) if request.is_json else 24
+        
+        # 清理已完成的任务
+        scheduler_service.cleanup_completed_tasks(max_age_hours)
+        
+        return jsonify({
+            'success': True,
+            'message': f'已清理超过 {max_age_hours} 小时的已完成任务记录'
+        })
+        
+    except Exception as e:
+        logger.error(f"清理任务记录失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
