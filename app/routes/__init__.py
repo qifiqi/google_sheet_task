@@ -6,7 +6,9 @@ def register_blueprints(app):
     # from app.routes.api import api_bp  # 已迁移为restx接口文档
     from app.routes.google_sheet import google_sheet_bp
     from app.routes.scheduler_api import scheduler_api_bp
-    
+    from app.routes.xpl import xpl_bp
+
+    app.register_blueprint(xpl_bp, url_prefix='/xpl')
     app.register_blueprint(admin_bp, url_prefix='/admin')
     # app.register_blueprint(api_bp, url_prefix='/api')
     app.register_blueprint(google_sheet_bp, url_prefix='/google-sheet')

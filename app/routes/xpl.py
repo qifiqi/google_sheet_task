@@ -1,0 +1,73 @@
+from flask import Blueprint, render_template, request, jsonify, url_for, redirect, flash, current_app
+import json
+from app.services.task_manager import task_manager
+from app.services.config_manager import get_config_manager
+from app.utils.logger import get_logger
+from app.models import TaskTemplate
+from app.services.xpl_service import xpl_analyzer
+
+logger = get_logger(__name__)
+
+xpl_bp = Blueprint('xpl', __name__)
+
+@xpl_bp.route('/')
+def index():
+    """Excel数据分析工具首页"""
+    return render_template('xpl/index.html')
+
+@xpl_bp.route('/analyze', methods=['POST'])
+def analyze_data():
+    """
+    API接口：分析Excel数据
+    
+    请求体 (JSON):
+    {
+        "data": "2023-01-01 0.01\n2023-01-02 0.02\n...",
+        "time_format": "YYYY-MM-DD",
+        "return_col": 2
+    }
+    
+    返回 (JSON):
+    {
+        "status": "success/error",
+        "message": "描述信息",
+        "results": [{"date": "2023-01-01", "return": 0.01, ...}],
+        "metrics": {"total_return": 0.1, ...}
+    }
+    """
+    try:
+        # 获取请求数据
+        data = request.get_json()
+        print(data)
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '请求体不能为空',
+                'results': [],
+                'metrics': {}
+            }), 400
+            
+        # 获取参数
+        input_data = data.get('data', '')
+        time_format = data.get('time_format', 'auto')
+        return_col = int(data.get('return_col', 2))
+        
+        # 调用服务层进行分析
+        result = xpl_analyzer.analyze(
+            data=input_data,
+            time_format=time_format,
+            return_col=return_col
+        )
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"处理分析请求时出错: {str(e)}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': f'处理请求时出错: {str(e)}',
+            'results': [],
+            'metrics': {}
+        }), 500
+
+

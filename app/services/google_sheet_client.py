@@ -38,7 +38,7 @@ class GoogleSheet:
                 # 设置代理环境变量
                 os.environ['HTTP_PROXY'] = proxy_url
                 os.environ['HTTPS_PROXY'] = proxy_url
-
+                self.client.session.proxies.update({"http": proxy_url, "https": proxy_url})
             # 打开电子表格
             self.sheet = self.client.open_by_key(spreadsheet_id)
             
