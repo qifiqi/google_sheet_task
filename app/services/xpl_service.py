@@ -259,6 +259,7 @@ class XPLAnalyzer:
                 'year_month': str(year_month),  # 年月 Year and month
                 'monthly_return': float(monthly_return.__round__(4)),  # 月收益率 Monthly return
                 'year': str(current_month_last_day['year']),  # 年份 Year
+                'net_value': current_month_last_day['net_value'],  # 净值
                 'date': current_month_last_day['date'].strftime('%Y-%m-%d')  # 日期 Date
             })
 
@@ -370,9 +371,9 @@ class XPLAnalyzer:
             # Calculate average monthly return
             avg_monthly_return = monthly_returns.mean()
 
-            # 计算月度收益率标准差（使用总体标准差）
+            # 计算月度收益率标准差（使用样本标准差）
             # Calculate monthly return standard deviation (population standard deviation)
-            monthly_std = monthly_returns.std(ddof=0)
+            monthly_std = monthly_returns.std(ddof=1)
 
             # 计算年化标准差
             # Calculate annualized standard deviation
