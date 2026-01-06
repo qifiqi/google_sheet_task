@@ -77,6 +77,15 @@ class GoogleSheet:
             logger.error(f'获取最后非空行错误。错误内容：{str(e)}')
             return -1
 
+    def clear_range(self, range_a1: str):
+        """清空一个 A1 区间，比如 'A2:A1000'"""
+        if not self.worksheet:
+            raise Exception("请先选择工作表")
+        if not range_a1:
+            return
+        logger.info(f"清空区间: {range_a1}")
+        self.worksheet.batch_clear([range_a1])
+
     @staticmethod
     def col_letter_to_num(col_letter):
         """将Excel列字母转换为数字"""
@@ -226,14 +235,21 @@ class GoogleSheet:
         return self.worksheet.get(cell_ref)[0][0]
 
 
-    def get_range(self, range_a1: str):
-        """根据 A1 区间获取整块区域的值，返回 {单元格A1: 值} 字典"""
+    def get_range(self, range_a1: str, value_render_option: str = 'FORMATTED_VALUE'):
+        """根据 A1 区间获取整块区域的值，返回 {单元格A1: 值} 字典
+
+        value_render_option:
+            - 'FORMATTED_VALUE'  默认，返回表格里看到的格式化结果（如 '71.88%')
+            - 'UNFORMATTED_VALUE' 返回底层原始数值（如 0.718870846209405）
+            - 'FORMULA'           返回公式本身（如 '=...'）
+        """
         if not self.worksheet:
             raise Exception("请先选择工作表")
         if not range_a1:
             return {}
 
-        values_2d = self.worksheet.get(range_a1)
+        values_2d = self.worksheet.get(range_a1, value_render_option=value_render_option)
+
         start_row, start_col = a1_to_rowcol(range_a1.split(':')[0])
 
         result = {}

@@ -1,6 +1,6 @@
-{% extends "google_sheet/base.html" %}
+{% extends "google_sheet_c4/base.html" %}
 
-{% block title %}任务详情 - Google Sheet 参数批量校验{% endblock %}
+{% block title %}任务详情 - Google Sheet C4 参数批量校验{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -192,6 +192,9 @@
                 <div class="btn-group" role="group">
                     <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshResults()">
                         <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV()">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> 导出 CSV
                     </button>
                     <div class="btn-group" role="group">
                         <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
@@ -1502,6 +1505,188 @@
     function refreshResults() {
         loadTaskResults();
         showNotification('结果列表已刷新', 'info');
+    }
+
+    // 导出当前筛选条件下的所有结果为 CSV（按参数组合展开每个模型为一行）
+    function exportResultsToCSV() {
+        if (!Array.isArray(groupedResults) || groupedResults.length === 0) {
+            showNotification('暂无可导出的结果', 'warning');
+            return;
+        }
+
+        const rows = [];
+
+        // 表头：尽量与前端展示列对应，并附加部分补充信息
+        const header = [
+            'step_index',
+            'success',
+            'stock_code',
+            'kline_range',
+            'model_title',
+            'Return%',
+            'Annualized',
+            'Max DD%',
+            'Index Return',
+            'Index Annualized',
+            'Index max dd',
+            'i_xpl_sharpe',
+            's_xpl_sharpe',
+            // start_return_xpl 相关
+            'start_avg_monthly_return',
+            'start_monthly_std_dev',
+            'start_annual_std_dev',
+            // index_return_xpl 相关
+            'index_avg_monthly_return',
+            'index_monthly_std_dev',
+            'index_annual_std_dev',
+            'task_id',
+            'timestamp',
+            'error_message'
+        ];
+        rows.push(header);
+
+        groupedResults.forEach(group => {
+            const baseInfo = {
+                stepIndex: group.stepIndex != null ? group.stepIndex : '',
+                success: group.success ? 'success' : 'failed',
+                stockCode: group.stockCode != null ? group.stockCode : '',
+                klineRange: group.klineRange != null ? group.klineRange : '',
+                rowId: group.rowId != null ? group.rowId : '',
+                taskId: group.taskId != null ? group.taskId : '',
+                timestamp: group.timestamp != null ? formatTime(group.timestamp) : '',
+                errorMessage: group.errorMessage != null ? group.errorMessage : ''
+            };
+
+            const models = Array.isArray(group.models) ? group.models : [];
+            if (models.length === 0) {
+                rows.push([
+                    baseInfo.stepIndex,   // step_index
+                    baseInfo.success,     // success
+                    baseInfo.stockCode,   // stock_code
+                    baseInfo.klineRange,  // kline_range
+                    '',                   // model_title
+                    '',                   // Return%
+                    '',                   // Annualized
+                    '',                   // Max DD%
+                    '',                   // Index Return
+                    '',                   // Index Annualized
+                    '',                   // Index max dd
+                    '',                   // i_xpl_sharpe
+                    '',                   // s_xpl_sharpe
+                    '',                   // start_avg_monthly_return
+                    '',                   // start_monthly_std_dev
+                    '',                   // start_annual_std_dev
+                    '',                   // index_avg_monthly_return
+                    '',                   // index_monthly_std_dev
+                    '',                   // index_annual_std_dev
+                    baseInfo.taskId,      // task_id
+                    baseInfo.timestamp,   // timestamp
+                    baseInfo.errorMessage // error_message
+                ]);
+                return;
+            }
+
+            models.forEach(model => {
+                const d2 = model.d2 != null ? model.d2 : '';
+                const d3 = model.d3 != null ? model.d3 : '';
+                const d4 = model.d4 != null ? model.d4 : '';
+                const d5 = model.d5 != null ? model.d5 : '';
+                const d6 = model.d6 != null ? model.d6 : '';
+                const d7 = model.d7 != null ? model.d7 : '';
+
+                const iSharpe = model.indexSharpe != null ? model.indexSharpe : '';
+                const sSharpe = model.startSharpe != null ? model.startSharpe : '';
+
+                // 从 rawMetrics 中读取 start/index 的 xpl 统计字段
+                const metrics = model.rawMetrics || {};
+                const startXpl = metrics.start_return_xpl || {};
+                const indexXpl = metrics.index_return_xpl || {};
+
+                const startAvgRet = startXpl.avg_monthly_return != null ? startXpl.avg_monthly_return : '';
+                const startStd = startXpl.monthly_std_dev != null ? startXpl.monthly_std_dev : '';
+                const startAnnualStd = startXpl.annual_std_dev != null ? startXpl.annual_std_dev : '';
+
+                const indexAvgRet = indexXpl.avg_monthly_return != null ? indexXpl.avg_monthly_return : '';
+                const indexStd = indexXpl.monthly_std_dev != null ? indexXpl.monthly_std_dev : '';
+                const indexAnnualStd = indexXpl.annual_std_dev != null ? indexXpl.annual_std_dev : '';
+
+                const title = model.modelTitle && model.modelTitle.length > 0
+                    ? model.modelTitle
+                    : (model.modelKey || '');
+
+                rows.push([
+                    baseInfo.stepIndex,
+                    baseInfo.success,
+                    baseInfo.stockCode,
+                    baseInfo.klineRange,
+                    title,
+                    d2,
+                    d3,
+                    d4,
+                    d5,
+                    d6,
+                    d7,
+                    iSharpe,
+                    sSharpe,
+                    startAvgRet,
+                    startStd,
+                    startAnnualStd,
+                    indexAvgRet,
+                    indexStd,
+                    indexAnnualStd,
+                    baseInfo.taskId,
+                    baseInfo.timestamp,
+                    baseInfo.errorMessage
+                ]);
+            });
+        });
+
+        const csvContent = convertRowsToCSV(rows);
+        if (!csvContent) {
+            showNotification('生成 CSV 内容失败', 'error');
+            return;
+        }
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const filename = `c4_results_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
+        a.download = filename;
+
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showNotification('CSV 导出已开始下载', 'success');
+    }
+
+    // 将二维数组转换为 CSV 文本
+    function convertRowsToCSV(rows) {
+        if (!Array.isArray(rows) || rows.length === 0) {
+            return '';
+        }
+
+        const escapeCell = (value) => {
+            if (value == null) {
+                return '';
+            }
+            let str = String(value);
+            if (str.includes('"')) {
+                str = str.replace(/"/g, '""');
+            }
+            if (str.search(/[",\n\r]/) !== -1) {
+                str = '"' + str + '"';
+            }
+            return str;
+        };
+
+        return rows.map(row => (Array.isArray(row) ? row.map(escapeCell).join(',') : '')).join('\r\n');
     }
 
     // 更新结果统计

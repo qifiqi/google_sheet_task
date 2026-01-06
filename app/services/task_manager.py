@@ -254,10 +254,15 @@ class TaskManager:
                 restart_step = task.current_step
                 self._add_task_log(task_id, 'info', f'从断点重启任务，从第 {restart_step} 步继续')
             else:
-                # 从头开始
+                # 从头开始：重置步骤并清空历史结果（保留日志）
                 restart_step = 0
                 task.current_step = 0
-                self._add_task_log(task_id, 'info', '重新开始任务，从第 1 步开始')
+
+                # 删除该任务历史结果，避免新一轮执行与旧结果混淆
+                TaskResult.query.filter_by(task_id=task_id).delete()
+                db.session.commit()
+
+                self._add_task_log(task_id, 'info', '重新开始任务，从第 1 步开始（已清空历史结果）')
             
             # 重置任务状态 - 清空开始和结束时间，确保重启后时间信息正确
             safe_update(task, commit=True, status='pending', error_message=None, start_time=None, end_time=None)

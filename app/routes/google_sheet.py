@@ -73,14 +73,35 @@ def detail():
 
 @google_sheet_bp.route('/create-restart/<task_id>')
 def create_restart(task_id):
-    """重启任务页面，预填充原任务的配置"""
+    """重启任务页面，预填充原任务的配置
+
+    支持通过 ?c4=1 区分使用 C4 版本的创建页面。
+    """
     from app.services.task_manager import task_manager
-    
+
+    is_c4 = bool(request.args.get('c4'))
+
     # 获取原任务
     task = task_manager.get_task_status(task_id)
     if not task:
         logger.error(f"原任务不存在: {task_id}")
-        return render_template('google_sheet/create.html')
-    
+        # 原任务不存在时，同样根据 is_c4 渲染对应的空创建页
+        if is_c4:
+            return render_template('google_sheet_c4/create.html', is_c4=True)
+        return render_template('google_sheet/create.html', is_c4=False)
+
     # 将原任务配置传递给模板
-    return render_template('google_sheet/create.html', restart_config=task['config'], original_task_id=task_id)
+    if is_c4:
+        return render_template(
+            'google_sheet_c4/create.html',
+            restart_config=task['config'],
+            original_task_id=task_id,
+            is_c4=True,
+        )
+
+    return render_template(
+        'google_sheet/create.html',
+        restart_config=task['config'],
+        original_task_id=task_id,
+        is_c4=False,
+    )

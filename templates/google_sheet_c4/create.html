@@ -1,6 +1,6 @@
-{% extends "google_sheet/base.html" %}
+{% extends "google_sheet_c4/base.html" %}
 
-{% block title %}创建任务 - Google Sheet 参数批量校验{% endblock %}
+{% block title %}创建任务 - Google Sheet C4 参数批量校验{% endblock %}
 
 {% block styles %}
 <style>
@@ -1855,11 +1855,47 @@
         });
     }
 
+    // 将可能的旧结构配置转换为 C4 统一结构
+    function normalizeC4Config(raw) {
+        if (!raw || typeof raw !== 'object') {
+            return {};
+        }
+
+        // 已经是 C4 新结构（有 sheets 数组）则直接返回
+        if (Array.isArray(raw.sheets) && raw.sheets.length > 0) {
+            return raw;
+        }
+
+        // 兼容旧结构：顶层有 spreadsheet_id / sheet_name
+        const sheets = [];
+        if (raw.spreadsheet_id) {
+            sheets.push({
+                spreadsheet_id: raw.spreadsheet_id,
+                sheet_name: raw.sheet_name || '',
+                title: raw.title || ''
+            });
+        }
+
+        return {
+            count_mode: raw.count_mode || 'total',
+            start_date: raw.start_date || null,
+            end_date: raw.end_date || null,
+            market_type: raw.market_type || 'cn',
+            token_type: raw.token_type || 'file',
+            token_file: raw.token_file || 'data/token.json',
+            token_json: raw.token_json || '',
+            proxy_url: raw.proxy_url || null,
+            parameters: Array.isArray(raw.parameters) ? raw.parameters : [[]],
+            sheets: sheets
+        };
+    }
+
     // 加载重启配置
     function loadRestartConfig() {
         try {
             {% if restart_config %}
-            const restartConfig = {{ restart_config | tojson }};
+            const restartConfigRaw = {{ restart_config | tojson }};
+            const restartConfig = normalizeC4Config(restartConfigRaw);
             const originalTaskId = '{{ original_task_id }}';
             
             console.log('加载重启配置:', restartConfig);
@@ -1869,7 +1905,7 @@
                 document.getElementById('task_name').value = restartConfig.name + ' (重启)';
             }
             
-            // 填充Google Sheet配置（优先使用 sheets 数组，兼容旧字段）
+            // 填充Google Sheet配置（优先使用 sheets 数组）
             let primarySpreadsheetId = '';
             let primarySheetName = '';
 
@@ -1886,15 +1922,13 @@
                 document.getElementById('spreadsheet').value = primarySpreadsheetId;
             }
             if (primarySheetName) {
+                // 与模板加载逻辑保持一致：先保存到 data-saved-value
+                // 等 loadWorksheetsForItem 拉取到工作表列表后再真正选中
                 const sheetSelect = document.getElementById('sheet_name');
-                const options = Array.from(sheetSelect.options).map(opt => opt.value);
-                if (options.includes(primarySheetName)) {
-                    sheetSelect.value = primarySheetName;
-                } else {
-                    sheetSelect.value = '自定义';
-                    document.getElementById('custom_sheet_name').value = primarySheetName;
-                    document.getElementById('custom-sheet-container').style.display = 'block';
+                if (sheetSelect) {
+                    sheetSelect.setAttribute('data-saved-value', primarySheetName);
                 }
+                // 不在这里强制切换为“自定义工作表名称”，避免在还没加载下拉列表时进入错误状态
             }
 
             // 多张表：为后续表创建可视配置块
