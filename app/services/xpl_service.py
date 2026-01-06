@@ -270,23 +270,65 @@ class XPLAnalyzer:
         return monthly_returns
 
     @staticmethod
-    def calculate_sharpe_ratios_by_periods(df):
+    def calculate_sharpe_for_period(monthly_subset, period_name, annualization_factor=12):
         """
-        计算不同时间段的夏普比率
-        Calculate Sharpe ratios for different time periods
+            # 定义计算指定时间段夏普比率的内部函数
+        # Define inner function to calculate Sharpe ratio for a specific period
+        计算指定时间段的夏普比率
+        Calculate Sharpe ratio for a specific time period
 
         参数/Args:
-            df: DataFrame，包含'date'、'net_value'、'year'、'year_month'列的数据框
-                DataFrame containing 'date', 'net_value', 'year', 'year_month' columns
+            monthly_subset: DataFrame，月度收益率数据子集
+                           Subset of monthly return data
+            period_name: str，时间段名称标识
+                        Period name identifier
+            annualization_factor: int，年化因子（默认12，用于月度数据）
+                                Annualization factor (default 12 for monthly data)
 
         返回/Returns:
-            dict: 包含不同时间段夏普比率的字典
-                  Dictionary containing Sharpe ratios for different time periods
-                - 键为时间段标识（如'all', 'year_1_2023'等）
-                  Keys are period identifiers (e.g., 'all', 'year_1_2023', etc.)
-                - 值为包含夏普比率、年化标准差、平均月收益率等指标的字典
-                  Values are dictionaries containing Sharpe ratio, annualized standard deviation, 
-                  average monthly return, etc.
+            float or None: 夏普比率值，如果数据不足则返回None
+                          Sharpe ratio value, or None if insufficient data
+        """
+        if len(monthly_subset) < 2:
+            return None
+
+        # 获取月度收益率序列
+        # Get monthly return series
+        monthly_returns = monthly_subset['monthly_return']
+
+        # 计算平均月收益率
+        # Calculate average monthly return
+        avg_monthly_return = monthly_returns.mean()
+
+        # 计算月度收益率标准差（使用样本标准差）
+        # Calculate monthly return standard deviation (population standard deviation)
+        monthly_std = monthly_returns.std(ddof=1)
+
+        # 计算年化标准差
+        # Calculate annualized standard deviation
+        annual_std = monthly_std * math.sqrt(annualization_factor)
+
+        # 计算夏普比率（假设无风险利率为0）
+        # Calculate Sharpe ratio (assuming risk-free rate is 0)
+        if annual_std != 0:
+            sharpe_ratio = avg_monthly_return * annualization_factor / annual_std
+        else:
+            sharpe_ratio = 0
+
+        return {
+            'sharpe_ratio': sharpe_ratio,  # 夏普比率 Sharpe ratio
+            'annual_std_dev': annual_std,  # 年化标准差 Annualized standard deviation (%)
+            'avg_monthly_return': avg_monthly_return,  # 平均月收益率 Average monthly return (%)
+            'monthly_std_dev': monthly_std,  # 月度标准差 Monthly standard deviation (%)
+            'month_count': len(monthly_subset),  # 月数 Number of months
+            'start_date': monthly_subset['date'].min().strftime('%Y-%m'),  # 开始时间 Start date
+            'end_date': monthly_subset['date'].max().strftime('%Y-%m')  # 结束时间 End date
+        }
+
+    @staticmethod
+    def calculate_monthly_return_data(df):
+        """
+            计算月度收益率数据
         """
         # 计算月度收益率数据
         # Calculate monthly return data
@@ -326,6 +368,30 @@ class XPLAnalyzer:
 
                 previous_month_data = month_df
 
+        return monthly_data
+
+    def calculate_sharpe_ratios_by_periods(self,df):
+        """
+        计算不同时间段的夏普比率
+        Calculate Sharpe ratios for different time periods
+
+        参数/Args:
+            df: DataFrame，包含'date'、'net_value'、'year'、'year_month'列的数据框
+                DataFrame containing 'date', 'net_value', 'year', 'year_month' columns
+
+        返回/Returns:
+            dict: 包含不同时间段夏普比率的字典
+                  Dictionary containing Sharpe ratios for different time periods
+                - 键为时间段标识（如'all', 'year_1_2023'等）
+                  Keys are period identifiers (e.g., 'all', 'year_1_2023', etc.)
+                - 值为包含夏普比率、年化标准差、平均月收益率等指标的字典
+                  Values are dictionaries containing Sharpe ratio, annualized standard deviation, 
+                  average monthly return, etc.
+        """
+        # 计算月度收益率数据
+        # Calculate monthly return data
+        monthly_data = self.calculate_monthly_return_data(df)
+
         # 创建月度收益率DataFrame
         # Create monthly return DataFrame
         monthly_df = pd.DataFrame(monthly_data)
@@ -341,68 +407,12 @@ class XPLAnalyzer:
 
         results = {}
 
-        # 定义计算指定时间段夏普比率的内部函数
-        # Define inner function to calculate Sharpe ratio for a specific period
-        def calculate_sharpe_for_period(monthly_subset, period_name, annualization_factor=12):
-            """
-            计算指定时间段的夏普比率
-            Calculate Sharpe ratio for a specific time period
-
-            参数/Args:
-                monthly_subset: DataFrame，月度收益率数据子集
-                               Subset of monthly return data
-                period_name: str，时间段名称标识
-                            Period name identifier
-                annualization_factor: int，年化因子（默认12，用于月度数据）
-                                    Annualization factor (default 12 for monthly data)
-
-            返回/Returns:
-                float or None: 夏普比率值，如果数据不足则返回None
-                              Sharpe ratio value, or None if insufficient data
-            """
-            if len(monthly_subset) < 2:
-                return None
-
-            # 获取月度收益率序列
-            # Get monthly return series
-            monthly_returns = monthly_subset['monthly_return']
-
-            # 计算平均月收益率
-            # Calculate average monthly return
-            avg_monthly_return = monthly_returns.mean()
-
-            # 计算月度收益率标准差（使用样本标准差）
-            # Calculate monthly return standard deviation (population standard deviation)
-            monthly_std = monthly_returns.std(ddof=1)
-
-            # 计算年化标准差
-            # Calculate annualized standard deviation
-            annual_std = monthly_std * math.sqrt(annualization_factor)
-
-            # 计算夏普比率（假设无风险利率为0）
-            # Calculate Sharpe ratio (assuming risk-free rate is 0)
-            if annual_std != 0:
-                sharpe_ratio = avg_monthly_return * annualization_factor / annual_std
-            else:
-                sharpe_ratio = 0
-
-            # 保存结果
-            # Save results
-            results[period_name] = {
-                'sharpe_ratio': float(sharpe_ratio.__round__(4)),  # 夏普比率 Sharpe ratio
-                'annual_std_dev': annual_std,  # 年化标准差 Annualized standard deviation (%)
-                'avg_monthly_return': avg_monthly_return,  # 平均月收益率 Average monthly return (%)
-                'monthly_std_dev': monthly_std,  # 月度标准差 Monthly standard deviation (%)
-                'month_count': len(monthly_subset),  # 月数 Number of months
-                'start_date': monthly_subset['date'].min().strftime('%Y-%m'),  # 开始时间 Start date
-                'end_date': monthly_subset['date'].max().strftime('%Y-%m')  # 结束时间 End date
-            }
-
-            return sharpe_ratio
-
         # 计算全部数据的夏普比率
         # Calculate Sharpe ratio for all data
-        calculate_sharpe_for_period(monthly_df, "all", 12)
+        res = self.calculate_sharpe_for_period(monthly_df, "all", 12)
+        # 保存结果
+        # Save results
+        results["all"] = res
 
         # 计算每年的夏普比率
         # Calculate Sharpe ratio for each year
@@ -412,7 +422,9 @@ class XPLAnalyzer:
             if len(year_data) >= 3:  # 至少需要3个月的数据 Need at least 3 months of data
                 year_name = f"year_{i+1}_{year}"  # 例如: year_1_2023
                 logger.info(f"计算年份/Calculating year {year_name}, 总月数/Total months: {len(year_data)}")
-                calculate_sharpe_for_period(year_data, year_name, 12)
+                res = self.calculate_sharpe_for_period(year_data, year_name, 12)
+                results[year_name] = res
+
 
         # 计算滚动年份的夏普比率（前1年、前2年等）
         # Calculate rolling year Sharpe ratios (past 1 year, past 2 years, etc.)
@@ -422,9 +434,56 @@ class XPLAnalyzer:
             if len(year_data) >= 3:  # 至少需要3个月的数据 Need at least 3 months of data
                 year_name = f"past_{i+1}_years_since_{year}"  # 例如: past_1_years_since_2023
                 logger.info(f"计算滚动年份/Calculating rolling year {year_name}, 总月数/Total months: {len(year_data)}")
-                calculate_sharpe_for_period(year_data, year_name, 12)
+                res = self.calculate_sharpe_for_period(year_data, year_name, 12)
+                results[year_name] = res
 
         return results
+
+    def get_xpl(self, data: List[Dict[str, Any]],date='date',val = 'daily_return'):
+        if not data:
+            return {}
+
+        try:
+            # 转换为DataFrame便于计算
+            # Convert to DataFrame for calculation
+            df = pd.DataFrame(data)
+            df['date'] = pd.to_datetime(df[date])
+            df = df.sort_values('date')
+
+            # 1. 计算净值
+            # Calculate net value
+            df['net_value'] = 1 * (1 + df[val])
+
+            # 2. 提取年份信息
+            # Extract year and month information
+            df['year'] = df['date'].dt.year
+            df['month'] = df['date'].dt.month
+            df['year_month'] = df['date'].dt.strftime('%Y-%m')
+
+            # 计算月度收益率数据
+            # Calculate monthly return data
+            monthly_data = self.calculate_monthly_return_data(df)
+
+            # 创建月度收益率DataFrame
+            # Create monthly return DataFrame
+            monthly_df = pd.DataFrame(monthly_data)
+
+            # 记录数据范围信息
+            # Record data range information
+            start_date = df['date'].min()
+            end_date = df['date'].max()
+            total_months = len(monthly_df)
+
+            logger.info(f"数据时间范围/Data time range: {start_date.date()} 到/to {end_date.date()}")
+            logger.info(f"总数据月份数/Total months of data: {total_months}个月/months")
+            # 计算全部数据的夏普比率
+            # Calculate Sharpe ratio for all data
+            res = self.calculate_sharpe_for_period(monthly_df, "all", 12)
+            return res
+
+        except Exception as e:
+            logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
+            return {}
 
     def _calculate_metrics(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """

@@ -144,13 +144,6 @@ def calculate_sharpe_ratios_huice(json_file_path, risk_free_rate=0.02):
     # max_dd_rows = df_3[df_3['最大回测'] == max_dd_value]
     max_dd_row = df_3.loc[df_3['最大回测'].idxmax()]
     print(max_dd_row)
-    # print("=== 整体最大回撤 ===")
-    # for _, row in max_dd_rows.iterrows():
-    #     print(f"时间: {row['时间']}, 年份: {row['年份']}")
-    #     print(f"净值: {row['净值']:.4f}, 最大回撤: {row['最大回测']:.4f} ({row['最大回测'] * 100:.2f}%)")
-    #     print(f"历史最高净值: {df_3.iloc[:row.name + 1]['净值'].max():.4f}")
-    #     print("-" * 40)
-
 
 
 def calculate_sharpe_ratios_year(json_file_path, risk_free_rate=0.02):
@@ -272,19 +265,21 @@ def calculate_sharpe_ratios(json_file_path, risk_free_rate=0.02):
     def calculate_sharpe_for_period(monthly_subset, period_name, annualization_factor=12):
         if len(monthly_subset) < 2:
             return None
-
+        print(monthly_subset.to_string())
         # 转换为小数
         monthly_returns = monthly_subset['月收益率']
-
+        print(monthly_returns.to_string())
         # 平均月收益率
         avg_monthly_return = monthly_returns.mean()
 
         # 月度标准差
-        monthly_std = monthly_returns.std(ddof=0)  # # 月度标准差 - 总体标准差
-        # monthly_std = monthly_returns.std(ddof=1)  # 样本标准差
+        # monthly_std = monthly_returns.std(ddof=0)  # # 总体标准差
+        monthly_std = monthly_returns.std(ddof=1)  # 样本标准差
 
         # 年化收益率和年化标准差
         annual_return = avg_monthly_return * annualization_factor
+
+        # 年化标准差
         annual_std = monthly_std * math.sqrt(annualization_factor)
 
 
@@ -317,22 +312,23 @@ def calculate_sharpe_ratios(json_file_path, risk_free_rate=0.02):
         return sharpe_ratio
 
     calculate_sharpe_for_period(monthly_df, "全部", 12)
-    # 第几年
-    years = sorted(monthly_df['年份'].unique())
-    for i, year in enumerate(years):
-        year_data = monthly_df[monthly_df['年份'] == year]
-        if len(year_data) >= 3:  # 至少需要3个月的数据
-            year_name = f"第{i + 1}年({year})"
-            calculate_sharpe_for_period(year_data, year_name, 12)
-
-    # 前几年
-    years = sorted(monthly_df['年份'].unique(), reverse=True)
-    for i, year in enumerate(years):
-        year_data = monthly_df[monthly_df['年份'] >= year]
-        if len(year_data) >= 3:  # 至少需要3个月的数据
-            year_name = f"前{i + 1}年({year})"
-            print(year_name,len(year_data))
-            calculate_sharpe_for_period(year_data, year_name, 12)
+    # # 第几年
+    # years = sorted(monthly_df['年份'].unique())
+    # for i, year in enumerate(years):
+    #     year_data = monthly_df[monthly_df['年份'] == year]
+    #     if len(year_data) >= 3:  # 至少需要3个月的数据
+    #         year_name = f"第{i + 1}年({year})"
+    #         calculate_sharpe_for_period(year_data, year_name, 12)
+    #
+    # # 前几年
+    # years = sorted(monthly_df['年份'].unique(), reverse=True)
+    # for i, year in enumerate(years):
+    #     year_data = monthly_df[monthly_df['年份'] >= year]
+    #     if len(year_data) >= 3:  # 至少需要3个月的数据
+    #         year_name = f"前{i + 1}年({year})"
+    #         # print(year_name,len(year_data))
+    #         calculate_sharpe_for_period(year_data, year_name, 12)
+    # print(json.dumps(results, indent=4,ensure_ascii=False))
     pass
 
 
@@ -343,8 +339,8 @@ if __name__ == "__main__":
 
     try:
         # results, summary_df, df, monthly_df = calculate_sharpe_ratios_year(json_file_path)
-        results, summary_df, df, monthly_df = calculate_sharpe_ratios_huice(json_file_path)
-        # results, summary_df, df, monthly_df = calculate_sharpe_ratios(json_file_path)
+        # results, summary_df, df, monthly_df = calculate_sharpe_ratios_huice(json_file_path)
+        results, summary_df, df, monthly_df = calculate_sharpe_ratios(json_file_path)
 
         print("\n" + "=" * 50)
         print("详细统计表格:")

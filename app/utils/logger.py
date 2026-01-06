@@ -1,61 +1,26 @@
 import logging
 import logging.handlers
-import os
-import time
 import threading
 from pathlib import Path
 from app.config import Config
-from typing import Optional
 
 # 全局日志器锁，防止并发创建日志器
 _logger_lock = threading.Lock()
 _loggers_created = set()
 
 
-class SafeTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
-    """安全的日志轮转处理器，处理Windows文件锁定问题"""
-    
-    def __init__(self, *args, **kwargs):
-        self._lock = threading.Lock()
-        super().__init__(*args, **kwargs)
-    
-    def doRollover(self):
-        """重写轮转方法，添加重试机制"""
-        with self._lock:
-            max_retries = 3
-            retry_delay = 0.1
-            
-            for attempt in range(max_retries):
-                try:
-                    super().doRollover()
-                    return
-                except (PermissionError, OSError) as e:
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay * (2 ** attempt))  # 指数退避
-                        continue
-                    else:
-                        # 如果轮转失败，记录错误但不中断程序
-                        print(f"日志轮转失败: {e}")
-                        # 尝试创建新的日志文件
-                        try:
-                            self._create_new_log_file()
-                        except Exception as create_error:
-                            print(f"创建新日志文件失败: {create_error}")
-    
-    def _create_new_log_file(self):
-        """创建新的日志文件"""
-        if self.stream:
-            self.stream.close()
-            self.stream = None
-        
-        # 生成带时间戳的新文件名
-        timestamp = time.strftime("%Y%m%d")
-        base_name = Path(self.baseFilename)
-        new_name = base_name.parent / f"{base_name.stem}_{timestamp}{base_name.suffix}"
-        
-        # 更新文件名
-        self.baseFilename = str(new_name)
-        self.stream = self._open()
+class WindowsSafeTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
+    """在 Windows 下忽略轮转时的文件占用错误，避免刷屏异常。
+
+    不改变标准按天切割行为，只是在 rename 时捕获 PermissionError。
+    """
+
+    def doRollover(self) -> None:
+        try:
+            super().doRollover()
+        except PermissionError as e:
+            # 另一进程可能持有同一个日志文件；忽略本次轮转，继续写当前文件
+            pass
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -87,8 +52,8 @@ def get_logger(name: str) -> logging.Logger:
     # 尝试创建文件处理器，如果失败则使用控制台处理器
     file_handler = None
     try:
-        # 使用安全的日志轮转处理器，处理Windows文件锁定问题
-        file_handler = SafeTimedRotatingFileHandler(
+        # 使用带简单容错的按天轮转处理器（Windows 下忽略文件占用导致的轮转错误）
+        file_handler = WindowsSafeTimedRotatingFileHandler(
             filename=Config.LOG_FILE,
             when='midnight',  # 每天午夜切割
             interval=1,  # 间隔1天
@@ -97,7 +62,6 @@ def get_logger(name: str) -> logging.Logger:
         )
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
-        file_handler.suffix = "%Y-%m-%d.log"  # 设置备份文件的后缀格式
     except Exception as e:
         print(f"创建日志文件处理器失败: {e}")
         print("将仅使用控制台输出")
@@ -178,34 +142,10 @@ def get_task_logger(task_id: str, logger_name: str = None) -> TaskLogger:
     return TaskLogger(task_id, logger_name)
 
 
-def cleanup_log_files():
-    """清理可能被锁定的日志文件"""
-    try:
-        log_path = Path(Config.LOG_FILE)
-        if log_path.exists():
-            # 尝试重命名当前日志文件，如果失败说明被锁定
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            backup_name = log_path.parent / f"{log_path.stem}_backup_{timestamp}{log_path.suffix}"
-            
-            try:
-                log_path.rename(backup_name)
-                print(f"已备份日志文件到: {backup_name}")
-            except (PermissionError, OSError):
-                print("日志文件正在被使用，跳过备份")
-    except Exception as e:
-        print(f"清理日志文件时出错: {e}")
-
-
 def initialize_logging():
-    """初始化日志系统，处理启动时的日志问题"""
+    """初始化日志系统：创建主日志器并记录一条启动日志"""
     try:
-        # 清理可能被锁定的日志文件
-        cleanup_log_files()
-        
-        # 创建主日志器
         main_logger = get_logger('main')
         main_logger.info("日志系统初始化成功")
-        
     except Exception as e:
         print(f"日志系统初始化失败: {e}")
-        print("将使用控制台输出作为备选方案")

@@ -112,10 +112,6 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
         init_config2()
-        
-        # 确保定时任务表存在
-        from app.models import ScheduledTask
-        db.create_all()
 
     # 检查并清理挂死的任务
     check_and_cleanup_dead_tasks()
@@ -126,3 +122,4 @@ if __name__ == '__main__':
     # 运行应用
     debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes', 'on')
     app.run(debug=True, host='127.0.0.1', port=5000)
+    # app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)

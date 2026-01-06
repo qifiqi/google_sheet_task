@@ -168,7 +168,13 @@ class ConfigManager:
             'proxy_url': self.get_config('proxy_url'),
             'parameter_positions': param_positions,
             'check_positions': check_positions,
-            'result_positions': result_positions
+            'result_positions': result_positions,
+            'c4_input_column_a': self.get_config('c4_input_column_a', 'A'),
+            'c4_input_column_b': self.get_config('c4_input_column_b', 'B'),
+            'c4_output_range_1': self.get_config('c4_output_range_1', 'D2:D20'),
+            'c4_output_range_2': self.get_config('c4_output_range_2', 'D22:F25'),
+            'c4_output_column_j': self.get_config('c4_output_column_j', 'J:J'),
+            'c4_output_column_l': self.get_config('c4_output_column_l', 'L:L'),
         }
     
     def set_google_sheet_config(self, config: Dict[str, Any]) -> bool:

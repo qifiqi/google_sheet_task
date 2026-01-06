@@ -188,6 +188,11 @@
                                     </a>
                                 </div>
                                 <div class="nav-item">
+                                    <a class="nav-link" href="{{ url_for('google_sheet.index', c4=1) }}">
+                                        <i class="bi bi-table"></i> Google Sheet C4
+                                    </a>
+                                </div>
+                                <div class="nav-item">
                                     <a class="nav-link" href="{{ url_for('xpl.index') }}">
                                         <i class="bi bi-table"></i> 夏普率计算
                                     </a>
@@ -305,23 +310,38 @@
             xhr.send(data ? JSON.stringify(data) : null);
         }
 
-        // 显示通知
+        // 显示通知（统一为右下角弹窗样式）
         function showNotification(message, type = 'info') {
             const alertClass = type === 'error' ? 'alert-danger' : 
                               type === 'success' ? 'alert-success' : 
                               type === 'warning' ? 'alert-warning' : 'alert-info';
-            
+
+            // 创建或获取右下角容器
+            let container = document.getElementById('notification-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'notification-container';
+                container.style.position = 'fixed';
+                container.style.right = '20px';
+                container.style.bottom = '20px';
+                container.style.zIndex = '2000';
+                container.style.display = 'flex';
+                container.style.flexDirection = 'column';
+                container.style.alignItems = 'flex-end';
+                document.body.appendChild(container);
+            }
+
             const alertDiv = document.createElement('div');
-            alertDiv.className = `alert ${alertClass} alert-dismissible fade show`;
+            alertDiv.className = `alert ${alertClass} alert-dismissible fade show mb-2`;
+            alertDiv.style.minWidth = '260px';
+            alertDiv.style.boxShadow = '0 0.25rem 0.5rem rgba(0,0,0,0.15)';
             alertDiv.innerHTML = `
                 ${message}
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             `;
-            
-            // 插入到页面顶部
-            const mainContent = document.querySelector('.main-content');
-            mainContent.insertBefore(alertDiv, mainContent.firstChild);
-            
+
+            container.appendChild(alertDiv);
+
             // 自动消失
             setTimeout(() => {
                 if (alertDiv.parentNode) {

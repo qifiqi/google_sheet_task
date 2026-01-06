@@ -5,6 +5,8 @@ from typing import Optional
 
 import gspread
 from google.oauth2.credentials import Credentials
+from gspread.utils import a1_to_rowcol, rowcol_to_a1
+
 from gspread import Cell
 from app.utils.logger import get_logger
 
@@ -12,11 +14,11 @@ logger = get_logger(__name__)
 
 class GoogleSheet:
     """Google Sheet客户端类"""
-    
+
     def __init__(self, spreadsheet_id, sheet_name=None, token_file="data/token.json", proxy_url=None):
         """
         初始化Google Sheet连接
-        
+
         Args:
             spreadsheet_id: 电子表格ID
             sheet_name: 工作表名称，如果不提供则不会选择具体工作表
@@ -26,6 +28,8 @@ class GoogleSheet:
         SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
         self.client = None
         self.sheet = None
+        self.spreadsheet_id = spreadsheet_id
+        self.title = None
         self.worksheet = None
 
         try:
@@ -41,14 +45,15 @@ class GoogleSheet:
                 self.client.session.proxies.update({"http": proxy_url, "https": proxy_url})
             # 打开电子表格
             self.sheet = self.client.open_by_key(spreadsheet_id)
-            
+            self.title = self.sheet.title
+
             # 如果提供了工作表名称，则选择具体工作表
             if sheet_name:
                 self.worksheet = self.sheet.worksheet(sheet_name)
                 logger.info(f"Google Sheet连接成功: {spreadsheet_id}/{sheet_name}")
             else:
                 logger.info(f"Google Sheet连接成功: {spreadsheet_id}")
-            
+
         except Exception as e:
             self.close()  # 确保在出错时关闭连接
             logger.error(f'打开表格错误。错误内容：{traceback.format_exc()}')
@@ -95,12 +100,12 @@ class GoogleSheet:
     def calculate_stock_column(self, start_cell, stock_index, is_number=False):
         """
         动态计算股票在表格中的列位置
-        
+
         Args:
             start_cell: 起始单元格，例如'I1'
             stock_index: 股票序号（从1开始）
             is_number: 是否返回数字格式
-            
+
         Returns:
             (当前股票列, 后一列) 例如 ('M1', 'N1')
         """
@@ -156,7 +161,7 @@ class GoogleSheet:
             # 验证输入参数
             if not cell_address:
                 raise ValueError("单元格地址不能为空")
-            
+
             # 确保cell_value是可序列化的值
             if cell_value is None:
                 cell_value = ""
@@ -166,10 +171,10 @@ class GoogleSheet:
             else:
                 # 其他类型转换为字符串
                 cell_value = str(cell_value)
-            
+
             logger.info(f"更新单元格 {cell_address} = {cell_value} (类型: {type(cell_value)})")
             self.worksheet.update(cell_address, cell_value)
-            
+
         except Exception as e:
             error_msg = f"更新单元格 {cell_address} 失败，值: {cell_value}, 错误: {str(e)}"
             logger.error(error_msg)
@@ -199,7 +204,7 @@ class GoogleSheet:
                 if not cell_address or not isinstance(cell_address, str):
                     logger.warning(f"无效的单元格地址: {cell_address}")
                     continue
-                
+
                 # 将A1表示法转换为行列号
                 row, col = gspread.utils.a1_to_rowcol(cell_address)
                 cells.append(Cell(row, col, value))
@@ -219,6 +224,27 @@ class GoogleSheet:
     def get_cell(self, cell_ref):
         """获取指定单元格的值"""
         return self.worksheet.get(cell_ref)[0][0]
+
+
+    def get_range(self, range_a1: str):
+        """根据 A1 区间获取整块区域的值，返回 {单元格A1: 值} 字典"""
+        if not self.worksheet:
+            raise Exception("请先选择工作表")
+        if not range_a1:
+            return {}
+
+        values_2d = self.worksheet.get(range_a1)
+        start_row, start_col = a1_to_rowcol(range_a1.split(':')[0])
+
+        result = {}
+        for r_idx, row in enumerate(values_2d):
+            for c_idx, value in enumerate(row):
+                row_num = start_row + r_idx
+                col_num = start_col + c_idx
+                cell_a1 = rowcol_to_a1(row_num, col_num)
+                result[cell_a1] = value
+        return result
+
 
     def get_cells_batch(self, cell_refs):
         """

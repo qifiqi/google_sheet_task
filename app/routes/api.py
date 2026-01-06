@@ -1,3 +1,5 @@
+import time
+
 from flask import Blueprint, request, jsonify, Response
 import json
 import queue
@@ -6,8 +8,14 @@ from app.services.config_manager import get_config_manager
 from app.models import Task, TaskLog, TaskTemplate, TaskResult, db
 from app.utils.logger import get_logger
 from flask import current_app
+from app.services.google_sheet_service import GoogleSheetService
 
 logger = get_logger(__name__)
+
+# Google Sheet 工作表列表简单内存缓存
+_worksheets_cache = {}
+# 缓存默认过期时间（秒），10 天
+_WORKSHEETS_CACHE_TTL = 10 * 24 * 60 * 60
 
 api_bp = Blueprint('api', __name__)
 
@@ -512,7 +520,43 @@ def get_logs():
     except Exception as e:
         logger.error(f"获取日志失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
 # Google Sheet相关API
+def _get_worksheets_with_cache(spreadsheet_id: str, token_file: str, proxy_url: str | None):
+    """内部工具：带缓存获取 worksheet 列表和 spreadsheet 标题"""
+    try:
+        cache_key = (spreadsheet_id, token_file, proxy_url or '')
+        now = time.time()
+        cached = _worksheets_cache.get(cache_key)
+        if cached:
+            ts, cached_data = cached
+            if now - ts < _WORKSHEETS_CACHE_TTL:
+                logger.debug(f"命中工作表列表缓存: spreadsheet_id={spreadsheet_id}")
+                resp = {
+                    "status": "success",
+                    "title": cached_data.get("title", ""),
+                    "worksheets": cached_data.get("worksheets", []),
+                    "cached": True,
+                }
+                return resp, 200
+
+        data = GoogleSheetService.get_worksheets(spreadsheet_id, token_file, proxy_url)
+
+        try:
+            _worksheets_cache[cache_key] = (now, data)
+        except Exception as e:
+            logger.warning(f"更新工作表缓存失败: {e}")
+
+        resp = {
+            "status": "success",
+            "title": data.get("title", ""),
+            "worksheets": data.get("worksheets", []),
+        }
+        return resp, 200
+    except Exception as e:
+        logger.error(f"获取工作表列表失败: {str(e)}")
+        return {"status": "error", "message": str(e)}, 500
+
 @api_bp.route('/google-sheet/worksheets', methods=['POST'])
 def get_worksheets():
     """获取Google Sheet中的所有工作表名称"""
@@ -520,21 +564,15 @@ def get_worksheets():
         data = request.get_json()
         if not data:
             return jsonify({"status": "error", "message": "请求数据为空"}), 400
-            
+
         spreadsheet_id = data.get('spreadsheet_id')
         token_file = data.get('token_file', 'data/token.json')
         proxy_url = data.get('proxy_url')
-        
+
         if not spreadsheet_id:
             return jsonify({"status": "error", "message": "缺少spreadsheet_id参数"}), 400
-            
-        from app.services.google_sheet_service import GoogleSheetService
-        worksheets = GoogleSheetService.get_worksheets(spreadsheet_id, token_file, proxy_url)
-        
-        return jsonify({
-            "status": "success",
-            "worksheets": worksheets
-        })
+        result, status_code = _get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
+        return jsonify(result), status_code
     except Exception as e:
         logger.error(f"获取工作表列表失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500

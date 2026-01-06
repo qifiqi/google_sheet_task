@@ -140,7 +140,13 @@ def init_config():
             'I21',
             'I22',
             'I23',
-        ]
+        ],
+        'c4_input_column_a': 'A',
+        'c4_input_column_b': 'B',
+        'c4_output_range_1': 'D2:D20',
+        'c4_output_range_2': 'D22:F25',
+        'c4_output_column_j': 'J',
+        'c4_output_column_l': 'L',
     }
     
     # 只设置不存在的配置项，避免覆盖用户修改的配置

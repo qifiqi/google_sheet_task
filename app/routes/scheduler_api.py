@@ -283,7 +283,12 @@ def run_scheduled_task_now(task_id):
             }), 400
         
         # 立即执行任务（使用异步方式）
-        scheduler_service._execute_task_async(task_id)
+        run_ok = scheduler_service.run_job_once(task_id)
+        if not run_ok:
+            return jsonify({
+                'success': False,
+                'message': '任务提交执行失败'
+            }), 500
         
         logger.info(f"立即执行定时任务: {task.name}")
         

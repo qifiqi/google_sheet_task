@@ -12,12 +12,16 @@ google_sheet_bp = Blueprint('google_sheet', __name__)
 @google_sheet_bp.route('/')
 def index():
     """Google Sheet参数批量校验首页"""
-    return render_template('google_sheet/index.html')
+    is_c4 = bool(request.args.get('c4'))
+    if is_c4:
+        return render_template('google_sheet_c4/index.html', is_c4=True)
+    return render_template('google_sheet/index.html', is_c4=False)
 
 @google_sheet_bp.route('/create')
 def create():
     """创建Google Sheet任务页面"""
     template_id = request.args.get('template_id')
+    is_c4 = bool(request.args.get('c4'))
     template = None
     
     if template_id:
@@ -38,9 +42,16 @@ def create():
                 # 修改模板名称，表明这是从模板创建的
                 template_data['name'] = f"{template_data['name']} - 从模板创建"
                 
-                return render_template('google_sheet/create.html', 
-                                     template=template_data,
-                                     template_id=template_id)
+                if is_c4:
+                    return render_template('google_sheet_c4/create.html', 
+                                           template=template_data,
+                                           template_id=template_id,
+                                           is_c4=True)
+                else:
+                    return render_template('google_sheet/create.html', 
+                                           template=template_data,
+                                           template_id=template_id,
+                                           is_c4=False)
             else:
                 logger.warning(f"模板不存在: {template_id}")
                 flash('模板不存在', 'error')
@@ -48,12 +59,17 @@ def create():
             logger.error(f"加载模板失败: {str(e)}")
             flash('加载模板失败: ' + str(e), 'error')
     
-    return render_template('google_sheet/create.html')
+    if is_c4:
+        return render_template('google_sheet_c4/create.html', is_c4=True)
+    return render_template('google_sheet/create.html', is_c4=False)
 
 @google_sheet_bp.route('/detail')
 def detail():
     """任务详情页面"""
-    return render_template('google_sheet/detail.html')
+    is_c4 = bool(request.args.get('c4'))
+    if is_c4:
+        return render_template('google_sheet_c4/detail.html', is_c4=True)
+    return render_template('google_sheet/detail.html', is_c4=False)
 
 @google_sheet_bp.route('/create-restart/<task_id>')
 def create_restart(task_id):

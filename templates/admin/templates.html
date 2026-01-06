@@ -13,14 +13,26 @@
 
     <!-- 模板列表 -->
     <div class="row" id="templateList">
-        <!-- 新建模板卡片 -->
-        <div class="col-md-4 mb-4">
+        <!-- 新建普通模板卡片 -->
+        <div class="col-md-4 mb-4" data-template-placeholder="default">
             <div class="card h-100 border-primary">
                 <div class="card-body d-flex flex-column justify-content-center align-items-center" style="min-height: 200px;">
                     <a href="{{ url_for('google_sheet.create') }}" class="text-decoration-none text-center">
                         <i class="fas fa-plus-circle fa-3x mb-3 text-primary"></i>
                         <h5 class="card-title">新建模板</h5>
                         <p class="card-text text-muted">创建一个新的任务模板</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+        <!-- 新建 C4 模板卡片 -->
+        <div class="col-md-4 mb-4" data-template-placeholder="c4">
+            <div class="card h-100 border-info">
+                <div class="card-body d-flex flex-column justify-content-center align-items-center" style="min-height: 200px;">
+                    <a href="{{ url_for('google_sheet.create') }}?c4=1" class="text-decoration-none text-center">
+                        <i class="fas fa-plus-circle fa-3x mb-3 text-info"></i>
+                        <h5 class="card-title">新建 C4 模板</h5>
+                        <p class="card-text text-muted">为 Google Sheet C4 任务创建专用模板</p>
                     </a>
                 </div>
             </div>
@@ -107,16 +119,17 @@
 <script>
 // 加载模板列表
 function loadTemplates() {
+
     fetch('/api/templates')
         .then(response => response.json())
         .then(data => {
             const templateList = document.getElementById('templateList');
             const noTemplates = document.getElementById('noTemplates');
             
-            // 保留新建模板卡片
-            const newTemplateCard = templateList.firstElementChild;
+            // 保留所有占位卡片（普通/C4 新建入口）
+            const placeholders = Array.from(templateList.querySelectorAll('[data-template-placeholder]'));
             templateList.innerHTML = '';
-            templateList.appendChild(newTemplateCard);
+            placeholders.forEach(p => templateList.appendChild(p));
             
             if (!data.templates || data.templates.length === 0) {
                 noTemplates.style.display = 'block';
@@ -127,25 +140,42 @@ function loadTemplates() {
             data.templates.forEach(template => {
                 // 获取配置信息
                 let configInfo = '';
+                let typeBadge = '';
+                let isC4 = false;
                 try {
                     const config = typeof template.config === 'string' ? JSON.parse(template.config) : template.config;
-                    const paramCount = config.parameters ? config.parameters.filter(p => Array.isArray(p) && p.length > 0).length : 0;
-                    configInfo = `
-                        <div class="text-muted small mb-2">
-                            <i class="fas fa-table"></i> 工作表: ${config.sheet_name || '默认'}<br>
-                            <i class="fas fa-list"></i> 参数组数: ${paramCount}
-                        </div>
-                    `;
+                    isC4 = config.task_type === 'google_sheet_C4';
+                    if (isC4) {
+                        const codeCount = Array.isArray(config.parameters && config.parameters[0]) ? config.parameters[0].length : 0;
+                        const firstSheetName = Array.isArray(config.sheets) && config.sheets.length > 0
+                            ? (config.sheets[0].sheet_name || '默认')
+                            : (config.sheet_name || '默认');
+                        configInfo = `
+                            <div class="text-muted small mb-2">
+                                <i class="fas fa-table"></i> 工作表: ${firstSheetName}<br>
+                                <i class="fas fa-list"></i> 产品代码数: ${codeCount}
+                            </div>
+                        `;
+                        typeBadge = '<span class="badge bg-info ms-2">C4</span>';
+                    } else {
+                        const paramCount = config.parameters ? config.parameters.filter(p => Array.isArray(p) && p.length > 0).length : 0;
+                        configInfo = `
+                            <div class="text-muted small mb-2">
+                                <i class="fas fa-table"></i> 工作表: ${config.sheet_name || '默认'}<br>
+                                <i class="fas fa-list"></i> 参数组数: ${paramCount}
+                            </div>
+                        `;
+                    }
                 } catch (e) {
                     console.warn('解析模板配置失败:', e);
                 }
-
+                
                 const card = document.createElement('div');
                 card.className = 'col-md-4 mb-4';
                 card.innerHTML = `
                     <div class="card h-100">
                         <div class="card-header d-flex justify-content-between align-items-center">
-                            <h6 class="mb-0">${template.name}</h6>
+                            <h6 class="mb-0">${template.name}${typeBadge}</h6>
                             <div class="dropdown">
                                 <button class="btn btn-link text-muted p-0" type="button" data-bs-toggle="dropdown">
                                     <i class="fas fa-ellipsis-v"></i>
@@ -180,7 +210,7 @@ function loadTemplates() {
                             </div>
                         </div>
                         <div class="card-footer bg-transparent">
-                            <button class="btn btn-primary btn-sm w-100" onclick="useTemplate(${template.id})">
+                            <button class="btn btn-primary btn-sm w-100" onclick="useTemplate(${template.id}, '${isC4 ? 'c4' : ''}')">
                                 <i class="fas fa-play"></i> 使用此模板
                             </button>
                         </div>
@@ -431,9 +461,13 @@ async function duplicateTemplate(id) {
 }
 
 // 使用模板
-function useTemplate(id) {
-    const url = "{{ url_for('google_sheet.create') }}";
-    window.location.href = `${url}?template_id=${id}`;
+function useTemplate(id, mode) {
+    const baseUrl = "{{ url_for('google_sheet.create') }}";
+    if (mode === 'c4') {
+        window.location.href = `${baseUrl}?template_id=${id}&c4=1`;
+    } else {
+        window.location.href = `${baseUrl}?template_id=${id}`;
+    }
 }
 
 // 页面加载时获取模板列表

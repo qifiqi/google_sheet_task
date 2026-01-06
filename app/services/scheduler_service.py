@@ -5,8 +5,6 @@ from croniter import croniter
 import json
 import threading
 import time
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from flask import current_app
 from app.extensions import db
 from app.models import ScheduledTask, TaskLog, TaskResult
@@ -18,13 +16,13 @@ class SchedulerService:
     """定时任务调度服务"""
     
     def __init__(self):
+        # APScheduler 调度器实例
         self.scheduler = None
         self.is_running = False
         self._lock = threading.Lock()
+        self._tasks_lock = threading.Lock()
         self.app = None
-        # 创建线程池用于异步执行任务
-        self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="scheduler_task")
-        # 跟踪正在运行的异步任务
+        # 跟踪正在运行的异步任务（仅用于手动“立即执行”时的状态查询）
         self.running_tasks = {}
     
     def start(self, delay_seconds=30, app=None):
@@ -77,11 +75,6 @@ class SchedulerService:
                 self.scheduler.shutdown()
                 self.is_running = False
                 logger.info("定时任务调度器已停止")
-            
-            # 关闭线程池
-            if self.executor:
-                self.executor.shutdown(wait=True)
-                logger.info("任务执行线程池已关闭")
     
     def load_tasks_from_database(self):
         """从数据库加载定时任务"""
@@ -116,9 +109,9 @@ class SchedulerService:
             # 创建cron触发器
             trigger = CronTrigger.from_crontab(scheduled_task.cron_expression)
             
-            # 添加任务（使用异步执行包装器）
+            # 添加任务，直接由 APScheduler 在线程池中调用 _execute_task
             self.scheduler.add_job(
-                func=self._execute_task_async,
+                func=self._execute_task,
                 trigger=trigger,
                 id=job_id,
                 args=[scheduled_task.id],
@@ -152,6 +145,18 @@ class SchedulerService:
         
         return False
     
+    def run_job_once(self, task_id):
+        """公开方法：异步立即执行指定的定时任务"""
+        if not self.is_running:
+            logger.warning("调度器未运行，无法立即执行任务")
+            return False
+        try:
+            self._execute_task_async(task_id)
+            return True
+        except Exception as e:
+            logger.error(f"立即执行定时任务失败: {e}")
+            return False
+    
     def _execute_task_async(self, task_id):
         """异步执行定时任务的包装器"""
         if not self.app:
@@ -159,49 +164,40 @@ class SchedulerService:
             return
         
         try:
-            # 在线程池中异步执行任务，避免阻塞主进程
-            future = self.executor.submit(self._execute_task, task_id)
-            
-            # 记录正在运行的任务
-            self.running_tasks[task_id] = {
-                'future': future,
-                'start_time': datetime.now(),
-                'status': 'running'
-            }
-            
-            logger.info(f"定时任务 {task_id} 已提交到线程池异步执行")
-            
-            # 添加回调处理任务完成或失败
-            future.add_done_callback(lambda f: self._task_completion_callback(task_id, f))
+            # 使用线程异步执行单次任务（用于“立即执行”接口），避免阻塞请求线程
+            start_time = datetime.now()
+            with self._tasks_lock:
+                self.running_tasks[task_id] = {
+                    'start_time': start_time,
+                    'status': 'running'
+                }
+
+            def _run():
+                try:
+                    self._execute_task(task_id)
+                    status = 'completed'
+                    error = None
+                except Exception as e:  # noqa: B902, E722 - 需要捕获所有异常以更新状态
+                    status = 'failed'
+                    error = str(e)
+                    logger.error(f"定时任务 {task_id} 异步执行失败: {e}")
+                finally:
+                    # 更新运行状态
+                    with self._tasks_lock:
+                        task_info = self.running_tasks.get(task_id) or {}
+                        task_info['status'] = status
+                        task_info['end_time'] = datetime.now()
+                        if error is not None:
+                            task_info['error'] = error
+                        self.running_tasks[task_id] = task_info
+                    if status == 'completed':
+                        logger.info(f"定时任务 {task_id} 异步执行完成")
+
+            thread = threading.Thread(target=_run, name=f"scheduled_task_{task_id}", daemon=True)
+            thread.start()
             
         except Exception as e:
             logger.error(f"提交定时任务到线程池失败: {e}")
-    
-    def _task_completion_callback(self, task_id, future):
-        """任务完成后的回调函数"""
-        try:
-            result = future.result()  # 获取任务执行结果
-            
-            # 更新任务状态
-            if task_id in self.running_tasks:
-                self.running_tasks[task_id]['status'] = 'completed'
-                self.running_tasks[task_id]['end_time'] = datetime.now()
-                
-            logger.info(f"定时任务 {task_id} 异步执行完成")
-            
-        except Exception as e:
-            # 更新任务状态为失败
-            if task_id in self.running_tasks:
-                self.running_tasks[task_id]['status'] = 'failed'
-                self.running_tasks[task_id]['end_time'] = datetime.now()
-                self.running_tasks[task_id]['error'] = str(e)
-                
-            logger.error(f"定时任务 {task_id} 异步执行失败: {e}")
-        
-        finally:
-            # 清理完成的任务记录（可选：保留一段时间用于监控）
-            # 这里我们保留任务记录，可以后续添加清理机制
-            pass
     
     def _execute_task(self, task_id):
         """执行定时任务"""
@@ -372,28 +368,32 @@ class SchedulerService:
     
     def get_async_task_status(self, task_id=None):
         """获取异步任务执行状态"""
-        if task_id:
-            # 获取特定任务状态
-            return self.running_tasks.get(task_id)
-        else:
-            # 获取所有任务状态
-            return dict(self.running_tasks)
+        with self._tasks_lock:
+            if task_id:
+                # 获取特定任务状态
+                return self.running_tasks.get(task_id)
+            else:
+                # 获取所有任务状态
+                return dict(self.running_tasks)
     
     def cleanup_completed_tasks(self, max_age_hours=24):
         """清理已完成的任务记录"""
         current_time = datetime.now()
         to_remove = []
         
-        for task_id, task_info in self.running_tasks.items():
-            if task_info['status'] in ['completed', 'failed']:
-                end_time = task_info.get('end_time', current_time)
-                age = current_time - end_time
-                
-                if age.total_seconds() > max_age_hours * 3600:
-                    to_remove.append(task_id)
+        with self._tasks_lock:
+            for task_id, task_info in self.running_tasks.items():
+                if task_info['status'] in ['completed', 'failed']:
+                    end_time = task_info.get('end_time', current_time)
+                    age = current_time - end_time
+                    
+                    if age.total_seconds() > max_age_hours * 3600:
+                        to_remove.append(task_id)
         
-        for task_id in to_remove:
-            del self.running_tasks[task_id]
+        with self._tasks_lock:
+            for task_id in to_remove:
+                if task_id in self.running_tasks:
+                    del self.running_tasks[task_id]
             
         if to_remove:
             logger.info(f"清理了 {len(to_remove)} 个已完成的任务记录")

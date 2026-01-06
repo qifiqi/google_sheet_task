@@ -3,6 +3,8 @@ from flask import request, Response
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
 from app.models import Task, TaskLog, TaskTemplate, TaskResult, db
+from app.utils.log_reader import read_logs
+from app.routes.api import _get_worksheets_with_cache
 import json
 
 # 通用响应结构
@@ -369,141 +371,53 @@ class ResultResource(Resource):
 class LogsResource(Resource):
     def get(self):
         """获取系统日志（示例：/logs?level=info&search=error&limit=50）"""
-        import os, re
-        from app.config import Config
         limit = request.args.get('limit', 100, type=int)
         level_filter = request.args.get('level', '')
         search = request.args.get('search', '')
         date_filter = request.args.get('date', '')
         task_id_filter = request.args.get('task_id', '')
-        log_file = Config.LOG_FILE
-        parsed_logs = []
-        if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                recent_lines = lines[-limit*3:] if len(lines) > limit*3 else lines
-                log_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([^-]+) - (\w+) - (.+)'
-                for line in recent_lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    match = re.match(log_pattern, line)
-                    if match:
-                        timestamp_str, source, level, message = match.groups()
-                        try:
-                            from datetime import datetime
-                            timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
-                            iso_timestamp = timestamp.isoformat()
-                        except Exception:
-                            iso_timestamp = timestamp_str
-                        log_entry = {
-                            'timestamp': iso_timestamp,
-                            'level': level.lower(),
-                            'message': message.strip(),
-                            'source': source.strip()
-                        }
-                        if level_filter and log_entry['level'] != level_filter.lower():
-                            continue
-                        if search and search.lower() not in log_entry['message'].lower():
-                            continue
-                        if date_filter and not iso_timestamp.startswith(date_filter):
-                            continue
-                        if task_id_filter:
-                            task_pattern = f"[Task-{task_id_filter[:8]}]"
-                            if task_pattern not in log_entry['message'] and task_id_filter not in log_entry['message']:
-                                continue
-                        parsed_logs.append(log_entry)
-                    else:
-                        parsed_logs.append({'timestamp': '', 'level': 'info', 'message': line, 'source': 'unknown'})
-                parsed_logs.reverse()
-                parsed_logs = parsed_logs[:limit]
-        return {'status': 'success', 'logs': parsed_logs}
+
+        logs = read_logs(
+            limit=limit,
+            level=level_filter,
+            search=search,
+            date_prefix=date_filter,
+            task_id=task_id_filter,
+            task_only=bool(task_id_filter),
+        )
+
+        return {'status': 'success', 'logs': logs}
 
 @logs_ns.route('/logs/latest')
 class LatestLogsResource(Resource):
     def get(self):
         """获取最新日志（示例：/logs/latest?since=2025-10-16T10:00:00&limit=50）"""
-        import os, re
-        from app.config import Config
         since = request.args.get('since', '')
         limit = request.args.get('limit', 50, type=int)
-        log_file = Config.LOG_FILE
-        latest_logs = []
-        if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                recent_lines = lines[-limit*2:] if len(lines) > limit*2 else lines
-                log_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([^-]+) - (\w+) - (.+)'
-                for line in recent_lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    match = re.match(log_pattern, line)
-                    if match:
-                        timestamp_str, source, level, message = match.groups()
-                        try:
-                            from datetime import datetime
-                            timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
-                            iso_timestamp = timestamp.isoformat()
-                        except Exception:
-                            iso_timestamp = timestamp_str
-                        if since and iso_timestamp <= since:
-                            continue
-                        latest_logs.append({
-                            'timestamp': iso_timestamp,
-                            'level': level.lower(),
-                            'message': message.strip(),
-                            'source': source.strip()
-                        })
-                latest_logs.sort(key=lambda x: x['timestamp'])
-                latest_logs = latest_logs[-limit:]
-        return {'status': 'success', 'logs': latest_logs}
+
+        logs = read_logs(
+            limit=limit,
+            since=since,
+        )
+
+        return {'status': 'success', 'logs': logs}
 
 @logs_ns.route('/tasks/<string:task_id>/system-logs')
 @logs_ns.param('task_id', '任务ID')
 class TaskSystemLogsResource(Resource):
     def get(self, task_id):
         """获取任务相关的系统日志（示例：/tasks/{task_id}/system-logs?limit=200&level=error）"""
-        import os, re
-        from app.config import Config
         limit = request.args.get('limit', 200, type=int)
         level_filter = request.args.get('level', '')
-        log_file = Config.LOG_FILE
-        task_logs = []
-        if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                log_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([^-]+) - (\w+) - (.+)'
-                task_patterns = [f"[Task-{task_id[:8]}]", f"任务 {task_id}", task_id]
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    contains_task = any(p in line for p in task_patterns)
-                    if not contains_task:
-                        continue
-                    match = re.match(log_pattern, line)
-                    if match:
-                        timestamp_str, source, level, message = match.groups()
-                        try:
-                            from datetime import datetime
-                            timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
-                            iso_timestamp = timestamp.isoformat()
-                        except Exception:
-                            iso_timestamp = timestamp_str
-                        log_entry = {
-                            'timestamp': iso_timestamp,
-                            'level': level.lower(),
-                            'message': message.strip(),
-                            'source': source.strip(),
-                            'task_id': task_id
-                        }
-                        if level_filter and log_entry['level'] != level_filter.lower():
-                            continue
-                        task_logs.append(log_entry)
-                task_logs.sort(key=lambda x: x['timestamp'])
-                task_logs = task_logs[-limit:]
-        return {'status': 'success', 'logs': task_logs, 'task_id': task_id, 'total_found': len(task_logs)}
+
+        logs = read_logs(
+            limit=limit,
+            level=level_filter,
+            task_id=task_id,
+            task_only=True,
+        )
+
+        return {'status': 'success', 'logs': logs, 'task_id': task_id, 'total_found': len(logs)}
 
 # Google Sheet
 worksheet_request_model = gsheet_ns.model('WorksheetRequest', {
@@ -521,8 +435,6 @@ class WorksheetsResource(Resource):
         spreadsheet_id = data.get('spreadsheet_id')
         token_file = data.get('token_file', 'data/token.json')
         proxy_url = data.get('proxy_url')
-        if not spreadsheet_id:
-            return {'status': 'error', 'message': '缺少spreadsheet_id参数'}, 400
-        from app.services.google_sheet_service import GoogleSheetService
-        worksheets = GoogleSheetService.get_worksheets(spreadsheet_id, token_file, proxy_url)
-        return {'status': 'success', 'worksheets': worksheets}
+
+        result, status_code = _get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
+        return result, status_code

@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from app.models import Task, TaskLog, TaskResult, db
 from app.services.google_sheet_service import GoogleSheetService
+from app.services.google_sheet_service_C4 import GoogleSheetService as GoogleSheetServiceC4
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.database import transaction_required, safe_delete, safe_update, safe_create
 from app.services.config_manager import get_config_manager
@@ -91,6 +92,9 @@ class TaskManager:
         if task.task_type == 'google_sheet':
             thread = threading.Thread(target=self._execute_google_sheet_task, args=(task_id, app))
             task_logger.info("创建Google Sheet任务执行线程")
+        elif task.task_type == 'google_sheet_C4':
+            thread = threading.Thread(target=self._execute_google_sheet_C4_task, args=(task_id, app))
+            task_logger.info("创建Google Sheet C4 任务执行线程")
         else:
             error_msg = f"不支持的任务类型: {task.task_type}"
             task_logger.error(error_msg)
@@ -504,6 +508,98 @@ class TaskManager:
             
         except Exception as e:
             task_logger.exception(f"执行任务失败: {str(e)}")
+            
+            # 更新任务状态为错误
+            try:
+                with app.app_context():
+                    task = Task.query.get(task_id)
+                    if task:
+                        task.status = 'error'
+                        task.error_message = str(e)
+                        task.end_time = datetime.now()
+                        db.session.commit()
+            except Exception as update_error:
+                task_logger.error(f"更新任务状态失败: {str(update_error)}")
+            
+            self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
+        
+        finally:
+            # 清理资源
+            if task_id in self.running_tasks:
+                del self.running_tasks[task_id]
+                task_logger.info("清理任务线程资源")
+            if task_id in self.task_events:
+                del self.task_events[task_id]
+                task_logger.info("清理任务事件队列")
+            
+            task_logger.info("任务执行器退出")
+
+    def _execute_google_sheet_C4_task(self, task_id: str, app):
+        """执行Google Sheet C4 任务"""
+        # 创建任务专用日志记录器
+        task_logger = get_task_logger(task_id, f"{__name__}.C4.{task_id}")
+        
+        try:
+            # 使用传递的应用实例创建应用上下文
+            with app.app_context():
+                task = Task.query.get(task_id)
+                if not task:
+                    task_logger.error("任务不存在")
+                    return
+                
+                task_logger.info(f"开始执行Google Sheet C4 任务: {task.name}")
+                
+                # 更新任务状态
+                task.status = 'running'
+                task.start_time = datetime.now()
+                db.session.commit()
+                
+                self._add_task_log(task_id, 'info', '开始执行Google Sheet C4 任务', app)
+                
+                # 创建Google Sheet C4 服务
+                config = task.config
+                service = GoogleSheetServiceC4(config, task_id, self.task_events.get(task_id), app)
+                
+                task_logger.info("开始执行 C4 任务业务逻辑")
+                
+                # 执行任务
+                task_result = service.execute_task()
+                
+                # 检查任务当前状态（可能在执行过程中被取消）
+                task = Task.query.get(task_id)
+                if task and task.status == 'cancelled':
+                    # 任务已被取消，保持cancelled状态
+                    task.end_time = datetime.now()
+                    db.session.commit()
+                    task_logger.info('任务执行完成，状态: cancelled（任务被取消）')
+                    self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（任务被取消）', app)
+                else:
+                    # 根据执行结果更新状态
+                    # task_result 可能是: 'completed', 'error', 'cancelled'
+                    if task_result == 'cancelled':
+                        # 任务在执行过程中被取消
+                        task.status = 'cancelled'
+                        task.end_time = datetime.now()
+                        db.session.commit()
+                        task_logger.info('任务执行完成，状态: cancelled（执行过程中被取消）')
+                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（执行过程中被取消）', app)
+                    elif task_result == 'completed':
+                        # 任务成功完成
+                        task.status = 'completed'
+                        task.end_time = datetime.now()
+                        db.session.commit()
+                        task_logger.info('任务执行完成，状态: completed')
+                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: completed', app)
+                    else:
+                        # 任务执行出错
+                        task.status = 'error'
+                        task.end_time = datetime.now()
+                        db.session.commit()
+                        task_logger.info('任务执行完成，状态: error')
+                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
+        
+        except Exception as e:
+            task_logger.exception(f"执行 C4 任务失败: {str(e)}")
             
             # 更新任务状态为错误
             try:

@@ -16,7 +16,7 @@
                         <p class="card-text mb-0">高效批量处理Google Sheet参数，支持实时监控和任务管理</p>
                     </div>
                     <div class="col-md-4 text-end">
-                        <a href="{{ url_for('google_sheet.create') }}" class="btn btn-light btn-lg">
+                        <a href="{{ url_for('google_sheet.create', c4=1) }}" class="btn btn-light btn-lg">
                             <i class="bi bi-plus-circle"></i> 创建新任务
                         </a>
                     </div>
@@ -260,8 +260,8 @@
     function loadTasks() {
         ajaxRequest('/api/tasks', 'GET', null, function(err, data) {
             if (!err && data && data.tasks) {
-                // 只展示普通 Google Sheet 任务
-                allTasks = data.tasks.filter(task => task.task_type === 'google_sheet');
+                // 只展示 C4 任务
+                allTasks = data.tasks.filter(task => task.task_type === 'google_sheet_C4');
                 applyFilter();
                 updateStatistics(allTasks);
                 renderTasks();
@@ -331,7 +331,7 @@
                 <td>${formatTime(task.end_time)}</td>
                 <td>
                     <div class="btn-group" role="group">
-                        <a href="/google-sheet/detail?task_id=${task.id}" class="btn btn-sm btn-info">
+                        <a href="/google-sheet/detail?task_id=${task.id}&c4=1" class="btn btn-sm btn-info">
                             <i class="bi bi-eye"></i> 查看
                         </a>
                         ${task.status === 'running' ? `

@@ -184,59 +184,64 @@
     </div>
 </div>
 
-<!-- 高级配置 -->
+<!-- C4 参数配置（上下布局） -->
 <div class="row mt-4">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
                 <h5 class="card-title mb-0">
-                    <i class="bi bi-sliders"></i> 高级配置
+                    <i class="bi bi-layout-three-columns"></i> C4 参数配置
                 </h5>
             </div>
             <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <label for="advanced-config" class="form-label">高级配置 (JSON格式)</label>
-                        <textarea class="form-control" id="advanced-config" rows="10" placeholder='{"key": "value"}'></textarea>
-                        <div class="form-text">输入JSON格式的高级配置，用于系统扩展功能</div>
+                <!-- 输入列配置 -->
+                <div class="mb-3">
+                    <h6>C4 输入列</h6>
+                    <p class="small text-muted mb-2">配置 C4 模板使用的输入列（整列）</p>
+                    <div class="row">
+                        <div class="col-md-3 mb-2">
+                            <label for="c4_input_column_a" class="form-label small">输入列 A</label>
+                            <input type="text" class="form-control form-control-sm" id="c4_input_column_a" placeholder="A">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label for="c4_input_column_b" class="form-label small">输入列 B</label>
+                            <input type="text" class="form-control form-control-sm" id="c4_input_column_b" placeholder="B">
+                        </div>
                     </div>
-                    <div class="col-md-6">
-                        <h6>配置示例</h6>
-                        <pre class="bg-light p-3 small"><code>{
-  "parameter_positions": [
-    "B6",
-    "B7",
-    "B9",
-    "B10",
-    "B11",
-    "B12"
-  ],
-  "check_positions": [
-    "I6",
-    "I7",
-    "I9",
-    "I10",
-    "I11",
-    "I12"
-  ],
-  "result_positions": [
-    "I15",
-    "I16",
-    "I17",
-    "I18",
-    "I19",
-    "I20",
-    "I21",
-    "I22",
-    "I23"
-  ]
-}</code></pre>
+                </div>
+
+                <hr>
+
+                <!-- 输出区域配置 -->
+                <div class="mb-3">
+                    <h6>C4 输出区域</h6>
+                    <p class="small text-muted mb-2">配置 C4 模板的结果区域和整列输出</p>
+                    <div class="row mb-2">
+                        <div class="col-md-4 mb-2">
+                            <label for="c4_output_range_1" class="form-label small">输出区域 1</label>
+                            <input type="text" class="form-control form-control-sm" id="c4_output_range_1" placeholder="D2:D20">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label for="c4_output_range_2" class="form-label small">输出区域 2</label>
+                            <input type="text" class="form-control form-control-sm" id="c4_output_range_2" placeholder="D22:F25">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <label for="c4_output_column_j" class="form-label small">输出列 J</label>
+                            <input type="text" class="form-control form-control-sm" id="c4_output_column_j" placeholder="J:J">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label for="c4_output_column_l" class="form-label small">输出列 L</label>
+                            <input type="text" class="form-control form-control-sm" id="c4_output_column_l" placeholder="L:L">
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -267,13 +272,13 @@
                 document.getElementById('log_polling_interval').value = config.log_polling_interval || 3000;
                 document.getElementById('api_retry_max_attempts').value = config.api_retry_max_attempts || 10;
                 
-                // 填充高级配置
-                const advancedConfig = {};
-                if (config.parameter_positions) advancedConfig.parameter_positions = config.parameter_positions;
-                if (config.check_positions) advancedConfig.check_positions = config.check_positions;
-                if (config.result_positions) advancedConfig.result_positions = config.result_positions;
-                
-                document.getElementById('advanced-config').value = JSON.stringify(advancedConfig, null, 2);
+                // C4 配置
+                document.getElementById('c4_input_column_a').value = config.c4_input_column_a || 'A';
+                document.getElementById('c4_input_column_b').value = config.c4_input_column_b || 'B';
+                document.getElementById('c4_output_range_1').value = config.c4_output_range_1 || 'D2:D20';
+                document.getElementById('c4_output_range_2').value = config.c4_output_range_2 || 'D22:F25';
+                document.getElementById('c4_output_column_j').value = config.c4_output_column_j || 'J:J';
+                document.getElementById('c4_output_column_l').value = config.c4_output_column_l || 'L:L';
                 
                 // 生成位置配置界面
                 generatePositionConfigs(config);
@@ -377,17 +382,13 @@
             config.check_positions = check_positions;
             config.result_positions = result_positions;
             
-            // 解析高级配置
-            const advancedConfigText = document.getElementById('advanced-config').value;
-            if (advancedConfigText.trim()) {
-                try {
-                    const advancedConfig = JSON.parse(advancedConfigText);
-                    Object.assign(config, advancedConfig);
-                } catch (e) {
-                    showNotification('高级配置格式错误: ' + e.message, 'error');
-                    return;
-                }
-            }
+            // C4 配置
+            config.c4_input_column_a = document.getElementById('c4_input_column_a').value.trim();
+            config.c4_input_column_b = document.getElementById('c4_input_column_b').value.trim();
+            config.c4_output_range_1 = document.getElementById('c4_output_range_1').value.trim();
+            config.c4_output_range_2 = document.getElementById('c4_output_range_2').value.trim();
+            config.c4_output_column_j = document.getElementById('c4_output_column_j').value.trim();
+            config.c4_output_column_l = document.getElementById('c4_output_column_l').value.trim();
             
             // 发送保存请求
             console.log('保存配置数据:', config); // 调试日志
