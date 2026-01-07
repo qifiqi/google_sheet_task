@@ -582,7 +582,22 @@ def get_worksheets():
 def get_templates():
     """获取所有任务模板"""
     try:
+        # 可选按 task_type 过滤（例如 task_type=google_sheet_C4 仅返回 C4 模板）
+        task_type = request.args.get('task_type')
+
         templates = TaskTemplate.query.order_by(TaskTemplate.created_at.desc()).all()
+
+        if task_type:
+            filtered = []
+            for t in templates:
+                try:
+                    cfg = json.loads(t.config) if isinstance(t.config, str) else t.config
+                except Exception:
+                    continue
+                if isinstance(cfg, dict) and cfg.get('task_type') == task_type:
+                    filtered.append(t)
+            templates = filtered
+
         return jsonify({
             "status": "success",
             "templates": [template.to_dict() for template in templates]

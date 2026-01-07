@@ -834,7 +834,8 @@
 
     // 加载模板列表
     function loadTemplates() {
-        fetch('/api/templates')
+        // 只加载 C4 类型的模板
+        fetch('/api/templates?task_type=google_sheet_C4')
             .then(response => response.json())
             .then(data => {
                 if (!data || !data.status === 'success' || !Array.isArray(data.templates)) {

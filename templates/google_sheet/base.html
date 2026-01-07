@@ -149,6 +149,11 @@
             }, 5000);
         }
 
+        // 错误提示封装，保持与历史代码兼容
+        function showError(message) {
+            showNotification(message, 'error');
+        }
+
         // 格式化时间
         function formatTime(timestamp) {
             if (!timestamp) return '-';
