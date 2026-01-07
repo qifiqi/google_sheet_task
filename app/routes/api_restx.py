@@ -83,7 +83,23 @@ class TaskCancelResource(Resource):
 @api_ns.param('task_id', '任务ID')
 class TaskResultsResource(Resource):
     def get(self, task_id):
-        """获取任务结果"""
+        """获取任务结果（支持可选分页参数 page、per_page）"""
+        page = request.args.get('page', type=int)
+        per_page = request.args.get('per_page', type=int)
+
+        if page is not None and per_page is not None:
+            data = task_manager.get_task_results(task_id, page=page, per_page=per_page)
+            return {
+                'status': 'success',
+                'results': data['items'],
+                'total': data['total'],
+                'pages': data['pages'],
+                'current_page': data['current_page'],
+                'per_page': data['per_page'],
+                'total_success': data.get('total_success'),
+                'total_failed': data.get('total_failed'),
+            }
+
         results = task_manager.get_task_results(task_id)
         return {'status': 'success', 'results': results}
 

@@ -147,6 +147,21 @@ def init_config():
         'c4_output_range_2': 'D22:F25',
         'c4_output_column_j': 'J',
         'c4_output_column_l': 'L',
+
+        'c5_parameter_positions': [
+            'A1',
+            'B1'
+        ],
+        'c5_check_positions': [
+            'G1',
+            'H1',
+        ],
+        'c5_input_column_a': 'A',
+        'c5_input_column_b': 'B',
+        'c5_output_range_1': 'D2:D20',
+        'c5_output_range_2': 'D22:F25',
+        'c5_output_column_j': 'J',
+        'c5_output_column_l': 'L',
     }
     
     # 只设置不存在的配置项，避免覆盖用户修改的配置

@@ -137,6 +137,22 @@ def get_task_logs(task_id):
 def get_task_results(task_id):
     """获取任务结果"""
     try:
+        page = request.args.get('page', type=int)
+        per_page = request.args.get('per_page', type=int)
+
+        if page is not None and per_page is not None:
+            data = task_manager.get_task_results(task_id, page=page, per_page=per_page)
+            return jsonify({
+                "status": "success",
+                "results": data["items"],
+                "total": data["total"],
+                "pages": data["pages"],
+                "current_page": data["current_page"],
+                "per_page": data["per_page"],
+                "total_success": data.get("total_success"),
+                "total_failed": data.get("total_failed"),
+            })
+
         results = task_manager.get_task_results(task_id)
         return jsonify({"status": "success", "results": results})
     except Exception as e:

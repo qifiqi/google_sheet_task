@@ -1,6 +1,6 @@
-{% extends "google_sheet_c4/base.html" %}
+{% extends "google_sheet_c5/base.html" %}
 
-{% block title %}创建任务 - Google Sheet C4 参数批量校验{% endblock %}
+{% block title %}创建任务 - Google Sheet C5 参数批量校验{% endblock %}
 
 {% block styles %}
 <style>
@@ -275,6 +275,39 @@
                             </h5>
                         </div>
                         <div class="card-body">
+                            <!-- 顶部两个参数卡片（参数2/参数3） -->
+                            <div class="row mb-3" id="extra-parameters-container">
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-success">
+                                        <div class="card-header bg-success text-white">
+                                            <h6 class="mb-0">
+                                                <i class="bi bi-2-circle"></i> 参数2
+                                            </h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <textarea class="form-control parameter-input" id="param2" rows="3" 
+                                                      placeholder='["v1", "v2"]'></textarea>
+                                            <div class="form-text">JSON 数组格式，例如 ["v1", "v2"]</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-info">
+                                        <div class="card-header bg-info text-white">
+                                            <h6 class="mb-0">
+                                                <i class="bi bi-3-circle"></i> 参数3
+                                            </h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <textarea class="form-control parameter-input" id="param3" rows="3" 
+                                                      placeholder='["v1", "v2"]'></textarea>
+                                            <div class="form-text">JSON 数组格式，例如 ["v1", "v2"]</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 原有产品配置内容 -->
                             <div class="row" id="parameters-container">
                                 <div class="col-12 mb-3">
                                     <div class="card border-primary product-config-card">
@@ -381,7 +414,7 @@
                     <div class="card">
                         <div class="card-body">
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                                <a href="{{ url_for('google_sheet.index', version='c4') }}" class="btn btn-secondary me-md-2">
+                                <a href="{{ url_for('google_sheet.index', version='c5') }}" class="btn btn-secondary me-md-2">
                                     <i class="bi bi-arrow-left"></i> 返回首页
                                 </a>
                                 <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="清除保存的表单数据">
@@ -500,7 +533,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                <a href="/google-sheet/detail?version=c4" class="btn btn-primary" id="view-task-btn" style="display: none;">查看任务详情</a>
+                <a href="/google-sheet/detail?version=c5" class="btn btn-primary" id="view-task-btn" style="display: none;">查看任务详情</a>
             </div>
         </div>
     </div>
@@ -801,12 +834,18 @@
         bindEvents();
         loadTemplates(); // 加载模板列表
 
-        // 检查是否有模板数据
+        // 检查是否有模板数据或重启配置
         {% if template %}
+            // 从模板创建任务
             loadFromTemplate({{ template | tojson | safe }});
         {% else %}
-            loadRestartConfig(); // 先加载重启配置
-            loadSavedFormData(); // 然后加载保存的表单数据
+            {% if restart_config %}
+                // 重启任务：仅使用重启配置，不再加载本地缓存，避免覆盖
+                loadRestartConfig();
+            {% else %}
+                // 普通进入创建页：仅从本地缓存恢复表单
+                loadSavedFormData();
+            {% endif %}
         {% endif %}
 
         // 初始化日期默认值（如果未从模板/重启/本地恢复）
@@ -851,8 +890,8 @@
 
     // 加载模板列表
     function loadTemplates() {
-        // 只加载 C4 类型的模板
-        fetch('/api/templates?task_type=google_sheet_C4')
+        // 只加载 C5 类型的模板
+        fetch('/api/templates?task_type=google_sheet_C5')
             .then(response => response.json())
             .then(data => {
                 if (!data || !data.status === 'success' || !Array.isArray(data.templates)) {
@@ -883,7 +922,9 @@
         fetch(`/api/templates/${templateId}`)
             .then(response => response.json())
             .then(template => {
-                const config = template.config;
+                let config = template.config;
+                console.log('[C5 fillFormWithTemplate] config =', config);
+
                 if (typeof config === 'string') {
                     try {
                         config = JSON.parse(config);
@@ -1340,8 +1381,19 @@
         } catch (e) {
             console.warn('同步产品代码到 param1 失败:', e);
         }
-        // 每次变更后更新组合数量
-        calculateCombinations();
+        // 每次变更后更新组合数量并记录日志
+        const count = calculateCombinations();
+        const p1 = parseJsonArray(param1El.value) || [];
+        const p2 = parseJsonArray(document.getElementById('param2').value) || [];
+        const p3 = parseJsonArray(document.getElementById('param3').value) || [];
+        console.log('[C5] syncProductCodesToParam1 -> 当前参数长度:', {
+            param1_len: p1.length,
+            param2_len: p2.length,
+            param3_len: p3.length,
+            combination_count: count,
+        });
+        // 同步保存表单
+        saveFormData();
     }
 
     // 渲染产品代码 chips
@@ -1387,6 +1439,7 @@
 
         inputEl.value = '';
         renderProductCodeChips();
+        console.log('[C5] addProductCodesFromInput 添加代码:', parts);
         showNotification(`已添加 ${parts.length} 个产品代码`, 'success');
     }
 
@@ -1395,17 +1448,28 @@
         if (!code) return;
         productCodes = productCodes.filter(c => c !== code);
         renderProductCodeChips();
+        console.log('[C5] removeProductCode 移除代码:', code, '剩余数量:', productCodes.length);
         showNotification(`已移除产品代码 ${code}`, 'info');
     }
 
-    // 计算参数组合数量
+    // 计算参数组合数量（参数1 * 参数2 * 参数3 的乘积）
     function calculateCombinations() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
+        const param2 = parseJsonArray(document.getElementById('param2').value) || [];
+        const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+
         const spreadsheetInput = document.getElementById('spreadsheet');
         const spreadsheetId = spreadsheetInput ? extractSpreadsheetId(spreadsheetInput.value) : null;
 
-        // 组合方式：电子表格ID或URL * 产品代码数量
-        const count = spreadsheetId ? param1.length : 0;
+        // 组合方式：电子表格ID或URL * 参数1 * 参数2 * 参数3
+        // 参数1 必须有值，否则不执行；参数2/3 为空时按 1 处理，相当于不增加维度
+        let count = 0;
+        if (spreadsheetId && param1.length > 0) {
+            const len1 = param1.length;
+            const len2 = param2.length || 1;
+            const len3 = param3.length || 1;
+            count = len1 * len2 * len3;
+        }
         
         const infoDiv = document.getElementById('combination-info');
         const countSpan = document.getElementById('combination-count');
@@ -1416,14 +1480,18 @@
         } else {
             infoDiv.style.display = 'none';
         }
-        
         return count;
     }
 
     // 显示参数组合预览
     function showCombinationPreview() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
+        const param2 = parseJsonArray(document.getElementById('param2').value) || [];
+        const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+
         const parameters = [param1];
+        if (param2.length) parameters.push(param2);
+        if (param3.length) parameters.push(param3);
         const combinations = generateCombinations(parameters);
         
         const previewContainer = document.getElementById('combination-preview');
@@ -1522,17 +1590,22 @@
             return;
         }
         
-        // 获取产品代码参数
+        // 获取参数配置
         const param1 = parseJsonArray(document.getElementById('param1').value);
+        const param2 = parseJsonArray(document.getElementById('param2').value);
+        const param3 = parseJsonArray(document.getElementById('param3').value);
         
         // 检查是否有解析错误
-        if (param1 === null) {
-            showNotification('参数格式错误，请检查JSON格式', 'error');
+        if (param1 === null || param2 === null || param3 === null) {
+            showNotification('参数格式错误，请检查 JSON 数组格式', 'error');
             return;
         }
         
-        // 构造参数列表（仅产品代码）
-        const parameters = [param1];
+        // 构造参数列表：只加入非空数组
+        const parameters = [];
+        if (Array.isArray(param1) && param1.length) parameters.push(param1);
+        if (Array.isArray(param2) && param2.length) parameters.push(param2);
+        if (Array.isArray(param3) && param3.length) parameters.push(param3);
 
         // 收集所有表格配置（主配置 + 其他可视配置）
         const sheets = [];
@@ -1618,7 +1691,7 @@
         const taskData = {
             name: finalTaskName,
             description: taskDescription || `批量执行 ${combinationCount} 个参数组合`,
-            task_type: 'google_sheet_C4',
+            task_type: 'google_sheet_C5',
             config: taskConfig
         };
         
@@ -1637,9 +1710,9 @@
                 // 清除保存的表单数据
                 clearSavedFormData();
                 
-                // 延迟1秒后跳转到详情页面（C4 模式）
+                // 延迟1秒后跳转到详情页面（C5 模式）
                 setTimeout(function() {
-                    window.location.href = `/google-sheet/detail?task_id=${currentTaskId}&version=c4`;
+                    window.location.href = `/google-sheet/detail?task_id=${currentTaskId}&version=c5`;
                 }, 1000);
             } else {
                 showNotification('创建任务失败: ' + (data ? data.message : '未知错误'), 'error');
@@ -1684,11 +1757,13 @@
             proxy_url: document.getElementById('proxy_url').value,
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
             date_range_mode: getSelectedDateRangeModes(),
-            param1: document.getElementById('param1').value
+            param1: document.getElementById('param1').value,
+            param2: document.getElementById('param2').value,
+            param3: document.getElementById('param3').value
         };
         
         try {
-            localStorage.setItem('google_sheet_c4_form_data', JSON.stringify(formData));
+            localStorage.setItem('google_sheet_c5_form_data', JSON.stringify(formData));
             // 静默保存，不显示提示
         } catch (e) {
             console.warn('无法保存表单数据到localStorage:', e);
@@ -1698,7 +1773,7 @@
     // 从localStorage加载表单数据
     function loadSavedFormData() {
         try {
-            const savedData = localStorage.getItem('google_sheet_c4_form_data');
+            const savedData = localStorage.getItem('google_sheet_c5_form_data');
             if (savedData) {
                 const formData = JSON.parse(savedData);
                 
@@ -1718,6 +1793,10 @@
                 if (formData.proxy_url) document.getElementById('proxy_url').value = formData.proxy_url;
                 const param1El = document.getElementById('param1');
                 if (formData.param1 && param1El) param1El.value = formData.param1;
+                const param2El = document.getElementById('param2');
+                if (formData.param2 && param2El) param2El.value = formData.param2;
+                const param3El = document.getElementById('param3');
+                if (formData.param3 && param3El) param3El.value = formData.param3;
 
                 if (formData.market_type) {
                     const mtInput = document.querySelector(`input[name="market_type"][value="${formData.market_type}"]`);
@@ -1745,18 +1824,18 @@
         }
     }
 
-    // 清除保存的表单数据
+    // 清除保存的表单数据（仅清理 C5 自己的缓存）
     function clearSavedFormData() {
         try {
-            localStorage.removeItem('google_sheet_c4_form_data');
+            localStorage.removeItem('google_sheet_c5_form_data');
             // 重置表单
             document.getElementById('parameter-form').reset();
             // 隐藏组合信息
             document.getElementById('combination-info').style.display = 'none';
             // 重新计算组合数量
             calculateCombinations();
-            console.log('已清除保存的表单数据');
-            showNotification('已清除保存的表单数据', 'success');
+            console.log('已清除 C5 表单缓存');
+            showNotification('已清除 C5 表单缓存', 'success');
         } catch (e) {
             console.warn('无法清除localStorage数据:', e);
         }
@@ -1795,6 +1874,7 @@
             const proxyUrl = document.getElementById('proxy_url').value;
             const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
             const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+            const dateRangeModes = getSelectedDateRangeModes();
             const startDate = document.getElementById('start_date')?.value || null;
             const endDate = document.getElementById('end_date')?.value || null;
 
@@ -1819,12 +1899,14 @@
                 return null;
             }
 
-            // 获取产品代码参数
+            // 获取参数配置
             const param1 = parseJsonArray(document.getElementById('param1').value);
+            const param2 = parseJsonArray(document.getElementById('param2').value);
+            const param3 = parseJsonArray(document.getElementById('param3').value);
 
             // 检查是否有解析错误
-            if (param1 === null) {
-                showError('参数格式错误，请检查JSON格式');
+            if (param1 === null || param2 === null || param3 === null) {
+                showError('参数格式错误，请检查 JSON 数组格式');
                 return null;
             }
 
@@ -1872,18 +1954,25 @@
                 });
             }
 
-            // 构造配置对象（C4 专用结构）
+            // 构造参数列表：只加入非空数组
+            const parameters = [];
+            if (Array.isArray(param1) && param1.length) parameters.push(param1);
+            if (Array.isArray(param2) && param2.length) parameters.push(param2);
+            if (Array.isArray(param3) && param3.length) parameters.push(param3);
+
+            // 构造配置对象（C5 结构，包含 task_type，供模板过滤）
             return {
-                task_type: 'google_sheet_C4',
+                task_type: 'google_sheet_C5',
                 token_type: tokenType,
                 token_file: tokenFile,
                 token_json: tokenJson,
                 proxy_url: proxyUrl || null,
                 count_mode: countMode,
                 market_type: marketType,
+                date_range_mode: dateRangeModes,
                 start_date: startDate,
                 end_date: endDate,
-                parameters: [param1],
+                parameters: parameters,
                 sheets: sheets
             };
         } catch (error) {
@@ -1996,19 +2085,33 @@
             // 填充Google Sheet配置（优先使用 sheets 数组）
             let primarySpreadsheetId = '';
             let primarySheetName = '';
+            let primaryTitle = '';
 
             if (Array.isArray(restartConfig.sheets) && restartConfig.sheets.length > 0) {
                 const firstSheet = restartConfig.sheets[0] || {};
                 primarySpreadsheetId = firstSheet.spreadsheet_id || '';
                 primarySheetName = firstSheet.sheet_name || '';
+                primaryTitle = firstSheet.title || '';
             } else {
                 primarySpreadsheetId = restartConfig.spreadsheet_id || '';
                 primarySheetName = restartConfig.sheet_name || '';
             }
 
             if (primarySpreadsheetId) {
-                document.getElementById('spreadsheet').value = primarySpreadsheetId;
+                const spreadsheetInputEl = document.getElementById('spreadsheet');
+                if (spreadsheetInputEl) {
+                    spreadsheetInputEl.value = primarySpreadsheetId;
+                }
             }
+
+            // 表标题（可选）
+            if (primaryTitle) {
+                const titleInputEl = document.getElementById('spreadsheet_title');
+                if (titleInputEl) {
+                    titleInputEl.value = primaryTitle;
+                }
+            }
+
             if (primarySheetName) {
                 // 与模板加载逻辑保持一致：先保存到 data-saved-value
                 // 等 loadWorksheetsForItem 拉取到工作表列表后再真正选中
@@ -2016,7 +2119,13 @@
                 if (sheetSelect) {
                     sheetSelect.setAttribute('data-saved-value', primarySheetName);
                 }
-                // 不在这里强制切换为“自定义工作表名称”，避免在还没加载下拉列表时进入错误状态
+            }
+
+            // 触发一次工作表列表加载，以便根据 data-saved-value 选中原来的工作表
+            try {
+                loadWorksheets(false);
+            } catch (e) {
+                console.warn('重启任务时自动加载工作表列表失败:', e);
             }
 
             // 多张表：为后续表创建可视配置块
@@ -2069,14 +2178,18 @@
                 }
             }
             
-            // 填充参数配置
+            // 填充参数配置（支持多组 parameters -> param1/param2/param3）
             if (restartConfig.parameters && Array.isArray(restartConfig.parameters)) {
-                const firstParam = restartConfig.parameters[0];
-                const paramElement = document.getElementById('param1');
-                if (paramElement && Array.isArray(firstParam)) {
-                    paramElement.value = JSON.stringify(firstParam);
-                    initProductCodeChipsFromParam1();
-                }
+                restartConfig.parameters.forEach((paramGroup, index) => {
+                    const paramId = `param${index + 1}`;
+                    const paramElement = document.getElementById(paramId);
+                    if (paramElement && Array.isArray(paramGroup)) {
+                        paramElement.value = JSON.stringify(paramGroup);
+                    }
+                });
+
+                // 基于 param1 初始化产品代码 chips
+                initProductCodeChipsFromParam1();
             }
             
             // 更新页面标题

@@ -159,15 +159,15 @@ class GoogleSheetService:
             end_date = config_data.get('end_date')
             start_date = config_data.get('start_date')
             market_type = config_data.get('market_type')
-            c4_input_column_a = config_data.get('c4_input_column_a').upper()
-            c4_input_column_b = config_data.get('c4_input_column_b').upper()
+            c5_input_column_a = config_data.get('c5_input_column_a').upper()
+            c5_input_column_b = config_data.get('c5_input_column_b').upper()
 
             # 仅使用 parameters[0] 作为外层参数列表，真实总组合数为所有 inner combinations 数量之和
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
             for outer_param in parameters[0]:
                 combinations, column_A_length = self._get_all_parameters(
-                    outer_param, count_mode, end_date, start_date, market_type,date_range_mode
+                    outer_param, count_mode, end_date, start_date, market_type,date_range_mode,parameters
                 )
                 precomputed_params.append((combinations, column_A_length))
                 total_combinations += len(combinations)
@@ -193,7 +193,7 @@ class GoogleSheetService:
                 if A_num < 10:
                     continue
                 self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
-                google_sheet.clear_range(f"{c4_input_column_a}2:{c4_input_column_b}{A_num+2}")
+                google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
 
             self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
             time.sleep(20)
@@ -246,8 +246,9 @@ class GoogleSheetService:
 
                         # 保存结果到数据库
                         self._save_task_result(current_step - 1, {
+                            **combination,
                             'stock_code':combination['stock_code'],
-                            'kline':[combination['kline'][0],combination['kline'][-1]]
+                            'kline':[combination['kline'][0],combination['kline'][-1]],
                         }, result, success)
 
                     except checkForErrors as e:
@@ -413,44 +414,49 @@ class GoogleSheetService:
         """执行单个参数组合"""
         try:
             # 获取参数位置配置
-            c4_input_column_a = config_data.get('c4_input_column_a').upper()
-            c4_input_column_b = config_data.get('c4_input_column_b').upper()
+            c5_input_column_a = config_data.get('c5_input_column_a').upper()
+            c5_input_column_b = config_data.get('c5_input_column_b').upper()
 
-            c4_output_range_1 = config_data.get('c4_output_range_1')
-            c4_output_range_2 = config_data.get('c4_output_range_2')
-            c4_output_column_j = config_data.get('c4_output_column_j')
-            c4_output_column_l = config_data.get('c4_output_column_l')
-
-            for google_sheet in self.google_sheets:
-                # A_num = google_sheet.get_last_row('A')
-                A_num = column_A_length
-                self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
-                google_sheet.clear_range(f"{c4_input_column_a}2:{c4_input_column_b}{A_num+2}")
+            c5_output_range_1 = config_data.get('c5_output_range_1')
+            c5_output_range_2 = config_data.get('c5_output_range_2')
+            c5_parameter_positions = config_data.get('c5_parameter_positions')
+            c5_output_column_j = config_data.get('c5_output_column_j')
+            c5_output_column_l = config_data.get('c5_output_column_l')
 
             initial_results = {}
 
             results = {}
-
             cell_updates = {}
+            c5_parameter_1 = f"xm:{combination[c5_parameter_positions[0]]}"
+            c5_parameter_2 = f"ml:{combination[c5_parameter_positions[1]]}"
+            cell_updates[c5_parameter_positions[0]] = c5_parameter_1
+            cell_updates[c5_parameter_positions[1]] = c5_parameter_2
 
-            kline = combination['kline']
-            # 准备要更新的单元格
-            for i in range(len(kline)):
-                item = {}
-                if i <= len(kline):
-                    item = kline[i]
-                cell_num = i + 2
-                cell_A = f"{c4_input_column_a}{cell_num}"
-                cell_B = f"{c4_input_column_b}{cell_num}"
-                stock_date = item.get('stock_date', "")
-                stock_val = item.get('stock_val', "")
-                cell_updates[cell_A] = stock_date
-                cell_updates[cell_B] = stock_val
+            if 'kline' in combination:
+                for google_sheet in self.google_sheets:
+                    # A_num = google_sheet.get_last_row('A')
+                    A_num = column_A_length
+                    self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
+                    google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
+
+                kline = combination['kline']
+                # 准备要更新的单元格
+                for i in range(len(kline)):
+                    item = {}
+                    if i <= len(kline):
+                        item = kline[i]
+                    cell_num = i + 2
+                    cell_A = f"{c5_input_column_a}{cell_num}"
+                    cell_B = f"{c5_input_column_b}{cell_num}"
+                    stock_date = item.get('stock_date', "")
+                    stock_val = item.get('stock_val', "")
+                    cell_updates[cell_A] = stock_date
+                    cell_updates[cell_B] = stock_val
 
             for google_sheet in self.google_sheets:
                 self._log_info(f"向Google Sheet写入参数: {google_sheet.title} 长度：{len(cell_updates)}")
                 google_sheet.update_jumped_cells(cell_updates)
-                initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c4_output_range_1)
+                initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
 
             def check_result(check_values):
                 _check_values = {}
@@ -483,7 +489,9 @@ class GoogleSheetService:
 
                 _check_values = initial_results[spreadsheet_id]
 
-                if _check_values['D2'] == check_values['D2'] and _check_values['D3'] == check_values['D3']:
+                if (_check_values[f'{c5_output_range_1[0]}2'] == check_values[f'{c5_output_range_1[0]}2']
+                        and _check_values[f'{c5_output_range_1[0]}3'] == check_values[f'{c5_output_range_1[0]}3']):
+                # if _check_values['D2'] == check_values['D2'] and _check_values['D3'] == check_values['D3']:
                     return False
 
                 return True
@@ -510,32 +518,33 @@ class GoogleSheetService:
                 all_num = 0
                 for google_sheet in self.google_sheets:
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                    _result = google_sheet.get_range(c4_output_range_1)
+                    _result = google_sheet.get_range(c5_output_range_1)
                     if _validate_check_values(_result, google_sheet.spreadsheet_id):
                         # _result = check_result(_result)
-                        _result_yearly = google_sheet.get_range(c4_output_range_2)
-                        # _result_yearly = check_result(google_sheet.get_range(c4_output_range_2))
+                        _result_yearly = google_sheet.get_range(c5_output_range_2)
+                        # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
+                        _result.update(_result_yearly)
+
                         _index_return = check_result(
-                            google_sheet.get_range(f"{c4_output_column_j}2:{c4_output_column_j}{len(kline) + 1}")
+                            google_sheet.get_range(f"{c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1}")
                         )
                         _start_return = check_result(
-                            google_sheet.get_range(f"{c4_output_column_l}2:{c4_output_column_l}{len(kline) + 1}")
+                            google_sheet.get_range(f"{c5_output_column_l}2:{c5_output_column_l}{len(kline) + 1}")
                         )
                         _index_return_date = []
                         _start_return_date = []
                         for i in range(len(kline)):
                             _index_return_date.append({
                                 'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _index_return[f"{c4_output_column_j}{i + 2}"]
+                                'stock_val': _index_return[f"{c5_output_column_j}{i + 2}"]
                             })
                             _start_return_date.append({
                                 'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _start_return[f"{c4_output_column_l}{i + 2}"]
+                                'stock_val': _start_return[f"{c5_output_column_l}{i + 2}"]
                             })
 
                         _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
                         _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
-                        _result.update(_result_yearly)
                         _result['index_return_xpl'] = _index_return_xpl
                         _result['start_return_xpl'] = _start_return_xpl
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
@@ -557,7 +566,7 @@ class GoogleSheetService:
                     time.sleep(30)
                     for google_sheet in self.google_sheets:
                         self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                        initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c4_output_range_1)
+                        initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
 
             self._log_warning("执行超时，未在规定时间内完成")
             return False, {}
@@ -724,7 +733,7 @@ class GoogleSheetService:
             # 注意：这里不能使用_push_log，因为可能导致循环调用
 
     @staticmethod
-    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode):
+    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode,parameters):
 
         def _get_kline(klines, year=None,_start_date=None, _end_date=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -762,6 +771,7 @@ class GoogleSheetService:
 
         if stock_config:
             stock_config = stock_config[0]
+
         market = stock_config['market']
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
@@ -771,43 +781,82 @@ class GoogleSheetService:
         klines = dfcf_api.get_stock_kline_data(parameter, market, limit)
         all_kline = _get_kline(klines, _start_date=start_date, _end_date=end_date)
         data = [
-            {'stock_code': parameter, 'kline': all_kline}
         ]
+        for v1 in parameters[1]:
+            for v2 in parameters[2]:
+                data.append({'stock_code': parameter, 'kline': all_kline,"A1":v1,"B1":v2})
+                if count_mode != 'n_plus_1':
+                    continue
 
-        if count_mode != 'n_plus_1':
-            return data,len(all_kline) + 20
+                if 'recent' in date_range_mode:
+                    for i in range(1, (_end_year_1 - _start_date) + 1):
+                        _i = i
+                        if i!=0:
+                            _i = i - 1
 
-        if 'recent' in date_range_mode:
-            if count_mode == 'n_plus_1':
-                for i in range(1, (_end_year_1 - _start_date) + 1):
-                    _i = i
-                    if i!=0:
-                        _i = i - 1
+                        _end_data = f"{_end_year_1-_i}{end_date[4:]}"
+                        _start_data = f"{_end_year_1 - i}{end_date[4:]}"
+                        d = {"A1":v1,"B1":v2}
+                        kline = _get_kline(klines, _start_data, _end_data)
+                        if kline:
+                            d['stock_code'] = parameter
+                            d['kline'] = kline
+                            data.append(d)
 
-                    _end_data = f"{_end_year_1-_i}{end_date[4:]}"
-                    _start_data = f"{_end_year_1 - i}{end_date[4:]}"
-                    d = {}
-                    kline = _get_kline(klines, _start_data, _end_data)
-                    if kline:
-                        d['stock_code'] = parameter
-                        d['kline'] = kline
+                if 'full' in date_range_mode:
+                    _all_kline = [ k for k in klines if start_date <= k['stock_date'] <= end_date]
+                    for i in range(_start_date, _end_year_1 + 1):
+                        d = {"A1":v1,"B1":v2}
+                        kline = _get_kline(_all_kline,year=i)
+                        if kline and len(kline) > 30:
+                            d['stock_code'] = parameter
+                            d['year'] = i
+                            d['kline'] = kline
+                            data.append(d)
 
-                        data.append(d)
 
-        if 'full' in date_range_mode:
-            all_kline = [ k for k in klines if start_date <= k['stock_date'] <= end_date]
-            for i in range(_start_date, _end_year_1 + 1):
-                d = {}
-                kline = _get_kline(all_kline,year=i)
-                if kline and len(kline) > 30:
-                    d['stock_code'] = parameter
-                    d['year'] = i
-                    d['kline'] = kline
-
-                    data.append(d)
+        # for v1 in parameters[1]:
+        #     for v2 in parameters[2]:
+        #         data.append({'stock_code': parameter, 'kline': all_kline,"A1":v1,"B1":v2})
+        # if count_mode != 'n_plus_1':
+        #     return data, len(all_kline) + 20
+        #
+        # if 'recent' in date_range_mode:
+        #     for year in range(1, (_end_year_1 - _start_date) + 1):
+        #         _year = year
+        #         if year!=0:
+        #             _year = year - 1
+        #
+        #         _end_data = f"{_end_year_1-_year}{end_date[4:]}"
+        #         _start_data = f"{_end_year_1 - year}{end_date[4:]}"
+        #         kline = _get_kline(klines, _start_date=_start_data, _end_date=_end_data)
+        #
+        #         for i,v1 in enumerate(parameters[1]):
+        #             for j,v2 in enumerate(parameters[2]):
+        #                 d = {"A1": v1, "B1": v2, 'stock_code': parameter}
+        #                 if i==0 and j==0:
+        #                     if kline:
+        #                         d['kline'] = kline
+        #                 data.append(d)
+        #
+        # if 'full' in date_range_mode:
+        #     _all_kline = [ k for k in klines if start_date <= k['stock_date'] <= end_date]
+        #     for year in range(_start_date, _end_year_1 + 1):
+        #         kline = _get_kline(_all_kline, year=year)
+        #
+        #         for i,v1 in enumerate(parameters[1]):
+        #             for j,v2 in enumerate(parameters[2]):
+        #                 d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year}
+        #                 if i==0 and j==0:
+        #                     if kline and len(kline) > 30:
+        #                         d['kline'] = kline
+        #                     else:
+        #                         continue
+        #                 data.append(d)
 
         return data, len(all_kline) + 20
 
 
 if __name__ == '__main__':
-    GoogleSheetService({}, '')._get_all_parameters('000001', 'n_plus_1', '2025-05-01', '2023-05-01', 'cn')
+    GoogleSheetService({}, '')._get_all_parameters('000001', 'n_plus_1', '2025-05-01', '2023-05-01', 'cn',
+                                                   ['full','recent'],[[],[1,2],[1,2]])

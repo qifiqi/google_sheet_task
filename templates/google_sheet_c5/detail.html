@@ -1,6 +1,6 @@
-{% extends "google_sheet_c4/base.html" %}
+{% extends "google_sheet_c5/base.html" %}
 
-{% block title %}任务详情 - Google Sheet C4 参数批量校验{% endblock %}
+{% block title %}任务详情 - Google Sheet C5 参数批量校验{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -35,7 +35,7 @@
                     <button class="btn btn-outline-info btn-sm" id="check-status-btn" onclick="checkTaskStatus()">
                         <i class="bi bi-search"></i> 检查状态
                     </button>
-                    <a href="{{ url_for('google_sheet.index', version='c4') }}" class="btn btn-secondary btn-sm">
+                    <a href="{{ url_for('google_sheet.index', version='c5') }}" class="btn btn-secondary btn-sm">
                         <i class="bi bi-arrow-left"></i> 返回首页
                     </a>
                 </div>
@@ -1165,42 +1165,45 @@
         const container = document.getElementById('parameters-container');
         container.innerHTML = '';
 
-        if (!config) {
+        if (!config || !Array.isArray(config.parameters) || config.parameters.length === 0) {
             container.innerHTML = '<div class="text-muted">无参数配置</div>';
             return;
         }
-        // C4 专用渲染
 
-        // === 产品代码（chips，小卡片，与创建页风格一致） ===
-        const codes = Array.isArray(config.parameters && config.parameters[0])
-            ? config.parameters[0]
-            : [];
+        // C5：支持多组参数，逐组展示为 chips
+        const paramsArr = config.parameters;
 
-        const codesDiv = document.createElement('div');
-        codesDiv.className = 'mb-3';
-        codesDiv.innerHTML = '<strong class="d-block mb-1">产品代码</strong>';
+        paramsArr.forEach((paramGroup, index) => {
+            const values = Array.isArray(paramGroup) ? paramGroup : [];
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'mb-3';
 
-        if (codes.length > 0) {
-            const chips = document.createElement('div');
-            chips.className = 'd-flex flex-wrap gap-1';
-            codes.forEach(code => {
-                const span = document.createElement('span');
-                span.className = 'badge bg-primary';
-                span.style.fontSize = '0.75rem';
-                span.textContent = code;
-                chips.appendChild(span);
-            });
-            codesDiv.appendChild(chips);
-        } else {
-            const emptyCodes = document.createElement('div');
-            emptyCodes.className = 'text-muted small';
-            emptyCodes.textContent = '无产品代码配置';
-            codesDiv.appendChild(emptyCodes);
-        }
+            // 标题：参数1 / 参数2 / 参数3 ...
+            const title = document.createElement('strong');
+            title.className = 'd-block mb-1';
+            title.textContent = `参数${index + 1}`;
+            groupDiv.appendChild(title);
 
-        container.appendChild(codesDiv);
+            if (values.length > 0) {
+                const chips = document.createElement('div');
+                chips.className = 'd-flex flex-wrap gap-1';
+                values.forEach(v => {
+                    const span = document.createElement('span');
+                    span.className = 'badge bg-primary';
+                    span.style.fontSize = '0.75rem';
+                    span.textContent = v;
+                    chips.appendChild(span);
+                });
+                groupDiv.appendChild(chips);
+            } else {
+                const empty = document.createElement('div');
+                empty.className = 'text-muted small';
+                empty.textContent = '该参数组无配置';
+                groupDiv.appendChild(empty);
+            }
 
-        // 不再展示原始 JSON，仅显示产品代码
+            container.appendChild(groupDiv);
+        });
     }
 
     // 加载任务结果（后端分页）
@@ -1214,8 +1217,8 @@
                 groupedResults = groupResults(data.results);
                 flattenedResults = flattenResults(data.results);
 
-                resultsTotalPages   = data.pages || 1;
-                resultsTotalCount   = data.total != null ? data.total : groupedResults.length;
+                resultsTotalPages = data.pages || 1;
+                resultsTotalCount = data.total != null ? data.total : groupedResults.length;
                 resultsTotalSuccess = typeof data.total_success === 'number' ? data.total_success : null;
                 resultsTotalFailed  = typeof data.total_failed  === 'number' ? data.total_failed  : null;
                 currentResultsPage  = data.current_page || targetPage;
@@ -1251,6 +1254,9 @@
                     klineRange = `${first.stock_date || '-'} ~ ${last.stock_date || '-'}`;
                 }
             }
+
+            const a1 = params.A1 != null ? params.A1 : null;
+            const b1 = params.B1 != null ? params.B1 : null;
 
             const resultObj = item.result && typeof item.result === 'object' ? item.result : {};
             const models = [];
@@ -1300,6 +1306,8 @@
                 rowId: item.id != null ? item.id : null,
                 parameters: params,
                 stockCode: stockCode,
+                a1: a1,
+                b1: b1,
                 klineRange: klineRange,
                 models: models
             });
@@ -1430,8 +1438,7 @@
             pageResults.forEach((group, idx) => {
                 const col = document.createElement('div');
                 col.className = 'col-12';
-
-                const groupIndex = idx; // 当前页内索引
+                const groupIndex = idx; // 当前页内的索引
 
                 const modelsRows = (group.models || []).map((model, mIndex) => {
                     const d2Text = model.d2 != null
@@ -1495,6 +1502,8 @@
                                     <span class="fw-semibold">${group.stockCode}</span>
                                     <span> · K线区间：${group.klineRange}</span>
                                     <span> · 步骤 ${group.stepIndex + 1}</span>
+                                    <span> · A1：${group.a1 != null ? group.a1 : '-'}</span>
+                                    <span> · B1：${group.b1 != null ? group.b1 : '-'}</span>
                                     <span> · 执行时间：${formatTime(group.timestamp) || '-'}</span>
                                 </div>
                             </div>
@@ -1545,9 +1554,9 @@
     function renderResultsPagination() {
         const pagination = document.getElementById('results-pagination');
         pagination.innerHTML = '';
-        
+
         const totalPages = resultsTotalPages || 1;
-        
+
         if (totalPages <= 1) return;
         
         // 上一页
@@ -1603,107 +1612,116 @@
 
             const rows = [];
 
-            // 使用字段映射表中的 D2-D20 作为指标列，按统一排序
-            const metricKeys = sortMetricKeys(Object.keys(metricDisplayNameMap));
+        // 使用字段映射表中的 D2-D20 作为指标列，按统一排序
+        const metricKeys = sortMetricKeys(Object.keys(metricDisplayNameMap));
 
-            // 表头：与 C5 保持一致
+            // 表头：尽量与前端展示列对应，并附加部分补充信息
             const header = [
-                'step_index',
-                'success',
-                'stock_code',
-                'kline_range',
-                'model_title'
-            ];
+            'step_index',
+            'success',
+            'stock_code',
+            'kline_range',
+            'model_title'
+        ];
 
-            // D2-D20：使用映射表中的显示名
+        // D2-D20：使用映射表中的显示名
             metricKeys.forEach(key => {
                 header.push(getMetricDisplayLabel(key));
             });
 
             // 追加 xpl 相关统计字段
             header.push(
-                'start_avg_monthly_return',
-                'start_monthly_std_dev',
-                'start_annual_std_dev',
-                'index_avg_monthly_return',
-                'index_monthly_std_dev',
-                'index_annual_std_dev',
-                'task_id',
-                'timestamp',
-                'error_message'
-            );
+            'start_avg_monthly_return',
+            'start_monthly_std_dev',
+            'start_annual_std_dev',
+            'index_avg_monthly_return',
+            'index_monthly_std_dev',
+            'index_annual_std_dev',
+            'task_id',
+            'timestamp',
+            'error_message'
+        );
             rows.push(header);
 
             exportGroupedResults.forEach(group => {
-                const baseInfo = {
-                    stepIndex: group.stepIndex != null ? group.stepIndex : '',
-                    success: group.success ? 'success' : 'failed',
-                    stockCode: group.stockCode != null ? group.stockCode : '',
-                    klineRange: group.klineRange != null ? group.klineRange : '',
-                    rowId: group.rowId != null ? group.rowId : '',
-                    taskId: group.taskId != null ? group.taskId : '',
-                    timestamp: group.timestamp != null ? formatTime(group.timestamp) : '',
-                    errorMessage: group.errorMessage != null ? group.errorMessage : ''
-                };
+            const baseInfo = {
+                stepIndex: group.stepIndex != null ? group.stepIndex : '',
+                success: group.success ? 'success' : 'failed',
+                stockCode: group.stockCode != null ? group.stockCode : '',
+                klineRange: group.klineRange != null ? group.klineRange : '',
+                rowId: group.rowId != null ? group.rowId : '',
+                taskId: group.taskId != null ? group.taskId : '',
+                timestamp: group.timestamp != null ? formatTime(group.timestamp) : '',
+                errorMessage: group.errorMessage != null ? group.errorMessage : ''
+            };
 
-                const models = Array.isArray(group.models) ? group.models : [];
-                if (models.length === 0) {
-                    const emptyMetrics = metricKeys.map(() => '');
-                    rows.push([
-                        baseInfo.stepIndex,
-                        baseInfo.success,
-                        baseInfo.stockCode,
-                        baseInfo.klineRange,
-                        '',
-                        ...emptyMetrics,
-                        '', '', '', '', '', '',
-                        baseInfo.taskId,
-                        baseInfo.timestamp,
-                        baseInfo.errorMessage
-                    ]);
-                    return;
-                }
+            const models = Array.isArray(group.models) ? group.models : [];
+            if (models.length === 0) {
+                const emptyMetrics = metricKeys.map(() => '');
+                rows.push([
+                    baseInfo.stepIndex,   // step_index
+                    baseInfo.success,     // success
+                    baseInfo.stockCode,   // stock_code
+                    baseInfo.klineRange,  // kline_range
+                    '',                   // model_title
+                    ...emptyMetrics,      // D2-D20 指标列
+                    '',                   // start_avg_monthly_return
+                    '',                   // start_monthly_std_dev
+                    '',                   // start_annual_std_dev
+                    '',                   // index_avg_monthly_return
+                    '',                   // index_monthly_std_dev
+                    '',                   // index_annual_std_dev
+                    baseInfo.taskId,      // task_id
+                    baseInfo.timestamp,   // timestamp
+                    baseInfo.errorMessage // error_message
+                ]);
+                return;
+            }
 
-                models.forEach(model => {
-                    const metrics = model.rawMetrics || {};
-                    const startXpl = metrics.start_return_xpl || {};
-                    const indexXpl = metrics.index_return_xpl || {};
+            models.forEach(model => {
+                const iSharpe = model.indexSharpe != null ? model.indexSharpe : '';
+                const sSharpe = model.startSharpe != null ? model.startSharpe : '';
 
-                    const startAvgRet   = startXpl.avg_monthly_return  != null ? startXpl.avg_monthly_return  : '';
-                    const startStd      = startXpl.monthly_std_dev      != null ? startXpl.monthly_std_dev      : '';
-                    const startAnnualStd= startXpl.annual_std_dev       != null ? startXpl.annual_std_dev       : '';
+                // 从 rawMetrics 中读取 start/index 的 xpl 统计字段
+                const metrics = model.rawMetrics || {};
+                const startXpl = metrics.start_return_xpl || {};
+                const indexXpl = metrics.index_return_xpl || {};
 
-                    const indexAvgRet   = indexXpl.avg_monthly_return  != null ? indexXpl.avg_monthly_return  : '';
-                    const indexStd      = indexXpl.monthly_std_dev      != null ? indexXpl.monthly_std_dev      : '';
-                    const indexAnnualStd= indexXpl.annual_std_dev       != null ? indexXpl.annual_std_dev       : '';
+                const startAvgRet = startXpl.avg_monthly_return != null ? startXpl.avg_monthly_return : '';
+                const startStd = startXpl.monthly_std_dev != null ? startXpl.monthly_std_dev : '';
+                const startAnnualStd = startXpl.annual_std_dev != null ? startXpl.annual_std_dev : '';
 
-                    const title = model.modelTitle && model.modelTitle.length > 0
-                        ? model.modelTitle
-                        : (model.modelKey || '');
+                const indexAvgRet = indexXpl.avg_monthly_return != null ? indexXpl.avg_monthly_return : '';
+                const indexStd = indexXpl.monthly_std_dev != null ? indexXpl.monthly_std_dev : '';
+                const indexAnnualStd = indexXpl.annual_std_dev != null ? indexXpl.annual_std_dev : '';
 
-                    // D2-D20：按 metricKeys 顺序从 rawMetrics 中取值
-                    const metricValues = metricKeys.map(key => (
-                        metrics[key] != null ? metrics[key] : ''
-                    ));
+                const title = model.modelTitle && model.modelTitle.length > 0
+                    ? model.modelTitle
+                    : (model.modelKey || '');
 
-                    rows.push([
-                        baseInfo.stepIndex,
-                        baseInfo.success,
-                        baseInfo.stockCode,
-                        baseInfo.klineRange,
-                        title,
-                        ...metricValues,
-                        startAvgRet,
-                        startStd,
-                        startAnnualStd,
-                        indexAvgRet,
-                        indexStd,
-                        indexAnnualStd,
-                        baseInfo.taskId,
-                        baseInfo.timestamp,
-                        baseInfo.errorMessage
-                    ]);
-                });
+                // D2-D20：按 metricKeys 顺序从 rawMetrics 中取值
+                const metricValues = metricKeys.map(key => (
+                    metrics[key] != null ? metrics[key] : ''
+                ));
+
+                rows.push([
+                    baseInfo.stepIndex,
+                    baseInfo.success,
+                    baseInfo.stockCode,
+                    baseInfo.klineRange,
+                    title,
+                    ...metricValues,
+                    startAvgRet,
+                    startStd,
+                    startAnnualStd,
+                    indexAvgRet,
+                    indexStd,
+                    indexAnnualStd,
+                    baseInfo.taskId,
+                    baseInfo.timestamp,
+                    baseInfo.errorMessage
+                ]);
+            });
             });
 
             const csvContent = convertRowsToCSV(rows);
@@ -1763,14 +1781,13 @@
 
         if (typeof resultsTotalSuccess === 'number' && typeof resultsTotalFailed === 'number') {
             successCount = resultsTotalSuccess;
-            failedCount  = resultsTotalFailed;
-            totalCount   = resultsTotalCount || (resultsTotalSuccess + resultsTotalFailed);
+            failedCount = resultsTotalFailed;
+            totalCount = resultsTotalCount || (resultsTotalSuccess + resultsTotalFailed);
         } else {
             successCount = groupedResults.filter(result => result.success).length;
-            failedCount  = groupedResults.filter(result => !result.success).length;
-            totalCount   = groupedResults.length;
+            failedCount = groupedResults.filter(result => !result.success).length;
+            totalCount = groupedResults.length;
         }
-
         const successRate = totalCount > 0 ? Math.round((successCount / totalCount) * 100) : 0;
         
         document.getElementById('success-count').textContent = successCount;
@@ -1805,7 +1822,7 @@
             modalTitle.textContent = `${result.modelKey || ''}`;
         }
 
-        metaEl.textContent = `股票代码：${group.stockCode || '-'} · K线区间：${group.klineRange || '-'} · 步骤 ${group.stepIndex + 1} · 执行时间：${formatTime(group.timestamp) || '-'}`;
+        metaEl.textContent = `股票代码：${group.stockCode || '-'} · K线区间：${group.klineRange || '-'} · 步骤 ${group.stepIndex + 1} · A1：${group.a1 != null ? group.a1 : '-'} · B1：${group.b1 != null ? group.b1 : '-'} · 执行时间：${formatTime(group.timestamp) || '-'}`;
 
         const metrics = result.rawMetrics || {};
 
@@ -2141,9 +2158,9 @@
         });
     }
 
-    // 跳转到创建重启任务页面（C4 模式）
+    // 跳转到创建重启任务页面（C5 模式）
     function goToCreateRestartTask() {
-        window.location.href = `/google-sheet/create-restart/${currentTaskId}?version=c4`;
+        window.location.href = `/google-sheet/create-restart/${currentTaskId}?version=c5`;
     }
 
     // 创建新的重启任务

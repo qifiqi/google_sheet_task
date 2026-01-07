@@ -184,6 +184,64 @@
     </div>
 </div>
 
+<!-- C5 参数配置（上下布局） -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-layout-three-columns"></i> C5 参数配置
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- 输入列配置 -->
+                <div class="mb-3">
+                    <h6>C5 输入列</h6>
+                    <p class="small text-muted mb-2">配置 C5 模板使用的输入列（整列）</p>
+                    <div class="row">
+                        <div class="col-md-3 mb-2">
+                            <label for="c5_input_column_a" class="form-label small">输入列 A</label>
+                            <input type="text" class="form-control form-control-sm" id="c5_input_column_a" placeholder="A">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label for="c5_input_column_b" class="form-label small">输入列 B</label>
+                            <input type="text" class="form-control form-control-sm" id="c5_input_column_b" placeholder="B">
+                        </div>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- 输出区域配置 -->
+                <div class="mb-3">
+                    <h6>C5 输出区域</h6>
+                    <p class="small text-muted mb-2">配置 C5 模板的结果区域和整列输出</p>
+                    <div class="row mb-2">
+                        <div class="col-md-4 mb-2">
+                            <label for="c5_output_range_1" class="form-label small">输出区域 1</label>
+                            <input type="text" class="form-control form-control-sm" id="c5_output_range_1" placeholder="D2:D20">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label for="c5_output_range_2" class="form-label small">输出区域 2</label>
+                            <input type="text" class="form-control form-control-sm" id="c5_output_range_2" placeholder="D22:F25">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <label for="c5_output_column_j" class="form-label small">输出列 J</label>
+                            <input type="text" class="form-control form-control-sm" id="c5_output_column_j" placeholder="J:J">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label for="c5_output_column_l" class="form-label small">输出列 L</label>
+                            <input type="text" class="form-control form-control-sm" id="c5_output_column_l" placeholder="L:L">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- C4 参数配置（上下布局） -->
 <div class="row mt-4">
     <div class="col-12">
@@ -279,6 +337,14 @@
                 document.getElementById('c4_output_range_2').value = config.c4_output_range_2 || 'D22:F25';
                 document.getElementById('c4_output_column_j').value = config.c4_output_column_j || 'J:J';
                 document.getElementById('c4_output_column_l').value = config.c4_output_column_l || 'L:L';
+
+                // C5 配置
+                document.getElementById('c5_input_column_a').value = config.c5_input_column_a || 'A';
+                document.getElementById('c5_input_column_b').value = config.c5_input_column_b || 'B';
+                document.getElementById('c5_output_range_1').value = config.c5_output_range_1 || 'D2:D20';
+                document.getElementById('c5_output_range_2').value = config.c5_output_range_2 || 'D22:F25';
+                document.getElementById('c5_output_column_j').value = config.c5_output_column_j || 'J:J';
+                document.getElementById('c5_output_column_l').value = config.c5_output_column_l || 'L:L';
                 
                 // 生成位置配置界面
                 generatePositionConfigs(config);
@@ -389,6 +455,14 @@
             config.c4_output_range_2 = document.getElementById('c4_output_range_2').value.trim();
             config.c4_output_column_j = document.getElementById('c4_output_column_j').value.trim();
             config.c4_output_column_l = document.getElementById('c4_output_column_l').value.trim();
+
+            // C5 配置
+            config.c5_input_column_a = document.getElementById('c5_input_column_a').value.trim();
+            config.c5_input_column_b = document.getElementById('c5_input_column_b').value.trim();
+            config.c5_output_range_1 = document.getElementById('c5_output_range_1').value.trim();
+            config.c5_output_range_2 = document.getElementById('c5_output_range_2').value.trim();
+            config.c5_output_column_j = document.getElementById('c5_output_column_j').value.trim();
+            config.c5_output_column_l = document.getElementById('c5_output_column_l').value.trim();
             
             // 发送保存请求
             console.log('保存配置数据:', config); // 调试日志

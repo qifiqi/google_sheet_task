@@ -146,36 +146,27 @@ class ConfigManager:
         """获取Google Sheet相关配置"""
         # 强制刷新缓存，确保获取最新配置
         self._load_configs()
-        
-        param_positions = self.get_config('parameter_positions', [])
-        check_positions = self.get_config('check_positions', [])
-        result_positions = self.get_config('result_positions', [])
-                # 兼容性处理：如果是字典格式，转换为数组格式
+
+        # 基于当前缓存构造配置字典（数据库里有什么就返回什么）
+        configs = self._cache.copy()
+
+        # 兼容性处理：老版本可能把这些字段存成 dict，需要统一转换为 list
+        param_positions = configs.get('parameter_positions', [])
+        check_positions = configs.get('check_positions', [])
+        result_positions = configs.get('result_positions', [])
+
         if isinstance(param_positions, dict):
             param_positions = list(param_positions.values())
-                
-        # 兼容性处理：如果是字典格式，转换为数组格式
         if isinstance(check_positions, dict):
             check_positions = list(check_positions.values())
-        
         if isinstance(result_positions, dict):
             result_positions = list(result_positions.values())
-            
-        return {
-            'spreadsheet_id': self.get_config('spreadsheet_id', ''),
-            'sheet_name': self.get_config('sheet_name', 'data'),
-            'token_file': self.get_config('token_file', 'data/token.json'),
-            'proxy_url': self.get_config('proxy_url'),
-            'parameter_positions': param_positions,
-            'check_positions': check_positions,
-            'result_positions': result_positions,
-            'c4_input_column_a': self.get_config('c4_input_column_a', 'A'),
-            'c4_input_column_b': self.get_config('c4_input_column_b', 'B'),
-            'c4_output_range_1': self.get_config('c4_output_range_1', 'D2:D20'),
-            'c4_output_range_2': self.get_config('c4_output_range_2', 'D22:F25'),
-            'c4_output_column_j': self.get_config('c4_output_column_j', 'J:J'),
-            'c4_output_column_l': self.get_config('c4_output_column_l', 'L:L'),
-        }
+
+        configs['parameter_positions'] = param_positions
+        configs['check_positions'] = check_positions
+        configs['result_positions'] = result_positions
+
+        return configs
     
     def set_google_sheet_config(self, config: Dict[str, Any]) -> bool:
         """设置Google Sheet相关配置"""

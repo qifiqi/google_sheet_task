@@ -11,17 +11,26 @@ google_sheet_bp = Blueprint('google_sheet', __name__)
 
 @google_sheet_bp.route('/')
 def index():
-    """Google Sheet参数批量校验首页"""
-    is_c4 = bool(request.args.get('c4'))
-    if is_c4:
-        return render_template('google_sheet_c4/index.html', is_c4=True)
-    return render_template('google_sheet/index.html', is_c4=False)
+    """Google Sheet参数批量校验首页
+
+    使用 query 参数 version 区分不同版本：
+    - version=c4 -> C4 模板
+    - version=c5 -> C5 模板
+    - 其它 / 无 -> 默认模板
+    """
+    version = request.args.get('version')
+
+    if version == 'c5':
+        return render_template('google_sheet_c5/index.html', version='c5')
+    if version == 'c4':
+        return render_template('google_sheet_c4/index.html', version='c4')
+    return render_template('google_sheet/index.html', version=None)
 
 @google_sheet_bp.route('/create')
 def create():
     """创建Google Sheet任务页面"""
     template_id = request.args.get('template_id')
-    is_c4 = bool(request.args.get('c4'))
+    version = request.args.get('version')
     template = None
     
     if template_id:
@@ -41,67 +50,91 @@ def create():
                 
                 # 修改模板名称，表明这是从模板创建的
                 template_data['name'] = f"{template_data['name']} - 从模板创建"
-                
-                if is_c4:
-                    return render_template('google_sheet_c4/create.html', 
-                                           template=template_data,
-                                           template_id=template_id,
-                                           is_c4=True)
-                else:
-                    return render_template('google_sheet/create.html', 
-                                           template=template_data,
-                                           template_id=template_id,
-                                           is_c4=False)
+
+                if version == 'c5':
+                    return render_template(
+                        'google_sheet_c5/create.html',
+                        template=template_data,
+                        template_id=template_id,
+                        version='c5',
+                    )
+                if version == 'c4':
+                    return render_template(
+                        'google_sheet_c4/create.html',
+                        template=template_data,
+                        template_id=template_id,
+                        version='c4',
+                    )
+                return render_template(
+                    'google_sheet/create.html',
+                    template=template_data,
+                    template_id=template_id,
+                    version=None,
+                )
             else:
                 logger.warning(f"模板不存在: {template_id}")
                 flash('模板不存在', 'error')
         except Exception as e:
             logger.error(f"加载模板失败: {str(e)}")
             flash('加载模板失败: ' + str(e), 'error')
-    
-    if is_c4:
-        return render_template('google_sheet_c4/create.html', is_c4=True)
-    return render_template('google_sheet/create.html', is_c4=False)
+    if version == 'c5':
+        return render_template('google_sheet_c5/create.html', version='c5')
+    if version == 'c4':
+        return render_template('google_sheet_c4/create.html', version='c4')
+    return render_template('google_sheet/create.html', version=None)
 
 @google_sheet_bp.route('/detail')
 def detail():
     """任务详情页面"""
-    is_c4 = bool(request.args.get('c4'))
-    if is_c4:
-        return render_template('google_sheet_c4/detail.html', is_c4=True)
-    return render_template('google_sheet/detail.html', is_c4=False)
+    version = request.args.get('version')
+
+    if version == 'c5':
+        return render_template('google_sheet_c5/detail.html', version='c5')
+    if version == 'c4':
+        return render_template('google_sheet_c4/detail.html', version='c4')
+    return render_template('google_sheet/detail.html', version=None)
 
 @google_sheet_bp.route('/create-restart/<task_id>')
 def create_restart(task_id):
     """重启任务页面，预填充原任务的配置
 
-    支持通过 ?c4=1 区分使用 C4 版本的创建页面。
+    支持通过 ?version=c4 或 ?version=c5 区分使用 C4/C5 版本的创建页面。
     """
     from app.services.task_manager import task_manager
 
-    is_c4 = bool(request.args.get('c4'))
+    version = request.args.get('version')
 
     # 获取原任务
     task = task_manager.get_task_status(task_id)
     if not task:
         logger.error(f"原任务不存在: {task_id}")
-        # 原任务不存在时，同样根据 is_c4 渲染对应的空创建页
-        if is_c4:
-            return render_template('google_sheet_c4/create.html', is_c4=True)
-        return render_template('google_sheet/create.html', is_c4=False)
+        # 原任务不存在时，同样根据 version 渲染对应的空创建页
+        if version == 'c5':
+            return render_template('google_sheet_c5/create.html', version='c5')
+        if version == 'c4':
+            return render_template('google_sheet_c4/create.html', version='c4')
+        return render_template('google_sheet/create.html', version=None)
 
     # 将原任务配置传递给模板
-    if is_c4:
+    if version == 'c5':
+        return render_template(
+            'google_sheet_c5/create.html',
+            restart_config=task['config'],
+            original_task_id=task_id,
+            version='c5',
+        )
+
+    if version == 'c4':
         return render_template(
             'google_sheet_c4/create.html',
             restart_config=task['config'],
             original_task_id=task_id,
-            is_c4=True,
+            version='c4',
         )
 
     return render_template(
         'google_sheet/create.html',
         restart_config=task['config'],
         original_task_id=task_id,
-        is_c4=False,
+        version=None,
     )

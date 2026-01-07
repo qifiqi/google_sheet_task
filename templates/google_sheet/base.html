@@ -50,21 +50,27 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'google_sheet.index' %}active{% endif %}" 
+                        <a class="nav-link {% if request.endpoint == 'google_sheet.index' and not request.args.get('version') %}active{% endif %}" 
                            href="{{ url_for('google_sheet.index') }}">
                             <i class="bi bi-house"></i> 首页
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'google_sheet.create' %}active{% endif %}" 
+                        <a class="nav-link {% if request.endpoint == 'google_sheet.create' and not request.args.get('version') %}active{% endif %}" 
                            href="{{ url_for('google_sheet.create') }}">
                             <i class="bi bi-plus-circle"></i> 创建任务
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.args.get('c4') %}active{% endif %}" 
-                           href="{{ url_for('google_sheet.index', c4=1) }}">
+                        <a class="nav-link {% if request.args.get('version') == 'c4' %}active{% endif %}" 
+                           href="{{ url_for('google_sheet.index', version='c4') }}">
                             <i class="bi bi-lightning-charge"></i> C4 模式
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.args.get('version') == 'c5' %}active{% endif %}" 
+                           href="{{ url_for('google_sheet.index', version='c5') }}">
+                            <i class="bi bi-lightning-charge"></i> C5 模式
                         </a>
                     </li>
                 </ul>
