@@ -557,12 +557,16 @@
                 document.getElementById('task-name').textContent = task.name;
                 document.getElementById('task-status').innerHTML = `<span class="badge ${getStatusClass(task.status)}">${getStatusText(task.status)}</span>`;
                 
-                // 更新进度显示
+                // 更新进度显示（增强对比度和可见性）
                 const progressPercent = task.total_steps > 0 ? Math.round((task.current_step / task.total_steps) * 100) : 0;
+                // 进度条至少展示为 5% 宽，避免进度很低时几乎看不见
+                const visiblePercent = progressPercent > 0 ? Math.max(progressPercent, 5) : 0;
+                const progressBarClass = getProgressBarClass(task.status) + (task.status === 'running' ? ' progress-bar-striped progress-bar-animated' : '');
+
                 document.getElementById('task-progress').innerHTML = `
-                    <div class="progress" style="height: 20px;">
-                        <div class="progress-bar ${getProgressBarClass(task.status)}" role="progressbar" 
-                             style="width: ${progressPercent}%">
+                    <div class="progress" style="height: 20px; background-color: #e9ecef;">
+                        <div class="progress-bar ${progressBarClass}" role="progressbar" 
+                             style="width: ${visiblePercent}%;">
                             ${task.current_step}/${task.total_steps} (${progressPercent}%)
                         </div>
                     </div>

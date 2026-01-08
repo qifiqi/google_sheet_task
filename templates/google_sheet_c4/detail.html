@@ -704,12 +704,15 @@
                 document.getElementById('task-name').textContent = task.name;
                 document.getElementById('task-status').innerHTML = `<span class="badge ${getStatusClass(task.status)}">${getStatusText(task.status)}</span>`;
                 
-                // 更新进度显示
+                // 更新进度显示（增强对比度和可见性）
                 const progressPercent = task.total_steps > 0 ? Math.round((task.current_step / task.total_steps) * 100) : 0;
+                const visiblePercent = progressPercent > 0 ? Math.max(progressPercent, 5) : 0;
+                const progressBarClass = getProgressBarClass(task.status) + (task.status === 'running' ? ' progress-bar-striped progress-bar-animated' : '');
+
                 document.getElementById('task-progress').innerHTML = `
-                    <div class="progress" style="height: 20px;">
-                        <div class="progress-bar ${getProgressBarClass(task.status)}" role="progressbar" 
-                             style="width: ${progressPercent}%">
+                    <div class="progress" style="height: 20px; background-color: #e9ecef;">
+                        <div class="progress-bar ${progressBarClass}" role="progressbar" 
+                             style="width: ${visiblePercent}%;">
                             ${task.current_step}/${task.total_steps} (${progressPercent}%)
                         </div>
                     </div>
@@ -1165,42 +1168,25 @@
         const container = document.getElementById('parameters-container');
         container.innerHTML = '';
 
-        if (!config) {
+        if (!config || !Array.isArray(config.parameters) || config.parameters.length === 0) {
             container.innerHTML = '<div class="text-muted">无参数配置</div>';
             return;
         }
-        // C4 专用渲染
 
-        // === 产品代码（chips，小卡片，与创建页风格一致） ===
-        const codes = Array.isArray(config.parameters && config.parameters[0])
-            ? config.parameters[0]
-            : [];
+        // 样式与 google_sheet/detail.html、C5 详情页一致：badge + code(JSON.stringify)
+        const paramsArr = config.parameters;
 
-        const codesDiv = document.createElement('div');
-        codesDiv.className = 'mb-3';
-        codesDiv.innerHTML = '<strong class="d-block mb-1">产品代码</strong>';
-
-        if (codes.length > 0) {
-            const chips = document.createElement('div');
-            chips.className = 'd-flex flex-wrap gap-1';
-            codes.forEach(code => {
-                const span = document.createElement('span');
-                span.className = 'badge bg-primary';
-                span.style.fontSize = '0.75rem';
-                span.textContent = code;
-                chips.appendChild(span);
-            });
-            codesDiv.appendChild(chips);
-        } else {
-            const emptyCodes = document.createElement('div');
-            emptyCodes.className = 'text-muted small';
-            emptyCodes.textContent = '无产品代码配置';
-            codesDiv.appendChild(emptyCodes);
-        }
-
-        container.appendChild(codesDiv);
-
-        // 不再展示原始 JSON，仅显示产品代码
+        paramsArr.forEach((paramGroup, index) => {
+            const paramDiv = document.createElement('div');
+            paramDiv.className = 'mb-2';
+            paramDiv.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-primary me-2">参数${index + 1}</span>
+                    <code class="text-dark">${JSON.stringify(paramGroup)}</code>
+                </div>
+            `;
+            container.appendChild(paramDiv);
+        });
     }
 
     // 加载任务结果（后端分页）

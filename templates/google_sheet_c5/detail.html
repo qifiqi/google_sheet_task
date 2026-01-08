@@ -704,12 +704,15 @@
                 document.getElementById('task-name').textContent = task.name;
                 document.getElementById('task-status').innerHTML = `<span class="badge ${getStatusClass(task.status)}">${getStatusText(task.status)}</span>`;
                 
-                // 更新进度显示
+                // 更新进度显示（增强对比度和可见性）
                 const progressPercent = task.total_steps > 0 ? Math.round((task.current_step / task.total_steps) * 100) : 0;
+                const visiblePercent = progressPercent > 0 ? Math.max(progressPercent, 5) : 0;
+                const progressBarClass = getProgressBarClass(task.status) + (task.status === 'running' ? ' progress-bar-striped progress-bar-animated' : '');
+
                 document.getElementById('task-progress').innerHTML = `
-                    <div class="progress" style="height: 20px;">
-                        <div class="progress-bar ${getProgressBarClass(task.status)}" role="progressbar" 
-                             style="width: ${progressPercent}%">
+                    <div class="progress" style="height: 20px; background-color: #e9ecef;">
+                        <div class="progress-bar ${progressBarClass}" role="progressbar" 
+                             style="width: ${visiblePercent}%;">
                             ${task.current_step}/${task.total_steps} (${progressPercent}%)
                         </div>
                     </div>
@@ -1170,39 +1173,19 @@
             return;
         }
 
-        // C5：支持多组参数，逐组展示为 chips
+        // 样式与 google_sheet/detail.html 一致：badge + code(JSON.stringify)
         const paramsArr = config.parameters;
 
         paramsArr.forEach((paramGroup, index) => {
-            const values = Array.isArray(paramGroup) ? paramGroup : [];
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'mb-3';
-
-            // 标题：参数1 / 参数2 / 参数3 ...
-            const title = document.createElement('strong');
-            title.className = 'd-block mb-1';
-            title.textContent = `参数${index + 1}`;
-            groupDiv.appendChild(title);
-
-            if (values.length > 0) {
-                const chips = document.createElement('div');
-                chips.className = 'd-flex flex-wrap gap-1';
-                values.forEach(v => {
-                    const span = document.createElement('span');
-                    span.className = 'badge bg-primary';
-                    span.style.fontSize = '0.75rem';
-                    span.textContent = v;
-                    chips.appendChild(span);
-                });
-                groupDiv.appendChild(chips);
-            } else {
-                const empty = document.createElement('div');
-                empty.className = 'text-muted small';
-                empty.textContent = '该参数组无配置';
-                groupDiv.appendChild(empty);
-            }
-
-            container.appendChild(groupDiv);
+            const paramDiv = document.createElement('div');
+            paramDiv.className = 'mb-2';
+            paramDiv.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-primary me-2">参数${index + 1}</span>
+                    <code class="text-dark">${JSON.stringify(paramGroup)}</code>
+                </div>
+            `;
+            container.appendChild(paramDiv);
         });
     }
 
@@ -1617,12 +1600,14 @@
 
             // 表头：尽量与前端展示列对应，并附加部分补充信息
             const header = [
-            'step_index',
-            'success',
-            'stock_code',
-            'kline_range',
-            'model_title'
-        ];
+                'step_index',
+                'success',
+                'stock_code',
+                'kline_range',
+                'xm',
+                'ml',
+                'model_title'
+            ];
 
         // D2-D20：使用映射表中的显示名
             metricKeys.forEach(key => {
@@ -1634,9 +1619,11 @@
             'start_avg_monthly_return',
             'start_monthly_std_dev',
             'start_annual_std_dev',
+            'start_xpl',
             'index_avg_monthly_return',
             'index_monthly_std_dev',
             'index_annual_std_dev',
+            'index_xpl',
             'task_id',
             'timestamp',
             'error_message'
@@ -1644,16 +1631,18 @@
             rows.push(header);
 
             exportGroupedResults.forEach(group => {
-            const baseInfo = {
-                stepIndex: group.stepIndex != null ? group.stepIndex : '',
-                success: group.success ? 'success' : 'failed',
-                stockCode: group.stockCode != null ? group.stockCode : '',
-                klineRange: group.klineRange != null ? group.klineRange : '',
-                rowId: group.rowId != null ? group.rowId : '',
-                taskId: group.taskId != null ? group.taskId : '',
-                timestamp: group.timestamp != null ? formatTime(group.timestamp) : '',
-                errorMessage: group.errorMessage != null ? group.errorMessage : ''
-            };
+                const baseInfo = {
+                    stepIndex: group.stepIndex != null ? group.stepIndex : '',
+                    success: group.success ? 'success' : 'failed',
+                    stockCode: group.stockCode != null ? group.stockCode : '',
+                    klineRange: group.klineRange != null ? group.klineRange : '',
+                    a1: group.a1 != null ? group.a1 : '',
+                    b1: group.b1 != null ? group.b1 : '',
+                    rowId: group.rowId != null ? group.rowId : '',
+                    taskId: group.taskId != null ? group.taskId : '',
+                    timestamp: group.timestamp != null ? formatTime(group.timestamp) : '',
+                    errorMessage: group.errorMessage != null ? group.errorMessage : ''
+                };
 
             const models = Array.isArray(group.models) ? group.models : [];
             if (models.length === 0) {
@@ -1663,14 +1652,18 @@
                     baseInfo.success,     // success
                     baseInfo.stockCode,   // stock_code
                     baseInfo.klineRange,  // kline_range
+                    baseInfo.a1,          // xm
+                    baseInfo.b1,          // ml
                     '',                   // model_title
                     ...emptyMetrics,      // D2-D20 指标列
                     '',                   // start_avg_monthly_return
                     '',                   // start_monthly_std_dev
                     '',                   // start_annual_std_dev
+                    '',                   // start_xpl
                     '',                   // index_avg_monthly_return
                     '',                   // index_monthly_std_dev
                     '',                   // index_annual_std_dev
+                    '',                   // index_xpl
                     baseInfo.taskId,      // task_id
                     baseInfo.timestamp,   // timestamp
                     baseInfo.errorMessage // error_message
@@ -1709,20 +1702,93 @@
                     baseInfo.success,
                     baseInfo.stockCode,
                     baseInfo.klineRange,
+                    baseInfo.a1,
+                    baseInfo.b1,
                     title,
                     ...metricValues,
                     startAvgRet,
                     startStd,
                     startAnnualStd,
+                    sSharpe,
                     indexAvgRet,
                     indexStd,
                     indexAnnualStd,
+                    iSharpe,
                     baseInfo.taskId,
                     baseInfo.timestamp,
                     baseInfo.errorMessage
                 ]);
             });
             });
+            // 在导出前对 rows 进行排序：
+            // 1) 同一 stock_code 内
+            // 2) 按 kline_range 中 "~" 后的结束年份降序
+            // 3) 再按 Return% 降序
+            // 表头始终保持在第一行
+
+            if (rows.length > 1) {
+                const headerRow = rows[0];
+                const dataRows = rows.slice(1);
+
+                // stock_code 与 kline_range 的固定列索引
+                const STOCK_CODE_COL = 2; // stock_code
+                const KLINE_RANGE_COL = 3; // kline_range
+
+                // 找到 Return% 在 metricKeys 中对应的列索引（D2 -> Return%）
+                const returnMetricIndex = metricKeys.indexOf('D2');
+                let RETURN_COL = null;
+                if (returnMetricIndex !== -1) {
+                    // 前面 7 列是固定列，从第 8 列开始是指标列
+                    RETURN_COL = 7 + returnMetricIndex;
+                }
+
+                const parseEndYear = (range) => {
+                    if (!range) return -Infinity;
+                    const str = String(range);
+                    const parts = str.split('~');
+                    if (parts.length < 2) return -Infinity;
+                    const endPart = parts[1].trim();
+                    const yearStr = endPart.slice(0, 4);
+                    const year = parseInt(yearStr, 10);
+                    return Number.isNaN(year) ? -Infinity : year;
+                };
+
+                const parseReturn = (val) => {
+                    if (val == null || RETURN_COL === null) return -Infinity;
+                    const num = parseFloat(String(val).replace('%', '').trim());
+                    return Number.isNaN(num) ? -Infinity : num;
+                };
+
+                dataRows.sort((a, b) => {
+                    const stockA = (a[STOCK_CODE_COL] || '').toString();
+                    const stockB = (b[STOCK_CODE_COL] || '').toString();
+                    if (stockA !== stockB) {
+                        // stock_code 降序
+                        return stockB.localeCompare(stockA);
+                    }
+
+                    const yearA = parseEndYear(a[KLINE_RANGE_COL]);
+                    const yearB = parseEndYear(b[KLINE_RANGE_COL]);
+                    if (yearA !== yearB) {
+                        // 结束年份降序
+                        return yearB - yearA;
+                    }
+
+                    if (RETURN_COL !== null) {
+                        const retA = parseReturn(a[RETURN_COL]);
+                        const retB = parseReturn(b[RETURN_COL]);
+                        if (retA !== retB) {
+                            // Return% 降序
+                            return retB - retA;
+                        }
+                    }
+
+                    return 0;
+                });
+
+                rows.length = 0;
+                rows.push(headerRow, ...dataRows);
+            }
 
             const csvContent = convertRowsToCSV(rows);
             if (!csvContent) {
