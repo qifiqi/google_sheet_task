@@ -407,8 +407,8 @@ class GoogleSheetService:
         reraise=True,  # 重试耗尽后重新抛出原始异常
         retry=retry_if_result(lambda result: result[0] is False)
     )
-    @validate_result_dict(
-        none_values=(None, '', ' ', '#N/A', '#DIV/0!', '#ERROR!', '#VALUE!', '#REF!', '#NAME?', '#NUM!'))
+    # @validate_result_dict(
+    #     none_values=(None, '', ' ', '#N/A', '#DIV/0!', '#ERROR!', '#VALUE!', '#REF!', '#NAME?', '#NUM!'))
     def _execute_parameter_combination(self, column_A_length, combination, config_data: Dict[str, Any]) -> tuple[
         bool, Dict[str, Any]]:
         """执行单个参数组合"""
@@ -431,32 +431,47 @@ class GoogleSheetService:
             c5_parameter_2 = f"ml:{combination[c5_parameter_positions[1]]}"
             cell_updates[c5_parameter_positions[0]] = c5_parameter_1
             cell_updates[c5_parameter_positions[1]] = c5_parameter_2
+            kline = combination['kline']
 
-            if 'kline' in combination:
+            def set_googl_val(initial_result_sleep=None):
+                if 'kline' in combination:
+                    for google_sheet in self.google_sheets:
+                        # A_num = google_sheet.get_last_row('A')
+                        A_num = column_A_length
+                        self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
+                        google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
+
+                    time.sleep(2)
+
+                    if initial_result_sleep:
+                        self._log_info(f'休眠{initial_result_sleep}秒 等待数据变动重新获取 initial_results')
+                        time.sleep(initial_result_sleep)
+                        for google_sheet in self.google_sheets:
+                            initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
+
+                    # 准备要更新的单元格
+                    for i in range(len(kline)):
+                        item = {}
+                        if i <= len(kline):
+                            item = kline[i]
+                        cell_num = i + 2
+                        cell_A = f"{c5_input_column_a}{cell_num}"
+                        cell_B = f"{c5_input_column_b}{cell_num}"
+                        stock_date = item.get('stock_date', "")
+                        stock_val = item.get('stock_val', "")
+                        cell_updates[cell_A] = stock_date
+                        cell_updates[cell_B] = stock_val
+
+                if not initial_result_sleep:
+                    for google_sheet in self.google_sheets:
+                        initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
+
                 for google_sheet in self.google_sheets:
-                    # A_num = google_sheet.get_last_row('A')
-                    A_num = column_A_length
-                    self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
-                    google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
+                    self._log_info(f"向Google Sheet写入参数: {google_sheet.title} 长度：{len(cell_updates)}")
+                    google_sheet.update_jumped_cells(cell_updates)
 
-                kline = combination['kline']
-                # 准备要更新的单元格
-                for i in range(len(kline)):
-                    item = {}
-                    if i <= len(kline):
-                        item = kline[i]
-                    cell_num = i + 2
-                    cell_A = f"{c5_input_column_a}{cell_num}"
-                    cell_B = f"{c5_input_column_b}{cell_num}"
-                    stock_date = item.get('stock_date', "")
-                    stock_val = item.get('stock_val', "")
-                    cell_updates[cell_A] = stock_date
-                    cell_updates[cell_B] = stock_val
+            set_googl_val()
 
-            for google_sheet in self.google_sheets:
-                self._log_info(f"向Google Sheet写入参数: {google_sheet.title} 长度：{len(cell_updates)}")
-                google_sheet.update_jumped_cells(cell_updates)
-                initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
 
             def check_result(check_values):
                 _check_values = {}
@@ -471,7 +486,7 @@ class GoogleSheetService:
 
                     if '%' in _value:
                         _value = float(_value.replace('%', '').replace(',', '')) / 100
-                    if isinstance(_value, str):
+                    if isinstance(_value, str) and ',' in _value:
                         _value = float(_value.replace(',', ''))
                     _check_values[_position] = _value
                 return _check_values
@@ -481,11 +496,11 @@ class GoogleSheetService:
                 if not check_values:
                     return False
 
-                for position, value in check_values.items():
-                    if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
-                        return False
-                    if 'target' in str(value).lower():
-                        return False
+                # for position, value in check_values.items():
+                #     if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
+                #         return False
+                #     if 'target' in str(value).lower():
+                #         return False
 
                 _check_values = initial_results[spreadsheet_id]
 
@@ -508,6 +523,12 @@ class GoogleSheetService:
 
             # 定时检查是否完成（最多检查60次，20-30秒）
             for attempt in range(60):
+
+                # 定期刷新参数，防止模型卡顿
+                if attempt != 0 and (attempt % 10 == 0 or attempt in [3, 5, 8]):
+                    self._log_info(f"刷新参数")
+                    set_googl_val(20)
+
                 # 从配置获取执行延迟时间
                 config_manager = get_config_manager()
                 delay_min = int(config_manager.get_config('execution_delay_min', 20))

@@ -550,6 +550,12 @@ class GoogleSheetService:
 
             # 定时检查是否完成（最多检查60次，20-30秒）
             for attempt in range(60):
+
+                # 定期刷新参数，防止模型卡顿
+                if attempt != 0 and (attempt % 10 == 0 or attempt in [3, 5, 8]):
+                    self._log_info(f"第 {attempt + 1} 次检查执行状态前，刷新表格")
+                    _update_cell(attempt)
+
                 # 从配置获取执行延迟时间
                 config_manager = get_config_manager()
                 delay_min = int(config_manager.get_config('execution_delay_min', 20))
@@ -557,11 +563,6 @@ class GoogleSheetService:
                 _ = get_sell_sleep(delay_min, delay_max)
                 self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
                 time.sleep(_)
-
-
-                # 定期刷新参数，防止模型卡顿
-                if attempt % 10 == 0 or attempt in [3, 5, 8]:
-                    _update_cell(attempt)
 
                 # 检查所有位置是否都有产出
                 all_completed = True
