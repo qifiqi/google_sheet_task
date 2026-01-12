@@ -91,24 +91,36 @@
     </div>
 
     <script>
-        // 通用AJAX函数
+        // 辅助函数：清理JSON字符串中的NaN、Infinity等非法值
+        function sanitizeJSONString(jsonString) {
+            return jsonString
+                // 处理 NaN
+                .replace(/:\s*NaN\b/g, ': null')
+                // 处理 Infinity
+                .replace(/:\s*Infinity\b/g, ': "Infinity"')
+                .replace(/:\s*-Infinity\b/g, ': "-Infinity"')
+                // 处理 undefined（注意：JSON中undefined也会导致错误）
+                .replace(/:\s*undefined\b/g, ': null');
+        }
+
+        // 通用AJAX函数（增强版，处理NaN）
         function ajaxRequest(url, method, data, callback) {
             const xhr = new XMLHttpRequest();
             xhr.open(method, url, true);
             xhr.setRequestHeader('Content-Type', 'application/json');
             xhr.onreadystatechange = function() {
                 if (xhr.readyState === 4) {
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        if (xhr.status === 200) {
+                    if (xhr.status === 200) {
+                        try {
+                            // 清理响应文本中的NaN值
+                            const sanitizedResponse = sanitizeJSONString(xhr.responseText);
+                            const response = JSON.parse(sanitizedResponse);
                             callback(null, response);
-                        } else {
-                            // 非200状态码，但有JSON响应，传递响应数据
-                            callback(new Error(`HTTP ${xhr.status}`), response);
+                        } catch (e) {
+                            callback(e, null);
                         }
-                    } catch (e) {
-                        // JSON解析失败
-                        callback(new Error(`Request failed: ${xhr.status} ${xhr.statusText}`), null);
+                    } else {
+                        callback(new Error(`Request failed with status ${xhr.status}`), null);
                     }
                 }
             };

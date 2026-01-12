@@ -434,11 +434,13 @@
     let currentTaskId = null;
     let statusInterval = null;
     let refreshInterval = null;
-    let allResults = [];
-    let filteredResults = [];
+    let allResults = [];  // 当前页的结果数据
     let currentResultsPage = 1;
-    let resultsPerPage = 10;
-    let currentResultsFilter = 'all';
+    let resultsPerPage = 20;  // 每页显示数量
+    let resultsTotal = 0;  // 总结果数
+    let resultsPages = 0;  // 总页数
+    let resultsTotalSuccess = 0;  // 总成功数
+    let resultsTotalFailed = 0;  // 总失败数
     let currentRefreshFrequency = 60000; // 默认1分钟，将从配置加载
     let taskStartTime = null; // 存储任务开始时间
     let currentTaskData = null; // 存储当前任务数据
@@ -741,35 +743,44 @@
         }
     }
 
-    // 加载任务结果
-    function loadTaskResults() {
-        ajaxRequest(`/api/tasks/${currentTaskId}/results`, 'GET', null, function(err, data) {
-            if (!err && data && data.results) {
-                allResults = data.results;
-                applyResultsFilter();
-                updateResultsStatistics();
-                renderResults();
+    // 加载任务结果（使用翻页接口）
+    function loadTaskResults(page = currentResultsPage) {
+        currentResultsPage = page;
+        const url = `/api/tasks/${currentTaskId}/results?page=${page}&per_page=${resultsPerPage}`;
+        ajaxRequest(url, 'GET', null, function(err, data) {
+            if (!err && data) {
+                // 检查是否有分页数据
+                if (data.results !== undefined && data.total !== undefined) {
+                    // 分页接口返回的数据
+                    allResults = data.results;
+                    resultsTotal = data.total || 0;
+                    resultsPages = data.pages || 0;
+                    resultsTotalSuccess = data.total_success || 0;
+                    resultsTotalFailed = data.total_failed || 0;
+                    updateResultsStatistics();
+                    renderResults();
+                } else if (data.results && Array.isArray(data.results)) {
+                    // 兼容旧接口（无分页参数时返回全部数据）
+                    allResults = data.results;
+                    resultsTotal = data.results.length;
+                    resultsPages = 1;
+                    resultsTotalSuccess = data.results.filter(r => r.success).length;
+                    resultsTotalFailed = data.results.filter(r => !r.success).length;
+                    updateResultsStatistics();
+                    renderResults();
+                } else {
+                    showNotification('加载结果失败：数据格式错误', 'error');
+                }
+            } else {
+                showNotification('加载结果失败：' + (err ? err.message : '未知错误'), 'error');
             }
         });
     }
 
-    // 应用结果筛选
-    function applyResultsFilter() {
-        if (currentResultsFilter === 'all') {
-            filteredResults = allResults;
-        } else if (currentResultsFilter === 'success') {
-            filteredResults = allResults.filter(result => result.success);
-        } else if (currentResultsFilter === 'failed') {
-            filteredResults = allResults.filter(result => !result.success);
-        }
-        currentResultsPage = 1; // 重置到第一页
-    }
-
-    // 筛选结果
+    // 筛选结果（暂时保留，但不实现，因为需要后端支持）
     function filterResults(filter) {
-        currentResultsFilter = filter;
-        applyResultsFilter();
-        renderResults();
+        showNotification('筛选功能需要后端支持，暂时无法使用', 'info');
+        // TODO: 实现后端筛选功能
     }
 
     // 渲染结果列表
@@ -777,13 +788,16 @@
         const tbody = document.getElementById('results-table-body');
         tbody.innerHTML = '';
         
-        // 计算分页
-        const startIndex = (currentResultsPage - 1) * resultsPerPage;
-        const endIndex = startIndex + resultsPerPage;
-        const pageResults = filteredResults.slice(startIndex, endIndex);
+        if (allResults.length === 0) {
+            const row = document.createElement('tr');
+            row.innerHTML = '<td colspan="6" class="text-center text-muted">暂无结果数据</td>';
+            tbody.appendChild(row);
+            renderResultsPagination();
+            return;
+        }
         
         // 填充结果列表
-        pageResults.forEach(result => {
+        allResults.forEach((result, index) => {
             const row = document.createElement('tr');
             
             // 计算耗时：当前结果时间与上一个结果时间比较
@@ -795,7 +809,7 @@
                     
                     // 如果有上一个结果，使用上一个结果的时间
                     if (index > 0) {
-                        const prevResult = filteredResults[index - 1];
+                        const prevResult = allResults[index - 1];
                         if (prevResult && prevResult.timestamp) {
                             previousTime = new Date(prevResult.timestamp);
                         }
@@ -844,40 +858,79 @@
         const pagination = document.getElementById('results-pagination');
         pagination.innerHTML = '';
         
-        const totalPages = Math.ceil(filteredResults.length / resultsPerPage);
-        
-        if (totalPages <= 1) return;
+        if (resultsPages <= 1) {
+            // 如果只有一页或没有数据，显示总数信息
+            if (resultsTotal > 0) {
+                const infoLi = document.createElement('li');
+                infoLi.className = 'page-item disabled';
+                infoLi.innerHTML = `<span class="page-link">共 ${resultsTotal} 条结果</span>`;
+                pagination.appendChild(infoLi);
+            }
+            return;
+        }
         
         // 上一页
         const prevLi = document.createElement('li');
         prevLi.className = `page-item ${currentResultsPage === 1 ? 'disabled' : ''}`;
-        prevLi.innerHTML = `<a class="page-link" href="#" onclick="changeResultsPage(${currentResultsPage - 1})">上一页</a>`;
+        prevLi.innerHTML = `<a class="page-link" href="#" onclick="event.preventDefault(); changeResultsPage(${currentResultsPage - 1});">上一页</a>`;
         pagination.appendChild(prevLi);
         
         // 页码
         const startPage = Math.max(1, currentResultsPage - 2);
-        const endPage = Math.min(totalPages, currentResultsPage + 2);
+        const endPage = Math.min(resultsPages, currentResultsPage + 2);
+        
+        // 如果起始页不是第一页，显示第一页和省略号
+        if (startPage > 1) {
+            const firstLi = document.createElement('li');
+            firstLi.className = 'page-item';
+            firstLi.innerHTML = `<a class="page-link" href="#" onclick="event.preventDefault(); changeResultsPage(1);">1</a>`;
+            pagination.appendChild(firstLi);
+            if (startPage > 2) {
+                const ellipsisLi = document.createElement('li');
+                ellipsisLi.className = 'page-item disabled';
+                ellipsisLi.innerHTML = '<span class="page-link">...</span>';
+                pagination.appendChild(ellipsisLi);
+            }
+        }
         
         for (let i = startPage; i <= endPage; i++) {
             const li = document.createElement('li');
             li.className = `page-item ${i === currentResultsPage ? 'active' : ''}`;
-            li.innerHTML = `<a class="page-link" href="#" onclick="changeResultsPage(${i})">${i}</a>`;
+            li.innerHTML = `<a class="page-link" href="#" onclick="event.preventDefault(); changeResultsPage(${i});">${i}</a>`;
             pagination.appendChild(li);
+        }
+        
+        // 如果结束页不是最后一页，显示省略号和最后一页
+        if (endPage < resultsPages) {
+            if (endPage < resultsPages - 1) {
+                const ellipsisLi = document.createElement('li');
+                ellipsisLi.className = 'page-item disabled';
+                ellipsisLi.innerHTML = '<span class="page-link">...</span>';
+                pagination.appendChild(ellipsisLi);
+            }
+            const lastLi = document.createElement('li');
+            lastLi.className = 'page-item';
+            lastLi.innerHTML = `<a class="page-link" href="#" onclick="event.preventDefault(); changeResultsPage(${resultsPages});">${resultsPages}</a>`;
+            pagination.appendChild(lastLi);
         }
         
         // 下一页
         const nextLi = document.createElement('li');
-        nextLi.className = `page-item ${currentResultsPage === totalPages ? 'disabled' : ''}`;
-        nextLi.innerHTML = `<a class="page-link" href="#" onclick="changeResultsPage(${currentResultsPage + 1})">下一页</a>`;
+        nextLi.className = `page-item ${currentResultsPage === resultsPages ? 'disabled' : ''}`;
+        nextLi.innerHTML = `<a class="page-link" href="#" onclick="event.preventDefault(); changeResultsPage(${currentResultsPage + 1});">下一页</a>`;
         pagination.appendChild(nextLi);
+        
+        // 显示总数信息
+        const infoLi = document.createElement('li');
+        infoLi.className = 'page-item disabled';
+        infoLi.innerHTML = `<span class="page-link">共 ${resultsTotal} 条结果</span>`;
+        pagination.appendChild(infoLi);
     }
 
     // 切换结果页面
     function changeResultsPage(page) {
-        const totalPages = Math.ceil(filteredResults.length / resultsPerPage);
-        if (page >= 1 && page <= totalPages) {
-            currentResultsPage = page;
-            renderResults();
+        if (page >= 1 && page <= resultsPages) {
+            loadTaskResults(page);
         }
     }
 
@@ -887,11 +940,11 @@
         showNotification('结果列表已刷新', 'info');
     }
 
-    // 更新结果统计
+    // 更新结果统计（使用后端返回的统计数据）
     function updateResultsStatistics() {
-        const successCount = allResults.filter(result => result.success).length;
-        const failedCount = allResults.filter(result => !result.success).length;
-        const totalCount = allResults.length;
+        const successCount = resultsTotalSuccess;
+        const failedCount = resultsTotalFailed;
+        const totalCount = resultsTotal;
         const successRate = totalCount > 0 ? Math.round((successCount / totalCount) * 100) : 0;
         
         document.getElementById('success-count').textContent = successCount;

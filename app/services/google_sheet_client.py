@@ -6,11 +6,22 @@ from typing import Optional
 import gspread
 from google.oauth2.credentials import Credentials
 from gspread.utils import a1_to_rowcol, rowcol_to_a1
+from requests.exceptions import ConnectionError, RequestException
+from urllib3.exceptions import ProtocolError
+from http.client import RemoteDisconnected
 
 from gspread import Cell
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# 网络连接异常类型
+NETWORK_EXCEPTIONS = (
+    ConnectionError,
+    RequestException,
+    ProtocolError,
+    RemoteDisconnected
+)
 
 class GoogleSheet:
     """Google Sheet客户端类"""
@@ -31,6 +42,11 @@ class GoogleSheet:
         self.spreadsheet_id = spreadsheet_id
         self.title = None
         self.worksheet = None
+        # 保存初始化参数，用于重新连接
+        self._sheet_name = sheet_name
+        self._token_file = token_file
+        self._proxy_url = proxy_url
+        self._SCOPES = SCOPES
 
         try:
             # 加载凭证
@@ -78,13 +94,17 @@ class GoogleSheet:
             return -1
 
     def clear_range(self, range_a1: str):
-        """清空一个 A1 区间，比如 'A2:A1000'"""
+        """清空一个 A1 区间，比如 'A2:A1000'（带网络重试）"""
         if not self.worksheet:
             raise Exception("请先选择工作表")
         if not range_a1:
             return
         logger.info(f"清空区间: {range_a1}")
-        self.worksheet.batch_clear([range_a1])
+        
+        def _clear_operation():
+            self.worksheet.batch_clear([range_a1])
+        
+        self._retry_network_operation(_clear_operation, f"clear_range({range_a1})")
 
     @staticmethod
     def col_letter_to_num(col_letter):
@@ -191,7 +211,7 @@ class GoogleSheet:
 
     def update_jumped_cells(self, cell_updates):
         """
-        更新跳跃的单元格
+        更新跳跃的单元格（带网络重试）
 
         Args:
             cell_updates: 字典，格式为 {单元格地址: 新值}
@@ -223,12 +243,15 @@ class GoogleSheet:
                 logger.warning("没有有效的单元格需要更新")
                 return None
 
-            # 批量更新单元格
-            return self.worksheet.update_cells(cells)
+            # 批量更新单元格（带重试）
+            def _update_operation():
+                return self.worksheet.update_cells(cells)
+            
+            return self._retry_network_operation(_update_operation, "update_jumped_cells")
 
         except Exception as e:
             logger.error(f"更新跳跃单元格失败: {e}", exc_info=True)
-            return None
+            raise  # 重试后仍失败则抛出异常
 
     def get_cell(self, cell_ref):
         """获取指定单元格的值"""
@@ -236,7 +259,7 @@ class GoogleSheet:
 
 
     def get_range(self, range_a1: str, value_render_option: str = 'FORMATTED_VALUE'):
-        """根据 A1 区间获取整块区域的值，返回 {单元格A1: 值} 字典
+        """根据 A1 区间获取整块区域的值，返回 {单元格A1: 值} 字典（带网络重试）
 
         value_render_option:
             - 'FORMATTED_VALUE'  默认，返回表格里看到的格式化结果（如 '71.88%')
@@ -248,18 +271,19 @@ class GoogleSheet:
         if not range_a1:
             return {}
 
-        values_2d = self.worksheet.get(range_a1, value_render_option=value_render_option)
-
-        start_row, start_col = a1_to_rowcol(range_a1.split(':')[0])
-
-        result = {}
-        for r_idx, row in enumerate(values_2d):
-            for c_idx, value in enumerate(row):
-                row_num = start_row + r_idx
-                col_num = start_col + c_idx
-                cell_a1 = rowcol_to_a1(row_num, col_num)
-                result[cell_a1] = value
-        return result
+        def _get_range_operation():
+            values_2d = self.worksheet.get(range_a1, value_render_option=value_render_option)
+            start_row, start_col = a1_to_rowcol(range_a1.split(':')[0])
+            result = {}
+            for r_idx, row in enumerate(values_2d):
+                for c_idx, value in enumerate(row):
+                    row_num = start_row + r_idx
+                    col_num = start_col + c_idx
+                    cell_a1 = rowcol_to_a1(row_num, col_num)
+                    result[cell_a1] = value
+            return result
+        
+        return self._retry_network_operation(_get_range_operation, f"get_range({range_a1})")
 
 
     def get_cells_batch(self, cell_refs):
@@ -352,6 +376,96 @@ class GoogleSheet:
             logger.error(f'获取工作表列表失败: {str(e)}')
             raise
         
+    def _reconnect(self):
+        """
+        重新连接Google Sheet（用于网络连接中断后恢复）
+        """
+        try:
+            logger.info(f"尝试重新连接Google Sheet: {self.spreadsheet_id}")
+            # 先关闭旧连接
+            self.close()
+            # 重新加载凭证
+            creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
+            self.client = gspread.authorize(credentials=creds)
+            
+            if self._proxy_url:
+                logger.info(f"使用代理：{self._proxy_url}")
+                os.environ['HTTP_PROXY'] = self._proxy_url
+                os.environ['HTTPS_PROXY'] = self._proxy_url
+                self.client.session.proxies.update({"http": self._proxy_url, "https": self._proxy_url})
+            
+            # 重新打开电子表格
+            self.sheet = self.client.open_by_key(self.spreadsheet_id)
+            self.title = self.sheet.title
+            
+            # 重新选择工作表
+            if self._sheet_name:
+                self.worksheet = self.sheet.worksheet(self._sheet_name)
+            logger.info(f"Google Sheet重新连接成功: {self.spreadsheet_id}/{self._sheet_name}")
+            return True
+        except Exception as e:
+            logger.error(f"重新连接Google Sheet失败: {str(e)}")
+            return False
+
+    def _is_network_error(self, exception):
+        """判断是否是网络连接错误"""
+        # 检查异常类型
+        if isinstance(exception, NETWORK_EXCEPTIONS):
+            return True
+        
+        # 检查错误消息关键词（用于捕获 gspread 包装的网络错误）
+        error_str = str(exception).lower()
+        network_keywords = [
+            'connection', 'disconnected', 'aborted', 'remote end',
+            'protocol error', 'network', 'timeout', 'broken pipe'
+        ]
+        return any(keyword in error_str for keyword in network_keywords)
+
+    def _retry_network_operation(self, operation, operation_name, max_retries=3, delay=2, reconnect_on_error=True):
+        """
+        带重试机制执行网络操作
+        
+        Args:
+            operation: 要执行的操作函数（无参数）
+            operation_name: 操作名称（用于日志）
+            max_retries: 最大重试次数
+            delay: 重试延迟（秒），会指数递增
+            reconnect_on_error: 是否在错误时重新连接
+        
+        Returns:
+            操作结果
+        """
+        last_exception = None
+        for attempt in range(max_retries):
+            try:
+                return operation()
+            except Exception as e:
+                # 判断是否是网络错误
+                if not self._is_network_error(e):
+                    # 不是网络错误，直接抛出
+                    raise
+                
+                last_exception = e
+                if attempt < max_retries - 1:
+                    wait_time = delay * (2 ** attempt)  # 指数退避
+                    logger.warning(
+                        f"{operation_name} 网络错误 (尝试 {attempt + 1}/{max_retries}): {str(e)}. "
+                        f"{wait_time}秒后重试..."
+                    )
+                    
+                    # 如果需要重新连接
+                    if reconnect_on_error:
+                        self._reconnect()
+                    
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"{operation_name} 网络错误，已重试 {max_retries} 次仍失败: {str(e)}")
+                    raise
+        
+        # 如果所有重试都失败了
+        if last_exception:
+            raise last_exception
+
     def close(self):
         """关闭连接并清理资源"""
         try:
@@ -365,7 +479,10 @@ class GoogleSheet:
             self.worksheet = None
             self.sheet = None
             if self.client:
-                self.client.session.close()  # 关闭gspread的session
+                try:
+                    self.client.session.close()  # 关闭gspread的session
+                except:
+                    pass
             self.client = None
             
         except Exception as e:
@@ -378,3 +495,8 @@ class GoogleSheet:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """上下文管理器出口"""
         self.close()
+
+
+if __name__ == '__main__':
+    with GoogleSheet('17pocRAANadKiJs-Z4lujPxj0em_1Gkdt8CW6l04tvrc','control',token_file=r'D:\Users\Administrator\Desktop\谷歌参数批量校验\data\token.json') as sheet:
+        print(sheet.get_range("L2:L100"))

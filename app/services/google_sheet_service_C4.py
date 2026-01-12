@@ -58,6 +58,18 @@ class GoogleSheetService:
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
+                # 尝试获取 Postgres Advisory Lock，防止并发执行同一任务
+                lock_acquired = False
+                try:
+                    lock_acquired = db.session.execute(
+                        text("SELECT pg_try_advisory_lock(:k)"), {"k": int(self.task_id)}
+                    ).scalar()
+                    if not lock_acquired:
+                        self._log_warning(f"任务 {self.task_id} 已在运行（获取锁失败），拒绝并发执行 (C4)")
+                        return 'already_running'
+                except Exception:
+                    # 非 Postgres 或锁不可用时忽略，继续执行（由上层状态原子更新兜底）
+                    pass
                 task = Task.query.get(self.task_id)
                 self.task = task
                 if not task:
@@ -147,6 +159,13 @@ class GoogleSheetService:
             self._log_error(error_msg)
             self.error_dd(error_msg)
             return 'error'
+        finally:
+            # 释放 Advisory Lock（仅当成功获取时）
+            try:
+                if 'lock_acquired' in locals() and lock_acquired:
+                    db.session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": int(self.task_id)})
+            except Exception:
+                pass
 
     def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""

@@ -58,6 +58,18 @@ class GoogleSheetService:
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
+                # 尝试获取 Postgres Advisory Lock，防止并发执行同一任务
+                lock_acquired = False
+                try:
+                    lock_acquired = db.session.execute(
+                        text("SELECT pg_try_advisory_lock(:k)"), {"k": int(self.task_id)}
+                    ).scalar()
+                    if not lock_acquired:
+                        self._log_warning(f"任务 {self.task_id} 已在运行（获取锁失败），拒绝并发执行 (C5)")
+                        return 'already_running'
+                except Exception:
+                    # 非 Postgres 或锁不可用时忽略，继续执行（由上层状态原子更新兜底）
+                    pass
                 task = Task.query.get(self.task_id)
                 self.task = task
                 if not task:
@@ -147,6 +159,13 @@ class GoogleSheetService:
             self._log_error(error_msg)
             self.error_dd(error_msg)
             return 'error'
+        finally:
+            # 释放 Advisory Lock（仅当成功获取时）
+            try:
+                if 'lock_acquired' in locals() and lock_acquired:
+                    db.session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": int(self.task_id)})
+            except Exception:
+                pass
 
     def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""
@@ -477,8 +496,8 @@ class GoogleSheetService:
                 _check_values = {}
                 for _position, _value in check_values.items():
                     if not _value or not is_valid_result_value(_value):
-                        self._log_info(f"结果位置 {_position} 值为空或无效，跳过重新检查")
-                        raise Exception(f"结果位置 {_position} 值为空或无效，跳过重新检查")
+                        self._log_info(f"结果位置 {_position} 值为空或无效，跳过重新检查：{_value}")
+                        raise Exception(f"结果位置 {_position} 值为空或无效，跳过重新检查：{_value}")
 
                     if str(_value).strip().startswith(("#", "#N/A")):
                         _error_msg = f"获取结果位置 {_position} 时出错: {str(_value)}"
@@ -488,6 +507,8 @@ class GoogleSheetService:
                         _value = float(_value.replace('%', '').replace(',', '')) / 100
                     if isinstance(_value, str) and ',' in _value:
                         _value = float(_value.replace(',', ''))
+                    if _value == '-':
+                        continue
                     _check_values[_position] = _value
                 return _check_values
 
@@ -546,12 +567,18 @@ class GoogleSheetService:
                         # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
                         _result.update(_result_yearly)
 
-                        _index_return = check_result(
-                            google_sheet.get_range(f"{c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1}")
-                        )
-                        _start_return = check_result(
-                            google_sheet.get_range(f"{c5_output_column_l}2:{c5_output_column_l}{len(kline) + 1}")
-                        )
+                        try:
+                            _index_return = check_result(
+                                google_sheet.get_range(f"{c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1}")
+                            )
+                            _start_return = check_result(
+                                google_sheet.get_range(f"{c5_output_column_l}2:{c5_output_column_l}{len(kline) + 1}")
+                            )
+                        except Exception as e:
+                            self._log_info(f"获取结果位置 {c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1} 时出错：{str(e)}")
+                            self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
+                            break
+
                         _index_return_date = []
                         _start_return_date = []
                         for i in range(len(kline)):
@@ -756,29 +783,29 @@ class GoogleSheetService:
     @staticmethod
     def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode,parameters):
 
-        def _get_kline(klines, year=None,_start_date=None, _end_date=None):
+        def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
             if market_type == 'cn':
-                if year:
+                if _year:
                     return [
                         {'stock_date': k['stock_date'], 'stock_val': k['stock_kp']}
-                        for k in klines if int(k['stock_date'][:4]) == year
+                        for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
                     {'stock_date': k['stock_date'], 'stock_val': k['stock_kp']}
                     for k in klines
-                    if _start_date <= k['stock_date'] <= _end_date
+                    if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
             else:
-                if year:
+                if _year:
                     return [
                         {'stock_date': k['stock_date'], 'stock_val': k['stock_sp']}
-                        for k in klines if int(k['stock_date'][:4]) == year
+                        for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
                     {'stock_date': k['stock_date'], 'stock_val': k['stock_sp']}
                     for k in klines
-                    if _start_date <= k['stock_date'] <= _end_date
+                    if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
 
 
@@ -800,7 +827,7 @@ class GoogleSheetService:
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 250
         klines = dfcf_api.get_stock_kline_data(parameter, market, limit)
-        all_kline = _get_kline(klines, _start_date=start_date, _end_date=end_date)
+        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
         data = [
         ]
         for v1 in parameters[1]:
@@ -828,7 +855,7 @@ class GoogleSheetService:
                     _all_kline = [ k for k in klines if start_date <= k['stock_date'] <= end_date]
                     for i in range(_start_date, _end_year_1 + 1):
                         d = {"A1":v1,"B1":v2}
-                        kline = _get_kline(_all_kline,year=i)
+                        kline = _get_kline(_all_kline,_year=i)
                         if kline and len(kline) > 30:
                             d['stock_code'] = parameter
                             d['year'] = i

@@ -444,10 +444,12 @@ class GoogleSheetService:
                 for i, position in enumerate(param_positions):
                     cell_updates[position] = combination[i]
                     results[position] = combination[i]
+
                 if num <= 0:
                     self._log_info(f"向Google Sheet写入参数: {cell_updates}")
                     self.google_sheet.update_jumped_cells(cell_updates)
                     return None
+                    
                 # 随机选择一个键
                 random_key = random.choice(list(cell_updates.keys()))
                 random_value = cell_updates[random_key]
@@ -543,7 +545,7 @@ class GoogleSheetService:
                 return int(_)
 
             # 写入参数到Google Sheet
-            # _update_cell()
+            _update_cell()
 
             is_exit = 0
             max_error_num = 3
@@ -577,7 +579,7 @@ class GoogleSheetService:
                             all_completed = False
                             self._log_info(f"检查位置验证失败，继续等待...")
                             continue
-                            
+                        
                     except Exception as e:
                         error_msg = f"批量检查位置时出错: {str(e)}"
                         self._log_error(error_msg)

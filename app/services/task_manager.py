@@ -583,10 +583,19 @@ class TaskManager:
                 
                 task_logger.info(f"开始执行Google Sheet C4 任务: {task.name}")
                 
-                # 更新任务状态
-                task.status = 'running'
-                task.start_time = datetime.now()
+                # 原子方式将任务置为 running，防止并发重复启动
+                rows = Task.query.filter(
+                    Task.id == task_id,
+                    Task.status != 'running'
+                ).update({
+                    'status': 'running',
+                    'start_time': datetime.now()
+                }, synchronize_session=False)
                 db.session.commit()
+                if rows == 0:
+                    task_logger.warning('任务已在运行，拒绝并发启动 (C4)')
+                    self._add_task_log(task_id, 'warn', '任务已在运行，拒绝并发启动 (C4)', app)
+                    return
                 
                 self._add_task_log(task_id, 'info', '开始执行Google Sheet C4 任务', app)
                 
@@ -675,10 +684,19 @@ class TaskManager:
                 
                 task_logger.info(f"开始执行Google Sheet C5 任务: {task.name}")
                 
-                # 更新任务状态
-                task.status = 'running'
-                task.start_time = datetime.now()
+                # 原子方式将任务置为 running，防止并发重复启动
+                rows = Task.query.filter(
+                    Task.id == task_id,
+                    Task.status != 'running'
+                ).update({
+                    'status': 'running',
+                    'start_time': datetime.now()
+                }, synchronize_session=False)
                 db.session.commit()
+                if rows == 0:
+                    task_logger.warning('任务已在运行，拒绝并发启动 (C5)')
+                    self._add_task_log(task_id, 'warn', '任务已在运行，拒绝并发启动 (C5)', app)
+                    return
                 
                 self._add_task_log(task_id, 'info', '开始执行Google Sheet C5 任务', app)
                 

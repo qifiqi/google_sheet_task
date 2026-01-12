@@ -95,15 +95,25 @@ class TaskResult(db.Model):
     error_message = db.Column(db.Text)
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True)  # 添加索引
     
+    # # C5增强字段（用于重试和统计）
+    # retry_count = db.Column(db.Integer, default=0, nullable=True)  # 重试次数
+    # execution_time = db.Column(db.Float, nullable=True)  # 执行耗时（秒）
+    # error_type = db.Column(db.String(100), nullable=True, index=True)  # 异常类型
+    # http_status = db.Column(db.Integer, nullable=True)  # HTTP状态码
+    # session_id = db.Column(db.String(100), nullable=True)  # 会话ID
+    # request_id = db.Column(db.String(100), nullable=True)  # 请求ID
+    # retry_round = db.Column(db.Integer, default=0, nullable=True)  # 重试轮次（0表示首次执行）
+    
     # 复合索引 - 提升查询性能
     __table_args__ = (
         db.Index('idx_task_step', 'task_id', 'step_index'),  # 按任务和步骤查询
         db.Index('idx_task_timestamp', 'task_id', 'timestamp'),  # 按任务和时间查询
         db.Index('idx_success_timestamp', 'success', 'timestamp'),  # 按成功状态和时间查询
+        # db.Index('idx_error_type', 'error_type'),  # 按错误类型查询
     )
     
     def to_dict(self):
-        return {
+        result_dict = {
             'id': self.id,
             'task_id': self.task_id,
             'step_index': self.step_index,
@@ -113,6 +123,22 @@ class TaskResult(db.Model):
             'error_message': self.error_message,
             'timestamp': self.timestamp.isoformat()
         }
+        # 添加C5增强字段（如果存在）
+        if hasattr(self, 'retry_count') and self.retry_count is not None:
+            result_dict['retry_count'] = self.retry_count
+        if hasattr(self, 'execution_time') and self.execution_time is not None:
+            result_dict['execution_time'] = self.execution_time
+        if hasattr(self, 'error_type') and self.error_type:
+            result_dict['error_type'] = self.error_type
+        if hasattr(self, 'http_status') and self.http_status is not None:
+            result_dict['http_status'] = self.http_status
+        if hasattr(self, 'session_id') and self.session_id:
+            result_dict['session_id'] = self.session_id
+        if hasattr(self, 'request_id') and self.request_id:
+            result_dict['request_id'] = self.request_id
+        if hasattr(self, 'retry_round') and self.retry_round is not None:
+            result_dict['retry_round'] = self.retry_round
+        return result_dict
 
 class TaskTemplate(db.Model):
     """任务模板模型"""
