@@ -25,6 +25,9 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
 
+    from app.services.config_manager import get_config_manager
+    get_config_manager().init_app(app)
+
     # 仅注册原有蓝图路由，不再启用 Flask-RESTX Swagger 文档路由
     register_blueprints(app)
     

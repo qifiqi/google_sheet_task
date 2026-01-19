@@ -27,7 +27,7 @@ NETWORK_EXCEPTIONS = (
 class GoogleSheet:
     """Google Sheet客户端类"""
 
-    def __init__(self, spreadsheet_id, sheet_name=None, token_file="data/token.json", proxy_url=None):
+    def __init__(self, spreadsheet_id, sheet_name=None, token_file="data/token.json", proxy_url=None, task_id: Optional[str] = None):
         """
         初始化Google Sheet连接
 
@@ -43,40 +43,23 @@ class GoogleSheet:
         self.spreadsheet_id = spreadsheet_id
         self.title = None
         self.worksheet = None
+        self.task_id = task_id
+        self._last_reconnect_exception = None
         # 保存初始化参数，用于重新连接
         self._sheet_name = sheet_name
         self._token_file = token_file
         self._proxy_url = proxy_url
         self._SCOPES = SCOPES
 
-        try:
-            # 加载凭证
-            creds = Credentials.from_authorized_user_file(token_file, scopes=SCOPES)
-
-            self.client = gspread.authorize(credentials=creds)
-            if proxy_url:
-                logger.info(f"使用代理：{proxy_url}")
-                # 设置代理环境变量
-                os.environ['HTTP_PROXY'] = proxy_url
-                os.environ['HTTPS_PROXY'] = proxy_url
-                self.client.session.proxies.update({"http": proxy_url, "https": proxy_url})
-
-            self._apply_default_timeout()
-            # 打开电子表格
-            self.sheet = self.client.open_by_key(spreadsheet_id)
-            self.title = self.sheet.title
-
-            # 如果提供了工作表名称，则选择具体工作表
-            if sheet_name:
-                self.worksheet = self.sheet.worksheet(sheet_name)
-                logger.info(f"Google Sheet连接成功: {spreadsheet_id}/{sheet_name}")
-            else:
-                logger.info(f"Google Sheet连接成功: {spreadsheet_id}")
-
-        except Exception as e:
-            self.close()  # 确保在出错时关闭连接
-            logger.error(f'打开表格错误。错误内容：{traceback.format_exc()}')
-            raise e
+    def _log_ctx(self) -> str:
+        parts = []
+        if self.task_id:
+            parts.append(f"task_id={self.task_id}")
+        if self.spreadsheet_id:
+            parts.append(f"spreadsheet_id={self.spreadsheet_id}")
+        if self._sheet_name:
+            parts.append(f"sheet_name={self._sheet_name}")
+        return f"[{' '.join(parts)}] " if parts else ""
 
     def _apply_default_timeout(self, timeout: Optional[int] = None):
         """为 gspread 底层 requests Session 注入默认 timeout，避免网络抖动时永久阻塞"""
@@ -133,7 +116,7 @@ class GoogleSheet:
 
         if not range_a1:
             return
-        logger.info(f"清空区间: {range_a1}")
+        logger.info(f"{self._log_ctx()}清空区间: {range_a1}")
 
         def _clear_operation():
             self.worksheet.batch_clear([range_a1])
@@ -199,7 +182,7 @@ class GoogleSheet:
     def update_row(self, sheet_row, sheet_value):
         """更新单行数据"""
         try:
-            logger.info(f"写入：sheet_rows：{sheet_row}, sheet_values：{sheet_value}")
+            logger.info(f"{self._log_ctx()}写入：sheet_rows：{sheet_row}, sheet_values：{sheet_value}")
             self.worksheet.update(sheet_row, [[sheet_value]], value_input_option="USER_ENTERED")
         except Exception as e:
             logger.error(f'设置表格{sheet_row},值:{sheet_value}错误。错误内容：{str(e)}')
@@ -212,7 +195,7 @@ class GoogleSheet:
     def update_rows(self, sheet_rows, sheet_values):
         """批量更新行数据"""
         try:
-            logger.info(f"批量写入：sheet_rows：{sheet_rows}, sheet_values：{sheet_values}")
+            logger.info(f"{self._log_ctx()}批量写入：sheet_rows：{sheet_rows}, sheet_values：{sheet_values}")
             self.worksheet.update(sheet_rows, sheet_values, value_input_option="USER_ENTERED")
         except Exception as e:
             logger.error(f'设置表格{sheet_rows},值:{sheet_values}错误。错误内容：{str(e)}')
@@ -235,7 +218,7 @@ class GoogleSheet:
                 # 其他类型转换为字符串
                 cell_value = str(cell_value)
 
-            logger.info(f"更新单元格 {cell_address} = {cell_value} (类型: {type(cell_value)})")
+            logger.info(f"{self._log_ctx()}更新单元格 {cell_address} = {cell_value} (类型: {type(cell_value)})")
 
             def _update_operation():
                 self.worksheet.update(cell_address, cell_value)
@@ -243,7 +226,7 @@ class GoogleSheet:
             self._retry_network_operation(_update_operation, f"update_cell({cell_address})")
 
         except Exception as e:
-            error_msg = f"更新单元格 {cell_address} 失败，值: {cell_value}, 错误: {str(e)}"
+            error_msg = f"{self._log_ctx()}更新单元格 {cell_address} 失败，值: {cell_value}, 错误: {str(e)}"
             logger.error(error_msg)
             raise Exception(error_msg) from e
 
@@ -259,7 +242,7 @@ class GoogleSheet:
 
         # 检查cell_updates是否为空
         if not cell_updates:
-            logger.warning("cell_updates为空，跳过更新操作")
+            logger.warning(f"{self._log_ctx()}cell_updates为空，跳过更新操作")
             return None
 
         try:
@@ -268,7 +251,7 @@ class GoogleSheet:
             for cell_address, value in cell_updates.items():
                 # 验证单元格地址格式
                 if not cell_address or not isinstance(cell_address, str):
-                    logger.warning(f"无效的单元格地址: {cell_address}")
+                    logger.warning(f"{self._log_ctx()}无效的单元格地址: {cell_address}")
                     continue
 
                 # 将A1表示法转换为行列号
@@ -277,7 +260,7 @@ class GoogleSheet:
 
             # 如果没有有效的单元格，直接返回
             if not cells:
-                logger.warning("没有有效的单元格需要更新")
+                logger.warning(f"{self._log_ctx()}没有有效的单元格需要更新")
                 return None
 
             # 批量更新单元格（带重试）
@@ -287,7 +270,7 @@ class GoogleSheet:
             return self._retry_network_operation(_update_operation, "update_jumped_cells")
 
         except Exception as e:
-            logger.error(f"更新跳跃单元格失败: {e}", exc_info=True)
+            logger.error(f"{self._log_ctx()}更新跳跃单元格失败: {e}", exc_info=True)
             raise  # 重试后仍失败则抛出异常
 
     def get_cell(self, cell_ref):
@@ -338,7 +321,7 @@ class GoogleSheet:
         self._ensure_worksheet()
 
         if not cell_refs:
-            logger.warning("cell_refs为空，返回空字典")
+            logger.warning(f"{self._log_ctx()}cell_refs为空，返回空字典")
             return {}
 
         try:
@@ -359,15 +342,15 @@ class GoogleSheet:
             return results
 
         except Exception as e:
-            logger.error(f"批量获取单元格失败: {e}", exc_info=True)
-            logger.info("回退到逐个获取单元格值")
+            logger.error(f"{self._log_ctx()}批量获取单元格失败: {e}", exc_info=True)
+            logger.info(f"{self._log_ctx()}回退到逐个获取单元格值")
             results = {}
             for cell_ref in cell_refs:
                 try:
                     value = self.get_cell(cell_ref)
                     results[cell_ref] = value
                 except Exception as cell_error:
-                    logger.error(f"获取单元格 {cell_ref} 失败: {cell_error}")
+                    logger.error(f"{self._log_ctx()}获取单元格 {cell_ref} 失败: {cell_error}")
                     results[cell_ref] = ""
             return results
 
@@ -388,12 +371,12 @@ class GoogleSheet:
                 if trade_count != '#DIV/0!' and trade_count.find("target") == -1:
                     return trade_count
             except Exception as e:
-                logger.error(f'获取交易数量出错: {str(e)}')
-            logger.info(f'重试中，已尝试{retry_count}次')
+                logger.error(f'{self._log_ctx()}获取交易数量出错: {str(e)}')
+            logger.info(f'{self._log_ctx()}重试中，已尝试{retry_count}次')
             retry_count += 1
             if retry_count < max_retries:
                 time.sleep(delay)
-        logger.warning(f'多次尝试后，仍无法获取有效的交易数量，返回0')
+        logger.warning(f'{self._log_ctx()}多次尝试后，仍无法获取有效的交易数量，返回0')
         return '0'
 
     def get_all_worksheets(self):
@@ -404,7 +387,7 @@ class GoogleSheet:
             worksheets = self.sheet.worksheets()
             return [ws.title for ws in worksheets]
         except Exception as e:
-            logger.error(f'获取工作表列表失败: {str(e)}')
+            logger.error(f'{self._log_ctx()}获取工作表列表失败: {str(e)}')
             raise
 
     def _reconnect(self):
@@ -412,7 +395,8 @@ class GoogleSheet:
         重新连接Google Sheet（用于网络连接中断后恢复）
         """
         try:
-            logger.info(f"尝试重新连接Google Sheet: {self.spreadsheet_id}")
+            self._last_reconnect_exception = None
+            logger.info(f"{self._log_ctx()}尝试重新连接Google Sheet")
             # 先关闭旧连接
             self.close()
             # 重新加载凭证
@@ -420,7 +404,7 @@ class GoogleSheet:
             self.client = gspread.authorize(credentials=creds)
 
             if self._proxy_url:
-                logger.info(f"使用代理：{self._proxy_url}")
+                logger.info(f"{self._log_ctx()}使用代理：{self._proxy_url}")
                 os.environ['HTTP_PROXY'] = self._proxy_url
                 os.environ['HTTPS_PROXY'] = self._proxy_url
                 self.client.session.proxies.update({"http": self._proxy_url, "https": self._proxy_url})
@@ -433,10 +417,11 @@ class GoogleSheet:
             # 重新选择工作表
             if self._sheet_name:
                 self.worksheet = self.sheet.worksheet(self._sheet_name)
-            logger.info(f"Google Sheet重新连接成功: {self.spreadsheet_id}/{self._sheet_name}")
+            logger.info(f"{self._log_ctx()}Google Sheet重新连接成功")
             return True
         except Exception as e:
-            logger.error(f"重新连接Google Sheet失败: {str(e)}")
+            self._last_reconnect_exception = e
+            logger.error(f"{self._log_ctx()}重新连接Google Sheet失败: {str(e)}")
             return False
 
     def _is_network_error(self, exception):
@@ -465,6 +450,9 @@ class GoogleSheet:
         """确保 worksheet 已可用；为空时尝试重连并重新选择工作表"""
         if not self.worksheet:
             if not self._reconnect():
+                # 关键：重连失败时抛出原始异常，让上层按网络错误重试/退出
+                if self._last_reconnect_exception is not None:
+                    raise self._last_reconnect_exception
                 raise Exception("请先选择工作表")
 
     def _retry_network_operation(self, operation, operation_name, max_retries=3, delay=2, reconnect_on_error=True):

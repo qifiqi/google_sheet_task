@@ -100,6 +100,20 @@ def init_scheduler():
         except Exception as e:
             logger.error(f"初始化定时任务调度器失败: {e}")
 
+
+def init_task_watchdog():
+    """初始化任务看门狗线程"""
+    from app.services.task_watchdog import task_watchdog
+    from app.utils.logger import get_logger
+
+    logger = get_logger('watchdog')
+
+    try:
+        task_watchdog.start(app)
+        logger.info("任务看门狗线程已启动")
+    except Exception as e:
+        logger.error(f"启动任务看门狗线程失败: {e}")
+
 if __name__ == '__main__':
     # 确保必要的目录存在
     os.makedirs('data', exist_ok=True)
@@ -118,6 +132,9 @@ if __name__ == '__main__':
 
     # 初始化定时任务调度器
     init_scheduler()
+
+    # 初始化任务看门狗线程
+    init_task_watchdog()
 
     # 运行应用
     debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes', 'on')

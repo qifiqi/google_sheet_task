@@ -379,7 +379,7 @@ class GoogleSheetService:
             if proxy_url:
                 self._log_info(f"使用代理: {proxy_url}")
 
-            self.google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url)
+            self.google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
             if not self.google_sheet.worksheet:
                 raise Exception("请先选择工作表")
 

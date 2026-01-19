@@ -381,7 +381,7 @@ class GoogleSheetService:
             for sheet in sheets:
                 spreadsheet_id = sheet.get('spreadsheet_id')
                 sheet_name = sheet.get('sheet_name', 'data')
-                google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url)
+                google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
                 if not google_sheet.worksheet:
                     raise Exception("请先选择工作表")
                 self.google_sheets.append(google_sheet)

@@ -10,14 +10,35 @@ class ConfigManager:
     
     def __init__(self):
         self._cache = {}
+        self._app = None
         # 延迟加载配置，避免在应用上下文外初始化
         # self._load_configs()
+
+    def init_app(self, app):
+        self._app = app
+
+    def _get_app_context(self):
+        try:
+            from flask import has_app_context, current_app
+            if has_app_context():
+                return current_app.app_context()
+        except Exception:
+            pass
+
+        if self._app is not None:
+            return self._app.app_context()
+
+        return None
     
     def _load_configs(self):
         """加载所有配置到缓存"""
         try:
-            from flask import current_app
-            with current_app.app_context():
+            ctx = self._get_app_context()
+            if ctx is None:
+                logger.error("加载配置失败: Working outside of application context.")
+                return
+
+            with ctx:
                 configs = SystemConfig.query.all()
                 for config in configs:
                     # 尝试反序列化JSON字符串
@@ -41,8 +62,12 @@ class ConfigManager:
         # 如果缓存中没有该配置，尝试从数据库重新加载
         if key not in self._cache:
             try:
-                from flask import current_app
-                with current_app.app_context():
+                ctx = self._get_app_context()
+                if ctx is None:
+                    logger.error(f"从数据库加载配置失败: {key}, 错误: Working outside of application context.")
+                    return default
+
+                with ctx:
                     config = SystemConfig.query.filter_by(key=key).first()
                     if config:
                         # 尝试反序列化JSON字符串
@@ -68,8 +93,12 @@ class ConfigManager:
     def set_config(self, key: str, value: Any, description: str = None) -> bool:
         """设置配置值"""
         try:
-            from flask import current_app
-            with current_app.app_context():
+            ctx = self._get_app_context()
+            if ctx is None:
+                logger.error(f"设置配置失败: {key}, 错误: Working outside of application context.")
+                return False
+
+            with ctx:
                 # 转换为JSON字符串
                 if isinstance(value, (dict, list)):
                     value_str = json.dumps(value, ensure_ascii=False)
@@ -105,8 +134,12 @@ class ConfigManager:
     def delete_config(self, key: str) -> bool:
         """删除配置"""
         try:
-            from flask import current_app
-            with current_app.app_context():
+            ctx = self._get_app_context()
+            if ctx is None:
+                logger.error(f"删除配置失败: {key}, 错误: Working outside of application context.")
+                return False
+
+            with ctx:
                 config = SystemConfig.query.filter_by(key=key).first()
                 if config:
                     db.session.delete(config)
