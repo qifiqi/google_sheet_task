@@ -9,6 +9,7 @@ from gspread.utils import a1_to_rowcol, rowcol_to_a1
 from requests.exceptions import ConnectionError, RequestException
 from urllib3.exceptions import ProtocolError
 from http.client import RemoteDisconnected
+import functools
 
 from gspread import Cell
 from app.utils.logger import get_logger
@@ -59,6 +60,8 @@ class GoogleSheet:
                 os.environ['HTTP_PROXY'] = proxy_url
                 os.environ['HTTPS_PROXY'] = proxy_url
                 self.client.session.proxies.update({"http": proxy_url, "https": proxy_url})
+
+            self._apply_default_timeout()
             # 打开电子表格
             self.sheet = self.client.open_by_key(spreadsheet_id)
             self.title = self.sheet.title
@@ -74,6 +77,37 @@ class GoogleSheet:
             self.close()  # 确保在出错时关闭连接
             logger.error(f'打开表格错误。错误内容：{traceback.format_exc()}')
             raise e
+
+    def _apply_default_timeout(self, timeout: Optional[int] = None):
+        """为 gspread 底层 requests Session 注入默认 timeout，避免网络抖动时永久阻塞"""
+        if not self.client or not getattr(self.client, 'session', None):
+            return
+
+        if timeout is None:
+            try:
+                from app.services.config_manager import get_config_manager
+                config_manager = get_config_manager()
+                timeout = int(config_manager.get_config('google_sheet_http_timeout', 30))
+            except Exception:
+                timeout = 30
+
+        session = self.client.session
+
+        # 已经打过补丁：如果 timeout 发生变化，更新即可
+        if getattr(session, '_timeout_patched', False):
+            session._default_timeout = timeout
+            return
+
+        original_request = session.request
+
+        @functools.wraps(original_request)
+        def request_with_timeout(method, url, **kwargs):
+            kwargs.setdefault('timeout', getattr(session, '_default_timeout', timeout))
+            return original_request(method, url, **kwargs)
+
+        session._default_timeout = timeout
+        session.request = request_with_timeout
+        session._timeout_patched = True
 
     def get(self, name):
         """获取属性"""
@@ -95,15 +129,15 @@ class GoogleSheet:
 
     def clear_range(self, range_a1: str):
         """清空一个 A1 区间，比如 'A2:A1000'（带网络重试）"""
-        if not self.worksheet:
-            raise Exception("请先选择工作表")
+        self._ensure_worksheet()
+
         if not range_a1:
             return
         logger.info(f"清空区间: {range_a1}")
-        
+
         def _clear_operation():
             self.worksheet.batch_clear([range_a1])
-        
+
         self._retry_network_operation(_clear_operation, f"clear_range({range_a1})")
 
     @staticmethod
@@ -202,7 +236,11 @@ class GoogleSheet:
                 cell_value = str(cell_value)
 
             logger.info(f"更新单元格 {cell_address} = {cell_value} (类型: {type(cell_value)})")
-            self.worksheet.update(cell_address, cell_value)
+
+            def _update_operation():
+                self.worksheet.update(cell_address, cell_value)
+
+            self._retry_network_operation(_update_operation, f"update_cell({cell_address})")
 
         except Exception as e:
             error_msg = f"更新单元格 {cell_address} 失败，值: {cell_value}, 错误: {str(e)}"
@@ -217,8 +255,7 @@ class GoogleSheet:
             cell_updates: 字典，格式为 {单元格地址: 新值}
             例如: {"A1": "姓名", "I1": "年龄", "N1": "城市", "AI1": "职业"}
         """
-        if not self.worksheet:
-            raise Exception("请先选择工作表")
+        self._ensure_worksheet()
 
         # 检查cell_updates是否为空
         if not cell_updates:
@@ -246,7 +283,7 @@ class GoogleSheet:
             # 批量更新单元格（带重试）
             def _update_operation():
                 return self.worksheet.update_cells(cells)
-            
+
             return self._retry_network_operation(_update_operation, "update_jumped_cells")
 
         except Exception as e:
@@ -255,8 +292,11 @@ class GoogleSheet:
 
     def get_cell(self, cell_ref):
         """获取指定单元格的值"""
-        return self.worksheet.get(cell_ref)[0][0]
 
+        def _get_cell_operation():
+            return self.worksheet.get(cell_ref)[0][0]
+
+        return self._retry_network_operation(_get_cell_operation, f"get_cell({cell_ref})")
 
     def get_range(self, range_a1: str, value_render_option: str = 'FORMATTED_VALUE'):
         """根据 A1 区间获取整块区域的值，返回 {单元格A1: 值} 字典（带网络重试）
@@ -266,8 +306,8 @@ class GoogleSheet:
             - 'UNFORMATTED_VALUE' 返回底层原始数值（如 0.718870846209405）
             - 'FORMULA'           返回公式本身（如 '=...'）
         """
-        if not self.worksheet:
-            raise Exception("请先选择工作表")
+        self._ensure_worksheet()
+
         if not range_a1:
             return {}
 
@@ -282,53 +322,44 @@ class GoogleSheet:
                     cell_a1 = rowcol_to_a1(row_num, col_num)
                     result[cell_a1] = value
             return result
-        
-        return self._retry_network_operation(_get_range_operation, f"get_range({range_a1})")
 
+        return self._retry_network_operation(_get_range_operation, f"get_range({range_a1})")
 
     def get_cells_batch(self, cell_refs):
         """
         批量获取多个单元格的值
-        
+
         Args:
             cell_refs: 单元格引用列表，例如 ['A1', 'B2', 'C3']
-            
+
         Returns:
             字典，格式为 {单元格地址: 值}
         """
-        if not self.worksheet:
-            raise Exception("请先选择工作表")
-        
+        self._ensure_worksheet()
+
         if not cell_refs:
             logger.warning("cell_refs为空，返回空字典")
             return {}
-        
+
         try:
-            # 构建批量获取的单元格范围
-            # 如果单元格不连续，我们需要分别获取每个单元格
+            def _batch_get_operation():
+                ranges = [f"{ref}" for ref in cell_refs]
+                return self.worksheet.batch_get(ranges)
+
+            batch_values = self._retry_network_operation(_batch_get_operation, "get_cells_batch")
+
             results = {}
-            
-            # 使用 batch_get 方法批量获取
-            # 将单个单元格引用转换为范围格式
-            ranges = [f"{ref}" for ref in cell_refs]
-            
-            # 批量获取值
-            batch_values = self.worksheet.batch_get(ranges)
-            
-            # 将结果转换为字典格式
             for i, cell_ref in enumerate(cell_refs):
                 if i < len(batch_values) and batch_values[i]:
-                    # batch_values[i] 是一个列表，包含该单元格的值
                     value = batch_values[i][0][0] if batch_values[i][0] else ""
                     results[cell_ref] = value
                 else:
                     results[cell_ref] = ""
-            
+
             return results
-            
+
         except Exception as e:
             logger.error(f"批量获取单元格失败: {e}", exc_info=True)
-            # 如果批量获取失败，回退到逐个获取
             logger.info("回退到逐个获取单元格值")
             results = {}
             for cell_ref in cell_refs:
@@ -353,7 +384,7 @@ class GoogleSheet:
         retry_count = 0
         while retry_count < max_retries:
             try:
-                trade_count = self.worksheet.get(cell_ref)[0][0]
+                trade_count = self.get_cell(cell_ref)
                 if trade_count != '#DIV/0!' and trade_count.find("target") == -1:
                     return trade_count
             except Exception as e:
@@ -364,7 +395,7 @@ class GoogleSheet:
                 time.sleep(delay)
         logger.warning(f'多次尝试后，仍无法获取有效的交易数量，返回0')
         return '0'
-        
+
     def get_all_worksheets(self):
         """获取电子表格中的所有工作表名称"""
         try:
@@ -375,7 +406,7 @@ class GoogleSheet:
         except Exception as e:
             logger.error(f'获取工作表列表失败: {str(e)}')
             raise
-        
+
     def _reconnect(self):
         """
         重新连接Google Sheet（用于网络连接中断后恢复）
@@ -387,17 +418,18 @@ class GoogleSheet:
             # 重新加载凭证
             creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
             self.client = gspread.authorize(credentials=creds)
-            
+
             if self._proxy_url:
                 logger.info(f"使用代理：{self._proxy_url}")
                 os.environ['HTTP_PROXY'] = self._proxy_url
                 os.environ['HTTPS_PROXY'] = self._proxy_url
                 self.client.session.proxies.update({"http": self._proxy_url, "https": self._proxy_url})
-            
+
+            self._apply_default_timeout()
             # 重新打开电子表格
             self.sheet = self.client.open_by_key(self.spreadsheet_id)
             self.title = self.sheet.title
-            
+
             # 重新选择工作表
             if self._sheet_name:
                 self.worksheet = self.sheet.worksheet(self._sheet_name)
@@ -410,16 +442,30 @@ class GoogleSheet:
     def _is_network_error(self, exception):
         """判断是否是网络连接错误"""
         # 检查异常类型
-        if isinstance(exception, NETWORK_EXCEPTIONS):
-            return True
-        
+        try:
+            from gspread.exceptions import APIError as _GSAPIError
+            if isinstance(exception, _GSAPIError):
+                resp = getattr(exception, 'response', None)
+                status = getattr(resp, 'status_code', None)
+                if isinstance(status, int) and (status >= 500 or status == 429):
+                    return True
+        except Exception:
+            pass
+
         # 检查错误消息关键词（用于捕获 gspread 包装的网络错误）
         error_str = str(exception).lower()
         network_keywords = [
             'connection', 'disconnected', 'aborted', 'remote end',
-            'protocol error', 'network', 'timeout', 'broken pipe'
+            'protocol error', 'network', 'timeout', 'broken pipe',
+            ' 500', ' 502', ' 503', ' 504', ' 429'
         ]
         return any(keyword in error_str for keyword in network_keywords)
+        
+    def _ensure_worksheet(self):
+        """确保 worksheet 已可用；为空时尝试重连并重新选择工作表"""
+        if not self.worksheet:
+            if not self._reconnect():
+                raise Exception("请先选择工作表")
 
     def _retry_network_operation(self, operation, operation_name, max_retries=3, delay=2, reconnect_on_error=True):
         """
@@ -438,6 +484,7 @@ class GoogleSheet:
         last_exception = None
         for attempt in range(max_retries):
             try:
+                self._ensure_worksheet()
                 return operation()
             except Exception as e:
                 # 判断是否是网络错误

@@ -1704,9 +1704,18 @@
             const a = document.createElement('a');
             a.href = url;
 
-            const now = new Date();
-            const pad = n => String(n).padStart(2, '0');
-            const filename = `c4_results_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
+            let task_name = currentTaskData.name || ''
+            let filename = null
+            if (task_name !== '') {
+                filename = `C5_results_${task_name}.csv`;
+            } else {
+                const now = new Date();
+                const pad = n => String(n).padStart(2, '0');
+                filename = `c4_results_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
+
+            }
+
+
             a.download = filename;
 
             document.body.appendChild(a);

@@ -51,7 +51,7 @@ def check_and_cleanup_dead_tasks():
                 return
             
             logger.info(f"发现 {len(running_tasks)} 个运行中的任务，开始检查状态")
-            
+             
             for task in running_tasks:
                 status_check = task_manager.check_local_task_status(task.id)
                 

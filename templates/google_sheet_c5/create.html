@@ -183,8 +183,7 @@
                                             </label>
                                             <input type="text" class="form-control" id="spreadsheet_title"
                                                    placeholder="用于标记或显示的表名称">
-                                            <div class="form-text">
-                                                将作为任务配置中的标题字段一并保存</div>
+                                            <div class="form-text">将作为任务配置中的标题字段一并保存</div>
                                         </div>
                                         <div class="col-md-4 mb-3">
                                             <label for="sheet_name" class="form-label">
@@ -934,47 +933,41 @@
                     }
                 }
 
-                // 填充Google Sheet配置（优先使用新版 sheets 数组，兼容旧字段）
-                let primarySpreadsheetId = '';
-                let primarySheetName = '';
-
-                if (Array.isArray(config.sheets) && config.sheets.length > 0) {
-                    const firstSheet = config.sheets[0] || {};
-                    primarySpreadsheetId = firstSheet.spreadsheet_id || '';
-                    primarySheetName = firstSheet.sheet_name || '';
-                } else {
-                    primarySpreadsheetId = config.spreadsheet_id || '';
-                    primarySheetName = config.sheet_name || '';
-                }
-
-                if (primarySpreadsheetId) {
-                    document.getElementById('spreadsheet').value = primarySpreadsheetId;
-                }
-                if (primarySheetName) {
-                    const sheetSelect = document.getElementById('sheet_name');
-                    sheetSelect.setAttribute('data-saved-value', primarySheetName);
-                }
-
                 // 多张表：为后续表创建可视配置块
-                if (Array.isArray(config.sheets) && config.sheets.length > 1) {
+                if (Array.isArray(config.sheets) && config.sheets.length > 0) {
                     const list = document.getElementById('sheet-config-list');
-                    config.sheets.slice(1).forEach(sheetCfg => {
+                    const items = list.querySelectorAll('.sheet-config-item');
+                    if ( items.length <  config.sheets.length){
+                         while (items.length < config.sheets.length) {
+                            addVisualSheetConfigItem();
+                        }
+                    }
+                    config.sheets.forEach(sheetCfg => {
                         if (!list) return;
-                        addVisualSheetConfigItem();
+                        // addVisualSheetConfigItem();
                         const items = list.querySelectorAll('.sheet-config-item');
                         const item = items[items.length - 1];
                         if (!item) return;
-
+                        const sheetSelect = item.querySelector('select');
                         const textInputs = item.querySelectorAll('input[type="text"]');
                         const spreadsheetInputEl = textInputs[0];
-                        const customInputEl = textInputs[1] || null;
+                        const sheetTitle = textInputs[1] || null;
+                        const customInputEl = textInputs[2] || null;
 
                         if (spreadsheetInputEl && sheetCfg.spreadsheet_id) {
                             spreadsheetInputEl.value = sheetCfg.spreadsheet_id;
                         }
+                        if (sheetTitle && sheetCfg.title) {
+                            sheetTitle.value = sheetCfg.title;
+                        }
                         if (customInputEl && sheetCfg.sheet_name) {
                             customInputEl.value = sheetCfg.sheet_name;
+                             if (sheetCfg.sheet_name) {
+                                sheetSelect.options[0].text = sheetCfg.sheet_name;
+                            }
+
                         }
+
                     });
                 }
                 if (config.token_type) {
@@ -994,6 +987,12 @@
                     const modeInput = document.querySelector(`input[name="count_mode"][value="${config.count_mode}"]`);
                     if (modeInput) {
                         modeInput.checked = true;
+                    }
+                    if  (config.count_mode === 'n_plus_1') {
+                        // 取消多选框的禁用状态
+                        document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                            checkbox.disabled = false;
+                        });
                     }
                 }
                 if (config.date_range_mode !== undefined) {
@@ -1016,12 +1015,23 @@
 
                 // 填充产品代码参数
                 if (config.parameters && Array.isArray(config.parameters)) {
-                    const firstParam = config.parameters[0];
-                    const paramElement = document.getElementById('param1');
-                    if (paramElement && Array.isArray(firstParam)) {
-                        paramElement.value = JSON.stringify(firstParam);
-                        initProductCodeChipsFromParam1();
+                    for  (let i = 0; i < config.parameters.length; i++) {
+                        const param = config.parameters[i];
+                        const paramElement = document.getElementById(`param${i + 1}`);
+                        console.log(paramElement,  param)
+                        if (paramElement) {
+                            paramElement.value = JSON.stringify(param);
+                            if (i===0){
+                                 initProductCodeChipsFromParam1();
+                            }
+                        }
                     }
+                    // const firstParam = config.parameters[0];
+                    // const paramElement = document.getElementById('param1');
+                    // if (paramElement && Array.isArray(firstParam)) {
+                    //     paramElement.value = JSON.stringify(firstParam);
+                    //     initProductCodeChipsFromParam1();
+                    // }
                 }
 
                 // 更新组合计算
@@ -1554,11 +1564,6 @@
         }
         
         // 获取Google Sheet配置
-        const spreadsheetInput = document.getElementById('spreadsheet').value;
-        const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
-        const sheetNameSelect = document.getElementById('sheet_name').value;
-        const customSheetName = document.getElementById('custom_sheet_name').value;
-        const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
         const tokenType = document.getElementById('token_type').value;
         const tokenFile = document.getElementById('token_file').value;
         const tokenJson = document.getElementById('token_json').value;
@@ -1568,18 +1573,7 @@
         const dateRangeModes = getSelectedDateRangeModes();
         const startDate = document.getElementById('start_date')?.value || null;
         const endDate = document.getElementById('end_date')?.value || null;
-        
-        // 验证必要字段
-        if (!spreadsheetId) {
-            showNotification('请输入电子表格ID或URL', 'error');
-            return;
-        }
-        
-        if (sheetNameSelect === '自定义' && !customSheetName) {
-            showNotification('请输入自定义工作表名称', 'error');
-            return;
-        }
-        
+
         if (tokenType === 'file' && !tokenFile) {
             showNotification('请输入Token文件路径', 'error');
             return;
@@ -1615,52 +1609,47 @@
             items.forEach((item, index) => {
                 let sid = '';
                 let sname = '';
+                let stitle = '';
 
-                const spreadsheetTitle = document.getElementById('spreadsheet_title')?.value.trim() || null;
+                // 其他配置块：通过输入/下拉推导
+                const textInputs = item.querySelectorAll('input[type="text"]');
+                const spreadsheetInputEl = textInputs[0];
+                const sheetTitle = textInputs[1] || null;
+                const customInputEl = textInputs[2] || null;
+                const selectEl = item.querySelector('select');
 
-                if (index === 0) {
-                    // 主配置使用当前计算好的值
-                    sid = spreadsheetId;
-                    sname = sheetName;
-                } else {
-                    // 其他配置块：通过输入/下拉推导
-                    const textInputs = item.querySelectorAll('input[type="text"]');
-                    const spreadsheetInputEl = textInputs[0];
-                    const customInputEl = textInputs[1] || null;
-                    const selectEl = item.querySelector('select');
-
-                    if (spreadsheetInputEl) {
-                        sid = extractSpreadsheetId(spreadsheetInputEl.value || '');
-                    }
-
-                    if (selectEl) {
-                        if (selectEl.value === '自定义' && customInputEl) {
-                            sname = (customInputEl.value || '').trim();
-                        } else if (selectEl.value) {
-                            sname = selectEl.value;
-                        } else if (customInputEl) {
-                            // 下拉无有效值时，允许直接用自定义输入
-                            sname = (customInputEl.value || '').trim();
-                        }
+                if (spreadsheetInputEl) {
+                    sid = extractSpreadsheetId(spreadsheetInputEl.value || '');
+                }
+                if  (sheetTitle) {
+                    stitle = sheetTitle.value.trim();
+                }
+                if (selectEl) {
+                    if (selectEl.value === '自定义' && customInputEl) {
+                        sname = (customInputEl.value || '').trim();
+                    } else if (selectEl.value) {
+                        sname = selectEl.value;
                     } else if (customInputEl) {
+                        // 下拉无有效值时，允许直接用自定义输入
                         sname = (customInputEl.value || '').trim();
                     }
+                } else if (customInputEl) {
+                    sname = (customInputEl.value || '').trim();
                 }
 
                 if (sid && sname) {
                     const sheetConfig = {
                         spreadsheet_id: sid,
+                        title: stitle,
                         sheet_name: sname
                     };
-                    if (index === 0 && spreadsheetTitle) {
-                        sheetConfig.title = spreadsheetTitle;
-                    }
                     sheets.push(sheetConfig);
+                    console.log(`添加表格配置：${sid} - ${sname} - ${stitle}`);
                 }
             });
         }
 
-        // 构造任务配置（C4 任务仅使用 sheets 数组，不再重复顶层 spreadsheet_id/sheet_name）
+        // 构造任务配置（C5 任务仅使用 sheets 数组，不再重复顶层 spreadsheet_id/sheet_name）
         const taskConfig = {
             token_type: tokenType,
             token_file: tokenFile,
@@ -1763,7 +1752,7 @@
         };
         
         try {
-            localStorage.setItem('google_sheet_c5_form_data', JSON.stringify(formData));
+            // localStorage.setItem('google_sheet_c5_form_data', JSON.stringify(formData));
             // 静默保存，不显示提示
         } catch (e) {
             console.warn('无法保存表单数据到localStorage:', e);
@@ -1900,9 +1889,9 @@
             }
 
             // 获取参数配置
-            const param1 = parseJsonArray(document.getElementById('param1').value);
-            const param2 = parseJsonArray(document.getElementById('param2').value);
-            const param3 = parseJsonArray(document.getElementById('param3').value);
+            const param1 = parseJsonArray(document.getElementById('param1').value) || [];
+            const param2 = parseJsonArray(document.getElementById('param2').value) || [];
+            const param3 = parseJsonArray(document.getElementById('param3').value) || [];
 
             // 检查是否有解析错误
             if (param1 === null || param2 === null || param3 === null) {
@@ -1916,47 +1905,48 @@
             if (sheetConfigList) {
                 const items = sheetConfigList.querySelectorAll('.sheet-config-item');
                 items.forEach((item, index) => {
-                    let sid = '';
-                    let sname = '';
+                    let sname;
+                    let sid;
+                    let stitle;
+                    const textInputs = item.querySelectorAll('input[type="text"]');
+                    const spreadsheetInputEl = textInputs[0];
+                    const sheetTitle = textInputs[1] || null;
+                    const customInputEl = textInputs[2] || null;
+                    const selectEl = item.querySelector('select');
 
-                    if (index === 0) {
-                        sid = spreadsheetId;
-                        sname = sheetName;
-                    } else {
-                        const textInputs = item.querySelectorAll('input[type="text"]');
-                        const spreadsheetInputEl = textInputs[0];
-                        const customInputEl = textInputs[1] || null;
-                        const selectEl = item.querySelector('select');
-
-                        if (spreadsheetInputEl) {
-                            sid = extractSpreadsheetId(spreadsheetInputEl.value || '');
-                        }
-
-                        if (selectEl) {
-                            if (selectEl.value === '自定义' && customInputEl) {
-                                sname = (customInputEl.value || '').trim();
-                            } else if (selectEl.value) {
-                                sname = selectEl.value;
-                            } else if (customInputEl) {
-                                sname = (customInputEl.value || '').trim();
-                            }
+                    if (spreadsheetInputEl) {
+                        sid = extractSpreadsheetId(spreadsheetInputEl.value || '');
+                    }
+                    if (spreadsheetInputEl) {
+                        stitle = sheetTitle.value || ''
+                    }
+                    if (selectEl) {
+                        if (selectEl.value === '自定义' && customInputEl) {
+                            sname = (customInputEl.value || '').trim();
+                        } else if (selectEl.value) {
+                            sname = selectEl.value;
                         } else if (customInputEl) {
                             sname = (customInputEl.value || '').trim();
                         }
+                    } else if (customInputEl) {
+                        sname = (customInputEl.value || '').trim();
                     }
 
-                    if (sid && sname) {
+
+                    if (sid && sname && stitle) {
                         sheets.push({
                             spreadsheet_id: sid,
+                            title: stitle,
                             sheet_name: sname
                         });
+                        console.log( `添加工作表：${sid} - ${sname} - ${stitle}`)
                     }
                 });
             }
 
             // 构造参数列表：只加入非空数组
             const parameters = [];
-            if (Array.isArray(param1) && param1.length) parameters.push(param1);
+            if (Array.isArray(param1)) parameters.push(param1);
             if (Array.isArray(param2) && param2.length) parameters.push(param2);
             if (Array.isArray(param3) && param3.length) parameters.push(param3);
 
