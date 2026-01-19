@@ -1,0 +1,2090 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>美食随机选择器 - 今天吃什么？</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        }
+        
+        :root {
+            --primary-color: #FF6B6B;
+            --secondary-color: #4ECDC4;
+            --accent-color: #FFD166;
+            --dark-color: #0F0F1E;
+            --light-color: #F7FFF7;
+            --neon-pink: #FF00FF;
+            --neon-blue: #00FFFF;
+            --neon-green: #00FF00;
+            --neon-yellow: #FFFF00;
+            --gradient: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%);
+            --gradient-secondary: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%);
+            --gradient-neon: linear-gradient(45deg, #FF00FF, #00FFFF, #00FF00);
+        }
+        
+        body {
+            background: linear-gradient(45deg, #0F0F1E 0%, #1A1A2E 100%);
+            min-height: 100vh;
+            color: var(--light-color);
+            overflow: hidden;
+        }
+        
+        /* 全屏主选择区域 */
+        .main-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1;
+            padding: 20px 20px 100px 20px;
+        }
+        
+        /* 结果展示区域 - 全屏 */
+        .result-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2;
+            position: relative;
+        }
+        
+        /* 动画容器 - 全屏 */
+        .animation-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 1;
+            display: none;
+        }
+        
+        /* 底部控制区域 */
+        .bottom-controls {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 15px;
+            background: rgba(15, 15, 30, 0.85);
+            backdrop-filter: blur(15px);
+            z-index: 10;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 -5px 25px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        /* 分类选择区域 - 单行 */
+        .category-container {
+            display: flex;
+            overflow-x: auto;
+            justify-content: center;
+            width: 90%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            gap: 8px;
+            padding: 5px 0;
+            scrollbar-width: thin;
+            scrollbar-color: var(--primary-color) rgba(255, 255, 255, 0.1);
+        }
+        
+        .category-container::-webkit-scrollbar {
+            height: 4px;
+        }
+        
+        .category-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        
+        .category-container::-webkit-scrollbar-thumb {
+            background: var(--gradient);
+            border-radius: 10px;
+        }
+        
+        .category-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 8px 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+            position: relative;
+            min-width: 80px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .category-card.active {
+            background: rgba(255, 107, 107, 0.2);
+            border-color: var(--primary-color);
+            box-shadow: 0 3px 15px rgba(255, 107, 107, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .category-icon {
+            font-size: 1.5rem;
+            margin-bottom: 4px;
+            display: block;
+            filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.3));
+        }
+        
+        .category-name {
+            font-weight: 500;
+            font-size: 0.8rem;
+            white-space: nowrap;
+        }
+        
+        /* 随机选择按钮 */
+        .random-btn-container {
+            text-align: center;
+            width: 100%;
+        }
+        
+        .random-btn {
+            background: var(--gradient);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 14px 30px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.4s ease;
+            box-shadow: 0 8px 20px rgba(255, 107, 107, 0.3);
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+            width: 100%;
+            justify-content: center;
+        }
+        
+        .random-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 12px 25px rgba(255, 107, 107, 0.5);
+            letter-spacing: 1px;
+        }
+        
+        /* 卡片浮动动画元素 */
+        .floating-card {
+            position: absolute;
+            width: 140px;
+            height: 180px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 15px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            z-index: 1;
+            opacity: 0;
+        }
+        
+        .floating-card-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+        
+        .floating-card-name {
+            font-size: 1rem;
+            font-weight: 500;
+            text-align: center;
+        }
+        
+        /* 弹跳球元素 */
+        .bouncing-ball {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.2rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+            z-index: 1;
+            opacity: 0;
+        }
+        
+        /* 瀑布流元素 */
+        .waterfall-item {
+            position: absolute;
+            width: 120px;
+            height: 150px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            z-index: 1;
+            opacity: 0;
+        }
+        
+        /* 3D翻转元素 */
+        .flip-card {
+            position: absolute;
+            width: 150px;
+            height: 190px;
+            perspective: 1000px;
+            z-index: 1;
+            opacity: 0;
+        }
+        
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.8s;
+            transform-style: preserve-3d;
+        }
+        
+        .flip-card-front, .flip-card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            border-radius: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 15px;
+            backdrop-filter: blur(5px);
+        }
+        
+        .flip-card-front {
+            background: rgba(255, 107, 107, 0.2);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            color: white;
+        }
+        
+        .flip-card-back {
+            background: rgba(78, 205, 196, 0.2);
+            border: 1px solid rgba(78, 205, 196, 0.3);
+            color: white;
+            transform: rotateY(180deg);
+        }
+        
+        /* 星空爆炸元素 */
+        .star {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 10px white;
+            z-index: 0;
+        }
+        
+        /* 结果展示 */
+        .result-placeholder {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 1.8rem;
+            font-style: italic;
+            z-index: 2;
+            text-align: center;
+            padding: 0 20px;
+        }
+        
+        .result-content {
+            display: none;
+            animation: fadeInUp 0.8s ease forwards;
+            z-index: 2;
+            position: relative;
+            text-align: center;
+            width: 100%;
+            padding: 0 20px;
+        }
+        
+        @keyframes fadeInUp {
+            from { 
+                opacity: 0; 
+                transform: translateY(30px) scale(0.9);
+            }
+            to { 
+                opacity: 1; 
+                transform: translateY(0) scale(1);
+            }
+        }
+        
+        .result-icon {
+            font-size: 8rem;
+            margin-bottom: 30px;
+            animation: bounce 1.5s infinite alternate;
+            filter: drop-shadow(0 0 20px currentColor);
+        }
+        
+        @keyframes bounce {
+            0% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-20px) scale(1.1); }
+            100% { transform: translateY(0) scale(1); }
+        }
+        
+        .result-text {
+            font-size: 4.5rem;
+            font-weight: 800;
+            margin-bottom: 25px;
+            background: var(--gradient-neon);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+            animation: textGlow 2s infinite alternate;
+            line-height: 1.2;
+        }
+        
+        @keyframes textGlow {
+            0% { filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.3)); }
+            100% { filter: drop-shadow(0 0 15px rgba(255, 255, 255, 0.7)); }
+        }
+        
+        .result-category {
+            display: inline-block;
+            background: rgba(78, 205, 196, 0.2);
+            color: var(--secondary-color);
+            padding: 10px 25px;
+            border-radius: 50px;
+            font-weight: 600;
+            margin-top: 20px;
+            border: 1px solid rgba(78, 205, 196, 0.3);
+            backdrop-filter: blur(5px);
+            font-size: 1.1rem;
+        }
+        
+        /* 右下角浮动按钮 */
+        .floating-action-btn {
+            position: fixed;
+            bottom: 85px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            background: var(--gradient);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(255, 107, 107, 0.3);
+            z-index: 100;
+            transition: all 0.3s ease;
+        }
+        
+        .floating-action-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 12px 25px rgba(255, 107, 107, 0.5);
+        }
+        
+        .floating-action-btn i {
+            font-size: 1.3rem;
+        }
+        
+        /* 浮动弹窗 */
+        .floating-panel {
+            position: fixed;
+            bottom: 145px;
+            right: 20px;
+            width: 350px;
+            max-height: 500px;
+            background: rgba(20, 20, 35, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4);
+            z-index: 99;
+            overflow: hidden;
+            display: none;
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .panel-tabs {
+            display: flex;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .panel-tab {
+            flex: 1;
+            padding: 12px;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .panel-tab:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .panel-tab.active {
+            color: white;
+            background: rgba(255, 107, 107, 0.2);
+            border-bottom: 2px solid var(--primary-color);
+        }
+        
+        .panel-content {
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .panel-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .panel-content::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+        
+        .panel-content::-webkit-scrollbar-thumb {
+            background: var(--gradient);
+            border-radius: 10px;
+        }
+        
+        /* 动画选择器 */
+        .animation-selector {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        
+        .animation-option {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .animation-option:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-3px);
+            border-color: var(--secondary-color);
+        }
+        
+        .animation-option.active {
+            background: rgba(78, 205, 196, 0.2);
+            border-color: var(--secondary-color);
+            box-shadow: 0 5px 15px rgba(78, 205, 196, 0.3);
+        }
+        
+        .animation-icon {
+            font-size: 1.3rem;
+            color: var(--secondary-color);
+        }
+        
+        .animation-name {
+            font-weight: 500;
+            font-size: 0.85rem;
+        }
+        
+        /* 历史记录 */
+        .history-list {
+            max-height: 350px;
+            overflow-y: auto;
+        }
+        
+        .history-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+            border-left: 3px solid var(--accent-color);
+        }
+        
+        .history-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateX(5px);
+        }
+        
+        .history-food {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1rem;
+            font-weight: 500;
+        }
+        
+        .history-icon {
+            font-size: 1.3rem;
+        }
+        
+        .history-time {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.75rem;
+        }
+        
+        /* 编辑菜品按钮 */
+        .edit-btn {
+            position: fixed;
+            bottom: 85px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 10px 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .edit-btn:hover {
+            background: rgba(255, 209, 102, 0.3);
+            color: var(--accent-color);
+            transform: translateY(-2px);
+        }
+        
+        /* 编辑菜品弹窗 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(10px);
+        }
+        
+        .modal-content {
+            background: linear-gradient(145deg, #1A1A2E 0%, #0F0F1E 100%);
+            border-radius: 25px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 85vh;
+            overflow: hidden;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .notification {
+            position: fixed;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--gradient-secondary);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+            display: none;
+            align-items: center;
+            gap: 12px;
+            z-index: 100;
+            animation: slideIn 0.4s ease forwards;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            max-width: 90%;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(-50%) translateY(100%); opacity: 0; }
+            to { transform: translateX(-50%) translateY(0); opacity: 1; }
+        }
+        
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            .result-text {
+                font-size: 3.5rem;
+            }
+            
+            .result-icon {
+                font-size: 6rem;
+            }
+            
+            .floating-panel {
+                width: 90%;
+                right: 5%;
+                bottom: 145px;
+            }
+            
+            .floating-card {
+                width: 120px;
+                height: 160px;
+            }
+            
+            .floating-card-icon {
+                font-size: 2.5rem;
+            }
+            
+            .category-card {
+                min-width: 70px;
+                padding: 6px 10px;
+            }
+            
+            .category-icon {
+                font-size: 1.3rem;
+            }
+            
+            .category-name {
+                font-size: 0.7rem;
+            }
+            
+            .random-btn {
+                padding: 12px 25px;
+                font-size: 1rem;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .result-text {
+                font-size: 2.8rem;
+            }
+            
+            .result-icon {
+                font-size: 5rem;
+            }
+            
+            .result-category {
+                font-size: 1rem;
+                padding: 8px 20px;
+            }
+            
+            .category-card {
+                min-width: 65px;
+                padding: 5px 8px;
+            }
+            
+            .category-icon {
+                font-size: 1.2rem;
+                margin-bottom: 2px;
+            }
+            
+            .category-name {
+                font-size: 0.65rem;
+            }
+            
+            .random-btn {
+                padding: 10px 20px;
+                font-size: 0.95rem;
+            }
+            
+            .bottom-controls {
+                padding: 12px;
+            }
+            
+            .floating-action-btn, .edit-btn {
+                bottom: 80px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 全屏主选择区域 -->
+    <div class="main-container">
+        <!-- 结果展示区域 - 全屏 -->
+        <div class="result-container">
+            <!-- 动画容器 -->
+            <div class="animation-container" id="animationContainer"></div>
+            
+            <div id="resultPlaceholder" class="result-placeholder">
+                <i class="fas fa-utensil-spoon"></i>
+                <p>选择分类后点击"开始随机选择"</p>
+            </div>
+            <div id="resultContent" class="result-content">
+                <div id="resultIcon" class="result-icon"></div>
+                <div id="result" class="result-text"></div>
+                <div id="resultCategory" class="result-category"></div>
+            </div>
+        </div>
+        
+        <!-- 底部控制区域 -->
+        <div class="bottom-controls">
+            <!-- 分类选择 - 单行 -->
+            <div class="category-container" id="categoryContainer">
+                <!-- 分类卡片将通过JavaScript动态生成 -->
+            </div>
+            
+            <!-- 随机选择按钮 -->
+            <div class="random-btn-container">
+                <button id="randomBtn" class="random-btn">
+                    <i class="fas fa-play"></i> 开始随机选择
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 编辑菜品库按钮 -->
+    <button id="editBtn" class="edit-btn">
+        <i class="fas fa-edit"></i> 编辑菜品库
+    </button>
+    
+    <!-- 右下角浮动按钮 -->
+    <div class="floating-action-btn" id="floatingBtn">
+        <i class="fas fa-cog"></i>
+    </div>
+    
+    <!-- 浮动弹窗 -->
+    <div class="floating-panel" id="floatingPanel">
+        <div class="panel-tabs">
+            <button class="panel-tab active" data-tab="animations">动画选择</button>
+            <button class="panel-tab" data-tab="history">选择历史</button>
+        </div>
+        
+        <div class="panel-content" id="animationsTab">
+            <div class="animation-selector">
+                <div class="animation-option active" data-animation="cards">
+                    <i class="fas fa-layer-group animation-icon"></i>
+                    <span class="animation-name">卡片浮动</span>
+                </div>
+                <div class="animation-option" data-animation="bouncing">
+                    <i class="fas fa-basketball-ball animation-icon"></i>
+                    <span class="animation-name">弹跳选择</span>
+                </div>
+                <div class="animation-option" data-animation="waterfall">
+                    <i class="fas fa-stream animation-icon"></i>
+                    <span class="animation-name">瀑布流</span>
+                </div>
+                <div class="animation-option" data-animation="flip3d">
+                    <i class="fas fa-sync animation-icon"></i>
+                    <span class="animation-name">3D翻转</span>
+                </div>
+                <div class="animation-option" data-animation="stars">
+                    <i class="fas fa-star animation-icon"></i>
+                    <span class="animation-name">星空爆炸</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel-content" id="historyTab" style="display: none;">
+            <div class="history-list" id="historyList">
+                <!-- 历史记录将通过JavaScript动态生成 -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- 编辑菜品弹窗 -->
+    <div id="editModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-edit"></i> 编辑菜品库</h2>
+                <button class="close-modal" id="closeModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="category-tabs" id="categoryTabs">
+                    <!-- 分类标签将通过JavaScript动态生成 -->
+                </div>
+                
+                <div id="foodListContainer">
+                    <!-- 菜品列表将通过JavaScript动态生成 -->
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="modal-btn cancel" id="cancelEdit">取消</button>
+                <button class="modal-btn save" id="saveEdit">保存更改</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 通知组件 -->
+    <div id="notification" class="notification">
+        <i class="fas fa-check-circle"></i>
+        <span id="notificationText">操作成功！</span>
+    </div>
+
+    <script>
+        // 食物数据库 - 包含超过130个热门菜品
+        let foodDatabase = {
+            chinese: {
+                name: "中餐",
+                icon: "🥢",
+                color: "#E74C3C",
+                items: [
+                    "宫保鸡丁", "麻婆豆腐", "红烧肉", "鱼香肉丝", "水煮鱼", "回锅肉", "糖醋里脊", 
+                    "京酱肉丝", "酸菜鱼", "辣子鸡", "小炒黄牛肉", "毛血旺", "夫妻肺片", 
+                    "蒜泥白肉", "水煮牛肉", "辣炒花蛤", "干锅牛蛙", "孜然羊肉", "重庆烤鱼", 
+                    "蟹黄豆腐", "白灼菜心", "上汤娃娃菜", "扬州炒饭", "葱油拌面", "红油抄手"
+                ]
+            },
+            barbecue: {
+                name: "烧烤",
+                icon: "🍖",
+                color: "#F39C12",
+                items: [
+                    "羊肉串", "牛肉串", "烤鸡翅", "烤五花肉", "烤茄子", "烤韭菜", "烤金针菇", 
+                    "烤生蚝", "烤扇贝", "烤面包片", "烤土豆片", "烤玉米", "烤大虾", "烤鱿鱼", 
+                    "烤肠", "烤馒头片", "烤青椒", "烤鱼豆腐", "烤面筋", "烤腰子"
+                ]
+            },
+            xiangcuisine: {
+                name: "湘菜",
+                icon: "🌶️",
+                color: "#C0392B",
+                items: [
+                    "剁椒鱼头", "小炒肉", "腊味合蒸", "毛氏红烧肉", "农家小炒肉", "酸豆角肉末", 
+                    "口味牛蛙", "永州血鸭", "湘西外婆菜", "土匪猪肝", "擂辣椒皮蛋", "长沙臭豆腐"
+                ]
+            },
+            yuecuisine: {
+                name: "粤菜/烧腊",
+                icon: "🍗",
+                color: "#D35400",
+                items: [
+                    "烧鹅", "蜜汁叉烧", "白切鸡", "豉油鸡", "卤水拼盘", "煲仔饭", "干炒牛河", 
+                    "虾饺", "蒸凤爪", "流沙包", "皮蛋瘦肉粥", "及第粥", "清蒸鲈鱼", "老火靓汤"
+                ]
+            },
+            western: {
+                name: "西式简餐",
+                icon: "🍽️",
+                color: "#3498DB",
+                items: [
+                    "黑椒牛排意面", "奶油培根意面", "夏威夷披萨", "芝士披萨", "美式牛肉汉堡", 
+                    "炸鱼薯条", "凯撒沙拉", "金枪鱼三明治", "罗宋汤", "土豆泥", "洋葱圈", "香草烤鸡"
+                ]
+            },
+            fastfood: {
+                name: "快餐汉堡",
+                icon: "🍔",
+                color: "#F1C40F",
+                items: [
+                    "巨无霸汉堡", "香辣鸡腿堡", "板烧鸡腿堡", "牛肉芝士汉堡", "薯条", "麦辣鸡翅", 
+                    "上校鸡块", "老北京鸡肉卷", "鳕鱼堡", "可乐", "九珍果汁", "巧克力圣代", "菠萝派"
+                ]
+            },
+            japanese: {
+                name: "日式料理",
+                icon: "🍣",
+                color: "#9B59B6",
+                items: [
+                    "三文鱼刺身", "甜虾刺身", "北极贝刺身", "鳗鱼饭", "牛肉丼", "猪排饭", 
+                    "章鱼小丸子", "大阪烧", "日式炸鸡", "味增汤", "海草沙律", "大福", "可尔必思"
+                ]
+            },
+            dessert: {
+                name: "甜点饮品",
+                icon: "🍰",
+                color: "#E84393",
+                items: [
+                    "杨枝甘露", "珍珠奶茶", "芝士奶盖绿茶", "水果茶", "拿铁咖啡", "摩卡咖啡", 
+                    "提拉米苏", "芝士蛋糕", "巧克力布朗尼", "榴莲千层", "泡芙", "蛋挞", "双皮奶", 
+                    "红豆沙", "冰糖炖雪梨", "冰淇淋"
+                ]
+            },
+            liangpi: {
+                name: "小吃轻食",
+                icon: "🥗",
+                color: "#2ECC71",
+                items: [
+                    "鸡胸肉沙拉", "金枪鱼沙拉", "素食沙拉碗", "全麦三明治", "酸奶水果杯", "关东煮", 
+                    "麻辣烫", "酸辣粉", "凉皮", "肉夹馍", "煎饼果子", "烤冷面", "章鱼烧", "鸡蛋灌饼"
+                ]
+            }
+        };
+
+        // 全局变量
+        let selectedCategory = 'all';
+        let selectedAnimation = 'cards';
+        let selectionHistory = JSON.parse(localStorage.getItem('foodSelectionHistory')) || [];
+        let editingCategory = 'chinese';
+        let isEditing = false;
+        let animationInProgress = false;
+        let animationItems = [];
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initApp();
+        });
+
+        // 初始化应用
+        function initApp() {
+            // 从本地存储加载自定义数据
+            loadCustomData();
+            
+            // 初始化分类卡片
+            renderCategoryCards();
+            
+            // 初始化历史记录
+            renderHistory();
+            
+            // 初始化动画选择器
+            initAnimationSelector();
+            
+            // 绑定事件监听器
+            bindEvents();
+            
+            // 如果有历史记录，显示最新的一个
+            if (selectionHistory.length > 0) {
+                const latest = selectionHistory[0];
+                showResult(latest.food, latest.category, latest.icon, false);
+            }
+        }
+
+        // 初始化动画选择器
+        function initAnimationSelector() {
+            const options = document.querySelectorAll('.animation-option');
+            options.forEach(option => {
+                option.addEventListener('click', function() {
+                    // 移除所有active类
+                    options.forEach(opt => opt.classList.remove('active'));
+                    // 给当前选项添加active类
+                    this.classList.add('active');
+                    // 更新选中的动画
+                    selectedAnimation = this.dataset.animation;
+                    
+                    // 显示通知
+                    showNotification(`已选择动画: ${this.querySelector('.animation-name').textContent}`, 'success');
+                });
+            });
+        }
+
+        // 从本地存储加载自定义数据
+        function loadCustomData() {
+            const savedData = localStorage.getItem('customFoodDatabase');
+            if (savedData) {
+                try {
+                    const customData = JSON.parse(savedData);
+                    // 合并默认数据和自定义数据
+                    for (const category in customData) {
+                        if (foodDatabase[category] && customData[category].items) {
+                            foodDatabase[category].items = customData[category].items;
+                        }
+                    }
+                } catch (e) {
+                    console.error('加载自定义数据失败:', e);
+                }
+            }
+        }
+
+        // 保存自定义数据到本地存储
+        function saveCustomData() {
+            localStorage.setItem('customFoodDatabase', JSON.stringify(foodDatabase));
+        }
+
+        // 渲染分类卡片
+        function renderCategoryCards() {
+            const container = document.getElementById('categoryContainer');
+            container.innerHTML = '';
+            
+            // 添加"全部"选项
+            const allCard = createCategoryCard('all', '全部', '🌍', 'all');
+            container.appendChild(allCard);
+            
+            // 为每个分类创建卡片
+            for (const [key, category] of Object.entries(foodDatabase)) {
+                const card = createCategoryCard(key, category.name, category.icon, category.items.length);
+                container.appendChild(card);
+            }
+        }
+
+        // 创建分类卡片
+        function createCategoryCard(key, name, icon, count) {
+            const card = document.createElement('div');
+            card.className = `category-card ${selectedCategory === key ? 'active' : ''}`;
+            card.dataset.category = key;
+            
+            card.innerHTML = `
+                <span class="category-icon">${icon}</span>
+                <span class="category-name">${name}</span>
+                ${key !== 'all' ? `<span class="category-count" style="position: absolute; top: 2px; right: 2px; background: var(--secondary-color); color: var(--dark-color); font-size: 0.6rem; width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">${count}</span>` : ''}
+            `;
+            
+            card.addEventListener('click', () => selectCategory(key));
+            return card;
+        }
+
+        // 选择分类
+        function selectCategory(category) {
+            if (animationInProgress) return;
+            
+            selectedCategory = category;
+            
+            // 更新卡片状态
+            document.querySelectorAll('.category-card').forEach(card => {
+                if (card.dataset.category === category) {
+                    card.classList.add('active');
+                } else {
+                    card.classList.remove('active');
+                }
+            });
+        }
+
+        // 绑定事件监听器
+        function bindEvents() {
+            // 随机选择按钮
+            document.getElementById('randomBtn').addEventListener('click', performRandomSelection);
+            
+            // 编辑按钮
+            document.getElementById('editBtn').addEventListener('click', openEditModal);
+            
+            // 浮动按钮
+            document.getElementById('floatingBtn').addEventListener('click', toggleFloatingPanel);
+            
+            // 面板标签切换
+            document.querySelectorAll('.panel-tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const tabName = this.dataset.tab;
+                    switchTab(tabName);
+                });
+            });
+            
+            // 弹窗关闭按钮
+            document.getElementById('closeModal').addEventListener('click', closeEditModal);
+            document.getElementById('cancelEdit').addEventListener('click', closeEditModal);
+            
+            // 弹窗保存按钮
+            document.getElementById('saveEdit').addEventListener('click', saveEdits);
+            
+            // 点击弹窗外部关闭
+            document.getElementById('editModal').addEventListener('click', function(e) {
+                if (e.target === this) closeEditModal();
+            });
+            
+            // 键盘事件：ESC关闭弹窗
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    if (document.getElementById('editModal').style.display === 'flex') {
+                        closeEditModal();
+                    }
+                    if (document.getElementById('floatingPanel').style.display === 'block') {
+                        toggleFloatingPanel();
+                    }
+                }
+            });
+            
+            // 点击页面其他地方关闭浮动面板
+            document.addEventListener('click', function(e) {
+                const floatingPanel = document.getElementById('floatingPanel');
+                const floatingBtn = document.getElementById('floatingBtn');
+                
+                if (floatingPanel.style.display === 'block' && 
+                    !floatingPanel.contains(e.target) && 
+                    !floatingBtn.contains(e.target)) {
+                    floatingPanel.style.display = 'none';
+                }
+            });
+        }
+
+        // 切换浮动面板标签
+        function switchTab(tabName) {
+            // 更新标签状态
+            document.querySelectorAll('.panel-tab').forEach(tab => {
+                if (tab.dataset.tab === tabName) {
+                    tab.classList.add('active');
+                } else {
+                    tab.classList.remove('active');
+                }
+            });
+            
+            // 显示对应内容
+            document.querySelectorAll('.panel-content').forEach(content => {
+                if (content.id === tabName + 'Tab') {
+                    content.style.display = 'block';
+                } else {
+                    content.style.display = 'none';
+                }
+            });
+        }
+
+        // 切换浮动面板显示/隐藏
+        function toggleFloatingPanel() {
+            const panel = document.getElementById('floatingPanel');
+            if (panel.style.display === 'block') {
+                panel.style.display = 'none';
+            } else {
+                panel.style.display = 'block';
+                // 确保显示最新历史记录
+                renderHistory();
+            }
+        }
+
+        // 执行随机选择
+        function performRandomSelection() {
+            if (animationInProgress) return;
+            
+            animationInProgress = true;
+            
+            const resultPlaceholder = document.getElementById('resultPlaceholder');
+            const resultContent = document.getElementById('resultContent');
+            const animationContainer = document.getElementById('animationContainer');
+            
+            // 隐藏之前的显示结果
+            resultPlaceholder.style.display = 'none';
+            resultContent.style.display = 'none';
+            
+            // 显示动画容器
+            animationContainer.style.display = 'block';
+            animationContainer.innerHTML = '';
+            
+            // 获取当前分类的所有食物
+            const allFoods = getAllFoodsFromSelectedCategory();
+            
+            // 根据选择的动画类型执行不同的动画
+            switch(selectedAnimation) {
+                case 'cards':
+                    startCardsAnimation(allFoods, animationContainer);
+                    break;
+                case 'bouncing':
+                    startBouncingAnimation(allFoods, animationContainer);
+                    break;
+                case 'waterfall':
+                    startWaterfallAnimation(allFoods, animationContainer);
+                    break;
+                case 'flip3d':
+                    startFlip3DAnimation(allFoods, animationContainer);
+                    break;
+                case 'stars':
+                    startStarsAnimation(allFoods, animationContainer);
+                    break;
+                default:
+                    startCardsAnimation(allFoods, animationContainer);
+            }
+        }
+
+        // 获取当前分类的所有食物
+        function getAllFoodsFromSelectedCategory() {
+            let allFoods = [];
+            
+            if (selectedCategory === 'all') {
+                // 获取所有分类的食物
+                for (const [key, category] of Object.entries(foodDatabase)) {
+                    category.items.forEach(food => {
+                        allFoods.push({
+                            name: food,
+                            category: category.name,
+                            icon: category.icon,
+                            color: category.color
+                        });
+                    });
+                }
+            } else {
+                // 获取特定分类的食物
+                const category = foodDatabase[selectedCategory];
+                category.items.forEach(food => {
+                    allFoods.push({
+                        name: food,
+                        category: category.name,
+                        icon: category.icon,
+                        color: category.color
+                    });
+                });
+            }
+            
+            // 随机排序
+            return allFoods.sort(() => Math.random() - 0.5);
+        }
+
+        // 1. 卡片浮动动画
+        function startCardsAnimation(foods, container) {
+            const displayFoods = foods.slice(0, 20);
+            animationItems = [];
+            
+            displayFoods.forEach((foodObj, index) => {
+                const card = document.createElement('div');
+                card.className = 'floating-card';
+                card.innerHTML = `
+                    <div class="floating-card-icon">${foodObj.icon}</div>
+                    <div class="floating-card-name">${foodObj.name}</div>
+                `;
+                card.style.background = `rgba(${hexToRgb(foodObj.color)}, 0.2)`;
+                card.style.borderColor = `rgba(${hexToRgb(foodObj.color)}, 0.3)`;
+                
+                // 将菜品数据对象直接存储在DOM元素上
+                card.dataset.foodName = foodObj.name;
+                card.dataset.foodCategory = foodObj.category;
+                card.dataset.foodIcon = foodObj.icon;
+                
+                const item = {
+                    element: card,
+                    data: foodObj,
+                    x: Math.random() * (container.clientWidth - 140),
+                    y: Math.random() * (container.clientHeight - 180),
+                    vx: (Math.random() - 0.5) * 2.5,
+                    vy: (Math.random() - 0.5) * 2.5
+                };
+                animationItems.push(item);
+                
+                card.style.left = `${item.x}px`;
+                card.style.top = `${item.y}px`;
+                container.appendChild(card);
+                
+                // 显示卡片
+                setTimeout(() => {
+                    card.style.opacity = '1';
+                    card.style.transition = 'opacity 0.5s ease';
+                }, index * 30);
+            });
+            
+            // 开始浮动动画
+            let frame = 0;
+            function animate() {
+                frame++;
+                animationItems.forEach(item => {
+                    // 更新位置
+                    item.x += item.vx;
+                    item.y += item.vy;
+                    
+                    // 边界检查
+                    if (item.x < 0 || item.x > container.clientWidth - 140) {
+                        item.vx *= -1;
+                        item.x = Math.max(0, Math.min(item.x, container.clientWidth - 140));
+                    }
+                    if (item.y < 0 || item.y > container.clientHeight - 180) {
+                        item.vy *= -1;
+                        item.y = Math.max(0, Math.min(item.y, container.clientHeight - 180));
+                    }
+                    
+                    // 应用位置
+                    item.element.style.left = `${item.x}px`;
+                    item.element.style.top = `${item.y}px`;
+                    
+                    // 随机改变方向
+                    if (Math.random() < 0.02) {
+                        item.vx = (Math.random() - 0.5) * 2.5;
+                        item.vy = (Math.random() - 0.5) * 2.5;
+                    }
+                });
+                
+                // 第一阶段：浮动80帧
+                if (frame < 80) {
+                    requestAnimationFrame(animate);
+                } else {
+                    // 开始选择过程
+                    startSelectionProcess(foods, container);
+                }
+            }
+            
+            // 延迟开始动画，让所有卡片先显示
+            setTimeout(() => {
+                animate();
+            }, 400);
+        }
+
+        // 2. 弹跳球动画
+        function startBouncingAnimation(foods, container) {
+            const displayFoods = foods.slice(0, 15);
+            animationItems = [];
+            
+            displayFoods.forEach((foodObj, index) => {
+                const ball = document.createElement('div');
+                ball.className = 'bouncing-ball';
+                ball.innerHTML = foodObj.icon;
+                ball.style.background = `linear-gradient(135deg, ${foodObj.color}, ${lightenColor(foodObj.color, 30)})`;
+                
+                // 将菜品数据对象直接存储在DOM元素上
+                ball.dataset.foodName = foodObj.name;
+                ball.dataset.foodCategory = foodObj.category;
+                ball.dataset.foodIcon = foodObj.icon;
+                
+                const item = {
+                    element: ball,
+                    data: foodObj,
+                    x: Math.random() * (container.clientWidth - 70),
+                    y: container.clientHeight,
+                    vx: (Math.random() - 0.5) * 6,
+                    vy: -(Math.random() * 18 + 6),
+                    gravity: 0.3,
+                    bounce: 0.7
+                };
+                animationItems.push(item);
+                
+                ball.style.left = `${item.x}px`;
+                ball.style.top = `${item.y}px`;
+                container.appendChild(ball);
+                
+                // 显示球
+                setTimeout(() => {
+                    ball.style.opacity = '1';
+                    ball.style.transition = 'opacity 0.5s ease';
+                }, index * 80);
+            });
+            
+            // 开始弹跳动画
+            let frame = 0;
+            function animate() {
+                frame++;
+                let allStopped = true;
+                
+                animationItems.forEach(item => {
+                    // 应用重力
+                    item.vy += item.gravity;
+                    
+                    // 更新位置
+                    item.x += item.vx;
+                    item.y += item.vy;
+                    
+                    // 边界检查
+                    if (item.x < 0 || item.x > container.clientWidth - 70) {
+                        item.vx *= -item.bounce;
+                        item.x = Math.max(0, Math.min(item.x, container.clientWidth - 70));
+                    }
+                    if (item.y > container.clientHeight - 70) {
+                        item.y = container.clientHeight - 70;
+                        item.vy *= -item.bounce;
+                        // 添加摩擦力
+                        item.vx *= 0.95;
+                    }
+                    
+                    // 应用位置
+                    item.element.style.left = `${item.x}px`;
+                    item.element.style.top = `${item.y}px`;
+                    
+                    // 检查是否停止
+                    if (Math.abs(item.vx) > 0.1 || Math.abs(item.vy) > 0.1) {
+                        allStopped = false;
+                    }
+                });
+                
+                // 弹跳80帧或所有球都停止
+                if (frame < 80 && !allStopped) {
+                    requestAnimationFrame(animate);
+                } else {
+                    // 开始选择过程
+                    startSelectionProcess(foods, container);
+                }
+            }
+            
+            // 延迟开始动画
+            setTimeout(() => {
+                animate();
+            }, 400);
+        }
+
+        // 3. 瀑布流动画
+        function startWaterfallAnimation(foods, container) {
+            const displayFoods = foods.slice(0, 24);
+            animationItems = [];
+            
+            displayFoods.forEach((foodObj, index) => {
+                const itemEl = document.createElement('div');
+                itemEl.className = 'waterfall-item';
+                itemEl.innerHTML = `
+                    <div class="floating-card-icon">${foodObj.icon}</div>
+                    <div class="floating-card-name">${foodObj.name}</div>
+                `;
+                itemEl.style.background = `rgba(${hexToRgb(foodObj.color)}, 0.2)`;
+                itemEl.style.borderColor = `rgba(${hexToRgb(foodObj.color)}, 0.3)`;
+                
+                // 将菜品数据对象直接存储在DOM元素上
+                itemEl.dataset.foodName = foodObj.name;
+                itemEl.dataset.foodCategory = foodObj.category;
+                itemEl.dataset.foodIcon = foodObj.icon;
+                
+                const item = {
+                    element: itemEl,
+                    data: foodObj,
+                    x: (index % 6) * 130 + 20,
+                    y: -150,
+                    targetY: Math.floor(index / 6) * 160 + 20,
+                    speed: Math.random() * 3 + 2
+                };
+                animationItems.push(item);
+                
+                itemEl.style.left = `${item.x}px`;
+                itemEl.style.top = `${item.y}px`;
+                container.appendChild(itemEl);
+            });
+            
+            // 开始下落动画
+            let frame = 0;
+            function animate() {
+                frame++;
+                let allArrived = true;
+                
+                animationItems.forEach(item => {
+                    // 如果还没到达目标位置
+                    if (item.y < item.targetY) {
+                        item.y += item.speed;
+                        allArrived = false;
+                    } else {
+                        item.y = item.targetY;
+                    }
+                    
+                    // 轻微左右摆动
+                    item.x += Math.sin(frame * 0.05 + item.targetY * 0.1) * 0.5;
+                    
+                    // 应用位置
+                    item.element.style.left = `${item.x}px`;
+                    item.element.style.top = `${item.y}px`;
+                    
+                    // 逐渐显示
+                    if (item.element.style.opacity !== '1') {
+                        item.element.style.opacity = Math.min(1, frame / 30).toString();
+                        item.element.style.transition = 'opacity 0.1s ease';
+                    }
+                });
+                
+                if (!allArrived || frame < 80) {
+                    requestAnimationFrame(animate);
+                } else {
+                    // 开始选择过程
+                    startSelectionProcess(foods, container);
+                }
+            }
+            
+            animate();
+        }
+
+        // 4. 3D翻转动画
+        function startFlip3DAnimation(foods, container) {
+            const displayFoods = foods.slice(0, 15);
+            animationItems = [];
+            
+            displayFoods.forEach((foodObj, index) => {
+                const flipCard = document.createElement('div');
+                flipCard.className = 'flip-card';
+                flipCard.innerHTML = `
+                    <div class="flip-card-inner">
+                        <div class="flip-card-front">
+                            <div class="flip-card-icon">${foodObj.icon}</div>
+                            <div class="flip-card-name">${foodObj.name}</div>
+                        </div>
+                        <div class="flip-card-back">
+                            <div class="flip-card-icon">${foodObj.icon}</div>
+                            <div class="flip-card-name">${foodObj.name}</div>
+                        </div>
+                    </div>
+                `;
+                
+                // 将菜品数据对象直接存储在DOM元素上
+                flipCard.dataset.foodName = foodObj.name;
+                flipCard.dataset.foodCategory = foodObj.category;
+                flipCard.dataset.foodIcon = foodObj.icon;
+                
+                // 计算位置（圆形排列）
+                const radius = Math.min(container.clientWidth, container.clientHeight) * 0.35;
+                const centerX = container.clientWidth / 2;
+                const centerY = container.clientHeight / 2;
+                const angle = (index / displayFoods.length) * Math.PI * 2;
+                
+                const item = {
+                    element: flipCard,
+                    inner: flipCard.querySelector('.flip-card-inner'),
+                    data: foodObj,
+                    index: index,
+                    angle: angle,
+                    x: centerX + Math.cos(angle) * radius - 75,
+                    y: centerY + Math.sin(angle) * radius - 95
+                };
+                animationItems.push(item);
+                
+                flipCard.style.left = `${item.x}px`;
+                flipCard.style.top = `${item.y}px`;
+                container.appendChild(flipCard);
+                
+                // 显示卡片
+                setTimeout(() => {
+                    flipCard.style.opacity = '1';
+                    flipCard.style.transition = 'opacity 0.5s ease';
+                }, index * 60);
+            });
+            
+            // 开始翻转动画
+            let frame = 0;
+            function animate() {
+                frame++;
+                
+                // 旋转卡片
+                animationItems.forEach(item => {
+                    // 缓慢旋转
+                    const rotation = frame * 2;
+                    item.inner.style.transform = `rotateY(${rotation}deg)`;
+                    
+                    // 圆形运动
+                    const radius = Math.min(container.clientWidth, container.clientHeight) * 0.35;
+                    const centerX = container.clientWidth / 2;
+                    const centerY = container.clientHeight / 2;
+                    const newAngle = item.angle + frame * 0.01;
+                    
+                    const x = centerX + Math.cos(newAngle) * radius - 75;
+                    const y = centerY + Math.sin(newAngle) * radius - 95;
+                    item.element.style.left = `${x}px`;
+                    item.element.style.top = `${y}px`;
+                });
+                
+                if (frame < 100) {
+                    requestAnimationFrame(animate);
+                } else {
+                    // 开始选择过程
+                    startSelectionProcess(foods, container);
+                }
+            }
+            
+            // 延迟开始动画
+            setTimeout(() => {
+                animate();
+            }, 400);
+        }
+
+        // 5. 星空爆炸动画
+        function startStarsAnimation(foods, container) {
+            // 先创建星空背景
+            for (let i = 0; i < 150; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.style.left = `${Math.random() * 100}%`;
+                star.style.top = `${Math.random() * 100}%`;
+                star.style.opacity = Math.random() * 0.5 + 0.5;
+                container.appendChild(star);
+            }
+            
+            const displayFoods = foods.slice(0, 12);
+            animationItems = [];
+            
+            displayFoods.forEach((foodObj, index) => {
+                const card = document.createElement('div');
+                card.className = 'floating-card';
+                card.innerHTML = `
+                    <div class="floating-card-icon">${foodObj.icon}</div>
+                    <div class="floating-card-name">${foodObj.name}</div>
+                `;
+                card.style.background = `rgba(${hexToRgb(foodObj.color)}, 0.2)`;
+                card.style.borderColor = `rgba(${hexToRgb(foodObj.color)}, 0.3)`;
+                
+                // 将菜品数据对象直接存储在DOM元素上
+                card.dataset.foodName = foodObj.name;
+                card.dataset.foodCategory = foodObj.category;
+                card.dataset.foodIcon = foodObj.icon;
+                
+                const centerX = container.clientWidth / 2 - 70;
+                const centerY = container.clientHeight / 2 - 90;
+                const item = {
+                    element: card,
+                    data: foodObj,
+                    startX: centerX,
+                    startY: centerY,
+                    targetX: Math.random() * (container.clientWidth - 140),
+                    targetY: Math.random() * (container.clientHeight - 180),
+                    progress: 0
+                };
+                animationItems.push(item);
+                
+                card.style.left = `${centerX}px`;
+                card.style.top = `${centerY}px`;
+                container.appendChild(card);
+                
+                // 显示卡片
+                setTimeout(() => {
+                    card.style.opacity = '1';
+                    card.style.transition = 'opacity 0.5s ease';
+                }, index * 80);
+            });
+            
+            // 开始爆炸动画
+            let frame = 0;
+            function animate() {
+                frame++;
+                
+                // 爆炸效果（从中心向外扩散）
+                animationItems.forEach(item => {
+                    item.progress = Math.min(1, frame / 30);
+                    
+                    // 使用缓动函数使运动更自然
+                    const easedProgress = easeOutQuad(item.progress);
+                    const currentX = item.startX + (item.targetX - item.startX) * easedProgress;
+                    const currentY = item.startY + (item.targetY - item.startY) * easedProgress;
+                    
+                    item.element.style.left = `${currentX}px`;
+                    item.element.style.top = `${currentY}px`;
+                    
+                    // 缩放效果
+                    const scale = 0.5 + easedProgress * 0.5;
+                    item.element.style.transform = `scale(${scale})`;
+                });
+                
+                if (frame < 80) {
+                    requestAnimationFrame(animate);
+                } else {
+                    // 开始选择过程
+                    startSelectionProcess(foods, container);
+                }
+            }
+            
+            // 延迟开始动画
+            setTimeout(() => {
+                animate();
+            }, 400);
+        }
+
+        // 开始选择过程（所有动画共用）
+        function startSelectionProcess(foods, container) {
+            // 随机选择一个动画元素索引
+            const selectedIndex = Math.floor(Math.random() * animationItems.length);
+            const selectedElement = animationItems[selectedIndex].element;
+            const selectedData = animationItems[selectedIndex].data;
+            
+            // 高亮显示被选中的元素
+            animationItems.forEach((item, index) => {
+                if (index === selectedIndex) {
+                    // 选中的元素放大并高亮
+                    item.element.style.transform = 'scale(1.8)';
+                    item.element.style.zIndex = '10';
+                    item.element.style.boxShadow = '0 0 40px rgba(255, 255, 255, 0.9)';
+                    item.element.style.transition = 'all 0.5s ease';
+                } else {
+                    // 其他元素淡出
+                    item.element.style.opacity = '0.2';
+                    item.element.style.transform = 'scale(0.7)';
+                    item.element.style.transition = 'all 0.5s ease';
+                }
+            });
+            
+            // 等待1秒后显示最终结果
+            setTimeout(() => {
+                completeAnimation(selectedData, container);
+            }, 1000);
+        }
+
+        // 完成动画并显示结果
+        function completeAnimation(finalResult, container) {
+            // 隐藏动画容器
+            container.style.display = 'none';
+            
+            // 显示结果
+            showResult(finalResult.name, finalResult.category, finalResult.icon, true);
+            
+            // 保存到历史记录
+            saveToHistory(finalResult.name, finalResult.category, finalResult.icon);
+            
+            // 显示通知
+            showNotification(`美食选定: ${finalResult.name}`, 'success');
+            
+            // 重置动画状态
+            animationInProgress = false;
+            animationItems = [];
+        }
+
+        // 工具函数：十六进制颜色转RGB
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? 
+                `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : 
+                '255, 107, 107';
+        }
+
+        // 工具函数：颜色变亮
+        function lightenColor(color, percent) {
+            const num = parseInt(color.replace('#', ''), 16);
+            const amt = Math.round(2.55 * percent);
+            const R = (num >> 16) + amt;
+            const G = (num >> 8 & 0x00FF) + amt;
+            const B = (num & 0x0000FF) + amt;
+            
+            return '#' + (
+                0x1000000 + 
+                (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 + 
+                (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 + 
+                (B < 255 ? B < 1 ? 0 : B : 255)
+            ).toString(16).slice(1);
+        }
+
+        // 缓动函数
+        function easeOutQuad(t) {
+            return t * (2 - t);
+        }
+
+        // 显示结果
+        function showResult(food, category, icon, isFinal = true) {
+            const resultPlaceholder = document.getElementById('resultPlaceholder');
+            const resultContent = document.getElementById('resultContent');
+            const resultElement = document.getElementById('result');
+            const resultCategoryElement = document.getElementById('resultCategory');
+            const resultIconElement = document.getElementById('resultIcon');
+            
+            if (isFinal) {
+                resultContent.style.display = 'block';
+                resultPlaceholder.style.display = 'none';
+            }
+            
+            resultElement.textContent = food;
+            resultCategoryElement.textContent = category;
+            resultIconElement.textContent = icon;
+        }
+
+        // 保存到历史记录
+        function saveToHistory(food, category, icon) {
+            const historyItem = {
+                food,
+                category,
+                icon,
+                timestamp: new Date().toLocaleString('zh-CN', { 
+                    hour12: false,
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                })
+            };
+            
+            // 添加到历史记录数组的开头
+            selectionHistory.unshift(historyItem);
+            
+            // 限制历史记录数量
+            if (selectionHistory.length > 20) {
+                selectionHistory = selectionHistory.slice(0, 20);
+            }
+            
+            // 保存到本地存储
+            localStorage.setItem('foodSelectionHistory', JSON.stringify(selectionHistory));
+            
+            // 更新历史记录显示
+            renderHistory();
+        }
+
+        // 渲染历史记录
+        function renderHistory() {
+            const historyList = document.getElementById('historyList');
+            if (!historyList) return;
+            
+            historyList.innerHTML = '';
+            
+            if (selectionHistory.length === 0) {
+                const emptyState = document.createElement('div');
+                emptyState.className = 'empty-state';
+                emptyState.innerHTML = `
+                    <i class="fas fa-history"></i>
+                    <p>暂无选择历史</p>
+                `;
+                historyList.appendChild(emptyState);
+                return;
+            }
+            
+            selectionHistory.forEach(item => {
+                const historyItem = document.createElement('div');
+                historyItem.className = 'history-item';
+                
+                historyItem.innerHTML = `
+                    <div class="history-food">
+                        <span class="history-icon">${item.icon}</span>
+                        <span>${item.food}</span>
+                    </div>
+                    <div class="history-time">${item.timestamp}</div>
+                `;
+                
+                historyList.appendChild(historyItem);
+            });
+        }
+
+        // 打开编辑弹窗
+        function openEditModal() {
+            if (animationInProgress) {
+                showNotification('请等待动画完成后操作', 'error');
+                return;
+            }
+            
+            const modal = document.getElementById('editModal');
+            modal.style.display = 'flex';
+            
+            // 初始化弹窗内容
+            renderCategoryTabs();
+            renderFoodList();
+            
+            isEditing = true;
+        }
+
+        // 关闭编辑弹窗
+        function closeEditModal() {
+            if (!isEditing) return;
+            
+            const modal = document.getElementById('editModal');
+            modal.style.display = 'none';
+            isEditing = false;
+        }
+
+        // 保存编辑
+        function saveEdits() {
+            // 数据已经在修改时实时保存了，这里只是关闭弹窗
+            showNotification('所有更改已保存', 'success');
+            closeEditModal();
+            
+            // 如果有当前选中的分类，确保其菜品数量更新
+            if (selectedCategory !== 'all') {
+                renderCategoryCards();
+            }
+        }
+
+        // 渲染分类标签
+        function renderCategoryTabs() {
+            const tabsContainer = document.getElementById('categoryTabs');
+            tabsContainer.innerHTML = '';
+            
+            for (const [key, category] of Object.entries(foodDatabase)) {
+                const tab = document.createElement('button');
+                tab.className = `category-tab ${editingCategory === key ? 'active' : ''}`;
+                tab.dataset.category = key;
+                tab.innerHTML = `${category.icon} ${category.name}`;
+                
+                tab.addEventListener('click', () => {
+                    editingCategory = key;
+                    document.querySelectorAll('.category-tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    renderFoodList();
+                });
+                
+                tabsContainer.appendChild(tab);
+            }
+        }
+
+        // 渲染菜品列表
+        function renderFoodList() {
+            const container = document.getElementById('foodListContainer');
+            const category = foodDatabase[editingCategory];
+            
+            container.innerHTML = `
+                <div class="food-list-title">
+                    <h3><span class="category-icon">${category.icon}</span> ${category.name} 菜品</h3>
+                    <button class="add-food-btn" id="addFoodBtn">
+                        <i class="fas fa-plus"></i> 添加菜品
+                    </button>
+                </div>
+                <div class="food-input-container" id="foodInputContainer" style="display: none;">
+                    <input type="text" class="food-input" id="newFoodInput" placeholder="输入菜品名称...">
+                    <button class="add-food-btn" id="confirmAddFood">
+                        <i class="fas fa-check"></i> 确认
+                    </button>
+                </div>
+                <div class="food-list" id="foodList"></div>
+            `;
+            
+            // 渲染菜品列表
+            const foodList = document.getElementById('foodList');
+            
+            if (category.items.length === 0) {
+                const emptyState = document.createElement('div');
+                emptyState.className = 'empty-state';
+                emptyState.innerHTML = `
+                    <i class="fas fa-utensils"></i>
+                    <p>暂无菜品，点击"添加菜品"开始添加</p>
+                `;
+                foodList.appendChild(emptyState);
+            } else {
+                category.items.forEach((food, index) => {
+                    const foodItem = document.createElement('div');
+                    foodItem.className = 'food-item';
+                    foodItem.innerHTML = `
+                        <span class="food-name">${food}</span>
+                        <div class="food-actions">
+                            <button class="food-action-btn edit" data-index="${index}">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="food-action-btn delete" data-index="${index}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                    foodList.appendChild(foodItem);
+                });
+            }
+            
+            // 绑定编辑弹窗事件
+            bindEditModalEvents();
+        }
+
+        // 绑定编辑弹窗事件
+        function bindEditModalEvents() {
+            // 添加菜品按钮
+            const addFoodBtn = document.getElementById('addFoodBtn');
+            if (addFoodBtn) {
+                addFoodBtn.addEventListener('click', function() {
+                    document.getElementById('foodInputContainer').style.display = 'flex';
+                    document.getElementById('newFoodInput').focus();
+                    this.style.display = 'none';
+                });
+            }
+            
+            // 确认添加按钮
+            const confirmAddBtn = document.getElementById('confirmAddFood');
+            if (confirmAddBtn) {
+                confirmAddBtn.addEventListener('click', addNewFood);
+            }
+            
+            // 输入框回车事件
+            const foodInput = document.getElementById('newFoodInput');
+            if (foodInput) {
+                foodInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') addNewFood();
+                });
+            }
+            
+            // 为每个菜品项的编辑和删除按钮绑定事件
+            document.querySelectorAll('.food-action-btn.edit').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const index = parseInt(this.dataset.index);
+                    editFood(index);
+                });
+            });
+            
+            document.querySelectorAll('.food-action-btn.delete').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const index = parseInt(this.dataset.index);
+                    deleteFood(index);
+                });
+            });
+        }
+
+        // 添加新菜品
+        function addNewFood() {
+            const input = document.getElementById('newFoodInput');
+            const foodName = input.value.trim();
+            
+            if (foodName === '') {
+                showNotification('菜品名称不能为空', 'error');
+                return;
+            }
+            
+            // 检查是否已存在
+            if (foodDatabase[editingCategory].items.includes(foodName)) {
+                showNotification('该菜品已存在', 'error');
+                return;
+            }
+            
+            // 添加到数据库
+            foodDatabase[editingCategory].items.push(foodName);
+            
+            // 保存到本地存储
+            saveCustomData();
+            
+            // 重新渲染菜品列表
+            renderFoodList();
+            
+            // 更新主界面分类卡片计数
+            renderCategoryCards();
+            
+            // 显示通知
+            showNotification(`已添加: ${foodName}`, 'success');
+            
+            // 重置输入框
+            input.value = '';
+            document.getElementById('foodInputContainer').style.display = 'none';
+            document.getElementById('addFoodBtn').style.display = 'flex';
+        }
+
+        // 编辑菜品
+        function editFood(index) {
+            const currentFood = foodDatabase[editingCategory].items[index];
+            const newFoodName = prompt(`编辑菜品名称:`, currentFood);
+            
+            if (newFoodName && newFoodName.trim() !== '' && newFoodName !== currentFood) {
+                // 更新数据库
+                foodDatabase[editingCategory].items[index] = newFoodName.trim();
+                
+                // 保存到本地存储
+                saveCustomData();
+                
+                // 重新渲染菜品列表
+                renderFoodList();
+                
+                // 显示通知
+                showNotification(`已更新: ${newFoodName}`, 'success');
+            }
+        }
+
+        // 删除菜品
+        function deleteFood(index) {
+            const foodName = foodDatabase[editingCategory].items[index];
+            
+            if (confirm(`确定要删除"${foodName}"吗？`)) {
+                // 从数据库删除
+                foodDatabase[editingCategory].items.splice(index, 1);
+                
+                // 保存到本地存储
+                saveCustomData();
+                
+                // 重新渲染菜品列表
+                renderFoodList();
+                
+                // 更新主界面分类卡片计数
+                renderCategoryCards();
+                
+                // 显示通知
+                showNotification(`已删除: ${foodName}`, 'success');
+            }
+        }
+
+        // 显示通知
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            const notificationText = document.getElementById('notificationText');
+            
+            // 设置通知内容和样式
+            notificationText.textContent = message;
+            
+            // 根据类型设置不同样式
+            if (type === 'error') {
+                notification.style.background = 'var(--gradient)';
+            } else if (type === 'info') {
+                notification.style.background = 'linear-gradient(135deg, #3498DB 0%, #2980B9 100%)';
+            } else {
+                notification.style.background = 'var(--gradient-secondary)';
+            }
+            
+            // 显示通知
+            notification.style.display = 'flex';
+            
+            // 3秒后自动隐藏
+            setTimeout(() => {
+                notification.style.animation = 'slideIn 0.4s ease reverse forwards';
+                setTimeout(() => {
+                    notification.style.display = 'none';
+                    notification.style.animation = '';
+                }, 400);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

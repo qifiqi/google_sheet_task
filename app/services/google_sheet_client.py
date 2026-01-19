@@ -51,6 +51,56 @@ class GoogleSheet:
         self._proxy_url = proxy_url
         self._SCOPES = SCOPES
 
+        try:
+            self._connect_and_select_worksheet()
+        except Exception as e:
+            logger.error(
+                f"{self._log_ctx()}初始化Google Sheet连接失败: {str(e)}\n"
+                f"连接参数 - Spreadsheet ID: {self.spreadsheet_id}, Sheet: {self._sheet_name}, Token: {self._token_file}"
+            )
+            raise
+
+    def _connect_and_select_worksheet(self):
+        creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
+        self.client = gspread.authorize(credentials=creds)
+
+        if self._proxy_url:
+            logger.info(f"{self._log_ctx()}使用代理：{self._proxy_url}")
+            os.environ['HTTP_PROXY'] = self._proxy_url
+            os.environ['HTTPS_PROXY'] = self._proxy_url
+            self.client.session.proxies.update({"http": self._proxy_url, "https": self._proxy_url})
+
+        self._apply_default_timeout()
+        self.sheet = self.client.open_by_key(self.spreadsheet_id)
+        self.title = self.sheet.title
+
+        if not self._sheet_name:
+            return
+
+        try:
+            self.worksheet = self.sheet.worksheet(self._sheet_name)
+            return
+        except Exception:
+            try:
+                worksheets = self.sheet.worksheets()
+                titles = [ws.title for ws in worksheets]
+            except Exception:
+                titles = []
+
+            target_lower = str(self._sheet_name).strip().lower()
+            matched_title = None
+            for t in titles:
+                if str(t).strip().lower() == target_lower:
+                    matched_title = t
+                    break
+
+            if matched_title:
+                self.worksheet = self.sheet.worksheet(matched_title)
+                self._sheet_name = matched_title
+                return
+
+            raise Exception(f"请先选择工作表: '{self._sheet_name}' 不存在，可用工作表: {titles}")
+
     def _log_ctx(self) -> str:
         parts = []
         if self.task_id:
@@ -416,7 +466,22 @@ class GoogleSheet:
 
             # 重新选择工作表
             if self._sheet_name:
-                self.worksheet = self.sheet.worksheet(self._sheet_name)
+                try:
+                    self.worksheet = self.sheet.worksheet(self._sheet_name)
+                except Exception:
+                    worksheets = self.sheet.worksheets()
+                    titles = [ws.title for ws in worksheets]
+                    target_lower = str(self._sheet_name).strip().lower()
+                    matched_title = None
+                    for t in titles:
+                        if str(t).strip().lower() == target_lower:
+                            matched_title = t
+                            break
+                    if matched_title:
+                        self.worksheet = self.sheet.worksheet(matched_title)
+                        self._sheet_name = matched_title
+                    else:
+                        raise Exception(f"请先选择工作表: '{self._sheet_name}' 不存在，可用工作表: {titles}")
             logger.info(f"{self._log_ctx()}Google Sheet重新连接成功")
             return True
         except Exception as e:

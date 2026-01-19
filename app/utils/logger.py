@@ -9,20 +9,6 @@ _logger_lock = threading.Lock()
 _loggers_created = set()
 
 
-class WindowsSafeTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
-    """在 Windows 下忽略轮转时的文件占用错误，避免刷屏异常。
-
-    不改变标准按天切割行为，只是在 rename 时捕获 PermissionError。
-    """
-
-    def doRollover(self) -> None:
-        try:
-            super().doRollover()
-        except PermissionError as e:
-            # 另一进程可能持有同一个日志文件；忽略本次轮转，继续写当前文件
-            pass
-
-
 def get_logger(name: str) -> logging.Logger:
     """获取日志记录器"""
     with _logger_lock:
@@ -52,12 +38,12 @@ def get_logger(name: str) -> logging.Logger:
     # 尝试创建文件处理器，如果失败则使用控制台处理器
     file_handler = None
     try:
-        # 使用带简单容错的按天轮转处理器（Windows 下忽略文件占用导致的轮转错误）
-        file_handler = WindowsSafeTimedRotatingFileHandler(
+        # 使用标准的时间轮转文件处理器
+        file_handler = logging.handlers.TimedRotatingFileHandler(
             filename=Config.LOG_FILE,
-            when='midnight',  # 每天午夜切割
-            interval=1,  # 间隔1天
-            backupCount=30,  # 保留30天的日志
+            when='midnight',      # 每天午夜切割
+            interval=1,          # 间隔1天
+            backupCount=30,      # 保留30天的日志
             encoding='utf-8'
         )
         file_handler.setLevel(logging.INFO)
