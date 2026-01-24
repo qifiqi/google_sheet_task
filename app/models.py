@@ -59,7 +59,7 @@ class Task(db.Model):
         return round((self.current_step / self.total_steps) * 100, 2)
 
 class TaskLog(db.Model):
-    """任务日志模型（已废弃，仅保留用于数据迁移）"""
+    """任务日志模型"""
     __tablename__ = 'task_logs'
     
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)

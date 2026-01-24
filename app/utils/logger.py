@@ -4,6 +4,15 @@ import threading
 from pathlib import Path
 from app.config import Config
 
+# 尝试导入多进程安全的日志处理器
+try:
+    from concurrent_log_handler import ConcurrentRotatingFileHandler
+    USE_CONCURRENT_HANDLER = True
+except ImportError:
+    USE_CONCURRENT_HANDLER = False
+    print("警告: concurrent-log-handler 未安装，在多进程环境下日志切割可能不正常")
+    print("建议安装: pip install concurrent-log-handler")
+
 # 全局日志器锁，防止并发创建日志器
 _logger_lock = threading.Lock()
 _loggers_created = set()
@@ -38,14 +47,25 @@ def get_logger(name: str) -> logging.Logger:
     # 尝试创建文件处理器，如果失败则使用控制台处理器
     file_handler = None
     try:
-        # 使用标准的时间轮转文件处理器
-        file_handler = logging.handlers.TimedRotatingFileHandler(
-            filename=Config.LOG_FILE,
-            when='midnight',      # 每天午夜切割
-            interval=1,          # 间隔1天
-            backupCount=30,      # 保留30天的日志
-            encoding='utf-8'
-        )
+        if USE_CONCURRENT_HANDLER:
+            # 使用多进程安全的轮转文件处理器（基于文件大小）
+            # 每个文件最大10MB，保留30个备份文件
+            file_handler = ConcurrentRotatingFileHandler(
+                filename=str(Config.LOG_FILE),
+                mode='a',
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=30,
+                encoding='utf-8'
+            )
+        else:
+            # 使用基于文件大小的标准轮转处理器（多进程下较安全）
+            file_handler = logging.handlers.RotatingFileHandler(
+                filename=Config.LOG_FILE,
+                mode='a',
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=30,
+                encoding='utf-8'
+            )
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
     except Exception as e:

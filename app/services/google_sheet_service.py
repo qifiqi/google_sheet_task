@@ -712,9 +712,6 @@ class GoogleSheetService:
     
     def _save_to_database(self, level: str, message: str):
         """保存日志到数据库，包含重试逻辑"""
-        from app.models import TaskLog
-        from app.utils.database import safe_db_operation
-        from flask import current_app
         
         def save_log_operation():
             log = TaskLog(
