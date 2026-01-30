@@ -105,14 +105,14 @@ class TaskManager:
             logger.error(f"不支持的任务类型: {task.task_type}")
             return False
         
-        thread.daemon = True
+        # thread.daemon = True
         self.running_tasks[task_id] = thread
         thread.start()
         
         task_logger.info("任务执行线程启动成功")
         logger.info(f"启动任务: {task_id}")
         return True
-    
+
     @transaction_required
     def cancel_task(self, task_id: str) -> bool:
         """取消任务"""
@@ -157,10 +157,14 @@ class TaskManager:
         
         # 检查数据库状态
         db_status = task.status
-        
-        # 检查内存中是否还有运行的线程
-        memory_running = task_id in self.running_tasks
-        
+
+        if task_id in self.running_tasks:
+            # 检查内存中是否还有运行的线程
+            thread = self.running_tasks.get(task_id)
+
+            memory_running = thread.is_alive()
+        else:
+            memory_running = False
         # 获取最新的任务结果
         latest_result = TaskResult.query.filter_by(task_id=task_id).order_by(TaskResult.timestamp.desc()).first()
         

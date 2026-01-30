@@ -220,24 +220,25 @@ class GoogleSheetService:
             processed_index = 0  # 已处理的组合数量
 
             for outer_idx, (combinations, column_A_length) in enumerate(precomputed_params):
-                # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
-                def check_task_status():
-                    return db.session.execute(
-                        text("SELECT status FROM tasks WHERE id = :task_id"),
-                        {"task_id": self.task_id}
-                    ).fetchone()
-
-                result = safe_db_operation(check_task_status)
-
-                if not result or result.status == 'cancelled':
-                    self._log_warning("任务已被取消，停止执行")
-                    return success_count, failed_count, 'cancelled'
 
                 for combination in combinations:
                     # 跳过已完成的组合（断点恢复）
                     if processed_index < start_index:
                         processed_index += 1
                         continue
+
+                    # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
+                    def check_task_status():
+                        return db.session.execute(
+                            text("SELECT status FROM tasks WHERE id = :task_id"),
+                            {"task_id": self.task_id}
+                        ).fetchone()
+
+                    result = safe_db_operation(check_task_status)
+
+                    if not result or result.status == 'cancelled':
+                        self._log_warning("任务已被取消，停止执行")
+                        return success_count, failed_count, 'cancelled'
 
                     current_step = processed_index + 1
 

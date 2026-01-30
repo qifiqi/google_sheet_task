@@ -18,6 +18,7 @@ from app.utils.dfcf_api import DFCJStockApi
 from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
+from app.utils.yf_api import YFApi
 logger = get_logger(__name__)
 
 
@@ -35,6 +36,9 @@ class GoogleSheetService:
         # 创建任务专用日志记录器 - 不使用TaskLogger的前缀功能，我们自己控制格式
         self.task_logger = get_logger(f"{__name__}.{task_id}")
         self.xpl = xpl_analyzer
+        self.YF_api = YFApi()
+        self.dfcf_api = DFCJStockApi()
+
 
     def error_dd(self, error_msg):
         error_msg = self.app.notifier.error_google_task_templates(
@@ -184,11 +188,12 @@ class GoogleSheetService:
             # 仅使用 parameters[0] 作为外层参数列表，真实总组合数为所有 inner combinations 数量之和
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
+
             for outer_param in parameters[0]:
-                combinations, column_A_length = self._get_all_parameters(
+                combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
                     outer_param, count_mode, end_date, start_date, market_type,date_range_mode,parameters
                 )
-                precomputed_params.append((combinations, column_A_length))
+                precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
                 total_combinations += len(combinations)
 
             # 更新任务总步数
@@ -218,26 +223,26 @@ class GoogleSheetService:
             time.sleep(20)
 
             processed_index = 0  # 已处理的组合数量
-            cache_parameters = {'combination': []}
-            for outer_idx, (combinations, column_A_length) in enumerate(precomputed_params):
-                # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
-                def check_task_status():
-                    return db.session.execute(
-                        text("SELECT status FROM tasks WHERE id = :task_id"),
-                        {"task_id": self.task_id}
-                    ).fetchone()
-
-                result = safe_db_operation(check_task_status)
-
-                if not result or result.status == 'cancelled':
-                    self._log_warning("任务已被取消，停止执行")
-                    return success_count, failed_count, 'cancelled'
-
+            cache_parameters = {'combination': {}}
+            for outer_idx, (combinations, column_A_length,KLINE_DATA_MAP) in enumerate(precomputed_params):
                 for combination in combinations:
                     # 跳过已完成的组合（断点恢复）
                     if processed_index < start_index:
                         processed_index += 1
                         continue
+
+                    # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
+                    def check_task_status():
+                        return db.session.execute(
+                            text("SELECT status FROM tasks WHERE id = :task_id"),
+                            {"task_id": self.task_id}
+                        ).fetchone()
+
+                    result = safe_db_operation(check_task_status)
+
+                    if not result or result.status == 'cancelled':
+                        self._log_warning("任务已被取消，停止执行")
+                        return success_count, failed_count, 'cancelled'
 
                     current_step = processed_index + 1
 
@@ -253,7 +258,7 @@ class GoogleSheetService:
 
                     # 执行单个参数组合
                     try:
-                        success, result = self._execute_parameter_combination(column_A_length, combination,cache_parameters, config_data)
+                        success, result = self._execute_parameter_combination(column_A_length, combination,cache_parameters, config_data,KLINE_DATA_MAP)
 
                         if success:
                             success_count += 1
@@ -263,14 +268,13 @@ class GoogleSheetService:
                             failed_count += 1
                             return success_count, failed_count, 'error'
 
-                        if 'kline' in combination:
-                            cache_parameters['combination'] = combination
-
+                        cache_parameters['combination'] = combination
+                        kline = KLINE_DATA_MAP.get(combination['Kline_key'], None)
                         # 保存结果到数据库
                         self._save_task_result(current_step - 1, {
                             **combination,
                             'stock_code':combination['stock_code'],
-                            'kline':[combination['kline'][0],combination['kline'][-1]],
+                            'kline':[kline[0],kline[-1]],
                         }, result, success)
 
                     except checkForErrors as e:
@@ -300,6 +304,7 @@ class GoogleSheetService:
 
         except Exception as e:
             # 检查是否是任务被取消导致的异常
+            task.error = e
             try:
                 task_check = Task.query.get(self.task_id)
                 if task_check and task_check.status == 'cancelled':
@@ -431,7 +436,7 @@ class GoogleSheetService:
     )
     # @validate_result_dict(
     #     none_values=(None, '', ' ', '#N/A', '#DIV/0!', '#ERROR!', '#VALUE!', '#REF!', '#NAME?', '#NUM!'))
-    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any]) -> tuple[
+    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> tuple[
         bool, Dict[str, Any]]:
         """执行单个参数组合"""
         try:
@@ -455,31 +460,18 @@ class GoogleSheetService:
             cell_updates[c5_parameter_positions[1]] = c5_parameter_2
 
             def set_googl_val(initial_result_sleep=None):
-                if 'kline' in combination:
-                    kline = combination['kline']
-                    _combination = cache_parameters['combination']
-                    if 'kline' in _combination:
-                        _combination = _combination['kline']
+                Kline_key = combination['Kline_key']
+                _combination = cache_parameters['combination']
+                cache_Kline_key = _combination.get('Kline_key',"")
+                kline = KLINE_DATA_MAP.get(Kline_key,None)
+                _kline_len = len(kline)
 
-                    _kline_len = len(kline)
-                    _last_kline_len = len(_combination)
-
+                if Kline_key != cache_Kline_key or initial_result_sleep is not None:
                     for google_sheet in self.google_sheets:
                         # A_num = google_sheet.get_last_row('A')
-                        if _kline_len != _last_kline_len:
-                            A_num = column_A_length
-                            self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
-                            google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
-                        else:
-                            self._log_info(f"当前k线数据，和当前表格k线，长度一致无需清空：{_kline_len}：{_last_kline_len}")
-
-                    time.sleep(2)
-
-                    if initial_result_sleep:
-                        self._log_info(f'休眠{initial_result_sleep}秒 等待数据变动重新获取 initial_results')
-                        time.sleep(initial_result_sleep)
-                        for google_sheet in self.google_sheets:
-                            initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
+                        A_num = column_A_length
+                        self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
+                        google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
 
                     # 准备要更新的单元格
                     for i in range(_kline_len):
@@ -493,24 +485,24 @@ class GoogleSheetService:
                         stock_val = item.get('stock_val', "")
                         cell_updates[cell_A] = stock_date
                         cell_updates[cell_B] = stock_val
+
                 else:
-                    _combination = cache_parameters['combination']
-                    if 'kline' in _combination:
-                        _combination = _combination['kline']
+                    self._log_info(f"同源数据，不需要修改k线，改动参数就行 combination:{combination},cache_parameters:{cache_parameters}")
 
-                    combination['kline'] = _combination
-                    self._log_info(f"同源数据，不需要修改k线，改动参数就行 combination:{combination}")
+                if initial_result_sleep:
+                    self._log_info(f"刷新参数等待：{initial_result_sleep}秒")
+                    time.sleep(initial_result_sleep)
 
-                if initial_result_sleep is None:
-                    for google_sheet in self.google_sheets:
-                        initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
+                for google_sheet in self.google_sheets:
+                    initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
 
                 for google_sheet in self.google_sheets:
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title} 长度：{len(cell_updates)}")
                     google_sheet.update_jumped_cells(cell_updates)
 
             set_googl_val()
-            kline = combination['kline']
+            Kline_key = combination['Kline_key']
+            kline = KLINE_DATA_MAP.get(Kline_key, None)
 
             def check_result(check_values):
                 _check_values = {}
@@ -566,7 +558,7 @@ class GoogleSheetService:
             for attempt in range(60):
 
                 # 定期刷新参数，防止模型卡顿
-                if attempt != 0 and (attempt % 10 == 0 or attempt in [3, 5, 8]):
+                if attempt != 0 and (attempt % 10 == 0 or attempt in [5,15,25,35]):
                     self._log_info(f"刷新参数")
                     set_googl_val(20)
 
@@ -579,7 +571,6 @@ class GoogleSheetService:
                 time.sleep(_)
                 all_num = 0
                 for google_sheet in self.google_sheets:
-                    self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
                     _result = google_sheet.get_range(c5_output_range_1)
                     if _validate_check_values(_result, google_sheet.spreadsheet_id):
                         # _result = check_result(_result)
@@ -626,15 +617,10 @@ class GoogleSheetService:
                     self._log_info(f"所有任务已完成")
                     return True, results
 
-                if attempt in [5,15,25,35]:
-                    for google_sheet in self.google_sheets:
-                        self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                        google_sheet.update_jumped_cells(cell_updates)
-
-                    time.sleep(30)
-                    for google_sheet in self.google_sheets:
-                        self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                        initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
+                # if attempt in [5,15,25,35]:
+                #     for google_sheet in self.google_sheets:
+                #         self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
+                #         google_sheet.update_jumped_cells(cell_updates)
 
             self._log_warning("执行超时，未在规定时间内完成")
             return False, {}
@@ -800,8 +786,7 @@ class GoogleSheetService:
             self._log_error(error_msg)
             # 注意：这里不能使用_push_log，因为可能导致循环调用
 
-    @staticmethod
-    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode,parameters):
+    def _get_all_parameters(self,parameter, count_mode, end_date, start_date, market_type,date_range_mode,parameters):
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -828,28 +813,32 @@ class GoogleSheetService:
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
 
-
-
-        dfcf_api = DFCJStockApi()
-        stock_config = dfcf_api.get_search_list_by_stock_code(parameter, 10)
-        if market_type == 'cn':
-            stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-        else:
-            stock_config = [i for i in stock_config if i['securityTypeName'] =='美股']
-
-        if stock_config:
-            stock_config = stock_config[0]
-
-        market = stock_config['market']
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 250
-        klines = dfcf_api.get_stock_kline_data(parameter, market, limit)
+
+        if market_type == 'cn':
+            stock_config = self.dfcf_api.get_search_list_by_stock_code(parameter, 10)
+            # stock_config = [i for i in stock_config if i['securityTypeName'] == '美股']
+
+            stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
+            if stock_config:
+                stock_config = stock_config[0]
+            market = stock_config['market']
+
+            klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit)
+        else:
+            klines = self.YF_api.get_kline_data(parameter, '10y')
+
+        if len(klines) < limit * 0.8:
+            raise Exception(f"股票{parameter} 数据量不足,请仔细检查k线数据源是否存在数据，或者联系开发")
+
         all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
-        data = [
-        ]
+        data = []
+
+        KLINE_DATA_MAP = {}
         # for v1 in parameters[1]:
         #     for v2 in parameters[2]:
         #         data.append({'stock_code': parameter, 'kline': all_kline,"A1":v1,"B1":v2})
@@ -885,9 +874,13 @@ class GoogleSheetService:
 
         for i, v1 in enumerate(parameters[1]):
             for j, v2 in enumerate(parameters[2]):
-                d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': f'{_end_year}-{_start_date}'}
-                if i == 0 and j == 0:
-                    d['kline'] = all_kline
+                Kline_key = f'{_end_year}-{_start_date}'
+                d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
+                # if i == 0 and j == 0:
+                # d['kline'] = all_kline
+                if Kline_key not in KLINE_DATA_MAP:
+                    KLINE_DATA_MAP[Kline_key] = all_kline
+
                 data.append(d)
 
         if count_mode != 'n_plus_1':
@@ -902,31 +895,40 @@ class GoogleSheetService:
                 _end_data = f"{_end_year_1 - _year}{end_date[4:]}"
                 _start_data = f"{_end_year_1 - year}{end_date[4:]}"
                 kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
-
+                Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
-                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': f'{_end_data[:4]}-{_start_data[:4]}'}
-                        if i == 0 and j == 0:
-                            if kline:
-                                d['kline'] = kline
+                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
+                        # if i == 0 and j == 0:
+                        #     if kline:
+                        #         d['kline'] = kline
+                        if kline:
+                            if Kline_key not in KLINE_DATA_MAP:
+                                KLINE_DATA_MAP[Kline_key] = all_kline
+
                         data.append(d)
 
         if 'full' in date_range_mode:
             _all_kline = [k for k in klines if start_date <= k['stock_date'] <= end_date]
             for year in range(_start_date, _end_year_1 + 1):
                 kline = _get_kline(_all_kline, _year=year)
+                Kline_key = year
 
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
-                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year}
-                        if i == 0 and j == 0:
-                            if kline and len(kline) > 30:
-                                d['kline'] = kline
-                            else:
-                                continue
+                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year,'Kline_key':Kline_key}
+                        # if i == 0 and j == 0:
+                        #     if kline and len(kline) > 30:
+                        #         d['kline'] = kline
+                        #     else:
+                        #         continue
+                        if kline:
+                            if Kline_key not in KLINE_DATA_MAP:
+                                KLINE_DATA_MAP[Kline_key] = all_kline
+
                         data.append(d)
 
-        return data, len(all_kline) + 20
+        return data, len(all_kline) + 20,KLINE_DATA_MAP
 
 if __name__ == '__main__':
     GoogleSheetService({}, '')._get_all_parameters('000001', 'n_plus_1', '2025-05-01', '2023-05-01', 'cn',

@@ -59,16 +59,16 @@ class TaskWatchdog:
                     for task in running_tasks:
                         if self._stop_event.is_set():
                             break
-
-                        # 检查任务管理器状态
-                        status_check = task_manager.check_local_task_status(task.id)
-                        if status_check.get('can_restart'):
-                            logger.info(f"watchdog detected stuck task: {task.id}")
-                            reason = status_check.get('restart_reason')
-                            logger.warning(f"watchdog detected stuck task: {task.id}, reason: {reason}")
-                            result = task_manager.restart_task(task.id, resume_from_checkpoint=True)
-                            logger.warning(f"watchdog restart result: {task.id}, {result}")
-                            continue
+                        #
+                        # # 检查任务管理器状态
+                        # status_check = task_manager.check_local_task_status(task.id)
+                        # if status_check.get('can_restart'):
+                        #     logger.info(f"watchdog detected stuck task: {task.id}")
+                        #     reason = status_check.get('restart_reason')
+                        #     logger.warning(f"watchdog detected stuck task: {task.id}, reason: {reason}")
+                        #     result = task_manager.restart_task(task.id, resume_from_checkpoint=True)
+                        #     logger.warning(f"watchdog restart result: {task.id}, {result}")
+                        #     continue
 
                         # 检查任务日志更新时间
                         latest_log = TaskLog.query.filter_by(task_id=task.id).order_by(TaskLog.timestamp.desc()).first()
