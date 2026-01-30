@@ -333,8 +333,9 @@ class SchedulerService:
         """清理旧数据（日志和结果）"""
         try:
             log_success = self._cleanup_old_logs(params)
-            result_success = self._cleanup_old_results(params)
-            return log_success and result_success
+            return log_success
+            # result_success = self._cleanup_old_results(params)
+            # return log_success and result_success
             
         except Exception as e:
             logger.error(f"清理旧数据失败: {e}")
