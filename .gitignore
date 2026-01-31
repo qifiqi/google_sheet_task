@@ -149,3 +149,4 @@ config/config.json
 
 # Docker
 docker-compose.override.yml
+test
