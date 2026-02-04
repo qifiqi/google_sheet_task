@@ -1,9 +1,5 @@
 from flask import Blueprint, render_template, request, jsonify, url_for, redirect, flash, current_app
-import json
-from app.services.task_manager import task_manager
-from app.services.config_manager import get_config_manager
 from app.utils.logger import get_logger
-from app.models import TaskTemplate
 from app.services.xpl_service import xpl_analyzer
 
 logger = get_logger(__name__)
@@ -14,6 +10,12 @@ xpl_bp = Blueprint('xpl', __name__)
 def index():
     """Excel数据分析工具首页"""
     return render_template('xpl/index.html')
+
+
+@xpl_bp.route('/v1', methods=['GET'])
+def index_v1():
+    """V1：Google Sheet 分析页面"""
+    return render_template('xpl/v1.html')
 
 @xpl_bp.route('/analyze', methods=['POST'])
 def analyze_data():
@@ -70,4 +72,55 @@ def analyze_data():
             'metrics': {}
         }), 500
 
+
+@xpl_bp.route('/v1/analyze', methods=['POST'])
+def analyze_data_v1():
+    """
+    API接口：分析Excel数据
+
+    请求体 (JSON):
+    {
+        'google_sheet_url':'',
+        'google_sheet_name':''
+    }
+
+    返回 (JSON):
+    {
+        "status": "success/error",
+        "message": "描述信息",
+        "results": {"total_return": 0.1, ...}
+    }
+    """
+    try:
+        # 获取请求数据
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '请求体不能为空',
+                'results': [],
+                'metrics': {}
+            }), 400
+
+        # 获取参数
+        spreadsheet_id = data.get('spreadsheet_id', '')
+        google_sheet_url = data.get('google_sheet_url', '')
+        google_sheet_name = data.get('google_sheet_name', 'auto')
+
+        # 调用服务层进行分析
+        result = xpl_analyzer.analyze_v1(
+            spreadsheet_id=spreadsheet_id,
+            google_sheet_name=google_sheet_name
+        )
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"处理分析请求时出错: {str(e)}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': f'处理请求时出错: {str(e)}',
+            'results': [],
+            'metrics': {}
+        }), 500
 

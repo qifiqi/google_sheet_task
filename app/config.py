@@ -106,6 +106,7 @@ def init_config():
         'task_status_check_timeout': 600,  # 10分钟，任务状态检查超时
         'watchdog_enabled': True,
         'watchdog_interval_seconds': 1800,
+        'watchdog_log_timeout_minutes': 30, # 30分钟 日志超时时间
         'execution_delay_min': 20,  # 执行延迟最小值（秒）
         'execution_delay_max': 30,  # 执行延迟最大值（秒）
         'api_retry_max_attempts': 10,  # API重试最大次数

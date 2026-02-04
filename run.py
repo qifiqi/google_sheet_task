@@ -115,32 +115,39 @@ def init_task_watchdog():
         logger.error(f"启动任务看门狗线程失败: {e}")
 
 if __name__ == '__main__':
-    # 确保必要的目录存在
-    os.makedirs('data', exist_ok=True)
-    os.makedirs('logs', exist_ok=True)
+    from app.utils.logger import get_logger
 
-    # 初始化日志系统（在应用上下文之前）
-    initialize_logging()
+    logger = get_logger('app')
 
-    # 初始化数据库
-    with app.app_context():
-        db.create_all()
-        init_config2()
+    try:
+        # 确保必要的目录存在
+        os.makedirs('data', exist_ok=True)
+        os.makedirs('logs', exist_ok=True)
 
-    # 检查并清理挂死的任务
-    check_and_cleanup_dead_tasks()
+        # 初始化日志系统（在应用上下文之前）
+        initialize_logging()
 
-    # 初始化定时任务调度器
-    init_scheduler()
+        # 初始化数据库
+        with app.app_context():
+            db.create_all()
+            init_config2()
 
-    # 初始化任务看门狗线程
-    init_task_watchdog()
+        # 检查并清理挂死的任务
+        check_and_cleanup_dead_tasks()
 
-    # 运行应用
-    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes', 'on')
-    if debug_mode:
-        app.run(debug=True, host='127.0.0.1', port=5000)
-    else:
-        app.run(debug=False, host='0.0.0.0', port=5000)
-    # app.run(debug=True, host='127.0.0.1', port=5000)
-    # app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+        # 初始化定时任务调度器
+        init_scheduler()
+
+        # 初始化任务看门狗线程
+        init_task_watchdog()
+
+        # 运行应用
+        debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes', 'on')
+        if debug_mode:
+            app.run(debug=True, host='127.0.0.1', port=5000)
+        else:
+            app.run(debug=False, host='0.0.0.0', port=5000)
+        # app.run(debug=True, host='127.0.0.1', port=5000)
+        # app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+    except Exception as e:
+        logger.error(f"启动失败: {e}",exc_info=True)

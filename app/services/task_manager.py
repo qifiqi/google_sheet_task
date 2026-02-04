@@ -91,13 +91,13 @@ class TaskManager:
         
         # 根据任务类型启动相应的执行器
         if task.task_type == 'google_sheet':
-            thread = threading.Thread(target=self._execute_google_sheet_task, args=(task_id, app))
+            thread = threading.Thread(target=self._execute_google_sheet_task, args=(task_id, app),name=task_id)
             task_logger.info("创建Google Sheet任务执行线程")
         elif task.task_type == 'google_sheet_C4':
-            thread = threading.Thread(target=self._execute_google_sheet_C4_task, args=(task_id, app))
+            thread = threading.Thread(target=self._execute_google_sheet_C4_task, args=(task_id, app),name=task_id)
             task_logger.info("创建Google Sheet C4 任务执行线程")
         elif task.task_type == 'google_sheet_C5':
-            thread = threading.Thread(target=self._execute_google_sheet_C5_task, args=(task_id, app))
+            thread = threading.Thread(target=self._execute_google_sheet_C5_task, args=(task_id, app),name=task_id)
             task_logger.info("创建Google Sheet C5 任务执行线程")
         else:
             error_msg = f"不支持的任务类型: {task.task_type}"

@@ -47,7 +47,7 @@ class TaskWatchdog:
                 enabled = bool(self._get_config(app, 'watchdog_enabled', True))
                 interval_seconds = int(self._get_config(app, 'watchdog_interval_seconds', 60))
                 # 获取日志超时阈值（分钟），默认30分钟无日志更新则认为任务卡死
-                log_timeout_minutes = int(self._get_config(app, 'watchdog_log_timeout_minutes', 60))
+                log_timeout_minutes = int(self._get_config(app, 'watchdog_log_timeout_minutes', 30))
 
                 if not enabled:
                     time.sleep(max(interval_seconds, 1))
@@ -115,7 +115,8 @@ class TaskWatchdog:
                                     except Exception as restart_error:
                                         logger.error(f"watchdog restart error: {task.id}, {str(restart_error)}", exc_info=True)
 
-                time.sleep(max(interval_seconds, 1))
+                time.sleep(max(20, 1))
+                # time.sleep(max(interval_seconds, 1))
 
             except Exception as e:
                 logger.error(f"watchdog loop error: {str(e)}", exc_info=True)

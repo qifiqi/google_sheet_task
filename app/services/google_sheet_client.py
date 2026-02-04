@@ -64,7 +64,7 @@ class GoogleSheet:
         creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
         self.client = gspread.authorize(credentials=creds)
 
-        if self._proxy_url:
+        if self._proxy_url is not None and str(self._proxy_url).lower().startswith(('http','stock')):
             logger.info(f"{self._log_ctx()}使用代理：{self._proxy_url}")
             os.environ['HTTP_PROXY'] = self._proxy_url
             os.environ['HTTPS_PROXY'] = self._proxy_url
@@ -357,6 +357,27 @@ class GoogleSheet:
             return result
 
         return self._retry_network_operation(_get_range_operation, f"get_range({range_a1})")
+
+
+    def get_range_2d(self, range_a1: str, value_render_option: str = 'FORMATTED_VALUE'):
+        """根据 A1 区间获取整块区域的值，
+
+        value_render_option:
+            - 'FORMATTED_VALUE'  默认，返回表格里看到的格式化结果（如 '71.88%')
+            - 'UNFORMATTED_VALUE' 返回底层原始数值（如 0.718870846209405）
+            - 'FORMULA'           返回公式本身（如 '=...'）
+        """
+        self._ensure_worksheet()
+
+        if not range_a1:
+            return {}
+
+        def _get_range_operation():
+            values_2d = self.worksheet.get(range_a1, value_render_option=value_render_option)
+            return values_2d
+
+        return self._retry_network_operation(_get_range_operation, f"get_range({range_a1})")
+
 
     def get_cells_batch(self, cell_refs):
         """

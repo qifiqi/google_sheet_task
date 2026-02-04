@@ -335,7 +335,7 @@ def calculate_sharpe_ratios(json_file_path, risk_free_rate=0.02):
 # 使用示例
 if __name__ == "__main__":
     # 使用示例JSON文件路径
-    json_file_path = "data.json"
+    json_file_path = "test/data.json"
 
     try:
         # results, summary_df, df, monthly_df = calculate_sharpe_ratios_year(json_file_path)
