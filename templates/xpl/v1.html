@@ -117,10 +117,15 @@
 
 <div class="card border-0 shadow-sm mb-4" id="details-card">
     <div class="card-header bg-white border-0 py-2">
-        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
-                data-bs-target="#v1-details-collapse" aria-expanded="false" aria-controls="v1-details-collapse">
-            <i class="bi bi-layout-text-sidebar-reverse me-1"></i>V1 数据明细（展开/收起）
-        </button>
+        <div class="d-flex justify-content-between align-items-center">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#v1-details-collapse" aria-expanded="false" aria-controls="v1-details-collapse">
+                <i class="bi bi-layout-text-sidebar-reverse me-1"></i>V1 数据明细（展开/收起）
+            </button>
+            <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
+                <i class="bi bi-download me-1"></i>导出并下载
+            </button>
+        </div>
     </div>
     <div class="collapse" id="v1-details-collapse">
         <div class="card-body p-3">
@@ -132,6 +137,9 @@
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-excess" type="button" role="tab">超额收益
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-monthly-excess" type="button" role="tab">月超额收益
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-kama" type="button" role="tab">卡玛比率
@@ -237,6 +245,22 @@
                                     </tr>
                                     </thead>
                                     <tbody id="tbl-excess-returns"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-monthly-excess" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Year-Month</th>
+                                        <th>index_monthly_return</th>
+                                        <th>start_monthly_return</th>
+                                        <th>diff</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-monthly-excess-returns"></tbody>
                                 </table>
                             </div>
                         </div>
@@ -470,6 +494,16 @@
             </div>
             <div class="col-lg-12">
                 <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">月超额收益（模型 - 指数）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:340px;">
+                            <canvas id="chart-monthly-excess-returns"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-12">
+                <div class="card h-100">
                     <div class="card-header py-2"><h6 class="card-title mb-0">夏普比率对比（all / year_* / past_*）</h6>
                     </div>
                     <div class="card-body p-2">
@@ -513,12 +547,15 @@
         spreadsheetId: '',
         lastFetchedSpreadsheetId: '',
         spreadsheetTitle: '',
+        lastResults: null,
+        lastSheetName: '',
         charts: {}
     };
 
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('btn-fetch-sheets').addEventListener('click', fetchWorksheets);
         document.getElementById('btn-analyze-v1').addEventListener('click', runAnalyzeV1);
+        document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         document.getElementById('gs-url').addEventListener('input', debounce(() => {
             const changed = updateMeta();
@@ -739,6 +776,55 @@
         }
     }
 
+    async function exportV1Details() {
+        if (!state.lastResults) {
+            showAlert('请先完成分析再导出', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('btn-export-v1');
+        if (btn) btn.disabled = true;
+
+        try {
+            const filenameSafeTitle = (state.spreadsheetTitle || 'v1').replaceAll(/[\\/:*?"<>|]/g, '_');
+            const filenameSafeSheet = (state.lastSheetName || 'sheet').replaceAll(/[\\/:*?"<>|]/g, '_');
+            const filename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
+
+            const resp = await fetch('/xpl/export', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                },
+                body: JSON.stringify({
+                    filename:filename,
+                    filename_title:filenameSafeTitle,
+                    analyze_result: state.lastResults
+                })
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.message || `HTTP error! status: ${resp.status}`);
+            }
+
+            const blob = await resp.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+            showAlert('已开始下载', 'success');
+        } catch (e) {
+            showAlert('导出失败：' + (e.message || '未知错误'), 'danger');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
     function escapeHtml(str) {
         return String(str)
                 .replaceAll('&', '&amp;')
@@ -787,6 +873,11 @@
                 showAlert('后端未返回 results', 'warning');
                 return;
             }
+
+            state.lastResults = data.results;
+            state.lastSheetName = sheetName;
+            const exportBtn = document.getElementById('btn-export-v1');
+            if (exportBtn) exportBtn.disabled = false;
 
             renderSummary(data.results);
             renderTables(data.results);
@@ -901,6 +992,114 @@
             tr.innerHTML = `<td><code>${k}</code></td><td>${v ?? '-'}</td>`;
             tbody.appendChild(tr);
         });
+    }
+
+    // 月超额收益 tab：渲染每个月“模型-指数”的超额收益
+    function fillMonthlyExcessReturnsTable(list, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!Array.isArray(list) || list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        list.forEach(item => {
+            const tr = document.createElement('tr');
+            const diff = item?.monthly_excess_return_diff;
+            tr.innerHTML = `
+                <td>${item?.year_month ?? '-'}</td>
+                <td class="${(item?.index_monthly_return || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(item?.index_monthly_return, 2)}</td>
+                <td class="${(item?.start_monthly_return || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(item?.start_monthly_return, 2)}</td>
+                <td class="${(diff || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(diff, 2)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 标量 tab：渲染页面顶部摘要对应的关键标量
+    function renderTabScalars(r) {
+        fillScalarsTable('tbl-scalars', r);
+    }
+
+    // Sheet结果 tab：渲染 analyze_v1 返回的 sheet_result（字典键值）
+    function renderTabSheetResult(r) {
+        fillSheetResultTable('tbl-sheet-result', r.sheet_result);
+    }
+
+    // 年度收益/回撤 tab：渲染年度收益对比、年度回撤对比、月超额收益百分比
+    function renderTabAnnualAndDrawdown(r) {
+        const idxAnnual = idxByYear(r.index_returns_rate, 'annual_return');
+        const stAnnual = idxByYear(r.start_returns_rate, 'annual_return');
+
+        const years = Array.from(new Set([...idxAnnual.keys(), ...stAnnual.keys()])).filter(y => y !== 'all').sort();
+        const annualTbody = document.getElementById('tbl-annual-compare');
+        annualTbody.innerHTML = '';
+
+        years.forEach(y => {
+            const a1 = idxAnnual.get(y)?.annual_return;
+            const a2 = stAnnual.get(y)?.annual_return;
+            const diff = (a2 !== undefined && a1 !== undefined) ? (a2 - a1) : null;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${y}</td><td class="${(a1 || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(a1, 2)}</td><td class="${(a2 || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(a2, 2)}</td><td class="${(diff || 0) >= 0 ? 'text-success' : 'text-danger'}">${diff === null ? '-' : fmtPct(diff, 2)}</td>`;
+            annualTbody.appendChild(tr);
+        });
+
+        const idxDd = idxByYear(r.index_maximum_drawdown?.year_maximum_drawdown, 'drawdown');
+        const stDd = idxByYear(r.start_maximum_drawdown?.year_maximum_drawdown, 'drawdown');
+        const ddYears = Array.from(new Set([...idxDd.keys(), ...stDd.keys()])).filter(y => y !== 'all').sort();
+        const ddTbody = document.getElementById('tbl-drawdown-compare');
+        ddTbody.innerHTML = '';
+        ddYears.forEach(y => {
+            const d1 = idxDd.get(y);
+            const d2 = stDd.get(y);
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${y}</td><td class="text-danger">${fmtPct(d1?.drawdown, 2)}</td><td class="text-danger">${fmtPct(d2?.drawdown, 2)}</td><td>${(d1?.date || '-') + ' / ' + (d2?.date || '-')}</td>`;
+            ddTbody.appendChild(tr);
+        });
+
+        const mPct = document.getElementById('tbl-monthly-excess-pct');
+        mPct.innerHTML = '';
+        if (Array.isArray(r.monthly_excess_return_percentage)) {
+            r.monthly_excess_return_percentage.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${item.year}</td><td>${fmtPct(item.excess_return, 2)}</td>`;
+                mPct.appendChild(tr);
+            });
+        }
+    }
+
+    // 年超额收益 tab
+    function renderTabExcessReturns(r) {
+        fillExcessReturnsTable(r);
+    }
+
+    // 月超额收益 tab（monthly_excess_returns）
+    function renderTabMonthlyExcessReturns(r) {
+        fillMonthlyExcessReturnsTable(r.monthly_excess_returns, 'tbl-monthly-excess-returns');
+    }
+
+    // 卡玛 tab
+    function renderTabKama(r) {
+        fillKamaMerged(r.index_kama_ratio, r.start_kama_ratio, 'tbl-kama');
+    }
+
+    // 所提诺 tab
+    function renderTabSotino(r) {
+        fillSotinoMerged(r.index_sotino_ratio, r.start_sotino_ratio, 'tbl-sotino');
+    }
+
+    // 夏普 tab
+    function renderTabSharpe(r) {
+        fillSharpeMerged(r.index_sharpe_ratios, r.start_sharpe_ratios, 'tbl-sharpe');
+    }
+
+    // 盈利统计 tab
+    function renderTabProfit(r) {
+        fillProfitAnnualTable(r);
+        fillProfitMonthlyTable(r.index_profit_monthly, 'tbl-index-profit-monthly');
+        fillProfitMonthlyTable(r.start_profit_monthly, 'tbl-start-profit-monthly');
     }
 
     function fillExcessReturnsTable(r) {
@@ -1133,55 +1332,15 @@
 
     function renderTables(r) {
         setPreJson('pre-raw-json', r);
-        fillScalarsTable('tbl-scalars', r);
-        fillSheetResultTable('tbl-sheet-result', r.sheet_result);
-
-        const idxAnnual = idxByYear(r.index_returns_rate, 'annual_return');
-        const stAnnual = idxByYear(r.start_returns_rate, 'annual_return');
-
-        const years = Array.from(new Set([...idxAnnual.keys(), ...stAnnual.keys()])).filter(y => y !== 'all').sort();
-        const annualTbody = document.getElementById('tbl-annual-compare');
-        annualTbody.innerHTML = '';
-
-        years.forEach(y => {
-            const a1 = idxAnnual.get(y)?.annual_return;
-            const a2 = stAnnual.get(y)?.annual_return;
-            const diff = (a2 !== undefined && a1 !== undefined) ? (a2 - a1) : null;
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${y}</td><td class="${(a1 || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(a1, 2)}</td><td class="${(a2 || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(a2, 2)}</td><td class="${(diff || 0) >= 0 ? 'text-success' : 'text-danger'}">${diff === null ? '-' : fmtPct(diff, 2)}</td>`;
-            annualTbody.appendChild(tr);
-        });
-
-        const idxDd = idxByYear(r.index_maximum_drawdown?.year_maximum_drawdown, 'drawdown');
-        const stDd = idxByYear(r.start_maximum_drawdown?.year_maximum_drawdown, 'drawdown');
-        const ddYears = Array.from(new Set([...idxDd.keys(), ...stDd.keys()])).filter(y => y !== 'all').sort();
-        const ddTbody = document.getElementById('tbl-drawdown-compare');
-        ddTbody.innerHTML = '';
-        ddYears.forEach(y => {
-            const d1 = idxDd.get(y);
-            const d2 = stDd.get(y);
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${y}</td><td class="text-danger">${fmtPct(d1?.drawdown, 2)}</td><td class="text-danger">${fmtPct(d2?.drawdown, 2)}</td><td>${(d1?.date || '-') + ' / ' + (d2?.date || '-')}</td>`;
-            ddTbody.appendChild(tr);
-        });
-
-        const mPct = document.getElementById('tbl-monthly-excess-pct');
-        mPct.innerHTML = '';
-        if (Array.isArray(r.monthly_excess_return_percentage)) {
-            r.monthly_excess_return_percentage.forEach(item => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${item.year}</td><td>${fmtPct(item.excess_return, 2)}</td>`;
-                mPct.appendChild(tr);
-            });
-        }
-
-        fillExcessReturnsTable(r);
-        fillKamaMerged(r.index_kama_ratio, r.start_kama_ratio, 'tbl-kama');
-        fillSotinoMerged(r.index_sotino_ratio, r.start_sotino_ratio, 'tbl-sotino');
-        fillSharpeMerged(r.index_sharpe_ratios, r.start_sharpe_ratios, 'tbl-sharpe');
-        fillProfitAnnualTable(r);
-        fillProfitMonthlyTable(r.index_profit_monthly, 'tbl-index-profit-monthly');
-        fillProfitMonthlyTable(r.start_profit_monthly, 'tbl-start-profit-monthly');
+        renderTabScalars(r);
+        renderTabSheetResult(r);
+        renderTabAnnualAndDrawdown(r);
+        renderTabExcessReturns(r);
+        renderTabMonthlyExcessReturns(r);
+        renderTabKama(r);
+        renderTabSotino(r);
+        renderTabSharpe(r);
+        renderTabProfit(r);
     }
 
     function destroyChart(key) {
@@ -1421,8 +1580,49 @@
             });
         }
 
+        renderMonthlyExcessReturnsChart(r);
         renderSharpeCompare(r);
         renderProfitMonthly(r);
+    }
+
+    function renderMonthlyExcessReturnsChart(r) {
+        const el = document.getElementById('chart-monthly-excess-returns');
+        if (!el) return;
+        destroyChart('monthlyExcessReturns');
+
+        const list = Array.isArray(r.monthly_excess_returns) ? r.monthly_excess_returns : [];
+        const sorted = list
+            .filter(x => x && x.year_month)
+            .slice()
+            .sort((a, b) => String(a.year_month).localeCompare(String(b.year_month)));
+
+        const labels = sorted.map(x => String(x.year_month));
+        const vals = sorted.map(x => (x.monthly_excess_return_diff ?? null));
+        const valsPct = vals.map(v => v === null ? null : Number(v) * 100);
+        const colors = vals.map(v => (v ?? 0) >= 0 ? 'rgba(25,135,84,0.55)' : 'rgba(220,53,69,0.55)');
+        const borderColors = vals.map(v => (v ?? 0) >= 0 ? '#198754' : '#dc3545');
+
+        state.charts.monthlyExcessReturns = new Chart(el, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: '月超额收益(%)',
+                    data: valsPct,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: 'Excess Return (%)'}},
+                    x: {ticks: {autoSkip: true, maxRotation: 60, minRotation: 0}}
+                }
+            }
+        });
     }
 
     function formatSharpeKey(key) {

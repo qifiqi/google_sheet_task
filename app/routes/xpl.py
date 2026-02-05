@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, url_for, redirect, flash, current_app
+from flask import Blueprint, render_template, request, jsonify, url_for, redirect, flash, current_app, send_file
 from app.utils.logger import get_logger
 from app.services.xpl_service import xpl_analyzer
 
@@ -70,6 +70,35 @@ def analyze_data():
             'message': f'处理请求时出错: {str(e)}',
             'results': [],
             'metrics': {}
+        }), 500
+
+
+@xpl_bp.route('/export', methods=['POST'])
+def export_file():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': '请求体不能为空',
+            }), 400
+
+        filename = data.get('filename')
+        file,file_type = xpl_analyzer.export_file(data)
+
+        # 发送文件
+        return send_file(
+            file,
+            mimetype=file_type,
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        logger.error(f"导出文件时出错: {str(e)}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': f'处理请求时出错: {str(e)}',
         }), 500
 
 
