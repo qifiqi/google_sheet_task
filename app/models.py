@@ -1,4 +1,7 @@
 from datetime import datetime
+
+from sqlalchemy.orm import relationship
+
 from app.extensions import db
 import json
 
@@ -29,7 +32,12 @@ class Task(db.Model):
     # 关联 - 优化懒加载策略
     logs = db.relationship('TaskLog', backref='task', lazy='dynamic', cascade='all, delete-orphan')
     results = db.relationship('TaskResult', backref='task', lazy='dynamic', cascade='all, delete-orphan')
-    
+
+    # 新增：直接关联到TaskResultReturn（时间序列数据）
+    returns_return = db.relationship('TaskResultReturn', backref='task',
+                             lazy='dynamic',
+                             cascade='all, delete-orphan')
+
     # 复合索引 - 提升常用查询性能
     __table_args__ = (
         db.Index('idx_status_created', 'status', 'created_at'),  # 按状态和时间查询
@@ -94,16 +102,7 @@ class TaskResult(db.Model):
     success = db.Column(db.Boolean, default=True, index=True)  # 添加索引
     error_message = db.Column(db.Text)
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True)  # 添加索引
-    
-    # # C5增强字段（用于重试和统计）
-    # retry_count = db.Column(db.Integer, default=0, nullable=True)  # 重试次数
-    # execution_time = db.Column(db.Float, nullable=True)  # 执行耗时（秒）
-    # error_type = db.Column(db.String(100), nullable=True, index=True)  # 异常类型
-    # http_status = db.Column(db.Integer, nullable=True)  # HTTP状态码
-    # session_id = db.Column(db.String(100), nullable=True)  # 会话ID
-    # request_id = db.Column(db.String(100), nullable=True)  # 请求ID
-    # retry_round = db.Column(db.Integer, default=0, nullable=True)  # 重试轮次（0表示首次执行）
-    
+
     # 复合索引 - 提升查询性能
     __table_args__ = (
         db.Index('idx_task_step', 'task_id', 'step_index'),  # 按任务和步骤查询
@@ -111,7 +110,7 @@ class TaskResult(db.Model):
         db.Index('idx_success_timestamp', 'success', 'timestamp'),  # 按成功状态和时间查询
         # db.Index('idx_error_type', 'error_type'),  # 按错误类型查询
     )
-    
+
     def to_dict(self):
         result_dict = {
             'id': self.id,
@@ -138,6 +137,25 @@ class TaskResult(db.Model):
             result_dict['request_id'] = self.request_id
         if hasattr(self, 'retry_round') and self.retry_round is not None:
             result_dict['retry_round'] = self.retry_round
+        return result_dict
+    
+class TaskResultReturn(db.Model):
+    __tablename__ = 'task_results_return'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    task_id = db.Column(db.String(36), db.ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False, index=True)
+    stock_date = db.Column(db.String(50))
+    index_return = db.Column(db.Float)
+    start_return = db.Column(db.Float)
+
+    def to_dict(self):
+        result_dict = {
+            'id': self.id,
+            'task_id': self.task_id,
+            'stock_date': self.stock_date,
+            'index_return': self.index_return,
+            'start_return': self.start_return,
+        }
         return result_dict
 
 class TaskTemplate(db.Model):
@@ -177,8 +195,8 @@ class SystemConfig(db.Model):
             'key': self.key,
             'value': self.value,
             'description': self.description,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
 class ScheduledTask(db.Model):

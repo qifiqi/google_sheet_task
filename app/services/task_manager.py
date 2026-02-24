@@ -144,9 +144,12 @@ class TaskManager:
         
         return task.to_dict()
     
-    def get_all_tasks(self) -> list:
+    def get_all_tasks(self, task_type: Optional[str] = None) -> list:
         """获取所有任务"""
-        tasks = Task.query.order_by(Task.created_at.desc()).all()
+        query = Task.query
+        if task_type:
+            query = query.filter_by(task_type=task_type)
+        tasks = query.order_by(Task.created_at.desc()).all()
         return [task.to_dict() for task in tasks]
     
     def check_local_task_status(self, task_id: str) -> Dict[str, Any]:
@@ -255,12 +258,13 @@ class TaskManager:
             # 清理任务状态
             if task_id in self.task_events:
                 del self.task_events[task_id]
-            
+            start_time = None
             # 根据断点恢复设置，决定从哪里开始
             if resume_from_checkpoint:
                 # 从断点继续，保持current_step
                 restart_step = task.current_step
                 self._add_task_log(task_id, 'info', f'从断点重启任务，从第 {restart_step} 步继续')
+                start_time = task.start_time
             else:
                 # 从头开始：重置步骤并清空历史结果（保留日志）
                 restart_step = 0
@@ -273,7 +277,7 @@ class TaskManager:
                 self._add_task_log(task_id, 'info', '重新开始任务，从第 1 步开始（已清空历史结果）')
             
             # 重置任务状态 - 清空开始和结束时间，确保重启后时间信息正确
-            safe_update(task, commit=True, status='pending', error_message=None, start_time=None, end_time=None)
+            safe_update(task, commit=True, status='pending', error_message=None, start_time=start_time, end_time=None)
             
             # 重新启动任务
             success = self.start_task(task_id)

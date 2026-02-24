@@ -1190,7 +1190,7 @@ class XPLAnalyzer:
         # 年最大超额回撤
         index_maximum_drawdown = analyze_result.get('index_maximum_drawdown')
         start_maximum_drawdown = analyze_result.get('start_maximum_drawdown')
-        year_excess_returns = [int(i['year']) for i in excess_returns if i['annualized_return_diff'] > 0]
+        year_excess_returns = [int(i['year']) for i in excess_returns if i['annualized_return_diff'] > 0 and i['year'] != 'all']
         index_year_maximum_drawdown = {i['year']:i for i in index_maximum_drawdown['year_maximum_drawdown'] if i['year'] in year_excess_returns}
         start_year_maximum_drawdown = {i['year']:i for i in start_maximum_drawdown['year_maximum_drawdown'] if i['year'] in year_excess_returns}
         max_drawdown_list = []
@@ -1233,7 +1233,7 @@ class XPLAnalyzer:
 
 
         data_1_2d = [
-            ["标的", "QQQ", "", ""],  # 注意："QQQ"后面有两个空单元格
+            ["标的", "", "", ""],
             ["回测区间", f"{start_date}-{end_date}", "", ""],
             ["指标类型", "指标", "指数", model_name],
             ["绝对收益", "年化收益",  f"{index_annualized_return:.2%}", f"{start_annualized_return:.2%}"],
@@ -1246,9 +1246,9 @@ class XPLAnalyzer:
             ["相对收益", "月超额收益胜率", "", f"{monthly_excess_return_percentage_last_return:.2%}"],
             ["相对收益", "平均月超额", "", f"{avg_monthly_excess_returns:.2%}"],
             ["相对收益", "月超额波动率", "", f"{monthly_excess_volatility:.2%}"],
-            ["回撤", "年最大超额回撤", "", f"{max_drawdown:.2%}"],
-            ["回撤", "超额回撤胜率", "", f"{excess_drawdown_winning_rate:.2%}"],
-            ["回撤", "年最大回撤", "", f"{start_drawdown:.2%}"],
+            ["回撤", "年最大超额回撤", "", f"-{max_drawdown:.2%}"],
+            ["回撤", "超额回撤胜率", "", f"-{excess_drawdown_winning_rate:.2%}"],
+            ["回撤", "年最大回撤", "", f"-{start_drawdown:.2%}"],
             ["比率", "夏普比率", f"{index_sharpe_ratio:.2%}", f"{start_sharpe_ratio:.2%}"],  # 注意：数字后面有空格
             ["比率", "卡玛比率", f"{index_kama_ratio:.2}", f"{start_kama_ratio:.2}"],
             ["比率", "所提诺比率", f"{index_sotino_ratio:.2}", f"{start_sotino_ratio:.2}"]
@@ -1282,9 +1282,11 @@ class XPLAnalyzer:
         for index_drawdown,start_drawdown in zip(index_year_maximum_drawdown, start_maximum_drawdown['year_maximum_drawdown']):
             data_3_2d[0].append("")
             data_3_2d[1].append(index_drawdown['year'])
-            data_3_2d[2].append(f"{index_drawdown['drawdown']:.2%}")
-            data_3_2d[3].append(f"{start_drawdown['drawdown']:.2%}")
-            data_3_2d[4].append(f"{start_drawdown['drawdown']-index_drawdown['drawdown']:.2%}")
+            data_3_2d[2].append(f"-{index_drawdown['drawdown']:.2%}")
+            data_3_2d[3].append(f"-{start_drawdown['drawdown']:.2%}")
+            excessive_backtesting = f"{start_drawdown['drawdown']-index_drawdown['drawdown']:.2%}"
+            excessive_backtesting = excessive_backtesting.replace('-', '') if '-' in excessive_backtesting else '-' + excessive_backtesting
+            data_3_2d[4].append(excessive_backtesting)
 
 
         data_4_2d = [

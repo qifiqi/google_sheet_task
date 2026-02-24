@@ -1,6 +1,8 @@
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from sqlalchemy import and_
 
 from app.models import Task,TaskLog
 from app.services.config_manager import get_config_manager
@@ -54,7 +56,10 @@ class TaskWatchdog:
                     continue
 
                 with app.app_context():
-                    running_tasks = Task.query.filter_by(status='running').all()
+                    # running_tasks = Task.query.filter_by(status='running').all()
+
+                    status_list = ['running', 'pending']
+                    running_tasks = Task.query.filter(Task.status.in_(status_list)).all()
 
                     for task in running_tasks:
                         if self._stop_event.is_set():
@@ -69,6 +74,11 @@ class TaskWatchdog:
                         #     result = task_manager.restart_task(task.id, resume_from_checkpoint=True)
                         #     logger.warning(f"watchdog restart result: {task.id}, {result}")
                         #     continue
+
+                        if task.status == "pending":
+                            result = task_manager.restart_task(task.id, resume_from_checkpoint=True)
+                            logger.warning(f"status pending watchdog restart result: {task.id}, {result}")
+                            continue
 
                         # 检查任务日志更新时间
                         latest_log = TaskLog.query.filter_by(task_id=task.id).order_by(TaskLog.timestamp.desc()).first()

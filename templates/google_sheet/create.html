@@ -290,7 +290,7 @@
                     <div class="card">
                         <div class="card-body">
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                                <a href="{{ url_for('google_sheet.index') }}" class="btn btn-secondary me-md-2">
+                                <a href="{{ url_for('google_sheet.index',version='c3') }}" class="btn btn-secondary me-md-2">
                                     <i class="bi bi-arrow-left"></i> 返回首页
                                 </a>
                                 <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="清除保存的表单数据">
@@ -483,13 +483,14 @@
                 showNotification('已加载模板配置', 'success');
                 
                 // 更新页面标题和提示
-                {% if template_id %}
-                document.title = '从模板创建任务 - Google Sheet 参数批量校验';
-                const cardHeader = document.querySelector('.card-header h4');
-                if (cardHeader) {
-                    cardHeader.innerHTML = '<i class="bi bi-file-earmark-text"></i> 从模板创建任务';
+                const urlTemplateId = new URLSearchParams(window.location.search).get('template_id');
+                if (urlTemplateId) {
+                    document.title = '从模板创建任务 - Google Sheet 参数批量校验';
+                    const cardHeader = document.querySelector('.card-header h4');
+                    if (cardHeader) {
+                        cardHeader.innerHTML = '<i class="bi bi-file-earmark-text"></i> 从模板创建任务';
+                    }
                 }
-                {% endif %}
             }
         } catch (error) {
             console.error('加载模板失败:', error);
@@ -626,13 +627,11 @@
         bindEvents();
         loadTemplates(); // 加载模板列表
         
-        // 检查是否有模板数据
-        {% if template %}
-            loadFromTemplate({{ template | tojson | safe }});
-        {% else %}
-            loadRestartConfig(); // 先加载重启配置
-            loadSavedFormData(); // 然后加载保存的表单数据
-        {% endif %}
+        // URL 参数驱动的数据加载：
+        // - ?template_id=xxx -> /api/templates/xxx
+        // - ?restart_task_id=xxx -> /api/tasks/xxx
+        // - 其它 -> loadSavedFormData()
+        initFromUrlParams();
         
         calculateCombinations();
 
@@ -668,6 +667,42 @@
         });
     });
 
+    function initFromUrlParams() {
+        const params = new URLSearchParams(window.location.search);
+        const templateId = params.get('template_id');
+        const restartTaskId = params.get('restart_task_id');
+
+        if (templateId) {
+            fillFormWithTemplate(templateId);
+            return;
+        }
+
+        if (restartTaskId) {
+            fillFormWithRestartTask(restartTaskId);
+            return;
+        }
+
+        loadSavedFormData();
+    }
+
+    function fillFormWithRestartTask(taskId) {
+        fetch(`/api/tasks/${encodeURIComponent(taskId)}`)
+            .then(resp => resp.json())
+            .then(data => {
+                const task = (data && data.task) ? data.task : null;
+                const configRaw = task ? task.config : null;
+                if (!configRaw) {
+                    showNotification('加载原任务配置失败：config为空', 'error');
+                    return;
+                }
+                loadRestartConfig(configRaw, taskId);
+            })
+            .catch(err => {
+                console.error('加载原任务失败:', err);
+                showNotification('加载原任务失败', 'error');
+            });
+    }
+
     // 加载模板列表
     function loadTemplates() {
         fetch('/api/templates')
@@ -701,7 +736,7 @@
         fetch(`/api/templates/${templateId}`)
             .then(response => response.json())
             .then(template => {
-                const config = template.config;
+                let config = template.config;
                 if (typeof config === 'string') {
                     try {
                         config = JSON.parse(config);
@@ -1352,12 +1387,8 @@
     }
 
     // 加载重启配置
-    function loadRestartConfig() {
+    function loadRestartConfig(restartConfig, originalTaskId) {
         try {
-            {% if restart_config %}
-            const restartConfig = {{ restart_config | tojson }};
-            const originalTaskId = '{{ original_task_id }}';
-            
             console.log('加载重启配置:', restartConfig);
             
             // 填充基本信息（添加重启标识）
@@ -1419,7 +1450,6 @@
             calculateCombinations();
             
             showNotification('已加载原任务配置', 'info');
-            {% endif %}
         } catch (e) {
             console.warn('加载重启配置失败:', e);
         }

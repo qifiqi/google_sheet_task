@@ -9,7 +9,7 @@ from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db
+from app.models import Task, TaskResult, db,TaskResultReturn
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation, db_retry_manager
@@ -592,6 +592,7 @@ class GoogleSheetService:
 
                         _index_return_date = []
                         _start_return_date = []
+                        _index_start_return_date = []
                         for i in range(len(kline)):
                             _index_return_date.append({
                                 'stock_date': kline[i].get('stock_date'),
@@ -601,11 +602,20 @@ class GoogleSheetService:
                                 'stock_date': kline[i].get('stock_date'),
                                 'stock_val': _start_return[f"{c5_output_column_l}{i + 2}"]
                             })
+                            _index_start_return_date.append({
+                                'stock_date': kline[i].get('stock_date'),
+                                'index_return': _index_return[f"{c5_output_column_j}{i + 2}"],
+                                'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
+
+                            })
+
 
                         _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
                         _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
                         _result['index_return_xpl'] = _index_return_xpl
                         _result['start_return_xpl'] = _start_return_xpl
+                        _result['_index_start_return_date'] = _index_start_return_date
+
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
                     else:
@@ -761,6 +771,9 @@ class GoogleSheetService:
         """保存任务结果到数据库，包含重试逻辑"""
 
         def save_result_operation():
+            _index_start_return_date = None
+            if '_index_start_return_date' in result:
+                _index_start_return_date = result.pop('_index_start_return_date')
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
@@ -769,6 +782,16 @@ class GoogleSheetService:
                 success=success
             )
             db.session.add(task_result)
+
+            if _index_start_return_date:
+                for i in _index_start_return_date:
+                    task_result_return = TaskResultReturn(
+                        task_id=self.task_id,
+                        stock_date=i['stock_date'],
+                        index_return=i['index_return'],
+                        start_return=i['start_return']
+                    )
+                    db.session.add(task_result_return)
             db.session.commit()
 
         try:
@@ -884,7 +907,7 @@ class GoogleSheetService:
                 data.append(d)
 
         if count_mode != 'n_plus_1':
-            return data, len(all_kline) + 20
+            return data, len(all_kline) + 20,KLINE_DATA_MAP
 
         if 'recent' in date_range_mode:
             for year in range(1, (_end_year_1 - _start_date) + 1):
@@ -904,7 +927,7 @@ class GoogleSheetService:
                         #         d['kline'] = kline
                         if kline:
                             if Kline_key not in KLINE_DATA_MAP:
-                                KLINE_DATA_MAP[Kline_key] = all_kline
+                                KLINE_DATA_MAP[Kline_key] = kline
 
                         data.append(d)
 
@@ -924,7 +947,7 @@ class GoogleSheetService:
                         #         continue
                         if kline:
                             if Kline_key not in KLINE_DATA_MAP:
-                                KLINE_DATA_MAP[Kline_key] = all_kline
+                                KLINE_DATA_MAP[Kline_key] = kline
 
                         data.append(d)
 

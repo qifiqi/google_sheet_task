@@ -1055,7 +1055,7 @@
             const d1 = idxDd.get(y);
             const d2 = stDd.get(y);
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${y}</td><td class="text-danger">${fmtPct(d1?.drawdown, 2)}</td><td class="text-danger">${fmtPct(d2?.drawdown, 2)}</td><td>${(d1?.date || '-') + ' / ' + (d2?.date || '-')}</td>`;
+            tr.innerHTML = `<td>${y}</td><td class="text-danger">-${fmtPct(d1?.drawdown, 2)}</td><td class="text-danger">-${fmtPct(d2?.drawdown, 2)}</td><td>${(d1?.date || '-') + ' / ' + (d2?.date || '-')}</td>`;
             ddTbody.appendChild(tr);
         });
 

@@ -31,7 +31,7 @@
                                 <hr class="dropdown-divider">
                             </li>
                             <li><a class="dropdown-item" href="#" onclick="goToCreateRestartTask()">
-                                <i class="bi bi-plus-circle"></i> 跳转到创建重启任务
+                                <i class="bi bi-plus-circle"></i> 跳转到创建任务
                             </a></li>
                         </ul>
                     </div>
@@ -743,15 +743,32 @@
                 const progressPercent = task.total_steps > 0 ? Math.round((task.current_step / task.total_steps) * 100) : 0;
                 const visiblePercent = progressPercent > 0 ? Math.max(progressPercent, 5) : 0;
                 const progressBarClass = getProgressBarClass(task.status) + (task.status === 'running' ? ' progress-bar-striped progress-bar-animated' : '');
-
-                document.getElementById('task-progress').innerHTML = `
-                    <div class="progress" style="height: 20px; background-color: #e9ecef;">
-                        <div class="progress-bar ${progressBarClass}" role="progressbar" 
+                let progress_html = null
+                progress_html = `
+                    <div class="progress" style="height: 20px; background-color: #e9ecef; position: relative;">
+                        <div class="progress-bar ${progressBarClass}" role="progressbar"
                              style="width: ${visiblePercent}%;">
-                            ${task.current_step}/${task.total_steps} (${progressPercent}%)
                         </div>
+                        <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+                               display: flex; align-items: center; justify-content: center;
+                               color: black;  z-index: 10; font-size: 12px;">
+                            ${task.current_step}/${task.total_steps} (${progressPercent}%)
+                        </span>
                     </div>
                 `;
+                     /*
+                     *
+                     *
+                     *                      progress_html= ` <div class="progress" style="height: 20px; background-color: #e9ecef;">
+                            <div class="progress-bar ${progressBarClass}" role="progressbar"
+                                 style="width: ${visiblePercent}%;">
+                                ${task.current_step}/${total_steps} (${progressPercent}%)
+                            </div>
+                        </div>
+                    `;
+                     * */
+
+                document.getElementById('task-progress').innerHTML = progress_html;
 
                 // 更新时间信息
                 document.getElementById('start-time').textContent = formatTime(task.start_time);
@@ -1555,12 +1572,9 @@
                                     </tbody>
                                 </table>
                             </div>
-                            ${group.errorMessage ? `<div class="small text-danger mt-2">错误：${group.errorMessage}</div>`
-            :
-                ''
-            }
-        </div>
-        </div>
+                            ${group.errorMessage ? `<div class="small text-danger mt-2">错误：${group.errorMessage}</div>` : ''}
+                        </div>
+                    </div>
             `;
 
                 listContainer.appendChild(col);
@@ -1582,44 +1596,37 @@
         
         // 上一页
         const prevLi = document.createElement('li');
-        prevLi.className = `
-            page - item${currentResultsPage === 1 ? 'disabled' : ''}`;
-        prevLi.innerHTML = ` < a
+        prevLi.className = `page-item ${currentResultsPage === 1 ? 'disabled' : ''}`;
+        prevLi.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${currentResultsPage - 1})">上一页</a>`;
+        pagination.appendChild(prevLi);
 
-            class
+        // 页码
+        const startPage = Math.max(1, currentResultsPage - 2);
+        const endPage = Math.min(totalPages, currentResultsPage + 2);
 
-            = "page-link"
-            href = "#"
-            onclick = "return changeResultsPage(${currentResultsPage - 1})" > 上一页 < /a>`;
-            pagination.appendChild(prevLi);
-
-            // 页码
-            const startPage = Math.max(1, currentResultsPage - 2);
-            const endPage = Math.min(totalPages, currentResultsPage + 2);
-
-            for (let i = startPage; i <= endPage; i++) {
-                const li = document.createElement('li');
-                li.className = `page-item ${i === currentResultsPage ? 'active' : ''}`;
-                li.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${i})">${i}</a>`;
-                pagination.appendChild(li);
-            }
-
-            // 下一页
-            const nextLi = document.createElement('li');
-            nextLi.className = `page-item ${currentResultsPage === totalPages ? 'disabled' : ''}`;
-            nextLi.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${currentResultsPage + 1})">下一页</a>`;
-            pagination.appendChild(nextLi);
+        for (let i = startPage; i <= endPage; i++) {
+            const li = document.createElement('li');
+            li.className = `page-item ${i === currentResultsPage ? 'active' : ''}`;
+            li.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${i})">${i}</a>`;
+            pagination.appendChild(li);
         }
 
-        // 切换结果页面
-        function changeResultsPage(page) {
-            const totalPages = resultsTotalPages || 1;
-            if (page >= 1 && page <= totalPages) {
-                loadTaskResults(page);
-            }
-            // 阻止 <a href="#"> 的默认跳转，避免页面滚动到顶部
-            return false;
+        // 下一页
+        const nextLi = document.createElement('li');
+        nextLi.className = `page-item ${currentResultsPage === totalPages ? 'disabled' : ''}`;
+        nextLi.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${currentResultsPage + 1})">下一页</a>`;
+        pagination.appendChild(nextLi);
+    }
+
+    // 切换结果页面
+    function changeResultsPage(page) {
+        const totalPages = resultsTotalPages || 1;
+        if (page >= 1 && page <= totalPages) {
+            loadTaskResults(page);
         }
+        // 阻止 <a href="#"> 的默认跳转，避免页面滚动到顶部
+        return false;
+    }
 
         // 刷新结果
         function refreshResults() {
@@ -2283,7 +2290,7 @@
 
         // 跳转到创建重启任务页面（C5 模式）
         function goToCreateRestartTask() {
-            window.location.href = `/google-sheet/create-restart/${currentTaskId}?version=c5`;
+            window.location.href = `/google-sheet/create?version=c5&restart_task_id=${encodeURIComponent(currentTaskId || '')}`;
         }
 
         // 创建新的重启任务

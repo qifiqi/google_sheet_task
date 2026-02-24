@@ -5,7 +5,7 @@ import json
 import queue
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
-from app.models import Task, TaskLog, TaskTemplate, TaskResult, db
+from app.models import Task, TaskLog, TaskTemplate, TaskResult, SystemConfig, db
 from app.utils.logger import get_logger
 from flask import current_app
 from app.services.google_sheet_service import GoogleSheetService
@@ -20,42 +20,38 @@ _WORKSHEETS_CACHE_TTL = 10 * 24 * 60 * 60
 api_bp = Blueprint('api', __name__)
 
 # 任务相关API
-@api_bp.route('/tasks', methods=['GET'])
-def get_tasks():
-    """获取所有任务"""
-    try:
-        tasks = task_manager.get_all_tasks()
-        return jsonify({"status": "success", "tasks": tasks})
-    except Exception as e:
-        logger.error(f"获取任务列表失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+@api_bp.route('/tasks', methods=['GET', 'POST'])
+def tasks():
+    """获取任务列表 / 创建任务
 
-@api_bp.route('/tasks', methods=['POST'])
-def create_task():
-    """创建新任务"""
+    - GET: 返回全部任务，支持task_type过滤
+    - POST: 创建任务，仅当body中包含config时
+    """
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"status": "error", "message": "请求数据为空"}), 400
-        
-        name = data.get('name', '未命名任务')
-        description = data.get('description', '')
-        task_type = data.get('task_type', 'google_sheet')
-        config = data.get('config', {})
-        
-        if not config:
-            return jsonify({"status": "error", "message": "任务配置为空"}), 400
-        
-        task_id = task_manager.create_task(name, description, task_type, config)
-        
-        # 自动启动任务
-        if task_manager.start_task(task_id):
-            return jsonify({"status": "success", "task_id": task_id, "message": "任务创建并启动成功"})
-        else:
+        if request.method == 'GET':
+            task_type = request.args.get('task_type')
+            tasks = task_manager.get_all_tasks(task_type=task_type)
+            return jsonify({"status": "success", "tasks": tasks})
+
+        data = request.get_json() or {}
+
+        # 兼容：创建任务
+        config = data.get('config')
+        if config:
+            name = data.get('name', '未命名任务')
+            description = data.get('description', '')
+            task_type = data.get('task_type', 'google_sheet')
+
+            task_id = task_manager.create_task(name, description, task_type, config)
+
+            if task_manager.start_task(task_id):
+                return jsonify({"status": "success", "task_id": task_id, "message": "任务创建并启动成功"})
             return jsonify({"status": "error", "task_id": task_id, "message": "任务创建成功，但启动失败"})
-            
+
+        return jsonify({"status": "error", "message": "任务配置为空"}), 400
+
     except Exception as e:
-        logger.error(f"创建任务失败: {str(e)}")
+        logger.error(f"处理任务接口失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @api_bp.route('/tasks/<task_id>', methods=['GET'])
@@ -298,46 +294,6 @@ def update_config():
         logger.error(f"更新配置失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@api_bp.route('/config/google-sheet', methods=['GET'])
-def get_google_sheet_config():
-    """获取Google Sheet配置"""
-    try:
-        config_manager = get_config_manager()
-        config = config_manager.get_google_sheet_config()
-        return jsonify({"status": "success", "config": config})
-    except Exception as e:
-        logger.error(f"获取Google Sheet配置失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@api_bp.route('/config/google-sheet', methods=['POST'])
-def update_google_sheet_config():
-    """更新Google Sheet配置"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"status": "error", "message": "请求数据为空"}), 400
-        
-        config_manager = get_config_manager()
-        success = config_manager.set_google_sheet_config(data)
-        if success:
-            return jsonify({"status": "success", "message": "Google Sheet配置更新成功"})
-        else:
-            return jsonify({"status": "error", "message": "Google Sheet配置更新失败"}), 500
-    except Exception as e:
-        logger.error(f"更新Google Sheet配置失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@api_bp.route('/config/refresh', methods=['POST'])
-def refresh_config():
-    """强制刷新配置缓存"""
-    try:
-        config_manager = get_config_manager()
-        config_manager.refresh_cache()
-        return jsonify({"status": "success", "message": "配置缓存已刷新"})
-    except Exception as e:
-        logger.error(f"刷新配置缓存失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
 @api_bp.route('/config/validate', methods=['GET'])
 def validate_config():
     """验证配置状态"""
@@ -369,6 +325,50 @@ def validate_config():
         })
     except Exception as e:
         logger.error(f"验证配置失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@api_bp.route('/system-configs', methods=['GET'])
+def list_system_configs():
+    """获取 system_configs 配置列表（包含 key/value/description）"""
+    try:
+        configs = SystemConfig.query.order_by(SystemConfig.key.asc()).all()
+        return jsonify({
+            "status": "success",
+            "configs": [c.to_dict() for c in configs]
+        })
+    except Exception as e:
+        logger.error(f"获取 system_configs 列表失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@api_bp.route('/system-configs/<string:key>', methods=['PUT'])
+def update_system_config(key):
+    """更新单条配置（仅允许更新 value / description）"""
+    try:
+        data = request.get_json() or {}
+
+        if 'value' not in data and 'description' not in data:
+            return jsonify({"status": "error", "message": "缺少需要更新的字段"}), 400
+
+        cfg = SystemConfig.query.filter_by(key=key).first()
+        if not cfg:
+            return jsonify({"status": "error", "message": "配置不存在"}), 404
+
+        if 'value' in data:
+            cfg.value = data.get('value')
+        if 'description' in data:
+            cfg.description = data.get('description')
+
+        db.session.commit()
+
+        try:
+            get_config_manager().refresh_cache()
+        except Exception as e:
+            logger.warning(f"更新配置后刷新缓存失败: {e}")
+
+        return jsonify({"status": "success", "config": cfg.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"更新 system_config 失败: key={key}, err={str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @api_bp.route('/tasks/<task_id>/system-logs', methods=['GET'])

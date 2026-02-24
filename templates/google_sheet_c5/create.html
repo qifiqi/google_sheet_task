@@ -833,19 +833,11 @@
         bindEvents();
         loadTemplates(); // 加载模板列表
 
-        // 检查是否有模板数据或重启配置
-        {% if template %}
-            // 从模板创建任务
-            loadFromTemplate({{ template | tojson | safe }});
-        {% else %}
-            {% if restart_config %}
-                // 重启任务：仅使用重启配置，不再加载本地缓存，避免覆盖
-                loadRestartConfig();
-            {% else %}
-                // 普通进入创建页：仅从本地缓存恢复表单
-                loadSavedFormData();
-            {% endif %}
-        {% endif %}
+        // URL 参数驱动的数据加载：
+        // - ?template_id=xxx -> /api/templates/xxx
+        // - ?restart_task_id=xxx -> /api/tasks/xxx
+        // - 其它 -> loadSavedFormData()
+        initFromUrlParams();
 
         // 初始化日期默认值（如果未从模板/重启/本地恢复）
         initDefaultDatesIfEmpty();
@@ -886,6 +878,42 @@
             }
         });
     });
+
+    function initFromUrlParams() {
+        const params = new URLSearchParams(window.location.search);
+        const templateId = params.get('template_id');
+        const restartTaskId = params.get('restart_task_id');
+
+        if (templateId) {
+            fillFormWithTemplate(templateId);
+            return;
+        }
+
+        if (restartTaskId) {
+            fillFormWithRestartTask(restartTaskId);
+            return;
+        }
+
+        loadSavedFormData();
+    }
+
+    function fillFormWithRestartTask(taskId) {
+        fetch(`/api/tasks/${encodeURIComponent(taskId)}`)
+            .then(resp => resp.json())
+            .then(data => {
+                const task = (data && data.task) ? data.task : null;
+                const configRaw = task ? task.config : null;
+                if (!configRaw) {
+                    showNotification('加载原任务配置失败：config为空', 'error');
+                    return;
+                }
+                loadRestartConfig(configRaw, taskId);
+            })
+            .catch(err => {
+                console.error('加载原任务失败:', err);
+                showNotification('加载原任务失败', 'error');
+            });
+    }
 
     // 加载模板列表
     function loadTemplates() {
@@ -933,115 +961,166 @@
                     }
                 }
 
-                // 多张表：为后续表创建可视配置块
-                if (Array.isArray(config.sheets) && config.sheets.length > 0) {
-                    const list = document.getElementById('sheet-config-list');
-                    const items = list.querySelectorAll('.sheet-config-item');
-                    if ( items.length <  config.sheets.length){
-                         while (items.length < config.sheets.length) {
-                            addVisualSheetConfigItem();
-                        }
-                    }
-                    config.sheets.forEach(sheetCfg => {
-                        if (!list) return;
-                        // addVisualSheetConfigItem();
-                        const items = list.querySelectorAll('.sheet-config-item');
-                        const item = items[items.length - 1];
-                        if (!item) return;
-                        const sheetSelect = item.querySelector('select');
-                        const textInputs = item.querySelectorAll('input[type="text"]');
-                        const spreadsheetInputEl = textInputs[0];
-                        const sheetTitle = textInputs[1] || null;
-                        const customInputEl = textInputs[2] || null;
-
-                        if (spreadsheetInputEl && sheetCfg.spreadsheet_id) {
-                            spreadsheetInputEl.value = sheetCfg.spreadsheet_id;
-                        }
-                        if (sheetTitle && sheetCfg.title) {
-                            sheetTitle.value = sheetCfg.title;
-                        }
-                        if (customInputEl && sheetCfg.sheet_name) {
-                            customInputEl.value = sheetCfg.sheet_name;
-                             if (sheetCfg.sheet_name) {
-                                sheetSelect.options[0].text = sheetCfg.sheet_name;
-                            }
-
-                        }
-
-                    });
-                }
-                if (config.token_type) {
-                    document.getElementById('token_type').value = config.token_type;
-                    document.getElementById('token_type').dispatchEvent(new Event('change'));
-                }
-                if (config.token_file) {
-                    document.getElementById('token_file').value = config.token_file;
-                }
-                if (config.token_json) {
-                    document.getElementById('token_json').value = config.token_json;
-                }
-                if (config.proxy_url) {
-                    document.getElementById('proxy_url').value = config.proxy_url;
-                }
-                if (config.count_mode) {
-                    const modeInput = document.querySelector(`input[name="count_mode"][value="${config.count_mode}"]`);
-                    if (modeInput) {
-                        modeInput.checked = true;
-                    }
-                    if  (config.count_mode === 'n_plus_1') {
-                        // 取消多选框的禁用状态
-                        document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-                            checkbox.disabled = false;
-                        });
-                    }
-                }
-                if (config.date_range_mode !== undefined) {
-                    applyDateRangeModes(config.date_range_mode);
-                }
-                if (config.market_type) {
-                    const mtInput = document.querySelector(`input[name="market_type"][value="${config.market_type}"]`);
-                    if (mtInput) {
-                        mtInput.checked = true;
-                    }
-                }
-                if (config.start_date) {
-                    const sd = document.getElementById('start_date');
-                    if (sd) sd.value = config.start_date;
-                }
-                if (config.end_date) {
-                    const ed = document.getElementById('end_date');
-                    if (ed) ed.value = config.end_date;
-                }
-
-                // 填充产品代码参数
-                if (config.parameters && Array.isArray(config.parameters)) {
-                    for  (let i = 0; i < config.parameters.length; i++) {
-                        const param = config.parameters[i];
-                        const paramElement = document.getElementById(`param${i + 1}`);
-                        console.log(paramElement,  param)
-                        if (paramElement) {
-                            paramElement.value = JSON.stringify(param);
-                            if (i===0){
-                                 initProductCodeChipsFromParam1();
-                            }
-                        }
-                    }
-                    // const firstParam = config.parameters[0];
-                    // const paramElement = document.getElementById('param1');
-                    // if (paramElement && Array.isArray(firstParam)) {
-                    //     paramElement.value = JSON.stringify(firstParam);
-                    //     initProductCodeChipsFromParam1();
-                    // }
-                }
-
-                // 更新组合计算
-                calculateCombinations();
-                showNotification('已加载模板配置', 'success');
+                applyConfigToForm(config, {
+                    mode: 'template'
+                });
             })
             .catch(error => {
                 console.error('加载模板详情失败:', error);
                 showNotification('加载模板失败', 'error');
             });
+    }
+
+    function ensureSheetConfigItemsCount(targetCount) {
+        const list = document.getElementById('sheet-config-list');
+        if (!list) return;
+        while (list.querySelectorAll('.sheet-config-item').length < targetCount) {
+            addVisualSheetConfigItem();
+        }
+    }
+
+    function applySheetsToForm(sheets) {
+        if (!Array.isArray(sheets) || sheets.length === 0) {
+            return;
+        }
+
+        ensureSheetConfigItemsCount(sheets.length);
+        const list = document.getElementById('sheet-config-list');
+        if (!list) return;
+        const items = list.querySelectorAll('.sheet-config-item');
+
+        sheets.forEach((sheetCfg, idx) => {
+            const item = items[idx];
+            if (!item) return;
+
+            const sheetSelect = item.querySelector('select');
+            const textInputs = item.querySelectorAll('input[type="text"]');
+            const spreadsheetInputEl = textInputs[0] || null;
+            const sheetTitleEl = textInputs[1] || null;
+            const customInputEl = textInputs[2] || null;
+
+            if (spreadsheetInputEl && sheetCfg.spreadsheet_id) {
+                spreadsheetInputEl.value = sheetCfg.spreadsheet_id;
+            }
+            if (sheetTitleEl && sheetCfg.title !== undefined) {
+                sheetTitleEl.value = sheetCfg.title || '';
+            }
+
+            if (sheetCfg.sheet_name) {
+                // 保持与 loadWorksheets 的行为一致：先设置 data-saved-value，等待下拉加载后选中
+                if (sheetSelect) {
+                    sheetSelect.setAttribute('data-saved-value', sheetCfg.sheet_name);
+                }
+
+                // 也写入自定义输入框，便于未加载下拉时显示
+                if (customInputEl) {
+                    customInputEl.value = sheetCfg.sheet_name;
+                }
+            }
+        });
+
+        // 触发一次工作表列表加载，以便根据 data-saved-value 选中原来的工作表
+        try {
+            loadWorksheets(false);
+        } catch (e) {
+            console.warn('自动加载工作表列表失败:', e);
+        }
+    }
+
+    function applyConfigToForm(rawConfig, options = {}) {
+        const mode = options.mode || 'template';
+        const originalTaskId = options.originalTaskId || '';
+
+        let config = rawConfig;
+        if (typeof config === 'string') {
+            try {
+                config = JSON.parse(config);
+            } catch (e) {
+                console.error('解析配置失败:', e);
+                showNotification('解析配置失败', 'error');
+                return;
+            }
+        }
+
+        const normalized = normalizeC4Config(config);
+
+        // sheets（统一处理）
+        applySheetsToForm(normalized.sheets);
+
+        // token
+        if (normalized.token_type) {
+            document.getElementById('token_type').value = normalized.token_type;
+            document.getElementById('token_type').dispatchEvent(new Event('change'));
+        }
+        if (normalized.token_file) {
+            document.getElementById('token_file').value = normalized.token_file;
+        }
+        if (normalized.token_json) {
+            document.getElementById('token_json').value = normalized.token_json;
+        }
+        if (normalized.proxy_url) {
+            document.getElementById('proxy_url').value = normalized.proxy_url;
+        }
+
+        // count mode
+        if (normalized.count_mode) {
+            const modeInput = document.querySelector(`input[name="count_mode"][value="${normalized.count_mode}"]`);
+            if (modeInput) {
+                modeInput.checked = true;
+            }
+            if (normalized.count_mode === 'n_plus_1') {
+                document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.disabled = false;
+                });
+            }
+        }
+
+        // date range mode / market type / dates
+        if (normalized.date_range_mode !== undefined) {
+            applyDateRangeModes(normalized.date_range_mode);
+        }
+        if (normalized.market_type) {
+            const mtInput = document.querySelector(`input[name="market_type"][value="${normalized.market_type}"]`);
+            if (mtInput) {
+                mtInput.checked = true;
+            }
+        }
+        if (normalized.start_date) {
+            const sd = document.getElementById('start_date');
+            if (sd) sd.value = normalized.start_date;
+        }
+        if (normalized.end_date) {
+            const ed = document.getElementById('end_date');
+            if (ed) ed.value = normalized.end_date;
+        }
+
+        // parameters
+        if (normalized.parameters && Array.isArray(normalized.parameters)) {
+            normalized.parameters.forEach((paramGroup, idx) => {
+                const el = document.getElementById(`param${idx + 1}`);
+                if (el && Array.isArray(paramGroup)) {
+                    el.value = JSON.stringify(paramGroup);
+                }
+            });
+            initProductCodeChipsFromParam1();
+        }
+
+        // mode-specific title/header
+        if (mode === 'restart') {
+            document.title = '重启任务 - Google Sheet 参数批量校验';
+            const cardHeader = document.querySelector('.card-header h4');
+            if (cardHeader) {
+                cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重启任务 (基于原任务: ' + originalTaskId + ')';
+            }
+        }
+
+        calculateCombinations();
+
+        if (mode === 'restart') {
+            showNotification('已加载原任务配置', 'info');
+        } else {
+            showNotification('已加载模板配置', 'success');
+        }
     }
 
     // 初始化日期默认值：结束=昨天，开始=结束往前推5年（仅在两者都为空时）
@@ -2058,144 +2137,12 @@
     }
 
     // 加载重启配置
-    function loadRestartConfig() {
+    function loadRestartConfig(restartConfigRaw, originalTaskId) {
         try {
-            {% if restart_config %}
-            const restartConfigRaw = {{ restart_config | tojson }};
-            const restartConfig = normalizeC4Config(restartConfigRaw);
-            const originalTaskId = '{{ original_task_id }}';
-            
-            console.log('加载重启配置:', restartConfig);
-            
-            // 填充基本信息（添加重启标识）
-            if (restartConfig.name) {
-                document.getElementById('task_name').value = restartConfig.name + ' (重启)';
-            }
-            
-            // 填充Google Sheet配置（优先使用 sheets 数组）
-            let primarySpreadsheetId = '';
-            let primarySheetName = '';
-            let primaryTitle = '';
-
-            if (Array.isArray(restartConfig.sheets) && restartConfig.sheets.length > 0) {
-                const firstSheet = restartConfig.sheets[0] || {};
-                primarySpreadsheetId = firstSheet.spreadsheet_id || '';
-                primarySheetName = firstSheet.sheet_name || '';
-                primaryTitle = firstSheet.title || '';
-            } else {
-                primarySpreadsheetId = restartConfig.spreadsheet_id || '';
-                primarySheetName = restartConfig.sheet_name || '';
-            }
-
-            if (primarySpreadsheetId) {
-                const spreadsheetInputEl = document.getElementById('spreadsheet');
-                if (spreadsheetInputEl) {
-                    spreadsheetInputEl.value = primarySpreadsheetId;
-                }
-            }
-
-            // 表标题（可选）
-            if (primaryTitle) {
-                const titleInputEl = document.getElementById('spreadsheet_title');
-                if (titleInputEl) {
-                    titleInputEl.value = primaryTitle;
-                }
-            }
-
-            if (primarySheetName) {
-                // 与模板加载逻辑保持一致：先保存到 data-saved-value
-                // 等 loadWorksheetsForItem 拉取到工作表列表后再真正选中
-                const sheetSelect = document.getElementById('sheet_name');
-                if (sheetSelect) {
-                    sheetSelect.setAttribute('data-saved-value', primarySheetName);
-                }
-            }
-
-            // 触发一次工作表列表加载，以便根据 data-saved-value 选中原来的工作表
-            try {
-                loadWorksheets(false);
-            } catch (e) {
-                console.warn('重启任务时自动加载工作表列表失败:', e);
-            }
-
-            // 多张表：为后续表创建可视配置块
-            if (Array.isArray(restartConfig.sheets) && restartConfig.sheets.length > 1) {
-                const list = document.getElementById('sheet-config-list');
-                restartConfig.sheets.slice(1).forEach(sheetCfg => {
-                    if (!list) return;
-                    addVisualSheetConfigItem();
-                    const items = list.querySelectorAll('.sheet-config-item');
-                    const item = items[items.length - 1];
-                    if (!item) return;
-
-                    const textInputs = item.querySelectorAll('input[type="text"]');
-                    const spreadsheetInputEl = textInputs[0];
-                    const customInputEl = textInputs[1] || null;
-
-                    if (spreadsheetInputEl && sheetCfg.spreadsheet_id) {
-                        spreadsheetInputEl.value = sheetCfg.spreadsheet_id;
-                    }
-                    if (customInputEl && sheetCfg.sheet_name) {
-                        customInputEl.value = sheetCfg.sheet_name;
-                    }
-                });
-            }
-            if (restartConfig.token_type) {
-                document.getElementById('token_type').value = restartConfig.token_type;
-                // 触发change事件来显示对应的输入框
-                document.getElementById('token_type').dispatchEvent(new Event('change'));
-            }
-            if (restartConfig.token_file) {
-                document.getElementById('token_file').value = restartConfig.token_file;
-            }
-            if (restartConfig.token_json) {
-                document.getElementById('token_json').value = restartConfig.token_json;
-            }
-            if (restartConfig.proxy_url) {
-                document.getElementById('proxy_url').value = restartConfig.proxy_url;
-            }
-            if (restartConfig.market_type) {
-                const mtInput = document.querySelector(`input[name="market_type"][value="${restartConfig.market_type}"]`);
-                if (mtInput) {
-                    mtInput.checked = true;
-                }
-            }
-
-            if (restartConfig.date_range_mode) {
-                const drmInput = document.querySelector(`input[name="date_range_mode"][value="${restartConfig.date_range_mode}"]`);
-                if (drmInput) {
-                    drmInput.checked = true;
-                }
-            }
-            
-            // 填充参数配置（支持多组 parameters -> param1/param2/param3）
-            if (restartConfig.parameters && Array.isArray(restartConfig.parameters)) {
-                restartConfig.parameters.forEach((paramGroup, index) => {
-                    const paramId = `param${index + 1}`;
-                    const paramElement = document.getElementById(paramId);
-                    if (paramElement && Array.isArray(paramGroup)) {
-                        paramElement.value = JSON.stringify(paramGroup);
-                    }
-                });
-
-                // 基于 param1 初始化产品代码 chips
-                initProductCodeChipsFromParam1();
-            }
-            
-            // 更新页面标题
-            document.title = '重启任务 - Google Sheet 参数批量校验';
-            
-            // 在页面顶部添加提示
-            const cardHeader = document.querySelector('.card-header h4');
-            if (cardHeader) {
-                cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重启任务 (基于原任务: ' + originalTaskId + ')';
-            }
-            
-            // 计算参数组合
-            calculateCombinations();
-            
-            showNotification('已加载原任务配置', 'info');
-            {% endif %}
+            applyConfigToForm(restartConfigRaw, {
+                mode: 'restart',
+                originalTaskId: originalTaskId
+            });
         } catch (e) {
             console.warn('加载重启配置失败:', e);
         }

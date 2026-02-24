@@ -168,11 +168,10 @@ def init_config():
     }
     
     # 只设置不存在的配置项，避免覆盖用户修改的配置
+    existing_keys = {c.key for c in SystemConfig.query.with_entities(SystemConfig.key).all()}
     for key, value in default_configs.items():
-        existing_config = SystemConfig.query.filter_by(key=key).first()
-        if not existing_config:
+        if key not in existing_keys:
             config_manager.set_config(key, value)
             print(f"初始化默认配置: {key}")
         # else:
         #     print(f"配置已存在，跳过: {key}")
-    

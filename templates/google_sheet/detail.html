@@ -35,7 +35,7 @@
                     <button class="btn btn-outline-info btn-sm" id="check-status-btn" onclick="checkTaskStatus()">
                         <i class="bi bi-search"></i> 检查状态
                     </button>
-                    <a href="{{ url_for('google_sheet.index') }}" class="btn btn-secondary btn-sm">
+                    <a href="{{ url_for('google_sheet.index',version='c3') }}" class="btn btn-secondary btn-sm">
                         <i class="bi bi-arrow-left"></i> 返回首页
                     </a>
                 </div>
@@ -566,11 +566,15 @@
                 const progressBarClass = getProgressBarClass(task.status) + (task.status === 'running' ? ' progress-bar-striped progress-bar-animated' : '');
 
                 document.getElementById('task-progress').innerHTML = `
-                    <div class="progress" style="height: 20px; background-color: #e9ecef;">
-                        <div class="progress-bar ${progressBarClass}" role="progressbar" 
+                    <div class="progress" style="height: 20px; background-color: #e9ecef; position: relative;">
+                        <div class="progress-bar ${progressBarClass}" role="progressbar"
                              style="width: ${visiblePercent}%;">
-                            ${task.current_step}/${task.total_steps} (${progressPercent}%)
                         </div>
+                        <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+                               display: flex; align-items: center; justify-content: center;
+                               color: black;  z-index: 10; font-size: 12px;">
+                            ${task.current_step}/${task.total_steps} (${progressPercent}%)
+                        </span>
                     </div>
                 `;
                 
@@ -946,7 +950,7 @@
         const failedCount = resultsTotalFailed;
         const totalCount = resultsTotal;
         const successRate = totalCount > 0 ? Math.round((successCount / totalCount) * 100) : 0;
-        
+
         document.getElementById('success-count').textContent = successCount;
         document.getElementById('failed-count').textContent = failedCount;
         document.getElementById('success-progress').style.width = successRate + '%';
@@ -1094,7 +1098,9 @@
 
     // 跳转到创建重启任务页面
     function goToCreateRestartTask() {
-        window.location.href = `/google-sheet/create-restart/${currentTaskId}`;
+        const version = new URLSearchParams(window.location.search).get('version');
+        const versionParam = version ? `&version=${encodeURIComponent(version)}` : '';
+        window.location.href = `/google-sheet/create?restart_task_id=${encodeURIComponent(currentTaskId || '')}${versionParam}`;
     }
 
     // 创建新的重启任务
@@ -1109,7 +1115,9 @@
                 
                 // 询问是否跳转到新任务
                 if (confirm('是否跳转到新任务的详情页面？')) {
-                    window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}`;
+                    const version = new URLSearchParams(window.location.search).get('version');
+                    const versionParam = version ? `&version=${encodeURIComponent(version)}` : '';
+                    window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}${versionParam}`;
                 }
             } else {
                 // 处理错误情况 - data可能包含错误信息，即使err存在

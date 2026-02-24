@@ -195,12 +195,6 @@ config_update_model = config_ns.model('ConfigUpdate', {
     'any_key': fields.Raw(description='配置键值（示例）', example={'LOG_LEVEL': 'INFO'})
 })
 
-gs_config_update_model = config_ns.model('GoogleSheetConfig', {
-    'credentials_file': fields.String(description='凭证文件路径', example='data/credentials.json'),
-    'token_file': fields.String(description='Token文件路径', example='data/token.json'),
-    'proxy_url': fields.String(description='HTTP代理（可选）', example='http://127.0.0.1:7890')
-})
-
 @config_ns.route('/config')
 class ConfigResource(Resource):
     def get(self):
@@ -220,30 +214,6 @@ class ConfigResource(Resource):
             cm.refresh_cache()
             return {'status': 'success', 'message': '配置更新成功，已立即生效'}
         return {'status': 'error', 'message': '配置更新失败'}, 500
-
-@config_ns.route('/config/google-sheet')
-class GoogleSheetConfigResource(Resource):
-    def get(self):
-        """获取Google Sheet配置"""
-        cm = get_config_manager()
-        return {'status': 'success', 'config': cm.get_google_sheet_config()}
-
-    @config_ns.expect(gs_config_update_model, validate=True)
-    def post(self):
-        """更新Google Sheet配置（示例：{'credentials_file':'data/credentials.json'}）"""
-        data = request.get_json() or {}
-        cm = get_config_manager()
-        if cm.set_google_sheet_config(data):
-            return {'status': 'success', 'message': 'Google Sheet配置更新成功'}
-        return {'status': 'error', 'message': 'Google Sheet配置更新失败'}, 500
-
-@config_ns.route('/config/refresh')
-class ConfigRefreshResource(Resource):
-    def post(self):
-        """强制刷新配置缓存"""
-        cm = get_config_manager()
-        cm.refresh_cache()
-        return {'status': 'success', 'message': '配置缓存已刷新'}
 
 @config_ns.route('/config/validate')
 class ConfigValidateResource(Resource):
