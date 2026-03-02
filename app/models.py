@@ -106,7 +106,7 @@ class TaskResult(db.Model):
     # 复合索引 - 提升查询性能
     __table_args__ = (
         db.Index('idx_task_step', 'task_id', 'step_index'),  # 按任务和步骤查询
-        db.Index('idx_task_timestamp', 'task_id', 'timestamp'),  # 按任务和时间查询
+        db.Index('idx_task_timestamp', 'task_id', 'timestamp'),
         db.Index('idx_success_timestamp', 'success', 'timestamp'),  # 按成功状态和时间查询
         # db.Index('idx_error_type', 'error_type'),  # 按错误类型查询
     )

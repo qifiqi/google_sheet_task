@@ -9,7 +9,10 @@ class Config:
         print("WARNING: Using generated SECRET_KEY. Set SECRET_KEY environment variable in production!")
     
     # 数据库配置
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///app.db'
+    # 使用instance文件夹存储数据库文件
+    BASE_DIR = Path(__file__).parent.parent
+    INSTANCE_DIR = BASE_DIR / 'instance'
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or f'sqlite:///{INSTANCE_DIR}/app.db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = os.environ.get('SQLALCHEMY_ECHO', 'False').lower() == 'true'  # SQL调试模式
     
@@ -18,15 +21,12 @@ class Config:
 
     BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
 
-    database_url = os.environ.get('DATABASE_URL', 'sqlite:///app.db')
+    database_url = os.environ.get('DATABASE_URL') or f'sqlite:///{INSTANCE_DIR}/app.db'
+
     if database_url.startswith('sqlite'):
         # SQLite 特定配置 - 优化并发性能
         SQLALCHEMY_ENGINE_OPTIONS =  {
             'pool_pre_ping': True,  # 连接前ping，确保连接有效
-            'pool_recycle': 3600,  # 1小时后回收连接，防止连接过期
-            'pool_size': 10,  # 连接池大小
-            'max_overflow': 20,  # 超出pool_size后最多创建的连接数
-            'pool_timeout': 30,  # 获取连接的超时时间
             'connect_args': {
                 'timeout': 30,  # SQLite锁超时时间（秒）
                 'check_same_thread': False,  # 允许多线程访问
@@ -70,7 +70,6 @@ class Config:
         }
 
     # 文件路径配置
-    BASE_DIR = Path(__file__).parent.parent
     DATA_DIR = BASE_DIR / 'data'
     LOGS_DIR = BASE_DIR / 'logs'
     CONFIG_DIR = BASE_DIR / 'config'
@@ -78,6 +77,9 @@ class Config:
     # 确保目录存在
     DATA_DIR.mkdir(exist_ok=True)
     LOGS_DIR.mkdir(exist_ok=True)
+    # 只有SQLite需要instance目录
+    if database_url.startswith('sqlite'):
+        INSTANCE_DIR.mkdir(exist_ok=True)
     # CONFIG_DIR.mkdir(exist_ok=True)
     
     # 任务配置

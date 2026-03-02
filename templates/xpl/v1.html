@@ -788,7 +788,7 @@
         try {
             const filenameSafeTitle = (state.spreadsheetTitle || 'v1').replaceAll(/[\\/:*?"<>|]/g, '_');
             const filenameSafeSheet = (state.lastSheetName || 'sheet').replaceAll(/[\\/:*?"<>|]/g, '_');
-            const filename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
+            const defaultFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
 
             const resp = await fetch('/xpl/export', {
                 method: 'POST',
@@ -797,7 +797,7 @@
                     'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
                 },
                 body: JSON.stringify({
-                    filename:filename,
+                    filename:defaultFilename,
                     filename_title:filenameSafeTitle,
                     analyze_result: state.lastResults
                 })
@@ -809,17 +809,53 @@
             }
 
             const blob = await resp.blob();
+            
+            // Try to use File System Access API (only works in secure contexts with user gesture)
+            if (window.showSaveFilePicker && location.protocol === 'https:' && navigator.userAgent.includes('Chrome')) {
+                try {
+                    const fileHandle = await window.showSaveFilePicker({
+                        suggestedName: defaultFilename,
+                        types: [{
+                            description: 'CSV files',
+                            accept: { 'text/csv': ['.csv'] }
+                        }]
+                    });
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    showAlert('文件已保存', 'success');
+                    return;
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.warn('File System Access API failed, falling back to download:', err);
+                    } else {
+                        showAlert('用户取消了保存操作', 'info');
+                        return;
+                    }
+                }
+            }
+            
+            // Fallback: Create download with prompt for filename
+            const userFilename = prompt('请输入文件名:', defaultFilename);
+            if (userFilename === null) {
+                showAlert('用户取消了保存操作', 'info');
+                return;
+            }
+            
+            const finalFilename = userFilename.trim() || defaultFilename;
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = filename;
+            a.download = finalFilename.endsWith('.csv') ? finalFilename : finalFilename + '.csv';
             document.body.appendChild(a);
             a.click();
             a.remove();
             window.URL.revokeObjectURL(url);
-            showAlert('已开始下载', 'success');
+            showAlert(`文件已下载: ${finalFilename}`, 'success');
         } catch (e) {
-            showAlert('导出失败：' + (e.message || '未知错误'), 'danger');
+            if (e.name !== 'AbortError') {
+                showAlert('导出失败：' + (e.message || '未知错误'), 'danger');
+            }
         } finally {
             if (btn) btn.disabled = false;
         }

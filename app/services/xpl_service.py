@@ -10,7 +10,6 @@ from typing import List, Dict, Any
 
 import numpy as np
 import pandas as pd
-from pandas import DataFrame
 
 from app.services.config_manager import get_config_manager
 
@@ -884,7 +883,7 @@ class XPLAnalyzer:
             error_msg = f"初始化Google Sheet连接失败: {str(e)}"
             raise error_msg
 
-    def get_google_sheet_data(self, spreadsheet_id: str, google_sheet_name: str)-> tuple[Any, dict[Any, Any], DataFrame] | None:
+    def get_google_sheet_data(self, spreadsheet_id: str, google_sheet_name: str)-> tuple[Any, dict[Any, Any], pd.DataFrame] | None:
         google_sheet = self._init_google_sheet(spreadsheet_id, google_sheet_name)
         title = google_sheet.title.upper()
 
@@ -1200,9 +1199,8 @@ class XPLAnalyzer:
             max_drawdown_list.append(
                 start_drawdown - index_drawdown
             )
-        max_drawdown = max(max_drawdown_list)
 
-
+        max_drawdown = max(max_drawdown_list) if max_drawdown_list else 0
 
         # excess_drawdown_winning_rate = analyze_result.get('excess_drawdown_winning_rate')
         # 超额回撤胜率
@@ -1281,7 +1279,7 @@ class XPLAnalyzer:
         index_year_maximum_drawdown = index_maximum_drawdown['year_maximum_drawdown']
         for index_drawdown,start_drawdown in zip(index_year_maximum_drawdown, start_maximum_drawdown['year_maximum_drawdown']):
             data_3_2d[0].append("")
-            data_3_2d[1].append(index_drawdown['year'])
+            data_3_2d[1].append(str(index_drawdown['year']))
             data_3_2d[2].append(f"-{index_drawdown['drawdown']:.2%}")
             data_3_2d[3].append(f"-{start_drawdown['drawdown']:.2%}")
             excessive_backtesting = f"{start_drawdown['drawdown']-index_drawdown['drawdown']:.2%}"
