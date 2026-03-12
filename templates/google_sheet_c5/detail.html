@@ -363,6 +363,13 @@
                                             </select>
                                         </div>
                                         <div class="col-md-3 mb-3">
+                                            <label class="form-label d-block">price_mode</label>
+                                            <select class="form-select" id="edit-price-mode">
+                                                <option value="kp_price">kp_price</option>
+                                                <option value="sp_price">sp_price</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
                                             <label class="form-label d-block">时间范围类型 date_range_mode</label>
                                             <div>
                                                 <div class="form-check form-check-inline mb-1">
@@ -422,6 +429,19 @@
                                                 token_json</label>
                                             <textarea class="form-control" id="edit-token-json" rows="3"
                                                       placeholder="粘贴 JSON 字符串"></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div class="row mb-3">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="edit-param2" class="form-label">parameters[1]</label>
+                                            <textarea class="form-control" id="edit-param2" rows="3"
+                                                      placeholder='["v1", "v2"]'></textarea>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="edit-param3" class="form-label">parameters[2]</label>
+                                            <textarea class="form-control" id="edit-param3" rows="3"
+                                                      placeholder='["v1", "v2"]'></textarea>
                                         </div>
                                     </div>
 
@@ -570,6 +590,51 @@
     let editConfigModal = null; // 编辑配置模态框实例
 
     // 页面加载完成后获取任务详情
+    function escapeHtmlAttr(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function parseJsonArrayInput(rawValue, label) {
+        const trimmed = String(rawValue || '').trim();
+        if (!trimmed) {
+            return [];
+        }
+
+        let parsed;
+        try {
+            parsed = JSON.parse(trimmed);
+        } catch (error) {
+            throw new Error(`${label} 必须是合法的 JSON 数组`);
+        }
+
+        if (!Array.isArray(parsed)) {
+            throw new Error(`${label} 必须是数组格式`);
+        }
+
+        return parsed;
+    }
+
+    function getCurrentTaskConfigObject() {
+        if (!currentTaskData || !currentTaskData.config) {
+            return {};
+        }
+
+        if (typeof currentTaskData.config === 'string') {
+            try {
+                return JSON.parse(currentTaskData.config);
+            } catch (error) {
+                console.warn('解析任务配置失败', error);
+                return {};
+            }
+        }
+
+        return currentTaskData.config;
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         console.log('页面加载完成');
         currentTaskId = getTaskIdFromUrl();
@@ -918,15 +983,15 @@
             row.innerHTML = `
                 <div class="col-md-4">
                     <label class="form-label small mb-1">spreadsheet_id</label>
-                    <input type="text" class="form-control form-control-sm edit-sheet-spreadsheet-id" value="${s.spreadsheet_id || ''}">
+                    <input type="text" class="form-control form-control-sm edit-sheet-spreadsheet-id" value="${escapeHtmlAttr(s.spreadsheet_id || '')}">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label small mb-1">title</label>
-                    <input type="text" class="form-control form-control-sm edit-sheet-title" value="${s.title || ''}">
+                    <input type="text" class="form-control form-control-sm edit-sheet-title" value="${escapeHtmlAttr(s.title || '')}">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label small mb-1">sheet_name</label>
-                    <input type="text" class="form-control form-control-sm edit-sheet-name" value="${s.sheet_name || ''}">
+                    <input type="text" class="form-control form-control-sm edit-sheet-name" value="${escapeHtmlAttr(s.sheet_name || '')}">
                 </div>
             `;
             list.appendChild(row);
@@ -940,7 +1005,7 @@
         }
 
         // 解析任务配置（必须是包含 sheets / parameters 结构的对象）
-        var config = currentTaskData.config || {};
+        var config = getCurrentTaskConfigObject();
         if (typeof config === 'string') {
             try {
                 config = JSON.parse(config);
@@ -985,6 +1050,10 @@
         const countModeEl = document.getElementById('edit-count-mode');
         if (countModeEl) {
             countModeEl.value = config.count_mode || 'n_plus_1';
+        }
+        const priceModeEl = document.getElementById('edit-price-mode');
+        if (priceModeEl) {
+            priceModeEl.value = config.price_mode || 'kp_price';
         }
 
         const fullModeEl = document.getElementById('edit-date-range-full');
@@ -1077,6 +1146,18 @@
         const editProxyUrlEl = document.getElementById('edit-proxy-url');
         if (editProxyUrlEl) {
             editProxyUrlEl.value = config.proxy_url || '';
+        }
+        const editParam2El = document.getElementById('edit-param2');
+        if (editParam2El) {
+            editParam2El.value = Array.isArray(config.parameters && config.parameters[1])
+                ? JSON.stringify(config.parameters[1], null, 2)
+                : '';
+        }
+        const editParam3El = document.getElementById('edit-param3');
+        if (editParam3El) {
+            editParam3El.value = Array.isArray(config.parameters && config.parameters[2])
+                ? JSON.stringify(config.parameters[2], null, 2)
+                : '';
         }
 
         // 打开模态框
@@ -2306,7 +2387,7 @@
 
                     // 询问是否跳转到新任务
                     if (confirm('是否跳转到新任务的详情页面？')) {
-                        window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}&version=c4`;
+                        window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}&version=c5`;
                     }
                 } else {
                     const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');
@@ -2337,6 +2418,7 @@
                 // sheets：从多行输入收集
                 const list = document.getElementById('edit-sheets-list');
                 const sheets = [];
+                const baseConfig = Object.assign({}, getCurrentTaskConfigObject());
                 if (list) {
                     list.querySelectorAll('.edit-sheet-row').forEach(row => {
                         const sidEl = row.querySelector('.edit-sheet-spreadsheet-id');
@@ -2346,18 +2428,25 @@
                         const sname = nameEl ? nameEl.value.trim() : '';
                         const title = titleEl ? titleEl.value.trim() : '';
                         if (sid || sname || title) {
+                            if (!sid || !sname) {
+                                throw new Error('每一行 Sheets 配置都必须填写 spreadsheet_id 和 sheet_name');
+                            }
                             const item = {
-                                spreadsheet_id: sid || null,
-                                sheet_name: sname || null
+                                spreadsheet_id: sid,
+                                sheet_name: sname
                             };
                             if (title) item.title = title;
                             sheets.push(item);
                         }
                     });
                 }
+                if (sheets.length === 0) {
+                    throw new Error('至少需要保留 1 组 Sheet 配置');
+                }
 
                 // 其它参数
                 const countMode = document.getElementById('edit-count-mode').value || 'n_plus_1';
+                const priceMode = document.getElementById('edit-price-mode').value || 'kp_price';
                 const fullModeEl = document.getElementById('edit-date-range-full');
                 const recentModeEl = document.getElementById('edit-date-range-recent');
                 const dateRangeModeList = [];
@@ -2381,6 +2470,8 @@
                 const tokenFile = document.getElementById('edit-token-file').value.trim();
                 const tokenJson = document.getElementById('edit-token-json').value.trim();
                 const proxyUrl = document.getElementById('edit-proxy-url').value.trim();
+                const param2 = parseJsonArrayInput(document.getElementById('edit-param2').value, '参数2');
+                const param3 = parseJsonArrayInput(document.getElementById('edit-param3').value, '参数3');
 
                 if (tokenType === 'file' && !tokenFile) {
                     showNotification('请输入 Token 文件路径', 'error');
@@ -2391,18 +2482,29 @@
                     return;
                 }
 
+                const parameters = [params0];
+                if (param2.length > 0) {
+                    parameters.push(param2);
+                }
+                if (param3.length > 0) {
+                    parameters.push(param3);
+                }
+
                 const config = {
+                    ...baseConfig,
+                    task_type: baseConfig.task_type || 'google_sheet_C5',
                     count_mode: countMode,
+                    price_mode: priceMode,
                     date_range_mode: dateRangeModeList,
                     start_date: startDate,
                     end_date: endDate,
                     market_type: marketType,
-                    parameters: [params0],
+                    parameters: parameters,
                     sheets: sheets,
                     proxy_url: proxyUrl || null,
                     token_type: tokenType,
-                    token_file: tokenFile,
-                    token_json: tokenJson
+                    token_file: tokenType === 'file' ? tokenFile : '',
+                    token_json: tokenType === 'json' ? tokenJson : ''
                 };
 
                 const requestData = {

@@ -1088,7 +1088,7 @@
             }
         }
 
-        const normalized = normalizeC4Config(config);
+        const normalized = normalizeC5Config(config);
 
         // sheets（统一处理）
         applySheetsToForm(normalized.sheets);
@@ -1120,6 +1120,12 @@
                 });
             }
         }
+        if (normalized.price_mode) {
+            const priceInput = document.querySelector(`input[name="price_mode"][value="${normalized.price_mode}"]`);
+            if (priceInput) {
+                priceInput.checked = true;
+            }
+        }
 
         // date range mode / market type / dates
         if (normalized.date_range_mode !== undefined) {
@@ -1141,6 +1147,13 @@
         }
 
         // parameters
+        ['param1', 'param2', 'param3'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.value = '';
+            }
+        });
+
         if (normalized.parameters && Array.isArray(normalized.parameters)) {
             normalized.parameters.forEach((paramGroup, idx) => {
                 const el = document.getElementById(`param${idx + 1}`);
@@ -2168,7 +2181,7 @@
     }
 
     // 将可能的旧结构配置转换为 C4 统一结构
-    function normalizeC4Config(raw) {
+    function normalizeC5Config(raw) {
         if (!raw || typeof raw !== 'object') {
             return {};
         }

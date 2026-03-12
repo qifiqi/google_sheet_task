@@ -5,6 +5,7 @@ import json
 import queue
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
+from app.services.config_schema import normalize_task_config, validate_task_config
 from app.models import Task, TaskLog, TaskTemplate, TaskResult, SystemConfig, db
 from app.utils.logger import get_logger
 from flask import current_app
@@ -22,11 +23,7 @@ api_bp = Blueprint('api', __name__)
 # 任务相关API
 @api_bp.route('/tasks', methods=['GET', 'POST'])
 def tasks():
-    """获取任务列表 / 创建任务
-
-    - GET: 返回全部任务，支持task_type过滤
-    - POST: 创建任务，仅当body中包含config时
-    """
+    """List tasks or create a new task."""
     try:
         if request.method == 'GET':
             task_type = request.args.get('task_type')
@@ -34,26 +31,29 @@ def tasks():
             return jsonify({"status": "success", "tasks": tasks})
 
         data = request.get_json() or {}
-
-        # 兼容：创建任务
         config = data.get('config')
-        if config:
-            name = data.get('name', '未命名任务')
-            description = data.get('description', '')
-            task_type = data.get('task_type', 'google_sheet')
+        if not config:
+            return jsonify({"status": "error", "message": "config is required"}), 400
 
-            task_id = task_manager.create_task(name, description, task_type, config)
+        name = data.get('name', '?????')
+        description = data.get('description', '')
+        task_type = data.get('task_type', 'google_sheet')
 
-            if task_manager.start_task(task_id):
-                return jsonify({"status": "success", "task_id": task_id, "message": "任务创建并启动成功"})
-            return jsonify({"status": "error", "task_id": task_id, "message": "任务创建成功，但启动失败"})
+        # Normalize before persistence so all write paths converge to one schema.
+        normalized_config = normalize_task_config(config, task_type=task_type)
+        validate_task_config(normalized_config, task_type=task_type)
 
-        return jsonify({"status": "error", "message": "任务配置为空"}), 400
+        task_id = task_manager.create_task(name, description, task_type, normalized_config)
+        if task_manager.start_task(task_id):
+            return jsonify({"status": "success", "task_id": task_id, "message": "?????????"})
+        return jsonify({"status": "error", "task_id": task_id, "message": "????????????"})
 
+    except ValueError as e:
+        logger.warning(f"????????: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
-        logger.error(f"处理任务接口失败: {str(e)}")
+        logger.error(f"????????: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
 @api_bp.route('/tasks/<task_id>', methods=['GET'])
 def get_task(task_id):
     """获取任务详情"""
@@ -69,30 +69,38 @@ def get_task(task_id):
 
 @api_bp.route('/tasks/<task_id>/config', methods=['PUT'])
 def update_task_config(task_id):
-    """更新任务配置"""
+    """Update task config with normalized schema."""
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"status": "error", "message": "请求数据为空"}), 400
-        
+            return jsonify({"status": "error", "message": "request body is required"}), 400
+
         config = data.get('config')
         if not config:
-            return jsonify({"status": "error", "message": "配置信息不能为空"}), 400
-        
+            return jsonify({"status": "error", "message": "config is required"}), 400
+
         name = data.get('name')
         description = data.get('description')
-        
-        result = task_manager.update_task_config(task_id, config, name, description)
-        
+        task = Task.query.get(task_id)
+        if not task:
+            return jsonify({"status": "error", "message": "task not found"}), 404
+
+        # ??????????????????????
+        normalized_config = normalize_task_config(config, task_type=task.task_type)
+        validate_task_config(normalized_config, task_type=task.task_type)
+
+        result = task_manager.update_task_config(task_id, normalized_config, name, description)
+
         if result["status"] == "success":
             return jsonify(result)
-        else:
-            return jsonify(result), 400
-            
-    except Exception as e:
-        logger.error(f"更新任务配置失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify(result), 400
 
+    except ValueError as e:
+        logger.warning(f"??????????: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        logger.error(f"????????: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 @api_bp.route('/tasks/<task_id>/cancel', methods=['POST'])
 def cancel_task(task_id):
     """取消任务"""

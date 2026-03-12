@@ -13,6 +13,8 @@ from app.services.google_sheet_service_C5 import GoogleSheetService as GoogleShe
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.database import transaction_required, safe_delete, safe_update, safe_create
 from app.services.config_manager import get_config_manager
+from app.services.config_schema import normalize_task_config, validate_task_config
+from app.services.task_query_service import task_query_service
 
 logger = get_logger(__name__)
 
@@ -35,7 +37,9 @@ class TaskManager:
         task_id = str(uuid.uuid4())
         
         # 确保配置被正确序列化
-        config_str = json.dumps(config) if isinstance(config, dict) else str(config)
+        normalized_config = normalize_task_config(config, task_type=task_type)
+        validate_task_config(normalized_config, task_type=task_type)
+        config_str = json.dumps(normalized_config) if isinstance(normalized_config, dict) else str(normalized_config)
         
         task = safe_create(
             Task,
@@ -137,98 +141,25 @@ class TaskManager:
         return True
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """获取任务状态"""
-        task = Task.query.get(task_id)
-        if not task:
-            return None
-        
-        return task.to_dict()
-    
+        """???????"""
+        # ??????????????? TaskManager ????????????
+        return task_query_service.get_task_status(task_id)
+
     def get_all_tasks(self, task_type: Optional[str] = None) -> list:
-        """获取所有任务"""
-        query = Task.query
-        if task_type:
-            query = query.filter_by(task_type=task_type)
-        tasks = query.order_by(Task.created_at.desc()).all()
-        return [task.to_dict() for task in tasks]
-    
+        """???????"""
+        # ????????????????????????????
+        return task_query_service.get_all_tasks(task_type=task_type)
+
     def check_local_task_status(self, task_id: str) -> Dict[str, Any]:
-        """检查本地任务状态，识别可能挂死的任务"""
-        task = Task.query.get(task_id)
-        if not task:
-            return {"status": "not_found", "message": "任务不存在"}
-        
-        # 检查数据库状态
-        db_status = task.status
+        """???????????????????"""
+        # ???? TaskManager ??????????????????????????????
+        return task_query_service.check_local_task_status(
+            task_id=task_id,
+            running_tasks=self.running_tasks,
+            get_task_logs=self.get_task_logs,
+            get_config=self._get_config,
+        )
 
-        if task_id in self.running_tasks:
-            # 检查内存中是否还有运行的线程
-            thread = self.running_tasks.get(task_id)
-
-            memory_running = thread.is_alive()
-        else:
-            memory_running = False
-        # 获取最新的任务结果
-        latest_result = TaskResult.query.filter_by(task_id=task_id).order_by(TaskResult.timestamp.desc()).first()
-        
-        # 从日志文件获取最新的日志时间
-        latest_log_time = None
-        task_logs = self.get_task_logs(task_id)
-        if task_logs:
-            # get_task_logs 返回按时间正序排列的日志，最后一条是最新的
-            latest_log_time = task_logs[-1]['timestamp']
-        
-        # 判断任务状态
-        status_check = {
-            "task_id": task_id,
-            "db_status": db_status,
-            "memory_running": memory_running,
-            "current_step": task.current_step,
-            "total_steps": task.total_steps,
-            "latest_result_time": latest_result.timestamp.isoformat() if latest_result else None,
-            "latest_log_time": latest_log_time,
-            "can_restart": False,
-            "restart_reason": None
-        }
-        
-        # 识别可能需要重启的情况
-        if db_status == 'running' and not memory_running:
-            status_check["can_restart"] = True
-            status_check["restart_reason"] = "任务在数据库中显示为运行状态，但内存中没有对应的线程"
-        elif db_status == 'running' and memory_running:
-            # 检查是否长时间没有更新
-            import datetime
-            timeout_seconds = self._get_config('task_status_check_timeout', 600)  # 默认10分钟
-            
-            now = datetime.datetime.now()
-            if latest_log_time:
-                try:
-                    # 将ISO格式时间字符串转换为datetime对象
-                    latest_time = datetime.datetime.fromisoformat(latest_log_time)
-                    time_diff = now - latest_time
-                    if time_diff.total_seconds() > timeout_seconds:
-                        timeout_minutes = timeout_seconds // 60
-                        status_check["can_restart"] = True
-                        status_check["restart_reason"] = f"任务超过{timeout_minutes}分钟没有日志更新，可能已挂死"
-                except:
-                    status_check["restart_reason"] = "任务正在正常运行"
-            else:
-                status_check["restart_reason"] = "任务正在正常运行"
-        else:
-            # 为非运行状态提供状态描述
-            if db_status == 'pending':
-                status_check["restart_reason"] = "任务处于待执行状态"
-            elif db_status == 'completed':
-                status_check["restart_reason"] = "任务已完成"
-            elif db_status == 'error':
-                status_check["restart_reason"] = "任务执行出错"
-            elif db_status == 'cancelled':
-                status_check["restart_reason"] = "任务已被取消"
-            else:
-                status_check["restart_reason"] = f"任务状态: {db_status}"
-        
-        return status_check
-    
     def restart_task(self, task_id: str, resume_from_checkpoint: bool = True) -> Dict[str, Any]:
         """重启任务"""
         try:
@@ -345,49 +276,15 @@ class TaskManager:
             raise
     
     def get_task_logs(self, task_id: str, limit: int = 500) -> list:
-        """获取任务日志（从数据库读取最新的日志）"""
-        from app.models import TaskLog
-        
-        try:
-            # 获取最新的limit条日志，按时间倒序获取，然后再正序返回
-            logs = TaskLog.query.filter_by(task_id=task_id).order_by(TaskLog.timestamp.desc()).limit(limit).all()
-            # 反转列表，使其按时间正序排列（最早的在前）
-            logs.reverse()
-            return [log.to_dict() for log in logs]
-        except Exception as e:
-            logger.error(f"获取任务日志失败: {str(e)}")
-            return []
-    
+        """???????"""
+        # ??????????? API ? RESTX ??????????
+        return task_query_service.get_task_logs(task_id=task_id, limit=limit)
+
     def get_task_results(self, task_id: str, page: int | None = None, per_page: int | None = None):
-        """获取任务结果
+        """???????"""
+        # ???????????????????????????????
+        return task_query_service.get_task_results(task_id=task_id, page=page, per_page=per_page)
 
-        如果提供 page 和 per_page，则使用数据库分页；
-        否则返回该任务的所有结果列表。
-        """
-        query = TaskResult.query.filter_by(task_id=task_id).order_by(TaskResult.step_index.asc())
-
-        if page is not None and per_page is not None:
-            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-            items = [result.to_dict() for result in pagination.items]
-
-            # 计算全局成功/失败数量（与分页无关，基于整个任务结果集）
-            total = pagination.total
-            success_total = query.filter_by(success=True).count()
-            failed_total = total - success_total
-
-            return {
-                "items": items,
-                "total": total,
-                "pages": pagination.pages,
-                "current_page": page,
-                "per_page": per_page,
-                "total_success": success_total,
-                "total_failed": failed_total,
-            }
-
-        results = query.all()
-        return [result.to_dict() for result in results]
-    
     def delete_task(self, task_id: str) -> bool:
         """删除任务及其相关数据"""
         try:
@@ -457,7 +354,9 @@ class TaskManager:
                 return {"status": "error", "message": "配置格式不正确"}
             
             # 确保配置被正确序列化
-            config_str = json.dumps(new_config)
+            normalized_config = normalize_task_config(new_config, task_type=task.task_type)
+            validate_task_config(normalized_config, task_type=task.task_type)
+            config_str = json.dumps(normalized_config)
             
             # 更新配置
             task.config = config_str
