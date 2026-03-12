@@ -616,6 +616,8 @@ def get_templates():
             for t in templates:
                 try:
                     cfg = json.loads(t.config) if isinstance(t.config, str) else t.config
+                    # 模板过滤也按统一 schema 归一化，避免旧模板因历史字段结构不同被漏掉。
+                    cfg = normalize_task_config(cfg, task_type=cfg.get('task_type') if isinstance(cfg, dict) else None)
                 except Exception:
                     continue
                 if isinstance(cfg, dict) and cfg.get('task_type') == task_type:
@@ -644,15 +646,20 @@ def create_template():
         if 'config' not in data:
             return jsonify({"status": "error", "message": "配置信息不能为空"}), 400
             
-        # 验证配置是否为有效的JSON
+        # 模板也统一归一化并校验，保证模板回填与任务创建走同一套配置契约。
         try:
             if isinstance(data['config'], str):
                 config_json = json.loads(data['config'])
-                config_str = json.dumps(config_json)
             else:
-                config_str = json.dumps(data['config'])
+                config_json = data['config']
+            task_type = config_json.get('task_type') if isinstance(config_json, dict) else None
+            normalized_config = normalize_task_config(config_json, task_type=task_type)
+            validate_task_config(normalized_config, task_type=task_type)
+            config_str = json.dumps(normalized_config)
         except json.JSONDecodeError:
             return jsonify({"status": "error", "message": "配置信息不是有效的JSON格式"}), 400
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
         
         template = TaskTemplate(
             name=data['name'],
@@ -684,7 +691,12 @@ def get_template(template_id):
         if not template:
             return jsonify({"status": "error", "message": "模板不存在"}), 404
         
-        return jsonify(template.to_dict())
+        template_data = template.to_dict()
+        config = template_data.get('config')
+        if isinstance(config, dict):
+            # 模板详情返回前先标准化，前端回填时不需要再区分新旧结构。
+            template_data['config'] = normalize_task_config(config, task_type=config.get('task_type'))
+        return jsonify(template_data)
     except Exception as e:
         logger.error(f"获取模板详情失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -703,7 +715,13 @@ def update_template(template_id):
         
         template.name = data['name']
         template.description = data.get('description', template.description)
-        template.config = json.dumps(data['config']) if isinstance(data['config'], (dict, list)) else data['config']
+        raw_config = data['config']
+        if isinstance(raw_config, str):
+            raw_config = json.loads(raw_config)
+        task_type = raw_config.get('task_type') if isinstance(raw_config, dict) else None
+        normalized_config = normalize_task_config(raw_config, task_type=task_type)
+        validate_task_config(normalized_config, task_type=task_type)
+        template.config = json.dumps(normalized_config)
         
         db.session.commit()
         

@@ -967,7 +967,8 @@
         fetch('/api/templates?task_type=google_sheet_C5')
             .then(response => response.json())
             .then(data => {
-                if (!data || !data.status === 'success' || !Array.isArray(data.templates)) {
+                // 明确校验接口返回结构，避免因为布尔优先级导致异常数据被误放过。
+                if (!data || data.status !== 'success' || !Array.isArray(data.templates)) {
                     console.error('Invalid response format:', data);
                     return;
                 }
