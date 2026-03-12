@@ -16,6 +16,8 @@ from app.services.config_manager import get_config_manager
 from app.services.config_schema import normalize_task_config, validate_task_config
 from app.services.task_query_service import task_query_service
 from app.services.task_repository import task_repository
+from app.services.task_runtime_registry import task_runtime_registry
+from app.services.task_status_service import task_status_service
 
 logger = get_logger(__name__)
 
@@ -23,8 +25,9 @@ class TaskManager:
     """任务管理器"""
     
     def __init__(self):
-        self.running_tasks: Dict[str, threading.Thread] = {}
-        self.task_events: Dict[str, queue.Queue] = {}
+        # 保留属性名用于兼容既有调用，实际运行态资源交给注册表维护。
+        self.running_tasks = task_runtime_registry.running_tasks
+        self.task_events = task_runtime_registry.task_events
         # 不再在初始化时缓存配置，而是每次动态获取
     
     def _get_config(self, key: str, default: Any = None) -> Any:
@@ -67,8 +70,9 @@ class TaskManager:
         # 动态获取最大并发任务数配置，确保实时生效
         max_concurrent = int(self._get_config('max_concurrent_tasks', 5))
         
-        if len(self.running_tasks) >= max_concurrent:
-            error_msg = f"任务队列已满，无法启动任务 (当前运行: {len(self.running_tasks)}, 最大并发数: {max_concurrent})"
+        running_count = task_runtime_registry.count_running_tasks()
+        if running_count >= max_concurrent:
+            error_msg = f"任务队列已满，无法启动任务 (当前运行: {running_count}, 最大并发数: {max_concurrent})"
             task_logger.warning(error_msg)
             logger.warning(f"任务队列已满，无法启动任务: {task_id} (最大并发数: {max_concurrent})")
             return False
@@ -89,7 +93,7 @@ class TaskManager:
         task_logger.info(f"开始启动任务 - 名称: {task.name}, 类型: {task.task_type}")
         
         # 创建事件队列
-        self.task_events[task_id] = queue.Queue()
+        task_runtime_registry.create_task_event_queue(task_id)
         task_logger.info("创建任务事件队列成功")
 
         app = current_app._get_current_object()
@@ -111,7 +115,7 @@ class TaskManager:
             return False
         
         # thread.daemon = True
-        self.running_tasks[task_id] = thread
+        task_runtime_registry.register_thread(task_id, thread)
         thread.start()
         
         task_logger.info("任务执行线程启动成功")
@@ -122,41 +126,35 @@ class TaskManager:
     def cancel_task(self, task_id: str) -> bool:
         """取消任务"""
         task = Task.query.get(task_id)
-        if not task:
-            return False
-        
-        if task.status in ['completed', 'cancelled', 'error']:
+        if not task_status_service.can_cancel(task):
             return False
         
         # 使用safe_update更新任务状态
         safe_update(task, commit=False, status='cancelled', end_time=datetime.now())
         
         # 清理资源
-        if task_id in self.running_tasks:
-            del self.running_tasks[task_id]
-        if task_id in self.task_events:
-            del self.task_events[task_id]
+        task_runtime_registry.clear_task_runtime(task_id)
         
         self._add_task_log(task_id, 'info', f'任务已取消')
         logger.info(f"取消任务: {task_id}")
         return True
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """???????"""
-        # ??????????????? TaskManager ????????????
+        """获取任务详情状态。"""
+        # 查询能力已下沉到查询服务，这里保留兼容入口。
         return task_query_service.get_task_status(task_id)
 
     def get_all_tasks(self, task_type: Optional[str] = None) -> list:
-        """???????"""
-        # ????????????????????????????
+        """获取任务列表。"""
+        # 列表查询统一委托给查询服务，避免管理器继续膨胀。
         return task_query_service.get_all_tasks(task_type=task_type)
 
     def check_local_task_status(self, task_id: str) -> Dict[str, Any]:
-        """???????????????????"""
-        # ???? TaskManager ??????????????????????????????
+        """检查任务在本地运行态中的真实状态。"""
+        # 运行态判断依赖注册表和日志能力，这里只做参数转发与兼容。
         return task_query_service.check_local_task_status(
             task_id=task_id,
-            running_tasks=self.running_tasks,
+            running_tasks=task_runtime_registry.running_tasks,
             get_task_logs=self.get_task_logs,
             get_config=self._get_config,
         )
@@ -167,17 +165,12 @@ class TaskManager:
             task = Task.query.get(task_id)
             if not task:
                 return {"status": "error", "message": "任务不存在"}
-            
+
             # 检查任务状态
             status_check = self.check_local_task_status(task_id)
-            
-            # 检查是否可以重启（放宽条件，允许pending、completed、error、cancelled状态的任务重启）
-            if task.status == 'running':
-                # 如果任务正在运行，检查是否真的在运行
-                if not status_check.get("can_restart", False):
-                    return {"status": "error", "message": "任务正在运行中，无法重启"}
-            elif task.status not in ['pending', 'completed', 'error', 'cancelled']:
-                return {"status": "error", "message": f"任务状态 '{task.status}' 不允许重启"}
+            restart_validation = task_status_service.validate_restart(task, status_check)
+            if restart_validation["status"] != "success":
+                return restart_validation
             
             # 停止现有任务（如果在运行）
             if task_id in self.running_tasks:
@@ -188,51 +181,38 @@ class TaskManager:
                     logger.warning(f"停止原有任务线程失败: {str(e)}")
             
             # 清理任务状态
-            if task_id in self.task_events:
-                del self.task_events[task_id]
-            start_time = None
-            # 根据断点恢复设置，决定从哪里开始
-            if resume_from_checkpoint:
-                # 从断点继续，保持current_step
-                restart_step = task.current_step
-                self._add_task_log(task_id, 'info', f'从断点重启任务，从第 {restart_step} 步继续')
-                start_time = task.start_time
-            else:
-                # 从头开始：重置步骤并清空历史结果（保留日志）
-                restart_step = 0
+            task_runtime_registry.remove_task_event_queue(task_id)
+            restart_plan = task_status_service.build_restart_plan(task, resume_from_checkpoint)
+            if restart_plan["reset_current_step"]:
                 task.current_step = 0
 
+            # 根据重启计划决定是否清理历史结果。
+            if restart_plan["clear_history_results"]:
                 # 删除该任务历史结果，避免新一轮执行与旧结果混淆。
                 task_repository.delete_task_results(task_id)
 
-                self._add_task_log(task_id, 'info', '重新开始任务，从第 1 步开始（已清空历史结果）')
+            self._add_task_log(task_id, 'info', restart_plan["log_message"])
             
             # 重置任务状态 - 清空开始和结束时间，确保重启后时间信息正确
-            safe_update(task, commit=True, status='pending', error_message=None, start_time=start_time, end_time=None)
+            safe_update(
+                task,
+                commit=True,
+                status='pending',
+                error_message=None,
+                start_time=restart_plan["start_time"],
+                end_time=None,
+            )
             
             # 重新启动任务
             success = self.start_task(task_id)
             
             if success:
-                # 确定重启原因
-                restart_reason = status_check.get("restart_reason")
-                if not restart_reason:
-                    if task.status == 'pending':
-                        restart_reason = "用户手动重启待执行任务"
-                    elif task.status == 'completed':
-                        restart_reason = "用户手动重启已完成任务"
-                    elif task.status == 'error':
-                        restart_reason = "用户手动重启错误任务"
-                    elif task.status == 'cancelled':
-                        restart_reason = "用户手动重启已取消任务"
-                    else:
-                        restart_reason = "用户手动重启"
-                
+                restart_reason = restart_validation["restart_reason"]
                 self._add_task_log(task_id, 'info', f'任务重启成功，原因: {restart_reason}')
                 return {
                     "status": "success", 
                     "message": "任务重启成功",
-                    "restart_from_step": restart_step,
+                    "restart_from_step": restart_plan["restart_step"],
                     "restart_reason": restart_reason
                 }
             else:
@@ -263,13 +243,13 @@ class TaskManager:
             raise
     
     def get_task_logs(self, task_id: str, limit: int = 500) -> list:
-        """???????"""
-        # ??????????? API ? RESTX ??????????
+        """获取任务日志。"""
+        # 统一走查询服务，避免 API 与历史调用各自维护一套实现。
         return task_query_service.get_task_logs(task_id=task_id, limit=limit)
 
     def get_task_results(self, task_id: str, page: int | None = None, per_page: int | None = None):
-        """???????"""
-        # ???????????????????????????????
+        """获取任务结果。"""
+        # 结果查询支持分页，具体聚合逻辑统一收敛到查询服务。
         return task_query_service.get_task_results(task_id=task_id, page=page, per_page=per_page)
 
     def delete_task(self, task_id: str) -> bool:
@@ -292,10 +272,7 @@ class TaskManager:
                 task_repository.delete_task_with_relations(task)
                 
                 # 清理内存中的任务事件队列
-                if task_id in self.task_events:
-                    del self.task_events[task_id]
-                if task_id in self.running_tasks:
-                    del self.running_tasks[task_id]
+                task_runtime_registry.clear_task_runtime(task_id)
                 
                 logger.info(f"任务删除成功: {task_id}")
                 return True
@@ -320,12 +297,9 @@ class TaskManager:
         """
         try:
             task = task_repository.get_task(task_id)
-            if not task:
-                return {"status": "error", "message": "任务不存在"}
-            
-            # 只允许修改非运行中的任务
-            if task.status == 'running':
-                return {"status": "error", "message": "正在运行的任务无法直接修改配置，请先停止任务"}
+            status_validation = task_status_service.validate_config_update(task)
+            if status_validation["status"] != "success":
+                return status_validation
             
             # 验证配置
             if not isinstance(new_config, dict):
@@ -382,7 +356,7 @@ class TaskManager:
                 
                 # 创建Google Sheet服务
                 config = task.config
-                service = GoogleSheetService(config, task_id, self.task_events.get(task_id), app)
+                service = GoogleSheetService(config, task_id, task_runtime_registry.get_task_event_queue(task_id), app)
                 
                 task_logger.info("开始执行任务业务逻辑")
                 
@@ -441,11 +415,11 @@ class TaskManager:
         
         finally:
             # 清理资源
-            if task_id in self.running_tasks:
-                del self.running_tasks[task_id]
+            if task_runtime_registry.has_thread(task_id):
+                task_runtime_registry.remove_thread(task_id)
                 task_logger.info("清理任务线程资源")
-            if task_id in self.task_events:
-                del self.task_events[task_id]
+            if task_runtime_registry.has_task_event_queue(task_id):
+                task_runtime_registry.remove_task_event_queue(task_id)
                 task_logger.info("清理任务事件队列")
             
             task_logger.info("任务执行器退出")
@@ -483,7 +457,7 @@ class TaskManager:
                 
                 # 创建Google Sheet C4 服务
                 config = task.config
-                service = GoogleSheetServiceC4(config, task_id, self.task_events.get(task_id), app)
+                service = GoogleSheetServiceC4(config, task_id, task_runtime_registry.get_task_event_queue(task_id), app)
                 
                 task_logger.info("开始执行 C4 任务业务逻辑")
                 
@@ -542,11 +516,11 @@ class TaskManager:
         
         finally:
             # 清理资源
-            if task_id in self.running_tasks:
-                del self.running_tasks[task_id]
+            if task_runtime_registry.has_thread(task_id):
+                task_runtime_registry.remove_thread(task_id)
                 task_logger.info("清理任务线程资源")
-            if task_id in self.task_events:
-                del self.task_events[task_id]
+            if task_runtime_registry.has_task_event_queue(task_id):
+                task_runtime_registry.remove_task_event_queue(task_id)
                 task_logger.info("清理任务事件队列")
             
             task_logger.info("任务执行器退出")
@@ -584,7 +558,7 @@ class TaskManager:
                 
                 # 创建Google Sheet C5 服务
                 config = task.config
-                service = GoogleSheetServiceC5(config, task_id, self.task_events.get(task_id), app)
+                service = GoogleSheetServiceC5(config, task_id, task_runtime_registry.get_task_event_queue(task_id), app)
                 
                 task_logger.info("开始执行 C5 任务业务逻辑")
                 
@@ -643,11 +617,11 @@ class TaskManager:
         
         finally:
             # 清理资源
-            if task_id in self.running_tasks:
-                del self.running_tasks[task_id]
+            if task_runtime_registry.has_thread(task_id):
+                task_runtime_registry.remove_thread(task_id)
                 task_logger.info("清理任务线程资源")
-            if task_id in self.task_events:
-                del self.task_events[task_id]
+            if task_runtime_registry.has_task_event_queue(task_id):
+                task_runtime_registry.remove_task_event_queue(task_id)
                 task_logger.info("清理任务事件队列")
             
             task_logger.info("任务执行器退出")

@@ -6,6 +6,7 @@ import queue
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
 from app.services.config_schema import normalize_task_config, validate_task_config
+from app.services.task_runtime_registry import task_runtime_registry
 from app.models import Task, TaskLog, TaskTemplate, TaskResult, SystemConfig, db
 from app.utils.logger import get_logger
 from flask import current_app
@@ -23,7 +24,7 @@ api_bp = Blueprint('api', __name__)
 # 任务相关API
 @api_bp.route('/tasks', methods=['GET', 'POST'])
 def tasks():
-    """List tasks or create a new task."""
+    """获取任务列表或创建新任务。"""
     try:
         if request.method == 'GET':
             task_type = request.args.get('task_type')
@@ -35,24 +36,24 @@ def tasks():
         if not config:
             return jsonify({"status": "error", "message": "config is required"}), 400
 
-        name = data.get('name', '?????')
+        name = data.get('name', '未命名任务')
         description = data.get('description', '')
         task_type = data.get('task_type', 'google_sheet')
 
-        # Normalize before persistence so all write paths converge to one schema.
+        # 写入前先统一配置结构，确保不同入口最终落到同一套 schema。
         normalized_config = normalize_task_config(config, task_type=task_type)
         validate_task_config(normalized_config, task_type=task_type)
 
         task_id = task_manager.create_task(name, description, task_type, normalized_config)
         if task_manager.start_task(task_id):
-            return jsonify({"status": "success", "task_id": task_id, "message": "?????????"})
-        return jsonify({"status": "error", "task_id": task_id, "message": "????????????"})
+            return jsonify({"status": "success", "task_id": task_id, "message": "任务创建并启动成功"})
+        return jsonify({"status": "error", "task_id": task_id, "message": "任务创建成功，但启动失败"})
 
     except ValueError as e:
-        logger.warning(f"????????: {str(e)}")
+        logger.warning(f"创建任务参数校验失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
-        logger.error(f"????????: {str(e)}")
+        logger.error(f"创建任务失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 @api_bp.route('/tasks/<task_id>', methods=['GET'])
 def get_task(task_id):
@@ -69,7 +70,7 @@ def get_task(task_id):
 
 @api_bp.route('/tasks/<task_id>/config', methods=['PUT'])
 def update_task_config(task_id):
-    """Update task config with normalized schema."""
+    """更新任务配置，并在写入前做统一归一化。"""
     try:
         data = request.get_json()
         if not data:
@@ -83,9 +84,9 @@ def update_task_config(task_id):
         description = data.get('description')
         task = Task.query.get(task_id)
         if not task:
-            return jsonify({"status": "error", "message": "task not found"}), 404
+            return jsonify({"status": "error", "message": "任务不存在"}), 404
 
-        # ??????????????????????
+        # 详情页编辑也统一走 schema 归一化，避免旧结构直接写回数据库。
         normalized_config = normalize_task_config(config, task_type=task.task_type)
         validate_task_config(normalized_config, task_type=task.task_type)
 
@@ -96,10 +97,10 @@ def update_task_config(task_id):
         return jsonify(result), 400
 
     except ValueError as e:
-        logger.warning(f"??????????: {str(e)}")
+        logger.warning(f"更新任务配置参数校验失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
-        logger.error(f"????????: {str(e)}")
+        logger.error(f"更新任务配置失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 @api_bp.route('/tasks/<task_id>/cancel', methods=['POST'])
 def cancel_task(task_id):
@@ -216,11 +217,11 @@ def create_restart_task_api(task_id):
 def task_events_stream(task_id):
     """SSE事件流，用于任务状态更新和确认请求"""
     def event_stream():
-        if task_id not in task_manager.task_events:
+        if not task_runtime_registry.has_task_event_queue(task_id):
             yield f"data: {json.dumps({'type': 'error', 'data': 'Task not found'})}\n\n"
             return
         
-        event_queue = task_manager.task_events[task_id]
+        event_queue = task_runtime_registry.get_task_event_queue(task_id)
         
         try:
             while True:
@@ -233,7 +234,7 @@ def task_events_stream(task_id):
                     yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
                 
                 # 检查事件队列是否还存在（任务管理器会清理完成的队列）
-                if task_id not in task_manager.task_events:
+                if not task_runtime_registry.has_task_event_queue(task_id):
                     break
                 
         except GeneratorExit:
@@ -250,8 +251,9 @@ def confirm_task(task_id):
         data = request.get_json()
         confirmed = data.get('confirmed', False) if data else False
         
-        if task_id in task_manager.task_events:
-            task_manager.task_events[task_id].put({
+        event_queue = task_runtime_registry.get_task_event_queue(task_id)
+        if event_queue:
+            event_queue.put({
                 "type": "confirmation",
                 "data": {
                     "confirmed": confirmed
