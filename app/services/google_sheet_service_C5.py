@@ -7,7 +7,7 @@ from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db,TaskResultReturn
+from app.models import Task, db, TaskResultReturn
 from app.services.base_google_sheet_service import BaseGoogleSheetService
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -468,46 +468,37 @@ class GoogleSheetService(BaseGoogleSheetService):
             raise e
 
     def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
-        """保存任务结果到数据库，包含重试逻辑"""
+        """保存 C5 任务结果，并补充收益曲线扩展数据。"""
+        result_payload = dict(result)
+        index_start_return_date = result_payload.pop('_index_start_return_date', None)
 
-        def save_result_operation():
-            _index_start_return_date = None
-            if '_index_start_return_date' in result:
-                _index_start_return_date = result.pop('_index_start_return_date')
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(parameters),
-                result=json.dumps(result),
-                success=success
-            )
-            db.session.add(task_result)
+        # 基础结果先复用基类落库，保证三套实现共享同一条主保存链路。
+        super()._save_task_result(step_index, parameters, result_payload, success)
 
-            if _index_start_return_date:
-                for i in _index_start_return_date:
-                    task_result_return = TaskResultReturn(
-                        task_id=self.task_id,
-                        stock_date=i['stock_date'],
-                        index_return=i['index_return'],
-                        start_return=i['start_return']
-                    )
-                    db.session.add(task_result_return)
+        if not index_start_return_date:
+            return
+
+        def save_result_return_operation():
+            for item in index_start_return_date:
+                task_result_return = TaskResultReturn(
+                    task_id=self.task_id,
+                    stock_date=item['stock_date'],
+                    index_return=item['index_return'],
+                    start_return=item['start_return'],
+                )
+                db.session.add(task_result_return)
             db.session.commit()
 
         try:
             if self.app:
-                # 在后台线程中使用传递的应用实例
                 with self.app.app_context():
-                    safe_db_operation(save_result_operation)
+                    safe_db_operation(save_result_return_operation)
             else:
-                # 在主线程中使用当前应用上下文
                 from flask import current_app
                 with current_app.app_context():
-                    safe_db_operation(save_result_operation)
+                    safe_db_operation(save_result_return_operation)
         except Exception as e:
-            error_msg = f"保存任务结果失败: {str(e)}"
-            self._log_error(error_msg)
-            # 注意：这里不能使用_push_log，因为可能导致循环调用
+            self._log_error(f"保存任务扩展结果失败: {str(e)}")
 
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,parameters):
 
