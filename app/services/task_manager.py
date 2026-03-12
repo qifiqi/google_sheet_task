@@ -331,6 +331,62 @@ class TaskManager:
             db.session.rollback()
             logger.error(f"更新任务配置失败: {task_id}, 错误: {str(e)}")
             return {"status": "error", "message": f"更新任务配置失败: {str(e)}"}
+
+    def _finalize_task_execution(self, task_id: str, task_result: str, task_logger, app) -> None:
+        """根据执行结果统一回写任务最终状态。"""
+        task = Task.query.get(task_id)
+        if not task:
+            task_logger.warning("任务执行结束时未找到任务记录，跳过状态回写")
+            return
+
+        if task.status == 'cancelled':
+            task.end_time = datetime.now()
+            db.session.commit()
+            message = '任务执行完成，状态: cancelled（任务被取消）'
+        elif task_result == 'cancelled':
+            task.status = 'cancelled'
+            task.end_time = datetime.now()
+            db.session.commit()
+            message = '任务执行完成，状态: cancelled（执行过程中被取消）'
+        elif task_result == 'completed':
+            task.status = 'completed'
+            task.end_time = datetime.now()
+            db.session.commit()
+            message = '任务执行完成，状态: completed'
+        else:
+            task.status = 'error'
+            task.end_time = datetime.now()
+            db.session.commit()
+            message = '任务执行完成，状态: error'
+
+        task_logger.info(message)
+        self._add_task_log(task_id, 'info', message, app)
+
+    def _mark_task_error(self, task_id: str, error: Exception, task_logger, app) -> None:
+        """统一处理执行器异常状态落库与日志记录。"""
+        try:
+            with app.app_context():
+                task = Task.query.get(task_id)
+                if task:
+                    task.status = 'error'
+                    task.error_message = str(error)
+                    task.end_time = datetime.now()
+                    db.session.commit()
+        except Exception as update_error:
+            task_logger.error(f"更新任务状态失败: {str(update_error)}")
+
+        self._add_task_log(task_id, 'error', f'任务执行失败: {str(error)}', app)
+
+    def _cleanup_task_runtime(self, task_id: str, task_logger) -> None:
+        """统一清理线程登记和事件队列。"""
+        if task_runtime_registry.has_thread(task_id):
+            task_runtime_registry.remove_thread(task_id)
+            task_logger.info("清理任务线程资源")
+        if task_runtime_registry.has_task_event_queue(task_id):
+            task_runtime_registry.remove_task_event_queue(task_id)
+            task_logger.info("清理任务事件队列")
+
+        task_logger.info("任务执行器退出")
     
     def _execute_google_sheet_task(self, task_id: str, app):
         """执行Google Sheet任务"""
@@ -362,67 +418,14 @@ class TaskManager:
                 
                 # 执行任务
                 task_result = service.execute_task()
-                
-                # 检查任务当前状态（可能在执行过程中被取消）
-                task = Task.query.get(task_id)
-                if task and task.status == 'cancelled':
-                    # 任务已被取消，保持cancelled状态
-                    task.end_time = datetime.now()
-                    db.session.commit()
-                    task_logger.info('任务执行完成，状态: cancelled（任务被取消）')
-                    self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（任务被取消）', app)
-                else:
-                    # 根据执行结果更新状态
-                    # task_result 可能是: 'completed', 'error', 'cancelled'
-                    if task_result == 'cancelled':
-                        # 任务在执行过程中被取消
-                        task.status = 'cancelled'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: cancelled（执行过程中被取消）')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（执行过程中被取消）', app)
-                    elif task_result == 'completed':
-                        # 任务成功完成
-                        task.status = 'completed'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: completed')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: completed', app)
-                    else:
-                        # 任务执行出错
-                        task.status = 'error'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: error')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
+                self._finalize_task_execution(task_id, task_result, task_logger, app)
             
         except Exception as e:
             task_logger.exception(f"执行任务失败: {str(e)}")
-            
-            # 更新任务状态为错误
-            try:
-                with app.app_context():
-                    task = Task.query.get(task_id)
-                    if task:
-                        task.status = 'error'
-                        task.error_message = str(e)
-                        task.end_time = datetime.now()
-                        db.session.commit()
-            except Exception as update_error:
-                task_logger.error(f"更新任务状态失败: {str(update_error)}")
-            
-            self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
+            self._mark_task_error(task_id, e, task_logger, app)
         
         finally:
-            # 清理资源
-            if task_runtime_registry.has_thread(task_id):
-                task_runtime_registry.remove_thread(task_id)
-                task_logger.info("清理任务线程资源")
-            if task_runtime_registry.has_task_event_queue(task_id):
-                task_runtime_registry.remove_task_event_queue(task_id)
-                task_logger.info("清理任务事件队列")
-            
-            task_logger.info("任务执行器退出")
+            self._cleanup_task_runtime(task_id, task_logger)
 
     def _execute_google_sheet_C4_task(self, task_id: str, app):
         """执行Google Sheet C4 任务"""
@@ -463,67 +466,14 @@ class TaskManager:
                 
                 # 执行任务
                 task_result = service.execute_task()
-                
-                # 检查任务当前状态（可能在执行过程中被取消）
-                task = Task.query.get(task_id)
-                if task and task.status == 'cancelled':
-                    # 任务已被取消，保持cancelled状态
-                    task.end_time = datetime.now()
-                    db.session.commit()
-                    task_logger.info('任务执行完成，状态: cancelled（任务被取消）')
-                    self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（任务被取消）', app)
-                else:
-                    # 根据执行结果更新状态
-                    # task_result 可能是: 'completed', 'error', 'cancelled'
-                    if task_result == 'cancelled':
-                        # 任务在执行过程中被取消
-                        task.status = 'cancelled'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: cancelled（执行过程中被取消）')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（执行过程中被取消）', app)
-                    elif task_result == 'completed':
-                        # 任务成功完成
-                        task.status = 'completed'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: completed')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: completed', app)
-                    else:
-                        # 任务执行出错
-                        task.status = 'error'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: error')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
+                self._finalize_task_execution(task_id, task_result, task_logger, app)
         
         except Exception as e:
             task_logger.exception(f"执行 C4 任务失败: {str(e)}")
-            
-            # 更新任务状态为错误
-            try:
-                with app.app_context():
-                    task = Task.query.get(task_id)
-                    if task:
-                        task.status = 'error'
-                        task.error_message = str(e)
-                        task.end_time = datetime.now()
-                        db.session.commit()
-            except Exception as update_error:
-                task_logger.error(f"更新任务状态失败: {str(update_error)}")
-            
-            self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
+            self._mark_task_error(task_id, e, task_logger, app)
         
         finally:
-            # 清理资源
-            if task_runtime_registry.has_thread(task_id):
-                task_runtime_registry.remove_thread(task_id)
-                task_logger.info("清理任务线程资源")
-            if task_runtime_registry.has_task_event_queue(task_id):
-                task_runtime_registry.remove_task_event_queue(task_id)
-                task_logger.info("清理任务事件队列")
-            
-            task_logger.info("任务执行器退出")
+            self._cleanup_task_runtime(task_id, task_logger)
 
     def _execute_google_sheet_C5_task(self, task_id: str, app):
         """执行Google Sheet C5 任务"""
@@ -564,67 +514,14 @@ class TaskManager:
                 
                 # 执行任务
                 task_result = service.execute_task()
-                
-                # 检查任务当前状态（可能在执行过程中被取消）
-                task = Task.query.get(task_id)
-                if task and task.status == 'cancelled':
-                    # 任务已被取消，保持cancelled状态
-                    task.end_time = datetime.now()
-                    db.session.commit()
-                    task_logger.info('任务执行完成，状态: cancelled（任务被取消）')
-                    self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（任务被取消）', app)
-                else:
-                    # 根据执行结果更新状态
-                    # task_result 可能是: 'completed', 'error', 'cancelled'
-                    if task_result == 'cancelled':
-                        # 任务在执行过程中被取消
-                        task.status = 'cancelled'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: cancelled（执行过程中被取消）')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（执行过程中被取消）', app)
-                    elif task_result == 'completed':
-                        # 任务成功完成
-                        task.status = 'completed'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: completed')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: completed', app)
-                    else:
-                        # 任务执行出错
-                        task.status = 'error'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: error')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
+                self._finalize_task_execution(task_id, task_result, task_logger, app)
         
         except Exception as e:
             task_logger.exception(f"执行 C5 任务失败: {str(e)}")
-            
-            # 更新任务状态为错误
-            try:
-                with app.app_context():
-                    task = Task.query.get(task_id)
-                    if task:
-                        task.status = 'error'
-                        task.error_message = str(e)
-                        task.end_time = datetime.now()
-                        db.session.commit()
-            except Exception as update_error:
-                task_logger.error(f"更新任务状态失败: {str(update_error)}")
-            
-            self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
+            self._mark_task_error(task_id, e, task_logger, app)
         
         finally:
-            # 清理资源
-            if task_runtime_registry.has_thread(task_id):
-                task_runtime_registry.remove_thread(task_id)
-                task_logger.info("清理任务线程资源")
-            if task_runtime_registry.has_task_event_queue(task_id):
-                task_runtime_registry.remove_task_event_queue(task_id)
-                task_logger.info("清理任务事件队列")
-            
-            task_logger.info("任务执行器退出")
+            self._cleanup_task_runtime(task_id, task_logger)
 
     def _add_task_log(self, task_id: str, level: str, message: str, app=None):
         """添加任务日志"""
