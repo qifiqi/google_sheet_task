@@ -1,34 +1,27 @@
-import json
-import random
+﻿import random
 import time
 import traceback
-from typing import Dict, Any, List, Optional,Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import text
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
+from tenacity import retry, retry_if_result, stop_after_attempt, wait_exponential
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, db
-from app.services.base_google_sheet_service import BaseGoogleSheetService
+from app.services.base_single_sheet_google_sheet_service import BaseSingleSheetGoogleSheetService
 from app.services.config_manager import get_config_manager
-from app.services.google_sheet_client import GoogleSheet
-from app.utils.db_retry import safe_db_operation, db_retry_manager
-from app.utils.db_stock_api import StockAPIClient
 from app.utils.logger import get_logger
-from app.utils.result_validator import validate_result_dict, validate_google_sheet_result, is_valid_result_value
+from app.utils.result_validator import (
+    is_valid_result_value,
+    validate_google_sheet_result,
+    validate_result_dict,
+)
 
 logger = get_logger(__name__)
 
 
-class GoogleSheetService(BaseGoogleSheetService):
+class GoogleSheetService(BaseSingleSheetGoogleSheetService):
     """默认 Google Sheet 服务。"""
 
     service_label = "Google Sheet"
-
-    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None):
-        super().__init__(config, task_id, event_queue=event_queue, app=app)
-        self.google_sheet: Optional[GoogleSheet] = None
-        self.api_client = StockAPIClient()
 
     def _run_task(self, task, name, parameters, config_data):
         """执行默认版本的批处理主流程。"""
@@ -36,9 +29,19 @@ class GoogleSheetService(BaseGoogleSheetService):
         final_status = None
 
         if stock_param is not None and stock_param != "error":
-            multiplier_index = 0 if stock_param.get("multiplier_index", 0) == 0 else stock_param.get("multiplier_index", 0) + 1
+            multiplier_index = (
+                0
+                if stock_param.get("multiplier_index", 0) == 0
+                else stock_param.get("multiplier_index", 0) + 1
+            )
             self._log_info(f"开始执行参数批量处理，multiplier_index: {multiplier_index}")
-            success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data, multiplier_index)
+            success_count, failed_count, task_status = self.get_bdl(
+                task,
+                name,
+                parameters,
+                config_data,
+                multiplier_index,
+            )
             final_status = "completed" if success_count > 0 else "error"
         elif stock_param != "error":
             self._log_info("开始执行参数批量处理（默认参数模式）")
@@ -54,471 +57,266 @@ class GoogleSheetService(BaseGoogleSheetService):
             "final_status": final_status,
         }
 
-    def get_bdl(self, task, name, parameters, config_data, index_z=0):
-        """执行批量数据处理"""
-        try:
-            # 计算总参数组合数（不生成实际组合，避免内存问题）
-            total_combinations = 1
-            for param_list in parameters:
-                total_combinations *= len(param_list)
+    def _execute_batch_item(
+        self,
+        *,
+        combination: Any,
+        config_data: Dict[str, Any],
+        item_index: int,
+    ) -> tuple[bool, Dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """执行默认版的单个参数组合。"""
+        success, result = self._execute_parameter_combination(combination, config_data)
+        save_payload = combination
+        extension_payload = {
+            "stock_no": self.task.name if self.task else "",
+            "multiplier": result["B6"],
+            "danbian": result["B7"],
+            "xiancang": result["B9"],
+            "zhishu": result["B10"],
+            "smoothing": result["B11"],
+            "bordering": result["B12"],
+            "multiplier_index": item_index,
+            "danbian_index": 0,
+            "xiancang_index": 0,
+            "zhishu_index": 0,
+            "smoothing_index": 0,
+            "bordering_index": 0,
+            "return_rate": result["I15"],
+            "annualized_rate": result["I16"],
+            "maxdd": result["I17"],
+            "index_rate": result["I18"],
+            "index_annualized_rate": result["I19"],
+            "max_index_dd": result["I20"],
+            "fee_total": result["I21"],
+            "fee_annualized": result["I22"],
+            "year_rate": result["I23"],
+        }
+        return success, result, save_payload, extension_payload
 
-            # 更新任务总步数
-            task.total_steps = total_combinations
-            db_retry_manager.commit_with_retry(db.session)
-
-            # 推送参数组合信息
-            self._log_info(f'将执行 {total_combinations} 个参数组合')
-
-            # 执行参数组合
-            success_count = 0
-            failed_count = 0
-            if index_z > total_combinations:
-                self._log_warning(f'任务数据库内条数:{index_z} > 参数组合条数:{total_combinations}，跳过执行,好像执行过的')
-                return 0, 0
-
-
-            # 检查是否从断点恢复
-            start_index = max(index_z, task.current_step - 1) if task.current_step >= 1 else index_z
-            self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
-            success_count = start_index # 成功执行计数器，从断点除重新来
-
-            for i in range(start_index, total_combinations):
-                self._log_step(i + 1, total_combinations, f"开始执行参数组合")
-                
-                # 按需计算参数组合，避免内存问题
-                combination = self._get_parameter_combination_by_index(parameters, i)
-                
-                # 原子性检查任务是否被取消
-                # SQLite不支持FOR UPDATE，使用简单查询
-                def check_task_status():
-                    return db.session.execute(
-                        text("SELECT status FROM tasks WHERE id = :task_id"),
-                        {"task_id": self.task_id}
-                    ).fetchone()
-                
-                result = safe_db_operation(check_task_status)
-                
-                if not result or result.status == 'cancelled':
-                    self._log_warning("任务已被取消，停止执行")
-                    return success_count, failed_count, 'cancelled'
-
-                # 推送执行进度
-                progress_msg = f'正在执行第 {i + 1}/{total_combinations} 个参数组合 {combination}'
-                self._log_info(progress_msg)
-
-                # 更新当前步数
-                task.current_step = i + 1
-                db_retry_manager.commit_with_retry(db.session)
-
-                # 执行单个参数组合
-                try:
-                    success, result = self._execute_parameter_combination(combination, config_data)
-
-                    if success:
-                        success_count += 1
-                        self._log_info(f'第 {i + 1} 个参数组合执行成功，{result}')
-                    else:
-                        self._log_warning(f'第 {i + 1} 个参数组合执行失败')
-                        failed_count += 1
-                        return success_count, failed_count, 'error'
-
-                    param_load = {
-                        "stock_no": name,
-                        "multiplier": result['B6'],
-                        "danbian": result['B7'],
-                        "xiancang": result['B9'],
-                        "zhishu": result['B10'],
-                        "smoothing": result['B11'],
-                        "bordering": result['B12'],
-                        "multiplier_index": i,
-                        "danbian_index": 0,
-                        "xiancang_index": 0,
-                        "zhishu_index": 0,
-                        "smoothing_index": 0,
-                        "bordering_index": 0,
-                        "return_rate": result['I15'],
-                        "annualized_rate": result['I16'],
-                        "maxdd": result['I17'],
-                        "index_rate": result['I18'],
-                        "index_annualized_rate": result['I19'],
-                        "max_index_dd": result['I20'],
-                        "fee_total": result['I21'],
-                        "fee_annualized": result['I22'],
-                        "year_rate": result['I23']
-                    }
-
-
-                    # 保存结果到数据库
-                    self._save_task_result(i, combination, result, success)
-                    # # 推送结果，到生产数据库
-                    self.send_stock_template_param_data(param_load, lambda level, msg: self._log(level, msg))
-
-                except checkForErrors as e:
-                    self._log_error(str(e))
-                    task.error = e
-                    return success_count, failed_count, 'error'
-                except Exception as e:
-                    failed_count += 1
-                    # 检查是否是任务被取消
-                    task.error = e
-                    try:
-                        task_check = Task.query.get(self.task_id)
-                        if task_check and task_check.status == 'cancelled':
-                            self._log_info(f'第 {i + 1} 个参数组合执行中断（任务被取消）: {str(e)}')
-                            break  # 退出循环
-                    except:
-                        pass
-
-                    error_msg = f'第 {i + 1} 个参数组合执行出错: {str(e)}'
-                    self._log_error(error_msg)
-                    return success_count, failed_count, 'error'
-
-                self._log_info(f"第 {i + 1} 个参数组合执行完成，成功: {success_count}, 失败: {failed_count}")
-
-            self._log_info(f"批量数据处理完成，总成功: {success_count}, 总失败: {failed_count}")
-            return success_count, failed_count, 'completed'
-            
-        except Exception as e:
-            # 检查是否是任务被取消导致的异常
-            try:
-                task_check = Task.query.get(self.task_id)
-                if task_check and task_check.status == 'cancelled':
-                    self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
-                    return success_count, failed_count, 'cancelled'
-            except:
-                pass
-            
-            error_msg = f"批量数据处理失败: {traceback.format_exc()}"
-            self._log_error(error_msg)
-            return 0, 1, 'error'
+    def _after_item_success(
+        self,
+        *,
+        combination: Any,
+        result: Dict[str, Any],
+        extension_payload: dict[str, Any],
+    ) -> None:
+        """执行成功后同步参数结果到生产数据源。"""
+        self.send_stock_template_param_data(extension_payload, lambda level, msg: self._log(level, msg))
 
     @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True  # 重试耗尽后重新抛出原始异常
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        reraise=True,
+        retry=retry_if_result(lambda result: result[0] is False),
     )
-    def send_stock_template_param_data(self, payload: Dict,log) -> int:
-        """
-        发送股票模板参数数据
-
-        Args:
-            payload: 参数数据字典
-
-        Returns:
-            返回的ID或0
-        """
-        try:
-            self._log_api("发送股票模板参数数据", f"payload: {payload}")
-            result = self.api_client.insert_stock_template_param(payload)
-            self._log_api("发送股票模板参数数据成功", f"ID: {result}")
-            return result
-        except Exception as e:
-            self._log_api_error("发送股票模板参数数据", str(e))
-            log('error',f"发送股票模板参数数据失败: {str(e)}")
-            raise e
-
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True  # 重试耗尽后重新抛出原始异常
+    @validate_result_dict(
+        none_values=(None, "", " ", "#N/A", "#DIV/0!", "#ERROR!", "#VALUE!", "#REF!", "#NAME?", "#NUM!")
     )
-    def get_single_stock_template_param(self, stock_no: str) -> Optional[Dict]:
-        """
-        获取单个股票模板参数
-        
-        Args:
-            stock_no: 股票编号
-            
-        Returns:
-            股票参数字典或None
-        """
-        try:
-            self._log_api("获取股票模板参数", f"stock_no: {stock_no}")
-            result = self.api_client.get_single_stock_template_param(stock_no)
-            self._log_api("获取股票模板参数成功", f"返回结果: {type(result)}")
-            return result
-        except Exception as e:
-            self._log_api_error("获取股票模板参数", str(e))
-            raise
-    
-
-    def _init_google_sheet(self, config_data: Dict[str, Any]):
-        """初始化Google Sheet连接"""
-        try:
-            self._log_info("开始初始化Google Sheet连接")
-            token_file = config_data.get('token_file', 'data/token.json')
-            proxy_url = config_data.get('proxy_url', None)
-            self.google_sheet = self._init_single_google_sheet(
-                spreadsheet_id=config_data.get('spreadsheet_id'),
-                sheet_name=config_data.get('sheet_name', 'data'),
-                token_file=token_file,
-                proxy_url=proxy_url,
-            )
-
-            self._log_info("Google Sheet连接初始化成功")
-        except Exception as e:
-            error_msg = f"初始化Google Sheet连接失败: {str(e)}"
-            self._log_error(error_msg)
-            raise
-            
-
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True,  # 重试耗尽后重新抛出原始异常
-        retry=retry_if_result(lambda result: result[0] is False)
-    )
-    @validate_result_dict(none_values=(None, '', ' ', '#N/A', '#DIV/0!', '#ERROR!', '#VALUE!', '#REF!', '#NAME?', '#NUM!'))
     def _execute_parameter_combination(self, combination: List, config_data: Dict[str, Any]) -> tuple[bool, Dict[str, Any]]:
-        """执行单个参数组合"""
+        """执行单个参数组合。"""
         try:
-            # 获取参数位置配置
-            param_positions = config_data.get('parameter_positions', [])
-            # 等待执行完成，检查指定位置
-            check_positions = config_data.get('check_positions', [])
-            result_positions = config_data.get('result_positions', [])
+            param_positions = config_data.get("parameter_positions", [])
+            check_positions = config_data.get("check_positions", [])
+            result_positions = config_data.get("result_positions", [])
 
             results = {}
             cell_updates = {}
 
-            def _update_cell(num=0):
-                # 准备要更新的单元格
-                for i, position in enumerate(param_positions):
-                    cell_updates[position] = combination[i]
-                    results[position] = combination[i]
+            def update_cell(attempt_index=0):
+                for index, position in enumerate(param_positions):
+                    cell_updates[position] = combination[index]
+                    results[position] = combination[index]
 
-                if num <= 0:
-                    self._log_info(f"向Google Sheet写入参数: {cell_updates}")
+                if attempt_index <= 0:
+                    self._log_info(f"向 Google Sheet 写入参数: {cell_updates}")
                     self.google_sheet.update_jumped_cells(cell_updates)
-                    return None
-                    
-                # 随机选择一个键
+                    return
+
                 random_key = random.choice(list(cell_updates.keys()))
                 random_value = cell_updates[random_key]
-                self._log_info(f"防止模型卡顿，在随机位置写入：{random_key} = {random_value} (类型: {type(random_value)}),当前是第{num + 1}轮检查")
-                
-                # 验证值的有效性
+                self._log_info(
+                    f"防止模型卡顿，在随机位置写入: {random_key} = {random_value}，当前第 {attempt_index + 1} 轮检查"
+                )
+
                 if random_value is None or str(random_value).strip() == "":
                     self._log_warning(f"跳过写入空值到位置 {random_key}")
-                    return None
-                
-                # 使用选中的键和对应的值更新单元格
+                    return
+
                 try:
                     self.google_sheet.update_cell(random_key, random_value)
-                except Exception as e:
-                    self._log_error(f"更新单元格 {random_key} 失败，值: {random_value}, 错误: {str(e)}")
-                    raise e
-                return None
+                except Exception as exc:
+                    self._log_error(f"更新单元格 {random_key} 失败，值: {random_value}，错误: {str(exc)}")
+                    raise
 
-            def check_result(_position, _value=None):
-                if not _value or not is_valid_result_value(_value):
-                    self._log_info(f"结果位置 {_position} 值为空或无效，跳过重新检查")
-                    raise Exception(f"结果位置 {_position} 值为空或无效，跳过重新检查")
+            def check_result(position, value=None):
+                if not value or not is_valid_result_value(value):
+                    self._log_info(f"结果位置 {position} 值为空或无效，触发重试")
+                    raise Exception(f"结果位置 {position} 值为空或无效，触发重试")
 
-                if str(_value).strip().startswith(("#", "#N/A")):
-                    _error_msg = f"获取结果位置 {_position} 时出错: {str(_value)}"
-                    raise checkForErrors(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {_error_msg}")
+                if str(value).strip().startswith(("#", "#N/A")):
+                    error_msg = f"获取结果位置 {position} 时出错: {str(value)}"
+                    raise checkForErrors(f"检查报错，出现 # 或 #N/A 异常，请联系用户排查: {error_msg}")
 
-                if '%' in _value:
-                    _value = float(_value.replace('%', '').replace(',', '')) / 100
-                if isinstance(_value, str):
-                    _value = float(_value.replace(',', ''))
+                if "%" in value:
+                    value = float(value.replace("%", "").replace(",", "")) / 100
+                if isinstance(value, str):
+                    value = float(value.replace(",", ""))
 
-                results[_position] = round(_value, 5)
+                results[position] = round(value, 5)
 
-            def _validate_check_values(check_values: Dict[str, Any]) -> bool:
-                """验证检查位置的值是否有效"""
+            def validate_check_values(check_values: Dict[str, Any]) -> bool:
+                """校验检查位是否已经刷新完成。"""
                 if not check_values:
                     return False
-                
+
                 for position, value in check_values.items():
-                    if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
+                    if not value or value in ["#DIV/0!", "", "#N/A", "#ERROR!", "#VALUE!"]:
                         return False
-                    if 'target' in str(value).lower():
+                    if "target" in str(value).lower():
                         return False
-                    
-                    # 检查是否与输入参数匹配
-                    input_key = f"B{position[1:]}"  # 将 I6 -> B6
+
+                    input_key = f"B{position[1:]}"
                     if input_key in results:
                         try:
-                            check_val = float(value.replace('%', '')) / 100 if '%' in value else float(value)
+                            check_val = float(value.replace("%", "")) / 100 if "%" in value else float(value)
                             input_val = float(results[input_key])
                             if round(check_val) != round(input_val):
                                 return False
                         except (ValueError, TypeError):
                             return False
-                
+
                 return True
 
-            def _validate_result_values(result_values: Dict[str, Any]) -> Tuple[bool, List[str]]:
-                """验证结果值是否完整有效"""
+            def validate_result_values(result_values: Dict[str, Any]) -> Tuple[bool, List[str]]:
+                """校验结果位是否完整有效。"""
                 if not result_values:
                     return False, ["结果字典为空"]
-                
+
                 missing_positions = []
                 invalid_positions = []
-                
                 for position in result_positions:
                     if position not in result_values:
                         missing_positions.append(position)
                         continue
-                    
+
                     value = result_values[position]
                     if not is_valid_result_value(value):
                         invalid_positions.append(f"{position}({value})")
-                
+
                 error_msgs = []
                 if missing_positions:
                     error_msgs.append(f"缺少位置: {missing_positions}")
                 if invalid_positions:
                     error_msgs.append(f"无效值: {invalid_positions}")
-                
                 return len(error_msgs) == 0, error_msgs
-
 
             sleep_num = 5
 
-            def get_sell_sleep(min_sleep: int, max_sleep: int) -> int:
+            def get_delay_seconds(min_sleep: int, max_sleep: int) -> int:
                 nonlocal sleep_num
                 if sleep_num <= 0:
                     sleep_num = 5
-                _ = min(min_sleep + sleep_num * 5, max_sleep)  # 最多60秒
+                delay_seconds = min(min_sleep + sleep_num * 5, max_sleep)
                 sleep_num -= 1
-                return int(_)
+                return int(delay_seconds)
 
-            # 写入参数到Google Sheet
-            _update_cell()
-
-            is_exit = 0
+            update_cell()
+            fallback_error_count = 0
             max_error_num = 3
 
-            # 定时检查是否完成（最多检查60次，20-30秒）
             for attempt in range(60):
-
-                # 定期刷新参数，防止模型卡顿
                 if attempt != 0 and (attempt % 10 == 0 or attempt in [3, 5, 8]):
-                    self._log_info(f"第 {attempt + 1} 次检查执行状态前，刷新表格")
-                    _update_cell(attempt)
+                    self._log_info(f"第 {attempt + 1} 次检查执行状态前，刷新表格参数")
+                    update_cell(attempt)
 
-                # 从配置获取执行延迟时间
                 config_manager = get_config_manager()
-                delay_min = int(config_manager.get_config('execution_delay_min', 20))
-                delay_max = int(config_manager.get_config('execution_delay_max', 30))
-                _ = get_sell_sleep(delay_min, delay_max)
-                self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
-                time.sleep(_)
+                delay_min = int(config_manager.get_config("execution_delay_min", 20))
+                delay_max = int(config_manager.get_config("execution_delay_max", 30))
+                delay_seconds = get_delay_seconds(delay_min, delay_max)
+                self._log_info(f"第 {attempt + 1} 次检查执行状态，等待 {delay_seconds} 秒")
+                time.sleep(delay_seconds)
 
-                # 检查所有位置是否都有产出
                 all_completed = True
-                
-                # 1. 检查检查位置的值
                 if self.google_sheet and check_positions:
                     try:
                         check_values = self.google_sheet.get_cells_batch(check_positions)
                         self._log_info(f"获取到检查位置的值: {check_values}")
-                        
-                        if not _validate_check_values(check_values):
+                        if not validate_check_values(check_values):
                             all_completed = False
-                            self._log_info(f"检查位置验证失败，继续等待...")
+                            self._log_info("检查位置验证失败，继续等待")
                             continue
-                        
-                    except Exception as e:
-                        error_msg = f"批量检查位置时出错: {str(e)}"
-                        self._log_error(error_msg)
+                    except Exception as exc:
+                        self._log_error(f"批量检查位置时出错: {str(exc)}")
                         all_completed = False
                         continue
 
-                # 2. 如果检查通过，获取结果
                 if all_completed and self.google_sheet and result_positions:
                     try:
                         result_values = self.google_sheet.get_cells_batch(result_positions)
                         self._log_info(f"获取到参数执行结果: {result_values}")
-                        
-                        # 验证结果完整性
-                        is_valid, error_msgs = _validate_result_values(result_values)
+
+                        is_valid, error_msgs = validate_result_values(result_values)
                         if not is_valid:
-                            self._log_warning(f"结果验证失败: {error_msgs}，继续等待...")
-                            # for i in error_msgs:
-                            #     if '无效值' in i and "#" in i:
-                            #         self._log_error(f"结果值无效: {i}")
-                            #         break
+                            self._log_warning(f"结果验证失败: {error_msgs}，继续等待")
                             all_completed = False
                             continue
-                        
-                        # 所有结果都有效，处理结果
+
                         for position in result_positions:
                             value = result_values.get(position, "")
                             check_result(position, value)
-                        
-                        # 使用专门的Google Sheet结果验证
+
                         is_valid_gs, gs_error_msg = validate_google_sheet_result(results)
                         if not is_valid_gs:
-                            self._log_warning(f"Google Sheet结果验证失败: {gs_error_msg}")
+                            self._log_warning(f"Google Sheet 结果验证失败: {gs_error_msg}")
                             return False, {}
-                        
+
                         self._log_info(f"参数组合执行成功，结果: {results}")
                         return True, results
-
-                    except checkForErrors as e:
-                        raise e
-                    except Exception as e:
-                        error_msg = f"批量获取结果时出错: {str(e)}"
-                        self._log_error(error_msg)
-                        if is_exit <= max_error_num:
-                            self._log_error(error_msg)
+                    except checkForErrors:
+                        raise
+                    except Exception as exc:
+                        self._log_error(f"批量获取结果时出错: {str(exc)}")
+                        fallback_error_count += 1
+                        if fallback_error_count <= max_error_num:
                             continue
-                        # 回退到逐个获取
+
                         fallback_success = True
                         for position in result_positions:
                             try:
                                 value = self.google_sheet.get_cell(position)
                                 check_result(position, value)
                             except Exception as cell_error:
-                                error_msg = f"获取结果位置 {position} 时出错: {str(cell_error)}"
-                                self._log_error(error_msg)
+                                self._log_error(f"获取结果位置 {position} 时出错: {str(cell_error)}")
                                 fallback_success = False
                                 break
-                        
+
                         if fallback_success:
-                            # 验证回退模式的结果
                             is_valid_gs, gs_error_msg = validate_google_sheet_result(results)
                             if is_valid_gs:
                                 return True, results
-                            else:
-                                self._log_warning(f"回退模式结果验证失败: {gs_error_msg}")
-                                return False, {}
+
+                            self._log_warning(f"回退模式结果验证失败: {gs_error_msg}")
+                            return False, {}
 
             self._log_warning("执行超时，未在规定时间内完成")
             return False, {}
-
-        except Exception as e:
-            error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
-            self._log_error(error_msg)
-            raise e
+        except Exception as exc:
+            self._log_error(f"执行参数组合时出错: {traceback.format_exc()}")
+            raise exc
 
     def _get_parameter_combination_by_index(self, parameters: List[List], index: int) -> List:
-        """
-        根据索引按需计算参数组合，避免内存问题
-        
-        Args:
-            parameters: 参数列表的列表
-            index: 组合索引
-            
-        Returns:
-            参数组合列表
-        """
+        """根据索引按需计算参数组合，避免一次性展开。"""
         try:
             logger.debug(f"计算第 {index} 个参数组合")
             combination = []
             remaining_index = index
 
-            # 从最后一个参数开始计算
             for param_list in reversed(parameters):
                 param_index = remaining_index % len(param_list)
                 combination.insert(0, param_list[param_index])
                 remaining_index = remaining_index // len(param_list)
 
             return combination
-        except Exception as e:
-            self._log_error(f"计算参数组合失败，索引: {index}, 错误: {str(e)}")
+        except Exception as exc:
+            self._log_error(f"计算参数组合失败，索引 {index}，错误: {str(exc)}")
             raise
