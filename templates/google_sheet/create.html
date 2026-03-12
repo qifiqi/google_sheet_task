@@ -1,6 +1,6 @@
-{% extends "google_sheet/base.html" %}
+﻿{% extends "google_sheet/base.html" %}
 
-{% block title %}创建任务 - Google Sheet 参数批量校验{% endblock %}
+{% block title %}鍒涘缓浠诲姟 - Google Sheet 鍙傛暟鎵归噺鏍￠獙{% endblock %}
 
 {% block styles %}
 <style>
@@ -35,39 +35,38 @@
         <div class="card">
             <div class="card-header">
                 <h4 class="card-title mb-0">
-                    <i class="bi bi-plus-circle"></i> 创建新任务
-                </h4>
+                    <i class="bi bi-plus-circle"></i> 鍒涘缓鏂颁换鍔?                </h4>
             </div>
             <div class="card-body">
                 <form id="parameter-form">
-                    <!-- 任务基本信息 -->
+                    <!-- 浠诲姟鍩烘湰淇℃伅 -->
                     <div class="row mb-4">
                         <div class="col-12">
                             <div class="card bg-light">
                                 <div class="card-body">
                                     <h5 class="card-title mb-3">
-                                        <i class="bi bi-info-circle"></i> 任务基本信息
+                                        <i class="bi bi-info-circle"></i> 浠诲姟鍩烘湰淇℃伅
                                     </h5>
                                     <div class="row">
                                         <div class="col-md-4 mb-3">
-                                            <label for="task_template" class="form-label">选择模板</label>
+                                            <label for="task_template" class="form-label">閫夋嫨妯℃澘</label>
                                             <select class="form-select" id="task_template">
-                                                <option value="">不使用模板</option>
-                                                <!-- 模板列表将通过JavaScript动态加载 -->
+                                                <option value="">涓嶄娇鐢ㄦā鏉?/option>
+                                                <!-- 妯℃澘鍒楄〃灏嗛€氳繃JavaScript鍔ㄦ€佸姞杞?-->
                                             </select>
-                                            <div class="form-text">选择一个已保存的任务模板来快速填充配置</div>
+                                            <div class="form-text">閫夋嫨涓€涓凡淇濆瓨鐨勪换鍔℃ā鏉挎潵蹇€熷～鍏呴厤缃?/div>
                                         </div>
                                         <div class="col-md-4 mb-3">
-                                            <label for="task_name" class="form-label">任务名称</label>
+                                            <label for="task_name" class="form-label">浠诲姟鍚嶇О</label>
                                             <input type="text" class="form-control" id="task_name" 
-                                                   placeholder="留空将自动生成任务名称" 
+                                                   placeholder="鐣欑┖灏嗚嚜鍔ㄧ敓鎴愪换鍔″悕绉? 
                                                    value="">
-                                            <div class="form-text">为您的任务起一个有意义的名称，留空将自动生成</div>
+                                            <div class="form-text">涓烘偍鐨勪换鍔¤捣涓€涓湁鎰忎箟鐨勫悕绉帮紝鐣欑┖灏嗚嚜鍔ㄧ敓鎴?/div>
                                         </div>
                                         <div class="col-md-4 mb-3">
-                                            <label for="task_description" class="form-label">任务描述 (可选)</label>
+                                            <label for="task_description" class="form-label">浠诲姟鎻忚堪 (鍙€?</label>
                                             <textarea class="form-control" id="task_description" rows="2" 
-                                                      placeholder="描述任务的目的或特殊要求"></textarea>
+                                                      placeholder="鎻忚堪浠诲姟鐨勭洰鐨勬垨鐗规畩瑕佹眰"></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -75,93 +74,90 @@
                         </div>
                     </div>
                     
-                    <!-- Google Sheet 配置 -->
+                    <!-- Google Sheet 閰嶇疆 -->
                     <div class="card mb-4">
                         <div class="card-header">
                             <h5 class="card-title mb-0">
-                                <i class="bi bi-table"></i> Google Sheet 配置
+                                <i class="bi bi-table"></i> Google Sheet 閰嶇疆
                             </h5>
                         </div>
                         <div class="card-body">
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label for="spreadsheet" class="form-label">
-                                        <i class="bi bi-link-45deg"></i> 电子表格ID或URL
+                                        <i class="bi bi-link-45deg"></i> 鐢靛瓙琛ㄦ牸ID鎴朥RL
                                     </label>
                                     <input type="text" class="form-control" id="spreadsheet" 
-                                           placeholder="请输入Google Sheet的ID或完整URL" required>
+                                           placeholder="璇疯緭鍏oogle Sheet鐨処D鎴栧畬鏁碪RL" required>
                                     <div class="form-text">
-                                        <i class="bi bi-info-circle"></i> 支持直接输入ID或完整URL
+                                        <i class="bi bi-info-circle"></i> 鏀寔鐩存帴杈撳叆ID鎴栧畬鏁碪RL
                                     </div>
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label for="sheet_name" class="form-label">
-                                        <i class="bi bi-file-spreadsheet"></i> 工作表名称
-                                    </label>
+                                        <i class="bi bi-file-spreadsheet"></i> 宸ヤ綔琛ㄥ悕绉?                                    </label>
                                     <div class="input-group">
                                         <select class="form-select" id="sheet_name">
-                                            <option value="">请先输入电子表格ID</option>
+                                            <option value="">璇峰厛杈撳叆鐢靛瓙琛ㄦ牸ID</option>
                                         </select>
-                                        <button class="btn btn-outline-secondary" type="button" id="refresh-sheets" title="刷新工作表列表">
+                                        <button class="btn btn-outline-secondary" type="button" id="refresh-sheets" title="鍒锋柊宸ヤ綔琛ㄥ垪琛?>
                                             <i class="bi bi-arrow-clockwise"></i>
                                         </button>
                                     </div>
-                                    <div class="form-text" id="sheet-name-help">选择要操作的工作表</div>
+                                    <div class="form-text" id="sheet-name-help">閫夋嫨瑕佹搷浣滅殑宸ヤ綔琛?/div>
                                 </div>
                                 <div class="col-md-6 mb-3" id="custom-sheet-container" style="display: none;">
                                     <label for="custom_sheet_name" class="form-label">
-                                        <i class="bi bi-pencil"></i> 自定义工作表名称
+                                        <i class="bi bi-pencil"></i> 鑷畾涔夊伐浣滆〃鍚嶇О
                                     </label>
                                     <input type="text" class="form-control" id="custom_sheet_name" 
-                                           placeholder="请输入工作表名称">
+                                           placeholder="璇疯緭鍏ュ伐浣滆〃鍚嶇О">
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label for="token_type" class="form-label">
-                                        <i class="bi bi-shield-lock"></i> 认证方式
+                                        <i class="bi bi-shield-lock"></i> 璁よ瘉鏂瑰紡
                                     </label>
                                     <select class="form-select" id="token_type">
-                                        <option value="file">Token文件路径</option>
-                                        <option value="json">Token JSON字符串</option>
+                                        <option value="file">Token鏂囦欢璺緞</option>
+                                        <option value="json">Token JSON瀛楃涓?/option>
                                     </select>
                                 </div>
                                 <div class="col-md-6 mb-3" id="token_file_container">
                                     <label for="token_file" class="form-label">
-                                        <i class="bi bi-file-earmark-text"></i> Token文件路径
+                                        <i class="bi bi-file-earmark-text"></i> Token鏂囦欢璺緞
                                     </label>
                                     <input type="text" class="form-control" id="token_file" 
-                                           placeholder="请输入Token文件路径" value="data/token.json">
+                                           placeholder="璇疯緭鍏oken鏂囦欢璺緞" value="data/token.json">
                                 </div>
                                 <div class="col-md-6 mb-3" id="token_json_container" style="display: none;">
                                     <label for="token_json" class="form-label">
-                                        <i class="bi bi-code-square"></i> Token JSON字符串
-                                    </label>
+                                        <i class="bi bi-code-square"></i> Token JSON瀛楃涓?                                    </label>
                                     <textarea class="form-control" id="token_json" rows="3" 
                                               placeholder='{"installed": {"client_id": "...", "client_secret": "...", ...}}'></textarea>
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label for="proxy_url" class="form-label">
-                                        <i class="bi bi-globe"></i> 代理URL (可选)
+                                        <i class="bi bi-globe"></i> 浠ｇ悊URL (鍙€?
                                     </label>
                                     <input type="text" class="form-control" id="proxy_url" 
-                                           placeholder="请输入代理URL">
+                                           placeholder="璇疯緭鍏ヤ唬鐞哢RL">
                                 </div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- 参数配置 -->
+                    <!-- 鍙傛暟閰嶇疆 -->
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="card-title mb-0">
-                                <i class="bi bi-gear"></i> 参数配置
+                                <i class="bi bi-gear"></i> 鍙傛暟閰嶇疆
                             </h5>
                             <div class="btn-group btn-group-sm" role="group">
                                 <button type="button" class="btn btn-outline-primary" onclick="addParameter()">
-                                    <i class="bi bi-plus"></i> 添加参数
+                                    <i class="bi bi-plus"></i> 娣诲姞鍙傛暟
                                 </button>
                                 <button type="button" class="btn btn-outline-secondary" onclick="clearAllParameters()">
-                                    <i class="bi bi-trash"></i> 清空所有
-                                </button>
+                                    <i class="bi bi-trash"></i> 娓呯┖鎵€鏈?                                </button>
                             </div>
                         </div>
                         <div class="card-body">
@@ -170,14 +166,14 @@
                                     <div class="card border-primary">
                                         <div class="card-header bg-primary text-white">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-1-circle"></i> 参数1
+                                                <i class="bi bi-1-circle"></i> 鍙傛暟1
                                                 <button type="button" class="btn-close btn-close-white float-end" onclick="removeParameter(1)" style="font-size: 0.7em;"></button>
                                             </h6>
                                         </div>
                                         <div class="card-body">
                                             <textarea class="form-control parameter-input" id="param1" rows="3" 
                                                       placeholder='["value1", "value2", "value3"]'></textarea>
-                                            <div class="form-text">JSON数组格式</div>
+                                            <div class="form-text">JSON鏁扮粍鏍煎紡</div>
                                         </div>
                                     </div>
                                 </div>
@@ -185,14 +181,14 @@
                                     <div class="card border-success">
                                         <div class="card-header bg-success text-white">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-2-circle"></i> 参数2
+                                                <i class="bi bi-2-circle"></i> 鍙傛暟2
                                                 <button type="button" class="btn-close btn-close-white float-end" onclick="removeParameter(2)" style="font-size: 0.7em;"></button>
                                             </h6>
                                         </div>
                                         <div class="card-body">
                                             <textarea class="form-control parameter-input" id="param2" rows="3" 
                                                       placeholder='["value1", "value2"]'></textarea>
-                                            <div class="form-text">JSON数组格式</div>
+                                            <div class="form-text">JSON鏁扮粍鏍煎紡</div>
                                         </div>
                                     </div>
                                 </div>
@@ -200,14 +196,14 @@
                                     <div class="card border-info">
                                         <div class="card-header bg-info text-white">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-3-circle"></i> 参数3
+                                                <i class="bi bi-3-circle"></i> 鍙傛暟3
                                                 <button type="button" class="btn-close btn-close-white float-end" onclick="removeParameter(3)" style="font-size: 0.7em;"></button>
                                             </h6>
                                         </div>
                                         <div class="card-body">
                                             <textarea class="form-control parameter-input" id="param3" rows="3" 
                                                       placeholder='["value1", "value2"]'></textarea>
-                                            <div class="form-text">JSON数组格式</div>
+                                            <div class="form-text">JSON鏁扮粍鏍煎紡</div>
                                         </div>
                                     </div>
                                 </div>
@@ -215,14 +211,14 @@
                                     <div class="card border-warning">
                                         <div class="card-header bg-warning text-dark">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-4-circle"></i> 参数4
+                                                <i class="bi bi-4-circle"></i> 鍙傛暟4
                                                 <button type="button" class="btn-close float-end" onclick="removeParameter(4)" style="font-size: 0.7em;"></button>
                                             </h6>
                                         </div>
                                         <div class="card-body">
                                             <textarea class="form-control parameter-input" id="param4" rows="3" 
                                                       placeholder='["value1", "value2"]'></textarea>
-                                            <div class="form-text">JSON数组格式</div>
+                                            <div class="form-text">JSON鏁扮粍鏍煎紡</div>
                                         </div>
                                     </div>
                                 </div>
@@ -230,14 +226,14 @@
                                     <div class="card border-danger">
                                         <div class="card-header bg-danger text-white">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-5-circle"></i> 参数5
+                                                <i class="bi bi-5-circle"></i> 鍙傛暟5
                                                 <button type="button" class="btn-close btn-close-white float-end" onclick="removeParameter(5)" style="font-size: 0.7em;"></button>
                                             </h6>
                                         </div>
                                         <div class="card-body">
                                             <textarea class="form-control parameter-input" id="param5" rows="3" 
                                                       placeholder='["value1", "value2"]'></textarea>
-                                            <div class="form-text">JSON数组格式</div>
+                                            <div class="form-text">JSON鏁扮粍鏍煎紡</div>
                                         </div>
                                     </div>
                                 </div>
@@ -245,14 +241,14 @@
                                     <div class="card border-secondary">
                                         <div class="card-header bg-secondary text-white">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-6-circle"></i> 参数6
+                                                <i class="bi bi-6-circle"></i> 鍙傛暟6
                                                 <button type="button" class="btn-close btn-close-white float-end" onclick="removeParameter(6)" style="font-size: 0.7em;"></button>
                                             </h6>
                                         </div>
                                         <div class="card-body">
                                             <textarea class="form-control parameter-input" id="param6" rows="3" 
                                                       placeholder='["value1", "value2"]'></textarea>
-                                            <div class="form-text">JSON数组格式</div>
+                                            <div class="form-text">JSON鏁扮粍鏍煎紡</div>
                                         </div>
                                     </div>
                                 </div>
@@ -260,11 +256,11 @@
                         </div>
                     </div>
                     
-                    <!-- 参数组合预览 -->
+                    <!-- 鍙傛暟缁勫悎棰勮 -->
                     <div class="card mb-4" id="combination-info" style="display: none;">
                         <div class="card-header">
                             <h5 class="card-title mb-0">
-                                <i class="bi bi-eye"></i> 参数组合预览
+                                <i class="bi bi-eye"></i> 鍙傛暟缁勫悎棰勮
                             </h5>
                         </div>
                         <div class="card-body">
@@ -272,13 +268,12 @@
                                 <div class="col-md-8">
                                     <div class="alert alert-info mb-0">
                                         <i class="bi bi-info-circle"></i>
-                                        <strong>参数组合信息：</strong>
-                                        <span id="combination-count" class="badge bg-primary ms-2">0</span> 个参数组合将被执行
-                                    </div>
+                                        <strong>鍙傛暟缁勫悎淇℃伅锛?/strong>
+                                        <span id="combination-count" class="badge bg-primary ms-2">0</span> 涓弬鏁扮粍鍚堝皢琚墽琛?                                    </div>
                                 </div>
                                 <div class="col-md-4 text-end">
                                     <button type="button" class="btn btn-outline-info" onclick="showCombinationPreview()">
-                                        <i class="bi bi-eye"></i> 预览组合
+                                        <i class="bi bi-eye"></i> 棰勮缁勫悎
                                     </button>
                                 </div>
                             </div>
@@ -286,22 +281,20 @@
                     </div>
                     
                     
-                    <!-- 操作按钮 -->
+                    <!-- 鎿嶄綔鎸夐挳 -->
                     <div class="card">
                         <div class="card-body">
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                                 <a href="{{ url_for('google_sheet.index',version='c3') }}" class="btn btn-secondary me-md-2">
-                                    <i class="bi bi-arrow-left"></i> 返回首页
+                                    <i class="bi bi-arrow-left"></i> 杩斿洖棣栭〉
                                 </a>
-                                <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="清除保存的表单数据">
-                                    <i class="bi bi-trash"></i> 清除数据
+                                <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="娓呴櫎淇濆瓨鐨勮〃鍗曟暟鎹?>
+                                    <i class="bi bi-trash"></i> 娓呴櫎鏁版嵁
                                 </button>
-                                <button type="button" class="btn btn-outline-success me-md-2" onclick="saveAsTemplate()" title="将当前配置保存为模板">
-                                    <i class="bi bi-save"></i> 保存为模板
-                                </button>
+                                <button type="button" class="btn btn-outline-success me-md-2" onclick="saveAsTemplate()" title="灏嗗綋鍓嶉厤缃繚瀛樹负妯℃澘">
+                                    <i class="bi bi-save"></i> 淇濆瓨涓烘ā鏉?                                </button>
                                 <button type="submit" class="btn btn-primary btn-lg" id="execute-btn">
-                                    <i class="bi bi-play-circle"></i> 创建任务并执行
-                                </button>
+                                    <i class="bi bi-play-circle"></i> 鍒涘缓浠诲姟骞舵墽琛?                                </button>
                             </div>
                         </div>
                     </div>
@@ -311,109 +304,61 @@
     </div>
 </div>
 
-<!-- 参数组合预览模态框 -->
+<!-- 鍙傛暟缁勫悎棰勮妯℃€佹 -->
 <div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="previewModalLabel">参数组合预览</h5>
+                <h5 class="modal-title" id="previewModalLabel">鍙傛暟缁勫悎棰勮</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="combination-preview" id="combination-preview">
-                    <!-- 组合预览内容 -->
+                    <!-- 缁勫悎棰勮鍐呭 -->
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">鍏抽棴</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 第一次执行确认模态框 -->
+<!-- 绗竴娆℃墽琛岀‘璁ゆā鎬佹 -->
 <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="confirmModalLabel">第一次执行结果确认</h5>
+                <h5 class="modal-title" id="confirmModalLabel">绗竴娆℃墽琛岀粨鏋滅‘璁?/h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h6>执行参数:</h6>
+                        <h6>鎵ц鍙傛暟:</h6>
                         <pre id="confirm-params" class="bg-light p-3"></pre>
                     </div>
                     <div class="col-md-6">
-                        <h6>执行结果:</h6>
+                        <h6>鎵ц缁撴灉:</h6>
                         <pre id="confirm-results" class="bg-light p-3"></pre>
                     </div>
                 </div>
                 <div class="alert alert-warning">
-                    请检查第一次执行的结果，确认无误后点击"继续执行"按钮，系统将自动执行剩余的参数组合。
-                </div>
+                    璇锋鏌ョ涓€娆℃墽琛岀殑缁撴灉锛岀‘璁ゆ棤璇悗鐐瑰嚮"缁х画鎵ц"鎸夐挳锛岀郴缁熷皢鑷姩鎵ц鍓╀綑鐨勫弬鏁扮粍鍚堛€?                </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancel-execution">停止执行</button>
-                <button type="button" class="btn btn-primary" id="confirm-continue">继续执行</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancel-execution">鍋滄鎵ц</button>
+                <button type="button" class="btn btn-primary" id="confirm-continue">缁х画鎵ц</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 保存模板模态框 -->
-<div class="modal fade" id="saveTemplateModal" tabindex="-1" aria-labelledby="saveTemplateModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="saveTemplateModalLabel">保存为模板</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="saveTemplateForm">
-                    <div class="mb-3">
-                        <label for="templateName" class="form-label">模板名称</label>
-                        <input type="text" class="form-control" id="templateName" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="templateDescription" class="form-label">模板描述</label>
-                        <textarea class="form-control" id="templateDescription" rows="3"></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-primary" onclick="submitTemplate()">保存</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 任务执行状态模态框 -->
-<div class="modal fade" id="taskStatusModal" tabindex="-1" aria-labelledby="taskStatusModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="taskStatusModalLabel">任务执行状态</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="progress">
-                    <div class="progress-bar" role="progressbar" id="task-progress-bar" style="width: 0%;">0%</div>
-                </div>
-                <div class="mt-3">
-                    <h6>任务状态</h6>
-                    <div id="task-status-message" class="border rounded p-2 bg-light" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                <a href="/google-sheet/detail" class="btn btn-primary" id="view-task-btn" style="display: none;">查看任务详情</a>
-            </div>
-        </div>
-    </div>
-</div>
+<!-- 保存模板弹窗：三套创建页统一复用同一份模板片段 -->
+{% include "google_sheet/_save_template_modal.html" %}
+<!-- 任务状态弹窗：统一复用公共模板，只保留详情页地址差异 -->
+{% set task_detail_url = "/google-sheet/detail" %}
+{% include "google_sheet/_task_status_modal.html" %}
 {% endblock %}
 
 {% block scripts %}
@@ -421,12 +366,11 @@
     let currentTaskId = null;
     let eventSource = null;
 
-    // 从模板加载数据
-    function loadFromTemplate(template) {
+    // 浠庢ā鏉垮姞杞芥暟鎹?    function loadFromTemplate(template) {
         if (!template) return;
         
         try {
-            // 填充基本信息
+            // 濉厖鍩烘湰淇℃伅
             if (template.name) {
                 document.getElementById('task_name').value = template.name;
             }
@@ -434,7 +378,7 @@
                 document.getElementById('task_description').value = template.description;
             }
             
-            // 填充配置信息
+            // 濉厖閰嶇疆淇℃伅
             if (template.config) {
                 let config = template.config;
                 if (typeof config === 'string') {
@@ -467,7 +411,7 @@
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
                 
-                // 填充参数配置
+                // 濉厖鍙傛暟閰嶇疆
                 if (config.parameters && Array.isArray(config.parameters)) {
                     config.parameters.forEach((param, index) => {
                         const paramId = `param${index + 1}`;
@@ -478,27 +422,26 @@
                     });
                 }
                 
-                // 更新组合计算
+                // 鏇存柊缁勫悎璁＄畻
                 calculateCombinations();
-                showNotification('已加载模板配置', 'success');
+                showNotification('宸插姞杞芥ā鏉块厤缃?, 'success');
                 
-                // 更新页面标题和提示
-                const urlTemplateId = new URLSearchParams(window.location.search).get('template_id');
+                // 鏇存柊椤甸潰鏍囬鍜屾彁绀?                const urlTemplateId = new URLSearchParams(window.location.search).get('template_id');
                 if (urlTemplateId) {
-                    document.title = '从模板创建任务 - Google Sheet 参数批量校验';
+                    document.title = '浠庢ā鏉垮垱寤轰换鍔?- Google Sheet 鍙傛暟鎵归噺鏍￠獙';
                     const cardHeader = document.querySelector('.card-header h4');
                     if (cardHeader) {
-                        cardHeader.innerHTML = '<i class="bi bi-file-earmark-text"></i> 从模板创建任务';
+                        cardHeader.innerHTML = '<i class="bi bi-file-earmark-text"></i> 浠庢ā鏉垮垱寤轰换鍔?;
                     }
                 }
             }
         } catch (error) {
-            console.error('加载模板失败:', error);
-            showError('加载模板配置失败: ' + error.message);
+            console.error('鍔犺浇妯℃澘澶辫触:', error);
+            showError('鍔犺浇妯℃澘閰嶇疆澶辫触: ' + error.message);
         }
     }
 
-    // 防抖函数
+    // 闃叉姈鍑芥暟
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -511,8 +454,7 @@
         };
     }
 
-    // 获取工作表列表
-    function loadWorksheets(isManualRefresh = false) {
+    // 鑾峰彇宸ヤ綔琛ㄥ垪琛?    function loadWorksheets(isManualRefresh = false) {
         const spreadsheetInput = document.getElementById('spreadsheet').value;
         const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
         const tokenType = document.getElementById('token_type').value;
@@ -520,36 +462,35 @@
         const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
 
-        // 获取相关元素
+        // 鑾峰彇鐩稿叧鍏冪礌
         const sheetSelect = document.getElementById('sheet_name');
         const refreshBtn = document.getElementById('refresh-sheets');
         const helpText = document.getElementById('sheet-name-help');
 
         if (!spreadsheetId) {
-            sheetSelect.innerHTML = '<option value="">请先输入电子表格ID</option>';
-            helpText.textContent = '选择要操作的工作表';
+            sheetSelect.innerHTML = '<option value="">璇峰厛杈撳叆鐢靛瓙琛ㄦ牸ID</option>';
+            helpText.textContent = '閫夋嫨瑕佹搷浣滅殑宸ヤ綔琛?;
             refreshBtn.disabled = true;
             return;
         }
 
-        // 显示加载状态
-        sheetSelect.disabled = true;
+        // 鏄剧ず鍔犺浇鐘舵€?        sheetSelect.disabled = true;
         refreshBtn.disabled = true;
         if (isManualRefresh) {
             const icon = refreshBtn.querySelector('i');
-            icon.classList.add('spin'); // 需要添加相应的CSS动画
+            icon.classList.add('spin'); // 闇€瑕佹坊鍔犵浉搴旂殑CSS鍔ㄧ敾
         }
-        sheetSelect.innerHTML = '<option value="">正在加载工作表列表...</option>';
-        helpText.textContent = '正在从Google Sheet获取工作表列表...';
+        sheetSelect.innerHTML = '<option value="">姝ｅ湪鍔犺浇宸ヤ綔琛ㄥ垪琛?..</option>';
+        helpText.textContent = '姝ｅ湪浠嶨oogle Sheet鑾峰彇宸ヤ綔琛ㄥ垪琛?..';
 
-        // 准备请求数据
+        // 鍑嗗璇锋眰鏁版嵁
         const requestData = {
             spreadsheet_id: spreadsheetId,
             token_file: tokenType === 'file' ? tokenFile : undefined,
             proxy_url: proxyUrl || undefined
         };
 
-        // 发送请求获取工作表列表
+        // 鍙戦€佽姹傝幏鍙栧伐浣滆〃鍒楄〃
         fetch('/api/google-sheet/worksheets', {
             method: 'POST',
             headers: {
@@ -561,11 +502,10 @@
         .then(data => {
             if (data.status === 'success' && Array.isArray(data.worksheets)) {
                 if (data.worksheets.length === 0) {
-                    throw new Error('未找到任何工作表');
+                    throw new Error('鏈壘鍒颁换浣曞伐浣滆〃');
                 }
 
-                // 清空并重新填充下拉列表
-                sheetSelect.innerHTML = '';
+                // 娓呯┖骞堕噸鏂板～鍏呬笅鎷夊垪琛?                sheetSelect.innerHTML = '';
                 data.worksheets.forEach(worksheet => {
                     const option = document.createElement('option');
                     option.value = worksheet;
@@ -573,44 +513,43 @@
                     sheetSelect.appendChild(option);
                 });
                 
-                // 添加自定义选项
+                // 娣诲姞鑷畾涔夐€夐」
                 const customOption = document.createElement('option');
-                customOption.value = '自定义';
-                customOption.textContent = '自定义';
+                customOption.value = '鑷畾涔?;
+                customOption.textContent = '鑷畾涔?;
                 sheetSelect.appendChild(customOption);
 
-                // 如果有保存的值，恢复它
-                const savedValue = sheetSelect.getAttribute('data-saved-value');
+                // 濡傛灉鏈変繚瀛樼殑鍊硷紝鎭㈠瀹?                const savedValue = sheetSelect.getAttribute('data-saved-value');
                 if (savedValue) {
                     if (data.worksheets.includes(savedValue)) {
                         sheetSelect.value = savedValue;
-                        helpText.textContent = `已选择工作表: ${savedValue}`;
-                    } else if (savedValue === '自定义') {
-                        sheetSelect.value = '自定义';
+                        helpText.textContent = `宸查€夋嫨宸ヤ綔琛? ${savedValue}`;
+                    } else if (savedValue === '鑷畾涔?) {
+                        sheetSelect.value = '鑷畾涔?;
                         document.getElementById('custom-sheet-container').style.display = 'block';
-                        helpText.textContent = '使用自定义工作表名称';
+                        helpText.textContent = '浣跨敤鑷畾涔夊伐浣滆〃鍚嶇О';
                     }
                 } else {
-                    // 默认选择第一个工作表
+                    // 榛樿閫夋嫨绗竴涓伐浣滆〃
                     const defaultSheet = data.worksheets[0];
                     sheetSelect.value = defaultSheet;
-                    helpText.textContent = `已自动选择第一个工作表: ${defaultSheet}`;
+                    helpText.textContent = `宸茶嚜鍔ㄩ€夋嫨绗竴涓伐浣滆〃: ${defaultSheet}`;
                 }
 
                 if (!isManualRefresh) {
-                    showNotification('工作表列表已自动加载', 'success');
+                    showNotification('宸ヤ綔琛ㄥ垪琛ㄥ凡鑷姩鍔犺浇', 'success');
                 } else {
-                    showNotification('工作表列表已刷新', 'success');
+                    showNotification('宸ヤ綔琛ㄥ垪琛ㄥ凡鍒锋柊', 'success');
                 }
             } else {
-                throw new Error(data.message || '获取工作表列表失败');
+                throw new Error(data.message || '鑾峰彇宸ヤ綔琛ㄥ垪琛ㄥけ璐?);
             }
         })
         .catch(error => {
-            console.error('获取工作表列表失败:', error);
-            sheetSelect.innerHTML = '<option value="">加载失败</option>';
-            helpText.textContent = '加载失败，请检查电子表格ID是否正确';
-            showError('获取工作表列表失败: ' + error.message);
+            console.error('鑾峰彇宸ヤ綔琛ㄥ垪琛ㄥけ璐?', error);
+            sheetSelect.innerHTML = '<option value="">鍔犺浇澶辫触</option>';
+            helpText.textContent = '鍔犺浇澶辫触锛岃妫€鏌ョ數瀛愯〃鏍糏D鏄惁姝ｇ‘';
+            showError('鑾峰彇宸ヤ綔琛ㄥ垪琛ㄥけ璐? ' + error.message);
         })
         .finally(() => {
             sheetSelect.disabled = false;
@@ -622,37 +561,34 @@
         });
     }
 
-    // 页面加载完成后绑定事件
-    document.addEventListener('DOMContentLoaded', function() {
+    // 椤甸潰鍔犺浇瀹屾垚鍚庣粦瀹氫簨浠?    document.addEventListener('DOMContentLoaded', function() {
         bindEvents();
-        loadTemplates(); // 加载模板列表
+        loadTemplates(); // 鍔犺浇妯℃澘鍒楄〃
         
-        // URL 参数驱动的数据加载：
+        // URL 鍙傛暟椹卞姩鐨勬暟鎹姞杞斤細
         // - ?template_id=xxx -> /api/templates/xxx
         // - ?restart_task_id=xxx -> /api/tasks/xxx
-        // - 其它 -> loadSavedFormData()
+        // - 鍏跺畠 -> loadSavedFormData()
         initFromUrlParams();
         
         calculateCombinations();
 
-        // 创建防抖版本的函数
-        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
+        // 鍒涘缓闃叉姈鐗堟湰鐨勫嚱鏁?        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
         const debouncedCalculateCombinations = debounce(calculateCombinations, 300);
         const debouncedSaveFormData = debounce(saveFormData, 300);
 
-        // 监听spreadsheet输入变化
+        // 鐩戝惉spreadsheet杈撳叆鍙樺寲
         const spreadsheetInput = document.getElementById('spreadsheet');
         spreadsheetInput.addEventListener('input', debouncedLoadWorksheets);
 
-        // 为参数输入添加防抖
-        document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
+        // 涓哄弬鏁拌緭鍏ユ坊鍔犻槻鎶?        document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
             textarea.addEventListener('input', function() {
                 debouncedCalculateCombinations();
                 debouncedSaveFormData();
             });
         });
 
-        // 为其他输入字段添加防抖的自动保存
+        // 涓哄叾浠栬緭鍏ュ瓧娈垫坊鍔犻槻鎶栫殑鑷姩淇濆瓨
         const inputFields = [
             'task_name', 'task_description', 'custom_sheet_name', 
             'token_file', 'token_json', 'proxy_url'
@@ -692,18 +628,18 @@
                 const task = (data && data.task) ? data.task : null;
                 const configRaw = task ? task.config : null;
                 if (!configRaw) {
-                    showNotification('加载原任务配置失败：config为空', 'error');
+                    showNotification('鍔犺浇鍘熶换鍔￠厤缃け璐ワ細config涓虹┖', 'error');
                     return;
                 }
                 loadRestartConfig(configRaw, taskId);
             })
             .catch(err => {
-                console.error('加载原任务失败:', err);
-                showNotification('加载原任务失败', 'error');
+                console.error('鍔犺浇鍘熶换鍔″け璐?', err);
+                showNotification('鍔犺浇鍘熶换鍔″け璐?, 'error');
             });
     }
 
-    // 加载模板列表
+    // 鍔犺浇妯℃澘鍒楄〃
     function loadTemplates() {
         fetch('/api/templates')
             .then(response => response.json())
@@ -722,12 +658,12 @@
                 });
             })
             .catch(error => {
-                console.error('加载模板列表失败:', error);
-                showError('加载模板列表失败');
+                console.error('鍔犺浇妯℃澘鍒楄〃澶辫触:', error);
+                showError('鍔犺浇妯℃澘鍒楄〃澶辫触');
             });
     }
 
-    // 使用模板填充表单
+    // 浣跨敤妯℃澘濉厖琛ㄥ崟
     function fillFormWithTemplate(templateId) {
         if (!templateId) {
             return;
@@ -741,12 +677,12 @@
                     try {
                         config = JSON.parse(config);
                     } catch (e) {
-                        console.error('解析模板配置失败:', e);
+                        console.error('瑙ｆ瀽妯℃澘閰嶇疆澶辫触:', e);
                         return;
                     }
                 }
 
-                // 填充Google Sheet配置
+                // 濉厖Google Sheet閰嶇疆
                 if (config.spreadsheet_id) {
                     document.getElementById('spreadsheet').value = config.spreadsheet_id;
                 }
@@ -768,7 +704,7 @@
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
 
-                // 填充参数配置
+                // 濉厖鍙傛暟閰嶇疆
                 if (config.parameters && Array.isArray(config.parameters)) {
                     config.parameters.forEach((param, index) => {
                         const paramId = `param${index + 1}`;
@@ -779,49 +715,47 @@
                     });
                 }
 
-                // 更新组合计算
+                // 鏇存柊缁勫悎璁＄畻
                 calculateCombinations();
-                showNotification('已加载模板配置', 'success');
+                showNotification('宸插姞杞芥ā鏉块厤缃?, 'success');
             })
             .catch(error => {
-                console.error('加载模板详情失败:', error);
-                showNotification('加载模板失败', 'error');
+                console.error('鍔犺浇妯℃澘璇︽儏澶辫触:', error);
+                showNotification('鍔犺浇妯℃澘澶辫触', 'error');
             });
     }
 
     function bindEvents() {
-        // 创建防抖版本的函数
-        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
+        // 鍒涘缓闃叉姈鐗堟湰鐨勫嚱鏁?        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
         const debouncedCalculateCombinations = debounce(calculateCombinations, 300);
         const debouncedSaveFormData = debounce(saveFormData, 300);
 
-        // 模板选择变化事件
+        // 妯℃澘閫夋嫨鍙樺寲浜嬩欢
         document.getElementById('task_template').addEventListener('change', function() {
             fillFormWithTemplate(this.value);
         });
 
-        // 任务名称和描述变化事件
-        document.getElementById('task_name').addEventListener('input', debouncedSaveFormData);
+        // 浠诲姟鍚嶇О鍜屾弿杩板彉鍖栦簨浠?        document.getElementById('task_name').addEventListener('input', debouncedSaveFormData);
         document.getElementById('task_description').addEventListener('input', debouncedSaveFormData);
         
-        // 工作表名称选择变化事件
+        // 宸ヤ綔琛ㄥ悕绉伴€夋嫨鍙樺寲浜嬩欢
         document.getElementById('sheet_name').addEventListener('change', function() {
             const customContainer = document.getElementById('custom-sheet-container');
             const helpText = document.getElementById('sheet-name-help');
             
-            if (this.value === '自定义') {
+            if (this.value === '鑷畾涔?) {
                 customContainer.style.display = 'block';
-                helpText.textContent = '使用自定义工作表名称';
+                helpText.textContent = '浣跨敤鑷畾涔夊伐浣滆〃鍚嶇О';
             } else {
                 customContainer.style.display = 'none';
                 if (this.value) {
-                    helpText.textContent = `已选择工作表: ${this.value}`;
+                    helpText.textContent = `宸查€夋嫨宸ヤ綔琛? ${this.value}`;
                 }
             }
             debouncedSaveFormData();
         });
 
-        // 认证方式选择变化事件
+        // 璁よ瘉鏂瑰紡閫夋嫨鍙樺寲浜嬩欢
         document.getElementById('token_type').addEventListener('change', function() {
             const fileContainer = document.getElementById('token_file_container');
             const jsonContainer = document.getElementById('token_json_container');
@@ -835,7 +769,7 @@
             debouncedSaveFormData();
         });
 
-        // 参数输入变化事件
+        // 鍙傛暟杈撳叆鍙樺寲浜嬩欢
         document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
             textarea.addEventListener('input', function() {
                 debouncedCalculateCombinations();
@@ -843,8 +777,7 @@
             });
         });
 
-        // 为所有输入字段添加自动保存
-        const inputFields = [
+        // 涓烘墍鏈夎緭鍏ュ瓧娈垫坊鍔犺嚜鍔ㄤ繚瀛?        const inputFields = [
             'spreadsheet', 'custom_sheet_name', 'token_file', 'token_json', 'proxy_url'
         ];
         
@@ -856,7 +789,7 @@
             }
         });
 
-        // 监听spreadsheet输入变化
+        // 鐩戝惉spreadsheet杈撳叆鍙樺寲
         const spreadsheetInput = document.getElementById('spreadsheet');
         spreadsheetInput.addEventListener('input', function() {
             const refreshBtn = document.getElementById('refresh-sheets');
@@ -868,19 +801,18 @@
             debouncedLoadWorksheets(false);
         });
 
-        // 刷新按钮点击事件
+        // 鍒锋柊鎸夐挳鐐瑰嚮浜嬩欢
         document.getElementById('refresh-sheets').addEventListener('click', function() {
-            loadWorksheets(true); // 传入true表示是手动刷新
-        });
+            loadWorksheets(true); // 浼犲叆true琛ㄧず鏄墜鍔ㄥ埛鏂?        });
 
-        // 表单提交事件
+        // 琛ㄥ崟鎻愪氦浜嬩欢
         document.getElementById('parameter-form').addEventListener('submit', function(e) {
             e.preventDefault();
             submitTask();
         });
     }
 
-    // 计算参数组合数量
+    // 璁＄畻鍙傛暟缁勫悎鏁伴噺
     function calculateCombinations() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
         const param2 = parseJsonArray(document.getElementById('param2').value) || [];
@@ -904,7 +836,7 @@
         return count;
     }
 
-    // 显示参数组合预览
+    // 鏄剧ず鍙傛暟缁勫悎棰勮
     function showCombinationPreview() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
         const param2 = parseJsonArray(document.getElementById('param2').value) || [];
@@ -919,14 +851,13 @@
         const previewContainer = document.getElementById('combination-preview');
         previewContainer.innerHTML = '';
         
-        // 只显示前20个组合
-        const displayCombinations = combinations.slice(0, 20);
+        // 鍙樉绀哄墠20涓粍鍚?        const displayCombinations = combinations.slice(0, 20);
         
         displayCombinations.forEach((combination, index) => {
             const div = document.createElement('div');
             div.className = 'mb-2 p-2 border rounded';
             div.innerHTML = `
-                <strong>组合 ${index + 1}:</strong>
+                <strong>缁勫悎 ${index + 1}:</strong>
                 <div class="small text-muted">${combination.join(', ')}</div>
             `;
             previewContainer.appendChild(div);
@@ -935,7 +866,7 @@
         if (combinations.length > 20) {
             const moreDiv = document.createElement('div');
             moreDiv.className = 'text-center text-muted';
-            moreDiv.textContent = `... 还有 ${combinations.length - 20} 个组合`;
+            moreDiv.textContent = `... 杩樻湁 ${combinations.length - 20} 涓粍鍚坄;
             previewContainer.appendChild(moreDiv);
         }
         
@@ -943,7 +874,7 @@
         modal.show();
     }
 
-    // 生成参数组合
+    // 鐢熸垚鍙傛暟缁勫悎
     function generateCombinations(parameters) {
         const combinations = [];
         const param1 = parameters[0] || [];
@@ -970,7 +901,7 @@
         return combinations;
     }
 
-    // 参数管理功能
+    // 鍙傛暟绠＄悊鍔熻兘
     let parameterCount = 6;
     
     function addParameter() {
@@ -985,14 +916,14 @@
                 <div class="card border-${color}">
                     <div class="card-header bg-${color} ${textColor}">
                         <h6 class="mb-0">
-                            <i class="bi bi-${parameterCount}-circle"></i> 参数${parameterCount}
+                            <i class="bi bi-${parameterCount}-circle"></i> 鍙傛暟${parameterCount}
                             <button type="button" class="${closeClass} float-end" onclick="removeParameter(${parameterCount})" style="font-size: 0.7em;"></button>
                         </h6>
                     </div>
                     <div class="card-body">
                         <textarea class="form-control parameter-input" id="param${parameterCount}" rows="3" 
                                   placeholder='["value1", "value2"]'></textarea>
-                        <div class="form-text">JSON数组格式</div>
+                        <div class="form-text">JSON鏁扮粍鏍煎紡</div>
                     </div>
                 </div>
             </div>
@@ -1000,7 +931,7 @@
         
         document.getElementById('parameters-container').insertAdjacentHTML('beforeend', newParamHtml);
         
-        // 绑定事件
+        // 缁戝畾浜嬩欢
         const newTextarea = document.getElementById(`param${parameterCount}`);
         newTextarea.addEventListener('input', function() {
             calculateCombinations();
@@ -1008,7 +939,7 @@
         });
         
         calculateCombinations();
-        showNotification(`已添加参数${parameterCount}`, 'success');
+        showNotification(`宸叉坊鍔犲弬鏁?{parameterCount}`, 'success');
     }
     
     function removeParameter(paramNum) {
@@ -1016,80 +947,77 @@
         if (paramElement) {
             paramElement.remove();
             calculateCombinations();
-            showNotification(`已删除参数${paramNum}`, 'info');
+            showNotification(`宸插垹闄ゅ弬鏁?{paramNum}`, 'info');
         }
     }
     
     function clearAllParameters() {
-        if (confirm('确定要清空所有参数吗？')) {
+        if (confirm('纭畾瑕佹竻绌烘墍鏈夊弬鏁板悧锛?)) {
             document.querySelectorAll('textarea[id^="param"]').forEach(textarea => {
                 textarea.value = '';
             });
             calculateCombinations();
-            showNotification('已清空所有参数', 'warning');
+            showNotification('宸叉竻绌烘墍鏈夊弬鏁?, 'warning');
         }
     }
 
-    // 提交任务
+    // 鎻愪氦浠诲姟
     function submitTask() {
-        // 计算参数组合数量
+        // 璁＄畻鍙傛暟缁勫悎鏁伴噺
         const combinationCount = calculateCombinations();
         if (combinationCount === 0) {
-            showNotification('请至少输入一个参数', 'error');
+            showNotification('璇疯嚦灏戣緭鍏ヤ竴涓弬鏁?, 'error');
             return;
         }
         
-        // 获取Google Sheet配置
+        // 鑾峰彇Google Sheet閰嶇疆
         const spreadsheetInput = document.getElementById('spreadsheet').value;
         const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
         const sheetNameSelect = document.getElementById('sheet_name').value;
         const customSheetName = document.getElementById('custom_sheet_name').value;
-        const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
+        const sheetName = sheetNameSelect === '鑷畾涔? ? customSheetName : sheetNameSelect;
         const tokenType = document.getElementById('token_type').value;
         const tokenFile = document.getElementById('token_file').value;
         const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
         
-        // 验证必要字段
+        // 楠岃瘉蹇呰瀛楁
         if (!spreadsheetId) {
-            showNotification('请输入电子表格ID或URL', 'error');
+            showNotification('璇疯緭鍏ョ數瀛愯〃鏍糏D鎴朥RL', 'error');
             return;
         }
         
-        if (sheetNameSelect === '自定义' && !customSheetName) {
-            showNotification('请输入自定义工作表名称', 'error');
+        if (sheetNameSelect === '鑷畾涔? && !customSheetName) {
+            showNotification('璇疯緭鍏ヨ嚜瀹氫箟宸ヤ綔琛ㄥ悕绉?, 'error');
             return;
         }
         
         if (tokenType === 'file' && !tokenFile) {
-            showNotification('请输入Token文件路径', 'error');
+            showNotification('璇疯緭鍏oken鏂囦欢璺緞', 'error');
             return;
         }
         
         if (tokenType === 'json' && !tokenJson) {
-            showNotification('请输入Token JSON字符串', 'error');
+            showNotification('璇疯緭鍏oken JSON瀛楃涓?, 'error');
             return;
         }
         
-        // 获取所有参数
-        const param1 = parseJsonArray(document.getElementById('param1').value);
+        // 鑾峰彇鎵€鏈夊弬鏁?        const param1 = parseJsonArray(document.getElementById('param1').value);
         const param2 = parseJsonArray(document.getElementById('param2').value);
         const param3 = parseJsonArray(document.getElementById('param3').value);
         const param4 = parseJsonArray(document.getElementById('param4').value);
         const param5 = parseJsonArray(document.getElementById('param5').value);
         const param6 = parseJsonArray(document.getElementById('param6').value);
         
-        // 检查是否有解析错误
+        // 妫€鏌ユ槸鍚︽湁瑙ｆ瀽閿欒
         if (param1 === null || param2 === null || param3 === null || param4 === null || param5 === null || param6 === null) {
-            showNotification('参数格式错误，请检查JSON格式', 'error');
+            showNotification('鍙傛暟鏍煎紡閿欒锛岃妫€鏌SON鏍煎紡', 'error');
             return;
         }
         
-        // 构造参数列表
-        const parameters = [param1, param2, param3, param4, param5, param6];
+        // 鏋勯€犲弬鏁板垪琛?        const parameters = [param1, param2, param3, param4, param5, param6];
         
-        // 构造任务配置
-        const taskConfig = {
+        // 鏋勯€犱换鍔￠厤缃?        const taskConfig = {
             spreadsheet_id: spreadsheetId,
             sheet_name: sheetName,
             token_type: tokenType,
@@ -1099,74 +1027,69 @@
             parameters: parameters
         };
         
-        // 禁用执行按钮
+        // 绂佺敤鎵ц鎸夐挳
         const executeBtn = document.getElementById('execute-btn');
         executeBtn.disabled = true;
-        executeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 创建任务中...';
+        executeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 鍒涘缓浠诲姟涓?..';
         
-        // 获取任务名称和描述
-        const taskName = document.getElementById('task_name').value.trim();
+        // 鑾峰彇浠诲姟鍚嶇О鍜屾弿杩?        const taskName = document.getElementById('task_name').value.trim();
         const taskDescription = document.getElementById('task_description').value.trim();
         
-        // 如果没有输入任务名称，使用默认生成逻辑
-        const finalTaskName = taskName || `Google Sheet 任务 - ${new Date().toLocaleString()}`;
+        // 濡傛灉娌℃湁杈撳叆浠诲姟鍚嶇О锛屼娇鐢ㄩ粯璁ょ敓鎴愰€昏緫
+        const finalTaskName = taskName || `Google Sheet 浠诲姟 - ${new Date().toLocaleString()}`;
         
-        // 发送执行请求
-        const taskData = {
+        // 鍙戦€佹墽琛岃姹?        const taskData = {
             name: finalTaskName,
-            description: taskDescription || `批量执行 ${combinationCount} 个参数组合`,
+            description: taskDescription || `鎵归噺鎵ц ${combinationCount} 涓弬鏁扮粍鍚坄,
             task_type: 'google_sheet',
             config: taskConfig
         };
         
         ajaxRequest('/api/tasks', 'POST', taskData, function(err, data) {
             executeBtn.disabled = false;
-            executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 创建任务并执行';
+            executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 鍒涘缓浠诲姟骞舵墽琛?;
             
             if (!err && data && data.status === 'success') {
                 currentTaskId = data.task_id;
-                showNotification('任务创建成功，正在跳转到详情页面...', 'success');
+                showNotification('浠诲姟鍒涘缓鎴愬姛锛屾鍦ㄨ烦杞埌璇︽儏椤甸潰...', 'success');
                 
-                // 清空表单
+                // 娓呯┖琛ㄥ崟
                 document.getElementById('parameter-form').reset();
-                // 隐藏组合信息
+                // 闅愯棌缁勫悎淇℃伅
                 document.getElementById('combination-info').style.display = 'none';
-                // 清除保存的表单数据
-                clearSavedFormData();
+                // 娓呴櫎淇濆瓨鐨勮〃鍗曟暟鎹?                clearSavedFormData();
                 
-                // 延迟1秒后跳转到详情页面
-                setTimeout(function() {
+                // 寤惰繜1绉掑悗璺宠浆鍒拌鎯呴〉闈?                setTimeout(function() {
                     window.location.href = `/google-sheet/detail?task_id=${currentTaskId}`;
                 }, 1000);
             } else {
-                showNotification('创建任务失败: ' + (data ? data.message : '未知错误'), 'error');
+                showNotification('鍒涘缓浠诲姟澶辫触: ' + (data ? data.message : '鏈煡閿欒'), 'error');
             }
         });
     }
 
-    // SSE相关功能已移除，任务创建后直接跳转到详情页面
+    // SSE鐩稿叧鍔熻兘宸茬Щ闄わ紝浠诲姟鍒涘缓鍚庣洿鎺ヨ烦杞埌璇︽儏椤甸潰
 
-    // 处理任务事件（保留以备将来使用）
+    // 澶勭悊浠诲姟浜嬩欢锛堜繚鐣欎互澶囧皢鏉ヤ娇鐢級
     function handleTaskEvent(event) {
         if (event.type === 'log_update') {
-            // 处理实时日志更新
-            console.log('收到日志更新:', event.data);
+            // 澶勭悊瀹炴椂鏃ュ織鏇存柊
+            console.log('鏀跺埌鏃ュ織鏇存柊:', event.data);
         } else if (event.type === 'heartbeat') {
-            // 心跳包，无需处理
+            // 蹇冭烦鍖咃紝鏃犻渶澶勭悊
         } else if (event.type === 'error') {
-            showNotification('任务执行出错: ' + event.data, 'error');
+            showNotification('浠诲姟鎵ц鍑洪敊: ' + event.data, 'error');
         }
     }
     
-    // 任务状态日志更新功能已移除
+    // 浠诲姟鐘舵€佹棩蹇楁洿鏂板姛鑳藉凡绉婚櫎
 
-    // 确认和取消执行功能已移除，任务创建后直接跳转到详情页面
+    // 纭鍜屽彇娑堟墽琛屽姛鑳藉凡绉婚櫎锛屼换鍔″垱寤哄悗鐩存帴璺宠浆鍒拌鎯呴〉闈?
+    // 浠诲姟鐘舵€佹ā鎬佹鍔熻兘宸茬Щ闄わ紝浠诲姟鍒涘缓鍚庣洿鎺ヨ烦杞埌璇︽儏椤甸潰
 
-    // 任务状态模态框功能已移除，任务创建后直接跳转到详情页面
+    // 椤甸潰鍗歌浇鏃舵竻鐞嗚祫婧愶紙SSE鍔熻兘宸茬Щ闄わ級
 
-    // 页面卸载时清理资源（SSE功能已移除）
-
-    // 保存表单数据到localStorage
+    // 淇濆瓨琛ㄥ崟鏁版嵁鍒發ocalStorage
     function saveFormData() {
         const formData = {
             task_name: document.getElementById('task_name').value,
@@ -1188,20 +1111,20 @@
         
         try {
             localStorage.setItem('google_sheet_form_data', JSON.stringify(formData));
-            // 静默保存，不显示提示
+            // 闈欓粯淇濆瓨锛屼笉鏄剧ず鎻愮ず
         } catch (e) {
-            console.warn('无法保存表单数据到localStorage:', e);
+            console.warn('鏃犳硶淇濆瓨琛ㄥ崟鏁版嵁鍒發ocalStorage:', e);
         }
     }
 
-    // 从localStorage加载表单数据
+    // 浠巐ocalStorage鍔犺浇琛ㄥ崟鏁版嵁
     function loadSavedFormData() {
         try {
             const savedData = localStorage.getItem('google_sheet_form_data');
             if (savedData) {
                 const formData = JSON.parse(savedData);
                 
-                // 恢复表单字段
+                // 鎭㈠琛ㄥ崟瀛楁
                 if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
                 if (formData.spreadsheet) document.getElementById('spreadsheet').value = formData.spreadsheet;
@@ -1221,106 +1144,83 @@
                 if (formData.param5) document.getElementById('param5').value = formData.param5;
                 if (formData.param6) document.getElementById('param6').value = formData.param6;
                 
-                // 触发相关事件以更新UI状态
-                document.getElementById('sheet_name').dispatchEvent(new Event('change'));
+                // 瑙﹀彂鐩稿叧浜嬩欢浠ユ洿鏂癠I鐘舵€?                document.getElementById('sheet_name').dispatchEvent(new Event('change'));
                 document.getElementById('token_type').dispatchEvent(new Event('change'));
                 
-                console.log('表单数据已恢复');
+                console.log('琛ㄥ崟鏁版嵁宸叉仮澶?);
                 
-                // 显示恢复状态
-                showNotification('表单数据已恢复', 'info');
+                // 鏄剧ず鎭㈠鐘舵€?                showNotification('琛ㄥ崟鏁版嵁宸叉仮澶?, 'info');
             }
         } catch (e) {
-            console.warn('无法从localStorage加载表单数据:', e);
+            console.warn('鏃犳硶浠巐ocalStorage鍔犺浇琛ㄥ崟鏁版嵁:', e);
         }
     }
 
-    // 清除保存的表单数据
-    function clearSavedFormData() {
+    // 娓呴櫎淇濆瓨鐨勮〃鍗曟暟鎹?    function clearSavedFormData() {
         try {
             localStorage.removeItem('google_sheet_form_data');
-            // 重置表单
+            // 閲嶇疆琛ㄥ崟
             document.getElementById('parameter-form').reset();
-            // 隐藏组合信息
+            // 闅愯棌缁勫悎淇℃伅
             document.getElementById('combination-info').style.display = 'none';
-            // 重新计算组合数量
+            // 閲嶆柊璁＄畻缁勫悎鏁伴噺
             calculateCombinations();
-            console.log('已清除保存的表单数据');
-            showNotification('已清除保存的表单数据', 'success');
+            console.log('宸叉竻闄や繚瀛樼殑琛ㄥ崟鏁版嵁');
+            showNotification('宸叉竻闄や繚瀛樼殑琛ㄥ崟鏁版嵁', 'success');
         } catch (e) {
-            console.warn('无法清除localStorage数据:', e);
+            console.warn('鏃犳硶娓呴櫎localStorage鏁版嵁:', e);
         }
     }
+    // 模板弹窗公共逻辑：复用共享 helper，页面仅保留配置采集差异
+    {% include "google_sheet/_template_modal_helpers.html" %}
 
-    // 保存为模板
-    function saveAsTemplate() {
-        // 获取当前配置
-        const config = getCurrentConfig();
-        if (!config) {
-            return;
-        }
-
-        // 预填充模板名称（如果有任务名称）
-        const taskName = document.getElementById('task_name').value.trim();
-        if (taskName) {
-            document.getElementById('templateName').value = taskName + ' 模板';
-        }
-
-        // 显示保存模板对话框
-        const modal = new bootstrap.Modal(document.getElementById('saveTemplateModal'));
-        modal.show();
-    }
-
-    // 获取当前配置
     function getCurrentConfig() {
         try {
             const spreadsheetInput = document.getElementById('spreadsheet').value;
             const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
             const sheetNameSelect = document.getElementById('sheet_name').value;
             const customSheetName = document.getElementById('custom_sheet_name').value;
-            const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
+            const sheetName = sheetNameSelect === '鑷畾涔? ? customSheetName : sheetNameSelect;
             const tokenType = document.getElementById('token_type').value;
             const tokenFile = document.getElementById('token_file').value;
             const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
 
-            // 验证必要字段
+            // 楠岃瘉蹇呰瀛楁
             if (!spreadsheetId) {
-                showError('请输入电子表格ID或URL');
+                showError('璇疯緭鍏ョ數瀛愯〃鏍糏D鎴朥RL');
                 return null;
             }
 
-            if (sheetNameSelect === '自定义' && !customSheetName) {
-                showError('请输入自定义工作表名称');
+            if (sheetNameSelect === '鑷畾涔? && !customSheetName) {
+                showError('璇疯緭鍏ヨ嚜瀹氫箟宸ヤ綔琛ㄥ悕绉?);
                 return null;
             }
 
             if (tokenType === 'file' && !tokenFile) {
-                showError('请输入Token文件路径');
+                showError('璇疯緭鍏oken鏂囦欢璺緞');
                 return null;
             }
 
             if (tokenType === 'json' && !tokenJson) {
-                showError('请输入Token JSON字符串');
+                showError('璇疯緭鍏oken JSON瀛楃涓?);
                 return null;
             }
 
-            // 获取所有参数
-            const param1 = parseJsonArray(document.getElementById('param1').value);
+            // 鑾峰彇鎵€鏈夊弬鏁?            const param1 = parseJsonArray(document.getElementById('param1').value);
             const param2 = parseJsonArray(document.getElementById('param2').value);
             const param3 = parseJsonArray(document.getElementById('param3').value);
             const param4 = parseJsonArray(document.getElementById('param4').value);
             const param5 = parseJsonArray(document.getElementById('param5').value);
             const param6 = parseJsonArray(document.getElementById('param6').value);
 
-            // 检查是否有解析错误
+            // 妫€鏌ユ槸鍚︽湁瑙ｆ瀽閿欒
             if (param1 === null || param2 === null || param3 === null || param4 === null || param5 === null || param6 === null) {
-                showError('参数格式错误，请检查JSON格式');
+                showError('鍙傛暟鏍煎紡閿欒锛岃妫€鏌SON鏍煎紡');
                 return null;
             }
 
-            // 构造配置对象
-            return {
+            // 鏋勯€犻厤缃璞?            return {
                 spreadsheet_id: spreadsheetId,
                 sheet_name: sheetName,
                 token_type: tokenType,
@@ -1330,73 +1230,23 @@
                 parameters: [param1, param2, param3, param4, param5, param6]
             };
         } catch (error) {
-            console.error('获取当前配置失败:', error);
-            showError('获取当前配置失败: ' + error.message);
+            console.error('鑾峰彇褰撳墠閰嶇疆澶辫触:', error);
+            showError('鑾峰彇褰撳墠閰嶇疆澶辫触: ' + error.message);
             return null;
         }
     }
 
-    // 提交模板
-    function submitTemplate() {
-        const config = getCurrentConfig();
-        if (!config) {
-            return;
-        }
 
-        const name = document.getElementById('templateName').value.trim();
-        const description = document.getElementById('templateDescription').value.trim();
-
-        if (!name) {
-            showError('请输入模板名称');
-            return;
-        }
-
-        const templateData = {
-            name: name,
-            description: description,
-            config: config
-        };
-
-        fetch('/api/templates', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(templateData)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                const modal = document.getElementById('saveTemplateModal');
-                const modalInstance = bootstrap.Modal.getInstance(modal);
-                if (modalInstance) {
-                    modalInstance.hide();
-                }
-                showNotification('模板保存成功', 'success');
-                
-                // 重新加载模板列表
-                loadTemplates();
-            } else {
-                showError(data.message || '保存模板失败');
-            }
-        })
-        .catch(error => {
-            console.error('保存模板失败:', error);
-            showError('保存模板失败: ' + error.message);
-        });
-    }
-
-    // 加载重启配置
     function loadRestartConfig(restartConfig, originalTaskId) {
         try {
-            console.log('加载重启配置:', restartConfig);
+            console.log('鍔犺浇閲嶅惎閰嶇疆:', restartConfig);
             
-            // 填充基本信息（添加重启标识）
+            // 濉厖鍩烘湰淇℃伅锛堟坊鍔犻噸鍚爣璇嗭級
             if (restartConfig.name) {
-                document.getElementById('task_name').value = restartConfig.name + ' (重启)';
+                document.getElementById('task_name').value = restartConfig.name + ' (閲嶅惎)';
             }
             
-            // 填充Google Sheet配置
+            // 濉厖Google Sheet閰嶇疆
             if (restartConfig.spreadsheet_id) {
                 document.getElementById('spreadsheet').value = restartConfig.spreadsheet_id;
             }
@@ -1406,15 +1256,14 @@
                 if (options.includes(restartConfig.sheet_name)) {
                     sheetSelect.value = restartConfig.sheet_name;
                 } else {
-                    sheetSelect.value = '自定义';
+                    sheetSelect.value = '鑷畾涔?;
                     document.getElementById('custom_sheet_name').value = restartConfig.sheet_name;
                     document.getElementById('custom-sheet-container').style.display = 'block';
                 }
             }
             if (restartConfig.token_type) {
                 document.getElementById('token_type').value = restartConfig.token_type;
-                // 触发change事件来显示对应的输入框
-                document.getElementById('token_type').dispatchEvent(new Event('change'));
+                // 瑙﹀彂change浜嬩欢鏉ユ樉绀哄搴旂殑杈撳叆妗?                document.getElementById('token_type').dispatchEvent(new Event('change'));
             }
             if (restartConfig.token_file) {
                 document.getElementById('token_file').value = restartConfig.token_file;
@@ -1426,7 +1275,7 @@
                 document.getElementById('proxy_url').value = restartConfig.proxy_url;
             }
             
-            // 填充参数配置
+            // 濉厖鍙傛暟閰嶇疆
             if (restartConfig.parameters && Array.isArray(restartConfig.parameters)) {
                 restartConfig.parameters.forEach((param, index) => {
                     const paramId = `param${index + 1}`;
@@ -1437,21 +1286,20 @@
                 });
             }
             
-            // 更新页面标题
-            document.title = '重启任务 - Google Sheet 参数批量校验';
+            // 鏇存柊椤甸潰鏍囬
+            document.title = '閲嶅惎浠诲姟 - Google Sheet 鍙傛暟鎵归噺鏍￠獙';
             
-            // 在页面顶部添加提示
-            const cardHeader = document.querySelector('.card-header h4');
+            // 鍦ㄩ〉闈㈤《閮ㄦ坊鍔犳彁绀?            const cardHeader = document.querySelector('.card-header h4');
             if (cardHeader) {
-                cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重启任务 (基于原任务: ' + originalTaskId + ')';
+                cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 閲嶅惎浠诲姟 (鍩轰簬鍘熶换鍔? ' + originalTaskId + ')';
             }
             
-            // 计算参数组合
+            // 璁＄畻鍙傛暟缁勫悎
             calculateCombinations();
             
-            showNotification('已加载原任务配置', 'info');
+            showNotification('宸插姞杞藉師浠诲姟閰嶇疆', 'info');
         } catch (e) {
-            console.warn('加载重启配置失败:', e);
+            console.warn('鍔犺浇閲嶅惎閰嶇疆澶辫触:', e);
         }
     }
 </script>

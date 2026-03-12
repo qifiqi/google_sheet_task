@@ -1,6 +1,6 @@
-{% extends "google_sheet/base.html" %}
+﻿{% extends "google_sheet/base.html" %}
 
-{% block title %}创建任务 - Google Sheet C5 参数批量校验{% endblock %}
+{% block title %}鍒涘缓浠诲姟 - Google Sheet C5 鍙傛暟鎵归噺鏍￠獙{% endblock %}
 
 {% block styles %}
 <style>
@@ -27,7 +27,7 @@
         cursor: wait;
     }
 
-    /* 更紧凑的 Google Sheet 配置组件样式，仅作用于 C4 页面的配置块 */
+    /* 鏇寸揣鍑戠殑 Google Sheet 閰嶇疆缁勪欢鏍峰紡锛屼粎浣滅敤浜?C4 椤甸潰鐨勯厤缃潡 */
     .sheet-config-item {
         padding: 0.75rem 0.75rem;
         margin-bottom: 0.75rem;
@@ -62,7 +62,7 @@
         height: auto;
     }
 
-    /* 产品配置 - 产品代码卡片样式优化 */
+    /* 浜у搧閰嶇疆 - 浜у搧浠ｇ爜鍗＄墖鏍峰紡浼樺寲 */
     .product-config-card {
         border-width: 2px;
     }
@@ -116,39 +116,38 @@
         <div class="card">
             <div class="card-header">
                 <h4 class="card-title mb-0">
-                    <i class="bi bi-plus-circle"></i> 创建新任务
-                </h4>
+                    <i class="bi bi-plus-circle"></i> 鍒涘缓鏂颁换鍔?                </h4>
             </div>
             <div class="card-body">
                 <form id="parameter-form">
-                    <!-- 任务基本信息 -->
+                    <!-- 浠诲姟鍩烘湰淇℃伅 -->
                     <div class="row mb-4">
                         <div class="col-12">
                             <div class="card bg-light">
                                 <div class="card-body">
                                     <h5 class="card-title mb-3">
-                                        <i class="bi bi-info-circle"></i> 任务基本信息
+                                        <i class="bi bi-info-circle"></i> 浠诲姟鍩烘湰淇℃伅
                                     </h5>
                                     <div class="row">
                                         <div class="col-md-4 mb-3">
-                                            <label for="task_template" class="form-label">选择模板</label>
+                                            <label for="task_template" class="form-label">閫夋嫨妯℃澘</label>
                                             <select class="form-select" id="task_template">
-                                                <option value="">不使用模板</option>
-                                                <!-- 模板列表将通过JavaScript动态加载 -->
+                                                <option value="">涓嶄娇鐢ㄦā鏉?/option>
+                                                <!-- 妯℃澘鍒楄〃灏嗛€氳繃JavaScript鍔ㄦ€佸姞杞?-->
                                             </select>
-                                            <div class="form-text">选择一个已保存的任务模板来快速填充配置</div>
+                                            <div class="form-text">閫夋嫨涓€涓凡淇濆瓨鐨勪换鍔℃ā鏉挎潵蹇€熷～鍏呴厤缃?/div>
                                         </div>
                                         <div class="col-md-4 mb-3">
-                                            <label for="task_name" class="form-label">任务名称</label>
+                                            <label for="task_name" class="form-label">浠诲姟鍚嶇О</label>
                                             <input type="text" class="form-control" id="task_name"
-                                                   placeholder="留空将自动生成任务名称"
+                                                   placeholder="鐣欑┖灏嗚嚜鍔ㄧ敓鎴愪换鍔″悕绉?
                                                    value="">
-                                            <div class="form-text">为您的任务起一个有意义的名称，留空将自动生成</div>
+                                            <div class="form-text">涓烘偍鐨勪换鍔¤捣涓€涓湁鎰忎箟鐨勫悕绉帮紝鐣欑┖灏嗚嚜鍔ㄧ敓鎴?/div>
                                         </div>
                                         <div class="col-md-4 mb-3">
-                                            <label for="task_description" class="form-label">任务描述 (可选)</label>
+                                            <label for="task_description" class="form-label">浠诲姟鎻忚堪 (鍙€?</label>
                                             <textarea class="form-control" id="task_description" rows="2"
-                                                      placeholder="描述任务的目的或特殊要求"></textarea>
+                                                      placeholder="鎻忚堪浠诲姟鐨勭洰鐨勬垨鐗规畩瑕佹眰"></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -156,11 +155,11 @@
                         </div>
                     </div>
 
-                    <!-- Google Sheet 配置 -->
+                    <!-- Google Sheet 閰嶇疆 -->
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="card-title mb-0">
-                                <i class="bi bi-table"></i> Google Sheet 配置
+                                <i class="bi bi-table"></i> Google Sheet 閰嶇疆
                             </h5>
                         </div>
                         <div class="card-body">
@@ -169,42 +168,41 @@
                                     <div class="row align-items-end">
                                         <div class="col-md-4 mb-3">
                                             <label for="spreadsheet" class="form-label">
-                                                <i class="bi bi-link-45deg"></i> 电子表格ID或URL
+                                                <i class="bi bi-link-45deg"></i> 鐢靛瓙琛ㄦ牸ID鎴朥RL
                                             </label>
                                             <input type="text" class="form-control" id="spreadsheet"
-                                                   placeholder="请输入Google Sheet的ID或完整URL" required>
+                                                   placeholder="璇疯緭鍏oogle Sheet鐨処D鎴栧畬鏁碪RL" required>
                                             <div class="form-text">
-                                                <i class="bi bi-info-circle"></i> 支持直接输入ID或完整URL
+                                                <i class="bi bi-info-circle"></i> 鏀寔鐩存帴杈撳叆ID鎴栧畬鏁碪RL
                                             </div>
                                         </div>
                                         <div class="col-md-4 mb-3">
                                             <label for="spreadsheet_title" class="form-label">
-                                                <i class="bi bi-type"></i> 表标题（可选）
+                                                <i class="bi bi-type"></i> 琛ㄦ爣棰橈紙鍙€夛級
                                             </label>
                                             <input type="text" class="form-control" id="spreadsheet_title"
-                                                   placeholder="用于标记或显示的表名称">
-                                            <div class="form-text">将作为任务配置中的标题字段一并保存</div>
+                                                   placeholder="鐢ㄤ簬鏍囪鎴栨樉绀虹殑琛ㄥ悕绉?>
+                                            <div class="form-text">灏嗕綔涓轰换鍔￠厤缃腑鐨勬爣棰樺瓧娈典竴骞朵繚瀛?/div>
                                         </div>
                                         <div class="col-md-4 mb-3">
                                             <label for="sheet_name" class="form-label">
-                                                <i class="bi bi-file-spreadsheet"></i> 工作表名称
-                                            </label>
+                                                <i class="bi bi-file-spreadsheet"></i> 宸ヤ綔琛ㄥ悕绉?                                            </label>
                                             <div class="input-group">
                                                 <select class="form-select" id="sheet_name">
-                                                    <option value="">请先输入电子表格ID</option>
+                                                    <option value="">璇峰厛杈撳叆鐢靛瓙琛ㄦ牸ID</option>
                                                 </select>
-                                                <button class="btn btn-outline-secondary" type="button" id="refresh-sheets" title="刷新工作表列表">
+                                                <button class="btn btn-outline-secondary" type="button" id="refresh-sheets" title="鍒锋柊宸ヤ綔琛ㄥ垪琛?>
                                                     <i class="bi bi-arrow-clockwise"></i>
                                                 </button>
                                             </div>
-                                            <div class="form-text" id="sheet-name-help">选择要操作的工作表</div>
+                                            <div class="form-text" id="sheet-name-help">閫夋嫨瑕佹搷浣滅殑宸ヤ綔琛?/div>
                                         </div>
                                         <div class="col-md-6 mb-3" id="custom-sheet-container" style="display: none;">
                                             <label for="custom_sheet_name" class="form-label">
-                                                <i class="bi bi-pencil"></i> 自定义工作表名称
+                                                <i class="bi bi-pencil"></i> 鑷畾涔夊伐浣滆〃鍚嶇О
                                             </label>
                                             <input type="text" class="form-control" id="custom_sheet_name"
-                                                   placeholder="请输入工作表名称">
+                                                   placeholder="璇疯緭鍏ュ伐浣滆〃鍚嶇О">
                                         </div>
                                     </div>
                                 </div>
@@ -212,19 +210,17 @@
                             <div class="text-center mb-3">
                                 <div class="btn-group btn-group-sm" role="group">
                                     <button type="button" class="btn btn-outline-primary" id="add-sheet-config-btn">
-                                        <i class="bi bi-plus-circle"></i> 添加一组表格配置
-                                    </button>
+                                        <i class="bi bi-plus-circle"></i> 娣诲姞涓€缁勮〃鏍奸厤缃?                                    </button>
                                     <button type="button" class="btn btn-outline-danger" id="remove-sheet-config-btn">
-                                        <i class="bi bi-dash-circle"></i> 移除最后一组表格配置
-                                    </button>
+                                        <i class="bi bi-dash-circle"></i> 绉婚櫎鏈€鍚庝竴缁勮〃鏍奸厤缃?                                    </button>
                                 </div>
                             </div>
 
                             <div class="border-top pt-3 mt-3">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="fw-semibold"><i class="bi bi-sliders"></i> 更多配置</span>
+                                    <span class="fw-semibold"><i class="bi bi-sliders"></i> 鏇村閰嶇疆</span>
                                     <button type="button" class="btn btn-link btn-sm p-0" id="toggle-advanced-config-btn">
-                                        <span id="advanced-config-toggle-text">展开</span>
+                                        <span id="advanced-config-toggle-text">灞曞紑</span>
                                         <i class="bi bi-chevron-down ms-1" id="advanced-config-toggle-icon"></i>
                                     </button>
                                 </div>
@@ -232,33 +228,32 @@
                                     <div class="row mt-2">
                                         <div class="col-md-6 mb-3">
                                             <label for="token_type" class="form-label">
-                                                <i class="bi bi-shield-lock"></i> 认证方式
+                                                <i class="bi bi-shield-lock"></i> 璁よ瘉鏂瑰紡
                                             </label>
                                             <select class="form-select" id="token_type">
-                                                <option value="file">Token文件路径</option>
-                                                <option value="json">Token JSON字符串</option>
+                                                <option value="file">Token鏂囦欢璺緞</option>
+                                                <option value="json">Token JSON瀛楃涓?/option>
                                             </select>
                                         </div>
                                         <div class="col-md-6 mb-3" id="token_file_container">
                                             <label for="token_file" class="form-label">
-                                                <i class="bi bi-file-earmark-text"></i> Token文件路径
+                                                <i class="bi bi-file-earmark-text"></i> Token鏂囦欢璺緞
                                             </label>
                                             <input type="text" class="form-control" id="token_file"
-                                                   placeholder="请输入Token文件路径" value="data/token.json">
+                                                   placeholder="璇疯緭鍏oken鏂囦欢璺緞" value="data/token.json">
                                         </div>
                                         <div class="col-md-6 mb-3" id="token_json_container" style="display: none;">
                                             <label for="token_json" class="form-label">
-                                                <i class="bi bi-code-square"></i> Token JSON字符串
-                                            </label>
+                                                <i class="bi bi-code-square"></i> Token JSON瀛楃涓?                                            </label>
                                             <textarea class="form-control" id="token_json" rows="3"
                                                       placeholder='{"installed": {"client_id": "...", "client_secret": "...", ...}}'></textarea>
                                         </div>
                                         <div class="col-md-6 mb-3">
                                             <label for="proxy_url" class="form-label">
-                                                <i class="bi bi-globe"></i> 代理URL (可选)
+                                                <i class="bi bi-globe"></i> 浠ｇ悊URL (鍙€?
                                             </label>
                                             <input type="text" class="form-control" id="proxy_url"
-                                                   placeholder="请输入代理URL">
+                                                   placeholder="璇疯緭鍏ヤ唬鐞哢RL">
                                         </div>
                                     </div>
                                 </div>
@@ -266,30 +261,30 @@
                         </div>
                     </div>
 
-                    <!-- 产品配置 -->
+                    <!-- 浜у搧閰嶇疆 -->
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="card-title mb-0">
-                                <i class="bi bi-gear"></i> 产品配置
+                                <i class="bi bi-gear"></i> 浜у搧閰嶇疆
                             </h5>
                         </div>
                         <div class="card-body">
-                            <!-- 顶部两个参数卡片（参数2/参数3） -->
+                            <!-- 椤堕儴涓や釜鍙傛暟鍗＄墖锛堝弬鏁?/鍙傛暟3锛?-->
                             <div class="row mb-3" id="extra-parameters-container">
                                 <div class="col-md-6 mb-3">
                                     <div class="card border-success h-100">
                                         <div class="card-header bg-success text-white">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-2-circle"></i> 参数2
+                                                <i class="bi bi-2-circle"></i> 鍙傛暟2
                                             </h6>
                                         </div>
                                         <div class="card-body">
                                             <div class="mb-2">
-                                                <label class="form-label small text-muted">可选参数配置</label>
+                                                <label class="form-label small text-muted">鍙€夊弬鏁伴厤缃?/label>
                                                 <textarea class="form-control parameter-input" id="param2" rows="3"
                                                           placeholder='["v1", "v2"]'></textarea>
                                                 <div class="form-text">
-                                                    <i class="bi bi-code-slash"></i> JSON 数组格式，例如 ["v1", "v2"]
+                                                    <i class="bi bi-code-slash"></i> JSON 鏁扮粍鏍煎紡锛屼緥濡?["v1", "v2"]
                                                 </div>
                                             </div>
                                         </div>
@@ -299,16 +294,16 @@
                                     <div class="card border-info h-100">
                                         <div class="card-header bg-info text-white">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-3-circle"></i> 参数3
+                                                <i class="bi bi-3-circle"></i> 鍙傛暟3
                                             </h6>
                                         </div>
                                         <div class="card-body">
                                             <div class="mb-2">
-                                                <label class="form-label small text-muted">可选参数配置</label>
+                                                <label class="form-label small text-muted">鍙€夊弬鏁伴厤缃?/label>
                                                 <textarea class="form-control parameter-input" id="param3" rows="3"
                                                           placeholder='["v1", "v2"]'></textarea>
                                                 <div class="form-text">
-                                                    <i class="bi bi-code-slash"></i> JSON 数组格式，例如 ["v1", "v2"]
+                                                    <i class="bi bi-code-slash"></i> JSON 鏁扮粍鏍煎紡锛屼緥濡?["v1", "v2"]
                                                 </div>
                                             </div>
                                         </div>
@@ -316,107 +311,107 @@
                                 </div>
                             </div>
 
-                            <!-- 原有产品配置内容 -->
+                            <!-- 鍘熸湁浜у搧閰嶇疆鍐呭 -->
                             <div class="row" id="parameters-container">
                                 <div class="col-12 mb-3">
                                     <div class="card border-primary product-config-card">
                                         <div class="card-header bg-primary text-white">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-1-circle"></i> 主要配置
+                                                <i class="bi bi-1-circle"></i> 涓昏閰嶇疆
                                             </h6>
                                         </div>
                                         <div class="card-body">
-                                            <!-- 配置选项：统计方式 + 开盘/收盘 + 市场类型 -->
+                                            <!-- 閰嶇疆閫夐」锛氱粺璁℃柟寮?+ 寮€鐩?鏀剁洏 + 甯傚満绫诲瀷 -->
                                             <div class="border-bottom pb-3 mb-3">
                                                 <h6 class="text-muted mb-3">
-                                                    <i class="bi bi-sliders"></i> 基础设置
+                                                    <i class="bi bi-sliders"></i> 鍩虹璁剧疆
                                                 </h6>
                                                 <div class="row g-3 align-items-center">
                                                     <div class="col-md-3">
-                                                        <label class="form-label d-block">统计方式</label>
+                                                        <label class="form-label d-block">缁熻鏂瑰紡</label>
                                                         <div class="btn-group d-flex" role="group" aria-label="Count mode">
                                                             <input type="radio" class="btn-check" name="count_mode" id="count_mode_total" value="total" autocomplete="off" checked>
-                                                            <label class="btn btn-outline-primary flex-fill" for="count_mode_total">总数</label>
+                                                            <label class="btn btn-outline-primary flex-fill" for="count_mode_total">鎬绘暟</label>
 
                                                             <input type="radio" class="btn-check" name="count_mode" id="count_mode_n_plus_1" value="n_plus_1" autocomplete="off">
                                                             <label class="btn btn-outline-primary flex-fill" for="count_mode_n_plus_1">N+1</label>
                                                         </div>
                                                     </div>
                                                     <div class="col-md-3">
-                                                        <label class="form-label d-block">开盘/收盘</label>
+                                                        <label class="form-label d-block">寮€鐩?鏀剁洏</label>
                                                         <div class="btn-group d-flex" role="group" aria-label="Price mode">
                                                             <input type="radio" class="btn-check" name="price_mode" id="kp_price" value="kp_price" autocomplete="off" checked>
-                                                            <label class="btn btn-outline-primary flex-fill" for="kp_price">开盘</label>
+                                                            <label class="btn btn-outline-primary flex-fill" for="kp_price">寮€鐩?/label>
 
                                                             <input type="radio" class="btn-check" name="price_mode" id="sp_price" value="sp_price" autocomplete="off">
                                                             <label class="btn btn-outline-primary flex-fill"
-                                                                   for="sp_price">收盘</label>
+                                                                   for="sp_price">鏀剁洏</label>
                                                         </div>
                                                     </div>
                                                     <div class="col-md-3">
-                                                        <label class="form-label d-block">市场类型</label>
+                                                        <label class="form-label d-block">甯傚満绫诲瀷</label>
                                                         <div class="btn-group d-flex" role="group" aria-label="Market type">
                                                             <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="us" autocomplete="off">
-                                                            <label class="btn btn-outline-primary flex-fill" for="market_type_us">美股</label>
+                                                            <label class="btn btn-outline-primary flex-fill" for="market_type_us">缇庤偂</label>
 
                                                             <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" autocomplete="off" checked>
-                                                            <label class="btn btn-outline-primary flex-fill" for="market_type_cn">A股</label>
+                                                            <label class="btn btn-outline-primary flex-fill" for="market_type_cn">A鑲?/label>
                                                         </div>
                                                     </div>
                                                     <div class="col-md-3">
-                                                        <label class="form-label d-block">快速时间范围</label>
+                                                        <label class="form-label d-block">蹇€熸椂闂磋寖鍥?/label>
                                                         <div class="btn-group d-flex" role="group" aria-label="Quick date range">
                                                             <div class="form-check form-check-inline mb-0 me-2">
                                                                 <input class="form-check-input" type="checkbox" id="date_range_full" value="full">
-                                                                <label class="form-check-label" for="date_range_full">整年</label>
+                                                                <label class="form-check-label" for="date_range_full">鏁村勾</label>
                                                             </div>
                                                             <div class="form-check form-check-inline mb-0">
                                                                 <input class="form-check-input" type="checkbox" id="date_range_recent" value="recent">
-                                                                <label class="form-check-label" for="date_range_recent">近年</label>
+                                                                <label class="form-check-label" for="date_range_recent">杩戝勾</label>
                                                             </div>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <!-- 时间范围详细配置 -->
+                                            <!-- 鏃堕棿鑼冨洿璇︾粏閰嶇疆 -->
                                             <div class="border-bottom pb-3 mb-3">
                                                 <h6 class="text-muted mb-3">
-                                                    <i class="bi bi-calendar-range"></i> 时间范围设置
+                                                    <i class="bi bi-calendar-range"></i> 鏃堕棿鑼冨洿璁剧疆
                                                 </h6>
                                                 <div class="row g-3 align-items-center">
                                                     <div class="col-md-6">
-                                                        <label class="form-label" for="start_date">开始日期</label>
+                                                        <label class="form-label" for="start_date">寮€濮嬫棩鏈?/label>
                                                         <input type="date" class="form-control" id="start_date">
                                                     </div>
                                                     <div class="col-md-6">
-                                                        <label class="form-label" for="end_date">结束日期</label>
+                                                        <label class="form-label" for="end_date">缁撴潫鏃ユ湡</label>
                                                         <input type="date" class="form-control" id="end_date">
                                                     </div>
                                                     <div class="col-12">
-                                                        <div class="form-text">结束日期默认昨天，开始日期默认结束日期往前推5年，可根据需要修改。可勾选上方"整年"或"近年"进行快速设置。</div>
+                                                        <div class="form-text">缁撴潫鏃ユ湡榛樿鏄ㄥぉ锛屽紑濮嬫棩鏈熼粯璁ょ粨鏉熸棩鏈熷線鍓嶆帹5骞达紝鍙牴鎹渶瑕佷慨鏀广€傚彲鍕鹃€変笂鏂?鏁村勾"鎴?杩戝勾"杩涜蹇€熻缃€?/div>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <!-- 产品代码输入与chips -->
+                                            <!-- 浜у搧浠ｇ爜杈撳叆涓巆hips -->
                                             <div class="mb-0">
                                                 <h6 class="text-muted mb-3">
-                                                    <i class="bi bi-tags"></i> 产品代码配置
+                                                    <i class="bi bi-tags"></i> 浜у搧浠ｇ爜閰嶇疆
                                                 </h6>
                                                 <div class="mb-3">
                                                     <label class="form-label" for="product_code_input">
-                                                        <i class="bi bi-tag"></i> 股票/产品代码
+                                                        <i class="bi bi-tag"></i> 鑲＄エ/浜у搧浠ｇ爜
                                                     </label>
                                                     <div class="input-group mb-2">
                                                         <input type="text" class="form-control" id="product_code_input" 
-                                                               placeholder="如：600000,600001 或 600000 600001">
+                                                               placeholder="濡傦細600000,600001 鎴?600000 600001">
                                                         <button class="btn btn-primary" type="button" id="add_product_code_btn">
-                                                            <i class="bi bi-plus-circle"></i> 添加
+                                                            <i class="bi bi-plus-circle"></i> 娣诲姞
                                                         </button>
                                                     </div>
                                                     <div class="form-text mb-2">
-                                                        <i class="bi bi-info-circle"></i> 支持逗号、空格等分隔符，一次可输入多个代码
+                                                        <i class="bi bi-info-circle"></i> 鏀寔閫楀彿銆佺┖鏍肩瓑鍒嗛殧绗︼紝涓€娆″彲杈撳叆澶氫釜浠ｇ爜
                                                     </div>
                                                     <div id="product_code_chips" class="product-code-chips d-flex flex-wrap gap-1"></div>
                                                 </div>
@@ -429,11 +424,11 @@
                         </div>
                     </div>
 
-                    <!-- 参数组合预览 -->
+                    <!-- 鍙傛暟缁勫悎棰勮 -->
                     <div class="card mb-4" id="combination-info" style="display: none;">
                         <div class="card-header">
                             <h5 class="card-title mb-0">
-                                <i class="bi bi-eye"></i> 参数组合预览
+                                <i class="bi bi-eye"></i> 鍙傛暟缁勫悎棰勮
                             </h5>
                         </div>
                         <div class="card-body">
@@ -441,13 +436,12 @@
                                 <div class="col-md-8">
                                     <div class="alert alert-info mb-0">
                                         <i class="bi bi-info-circle"></i>
-                                        <strong>参数组合信息：</strong>
-                                        <span id="combination-count" class="badge bg-primary ms-2">0</span> 个参数组合将被执行
-                                    </div>
+                                        <strong>鍙傛暟缁勫悎淇℃伅锛?/strong>
+                                        <span id="combination-count" class="badge bg-primary ms-2">0</span> 涓弬鏁扮粍鍚堝皢琚墽琛?                                    </div>
                                 </div>
                                 <div class="col-md-4 text-end">
                                     <button type="button" class="btn btn-outline-info" onclick="showCombinationPreview()">
-                                        <i class="bi bi-eye"></i> 预览组合
+                                        <i class="bi bi-eye"></i> 棰勮缁勫悎
                                     </button>
                                 </div>
                             </div>
@@ -455,22 +449,20 @@
                     </div>
 
 
-                    <!-- 操作按钮 -->
+                    <!-- 鎿嶄綔鎸夐挳 -->
                     <div class="card">
                         <div class="card-body">
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                                 <a href="{{ url_for('google_sheet.index', version='c5') }}" class="btn btn-secondary me-md-2">
-                                    <i class="bi bi-arrow-left"></i> 返回首页
+                                    <i class="bi bi-arrow-left"></i> 杩斿洖棣栭〉
                                 </a>
-                                <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="清除保存的表单数据">
-                                    <i class="bi bi-trash"></i> 清除数据
+                                <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="娓呴櫎淇濆瓨鐨勮〃鍗曟暟鎹?>
+                                    <i class="bi bi-trash"></i> 娓呴櫎鏁版嵁
                                 </button>
-                                <button type="button" class="btn btn-outline-success me-md-2" onclick="saveAsTemplate()" title="将当前配置保存为模板">
-                                    <i class="bi bi-save"></i> 保存为模板
-                                </button>
+                                <button type="button" class="btn btn-outline-success me-md-2" onclick="saveAsTemplate()" title="灏嗗綋鍓嶉厤缃繚瀛樹负妯℃澘">
+                                    <i class="bi bi-save"></i> 淇濆瓨涓烘ā鏉?                                </button>
                                 <button type="submit" class="btn btn-primary btn-lg" id="execute-btn">
-                                    <i class="bi bi-play-circle"></i> 创建任务并执行
-                                </button>
+                                    <i class="bi bi-play-circle"></i> 鍒涘缓浠诲姟骞舵墽琛?                                </button>
                             </div>
                         </div>
                     </div>
@@ -480,109 +472,61 @@
     </div>
 </div>
 
-<!-- 参数组合预览模态框 -->
+<!-- 鍙傛暟缁勫悎棰勮妯℃€佹 -->
 <div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="previewModalLabel">参数组合预览</h5>
+                <h5 class="modal-title" id="previewModalLabel">鍙傛暟缁勫悎棰勮</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="combination-preview" id="combination-preview">
-                    <!-- 组合预览内容 -->
+                    <!-- 缁勫悎棰勮鍐呭 -->
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">鍏抽棴</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 第一次执行确认模态框 -->
+<!-- 绗竴娆℃墽琛岀‘璁ゆā鎬佹 -->
 <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="confirmModalLabel">第一次执行结果确认</h5>
+                <h5 class="modal-title" id="confirmModalLabel">绗竴娆℃墽琛岀粨鏋滅‘璁?/h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h6>执行参数:</h6>
+                        <h6>鎵ц鍙傛暟:</h6>
                         <pre id="confirm-params" class="bg-light p-3"></pre>
                     </div>
                     <div class="col-md-6">
-                        <h6>执行结果:</h6>
+                        <h6>鎵ц缁撴灉:</h6>
                         <pre id="confirm-results" class="bg-light p-3"></pre>
                     </div>
                 </div>
                 <div class="alert alert-warning">
-                    请检查第一次执行的结果，确认无误后点击"继续执行"按钮，系统将自动执行剩余的参数组合。
-                </div>
+                    璇锋鏌ョ涓€娆℃墽琛岀殑缁撴灉锛岀‘璁ゆ棤璇悗鐐瑰嚮"缁х画鎵ц"鎸夐挳锛岀郴缁熷皢鑷姩鎵ц鍓╀綑鐨勫弬鏁扮粍鍚堛€?                </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancel-execution">停止执行</button>
-                <button type="button" class="btn btn-primary" id="confirm-continue">继续执行</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancel-execution">鍋滄鎵ц</button>
+                <button type="button" class="btn btn-primary" id="confirm-continue">缁х画鎵ц</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 保存模板模态框 -->
-<div class="modal fade" id="saveTemplateModal" tabindex="-1" aria-labelledby="saveTemplateModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="saveTemplateModalLabel">保存为模板</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="saveTemplateForm">
-                    <div class="mb-3">
-                        <label for="templateName" class="form-label">模板名称</label>
-                        <input type="text" class="form-control" id="templateName" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="templateDescription" class="form-label">模板描述</label>
-                        <textarea class="form-control" id="templateDescription" rows="3"></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-primary" onclick="submitTemplate()">保存</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 任务执行状态模态框 -->
-<div class="modal fade" id="taskStatusModal" tabindex="-1" aria-labelledby="taskStatusModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="taskStatusModalLabel">任务执行状态</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="progress">
-                    <div class="progress-bar" role="progressbar" id="task-progress-bar" style="width: 0%;">0%</div>
-                </div>
-                <div class="mt-3">
-                    <h6>任务状态</h6>
-                    <div id="task-status-message" class="border rounded p-2 bg-light" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                <a href="/google-sheet/detail?version=c5" class="btn btn-primary" id="view-task-btn" style="display: none;">查看任务详情</a>
-            </div>
-        </div>
-    </div>
-</div>
+<!-- 保存模板弹窗：三套创建页统一复用同一份模板片段 -->
+{% include "google_sheet/_save_template_modal.html" %}
+<!-- 任务状态弹窗：统一复用公共模板，只保留详情页地址差异 -->
+{% set task_detail_url = "/google-sheet/detail?version=c5" %}
+{% include "google_sheet/_task_status_modal.html" %}
 {% endblock %}
 
 {% block scripts %}
@@ -591,7 +535,7 @@
     let eventSource = null;
     let productCodes = [];
 
-    // 本页专用错误提示封装
+    // 鏈〉涓撶敤閿欒鎻愮ず灏佽
     function showError(message) {
         if (typeof showNotification === 'function') {
             showNotification(message, 'error');
@@ -600,12 +544,11 @@
         }
     }
 
-    // 从模板加载数据
-    function loadFromTemplate(template) {
+    // 浠庢ā鏉垮姞杞芥暟鎹?    function loadFromTemplate(template) {
         if (!template) return;
 
         try {
-            // 填充基本信息
+            // 濉厖鍩烘湰淇℃伅
             if (template.name) {
                 document.getElementById('task_name').value = template.name;
             }
@@ -613,14 +556,14 @@
                 document.getElementById('task_description').value = template.description;
             }
 
-            // 填充配置信息
+            // 濉厖閰嶇疆淇℃伅
             if (template.config) {
                 let config = template.config;
                 if (typeof config === 'string') {
                     config = JSON.parse(config);
                 }
 
-                // 优先使用新版 sheets 数组结构，兼容旧的 spreadsheet_id/sheet_name 字段
+                // 浼樺厛浣跨敤鏂扮増 sheets 鏁扮粍缁撴瀯锛屽吋瀹规棫鐨?spreadsheet_id/sheet_name 瀛楁
                 let primarySpreadsheetId = '';
                 let primarySheetName = '';
 
@@ -642,8 +585,7 @@
                     sheetSelect.setAttribute('data-saved-value', primarySheetName);
                 }
 
-                // 如果有多张表，自动为后续表创建可视配置块并填充值（仅设置文本，不强制加载工作表列表）
-                if (Array.isArray(config.sheets) && config.sheets.length > 1) {
+                // 濡傛灉鏈夊寮犺〃锛岃嚜鍔ㄤ负鍚庣画琛ㄥ垱寤哄彲瑙嗛厤缃潡骞跺～鍏呭€硷紙浠呰缃枃鏈紝涓嶅己鍒跺姞杞藉伐浣滆〃鍒楄〃锛?                if (Array.isArray(config.sheets) && config.sheets.length > 1) {
                     const list = document.getElementById('sheet-config-list');
                     config.sheets.slice(1).forEach(sheetCfg => {
                         if (!list) return;
@@ -693,7 +635,7 @@
                     applyDateRangeModes(config.date_range_mode);
                 }
 
-                // 填充参数配置
+                // 濉厖鍙傛暟閰嶇疆
                 if (config.parameters && Array.isArray(config.parameters)) {
                     config.parameters.forEach((param, index) => {
                         const paramId = `param${index + 1}`;
@@ -704,26 +646,25 @@
                     });
                 }
 
-                // 更新组合计算
+                // 鏇存柊缁勫悎璁＄畻
                 calculateCombinations();
-                showNotification('已加载模板配置', 'success');
+                showNotification('宸插姞杞芥ā鏉块厤缃?, 'success');
 
-                // 更新页面标题和提示
-                {% if template_id %}
-                document.title = '从模板创建任务 - Google Sheet 参数批量校验';
+                // 鏇存柊椤甸潰鏍囬鍜屾彁绀?                {% if template_id %}
+                document.title = '浠庢ā鏉垮垱寤轰换鍔?- Google Sheet 鍙傛暟鎵归噺鏍￠獙';
                 const cardHeader = document.querySelector('.card-header h4');
                 if (cardHeader) {
-                    cardHeader.innerHTML = '<i class="bi bi-file-earmark-text"></i> 从模板创建任务';
+                    cardHeader.innerHTML = '<i class="bi bi-file-earmark-text"></i> 浠庢ā鏉垮垱寤轰换鍔?;
                 }
                 {% endif %}
             }
         } catch (error) {
-            console.error('加载模板失败:', error);
-            showError('加载模板配置失败: ' + error.message);
+            console.error('鍔犺浇妯℃澘澶辫触:', error);
+            showError('鍔犺浇妯℃澘閰嶇疆澶辫触: ' + error.message);
         }
     }
 
-    // 防抖函数
+    // 闃叉姈鍑芥暟
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -736,12 +677,10 @@
         };
     }
 
-    // 获取单个配置块的工作表列表
-    function loadWorksheetsForItem(item, isManualRefresh = false) {
+    // 鑾峰彇鍗曚釜閰嶇疆鍧楃殑宸ヤ綔琛ㄥ垪琛?    function loadWorksheetsForItem(item, isManualRefresh = false) {
         if (!item) return;
 
-        // 当前配置块内的元素
-        const spreadsheetInputEl = item.querySelector('input[type="text"]');
+        // 褰撳墠閰嶇疆鍧楀唴鐨勫厓绱?        const spreadsheetInputEl = item.querySelector('input[type="text"]');
         const sheetSelect = item.querySelector('select');
         const refreshBtn = item.querySelector('button.btn-outline-secondary');
         const helpText = item.querySelector('.form-text');
@@ -757,14 +696,13 @@
         const proxyUrl = document.getElementById('proxy_url').value;
 
         if (!spreadsheetId) {
-            sheetSelect.innerHTML = '<option value="">请先输入电子表格ID</option>';
-            helpText.textContent = '选择要操作的工作表';
+            sheetSelect.innerHTML = '<option value="">璇峰厛杈撳叆鐢靛瓙琛ㄦ牸ID</option>';
+            helpText.textContent = '閫夋嫨瑕佹搷浣滅殑宸ヤ綔琛?;
             refreshBtn.disabled = true;
             return;
         }
 
-        // 显示加载状态
-        sheetSelect.disabled = true;
+        // 鏄剧ず鍔犺浇鐘舵€?        sheetSelect.disabled = true;
         refreshBtn.disabled = true;
         if (isManualRefresh) {
             const icon = refreshBtn.querySelector('i');
@@ -772,17 +710,17 @@
                 icon.classList.add('spin');
             }
         }
-        sheetSelect.innerHTML = '<option value="">正在加载工作表列表...</option>';
-        helpText.textContent = '正在从Google Sheet获取工作表列表...';
+        sheetSelect.innerHTML = '<option value="">姝ｅ湪鍔犺浇宸ヤ綔琛ㄥ垪琛?..</option>';
+        helpText.textContent = '姝ｅ湪浠嶨oogle Sheet鑾峰彇宸ヤ綔琛ㄥ垪琛?..';
 
-        // 准备请求数据
+        // 鍑嗗璇锋眰鏁版嵁
         const requestData = {
             spreadsheet_id: spreadsheetId,
             token_file: tokenType === 'file' ? tokenFile : undefined,
             proxy_url: proxyUrl || undefined
         };
 
-        // 发送请求获取工作表列表
+        // 鍙戦€佽姹傝幏鍙栧伐浣滆〃鍒楄〃
         fetch('/api/google-sheet/worksheets', {
             method: 'POST',
             headers: {
@@ -794,17 +732,16 @@
         .then(data => {
             if (data.status === 'success' && Array.isArray(data.worksheets)) {
                 if (data.worksheets.length === 0) {
-                    throw new Error('未找到任何工作表');
+                    throw new Error('鏈壘鍒颁换浣曞伐浣滆〃');
                 }
 
-                // 如果接口返回了表标题，自动写入标题输入框（仅当前配置块）
+                // 濡傛灉鎺ュ彛杩斿洖浜嗚〃鏍囬锛岃嚜鍔ㄥ啓鍏ユ爣棰樿緭鍏ユ锛堜粎褰撳墠閰嶇疆鍧楋級
                 const titleInput = item.querySelector('#spreadsheet_title');
                 if (titleInput && typeof data.title === 'string' && data.title.trim() !== '') {
                     titleInput.value = data.title.trim();
                 }
 
-                // 清空并重新填充下拉列表
-                sheetSelect.innerHTML = '';
+                // 娓呯┖骞堕噸鏂板～鍏呬笅鎷夊垪琛?                sheetSelect.innerHTML = '';
                 data.worksheets.forEach(worksheet => {
                     const option = document.createElement('option');
                     option.value = worksheet;
@@ -812,47 +749,46 @@
                     sheetSelect.appendChild(option);
                 });
 
-                // 添加自定义选项
+                // 娣诲姞鑷畾涔夐€夐」
                 const customOption = document.createElement('option');
-                customOption.value = '自定义';
-                customOption.textContent = '自定义';
+                customOption.value = '鑷畾涔?;
+                customOption.textContent = '鑷畾涔?;
                 sheetSelect.appendChild(customOption);
 
-                // 如果有保存的值，恢复它（仅对主配置块适用，其它块不使用 data-saved-value）
-                const savedValue = sheetSelect.getAttribute('data-saved-value');
+                // 濡傛灉鏈変繚瀛樼殑鍊硷紝鎭㈠瀹冿紙浠呭涓婚厤缃潡閫傜敤锛屽叾瀹冨潡涓嶄娇鐢?data-saved-value锛?                const savedValue = sheetSelect.getAttribute('data-saved-value');
                 if (savedValue) {
                     if (data.worksheets.includes(savedValue)) {
                         sheetSelect.value = savedValue;
-                        helpText.textContent = `已选择工作表: ${savedValue}`;
-                    } else if (savedValue === '自定义') {
-                        sheetSelect.value = '自定义';
+                        helpText.textContent = `宸查€夋嫨宸ヤ綔琛? ${savedValue}`;
+                    } else if (savedValue === '鑷畾涔?) {
+                        sheetSelect.value = '鑷畾涔?;
                         const customContainer = document.getElementById('custom-sheet-container');
                         if (customContainer) {
                             customContainer.style.display = 'block';
                         }
-                        helpText.textContent = '使用自定义工作表名称';
+                        helpText.textContent = '浣跨敤鑷畾涔夊伐浣滆〃鍚嶇О';
                     }
                 } else {
-                    // 默认选择第一个工作表
+                    // 榛樿閫夋嫨绗竴涓伐浣滆〃
                     const defaultSheet = data.worksheets[0];
                     sheetSelect.value = defaultSheet;
-                    helpText.textContent = `已自动选择第一个工作表: ${defaultSheet}`;
+                    helpText.textContent = `宸茶嚜鍔ㄩ€夋嫨绗竴涓伐浣滆〃: ${defaultSheet}`;
                 }
 
                 if (!isManualRefresh) {
-                    showNotification('工作表列表已自动加载', 'success');
+                    showNotification('宸ヤ綔琛ㄥ垪琛ㄥ凡鑷姩鍔犺浇', 'success');
                 } else {
-                    showNotification('工作表列表已刷新', 'success');
+                    showNotification('宸ヤ綔琛ㄥ垪琛ㄥ凡鍒锋柊', 'success');
                 }
             } else {
-                throw new Error(data.message || '获取工作表列表失败');
+                throw new Error(data.message || '鑾峰彇宸ヤ綔琛ㄥ垪琛ㄥけ璐?);
             }
         })
         .catch(error => {
-            console.error('获取工作表列表失败:', error);
-            sheetSelect.innerHTML = '<option value="">加载失败</option>';
-            helpText.textContent = '加载失败，请检查电子表格ID是否正确';
-            showError('获取工作表列表失败: ' + error.message);
+            console.error('鑾峰彇宸ヤ綔琛ㄥ垪琛ㄥけ璐?', error);
+            sheetSelect.innerHTML = '<option value="">鍔犺浇澶辫触</option>';
+            helpText.textContent = '鍔犺浇澶辫触锛岃妫€鏌ョ數瀛愯〃鏍糏D鏄惁姝ｇ‘';
+            showError('鑾峰彇宸ヤ綔琛ㄥ垪琛ㄥけ璐? ' + error.message);
         })
         .finally(() => {
             sheetSelect.disabled = false;
@@ -866,51 +802,46 @@
         });
     }
 
-    // 保持原有接口，默认针对第一组主配置块
-    function loadWorksheets(isManualRefresh = false) {
+    // 淇濇寔鍘熸湁鎺ュ彛锛岄粯璁ら拡瀵圭涓€缁勪富閰嶇疆鍧?    function loadWorksheets(isManualRefresh = false) {
         const firstItem = document.querySelector('#sheet-config-list .sheet-config-item');
         if (firstItem) {
             loadWorksheetsForItem(firstItem, isManualRefresh);
         }
     }
 
-    // 页面加载完成后绑定事件
-    document.addEventListener('DOMContentLoaded', function() {
+    // 椤甸潰鍔犺浇瀹屾垚鍚庣粦瀹氫簨浠?    document.addEventListener('DOMContentLoaded', function() {
         bindEvents();
-        loadTemplates(); // 加载模板列表
+        loadTemplates(); // 鍔犺浇妯℃澘鍒楄〃
 
-        // URL 参数驱动的数据加载：
+        // URL 鍙傛暟椹卞姩鐨勬暟鎹姞杞斤細
         // - ?template_id=xxx -> /api/templates/xxx
         // - ?restart_task_id=xxx -> /api/tasks/xxx
-        // - 其它 -> loadSavedFormData()
+        // - 鍏跺畠 -> loadSavedFormData()
         initFromUrlParams();
 
-        // 初始化日期默认值（如果未从模板/重启/本地恢复）
-        initDefaultDatesIfEmpty();
+        // 鍒濆鍖栨棩鏈熼粯璁ゅ€硷紙濡傛灉鏈粠妯℃澘/閲嶅惎/鏈湴鎭㈠锛?        initDefaultDatesIfEmpty();
 
-        // 初始化产品代码chips（基于隐藏的param1值）
+        // 鍒濆鍖栦骇鍝佷唬鐮乧hips锛堝熀浜庨殣钘忕殑param1鍊硷級
         initProductCodeChipsFromParam1();
 
         calculateCombinations();
 
-        // 创建防抖版本的函数
-        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
+        // 鍒涘缓闃叉姈鐗堟湰鐨勫嚱鏁?        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
         const debouncedCalculateCombinations = debounce(calculateCombinations, 300);
         const debouncedSaveFormData = debounce(saveFormData, 300);
 
-        // 监听spreadsheet输入变化
+        // 鐩戝惉spreadsheet杈撳叆鍙樺寲
         const spreadsheetInput = document.getElementById('spreadsheet');
         spreadsheetInput.addEventListener('input', debouncedLoadWorksheets);
 
-        // 为参数输入添加防抖
-        document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
+        // 涓哄弬鏁拌緭鍏ユ坊鍔犻槻鎶?        document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
             textarea.addEventListener('input', function() {
                 debouncedCalculateCombinations();
                 debouncedSaveFormData();
             });
         });
 
-        // 为其他输入字段添加防抖的自动保存
+        // 涓哄叾浠栬緭鍏ュ瓧娈垫坊鍔犻槻鎶栫殑鑷姩淇濆瓨
         const inputFields = [
             'task_name', 'task_description', 'custom_sheet_name',
             'token_file', 'token_json', 'proxy_url'
@@ -950,25 +881,23 @@
                 const task = (data && data.task) ? data.task : null;
                 const configRaw = task ? task.config : null;
                 if (!configRaw) {
-                    showNotification('加载原任务配置失败：config为空', 'error');
+                    showNotification('鍔犺浇鍘熶换鍔￠厤缃け璐ワ細config涓虹┖', 'error');
                     return;
                 }
                 loadRestartConfig(configRaw, taskId);
             })
             .catch(err => {
-                console.error('加载原任务失败:', err);
-                showNotification('加载原任务失败', 'error');
+                console.error('鍔犺浇鍘熶换鍔″け璐?', err);
+                showNotification('鍔犺浇鍘熶换鍔″け璐?, 'error');
             });
     }
 
-    // 加载模板列表
+    // 鍔犺浇妯℃澘鍒楄〃
     function loadTemplates() {
-        // 只加载 C5 类型的模板
-        fetch('/api/templates?task_type=google_sheet_C5')
+        // 鍙姞杞?C5 绫诲瀷鐨勬ā鏉?        fetch('/api/templates?task_type=google_sheet_C5')
             .then(response => response.json())
             .then(data => {
-                // 明确校验接口返回结构，避免因为布尔优先级导致异常数据被误放过。
-                if (!data || data.status !== 'success' || !Array.isArray(data.templates)) {
+                // 鏄庣‘鏍￠獙鎺ュ彛杩斿洖缁撴瀯锛岄伩鍏嶅洜涓哄竷灏斾紭鍏堢骇瀵艰嚧寮傚父鏁版嵁琚鏀捐繃銆?                if (!data || data.status !== 'success' || !Array.isArray(data.templates)) {
                     console.error('Invalid response format:', data);
                     return;
                 }
@@ -982,12 +911,12 @@
                 });
             })
             .catch(error => {
-                console.error('加载模板列表失败:', error);
-                showError('加载模板列表失败');
+                console.error('鍔犺浇妯℃澘鍒楄〃澶辫触:', error);
+                showError('鍔犺浇妯℃澘鍒楄〃澶辫触');
             });
     }
 
-    // 使用模板填充表单
+    // 浣跨敤妯℃澘濉厖琛ㄥ崟
     function fillFormWithTemplate(templateId) {
         if (!templateId) {
             return;
@@ -1003,7 +932,7 @@
                     try {
                         config = JSON.parse(config);
                     } catch (e) {
-                        console.error('解析模板配置失败:', e);
+                        console.error('瑙ｆ瀽妯℃澘閰嶇疆澶辫触:', e);
                         return;
                     }
                 }
@@ -1013,8 +942,8 @@
                 });
             })
             .catch(error => {
-                console.error('加载模板详情失败:', error);
-                showNotification('加载模板失败', 'error');
+                console.error('鍔犺浇妯℃澘璇︽儏澶辫触:', error);
+                showNotification('鍔犺浇妯℃澘澶辫触', 'error');
             });
     }
 
@@ -1054,23 +983,23 @@
             }
 
             if (sheetCfg.sheet_name) {
-                // 保持与 loadWorksheets 的行为一致：先设置 data-saved-value，等待下拉加载后选中
+                // 淇濇寔涓?loadWorksheets 鐨勮涓轰竴鑷达細鍏堣缃?data-saved-value锛岀瓑寰呬笅鎷夊姞杞藉悗閫変腑
                 if (sheetSelect) {
                     sheetSelect.setAttribute('data-saved-value', sheetCfg.sheet_name);
                 }
 
-                // 也写入自定义输入框，便于未加载下拉时显示
+                // 涔熷啓鍏ヨ嚜瀹氫箟杈撳叆妗嗭紝渚夸簬鏈姞杞戒笅鎷夋椂鏄剧ず
                 if (customInputEl) {
                     customInputEl.value = sheetCfg.sheet_name;
                 }
             }
         });
 
-        // 触发一次工作表列表加载，以便根据 data-saved-value 选中原来的工作表
+        // 瑙﹀彂涓€娆″伐浣滆〃鍒楄〃鍔犺浇锛屼互渚挎牴鎹?data-saved-value 閫変腑鍘熸潵鐨勫伐浣滆〃
         try {
             loadWorksheets(false);
         } catch (e) {
-            console.warn('自动加载工作表列表失败:', e);
+            console.warn('鑷姩鍔犺浇宸ヤ綔琛ㄥ垪琛ㄥけ璐?', e);
         }
     }
 
@@ -1080,13 +1009,12 @@
 
         const normalized = parseTaskConfigObject(rawConfig);
         if (!normalized || Object.keys(normalized).length === 0) {
-            console.error('解析配置失败:', rawConfig);
-            showNotification('解析配置失败', 'error');
+            console.error('瑙ｆ瀽閰嶇疆澶辫触:', rawConfig);
+            showNotification('瑙ｆ瀽閰嶇疆澶辫触', 'error');
             return;
         }
 
-        // sheets（统一处理）
-        applySheetsToForm(normalized.sheets);
+        // sheets锛堢粺涓€澶勭悊锛?        applySheetsToForm(normalized.sheets);
 
         // token
         if (normalized.token_type) {
@@ -1161,38 +1089,36 @@
 
         // mode-specific title/header
         if (mode === 'restart') {
-            document.title = '重启任务 - Google Sheet 参数批量校验';
+            document.title = '閲嶅惎浠诲姟 - Google Sheet 鍙傛暟鎵归噺鏍￠獙';
             const cardHeader = document.querySelector('.card-header h4');
             if (cardHeader) {
-                cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重启任务 (基于原任务: ' + originalTaskId + ')';
+                cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 閲嶅惎浠诲姟 (鍩轰簬鍘熶换鍔? ' + originalTaskId + ')';
             }
         }
 
         calculateCombinations();
 
         if (mode === 'restart') {
-            showNotification('已加载原任务配置', 'info');
+            showNotification('宸插姞杞藉師浠诲姟閰嶇疆', 'info');
         } else {
-            showNotification('已加载模板配置', 'success');
+            showNotification('宸插姞杞芥ā鏉块厤缃?, 'success');
         }
     }
 
-    // 初始化日期默认值：结束=昨天，开始=结束往前推5年（仅在两者都为空时）
+    // 鍒濆鍖栨棩鏈熼粯璁ゅ€硷細缁撴潫=鏄ㄥぉ锛屽紑濮?缁撴潫寰€鍓嶆帹5骞达紙浠呭湪涓よ€呴兘涓虹┖鏃讹級
     function initDefaultDatesIfEmpty() {
         const startInput = document.getElementById('start_date');
         const endInput = document.getElementById('end_date');
         if (!startInput || !endInput) return;
 
-        // 已有值（来自模板/重启/本地存储），不覆盖
-        if (startInput.value || endInput.value) {
+        // 宸叉湁鍊硷紙鏉ヨ嚜妯℃澘/閲嶅惎/鏈湴瀛樺偍锛夛紝涓嶈鐩?        if (startInput.value || endInput.value) {
             return;
         }
 
         const today = new Date();
-        // 昨天
+        // 鏄ㄥぉ
         const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-        // 五年前同一天
-        const start = new Date(end.getFullYear() - 5, end.getMonth(), end.getDate());
+        // 浜斿勾鍓嶅悓涓€澶?        const start = new Date(end.getFullYear() - 5, end.getMonth(), end.getDate());
 
         const toISODate = (d) => {
             const m = (d.getMonth() + 1).toString().padStart(2, '0');
@@ -1244,13 +1170,11 @@
     }
 
     function bindEvents() {
-        // 创建防抖版本的函数
-        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
+        // 鍒涘缓闃叉姈鐗堟湰鐨勫嚱鏁?        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
         const debouncedCalculateCombinations = debounce(calculateCombinations, 300);
         const debouncedSaveFormData = debounce(saveFormData, 300);
 
-        // 统计方式与时间范围类型联动
-        const countModeRadios = document.querySelectorAll('input[name="count_mode"]');
+        // 缁熻鏂瑰紡涓庢椂闂磋寖鍥寸被鍨嬭仈鍔?        const countModeRadios = document.querySelectorAll('input[name="count_mode"]');
         const drmFull = document.getElementById('date_range_full');
         const drmRecent = document.getElementById('date_range_recent');
         function updateDateRangeModeAvailability() {
@@ -1270,33 +1194,32 @@
         });
         updateDateRangeModeAvailability();
 
-        // 模板选择变化事件
+        // 妯℃澘閫夋嫨鍙樺寲浜嬩欢
         document.getElementById('task_template').addEventListener('change', function() {
             fillFormWithTemplate(this.value);
         });
 
-        // 任务名称和描述变化事件
-        document.getElementById('task_name').addEventListener('input', debouncedSaveFormData);
+        // 浠诲姟鍚嶇О鍜屾弿杩板彉鍖栦簨浠?        document.getElementById('task_name').addEventListener('input', debouncedSaveFormData);
         document.getElementById('task_description').addEventListener('input', debouncedSaveFormData);
 
-        // 工作表名称选择变化事件
+        // 宸ヤ綔琛ㄥ悕绉伴€夋嫨鍙樺寲浜嬩欢
         document.getElementById('sheet_name').addEventListener('change', function() {
             const customContainer = document.getElementById('custom-sheet-container');
             const helpText = document.getElementById('sheet-name-help');
 
-            if (this.value === '自定义') {
+            if (this.value === '鑷畾涔?) {
                 customContainer.style.display = 'block';
-                helpText.textContent = '使用自定义工作表名称';
+                helpText.textContent = '浣跨敤鑷畾涔夊伐浣滆〃鍚嶇О';
             } else {
                 customContainer.style.display = 'none';
                 if (this.value) {
-                    helpText.textContent = `已选择工作表: ${this.value}`;
+                    helpText.textContent = `宸查€夋嫨宸ヤ綔琛? ${this.value}`;
                 }
             }
             debouncedSaveFormData();
         });
 
-        // 认证方式选择变化事件
+        // 璁よ瘉鏂瑰紡閫夋嫨鍙樺寲浜嬩欢
         document.getElementById('token_type').addEventListener('change', function() {
             const fileContainer = document.getElementById('token_file_container');
             const jsonContainer = document.getElementById('token_json_container');
@@ -1310,7 +1233,7 @@
             debouncedSaveFormData();
         });
 
-        // 参数输入变化事件
+        // 鍙傛暟杈撳叆鍙樺寲浜嬩欢
         document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
             textarea.addEventListener('input', function() {
                 debouncedCalculateCombinations();
@@ -1318,7 +1241,7 @@
             });
         });
 
-        // 产品代码添加事件
+        // 浜у搧浠ｇ爜娣诲姞浜嬩欢
         const addProductBtn = document.getElementById('add_product_code_btn');
         const productInput = document.getElementById('product_code_input');
         if (addProductBtn && productInput) {
@@ -1334,7 +1257,7 @@
             });
         }
 
-        // 产品代码删除事件（事件委托）
+        // 浜у搧浠ｇ爜鍒犻櫎浜嬩欢锛堜簨浠跺鎵橈級
         const chipsContainer = document.getElementById('product_code_chips');
         if (chipsContainer) {
             chipsContainer.addEventListener('click', function(e) {
@@ -1347,8 +1270,7 @@
             });
         }
 
-        // 为所有输入字段添加自动保存
-        const inputFields = [
+        // 涓烘墍鏈夎緭鍏ュ瓧娈垫坊鍔犺嚜鍔ㄤ繚瀛?        const inputFields = [
             'spreadsheet', 'custom_sheet_name', 'token_file', 'token_json', 'proxy_url',
             'start_date', 'end_date'
         ];
@@ -1361,7 +1283,7 @@
             }
         });
 
-        // 监听spreadsheet输入变化
+        // 鐩戝惉spreadsheet杈撳叆鍙樺寲
         const spreadsheetInput = document.getElementById('spreadsheet');
         spreadsheetInput.addEventListener('input', function() {
             const refreshBtn = document.getElementById('refresh-sheets');
@@ -1373,12 +1295,11 @@
             debouncedLoadWorksheets(false);
         });
 
-        // 刷新按钮点击事件
+        // 鍒锋柊鎸夐挳鐐瑰嚮浜嬩欢
         document.getElementById('refresh-sheets').addEventListener('click', function() {
-            debouncedLoadWorksheets(true); // 使用防抖，避免与输入触发的请求叠加
-        });
+            debouncedLoadWorksheets(true); // 浣跨敤闃叉姈锛岄伩鍏嶄笌杈撳叆瑙﹀彂鐨勮姹傚彔鍔?        });
 
-        // 添加一组表格配置（仅用于前端展示，实际提交仍使用第一组带有固定ID的配置）
+        // 娣诲姞涓€缁勮〃鏍奸厤缃紙浠呯敤浜庡墠绔睍绀猴紝瀹為檯鎻愪氦浠嶄娇鐢ㄧ涓€缁勫甫鏈夊浐瀹欼D鐨勯厤缃級
         const addSheetConfigBtn = document.getElementById('add-sheet-config-btn');
         if (addSheetConfigBtn) {
             addSheetConfigBtn.addEventListener('click', function() {
@@ -1386,15 +1307,14 @@
             });
         }
 
-        // 移除最后一组表格配置（至少保留第一组主配置）
-        const removeSheetConfigBtn = document.getElementById('remove-sheet-config-btn');
+        // 绉婚櫎鏈€鍚庝竴缁勮〃鏍奸厤缃紙鑷冲皯淇濈暀绗竴缁勪富閰嶇疆锛?        const removeSheetConfigBtn = document.getElementById('remove-sheet-config-btn');
         if (removeSheetConfigBtn) {
             removeSheetConfigBtn.addEventListener('click', function() {
                 removeLastVisualSheetConfigItem();
             });
         }
 
-        // 高级配置折叠切换
+        // 楂樼骇閰嶇疆鎶樺彔鍒囨崲
         const toggleAdvancedBtn = document.getElementById('toggle-advanced-config-btn');
         if (toggleAdvancedBtn) {
             toggleAdvancedBtn.addEventListener('click', function() {
@@ -1404,21 +1324,20 @@
                 if (!advanced || !textSpan || !icon) return;
                 const isHidden = advanced.style.display === 'none' || advanced.style.display === '';
                 advanced.style.display = isHidden ? 'block' : 'none';
-                textSpan.textContent = isHidden ? '收起' : '展开';
+                textSpan.textContent = isHidden ? '鏀惰捣' : '灞曞紑';
                 icon.classList.toggle('bi-chevron-down', !isHidden);
                 icon.classList.toggle('bi-chevron-up', isHidden);
             });
         }
 
-        // 表单提交事件
+        // 琛ㄥ崟鎻愪氦浜嬩欢
         document.getElementById('parameter-form').addEventListener('submit', function(e) {
             e.preventDefault();
             submitTask();
         });
     }
 
-    // 克隆一组仅用于展示的 Google Sheet 配置（移除重复ID，避免影响实际提交逻辑）
-    function addVisualSheetConfigItem() {
+    // 鍏嬮殕涓€缁勪粎鐢ㄤ簬灞曠ず鐨?Google Sheet 閰嶇疆锛堢Щ闄ら噸澶岻D锛岄伩鍏嶅奖鍝嶅疄闄呮彁浜ら€昏緫锛?    function addVisualSheetConfigItem() {
         const list = document.getElementById('sheet-config-list');
         if (!list) return;
 
@@ -1430,8 +1349,7 @@
 
         clone.setAttribute('data-sheet-config-index', String(newIndex));
 
-        // 清空克隆中的输入值并移除ID，防止与主配置冲突
-        const inputs = clone.querySelectorAll('input, select, textarea');
+        // 娓呯┖鍏嬮殕涓殑杈撳叆鍊煎苟绉婚櫎ID锛岄槻姝笌涓婚厤缃啿绐?        const inputs = clone.querySelectorAll('input, select, textarea');
         inputs.forEach(function(el) {
             if (el.id === 'spreadsheet' ||
                 el.id === 'sheet_name' ||
@@ -1447,13 +1365,13 @@
             }
         });
 
-        // 同时移除帮助文本上的ID，避免与主块冲突
+        // 鍚屾椂绉婚櫎甯姪鏂囨湰涓婄殑ID锛岄伩鍏嶄笌涓诲潡鍐茬獊
         const help = clone.querySelector('#sheet-name-help');
         if (help) {
             help.removeAttribute('id');
         }
 
-        // 为克隆出来的配置块绑定独立的事件
+        // 涓哄厠闅嗗嚭鏉ョ殑閰嶇疆鍧楃粦瀹氱嫭绔嬬殑浜嬩欢
         const spreadsheetInputEl = clone.querySelector('input[type="text"]');
         const refreshBtn = clone.querySelector('button.btn-outline-secondary');
 
@@ -1472,33 +1390,31 @@
                 loadWorksheetsForItem(clone, true);
             });
 
-            // 初始禁用刷新按钮
+            // 鍒濆绂佺敤鍒锋柊鎸夐挳
             refreshBtn.disabled = true;
         }
 
         list.appendChild(clone);
     }
 
-    // 移除最后一组仅用于展示的 Google Sheet 配置（保留第一组主配置）
-    function removeLastVisualSheetConfigItem() {
+    // 绉婚櫎鏈€鍚庝竴缁勪粎鐢ㄤ簬灞曠ず鐨?Google Sheet 閰嶇疆锛堜繚鐣欑涓€缁勪富閰嶇疆锛?    function removeLastVisualSheetConfigItem() {
         const list = document.getElementById('sheet-config-list');
         if (!list) return;
 
         const items = list.querySelectorAll('.sheet-config-item');
         if (items.length <= 1) {
-            // 只剩下主配置，不再删除
-            showNotification('至少保留一组表格配置', 'info');
+            // 鍙墿涓嬩富閰嶇疆锛屼笉鍐嶅垹闄?            showNotification('鑷冲皯淇濈暀涓€缁勮〃鏍奸厤缃?, 'info');
             return;
         }
 
         const lastItem = items[items.length - 1];
         lastItem.remove();
-        showNotification('已移除最后一组表格配置', 'success');
+        showNotification('宸茬Щ闄ゆ渶鍚庝竴缁勮〃鏍奸厤缃?, 'success');
     }
 
-    // ==== 产品代码 chips 管理，基于隐藏的 param1 ====
+    // ==== 浜у搧浠ｇ爜 chips 绠＄悊锛屽熀浜庨殣钘忕殑 param1 ====
 
-    // 从隐藏的 param1 初始化 productCodes 和 chips 展示
+    // 浠庨殣钘忕殑 param1 鍒濆鍖?productCodes 鍜?chips 灞曠ず
     function initProductCodeChipsFromParam1() {
         const param1El = document.getElementById('param1');
         if (!param1El) return;
@@ -1515,31 +1431,31 @@
         syncProductCodesToParam1();
     }
 
-    // 将 productCodes 数组同步到隐藏的 param1 文本域（JSON 字符串）
+    // 灏?productCodes 鏁扮粍鍚屾鍒伴殣钘忕殑 param1 鏂囨湰鍩燂紙JSON 瀛楃涓诧級
     function syncProductCodesToParam1() {
         const param1El = document.getElementById('param1');
         if (!param1El) return;
         try {
             param1El.value = JSON.stringify(productCodes);
         } catch (e) {
-            console.warn('同步产品代码到 param1 失败:', e);
+            console.warn('鍚屾浜у搧浠ｇ爜鍒?param1 澶辫触:', e);
         }
-        // 每次变更后更新组合数量并记录日志
+        // 姣忔鍙樻洿鍚庢洿鏂扮粍鍚堟暟閲忓苟璁板綍鏃ュ織
         const count = calculateCombinations();
         const p1 = parseJsonArray(param1El.value) || [];
         const p2 = parseJsonArray(document.getElementById('param2').value) || [];
         const p3 = parseJsonArray(document.getElementById('param3').value) || [];
-        console.log('[C5] syncProductCodesToParam1 -> 当前参数长度:', {
+        console.log('[C5] syncProductCodesToParam1 -> 褰撳墠鍙傛暟闀垮害:', {
             param1_len: p1.length,
             param2_len: p2.length,
             param3_len: p3.length,
             combination_count: count,
         });
-        // 同步保存表单
+        // 鍚屾淇濆瓨琛ㄥ崟
         saveFormData();
     }
 
-    // 渲染产品代码 chips
+    // 娓叉煋浜у搧浠ｇ爜 chips
     function renderProductCodeChips() {
         const container = document.getElementById('product_code_chips');
         if (!container) return;
@@ -1560,42 +1476,40 @@
         syncProductCodesToParam1();
     }
 
-    // 从输入框解析并添加产品代码（支持逗号、空格等分隔，一次多个）
+    // 浠庤緭鍏ユ瑙ｆ瀽骞舵坊鍔犱骇鍝佷唬鐮侊紙鏀寔閫楀彿銆佺┖鏍肩瓑鍒嗛殧锛屼竴娆″涓級
     function addProductCodesFromInput() {
         const inputEl = document.getElementById('product_code_input');
         if (!inputEl) return;
 
         const raw = inputEl.value || '';
         const parts = raw
-            .split(/[,\s]+/) // 逗号或空白分隔
-            .map(p => p.trim())
+            .split(/[,\s]+/) // 閫楀彿鎴栫┖鐧藉垎闅?            .map(p => p.trim())
             .filter(p => p.length > 0);
 
         if (parts.length === 0) {
             return;
         }
 
-        // 合并并去重
-        const set = new Set(productCodes);
+        // 鍚堝苟骞跺幓閲?        const set = new Set(productCodes);
         parts.forEach(code => set.add(code));
         productCodes = Array.from(set);
 
         inputEl.value = '';
         renderProductCodeChips();
-        console.log('[C5] addProductCodesFromInput 添加代码:', parts);
-        showNotification(`已添加 ${parts.length} 个产品代码`, 'success');
+        console.log('[C5] addProductCodesFromInput 娣诲姞浠ｇ爜:', parts);
+        showNotification(`宸叉坊鍔?${parts.length} 涓骇鍝佷唬鐮乣, 'success');
     }
 
-    // 删除单个产品代码
+    // 鍒犻櫎鍗曚釜浜у搧浠ｇ爜
     function removeProductCode(code) {
         if (!code) return;
         productCodes = productCodes.filter(c => c !== code);
         renderProductCodeChips();
-        console.log('[C5] removeProductCode 移除代码:', code, '剩余数量:', productCodes.length);
-        showNotification(`已移除产品代码 ${code}`, 'info');
+        console.log('[C5] removeProductCode 绉婚櫎浠ｇ爜:', code, '鍓╀綑鏁伴噺:', productCodes.length);
+        showNotification(`宸茬Щ闄や骇鍝佷唬鐮?${code}`, 'info');
     }
 
-    // 计算参数组合数量（参数1 * 参数2 * 参数3 的乘积）
+    // 璁＄畻鍙傛暟缁勫悎鏁伴噺锛堝弬鏁? * 鍙傛暟2 * 鍙傛暟3 鐨勪箻绉級
     function calculateCombinations() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
         const param2 = parseJsonArray(document.getElementById('param2').value) || [];
@@ -1604,9 +1518,8 @@
         const spreadsheetInput = document.getElementById('spreadsheet');
         const spreadsheetId = spreadsheetInput ? extractSpreadsheetId(spreadsheetInput.value) : null;
 
-        // 组合方式：电子表格ID或URL * 参数1 * 参数2 * 参数3
-        // 参数1 必须有值，否则不执行；参数2/3 为空时按 1 处理，相当于不增加维度
-        let count = 0;
+        // 缁勫悎鏂瑰紡锛氱數瀛愯〃鏍糏D鎴朥RL * 鍙傛暟1 * 鍙傛暟2 * 鍙傛暟3
+        // 鍙傛暟1 蹇呴』鏈夊€硷紝鍚﹀垯涓嶆墽琛岋紱鍙傛暟2/3 涓虹┖鏃舵寜 1 澶勭悊锛岀浉褰撲簬涓嶅鍔犵淮搴?        let count = 0;
         if (spreadsheetId && param1.length > 0) {
             const len1 = param1.length;
             const len2 = param2.length || 1;
@@ -1626,7 +1539,7 @@
         return count;
     }
 
-    // 显示参数组合预览
+    // 鏄剧ず鍙傛暟缁勫悎棰勮
     function showCombinationPreview() {
         const param1 = parseJsonArray(document.getElementById('param1').value) || [];
         const param2 = parseJsonArray(document.getElementById('param2').value) || [];
@@ -1640,14 +1553,13 @@
         const previewContainer = document.getElementById('combination-preview');
         previewContainer.innerHTML = '';
 
-        // 只显示前20个组合
-        const displayCombinations = combinations.slice(0, 20);
+        // 鍙樉绀哄墠20涓粍鍚?        const displayCombinations = combinations.slice(0, 20);
 
         displayCombinations.forEach((combination, index) => {
             const div = document.createElement('div');
             div.className = 'mb-2 p-2 border rounded';
             div.innerHTML = `
-                <strong>组合 ${index + 1}:</strong>
+                <strong>缁勫悎 ${index + 1}:</strong>
                 <div class="small text-muted">${combination.join(', ')}</div>
             `;
             previewContainer.appendChild(div);
@@ -1656,7 +1568,7 @@
         if (combinations.length > 20) {
             const moreDiv = document.createElement('div');
             moreDiv.className = 'text-center text-muted';
-            moreDiv.textContent = `... 还有 ${combinations.length - 20} 个组合`;
+            moreDiv.textContent = `... 杩樻湁 ${combinations.length - 20} 涓粍鍚坄;
             previewContainer.appendChild(moreDiv);
         }
 
@@ -1664,8 +1576,7 @@
         modal.show();
     }
 
-    // 生成参数组合（C4 中仅使用产品代码 param1）
-    function generateCombinations(parameters) {
+    // 鐢熸垚鍙傛暟缁勫悎锛圕4 涓粎浣跨敤浜у搧浠ｇ爜 param1锛?    function generateCombinations(parameters) {
         const combinations = [];
         const param1 = parameters[0] || [];
         for (const p1 of param1) {
@@ -1675,7 +1586,7 @@
     }
 
     function clearAllParameters() {
-        if (confirm('确定要清空所有配置吗？')) {
+        if (confirm('纭畾瑕佹竻绌烘墍鏈夐厤缃悧锛?)) {
             const param1El = document.getElementById('param1');
             if (param1El) {
                 param1El.value = '';
@@ -1683,20 +1594,20 @@
             productCodes = [];
             renderProductCodeChips();
             calculateCombinations();
-            showNotification('已清空所有配置', 'warning');
+            showNotification('宸叉竻绌烘墍鏈夐厤缃?, 'warning');
         }
     }
 
-    // 提交任务
+    // 鎻愪氦浠诲姟
     function submitTask() {
-        // 计算参数组合数量
+        // 璁＄畻鍙傛暟缁勫悎鏁伴噺
         const combinationCount = calculateCombinations();
         if (combinationCount === 0) {
-            showNotification('请至少输入一个参数', 'error');
+            showNotification('璇疯嚦灏戣緭鍏ヤ竴涓弬鏁?, 'error');
             return;
         }
 
-        // 获取Google Sheet配置
+        // 鑾峰彇Google Sheet閰嶇疆
         const tokenType = document.getElementById('token_type').value;
         const tokenFile = document.getElementById('token_file').value;
         const tokenJson = document.getElementById('token_json').value;
@@ -1709,34 +1620,32 @@
         const endDate = document.getElementById('end_date')?.value || null;
 
         if (tokenType === 'file' && !tokenFile) {
-            showNotification('请输入Token文件路径', 'error');
+            showNotification('璇疯緭鍏oken鏂囦欢璺緞', 'error');
             return;
         }
 
         if (tokenType === 'json' && !tokenJson) {
-            showNotification('请输入Token JSON字符串', 'error');
+            showNotification('璇疯緭鍏oken JSON瀛楃涓?, 'error');
             return;
         }
 
-        // 获取参数配置
+        // 鑾峰彇鍙傛暟閰嶇疆
         const param1 = parseJsonArray(document.getElementById('param1').value);
         const param2 = parseJsonArray(document.getElementById('param2').value);
         const param3 = parseJsonArray(document.getElementById('param3').value);
 
-        // 检查是否有解析错误
+        // 妫€鏌ユ槸鍚︽湁瑙ｆ瀽閿欒
         if (param1 === null || param2 === null || param3 === null) {
-            showNotification('参数格式错误，请检查 JSON 数组格式', 'error');
+            showNotification('鍙傛暟鏍煎紡閿欒锛岃妫€鏌?JSON 鏁扮粍鏍煎紡', 'error');
             return;
         }
 
-        // 构造参数列表：只加入非空数组
-        const parameters = [];
+        // 鏋勯€犲弬鏁板垪琛細鍙姞鍏ラ潪绌烘暟缁?        const parameters = [];
         if (Array.isArray(param1) && param1.length) parameters.push(param1);
         if (Array.isArray(param2) && param2.length) parameters.push(param2);
         if (Array.isArray(param3) && param3.length) parameters.push(param3);
 
-        // 收集所有表格配置（主配置 + 其他可视配置）
-        const sheets = [];
+        // 鏀堕泦鎵€鏈夎〃鏍奸厤缃紙涓婚厤缃?+ 鍏朵粬鍙閰嶇疆锛?        const sheets = [];
         const sheetConfigList = document.getElementById('sheet-config-list');
         if (sheetConfigList) {
             const items = sheetConfigList.querySelectorAll('.sheet-config-item');
@@ -1745,7 +1654,7 @@
                 let sname = '';
                 let stitle = '';
 
-                // 其他配置块：通过输入/下拉推导
+                // 鍏朵粬閰嶇疆鍧楋細閫氳繃杈撳叆/涓嬫媺鎺ㄥ
                 const textInputs = item.querySelectorAll('input[type="text"]');
                 const spreadsheetInputEl = textInputs[0];
                 const sheetTitle = textInputs[1] || null;
@@ -1759,13 +1668,12 @@
                     stitle = sheetTitle.value.trim();
                 }
                 if (selectEl) {
-                    if (selectEl.value === '自定义' && customInputEl) {
+                    if (selectEl.value === '鑷畾涔? && customInputEl) {
                         sname = (customInputEl.value || '').trim();
                     } else if (selectEl.value) {
                         sname = selectEl.value;
                     } else if (customInputEl) {
-                        // 下拉无有效值时，允许直接用自定义输入
-                        sname = (customInputEl.value || '').trim();
+                        // 涓嬫媺鏃犳湁鏁堝€兼椂锛屽厑璁哥洿鎺ョ敤鑷畾涔夎緭鍏?                        sname = (customInputEl.value || '').trim();
                     }
                 } else if (customInputEl) {
                     sname = (customInputEl.value || '').trim();
@@ -1778,13 +1686,12 @@
                         sheet_name: sname
                     };
                     sheets.push(sheetConfig);
-                    console.log(`添加表格配置：${sid} - ${sname} - ${stitle}`);
+                    console.log(`娣诲姞琛ㄦ牸閰嶇疆锛?{sid} - ${sname} - ${stitle}`);
                 }
             });
         }
 
-        // 构造任务配置（C5 任务仅使用 sheets 数组，不再重复顶层 spreadsheet_id/sheet_name）
-        const taskConfig = {
+        // 鏋勯€犱换鍔￠厤缃紙C5 浠诲姟浠呬娇鐢?sheets 鏁扮粍锛屼笉鍐嶉噸澶嶉《灞?spreadsheet_id/sheet_name锛?        const taskConfig = {
             token_type: tokenType,
             token_file: tokenFile,
             token_json: tokenJson,
@@ -1799,74 +1706,69 @@
             sheets: sheets
         };
 
-        // 禁用执行按钮
+        // 绂佺敤鎵ц鎸夐挳
         const executeBtn = document.getElementById('execute-btn');
         executeBtn.disabled = true;
-        executeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 创建任务中...';
+        executeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 鍒涘缓浠诲姟涓?..';
 
-        // 获取任务名称和描述
-        const taskName = document.getElementById('task_name').value.trim();
+        // 鑾峰彇浠诲姟鍚嶇О鍜屾弿杩?        const taskName = document.getElementById('task_name').value.trim();
         const taskDescription = document.getElementById('task_description').value.trim();
 
-        // 如果没有输入任务名称，使用默认生成逻辑
-        const finalTaskName = taskName || `Google Sheet 任务 - ${new Date().toLocaleString()}`;
+        // 濡傛灉娌℃湁杈撳叆浠诲姟鍚嶇О锛屼娇鐢ㄩ粯璁ょ敓鎴愰€昏緫
+        const finalTaskName = taskName || `Google Sheet 浠诲姟 - ${new Date().toLocaleString()}`;
 
-        // 发送执行请求
-        const taskData = {
+        // 鍙戦€佹墽琛岃姹?        const taskData = {
             name: finalTaskName,
-            description: taskDescription || `批量执行 ${combinationCount} 个参数组合`,
+            description: taskDescription || `鎵归噺鎵ц ${combinationCount} 涓弬鏁扮粍鍚坄,
             task_type: 'google_sheet_C5',
             config: taskConfig
         };
 
         ajaxRequest('/api/tasks', 'POST', taskData, function(err, data) {
             executeBtn.disabled = false;
-            executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 创建任务并执行';
+            executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 鍒涘缓浠诲姟骞舵墽琛?;
 
             if (!err && data && data.status === 'success') {
                 currentTaskId = data.task_id;
-                showNotification('任务创建成功，正在跳转到详情页面...', 'success');
+                showNotification('浠诲姟鍒涘缓鎴愬姛锛屾鍦ㄨ烦杞埌璇︽儏椤甸潰...', 'success');
 
-                // 清空表单
+                // 娓呯┖琛ㄥ崟
                 document.getElementById('parameter-form').reset();
-                // 隐藏组合信息
+                // 闅愯棌缁勫悎淇℃伅
                 document.getElementById('combination-info').style.display = 'none';
-                // 清除保存的表单数据
-                clearSavedFormData();
+                // 娓呴櫎淇濆瓨鐨勮〃鍗曟暟鎹?                clearSavedFormData();
 
-                // 延迟1秒后跳转到详情页面（C5 模式）
-                setTimeout(function() {
+                // 寤惰繜1绉掑悗璺宠浆鍒拌鎯呴〉闈紙C5 妯″紡锛?                setTimeout(function() {
                     window.location.href = `/google-sheet/detail?task_id=${currentTaskId}&version=c5`;
                 }, 1000);
             } else {
-                showNotification('创建任务失败: ' + (data ? data.message : '未知错误'), 'error');
+                showNotification('鍒涘缓浠诲姟澶辫触: ' + (data ? data.message : '鏈煡閿欒'), 'error');
             }
         });
     }
 
-    // SSE相关功能已移除，任务创建后直接跳转到详情页面
+    // SSE鐩稿叧鍔熻兘宸茬Щ闄わ紝浠诲姟鍒涘缓鍚庣洿鎺ヨ烦杞埌璇︽儏椤甸潰
 
-    // 处理任务事件（保留以备将来使用）
+    // 澶勭悊浠诲姟浜嬩欢锛堜繚鐣欎互澶囧皢鏉ヤ娇鐢級
     function handleTaskEvent(event) {
         if (event.type === 'log_update') {
-            // 处理实时日志更新
-            console.log('收到日志更新:', event.data);
+            // 澶勭悊瀹炴椂鏃ュ織鏇存柊
+            console.log('鏀跺埌鏃ュ織鏇存柊:', event.data);
         } else if (event.type === 'heartbeat') {
-            // 心跳包，无需处理
+            // 蹇冭烦鍖咃紝鏃犻渶澶勭悊
         } else if (event.type === 'error') {
-            showNotification('任务执行出错: ' + event.data, 'error');
+            showNotification('浠诲姟鎵ц鍑洪敊: ' + event.data, 'error');
         }
     }
 
-    // 任务状态日志更新功能已移除
+    // 浠诲姟鐘舵€佹棩蹇楁洿鏂板姛鑳藉凡绉婚櫎
 
-    // 确认和取消执行功能已移除，任务创建后直接跳转到详情页面
+    // 纭鍜屽彇娑堟墽琛屽姛鑳藉凡绉婚櫎锛屼换鍔″垱寤哄悗鐩存帴璺宠浆鍒拌鎯呴〉闈?
+    // 浠诲姟鐘舵€佹ā鎬佹鍔熻兘宸茬Щ闄わ紝浠诲姟鍒涘缓鍚庣洿鎺ヨ烦杞埌璇︽儏椤甸潰
 
-    // 任务状态模态框功能已移除，任务创建后直接跳转到详情页面
+    // 椤甸潰鍗歌浇鏃舵竻鐞嗚祫婧愶紙SSE鍔熻兘宸茬Щ闄わ級
 
-    // 页面卸载时清理资源（SSE功能已移除）
-
-    // 保存表单数据到localStorage
+    // 淇濆瓨琛ㄥ崟鏁版嵁鍒發ocalStorage
     function saveFormData() {
         const formData = {
             task_name: document.getElementById('task_name').value,
@@ -1890,20 +1792,20 @@
 
         try {
             // localStorage.setItem('google_sheet_c5_form_data', JSON.stringify(formData));
-            // 静默保存，不显示提示
+            // 闈欓粯淇濆瓨锛屼笉鏄剧ず鎻愮ず
         } catch (e) {
-            console.warn('无法保存表单数据到localStorage:', e);
+            console.warn('鏃犳硶淇濆瓨琛ㄥ崟鏁版嵁鍒發ocalStorage:', e);
         }
     }
 
-    // 从localStorage加载表单数据
+    // 浠巐ocalStorage鍔犺浇琛ㄥ崟鏁版嵁
     function loadSavedFormData() {
         try {
             const savedData = localStorage.getItem('google_sheet_c5_form_data');
             if (savedData) {
                 const formData = JSON.parse(savedData);
 
-                // 恢复表单字段
+                // 鎭㈠琛ㄥ崟瀛楁
                 if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
                 if (formData.spreadsheet) document.getElementById('spreadsheet').value = formData.spreadsheet;
@@ -1949,65 +1851,45 @@
                     applyDateRangeModes(formData.date_range_mode);
                 }
 
-                // 触发相关事件以更新UI状态
-                document.getElementById('sheet_name').dispatchEvent(new Event('change'));
+                // 瑙﹀彂鐩稿叧浜嬩欢浠ユ洿鏂癠I鐘舵€?                document.getElementById('sheet_name').dispatchEvent(new Event('change'));
                 document.getElementById('token_type').dispatchEvent(new Event('change'));
                 initProductCodeChipsFromParam1();
 
-                console.log('表单数据已恢复');
+                console.log('琛ㄥ崟鏁版嵁宸叉仮澶?);
 
-                // 显示恢复状态
-                showNotification('表单数据已恢复', 'info');
+                // 鏄剧ず鎭㈠鐘舵€?                showNotification('琛ㄥ崟鏁版嵁宸叉仮澶?, 'info');
             }
         } catch (e) {
-            console.warn('无法从localStorage加载表单数据:', e);
+            console.warn('鏃犳硶浠巐ocalStorage鍔犺浇琛ㄥ崟鏁版嵁:', e);
         }
     }
 
-    // 清除保存的表单数据（仅清理 C5 自己的缓存）
+    // 娓呴櫎淇濆瓨鐨勮〃鍗曟暟鎹紙浠呮竻鐞?C5 鑷繁鐨勭紦瀛橈級
     function clearSavedFormData() {
         try {
             localStorage.removeItem('google_sheet_c5_form_data');
-            // 重置表单
+            // 閲嶇疆琛ㄥ崟
             document.getElementById('parameter-form').reset();
-            // 隐藏组合信息
+            // 闅愯棌缁勫悎淇℃伅
             document.getElementById('combination-info').style.display = 'none';
-            // 重新计算组合数量
+            // 閲嶆柊璁＄畻缁勫悎鏁伴噺
             calculateCombinations();
-            console.log('已清除 C5 表单缓存');
-            showNotification('已清除 C5 表单缓存', 'success');
+            console.log('宸叉竻闄?C5 琛ㄥ崟缂撳瓨');
+            showNotification('宸叉竻闄?C5 琛ㄥ崟缂撳瓨', 'success');
         } catch (e) {
-            console.warn('无法清除localStorage数据:', e);
+            console.warn('鏃犳硶娓呴櫎localStorage鏁版嵁:', e);
         }
     }
+    // 模板弹窗公共逻辑：复用共享 helper，页面仅保留配置采集差异
+    {% include "google_sheet/_template_modal_helpers.html" %}
 
-    // 保存为模板
-    function saveAsTemplate() {
-        // 获取当前配置
-        const config = getCurrentConfig();
-        if (!config) {
-            return;
-        }
-
-        // 预填充模板名称（如果有任务名称）
-        const taskName = document.getElementById('task_name').value.trim();
-        if (taskName) {
-            document.getElementById('templateName').value = taskName + ' 模板';
-        }
-
-        // 显示保存模板对话框
-        const modal = new bootstrap.Modal(document.getElementById('saveTemplateModal'));
-        modal.show();
-    }
-
-    // 获取当前配置
     function getCurrentConfig() {
         try {
             const spreadsheetInput = document.getElementById('spreadsheet').value;
             const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
             const sheetNameSelect = document.getElementById('sheet_name').value;
             const customSheetName = document.getElementById('custom_sheet_name').value;
-            const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
+            const sheetName = sheetNameSelect === '鑷畾涔? ? customSheetName : sheetNameSelect;
             const tokenType = document.getElementById('token_type').value;
             const tokenFile = document.getElementById('token_file').value;
             const tokenJson = document.getElementById('token_json').value;
@@ -2019,40 +1901,39 @@
             const startDate = document.getElementById('start_date')?.value || null;
             const endDate = document.getElementById('end_date')?.value || null;
 
-            // 验证必要字段
+            // 楠岃瘉蹇呰瀛楁
             if (!spreadsheetId) {
-                showError('请输入电子表格ID或URL');
+                showError('璇疯緭鍏ョ數瀛愯〃鏍糏D鎴朥RL');
                 return null;
             }
 
-            if (sheetNameSelect === '自定义' && !customSheetName) {
-                showError('请输入自定义工作表名称');
+            if (sheetNameSelect === '鑷畾涔? && !customSheetName) {
+                showError('璇疯緭鍏ヨ嚜瀹氫箟宸ヤ綔琛ㄥ悕绉?);
                 return null;
             }
 
             if (tokenType === 'file' && !tokenFile) {
-                showError('请输入Token文件路径');
+                showError('璇疯緭鍏oken鏂囦欢璺緞');
                 return null;
             }
 
             if (tokenType === 'json' && !tokenJson) {
-                showError('请输入Token JSON字符串');
+                showError('璇疯緭鍏oken JSON瀛楃涓?);
                 return null;
             }
 
-            // 获取参数配置
+            // 鑾峰彇鍙傛暟閰嶇疆
             const param1 = parseJsonArray(document.getElementById('param1').value) || [];
             const param2 = parseJsonArray(document.getElementById('param2').value) || [];
             const param3 = parseJsonArray(document.getElementById('param3').value) || [];
 
-            // 检查是否有解析错误
+            // 妫€鏌ユ槸鍚︽湁瑙ｆ瀽閿欒
             if (param1 === null || param2 === null || param3 === null) {
-                showError('参数格式错误，请检查 JSON 数组格式');
+                showError('鍙傛暟鏍煎紡閿欒锛岃妫€鏌?JSON 鏁扮粍鏍煎紡');
                 return null;
             }
 
-            // 收集所有表格配置
-            const sheets = [];
+            // 鏀堕泦鎵€鏈夎〃鏍奸厤缃?            const sheets = [];
             const sheetConfigList = document.getElementById('sheet-config-list');
             if (sheetConfigList) {
                 const items = sheetConfigList.querySelectorAll('.sheet-config-item');
@@ -2073,7 +1954,7 @@
                         stitle = sheetTitle.value || ''
                     }
                     if (selectEl) {
-                        if (selectEl.value === '自定义' && customInputEl) {
+                        if (selectEl.value === '鑷畾涔? && customInputEl) {
                             sname = (customInputEl.value || '').trim();
                         } else if (selectEl.value) {
                             sname = selectEl.value;
@@ -2091,19 +1972,17 @@
                             title: stitle,
                             sheet_name: sname
                         });
-                        console.log( `添加工作表：${sid} - ${sname} - ${stitle}`)
+                        console.log( `娣诲姞宸ヤ綔琛細${sid} - ${sname} - ${stitle}`)
                     }
                 });
             }
 
-            // 构造参数列表：只加入非空数组
-            const parameters = [];
+            // 鏋勯€犲弬鏁板垪琛細鍙姞鍏ラ潪绌烘暟缁?            const parameters = [];
             if (Array.isArray(param1)) parameters.push(param1);
             if (Array.isArray(param2) && param2.length) parameters.push(param2);
             if (Array.isArray(param3) && param3.length) parameters.push(param3);
 
-            // 构造配置对象（C5 结构，包含 task_type，供模板过滤）
-            return {
+            // 鏋勯€犻厤缃璞★紙C5 缁撴瀯锛屽寘鍚?task_type锛屼緵妯℃澘杩囨护锛?            return {
                 task_type: 'google_sheet_C5',
                 token_type: tokenType,
                 token_file: tokenFile,
@@ -2119,63 +1998,13 @@
                 sheets: sheets
             };
         } catch (error) {
-            console.error('获取当前配置失败:', error);
-            showError('获取当前配置失败: ' + error.message);
+            console.error('鑾峰彇褰撳墠閰嶇疆澶辫触:', error);
+            showError('鑾峰彇褰撳墠閰嶇疆澶辫触: ' + error.message);
             return null;
         }
     }
 
-    // 提交模板
-    function submitTemplate() {
-        const config = getCurrentConfig();
-        if (!config) {
-            return;
-        }
 
-        const name = document.getElementById('templateName').value.trim();
-        const description = document.getElementById('templateDescription').value.trim();
-
-        if (!name) {
-            showError('请输入模板名称');
-            return;
-        }
-
-        const templateData = {
-            name: name,
-            description: description,
-            config: config
-        };
-
-        fetch('/api/templates', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(templateData)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                const modal = document.getElementById('saveTemplateModal');
-                const modalInstance = bootstrap.Modal.getInstance(modal);
-                if (modalInstance) {
-                    modalInstance.hide();
-                }
-                showNotification('模板保存成功', 'success');
-
-                // 重新加载模板列表
-                loadTemplates();
-            } else {
-                showError(data.message || '保存模板失败');
-            }
-        })
-        .catch(error => {
-            console.error('保存模板失败:', error);
-            showError('保存模板失败: ' + error.message);
-        });
-    }
-
-    // 加载重启配置
     function loadRestartConfig(restartConfigRaw, originalTaskId) {
         try {
             applyConfigToForm(restartConfigRaw, {
@@ -2183,7 +2012,7 @@
                 originalTaskId: originalTaskId
             });
         } catch (e) {
-            console.warn('加载重启配置失败:', e);
+            console.warn('鍔犺浇閲嶅惎閰嶇疆澶辫触:', e);
         }
     }
 </script>

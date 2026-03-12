@@ -1,0 +1,24 @@
+<!-- 任务执行状态弹窗：创建页通过 task_detail_url 传入详情页地址 -->
+<div class="modal fade" id="taskStatusModal" tabindex="-1" aria-labelledby="taskStatusModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="taskStatusModalLabel">任务执行状态</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" id="task-progress-bar" style="width: 0%;">0%</div>
+                </div>
+                <div class="mt-3">
+                    <h6>任务状态</h6>
+                    <div id="task-status-message" class="border rounded p-2 bg-light" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <a href="{{ task_detail_url }}" class="btn btn-primary" id="view-task-btn" style="display: none;">查看任务详情</a>
+            </div>
+        </div>
+    </div>
+</div>
