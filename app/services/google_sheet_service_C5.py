@@ -4,13 +4,17 @@ from typing import Any, Dict
 
 from tenacity import retry, retry_if_result, stop_after_attempt, wait_exponential
 
-from app.exceptions.checkForErrors import checkForErrors
 from app.models import TaskResultReturn, db
 from app.services.base_multi_sheet_google_sheet_service import BaseMultiSheetGoogleSheetService
 from app.services.xpl_service import xpl_analyzer
 from app.utils.database import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.result_validator import is_valid_result_value
+from app.utils.google_sheet_result_helper import (
+    build_stock_value_series,
+    has_invalid_result_markers,
+    is_result_range_changed,
+    parse_result_mapping,
+)
 from app.utils.yf_api import YFApi
 
 
@@ -182,36 +186,17 @@ class GoogleSheetService(BaseMultiSheetGoogleSheetService):
             kline_key = combination["Kline_key"]
             kline = KLINE_DATA_MAP.get(kline_key)
 
-            def check_result(check_values):
-                checked_values = {}
-                for position, value in check_values.items():
-                    if not value or not is_valid_result_value(value):
-                        self._log_info(f"结果位置 {position} 值为空或无效，触发重试: {value}")
-                        raise Exception(f"结果位置 {position} 值为空或无效，触发重试: {value}")
-
-                    if str(value).strip().startswith(("#", "#N/A")):
-                        error_msg = f"获取结果位置 {position} 时出错: {str(value)}"
-                        raise checkForErrors(f"检查报错，出现 # 或 #N/A 异常，请联系用户排查: {error_msg}")
-
-                    if "%" in value:
-                        value = float(value.replace("%", "").replace(",", "")) / 100
-                    if isinstance(value, str) and "," in value:
-                        value = float(value.replace(",", ""))
-                    if value == "-":
-                        continue
-                    checked_values[position] = value
-                return checked_values
-
             def validate_check_values(check_values: Dict[str, Any], spreadsheet_id) -> bool:
                 """校验结果区是否已经刷新完成。"""
-                if not check_values:
+                if has_invalid_result_markers(check_values):
                     return False
 
                 initial_check_values = initial_results[spreadsheet_id]
                 prefix = c5_output_range_1[0]
-                return not (
-                    initial_check_values[f"{prefix}2"] == check_values[f"{prefix}2"]
-                    and initial_check_values[f"{prefix}3"] == check_values[f"{prefix}3"]
+                return is_result_range_changed(
+                    initial_check_values,
+                    check_values,
+                    [f"{prefix}2", f"{prefix}3"],
                 )
 
             def before_attempt(attempt: int):
@@ -234,11 +219,13 @@ class GoogleSheetService(BaseMultiSheetGoogleSheetService):
                 result_range.update(result_yearly)
 
                 try:
-                    index_return = check_result(
-                        google_sheet.get_range(f"{c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1}")
+                    index_return = parse_result_mapping(
+                        google_sheet.get_range(f"{c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1}"),
+                        allow_dash=True,
                     )
-                    start_return = check_result(
-                        google_sheet.get_range(f"{c5_output_column_l}2:{c5_output_column_l}{len(kline) + 1}")
+                    start_return = parse_result_mapping(
+                        google_sheet.get_range(f"{c5_output_column_l}2:{c5_output_column_l}{len(kline) + 1}"),
+                        allow_dash=True,
                     )
                 except Exception as exc:
                     self._log_info(
@@ -250,22 +237,10 @@ class GoogleSheetService(BaseMultiSheetGoogleSheetService):
                     )
                     return {"completed": False}
 
-                index_return_date = []
-                start_return_date = []
+                index_return_date = build_stock_value_series(kline, index_return, c5_output_column_j)
+                start_return_date = build_stock_value_series(kline, start_return, c5_output_column_l)
                 index_start_return_date = []
                 for index, item in enumerate(kline):
-                    index_return_date.append(
-                        {
-                            "stock_date": item.get("stock_date"),
-                            "stock_val": index_return[f"{c5_output_column_j}{index + 2}"],
-                        }
-                    )
-                    start_return_date.append(
-                        {
-                            "stock_date": item.get("stock_date"),
-                            "stock_val": start_return[f"{c5_output_column_l}{index + 2}"],
-                        }
-                    )
                     index_start_return_date.append(
                         {
                             "stock_date": item.get("stock_date"),

@@ -8,6 +8,7 @@ from tenacity import retry, retry_if_result, stop_after_attempt, wait_exponentia
 from app.exceptions.checkForErrors import checkForErrors
 from app.services.base_single_sheet_google_sheet_service import BaseSingleSheetGoogleSheetService
 from app.services.config_manager import get_config_manager
+from app.utils.google_sheet_result_helper import parse_result_value
 from app.utils.logger import get_logger
 from app.utils.result_validator import (
     is_valid_result_value,
@@ -149,20 +150,8 @@ class GoogleSheetService(BaseSingleSheetGoogleSheetService):
                     raise
 
             def check_result(position, value=None):
-                if not value or not is_valid_result_value(value):
-                    self._log_info(f"结果位置 {position} 值为空或无效，触发重试")
-                    raise Exception(f"结果位置 {position} 值为空或无效，触发重试")
-
-                if str(value).strip().startswith(("#", "#N/A")):
-                    error_msg = f"获取结果位置 {position} 时出错: {str(value)}"
-                    raise checkForErrors(f"检查报错，出现 # 或 #N/A 异常，请联系用户排查: {error_msg}")
-
-                if "%" in value:
-                    value = float(value.replace("%", "").replace(",", "")) / 100
-                if isinstance(value, str):
-                    value = float(value.replace(",", ""))
-
-                results[position] = round(value, 5)
+                parsed_value = parse_result_value(position, value)
+                results[position] = round(parsed_value, 5)
 
             def validate_check_values(check_values: Dict[str, Any]) -> bool:
                 """校验检查位是否已经刷新完成。"""

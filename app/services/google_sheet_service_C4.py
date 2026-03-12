@@ -4,11 +4,16 @@ from typing import Any, Dict
 
 from tenacity import retry, retry_if_result, stop_after_attempt, wait_exponential
 
-from app.exceptions.checkForErrors import checkForErrors
 from app.services.base_multi_sheet_google_sheet_service import BaseMultiSheetGoogleSheetService
 from app.services.xpl_service import xpl_analyzer
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.result_validator import is_valid_result_value, validate_result_dict
+from app.utils.google_sheet_result_helper import (
+    build_stock_value_series,
+    has_invalid_result_markers,
+    is_result_range_changed,
+    parse_result_mapping,
+)
+from app.utils.result_validator import validate_result_dict
 
 
 class GoogleSheetService(BaseMultiSheetGoogleSheetService):
@@ -126,43 +131,13 @@ class GoogleSheetService(BaseMultiSheetGoogleSheetService):
                 google_sheet.update_jumped_cells(cell_updates)
                 initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c4_output_range_1)
 
-            def check_result(check_values):
-                checked_values = {}
-                for position, value in check_values.items():
-                    if not value or not is_valid_result_value(value):
-                        self._log_info(f"结果位置 {position} 值为空或无效，触发重试")
-                        raise Exception(f"结果位置 {position} 值为空或无效，触发重试")
-
-                    if str(value).strip().startswith(("#", "#N/A")):
-                        error_msg = f"获取结果位置 {position} 时出错: {str(value)}"
-                        raise checkForErrors(f"检查报错，出现 # 或 #N/A 异常，请联系用户排查: {error_msg}")
-
-                    if "%" in value:
-                        value = float(value.replace("%", "").replace(",", "")) / 100
-                    if isinstance(value, str):
-                        value = float(value.replace(",", ""))
-                    checked_values[position] = value
-                return checked_values
-
             def validate_check_values(check_values: Dict[str, Any], spreadsheet_id) -> bool:
                 """校验结果区是否已经刷新完成。"""
-                if not check_values:
+                if has_invalid_result_markers(check_values):
                     return False
-
-                for position, value in check_values.items():
-                    if not value or value in ["#DIV/0!", "", "#N/A", "#ERROR!", "#VALUE!"]:
-                        return False
-                    if "target" in str(value).lower():
-                        return False
 
                 initial_check_values = initial_results[spreadsheet_id]
-                if (
-                    initial_check_values["D2"] == check_values["D2"]
-                    and initial_check_values["D3"] == check_values["D3"]
-                ):
-                    return False
-
-                return True
+                return is_result_range_changed(initial_check_values, check_values, ["D2", "D3"])
 
             def poll_single_sheet(attempt: int, google_sheet):
                 self._log_info(f"轮询 Google Sheet 结果: {google_sheet.title}")
@@ -176,28 +151,15 @@ class GoogleSheetService(BaseMultiSheetGoogleSheetService):
                     return {"completed": False}
 
                 result_yearly = google_sheet.get_range(c4_output_range_2)
-                index_return = check_result(
+                index_return = parse_result_mapping(
                     google_sheet.get_range(f"{c4_output_column_j}2:{c4_output_column_j}{len(kline) + 1}")
                 )
-                start_return = check_result(
+                start_return = parse_result_mapping(
                     google_sheet.get_range(f"{c4_output_column_l}2:{c4_output_column_l}{len(kline) + 1}")
                 )
 
-                index_return_date = []
-                start_return_date = []
-                for index, item in enumerate(kline):
-                    index_return_date.append(
-                        {
-                            "stock_date": item.get("stock_date"),
-                            "stock_val": index_return[f"{c4_output_column_j}{index + 2}"],
-                        }
-                    )
-                    start_return_date.append(
-                        {
-                            "stock_date": item.get("stock_date"),
-                            "stock_val": start_return[f"{c4_output_column_l}{index + 2}"],
-                        }
-                    )
+                index_return_date = build_stock_value_series(kline, index_return, c4_output_column_j)
+                start_return_date = build_stock_value_series(kline, start_return, c4_output_column_l)
 
                 result_range.update(result_yearly)
                 result_range["index_return_xpl"] = self.xpl.get_xpl(index_return_date, "stock_date", "stock_val")
