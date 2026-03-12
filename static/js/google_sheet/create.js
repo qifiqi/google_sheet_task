@@ -1,0 +1,1036 @@
+﻿let currentTaskId = null;
+    let eventSource = null;
+
+    // 从模板加载数据
+    function loadFromTemplate(template) {
+        if (!template) return;
+        
+        try {
+            // 填充基本信息
+            if (template.name) {
+                document.getElementById('task_name').value = template.name;
+            }
+            if (template.description) {
+                document.getElementById('task_description').value = template.description;
+            }
+            
+            // 填充配置信息
+            if (template.config) {
+                let config = template.config;
+                if (typeof config === 'string') {
+                    config = JSON.parse(config);
+                }
+                
+                if (config.spreadsheet_id) {
+                    document.getElementById('spreadsheet').value = config.spreadsheet_id;
+                }
+                
+                if (config.sheet_name) {
+                    const sheetSelect = document.getElementById('sheet_name');
+                    sheetSelect.setAttribute('data-saved-value', config.sheet_name);
+                }
+                
+                if (config.token_type) {
+                    document.getElementById('token_type').value = config.token_type;
+                    document.getElementById('token_type').dispatchEvent(new Event('change'));
+                }
+                
+                if (config.token_file) {
+                    document.getElementById('token_file').value = config.token_file;
+                }
+                
+                if (config.token_json) {
+                    document.getElementById('token_json').value = config.token_json;
+                }
+                
+                if (config.proxy_url) {
+                    document.getElementById('proxy_url').value = config.proxy_url;
+                }
+                
+                // 填充参数配置
+                if (config.parameters && Array.isArray(config.parameters)) {
+                    config.parameters.forEach((param, index) => {
+                        const paramId = `param${index + 1}`;
+                        const paramElement = document.getElementById(paramId);
+                        if (paramElement && Array.isArray(param)) {
+                            paramElement.value = JSON.stringify(param);
+                        }
+                    });
+                }
+                
+                // 更新组合计算
+                calculateCombinations();
+                showNotification('已加载模板配置', 'success');
+                
+                // 更新页面标题和提示
+                const urlTemplateId = new URLSearchParams(window.location.search).get('template_id');
+                if (urlTemplateId) {
+                    document.title = '从模板创建任务 - Google Sheet 参数批量校验';
+                    const cardHeader = document.querySelector('.card-header h4');
+                    if (cardHeader) {
+                        cardHeader.innerHTML = '<i class="bi bi-file-earmark-text"></i> 从模板创建任务';
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('加载模板失败:', error);
+            showError('加载模板配置失败: ' + error.message);
+        }
+    }
+
+    // 防抖函数
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    // 获取工作表列表
+    function loadWorksheets(isManualRefresh = false) {
+        const spreadsheetInput = document.getElementById('spreadsheet').value;
+        const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
+        const tokenType = document.getElementById('token_type').value;
+        const tokenFile = document.getElementById('token_file').value;
+        const tokenJson = document.getElementById('token_json').value;
+        const proxyUrl = document.getElementById('proxy_url').value;
+
+        // 获取相关元素
+        const sheetSelect = document.getElementById('sheet_name');
+        const refreshBtn = document.getElementById('refresh-sheets');
+        const helpText = document.getElementById('sheet-name-help');
+
+        if (!spreadsheetId) {
+            sheetSelect.innerHTML = '<option value="">请先输入电子表格ID</option>';
+            helpText.textContent = '选择要操作的工作表';
+            refreshBtn.disabled = true;
+            return;
+        }
+
+        // 显示加载状态
+        sheetSelect.disabled = true;
+        refreshBtn.disabled = true;
+        if (isManualRefresh) {
+            const icon = refreshBtn.querySelector('i');
+            icon.classList.add('spin'); // 需要添加相应的CSS动画
+        }
+        sheetSelect.innerHTML = '<option value="">正在加载工作表列表...</option>';
+        helpText.textContent = '正在从Google Sheet获取工作表列表...';
+
+        // 准备请求数据
+        const requestData = {
+            spreadsheet_id: spreadsheetId,
+            token_file: tokenType === 'file' ? tokenFile : undefined,
+            proxy_url: proxyUrl || undefined
+        };
+
+        // 发送请求获取工作表列表
+        fetch('/api/google-sheet/worksheets', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && Array.isArray(data.worksheets)) {
+                if (data.worksheets.length === 0) {
+                    throw new Error('未找到任何工作表');
+                }
+
+                // 清空并重新填充下拉列表
+                sheetSelect.innerHTML = '';
+                data.worksheets.forEach(worksheet => {
+                    const option = document.createElement('option');
+                    option.value = worksheet;
+                    option.textContent = worksheet;
+                    sheetSelect.appendChild(option);
+                });
+                
+                // 添加自定义选项
+                const customOption = document.createElement('option');
+                customOption.value = '自定义';
+                customOption.textContent = '自定义';
+                sheetSelect.appendChild(customOption);
+
+                // 如果有保存的值，恢复它
+                const savedValue = sheetSelect.getAttribute('data-saved-value');
+                if (savedValue) {
+                    if (data.worksheets.includes(savedValue)) {
+                        sheetSelect.value = savedValue;
+                        helpText.textContent = `已选择工作表: ${savedValue}`;
+                    } else if (savedValue === '自定义') {
+                        sheetSelect.value = '自定义';
+                        document.getElementById('custom-sheet-container').style.display = 'block';
+                        helpText.textContent = '使用自定义工作表名称';
+                    }
+                } else {
+                    // 默认选择第一个工作表
+                    const defaultSheet = data.worksheets[0];
+                    sheetSelect.value = defaultSheet;
+                    helpText.textContent = `已自动选择第一个工作表: ${defaultSheet}`;
+                }
+
+                if (!isManualRefresh) {
+                    showNotification('工作表列表已自动加载', 'success');
+                } else {
+                    showNotification('工作表列表已刷新', 'success');
+                }
+            } else {
+                throw new Error(data.message || '获取工作表列表失败');
+            }
+        })
+        .catch(error => {
+            console.error('获取工作表列表失败:', error);
+            sheetSelect.innerHTML = '<option value="">加载失败</option>';
+            helpText.textContent = '加载失败，请检查电子表格ID是否正确';
+            showError('获取工作表列表失败: ' + error.message);
+        })
+        .finally(() => {
+            sheetSelect.disabled = false;
+            refreshBtn.disabled = false;
+            if (isManualRefresh) {
+                const icon = refreshBtn.querySelector('i');
+                icon.classList.remove('spin');
+            }
+        });
+    }
+
+    // 页面加载完成后绑定事件
+    document.addEventListener('DOMContentLoaded', function() {
+        bindEvents();
+        loadTemplates(); // 加载模板列表
+        
+        // URL 参数驱动的数据加载：
+        // - ?template_id=xxx -> /api/templates/xxx
+        // - ?restart_task_id=xxx -> /api/tasks/xxx
+        // - 其它 -> loadSavedFormData()
+        initFromUrlParams();
+        
+        calculateCombinations();
+
+        // 创建防抖版本的函数
+        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
+        const debouncedCalculateCombinations = debounce(calculateCombinations, 300);
+        const debouncedSaveFormData = debounce(saveFormData, 300);
+
+        // 监听spreadsheet输入变化
+        const spreadsheetInput = document.getElementById('spreadsheet');
+        spreadsheetInput.addEventListener('input', debouncedLoadWorksheets);
+
+        // 为参数输入添加防抖
+        document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
+            textarea.addEventListener('input', function() {
+                debouncedCalculateCombinations();
+                debouncedSaveFormData();
+            });
+        });
+
+        // 为其他输入字段添加防抖的自动保存
+        const inputFields = [
+            'task_name', 'task_description', 'custom_sheet_name', 
+            'token_file', 'token_json', 'proxy_url'
+        ];
+        
+        inputFields.forEach(function(fieldId) {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.addEventListener('input', debouncedSaveFormData);
+                field.addEventListener('change', debouncedSaveFormData);
+            }
+        });
+    });
+
+    function initFromUrlParams() {
+        const params = new URLSearchParams(window.location.search);
+        const templateId = params.get('template_id');
+        const restartTaskId = params.get('restart_task_id');
+
+        if (templateId) {
+            fillFormWithTemplate(templateId);
+            return;
+        }
+
+        if (restartTaskId) {
+            fillFormWithRestartTask(restartTaskId);
+            return;
+        }
+
+        loadSavedFormData();
+    }
+
+    function fillFormWithRestartTask(taskId) {
+        fetch(`/api/tasks/${encodeURIComponent(taskId)}`)
+            .then(resp => resp.json())
+            .then(data => {
+                const task = (data && data.task) ? data.task : null;
+                const configRaw = task ? task.config : null;
+                if (!configRaw) {
+                    showNotification('加载原任务配置失败：config为空', 'error');
+                    return;
+                }
+                loadRestartConfig(configRaw, taskId);
+            })
+            .catch(err => {
+                console.error('加载原任务失败:', err);
+                showNotification('加载原任务失败', 'error');
+            });
+    }
+
+    // 加载模板列表
+    function loadTemplates() {
+        fetch('/api/templates')
+            .then(response => response.json())
+            .then(data => {
+                if (!data || !data.status === 'success' || !Array.isArray(data.templates)) {
+                    console.error('Invalid response format:', data);
+                    return;
+                }
+                
+                const templateSelect = document.getElementById('task_template');
+                data.templates.forEach(template => {
+                    const option = document.createElement('option');
+                    option.value = template.id;
+                    option.textContent = template.name;
+                    templateSelect.appendChild(option);
+                });
+            })
+            .catch(error => {
+                console.error('加载模板列表失败:', error);
+                showError('加载模板列表失败');
+            });
+    }
+
+    // 使用模板填充表单
+    function fillFormWithTemplate(templateId) {
+        if (!templateId) {
+            return;
+        }
+
+        fetch(`/api/templates/${templateId}`)
+            .then(response => response.json())
+            .then(template => {
+                let config = template.config;
+                if (typeof config === 'string') {
+                    try {
+                        config = JSON.parse(config);
+                    } catch (e) {
+                        console.error('解析模板配置失败:', e);
+                        return;
+                    }
+                }
+
+                // 填充Google Sheet配置
+                if (config.spreadsheet_id) {
+                    document.getElementById('spreadsheet').value = config.spreadsheet_id;
+                }
+                if (config.sheet_name) {
+                    const sheetSelect = document.getElementById('sheet_name');
+                    sheetSelect.setAttribute('data-saved-value', config.sheet_name);
+                }
+                if (config.token_type) {
+                    document.getElementById('token_type').value = config.token_type;
+                    document.getElementById('token_type').dispatchEvent(new Event('change'));
+                }
+                if (config.token_file) {
+                    document.getElementById('token_file').value = config.token_file;
+                }
+                if (config.token_json) {
+                    document.getElementById('token_json').value = config.token_json;
+                }
+                if (config.proxy_url) {
+                    document.getElementById('proxy_url').value = config.proxy_url;
+                }
+
+                // 填充参数配置
+                if (config.parameters && Array.isArray(config.parameters)) {
+                    config.parameters.forEach((param, index) => {
+                        const paramId = `param${index + 1}`;
+                        const paramElement = document.getElementById(paramId);
+                        if (paramElement && Array.isArray(param)) {
+                            paramElement.value = JSON.stringify(param);
+                        }
+                    });
+                }
+
+                // 更新组合计算
+                calculateCombinations();
+                showNotification('已加载模板配置', 'success');
+            })
+            .catch(error => {
+                console.error('加载模板详情失败:', error);
+                showNotification('加载模板失败', 'error');
+            });
+    }
+
+    function bindEvents() {
+        // 创建防抖版本的函数
+        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
+        const debouncedCalculateCombinations = debounce(calculateCombinations, 300);
+        const debouncedSaveFormData = debounce(saveFormData, 300);
+
+        // 模板选择变化事件
+        document.getElementById('task_template').addEventListener('change', function() {
+            fillFormWithTemplate(this.value);
+        });
+
+        // 任务名称和描述变化事件
+        document.getElementById('task_name').addEventListener('input', debouncedSaveFormData);
+        document.getElementById('task_description').addEventListener('input', debouncedSaveFormData);
+        
+        // 工作表名称选择变化事件
+        document.getElementById('sheet_name').addEventListener('change', function() {
+            const customContainer = document.getElementById('custom-sheet-container');
+            const helpText = document.getElementById('sheet-name-help');
+            
+            if (this.value === '自定义') {
+                customContainer.style.display = 'block';
+                helpText.textContent = '使用自定义工作表名称';
+            } else {
+                customContainer.style.display = 'none';
+                if (this.value) {
+                    helpText.textContent = `已选择工作表: ${this.value}`;
+                }
+            }
+            debouncedSaveFormData();
+        });
+
+        // 认证方式选择变化事件
+        document.getElementById('token_type').addEventListener('change', function() {
+            const fileContainer = document.getElementById('token_file_container');
+            const jsonContainer = document.getElementById('token_json_container');
+            if (this.value === 'file') {
+                fileContainer.style.display = 'block';
+                jsonContainer.style.display = 'none';
+            } else {
+                fileContainer.style.display = 'none';
+                jsonContainer.style.display = 'block';
+            }
+            debouncedSaveFormData();
+        });
+
+        // 参数输入变化事件
+        document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
+            textarea.addEventListener('input', function() {
+                debouncedCalculateCombinations();
+                debouncedSaveFormData();
+            });
+        });
+
+        // 为所有输入字段添加自动保存
+        const inputFields = [
+            'spreadsheet', 'custom_sheet_name', 'token_file', 'token_json', 'proxy_url'
+        ];
+        
+        inputFields.forEach(function(fieldId) {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.addEventListener('input', debouncedSaveFormData);
+                field.addEventListener('change', debouncedSaveFormData);
+            }
+        });
+
+        // 监听spreadsheet输入变化
+        const spreadsheetInput = document.getElementById('spreadsheet');
+        spreadsheetInput.addEventListener('input', function() {
+            const refreshBtn = document.getElementById('refresh-sheets');
+            if (this.value.trim()) {
+                refreshBtn.disabled = false;
+            } else {
+                refreshBtn.disabled = true;
+            }
+            debouncedLoadWorksheets(false);
+        });
+
+        // 刷新按钮点击事件
+        document.getElementById('refresh-sheets').addEventListener('click', function() {
+            loadWorksheets(true); // 传入true表示是手动刷新
+        });
+
+        // 表单提交事件
+        document.getElementById('parameter-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            submitTask();
+        });
+    }
+
+    // 计算参数组合数量
+    function calculateCombinations() {
+        const param1 = parseJsonArray(document.getElementById('param1').value) || [];
+        const param2 = parseJsonArray(document.getElementById('param2').value) || [];
+        const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+        const param4 = parseJsonArray(document.getElementById('param4').value) || [];
+        const param5 = parseJsonArray(document.getElementById('param5').value) || [];
+        const param6 = parseJsonArray(document.getElementById('param6').value) || [];
+        
+        const count = param1.length * param2.length * param3.length * param4.length * param5.length * param6.length;
+        
+        const infoDiv = document.getElementById('combination-info');
+        const countSpan = document.getElementById('combination-count');
+        
+        if (count > 0) {
+            infoDiv.style.display = 'block';
+            countSpan.textContent = count;
+        } else {
+            infoDiv.style.display = 'none';
+        }
+        
+        return count;
+    }
+
+    // 显示参数组合预览
+    function showCombinationPreview() {
+        const param1 = parseJsonArray(document.getElementById('param1').value) || [];
+        const param2 = parseJsonArray(document.getElementById('param2').value) || [];
+        const param3 = parseJsonArray(document.getElementById('param3').value) || [];
+        const param4 = parseJsonArray(document.getElementById('param4').value) || [];
+        const param5 = parseJsonArray(document.getElementById('param5').value) || [];
+        const param6 = parseJsonArray(document.getElementById('param6').value) || [];
+        
+        const parameters = [param1, param2, param3, param4, param5, param6];
+        const combinations = generateCombinations(parameters);
+        
+        const previewContainer = document.getElementById('combination-preview');
+        previewContainer.innerHTML = '';
+        
+        // 只显示前20个组合
+        const displayCombinations = combinations.slice(0, 20);
+        
+        displayCombinations.forEach((combination, index) => {
+            const div = document.createElement('div');
+            div.className = 'mb-2 p-2 border rounded';
+            div.innerHTML = `
+                <strong>组合 ${index + 1}:</strong>
+                <div class="small text-muted">${combination.join(', ')}</div>
+            `;
+            previewContainer.appendChild(div);
+        });
+        
+        if (combinations.length > 20) {
+            const moreDiv = document.createElement('div');
+            moreDiv.className = 'text-center text-muted';
+            moreDiv.textContent = `... 还有 ${combinations.length - 20} 个组合`;
+            previewContainer.appendChild(moreDiv);
+        }
+        
+        const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+        modal.show();
+    }
+
+    // 生成参数组合
+    function generateCombinations(parameters) {
+        const combinations = [];
+        const param1 = parameters[0] || [];
+        const param2 = parameters[1] || [];
+        const param3 = parameters[2] || [];
+        const param4 = parameters[3] || [];
+        const param5 = parameters[4] || [];
+        const param6 = parameters[5] || [];
+        
+        for (const p1 of param1) {
+            for (const p2 of param2) {
+                for (const p3 of param3) {
+                    for (const p4 of param4) {
+                        for (const p5 of param5) {
+                            for (const p6 of param6) {
+                                combinations.push([p1, p2, p3, p4, p5, p6]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return combinations;
+    }
+
+    // 参数管理功能
+    let parameterCount = 6;
+    
+    function addParameter() {
+        parameterCount++;
+        const colors = ['primary', 'success', 'info', 'warning', 'danger', 'secondary'];
+        const color = colors[(parameterCount - 1) % colors.length];
+        const textColor = color === 'warning' ? 'text-dark' : 'text-white';
+        const closeClass = color === 'warning' ? 'btn-close' : 'btn-close btn-close-white';
+        
+        const newParamHtml = `
+            <div class="col-md-4 mb-3">
+                <div class="card border-${color}">
+                    <div class="card-header bg-${color} ${textColor}">
+                        <h6 class="mb-0">
+                            <i class="bi bi-${parameterCount}-circle"></i> 参数${parameterCount}
+                            <button type="button" class="${closeClass} float-end" onclick="removeParameter(${parameterCount})" style="font-size: 0.7em;"></button>
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <textarea class="form-control parameter-input" id="param${parameterCount}" rows="3" 
+                                  placeholder='["value1", "value2"]'></textarea>
+                        <div class="form-text">JSON数组格式</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('parameters-container').insertAdjacentHTML('beforeend', newParamHtml);
+        
+        // 绑定事件
+        const newTextarea = document.getElementById(`param${parameterCount}`);
+        newTextarea.addEventListener('input', function() {
+            calculateCombinations();
+            saveFormData();
+        });
+        
+        calculateCombinations();
+        showNotification(`已添加参数${parameterCount}`, 'success');
+    }
+    
+    function removeParameter(paramNum) {
+        const paramElement = document.querySelector(`#param${paramNum}`).closest('.col-md-4');
+        if (paramElement) {
+            paramElement.remove();
+            calculateCombinations();
+            showNotification(`已删除参数${paramNum}`, 'info');
+        }
+    }
+    
+    function clearAllParameters() {
+        if (confirm('确定要清空所有参数吗？')) {
+            document.querySelectorAll('textarea[id^="param"]').forEach(textarea => {
+                textarea.value = '';
+            });
+            calculateCombinations();
+            showNotification('已清空所有参数', 'warning');
+        }
+    }
+
+    // 提交任务
+    function submitTask() {
+        // 计算参数组合数量
+        const combinationCount = calculateCombinations();
+        if (combinationCount === 0) {
+            showNotification('请至少输入一个参数', 'error');
+            return;
+        }
+        
+        // 获取Google Sheet配置
+        const spreadsheetInput = document.getElementById('spreadsheet').value;
+        const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
+        const sheetNameSelect = document.getElementById('sheet_name').value;
+        const customSheetName = document.getElementById('custom_sheet_name').value;
+        const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
+        const tokenType = document.getElementById('token_type').value;
+        const tokenFile = document.getElementById('token_file').value;
+        const tokenJson = document.getElementById('token_json').value;
+        const proxyUrl = document.getElementById('proxy_url').value;
+        
+        // 验证必要字段
+        if (!spreadsheetId) {
+            showNotification('请输入电子表格ID或URL', 'error');
+            return;
+        }
+        
+        if (sheetNameSelect === '自定义' && !customSheetName) {
+            showNotification('请输入自定义工作表名称', 'error');
+            return;
+        }
+        
+        if (tokenType === 'file' && !tokenFile) {
+            showNotification('请输入Token文件路径', 'error');
+            return;
+        }
+        
+        if (tokenType === 'json' && !tokenJson) {
+            showNotification('请输入Token JSON字符串', 'error');
+            return;
+        }
+        
+        // 获取所有参数
+        const param1 = parseJsonArray(document.getElementById('param1').value);
+        const param2 = parseJsonArray(document.getElementById('param2').value);
+        const param3 = parseJsonArray(document.getElementById('param3').value);
+        const param4 = parseJsonArray(document.getElementById('param4').value);
+        const param5 = parseJsonArray(document.getElementById('param5').value);
+        const param6 = parseJsonArray(document.getElementById('param6').value);
+        
+        // 检查是否有解析错误
+        if (param1 === null || param2 === null || param3 === null || param4 === null || param5 === null || param6 === null) {
+            showNotification('参数格式错误，请检查JSON格式', 'error');
+            return;
+        }
+        
+        // 构造参数列表
+        const parameters = [param1, param2, param3, param4, param5, param6];
+        
+        // 构造任务配置
+        const taskConfig = {
+            spreadsheet_id: spreadsheetId,
+            sheet_name: sheetName,
+            token_type: tokenType,
+            token_file: tokenFile,
+            token_json: tokenJson,
+            proxy_url: proxyUrl || null,
+            parameters: parameters
+        };
+        
+        // 禁用执行按钮
+        const executeBtn = document.getElementById('execute-btn');
+        executeBtn.disabled = true;
+        executeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 创建任务中...';
+        
+        // 获取任务名称和描述
+        const taskName = document.getElementById('task_name').value.trim();
+        const taskDescription = document.getElementById('task_description').value.trim();
+        
+        // 如果没有输入任务名称，使用默认生成逻辑
+        const finalTaskName = taskName || `Google Sheet 任务 - ${new Date().toLocaleString()}`;
+        
+        // 发送执行请求
+        const taskData = {
+            name: finalTaskName,
+            description: taskDescription || `批量执行 ${combinationCount} 个参数组合`,
+            task_type: 'google_sheet',
+            config: taskConfig
+        };
+        
+        ajaxRequest('/api/tasks', 'POST', taskData, function(err, data) {
+            executeBtn.disabled = false;
+            executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 创建任务并执行';
+            
+            if (!err && data && data.status === 'success') {
+                currentTaskId = data.task_id;
+                showNotification('任务创建成功，正在跳转到详情页面...', 'success');
+                
+                // 清空表单
+                document.getElementById('parameter-form').reset();
+                // 隐藏组合信息
+                document.getElementById('combination-info').style.display = 'none';
+                // 清除保存的表单数据
+                clearSavedFormData();
+                
+                // 延迟1秒后跳转到详情页面
+                setTimeout(function() {
+                    window.location.href = `/google-sheet/detail?task_id=${currentTaskId}`;
+                }, 1000);
+            } else {
+                showNotification('创建任务失败: ' + (data ? data.message : '未知错误'), 'error');
+            }
+        });
+    }
+
+    // SSE相关功能已移除，任务创建后直接跳转到详情页面
+
+    // 处理任务事件（保留以备将来使用）
+    function handleTaskEvent(event) {
+        if (event.type === 'log_update') {
+            // 处理实时日志更新
+            console.log('收到日志更新:', event.data);
+        } else if (event.type === 'heartbeat') {
+            // 心跳包，无需处理
+        } else if (event.type === 'error') {
+            showNotification('任务执行出错: ' + event.data, 'error');
+        }
+    }
+    
+    // 任务状态日志更新功能已移除
+
+    // 确认和取消执行功能已移除，任务创建后直接跳转到详情页面
+
+    // 任务状态模态框功能已移除，任务创建后直接跳转到详情页面
+
+    // 页面卸载时清理资源（SSE功能已移除）
+
+    // 保存表单数据到localStorage
+    function saveFormData() {
+        const formData = {
+            task_name: document.getElementById('task_name').value,
+            task_description: document.getElementById('task_description').value,
+            spreadsheet: document.getElementById('spreadsheet').value,
+            sheet_name: document.getElementById('sheet_name').value,
+            custom_sheet_name: document.getElementById('custom_sheet_name').value,
+            token_type: document.getElementById('token_type').value,
+            token_file: document.getElementById('token_file').value,
+            token_json: document.getElementById('token_json').value,
+            proxy_url: document.getElementById('proxy_url').value,
+            param1: document.getElementById('param1').value,
+            param2: document.getElementById('param2').value,
+            param3: document.getElementById('param3').value,
+            param4: document.getElementById('param4').value,
+            param5: document.getElementById('param5').value,
+            param6: document.getElementById('param6').value
+        };
+        
+        try {
+            localStorage.setItem('google_sheet_form_data', JSON.stringify(formData));
+            // 静默保存，不显示提示
+        } catch (e) {
+            console.warn('无法保存表单数据到localStorage:', e);
+        }
+    }
+
+    // 从localStorage加载表单数据
+    function loadSavedFormData() {
+        try {
+            const savedData = localStorage.getItem('google_sheet_form_data');
+            if (savedData) {
+                const formData = JSON.parse(savedData);
+                
+                // 恢复表单字段
+                if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
+                if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
+                if (formData.spreadsheet) document.getElementById('spreadsheet').value = formData.spreadsheet;
+                if (formData.sheet_name) {
+                    const sheetSelect = document.getElementById('sheet_name');
+                    sheetSelect.setAttribute('data-saved-value', formData.sheet_name);
+                }
+                if (formData.custom_sheet_name) document.getElementById('custom_sheet_name').value = formData.custom_sheet_name;
+                if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
+                if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
+                if (formData.token_json) document.getElementById('token_json').value = formData.token_json;
+                if (formData.proxy_url) document.getElementById('proxy_url').value = formData.proxy_url;
+                if (formData.param1) document.getElementById('param1').value = formData.param1;
+                if (formData.param2) document.getElementById('param2').value = formData.param2;
+                if (formData.param3) document.getElementById('param3').value = formData.param3;
+                if (formData.param4) document.getElementById('param4').value = formData.param4;
+                if (formData.param5) document.getElementById('param5').value = formData.param5;
+                if (formData.param6) document.getElementById('param6').value = formData.param6;
+                
+                // 触发相关事件以更新UI状态
+                document.getElementById('sheet_name').dispatchEvent(new Event('change'));
+                document.getElementById('token_type').dispatchEvent(new Event('change'));
+                
+                console.log('表单数据已恢复');
+                
+                // 显示恢复状态
+                showNotification('表单数据已恢复', 'info');
+            }
+        } catch (e) {
+            console.warn('无法从localStorage加载表单数据:', e);
+        }
+    }
+
+    // 清除保存的表单数据
+    function clearSavedFormData() {
+        try {
+            localStorage.removeItem('google_sheet_form_data');
+            // 重置表单
+            document.getElementById('parameter-form').reset();
+            // 隐藏组合信息
+            document.getElementById('combination-info').style.display = 'none';
+            // 重新计算组合数量
+            calculateCombinations();
+            console.log('已清除保存的表单数据');
+            showNotification('已清除保存的表单数据', 'success');
+        } catch (e) {
+            console.warn('无法清除localStorage数据:', e);
+        }
+    }
+
+    // 保存为模板
+    function saveAsTemplate() {
+        // 获取当前配置
+        const config = getCurrentConfig();
+        if (!config) {
+            return;
+        }
+
+        // 预填充模板名称（如果有任务名称）
+        const taskName = document.getElementById('task_name').value.trim();
+        if (taskName) {
+            document.getElementById('templateName').value = taskName + ' 模板';
+        }
+
+        // 显示保存模板对话框
+        const modal = new bootstrap.Modal(document.getElementById('saveTemplateModal'));
+        modal.show();
+    }
+
+    // 获取当前配置
+    function getCurrentConfig() {
+        try {
+            const spreadsheetInput = document.getElementById('spreadsheet').value;
+            const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
+            const sheetNameSelect = document.getElementById('sheet_name').value;
+            const customSheetName = document.getElementById('custom_sheet_name').value;
+            const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
+            const tokenType = document.getElementById('token_type').value;
+            const tokenFile = document.getElementById('token_file').value;
+            const tokenJson = document.getElementById('token_json').value;
+            const proxyUrl = document.getElementById('proxy_url').value;
+
+            // 验证必要字段
+            if (!spreadsheetId) {
+                showError('请输入电子表格ID或URL');
+                return null;
+            }
+
+            if (sheetNameSelect === '自定义' && !customSheetName) {
+                showError('请输入自定义工作表名称');
+                return null;
+            }
+
+            if (tokenType === 'file' && !tokenFile) {
+                showError('请输入Token文件路径');
+                return null;
+            }
+
+            if (tokenType === 'json' && !tokenJson) {
+                showError('请输入Token JSON字符串');
+                return null;
+            }
+
+            // 获取所有参数
+            const param1 = parseJsonArray(document.getElementById('param1').value);
+            const param2 = parseJsonArray(document.getElementById('param2').value);
+            const param3 = parseJsonArray(document.getElementById('param3').value);
+            const param4 = parseJsonArray(document.getElementById('param4').value);
+            const param5 = parseJsonArray(document.getElementById('param5').value);
+            const param6 = parseJsonArray(document.getElementById('param6').value);
+
+            // 检查是否有解析错误
+            if (param1 === null || param2 === null || param3 === null || param4 === null || param5 === null || param6 === null) {
+                showError('参数格式错误，请检查JSON格式');
+                return null;
+            }
+
+            // 构造配置对象
+            return {
+                spreadsheet_id: spreadsheetId,
+                sheet_name: sheetName,
+                token_type: tokenType,
+                token_file: tokenFile,
+                token_json: tokenJson,
+                proxy_url: proxyUrl || null,
+                parameters: [param1, param2, param3, param4, param5, param6]
+            };
+        } catch (error) {
+            console.error('获取当前配置失败:', error);
+            showError('获取当前配置失败: ' + error.message);
+            return null;
+        }
+    }
+
+    // 提交模板
+    function submitTemplate() {
+        const config = getCurrentConfig();
+        if (!config) {
+            return;
+        }
+
+        const name = document.getElementById('templateName').value.trim();
+        const description = document.getElementById('templateDescription').value.trim();
+
+        if (!name) {
+            showError('请输入模板名称');
+            return;
+        }
+
+        const templateData = {
+            name: name,
+            description: description,
+            config: config
+        };
+
+        fetch('/api/templates', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(templateData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const modal = document.getElementById('saveTemplateModal');
+                const modalInstance = bootstrap.Modal.getInstance(modal);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+                showNotification('模板保存成功', 'success');
+                
+                // 重新加载模板列表
+                loadTemplates();
+            } else {
+                showError(data.message || '保存模板失败');
+            }
+        })
+        .catch(error => {
+            console.error('保存模板失败:', error);
+            showError('保存模板失败: ' + error.message);
+        });
+    }
+
+    // 加载重启配置
+    function loadRestartConfig(restartConfig, originalTaskId) {
+        try {
+            console.log('加载重启配置:', restartConfig);
+            
+            // 填充基本信息（添加重启标识）
+            if (restartConfig.name) {
+                document.getElementById('task_name').value = restartConfig.name + ' (重启)';
+            }
+            
+            // 填充Google Sheet配置
+            if (restartConfig.spreadsheet_id) {
+                document.getElementById('spreadsheet').value = restartConfig.spreadsheet_id;
+            }
+            if (restartConfig.sheet_name) {
+                const sheetSelect = document.getElementById('sheet_name');
+                const options = Array.from(sheetSelect.options).map(opt => opt.value);
+                if (options.includes(restartConfig.sheet_name)) {
+                    sheetSelect.value = restartConfig.sheet_name;
+                } else {
+                    sheetSelect.value = '自定义';
+                    document.getElementById('custom_sheet_name').value = restartConfig.sheet_name;
+                    document.getElementById('custom-sheet-container').style.display = 'block';
+                }
+            }
+            if (restartConfig.token_type) {
+                document.getElementById('token_type').value = restartConfig.token_type;
+                // 触发change事件来显示对应的输入框
+                document.getElementById('token_type').dispatchEvent(new Event('change'));
+            }
+            if (restartConfig.token_file) {
+                document.getElementById('token_file').value = restartConfig.token_file;
+            }
+            if (restartConfig.token_json) {
+                document.getElementById('token_json').value = restartConfig.token_json;
+            }
+            if (restartConfig.proxy_url) {
+                document.getElementById('proxy_url').value = restartConfig.proxy_url;
+            }
+            
+            // 填充参数配置
+            if (restartConfig.parameters && Array.isArray(restartConfig.parameters)) {
+                restartConfig.parameters.forEach((param, index) => {
+                    const paramId = `param${index + 1}`;
+                    const paramElement = document.getElementById(paramId);
+                    if (paramElement && Array.isArray(param)) {
+                        paramElement.value = JSON.stringify(param);
+                    }
+                });
+            }
+            
+            // 更新页面标题
+            document.title = '重启任务 - Google Sheet 参数批量校验';
+            
+            // 在页面顶部添加提示
+            const cardHeader = document.querySelector('.card-header h4');
+            if (cardHeader) {
+                cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重启任务 (基于原任务: ' + originalTaskId + ')';
+            }
+            
+            // 计算参数组合
+            calculateCombinations();
+            
+            showNotification('已加载原任务配置', 'info');
+        } catch (e) {
+            console.warn('加载重启配置失败:', e);
+        }
+    }
