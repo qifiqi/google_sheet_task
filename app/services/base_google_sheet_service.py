@@ -7,7 +7,7 @@ from typing import Any, Dict
 from flask import current_app
 from sqlalchemy import text
 
-from app.models import Task, TaskLog, db
+from app.models import Task, TaskLog, TaskResult, db
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.database import safe_db_operation
@@ -307,3 +307,26 @@ class BaseGoogleSheetService:
     ) -> Dict[str, Any]:
         """执行具体批处理逻辑，具体由子类实现。"""
         raise NotImplementedError
+
+    def _save_task_result(self, step_index: int, parameters, result: Dict[str, Any], success: bool) -> None:
+        """保存基础任务结果。"""
+        def save_result_operation():
+            task_result = TaskResult(
+                task_id=self.task_id,
+                step_index=step_index,
+                parameters=json.dumps(parameters),
+                result=json.dumps(result),
+                success=success,
+            )
+            db.session.add(task_result)
+            db.session.commit()
+
+        try:
+            if self.app:
+                with self.app.app_context():
+                    safe_db_operation(save_result_operation)
+            else:
+                with current_app.app_context():
+                    safe_db_operation(save_result_operation)
+        except Exception as exc:
+            self._log_error(f"保存任务结果失败: {str(exc)}")

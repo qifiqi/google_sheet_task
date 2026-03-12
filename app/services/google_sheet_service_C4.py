@@ -1,25 +1,21 @@
 import json
 import time
 import traceback
-from datetime import datetime
 from typing import Dict, Any, Optional
 
-from flask import current_app
 from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db
+from app.models import Task, db
 from app.services.base_google_sheet_service import BaseGoogleSheetService
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation, db_retry_manager
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
-logger = get_logger(__name__)
 
 
 class GoogleSheetService(BaseGoogleSheetService):
@@ -265,37 +261,6 @@ class GoogleSheetService(BaseGoogleSheetService):
             self._log_error(error_msg)
             raise
 
-    @staticmethod
-    def get_worksheets(spreadsheet_id: str, token_file: str = "data/token.json", proxy_url: str = None) -> Dict[
-        str, Any]:
-        """
-        获取指定电子表格的基础信息
-
-        Args:
-            spreadsheet_id: 电子表格ID
-            token_file: 认证文件路径
-            proxy_url: 代理URL
-
-        Returns:
-            {
-                "title": 表格标题（spreadsheet 的名称）, 
-                "worksheets": 工作表名称列表
-            }
-        """
-        try:
-            # 使用上下文管理器确保连接被正确关闭
-            with GoogleSheet(spreadsheet_id, None, token_file, proxy_url) as google_sheet:
-                # 获取所有工作表名称
-                worksheets = google_sheet.get_all_worksheets()
-                if not worksheets:
-                    raise ValueError("未找到任何工作表")
-
-                title = google_sheet.sheet.title if google_sheet.sheet else ""
-                return {"title": title, "worksheets": worksheets}
-        except Exception as e:
-            logger.error(f"获取工作表列表失败: {str(e)}")
-            raise
-
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次
         wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
@@ -462,162 +427,6 @@ class GoogleSheetService(BaseGoogleSheetService):
             error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
             self._log_error(error_msg)
             raise e
-
-    def _log(self, level: str, message: str, log_type: str = 'general', **kwargs):
-        """
-        统一的日志记录接口 - 完整版，包含前端推送和数据库保存
-        
-        Args:
-            level: 日志级别 ('info', 'warning', 'error')
-            message: 日志消息
-            log_type: 日志类型 ('general', 'step', 'progress', 'api', 'api_error')
-            **kwargs: 额外参数，用于特定类型的日志
-        """
-        try:
-            # 根据日志类型格式化消息
-            formatted_message = self._format_log_message(message, log_type, **kwargs)
-
-            # 添加简洁的任务ID前缀
-            prefixed_message = f"[Task-{self.task_id[:8]}] {formatted_message}"
-
-            # 1. 记录到系统日志（现在已经不会重复了）
-            if level == 'error':
-                self.task_logger.error(prefixed_message)
-            elif level == 'warning':
-                self.task_logger.warning(prefixed_message)
-            else:
-                self.task_logger.info(prefixed_message)
-
-            # 2. 保存到数据库（TaskLog）
-            self._save_to_database(level, formatted_message)
-
-            # 3. 推送到前端（SSE）
-            self._push_to_frontend(level, formatted_message)
-
-        except Exception as e:
-            # 记录日志系统本身的错误，但不引起循环
-            pass
-
-    def _format_log_message(self, message: str, log_type: str, **kwargs) -> str:
-        """格式化日志消息"""
-        if log_type == 'step':
-            step = kwargs.get('step', 0)
-            total = kwargs.get('total', 0)
-            return f"[Step {step}/{total}] {message}"
-        elif log_type == 'progress':
-            percentage = kwargs.get('percentage', 0)
-            return f"[Progress {percentage:.1f}%] {message}"
-        elif log_type == 'api':
-            action = kwargs.get('action', '')
-            details = kwargs.get('details', '')
-            base_msg = f"[API] {action}"
-            return f"{base_msg} - {details}" if details else base_msg
-        elif log_type == 'api_error':
-            action = kwargs.get('action', '')
-            error = kwargs.get('error', '')
-            return f"[API_ERROR] {action} - {error}"
-        else:
-            return message
-
-    def _save_to_database(self, level: str, message: str):
-        """保存日志到数据库，包含重试逻辑"""
-        from app.models import TaskLog
-        from app.utils.database import safe_db_operation
-        from flask import current_app
-
-        def save_log_operation():
-            log = TaskLog(
-                task_id=self.task_id,
-                level=level,
-                message=message
-            )
-            db.session.add(log)
-            db.session.commit()
-
-        try:
-            if self.app:
-                with self.app.app_context():
-                    safe_db_operation(save_log_operation)
-            else:
-                with current_app.app_context():
-                    safe_db_operation(save_log_operation)
-        except Exception as e:
-            # 数据库保存失败时静默处理，不影响主流程
-            pass
-
-    def _push_to_frontend(self, level: str, message: str):
-        """推送日志到前端"""
-        try:
-            if self.event_queue:
-                self.event_queue.put({
-                    "type": "log_update",
-                    "data": {
-                        "level": level,
-                        "message": message,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                })
-        except Exception as e:
-            # 前端推送失败时静默处理，不影响主流程
-            pass
-
-    # 便捷的日志方法
-    def _log_info(self, message: str, log_type: str = 'general', **kwargs):
-        """记录info级别日志"""
-        self._log('info', message, log_type, **kwargs)
-
-    def _log_warning(self, message: str, log_type: str = 'general', **kwargs):
-        """记录warning级别日志"""
-        self._log('warning', message, log_type, **kwargs)
-
-    def _log_error(self, message: str, log_type: str = 'general', **kwargs):
-        """记录error级别日志"""
-        self._log('error', message, log_type, **kwargs)
-
-    def _log_step(self, step: int, total: int, message: str):
-        """记录步骤日志"""
-        self._log('info', message, 'step', step=step, total=total)
-
-    def _log_progress(self, percentage: float, message: str):
-        """记录进度日志"""
-        self._log('info', message, 'progress', percentage=percentage)
-
-    def _log_api(self, action: str, details: str = ''):
-        """记录API调用日志"""
-        self._log('info', '', 'api', action=action, details=details)
-
-    def _log_api_error(self, action: str, error: str):
-        """记录API错误日志"""
-        self._log('error', '', 'api_error', action=action, error=error)
-
-    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
-        """保存任务结果到数据库，包含重试逻辑"""
-
-        def save_result_operation():
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(parameters),
-                result=json.dumps(result),
-                success=success
-            )
-            db.session.add(task_result)
-            db.session.commit()
-
-        try:
-            if self.app:
-                # 在后台线程中使用传递的应用实例
-                with self.app.app_context():
-                    safe_db_operation(save_result_operation)
-            else:
-                # 在主线程中使用当前应用上下文
-                from flask import current_app
-                with current_app.app_context():
-                    safe_db_operation(save_result_operation)
-        except Exception as e:
-            error_msg = f"保存任务结果失败: {str(e)}"
-            self._log_error(error_msg)
-            # 注意：这里不能使用_push_log，因为可能导致循环调用
 
     @staticmethod
     def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode):
