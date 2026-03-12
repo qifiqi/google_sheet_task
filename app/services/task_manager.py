@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 import threading
 import queue
 import json
@@ -6,15 +6,16 @@ import json
 from flask import current_app
 from datetime import datetime
 from typing import Dict, Any, Optional
-from app.models import Task, TaskLog, TaskResult, db
+from app.models import Task, TaskResult, db
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_service_C4 import GoogleSheetService as GoogleSheetServiceC4
 from app.services.google_sheet_service_C5 import GoogleSheetService as GoogleSheetServiceC5
 from app.utils.logger import get_logger, get_task_logger
-from app.utils.database import transaction_required, safe_delete, safe_update, safe_create
+from app.utils.database import transaction_required, safe_update
 from app.services.config_manager import get_config_manager
 from app.services.config_schema import normalize_task_config, validate_task_config
 from app.services.task_query_service import task_query_service
+from app.services.task_repository import task_repository
 
 logger = get_logger(__name__)
 
@@ -41,14 +42,14 @@ class TaskManager:
         validate_task_config(normalized_config, task_type=task_type)
         config_str = json.dumps(normalized_config) if isinstance(normalized_config, dict) else str(normalized_config)
         
-        task = safe_create(
-            Task,
-            id=task_id,
+        # 任务落库统一交给仓储层，TaskManager 只保留编排和校验职责。
+        task = task_repository.create_task(
+            task_id=task_id,
             name=name,
             description=description,
             task_type=task_type,
-            config=config_str,
-            status='pending'
+            config_str=config_str,
+            status='pending',
         )
         
         # 使用任务专用日志记录器
@@ -201,9 +202,8 @@ class TaskManager:
                 restart_step = 0
                 task.current_step = 0
 
-                # 删除该任务历史结果，避免新一轮执行与旧结果混淆
-                TaskResult.query.filter_by(task_id=task_id).delete()
-                db.session.commit()
+                # 删除该任务历史结果，避免新一轮执行与旧结果混淆。
+                task_repository.delete_task_results(task_id)
 
                 self._add_task_log(task_id, 'info', '重新开始任务，从第 1 步开始（已清空历史结果）')
             
@@ -245,28 +245,15 @@ class TaskManager:
     def create_restart_task(self, original_task_id: str) -> str:
         """基于原任务创建新的重启任务"""
         try:
-            original_task = Task.query.get(original_task_id)
+            original_task = task_repository.get_task(original_task_id)
             if not original_task:
                 raise ValueError("原任务不存在")
             
             # 创建新的任务ID
             new_task_id = str(uuid.uuid4())
             
-            # 复制原任务配置
-            original_config = json.loads(original_task.config) if isinstance(original_task.config, str) else original_task.config
-            
-            # 创建新任务，名称添加重启标识
-            new_task = Task(
-                id=new_task_id,
-                name=f"{original_task.name} (重启)",
-                description=f"基于任务 {original_task_id} 重启",
-                task_type=original_task.task_type,
-                config=json.dumps(original_config),
-                status='pending'
-            )
-            
-            db.session.add(new_task)
-            db.session.commit()
+            # 重启任务复制逻辑下沉到仓储层，避免 TaskManager 直接拼装模型。
+            task_repository.create_restart_task(original_task, new_task_id)
             
             logger.info(f"创建重启任务: {new_task_id} (基于 {original_task_id})")
             return new_task_id
@@ -290,7 +277,7 @@ class TaskManager:
         try:
             with current_app.app_context():
                 # 检查任务是否存在
-                task = Task.query.get(task_id)
+                task = task_repository.get_task(task_id)
                 if not task:
                     logger.warning(f"任务不存在: {task_id}")
                     return False
@@ -301,17 +288,8 @@ class TaskManager:
                     task.status = 'cancelled'
                     task.end_time = datetime.now()
                 
-                # 删除任务结果
-                TaskResult.query.filter_by(task_id=task_id).delete()
-                
-                # 删除任务日志
-                TaskLog.query.filter_by(task_id=task_id).delete()
-                
-                # 删除任务本身
-                db.session.delete(task)
-                
-                # 提交事务
-                db.session.commit()
+                # 级联删除交给仓储层，减少 TaskManager 中的持久化细节。
+                task_repository.delete_task_with_relations(task)
                 
                 # 清理内存中的任务事件队列
                 if task_id in self.task_events:
@@ -341,7 +319,7 @@ class TaskManager:
             包含状态和消息的字典
         """
         try:
-            task = Task.query.get(task_id)
+            task = task_repository.get_task(task_id)
             if not task:
                 return {"status": "error", "message": "任务不存在"}
             
@@ -358,16 +336,13 @@ class TaskManager:
             validate_task_config(normalized_config, task_type=task.task_type)
             config_str = json.dumps(normalized_config)
             
-            # 更新配置
-            task.config = config_str
-            
-            # 如果提供了新名称或描述，也更新
-            if update_name:
-                task.name = update_name
-            if update_description:
-                task.description = update_description
-            
-            db.session.commit()
+            # 配置写回统一走仓储层，便于后续继续拆分写侧职责。
+            task = task_repository.update_task_config(
+                task,
+                config_str,
+                update_name=update_name,
+                update_description=update_description,
+            )
             
             # 记录日志
             task_logger = get_task_logger(task_id, f"{__name__}.update_config")
