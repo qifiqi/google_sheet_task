@@ -246,24 +246,14 @@ class GoogleSheetService(BaseGoogleSheetService):
         """初始化Google Sheet连接"""
         try:
             self._log_info("开始初始化Google Sheet连接")
-            
-            spreadsheet_id = config_data.get('spreadsheet_id')
-            sheet_name = config_data.get('sheet_name', 'data')
             token_file = config_data.get('token_file', 'data/token.json')
             proxy_url = config_data.get('proxy_url', None)
-
-            if not spreadsheet_id:
-                error_msg = "缺少spreadsheet_id配置"
-                self._log_error(error_msg)
-                raise ValueError(error_msg)
-
-            self._log_info(f"连接参数 - Spreadsheet ID: {spreadsheet_id}, Sheet: {sheet_name}, Token: {token_file}")
-            if proxy_url:
-                self._log_info(f"使用代理: {proxy_url}")
-
-            self.google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
-            if not self.google_sheet.worksheet:
-                raise Exception("请先选择工作表")
+            self.google_sheet = self._init_single_google_sheet(
+                spreadsheet_id=config_data.get('spreadsheet_id'),
+                sheet_name=config_data.get('sheet_name', 'data'),
+                token_file=token_file,
+                proxy_url=proxy_url,
+            )
 
             self._log_info("Google Sheet连接初始化成功")
         except Exception as e:

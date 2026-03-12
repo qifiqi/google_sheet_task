@@ -330,3 +330,58 @@ class BaseGoogleSheetService:
                     safe_db_operation(save_result_operation)
         except Exception as exc:
             self._log_error(f"保存任务结果失败: {str(exc)}")
+
+    def _init_single_google_sheet(
+        self,
+        *,
+        spreadsheet_id: str,
+        sheet_name: str,
+        token_file: str,
+        proxy_url: str | None,
+    ) -> GoogleSheet:
+        """初始化单个工作表连接并返回实例。"""
+        if not spreadsheet_id:
+            error_msg = "缺少spreadsheet_id配置"
+            self._log_error(error_msg)
+            raise ValueError(error_msg)
+
+        self._log_info(
+            f"连接参数 - Spreadsheet ID: {spreadsheet_id}, Sheet: {sheet_name}, Token: {token_file}"
+        )
+        if proxy_url:
+            self._log_info(f"使用代理: {proxy_url}")
+
+        google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
+        if not google_sheet.worksheet:
+            raise Exception("请先选择工作表")
+        return google_sheet
+
+    def _init_multi_google_sheets(
+        self,
+        *,
+        sheets: list[dict[str, Any]] | None,
+        token_file: str,
+        proxy_url: str | None,
+    ) -> list[GoogleSheet]:
+        """初始化多工作表连接列表。"""
+        if not sheets:
+            error_msg = "缺少spreadsheet_id配置"
+            self._log_error(error_msg)
+            raise ValueError(error_msg)
+
+        self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
+        if proxy_url:
+            self._log_info(f"使用代理: {proxy_url}")
+
+        google_sheets: list[GoogleSheet] = []
+        for sheet in sheets:
+            google_sheet = self._init_single_google_sheet(
+                spreadsheet_id=sheet.get("spreadsheet_id"),
+                sheet_name=sheet.get("sheet_name", "data"),
+                token_file=token_file,
+                proxy_url=proxy_url,
+            )
+            google_sheets.append(google_sheet)
+            self._log_info(f"已连接工作表: {sheet}")
+
+        return google_sheets
