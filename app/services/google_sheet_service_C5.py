@@ -371,16 +371,6 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                 return True
 
-            sleep_num = 5
-
-            def get_sell_sleep(min_sleep: int, max_sleep: int) -> int:
-                nonlocal sleep_num
-                if sleep_num <= 0:
-                    sleep_num = 5
-                _ = min(min_sleep + sleep_num * 5, max_sleep)  # 最多60秒
-                sleep_num -= 1
-                return int(_)
-
             # 定时检查是否完成（最多检查60次，20-30秒）
             for attempt in range(60):
 
@@ -389,13 +379,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     self._log_info(f"刷新参数")
                     set_googl_val(20)
 
-                # 从配置获取执行延迟时间
-                config_manager = get_config_manager()
-                delay_min = int(config_manager.get_config('execution_delay_min', 20))
-                delay_max = int(config_manager.get_config('execution_delay_max', 30))
-                _ = get_sell_sleep(delay_min, delay_max)
-                self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
-                time.sleep(_)
+                self._sleep_before_next_poll(attempt)
                 all_num = 0
                 for google_sheet in self.google_sheets:
                     _result = google_sheet.get_range(c5_output_range_1)

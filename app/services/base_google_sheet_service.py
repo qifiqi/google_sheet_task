@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from typing import Any, Dict
 
@@ -385,3 +386,30 @@ class BaseGoogleSheetService:
             self._log_info(f"已连接工作表: {sheet}")
 
         return google_sheets
+
+    def _build_poll_delay_getter(self):
+        """构建轮询等待时间生成器，统一退避节奏。"""
+        sleep_num = 5
+
+        def get_poll_delay(min_sleep: int, max_sleep: int) -> int:
+            nonlocal sleep_num
+            if sleep_num <= 0:
+                sleep_num = 5
+            delay_seconds = min(min_sleep + sleep_num * 5, max_sleep)
+            sleep_num -= 1
+            return int(delay_seconds)
+
+        return get_poll_delay
+
+    def _sleep_before_next_poll(self, attempt: int) -> int:
+        """按统一策略等待下一次轮询。"""
+        if not hasattr(self, "_poll_delay_getter"):
+            self._poll_delay_getter = self._build_poll_delay_getter()
+
+        config_manager = get_config_manager()
+        delay_min = int(config_manager.get_config("execution_delay_min", 20))
+        delay_max = int(config_manager.get_config("execution_delay_max", 30))
+        delay_seconds = self._poll_delay_getter(delay_min, delay_max)
+        self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {delay_seconds} 秒")
+        time.sleep(delay_seconds)
+        return delay_seconds
