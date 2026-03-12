@@ -11,6 +11,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, TaskLog, TaskResult, db
+from app.services.base_google_sheet_service import BaseGoogleSheetService
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation, db_retry_manager
@@ -21,156 +22,39 @@ from app.utils.result_validator import validate_result_dict, validate_google_she
 logger = get_logger(__name__)
 
 
-class GoogleSheetService:
-    """Google Sheet服务"""
+class GoogleSheetService(BaseGoogleSheetService):
+    """默认 Google Sheet 服务。"""
+
+    service_label = "Google Sheet"
 
     def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None):
-        self.config = config
-        self.google_sheet:Optional[GoogleSheet] = None
+        super().__init__(config, task_id, event_queue=event_queue, app=app)
+        self.google_sheet: Optional[GoogleSheet] = None
         self.api_client = StockAPIClient()
-        # 保存参数到实例变量
-        self.task_id = task_id
-        self.event_queue = event_queue
-        self.app = app
-        # 创建任务专用日志记录器 - 不使用TaskLogger的前缀功能，我们自己控制格式
-        self.task_logger = get_logger(f"{__name__}.{task_id}")
 
-    def error_dd(self,error_msg):
-        error_msg = self.app.notifier.error_google_task_templates(
-            f"{self.task_id} -- {self.task.name}",
-            error_msg,
-            f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}")
-        self.app.notifier.send_message(error_msg)
+    def _run_task(self, task, name, parameters, config_data):
+        """执行默认版本的批处理主流程。"""
+        stock_param = self.get_single_stock_template_param(name)
+        final_status = None
 
-    def task_ok_to_dd(self,result):
-        error_msg = self.app.notifier.google_task_ok_templates(
-            f"{self.task_id} -- {self.task.name}",
-            result,
-            f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
-                                                               )
-        self.app.notifier.send_message(error_msg)
+        if stock_param is not None and stock_param != "error":
+            multiplier_index = 0 if stock_param.get("multiplier_index", 0) == 0 else stock_param.get("multiplier_index", 0) + 1
+            self._log_info(f"开始执行参数批量处理，multiplier_index: {multiplier_index}")
+            success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data, multiplier_index)
+            final_status = "completed" if success_count > 0 else "error"
+        elif stock_param != "error":
+            self._log_info("开始执行参数批量处理（默认参数模式）")
+            success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data)
+        else:
+            self._log_error("获取股票参数失败")
+            return {"success_count": 0, "failed_count": 0, "task_status": "error"}
 
-
-    def execute_task(self):
-        """执行Google Sheet任务"""
-        try:
-            
-            # 统一使用应用上下文
-            context_app = self.app or current_app
-            with context_app.app_context():
-                task = Task.query.get(self.task_id)
-                self.task = task
-                if not task:
-                    self._log_error(f'任务 {self.task_id} 不存在')
-                    return 'error'
-
-                # 检查任务是否已被取消
-                if task.status == 'cancelled':
-                    self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
-                    return 'cancelled'
-
-                # 解析配置
-                if isinstance(task.config, str):
-                    try:
-                        config_data = json.loads(task.config)
-                    except json.JSONDecodeError as e:
-                        self._log_error(f"配置解析失败: {str(e)}")
-                        return 'error'
-                else:
-                    config_data = task.config or {}
-
-                config_manager = get_config_manager()
-                config_data = {**config_manager.get_google_sheet_config(), **config_data}
-                
-                # 推送任务开始日志
-                self._log_info('开始执行Google Sheet任务')
-
-                # 初始化Google Sheet连接
-                self._init_google_sheet(config_data)
-
-                # 获取参数列表
-                parameters = config_data.get('parameters', [])
-                if not parameters:
-                    self._log_error("没有参数配置")
-                    return 'error'
-                
-                name = task.name
-                sheet_name = config_data.get('sheet_name', "")
-
-                # 检查任务是否已被取消
-                if task.status == 'cancelled':
-                    self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
-                    return 'cancelled'
-
-                stock_param = self.get_single_stock_template_param(name)
-
-                if stock_param is not None and stock_param != "error":
-                    multiplier_index = 0 if stock_param.get('multiplier_index', 0) == 0 else stock_param.get(
-                        'multiplier_index', 0) + 1
-                    self._log_info(f"开始执行参数批量处理，multiplier_index: {multiplier_index}")
-                    success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data, multiplier_index)
-                elif stock_param != "error":
-                    self._log_info("开始执行参数批量处理（默认参数模式）")
-                    success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data)
-                else:
-                    self._log_error("获取股票参数失败")
-                    return 'error'
-
-                # 根据任务状态决定返回结果
-                if task_status == 'cancelled':
-                    # 任务被取消，保持cancelled状态
-                    self._log_info(f'任务已取消，成功执行: {success_count}, 失败: {failed_count}')
-                    # # 推送任务取消通知
-                    # self.task_ok_to_dd(f'任务已取消！成功执行: {success_count}, 失败: {failed_count}')
-                    return 'cancelled'
-                elif task_status == 'error':
-                    # 任务执行出错
-                    # 推送错误通知
-                    error_details = f'任务执行出错！成功: {success_count}, 失败: {failed_count}'
-                    if task.error:
-                        error_details += f', 错误信息: {str(task.error)}'
-                    self.error_dd(error_details)
-                    return 'error'
-                else:
-                    if stock_param is not None and stock_param != "error":
-                        final_status = 'completed' if success_count > 0 else 'error'
-                        if final_status == 'completed':
-                            # 推送成功完成通知
-                            self.task_ok_to_dd(f'任务成功完成！成功执行: {success_count}, 失败: {failed_count}')
-                        else:
-                            # 推送失败通知
-                            self.error_dd(f'任务执行失败！成功: {success_count}, 失败: {failed_count}')
-                        return final_status
-
-                if success_count == 0 and failed_count == 0:
-                    self._log_error('任务执行失败')
-                    # 推送无结果失败通知
-                    self.error_dd('任务执行失败！没有成功或失败的参数组合')
-                    return 'error'
-                
-                # 推送任务完成通知
-                self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
-                # 推送任务完成信息
-                completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'
-                self._log_info(completion_msg)
-
-                return 'completed'
-
-        except Exception as e:
-            # 检查是否是任务被取消导致的异常
-            try:
-                task = Task.query.get(self.task_id)
-                if task and task.status == 'cancelled':
-                    self._log_info(f'任务已被取消: {str(e)}')
-                    return 'cancelled'
-            except:
-                pass
-            
-            # 其他异常情况
-            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(e)}"
-            self._log_error(error_msg)
-            self.error_dd(error_msg)
-            return 'error'
+        return {
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "task_status": task_status,
+            "final_status": final_status,
+        }
 
     def get_bdl(self, task, name, parameters, config_data, index_z=0):
         """执行批量数据处理"""
