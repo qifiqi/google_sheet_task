@@ -178,6 +178,7 @@ class GoogleSheetService:
         try:
             # 计算总参数组合数（按每个具体组合计数）
             count_mode = config_data.get('count_mode', 'n_plus_1')
+            price_mode = config_data.get('price_mode', 'kp_price')
             date_range_mode = config_data.get('date_range_mode',[])
             end_date = config_data.get('end_date')
             start_date = config_data.get('start_date')
@@ -191,7 +192,7 @@ class GoogleSheetService:
 
             for outer_param in parameters[0]:
                 combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
-                    outer_param, count_mode, end_date, start_date, market_type,date_range_mode,parameters
+                    outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,parameters
                 )
                 precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
                 total_combinations += len(combinations)
@@ -809,29 +810,32 @@ class GoogleSheetService:
             self._log_error(error_msg)
             # 注意：这里不能使用_push_log，因为可能导致循环调用
 
-    def _get_all_parameters(self,parameter, count_mode, end_date, start_date, market_type,date_range_mode,parameters):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,parameters):
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
+            # 根据price_mode决定使用开盘价还是收盘价
+            price_field = 'stock_kp' if price_mode == 'kp_price' else 'stock_sp'
+            
             if market_type == 'cn':
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k['stock_kp']}
+                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k['stock_kp']}
+                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
             else:
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k['stock_sp']}
+                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k['stock_sp']}
+                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
@@ -840,7 +844,7 @@ class GoogleSheetService:
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
-        limit = (_end_year - _start_date + 1) * 250
+        limit = (_end_year - _start_date + 1) * 300
 
         if market_type == 'cn':
             stock_config = self.dfcf_api.get_search_list_by_stock_code(parameter, 10)
@@ -855,8 +859,17 @@ class GoogleSheetService:
         else:
             klines = self.YF_api.get_kline_data(parameter, '10y')
 
-        if len(klines) < limit * 0.8:
-            raise Exception(f"股票{parameter} 数据量不足,请仔细检查k线数据源是否存在数据，或者联系开发")
+        # 获取K线数据的时间范围
+        data_start_date = klines[0]['stock_date']
+        data_end_date = klines[-1]['stock_date']
+
+        # 检查用户设定的区间是否在数据范围内
+        if start_date < data_start_date or end_date > data_end_date:
+            raise Exception(
+                f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
+
+        if len(klines) < 100:
+            raise Exception(f"股票{parameter} 数据量不足,k线数据量小于100条，无法在模型正确产生数据，或者联系开发")
 
         all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
         data = []
@@ -954,5 +967,5 @@ class GoogleSheetService:
         return data, len(all_kline) + 20,KLINE_DATA_MAP
 
 if __name__ == '__main__':
-    GoogleSheetService({}, '')._get_all_parameters('000001', 'n_plus_1', '2025-05-01', '2023-05-01', 'cn',
+    GoogleSheetService({}, '')._get_all_parameters('QQQ', 'n_plus_1', 'kp_price','2025-05-01', '2023-05-01', 'en',
                                                    ['full','recent'],[[],[1,2],[1,2]])

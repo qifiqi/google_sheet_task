@@ -8,20 +8,20 @@
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
-    
+
     .spin {
         animation: spin 1s linear infinite;
         display: inline-block;
     }
-    
+
     #refresh-sheets:disabled {
         cursor: not-allowed;
     }
-    
+
     #refresh-sheets:not(:disabled):hover {
         background-color: #e9ecef;
     }
-    
+
     .sheet-loading {
         opacity: 0.7;
         cursor: wait;
@@ -140,14 +140,14 @@
                                         </div>
                                         <div class="col-md-4 mb-3">
                                             <label for="task_name" class="form-label">任务名称</label>
-                                            <input type="text" class="form-control" id="task_name" 
-                                                   placeholder="留空将自动生成任务名称" 
+                                            <input type="text" class="form-control" id="task_name"
+                                                   placeholder="留空将自动生成任务名称"
                                                    value="">
                                             <div class="form-text">为您的任务起一个有意义的名称，留空将自动生成</div>
                                         </div>
                                         <div class="col-md-4 mb-3">
                                             <label for="task_description" class="form-label">任务描述 (可选)</label>
-                                            <textarea class="form-control" id="task_description" rows="2" 
+                                            <textarea class="form-control" id="task_description" rows="2"
                                                       placeholder="描述任务的目的或特殊要求"></textarea>
                                         </div>
                                     </div>
@@ -155,7 +155,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Google Sheet 配置 -->
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center">
@@ -171,7 +171,7 @@
                                             <label for="spreadsheet" class="form-label">
                                                 <i class="bi bi-link-45deg"></i> 电子表格ID或URL
                                             </label>
-                                            <input type="text" class="form-control" id="spreadsheet" 
+                                            <input type="text" class="form-control" id="spreadsheet"
                                                    placeholder="请输入Google Sheet的ID或完整URL" required>
                                             <div class="form-text">
                                                 <i class="bi bi-info-circle"></i> 支持直接输入ID或完整URL
@@ -203,7 +203,7 @@
                                             <label for="custom_sheet_name" class="form-label">
                                                 <i class="bi bi-pencil"></i> 自定义工作表名称
                                             </label>
-                                            <input type="text" class="form-control" id="custom_sheet_name" 
+                                            <input type="text" class="form-control" id="custom_sheet_name"
                                                    placeholder="请输入工作表名称">
                                         </div>
                                     </div>
@@ -243,21 +243,21 @@
                                             <label for="token_file" class="form-label">
                                                 <i class="bi bi-file-earmark-text"></i> Token文件路径
                                             </label>
-                                            <input type="text" class="form-control" id="token_file" 
+                                            <input type="text" class="form-control" id="token_file"
                                                    placeholder="请输入Token文件路径" value="data/token.json">
                                         </div>
                                         <div class="col-md-6 mb-3" id="token_json_container" style="display: none;">
                                             <label for="token_json" class="form-label">
                                                 <i class="bi bi-code-square"></i> Token JSON字符串
                                             </label>
-                                            <textarea class="form-control" id="token_json" rows="3" 
+                                            <textarea class="form-control" id="token_json" rows="3"
                                                       placeholder='{"installed": {"client_id": "...", "client_secret": "...", ...}}'></textarea>
                                         </div>
                                         <div class="col-md-6 mb-3">
                                             <label for="proxy_url" class="form-label">
                                                 <i class="bi bi-globe"></i> 代理URL (可选)
                                             </label>
-                                            <input type="text" class="form-control" id="proxy_url" 
+                                            <input type="text" class="form-control" id="proxy_url"
                                                    placeholder="请输入代理URL">
                                         </div>
                                     </div>
@@ -265,7 +265,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- 产品配置 -->
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center">
@@ -277,30 +277,40 @@
                             <!-- 顶部两个参数卡片（参数2/参数3） -->
                             <div class="row mb-3" id="extra-parameters-container">
                                 <div class="col-md-6 mb-3">
-                                    <div class="card border-success">
+                                    <div class="card border-success h-100">
                                         <div class="card-header bg-success text-white">
                                             <h6 class="mb-0">
                                                 <i class="bi bi-2-circle"></i> 参数2
                                             </h6>
                                         </div>
                                         <div class="card-body">
-                                            <textarea class="form-control parameter-input" id="param2" rows="3" 
-                                                      placeholder='["v1", "v2"]'></textarea>
-                                            <div class="form-text">JSON 数组格式，例如 ["v1", "v2"]</div>
+                                            <div class="mb-2">
+                                                <label class="form-label small text-muted">可选参数配置</label>
+                                                <textarea class="form-control parameter-input" id="param2" rows="3"
+                                                          placeholder='["v1", "v2"]'></textarea>
+                                                <div class="form-text">
+                                                    <i class="bi bi-code-slash"></i> JSON 数组格式，例如 ["v1", "v2"]
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                                 <div class="col-md-6 mb-3">
-                                    <div class="card border-info">
+                                    <div class="card border-info h-100">
                                         <div class="card-header bg-info text-white">
                                             <h6 class="mb-0">
                                                 <i class="bi bi-3-circle"></i> 参数3
                                             </h6>
                                         </div>
                                         <div class="card-body">
-                                            <textarea class="form-control parameter-input" id="param3" rows="3" 
-                                                      placeholder='["v1", "v2"]'></textarea>
-                                            <div class="form-text">JSON 数组格式，例如 ["v1", "v2"]</div>
+                                            <div class="mb-2">
+                                                <label class="form-label small text-muted">可选参数配置</label>
+                                                <textarea class="form-control parameter-input" id="param3" rows="3"
+                                                          placeholder='["v1", "v2"]'></textarea>
+                                                <div class="form-text">
+                                                    <i class="bi bi-code-slash"></i> JSON 数组格式，例如 ["v1", "v2"]
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -312,77 +322,113 @@
                                     <div class="card border-primary product-config-card">
                                         <div class="card-header bg-primary text-white">
                                             <h6 class="mb-0">
-                                                <i class="bi bi-1-circle"></i> 产品配置
+                                                <i class="bi bi-1-circle"></i> 主要配置
                                             </h6>
                                         </div>
                                         <div class="card-body">
-                                            <!-- 配置选项：统计方式 + 市场类型 + 日期范围 -->
-                                            <div class="row g-3 align-items-center mb-3">
-                                                <div class="col-md-3">
-                                                    <label class="form-label d-block">统计方式</label>
-                                                    <div class="btn-group d-flex" role="group" aria-label="Count mode">
-                                                        <input type="radio" class="btn-check" name="count_mode" id="count_mode_total" value="total" autocomplete="off" checked>
-                                                        <label class="btn btn-outline-primary flex-fill" for="count_mode_total">总数</label>
+                                            <!-- 配置选项：统计方式 + 开盘/收盘 + 市场类型 -->
+                                            <div class="border-bottom pb-3 mb-3">
+                                                <h6 class="text-muted mb-3">
+                                                    <i class="bi bi-sliders"></i> 基础设置
+                                                </h6>
+                                                <div class="row g-3 align-items-center">
+                                                    <div class="col-md-3">
+                                                        <label class="form-label d-block">统计方式</label>
+                                                        <div class="btn-group d-flex" role="group" aria-label="Count mode">
+                                                            <input type="radio" class="btn-check" name="count_mode" id="count_mode_total" value="total" autocomplete="off" checked>
+                                                            <label class="btn btn-outline-primary flex-fill" for="count_mode_total">总数</label>
 
-                                                        <input type="radio" class="btn-check" name="count_mode" id="count_mode_n_plus_1" value="n_plus_1" autocomplete="off">
-                                                        <label class="btn btn-outline-primary flex-fill" for="count_mode_n_plus_1">N+1</label>
+                                                            <input type="radio" class="btn-check" name="count_mode" id="count_mode_n_plus_1" value="n_plus_1" autocomplete="off">
+                                                            <label class="btn btn-outline-primary flex-fill" for="count_mode_n_plus_1">N+1</label>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div class="col-md-3">
-                                                    <label class="form-label d-block">市场类型</label>
-                                                    <div class="btn-group d-flex" role="group" aria-label="Market type">
-                                                        <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="us" autocomplete="off">
-                                                        <label class="btn btn-outline-primary flex-fill" for="market_type_us">美股</label>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label d-block">开盘/收盘</label>
+                                                        <div class="btn-group d-flex" role="group" aria-label="Price mode">
+                                                            <input type="radio" class="btn-check" name="price_mode" id="kp_price" value="kp_price" autocomplete="off" checked>
+                                                            <label class="btn btn-outline-primary flex-fill" for="kp_price">开盘</label>
 
-                                                        <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" autocomplete="off" checked>
-                                                        <label class="btn btn-outline-primary flex-fill" for="market_type_cn">A股</label>
+                                                            <input type="radio" class="btn-check" name="price_mode" id="sp_price" value="sp_price" autocomplete="off">
+                                                            <label class="btn btn-outline-primary flex-fill"
+                                                                   for="sp_price">收盘</label>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <label class="form-label">数据时间范围</label>
-                                                    <div class="row g-2 align-items-end">
-                                                        <div class="col-md-4">
-                                                            <label class="form-label small mb-1 d-block">时间范围类型</label>
-                                                            <div>
-                                                                <div class="form-check form-check-inline mb-1">
-                                                                    <input class="form-check-input" type="checkbox" id="date_range_full" value="full">
-                                                                    <label class="form-check-label" for="date_range_full">整年</label>
-                                                                </div>
-                                                                <div class="form-check form-check-inline mb-1">
-                                                                    <input class="form-check-input" type="checkbox" id="date_range_recent" value="recent">
-                                                                    <label class="form-check-label" for="date_range_recent">近年</label>
-                                                                </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label d-block">市场类型</label>
+                                                        <div class="btn-group d-flex" role="group" aria-label="Market type">
+                                                            <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="us" autocomplete="off">
+                                                            <label class="btn btn-outline-primary flex-fill" for="market_type_us">美股</label>
+
+                                                            <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" autocomplete="off" checked>
+                                                            <label class="btn btn-outline-primary flex-fill" for="market_type_cn">A股</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label d-block">快速时间范围</label>
+                                                        <div class="btn-group d-flex" role="group" aria-label="Quick date range">
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input" type="checkbox" id="date_range_full" value="full">
+                                                                <label class="form-check-label" for="date_range_full">整年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0">
+                                                                <input class="form-check-input" type="checkbox" id="date_range_recent" value="recent">
+                                                                <label class="form-check-label" for="date_range_recent">近年</label>
                                                             </div>
                                                         </div>
-                                                        <div class="col-md-4">
-                                                            <label class="form-label small mb-1" for="start_date">开始日期</label>
-                                                            <input type="date" class="form-control" id="start_date">
-                                                        </div>
-                                                        <div class="col-md-4">
-                                                            <label class="form-label small mb-1" for="end_date">结束日期</label>
-                                                            <input type="date" class="form-control" id="end_date">
-                                                        </div>
                                                     </div>
-                                                    <div class="form-text mt-1">结束日期默认昨天，开始日期默认结束日期往前推5年，可根据需要修改。</div>
+                                                </div>
+                                            </div>
+
+                                            <!-- 时间范围详细配置 -->
+                                            <div class="border-bottom pb-3 mb-3">
+                                                <h6 class="text-muted mb-3">
+                                                    <i class="bi bi-calendar-range"></i> 时间范围设置
+                                                </h6>
+                                                <div class="row g-3 align-items-center">
+                                                    <div class="col-md-6">
+                                                        <label class="form-label" for="start_date">开始日期</label>
+                                                        <input type="date" class="form-control" id="start_date">
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <label class="form-label" for="end_date">结束日期</label>
+                                                        <input type="date" class="form-control" id="end_date">
+                                                    </div>
+                                                    <div class="col-12">
+                                                        <div class="form-text">结束日期默认昨天，开始日期默认结束日期往前推5年，可根据需要修改。可勾选上方"整年"或"近年"进行快速设置。</div>
+                                                    </div>
                                                 </div>
                                             </div>
 
                                             <!-- 产品代码输入与chips -->
-                                            <label class="form-label" for="product_code_input">股票/产品代码</label>
-                                            <div class="input-group mb-2">
-                                                <input type="text" class="form-control" id="product_code_input" placeholder="如：600000,600001 或 600000 600001">
-                                                <button class="btn btn-outline-primary" type="button" id="add_product_code_btn">添加</button>
+                                            <div class="mb-0">
+                                                <h6 class="text-muted mb-3">
+                                                    <i class="bi bi-tags"></i> 产品代码配置
+                                                </h6>
+                                                <div class="mb-3">
+                                                    <label class="form-label" for="product_code_input">
+                                                        <i class="bi bi-tag"></i> 股票/产品代码
+                                                    </label>
+                                                    <div class="input-group mb-2">
+                                                        <input type="text" class="form-control" id="product_code_input" 
+                                                               placeholder="如：600000,600001 或 600000 600001">
+                                                        <button class="btn btn-primary" type="button" id="add_product_code_btn">
+                                                            <i class="bi bi-plus-circle"></i> 添加
+                                                        </button>
+                                                    </div>
+                                                    <div class="form-text mb-2">
+                                                        <i class="bi bi-info-circle"></i> 支持逗号、空格等分隔符，一次可输入多个代码
+                                                    </div>
+                                                    <div id="product_code_chips" class="product-code-chips d-flex flex-wrap gap-1"></div>
+                                                </div>
+                                                <textarea class="form-control parameter-input d-none" id="param1" rows="3"></textarea>
                                             </div>
-                                            <div class="form-text mb-2">支持逗号、空格等分隔符，一次可输入多个代码</div>
-                                            <div id="product_code_chips" class="product-code-chips d-flex flex-wrap gap-1"></div>
-                                            <textarea class="form-control parameter-input d-none" id="param1" rows="3"></textarea>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- 参数组合预览 -->
                     <div class="card mb-4" id="combination-info" style="display: none;">
                         <div class="card-header">
@@ -407,8 +453,8 @@
                             </div>
                         </div>
                     </div>
-                    
-                    
+
+
                     <!-- 操作按钮 -->
                     <div class="card">
                         <div class="card-body">
@@ -557,7 +603,7 @@
     // 从模板加载数据
     function loadFromTemplate(template) {
         if (!template) return;
-        
+
         try {
             // 填充基本信息
             if (template.name) {
@@ -566,7 +612,7 @@
             if (template.description) {
                 document.getElementById('task_description').value = template.description;
             }
-            
+
             // 填充配置信息
             if (template.config) {
                 let config = template.config;
@@ -618,20 +664,20 @@
                         }
                     });
                 }
-                
+
                 if (config.token_type) {
                     document.getElementById('token_type').value = config.token_type;
                     document.getElementById('token_type').dispatchEvent(new Event('change'));
                 }
-                
+
                 if (config.token_file) {
                     document.getElementById('token_file').value = config.token_file;
                 }
-                
+
                 if (config.token_json) {
                     document.getElementById('token_json').value = config.token_json;
                 }
-                
+
                 if (config.proxy_url) {
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
@@ -646,7 +692,7 @@
                 if (config.date_range_mode !== undefined) {
                     applyDateRangeModes(config.date_range_mode);
                 }
-                
+
                 // 填充参数配置
                 if (config.parameters && Array.isArray(config.parameters)) {
                     config.parameters.forEach((param, index) => {
@@ -657,11 +703,11 @@
                         }
                     });
                 }
-                
+
                 // 更新组合计算
                 calculateCombinations();
                 showNotification('已加载模板配置', 'success');
-                
+
                 // 更新页面标题和提示
                 {% if template_id %}
                 document.title = '从模板创建任务 - Google Sheet 参数批量校验';
@@ -866,10 +912,10 @@
 
         // 为其他输入字段添加防抖的自动保存
         const inputFields = [
-            'task_name', 'task_description', 'custom_sheet_name', 
+            'task_name', 'task_description', 'custom_sheet_name',
             'token_file', 'token_json', 'proxy_url'
         ];
-        
+
         inputFields.forEach(function(fieldId) {
             const field = document.getElementById(fieldId);
             if (field) {
@@ -925,7 +971,7 @@
                     console.error('Invalid response format:', data);
                     return;
                 }
-                
+
                 const templateSelect = document.getElementById('task_template');
                 data.templates.forEach(template => {
                     const option = document.createElement('option');
@@ -1224,12 +1270,12 @@
         // 任务名称和描述变化事件
         document.getElementById('task_name').addEventListener('input', debouncedSaveFormData);
         document.getElementById('task_description').addEventListener('input', debouncedSaveFormData);
-        
+
         // 工作表名称选择变化事件
         document.getElementById('sheet_name').addEventListener('change', function() {
             const customContainer = document.getElementById('custom-sheet-container');
             const helpText = document.getElementById('sheet-name-help');
-            
+
             if (this.value === '自定义') {
                 customContainer.style.display = 'block';
                 helpText.textContent = '使用自定义工作表名称';
@@ -1298,7 +1344,7 @@
             'spreadsheet', 'custom_sheet_name', 'token_file', 'token_json', 'proxy_url',
             'start_date', 'end_date'
         ];
-        
+
         inputFields.forEach(function(fieldId) {
             const field = document.getElementById(fieldId);
             if (field) {
@@ -1559,10 +1605,10 @@
             const len3 = param3.length || 1;
             count = len1 * len2 * len3;
         }
-        
+
         const infoDiv = document.getElementById('combination-info');
         const countSpan = document.getElementById('combination-count');
-        
+
         if (count > 0) {
             infoDiv.style.display = 'block';
             countSpan.textContent = count;
@@ -1582,13 +1628,13 @@
         if (param2.length) parameters.push(param2);
         if (param3.length) parameters.push(param3);
         const combinations = generateCombinations(parameters);
-        
+
         const previewContainer = document.getElementById('combination-preview');
         previewContainer.innerHTML = '';
-        
+
         // 只显示前20个组合
         const displayCombinations = combinations.slice(0, 20);
-        
+
         displayCombinations.forEach((combination, index) => {
             const div = document.createElement('div');
             div.className = 'mb-2 p-2 border rounded';
@@ -1598,14 +1644,14 @@
             `;
             previewContainer.appendChild(div);
         });
-        
+
         if (combinations.length > 20) {
             const moreDiv = document.createElement('div');
             moreDiv.className = 'text-center text-muted';
             moreDiv.textContent = `... 还有 ${combinations.length - 20} 个组合`;
             previewContainer.appendChild(moreDiv);
         }
-        
+
         const modal = new bootstrap.Modal(document.getElementById('previewModal'));
         modal.show();
     }
@@ -1641,13 +1687,14 @@
             showNotification('请至少输入一个参数', 'error');
             return;
         }
-        
+
         // 获取Google Sheet配置
         const tokenType = document.getElementById('token_type').value;
         const tokenFile = document.getElementById('token_file').value;
         const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
         const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
+        const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price';
         const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
         const dateRangeModes = getSelectedDateRangeModes();
         const startDate = document.getElementById('start_date')?.value || null;
@@ -1657,23 +1704,23 @@
             showNotification('请输入Token文件路径', 'error');
             return;
         }
-        
+
         if (tokenType === 'json' && !tokenJson) {
             showNotification('请输入Token JSON字符串', 'error');
             return;
         }
-        
+
         // 获取参数配置
         const param1 = parseJsonArray(document.getElementById('param1').value);
         const param2 = parseJsonArray(document.getElementById('param2').value);
         const param3 = parseJsonArray(document.getElementById('param3').value);
-        
+
         // 检查是否有解析错误
         if (param1 === null || param2 === null || param3 === null) {
             showNotification('参数格式错误，请检查 JSON 数组格式', 'error');
             return;
         }
-        
+
         // 构造参数列表：只加入非空数组
         const parameters = [];
         if (Array.isArray(param1) && param1.length) parameters.push(param1);
@@ -1735,6 +1782,7 @@
             token_json: tokenJson,
             proxy_url: proxyUrl || null,
             count_mode: countMode,
+            price_mode: priceMode,
             market_type: marketType,
             date_range_mode: dateRangeModes,
             start_date: startDate,
@@ -1742,19 +1790,19 @@
             parameters: parameters,
             sheets: sheets
         };
-        
+
         // 禁用执行按钮
         const executeBtn = document.getElementById('execute-btn');
         executeBtn.disabled = true;
         executeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 创建任务中...';
-        
+
         // 获取任务名称和描述
         const taskName = document.getElementById('task_name').value.trim();
         const taskDescription = document.getElementById('task_description').value.trim();
-        
+
         // 如果没有输入任务名称，使用默认生成逻辑
         const finalTaskName = taskName || `Google Sheet 任务 - ${new Date().toLocaleString()}`;
-        
+
         // 发送执行请求
         const taskData = {
             name: finalTaskName,
@@ -1762,22 +1810,22 @@
             task_type: 'google_sheet_C5',
             config: taskConfig
         };
-        
+
         ajaxRequest('/api/tasks', 'POST', taskData, function(err, data) {
             executeBtn.disabled = false;
             executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 创建任务并执行';
-            
+
             if (!err && data && data.status === 'success') {
                 currentTaskId = data.task_id;
                 showNotification('任务创建成功，正在跳转到详情页面...', 'success');
-                
+
                 // 清空表单
                 document.getElementById('parameter-form').reset();
                 // 隐藏组合信息
                 document.getElementById('combination-info').style.display = 'none';
                 // 清除保存的表单数据
                 clearSavedFormData();
-                
+
                 // 延迟1秒后跳转到详情页面（C5 模式）
                 setTimeout(function() {
                     window.location.href = `/google-sheet/detail?task_id=${currentTaskId}&version=c5`;
@@ -1801,7 +1849,7 @@
             showNotification('任务执行出错: ' + event.data, 'error');
         }
     }
-    
+
     // 任务状态日志更新功能已移除
 
     // 确认和取消执行功能已移除，任务创建后直接跳转到详情页面
@@ -1823,13 +1871,15 @@
             token_file: document.getElementById('token_file').value,
             token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
+            count_mode: document.querySelector('input[name="count_mode"]:checked')?.value || 'total',
+            price_mode: document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price',
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
             date_range_mode: getSelectedDateRangeModes(),
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
             param3: document.getElementById('param3').value
         };
-        
+
         try {
             // localStorage.setItem('google_sheet_c5_form_data', JSON.stringify(formData));
             // 静默保存，不显示提示
@@ -1844,7 +1894,7 @@
             const savedData = localStorage.getItem('google_sheet_c5_form_data');
             if (savedData) {
                 const formData = JSON.parse(savedData);
-                
+
                 // 恢复表单字段
                 if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
@@ -1873,17 +1923,31 @@
                     }
                 }
 
+                if (formData.count_mode) {
+                    const cmInput = document.querySelector(`input[name="count_mode"][value="${formData.count_mode}"]`);
+                    if (cmInput) {
+                        cmInput.checked = true;
+                    }
+                }
+
+                if (formData.price_mode) {
+                    const pmInput = document.querySelector(`input[name="price_mode"][value="${formData.price_mode}"]`);
+                    if (pmInput) {
+                        pmInput.checked = true;
+                    }
+                }
+
                 if (formData.date_range_mode !== undefined) {
                     applyDateRangeModes(formData.date_range_mode);
                 }
-                
+
                 // 触发相关事件以更新UI状态
                 document.getElementById('sheet_name').dispatchEvent(new Event('change'));
                 document.getElementById('token_type').dispatchEvent(new Event('change'));
                 initProductCodeChipsFromParam1();
-                
+
                 console.log('表单数据已恢复');
-                
+
                 // 显示恢复状态
                 showNotification('表单数据已恢复', 'info');
             }
@@ -1941,6 +2005,7 @@
             const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
             const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
+            const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price';
             const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
             const dateRangeModes = getSelectedDateRangeModes();
             const startDate = document.getElementById('start_date')?.value || null;
@@ -2037,6 +2102,7 @@
                 token_json: tokenJson,
                 proxy_url: proxyUrl || null,
                 count_mode: countMode,
+                price_mode: priceMode,
                 market_type: marketType,
                 date_range_mode: dateRangeModes,
                 start_date: startDate,
@@ -2088,7 +2154,7 @@
                     modalInstance.hide();
                 }
                 showNotification('模板保存成功', 'success');
-                
+
                 // 重新加载模板列表
                 loadTemplates();
             } else {
@@ -2124,6 +2190,7 @@
 
         return {
             count_mode: raw.count_mode || 'total',
+            price_mode: raw.price_mode || 'kp_price',
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',
