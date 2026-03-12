@@ -1077,18 +1077,12 @@
         const mode = options.mode || 'template';
         const originalTaskId = options.originalTaskId || '';
 
-        let config = rawConfig;
-        if (typeof config === 'string') {
-            try {
-                config = JSON.parse(config);
-            } catch (e) {
-                console.error('解析配置失败:', e);
-                showNotification('解析配置失败', 'error');
-                return;
-            }
+        const normalized = parseTaskConfigObject(rawConfig);
+        if (!normalized || Object.keys(normalized).length === 0) {
+            console.error('解析配置失败:', rawConfig);
+            showNotification('解析配置失败', 'error');
+            return;
         }
-
-        const normalized = normalizeC5Config(config);
 
         // sheets（统一处理）
         applySheetsToForm(normalized.sheets);
@@ -2178,42 +2172,6 @@
             console.error('保存模板失败:', error);
             showError('保存模板失败: ' + error.message);
         });
-    }
-
-    // 将可能的旧结构配置转换为 C4 统一结构
-    function normalizeC5Config(raw) {
-        if (!raw || typeof raw !== 'object') {
-            return {};
-        }
-
-        // 已经是 C4 新结构（有 sheets 数组）则直接返回
-        if (Array.isArray(raw.sheets) && raw.sheets.length > 0) {
-            return raw;
-        }
-
-        // 兼容旧结构：顶层有 spreadsheet_id / sheet_name
-        const sheets = [];
-        if (raw.spreadsheet_id) {
-            sheets.push({
-                spreadsheet_id: raw.spreadsheet_id,
-                sheet_name: raw.sheet_name || '',
-                title: raw.title || ''
-            });
-        }
-
-        return {
-            count_mode: raw.count_mode || 'total',
-            price_mode: raw.price_mode || 'kp_price',
-            start_date: raw.start_date || null,
-            end_date: raw.end_date || null,
-            market_type: raw.market_type || 'cn',
-            token_type: raw.token_type || 'file',
-            token_file: raw.token_file || 'data/token.json',
-            token_json: raw.token_json || '',
-            proxy_url: raw.proxy_url || null,
-            parameters: Array.isArray(raw.parameters) ? raw.parameters : [[]],
-            sheets: sheets
-        };
     }
 
     // 加载重启配置

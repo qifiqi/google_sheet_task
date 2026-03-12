@@ -623,16 +623,8 @@
             return {};
         }
 
-        if (typeof currentTaskData.config === 'string') {
-            try {
-                return JSON.parse(currentTaskData.config);
-            } catch (error) {
-                console.warn('解析任务配置失败', error);
-                return {};
-            }
-        }
-
-        return currentTaskData.config;
+        // 详情页和创建页共用同一套配置解析规则，避免编辑弹窗与创建页行为不一致。
+        return parseTaskConfigObject(currentTaskData.config);
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -1005,14 +997,7 @@
         }
 
         // 解析任务配置（必须是包含 sheets / parameters 结构的对象）
-        var config = getCurrentTaskConfigObject();
-        if (typeof config === 'string') {
-            try {
-                config = JSON.parse(config);
-            } catch (e) {
-                console.warn('解析任务配置失败，将按原始字符串展示', e);
-            }
-        }
+        const config = getCurrentTaskConfigObject();
 
         // 任务基本信息
         const editTaskNameEl = document.getElementById('edit-task-name');

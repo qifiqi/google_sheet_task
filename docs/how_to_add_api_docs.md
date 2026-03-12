@@ -3,7 +3,8 @@
 本文说明在本项目中为“新增或既有接口”添加/完善 Swagger 文档的步骤与规范。项目入口：`/swagger`。
 
 ## 1. 放置位置与分组
-- 所有接口文档集中在 `app/routes/api_restx.py`，按功能划分为多个 Namespace：
+- 历史上接口文档曾集中在 `app/routes/api_restx.py`；该文件已在 2026-03-12 清理。
+- 当前实际生效的接口入口以 `app/routes/api.py` 为准，如需补充文档，请围绕现有 Blueprint 路由维护：
   - 任务管理：`api_ns`
   - 系统配置：`config_ns`
   - 模板管理：`template_ns`

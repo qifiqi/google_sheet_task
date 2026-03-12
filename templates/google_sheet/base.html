@@ -219,6 +219,67 @@
             }
             return url;
         }
+
+        // 将任务配置统一整理为 C5/C4 兼容结构，避免各页面重复维护兼容逻辑。
+        function normalizeTaskConfigForC5(raw) {
+            if (!raw || typeof raw !== 'object') {
+                return {};
+            }
+
+            // 复制一份，避免页面层误改原始对象。
+            const normalized = {...raw};
+            const sheets = Array.isArray(raw.sheets) ? raw.sheets.filter(item => item && typeof item === 'object') : [];
+
+            if (sheets.length === 0 && raw.spreadsheet_id) {
+                sheets.push({
+                    spreadsheet_id: raw.spreadsheet_id,
+                    sheet_name: raw.sheet_name || '',
+                    title: raw.title || ''
+                });
+            }
+
+            normalized.task_type = raw.task_type || 'google_sheet_C5';
+            normalized.count_mode = raw.count_mode || 'n_plus_1';
+            normalized.price_mode = raw.price_mode || 'kp_price';
+            normalized.market_type = raw.market_type || 'cn';
+            normalized.token_type = raw.token_type || 'file';
+            normalized.token_file = raw.token_file || 'data/token.json';
+            normalized.token_json = raw.token_json || '';
+            normalized.proxy_url = raw.proxy_url || null;
+            normalized.start_date = raw.start_date || null;
+            normalized.end_date = raw.end_date || null;
+            normalized.parameters = Array.isArray(raw.parameters) ? raw.parameters : [];
+            normalized.sheets = sheets;
+
+            if (Array.isArray(raw.date_range_mode)) {
+                normalized.date_range_mode = raw.date_range_mode;
+            } else if (typeof raw.date_range_mode === 'string' && raw.date_range_mode) {
+                normalized.date_range_mode = [raw.date_range_mode];
+            } else {
+                normalized.date_range_mode = ['full'];
+            }
+
+            return normalized;
+        }
+
+        // 统一解析字符串/对象形式的任务配置，再交给标准化函数处理。
+        function parseTaskConfigObject(rawConfig) {
+            if (!rawConfig) {
+                return {};
+            }
+
+            let parsedConfig = rawConfig;
+            if (typeof parsedConfig === 'string') {
+                try {
+                    parsedConfig = JSON.parse(parsedConfig);
+                } catch (error) {
+                    console.warn('解析任务配置失败:', error);
+                    return {};
+                }
+            }
+
+            return normalizeTaskConfigForC5(parsedConfig);
+        }
     </script>
 
     {% block scripts %}{% endblock %}
