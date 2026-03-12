@@ -335,63 +335,61 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                 return True
 
-            # 定时检查是否完成（最多检查60次，20-30秒）
-            for attempt in range(60):
-                self._sleep_before_next_poll(attempt)
-                all_num = 0
+            def poll_single_sheet(attempt: int, google_sheet):
+                self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
+                result_range = google_sheet.get_range(c4_output_range_1)
+                if not _validate_check_values(result_range, google_sheet.spreadsheet_id):
+                    self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
+                    self._log_warning(
+                        f"第 {attempt + 1} 次检查执行状态... 结果:{result_range} 起始参数:{initial_results[google_sheet.spreadsheet_id]}"
+                    )
+                    return {"completed": False}
+
+                result_yearly = google_sheet.get_range(c4_output_range_2)
+                index_return = check_result(
+                    google_sheet.get_range(f"{c4_output_column_j}2:{c4_output_column_j}{len(kline) + 1}")
+                )
+                start_return = check_result(
+                    google_sheet.get_range(f"{c4_output_column_l}2:{c4_output_column_l}{len(kline) + 1}")
+                )
+                index_return_date = []
+                start_return_date = []
+                for i in range(len(kline)):
+                    index_return_date.append({
+                        'stock_date': kline[i].get('stock_date'),
+                        'stock_val': index_return[f"{c4_output_column_j}{i + 2}"]
+                    })
+                    start_return_date.append({
+                        'stock_date': kline[i].get('stock_date'),
+                        'stock_val': start_return[f"{c4_output_column_l}{i + 2}"]
+                    })
+
+                result_range.update(result_yearly)
+                result_range['index_return_xpl'] = self.xpl.get_xpl(index_return_date, 'stock_date', 'stock_val')
+                result_range['start_return_xpl'] = self.xpl.get_xpl(start_return_date, 'stock_date', 'stock_val')
+                return {
+                    "completed": True,
+                    "result_key": f"{google_sheet.spreadsheet_id}__{google_sheet.title}",
+                    "result": result_range,
+                }
+
+            def retry_refresh(attempt: int):
+                if attempt not in [5, 15, 25, 35]:
+                    return
+
                 for google_sheet in self.google_sheets:
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                    _result = google_sheet.get_range(c4_output_range_1)
-                    if _validate_check_values(_result, google_sheet.spreadsheet_id):
-                        # _result = check_result(_result)
-                        _result_yearly = google_sheet.get_range(c4_output_range_2)
-                        # _result_yearly = check_result(google_sheet.get_range(c4_output_range_2))
-                        _index_return = check_result(
-                            google_sheet.get_range(f"{c4_output_column_j}2:{c4_output_column_j}{len(kline) + 1}")
-                        )
-                        _start_return = check_result(
-                            google_sheet.get_range(f"{c4_output_column_l}2:{c4_output_column_l}{len(kline) + 1}")
-                        )
-                        _index_return_date = []
-                        _start_return_date = []
-                        for i in range(len(kline)):
-                            _index_return_date.append({
-                                'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _index_return[f"{c4_output_column_j}{i + 2}"]
-                            })
-                            _start_return_date.append({
-                                'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _start_return[f"{c4_output_column_l}{i + 2}"]
-                            })
+                    google_sheet.update_jumped_cells(cell_updates)
 
-                        _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
-                        _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
-                        _result.update(_result_yearly)
-                        _result['index_return_xpl'] = _index_return_xpl
-                        _result['start_return_xpl'] = _start_return_xpl
-                        results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
-                        all_num += 1
-                    else:
-                        self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
-                        self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
-                        break
+                time.sleep(30)
+                for google_sheet in self.google_sheets:
+                    self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
+                    initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c4_output_range_1)
 
-                if all_num == len(self.google_sheets):
-                    self._log_info(f"所有任务已完成")
-                    return True, results
-
-                if attempt in [5,15,25,35]:
-                    for google_sheet in self.google_sheets:
-                        self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                        google_sheet.update_jumped_cells(cell_updates)
-
-                    time.sleep(30)
-                    for google_sheet in self.google_sheets:
-                        self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                        initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c4_output_range_1)
-
-            self._log_warning("执行超时，未在规定时间内完成")
-            return False, {}
+            return self._poll_multi_sheet_results(
+                poll_single_sheet=poll_single_sheet,
+                retry_refresh=retry_refresh,
+            )
 
         except Exception as e:
             error_msg = f"执行参数组合时出错: {traceback.format_exc()}"

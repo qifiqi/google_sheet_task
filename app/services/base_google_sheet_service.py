@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from flask import current_app
 from sqlalchemy import text
@@ -413,3 +413,39 @@ class BaseGoogleSheetService:
         self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {delay_seconds} 秒")
         time.sleep(delay_seconds)
         return delay_seconds
+
+    def _poll_multi_sheet_results(
+        self,
+        *,
+        poll_single_sheet: Callable[[int, GoogleSheet], dict[str, Any]],
+        before_attempt: Callable[[int], None] | None = None,
+        retry_refresh: Callable[[int], None] | None = None,
+        max_attempts: int = 60,
+    ) -> tuple[bool, dict[str, Any]]:
+        """统一多工作表轮询骨架。"""
+        for attempt in range(max_attempts):
+            if before_attempt:
+                before_attempt(attempt)
+
+            self._sleep_before_next_poll(attempt)
+            completed_count = 0
+            collected_results: dict[str, Any] = {}
+
+            for google_sheet in self.google_sheets:
+                poll_result = poll_single_sheet(attempt, google_sheet)
+                if not poll_result.get("completed", False):
+                    break
+
+                result_key = poll_result["result_key"]
+                collected_results[result_key] = poll_result["result"]
+                completed_count += 1
+
+            if completed_count == len(self.google_sheets):
+                self._log_info("所有任务已完成")
+                return True, collected_results
+
+            if retry_refresh:
+                retry_refresh(attempt)
+
+        self._log_warning("执行超时，未在规定时间内完成")
+        return False, {}
