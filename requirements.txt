@@ -16,3 +16,4 @@ pandas
 numpy
 concurrent-log-handler
 yfinance
+pytest

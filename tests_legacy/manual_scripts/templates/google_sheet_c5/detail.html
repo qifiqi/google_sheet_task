@@ -1,0 +1,2445 @@
+{% extends "google_sheet/base.html" %}
+
+{% block title %}任务详情 - Google Sheet C5 参数批量校验{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <!-- 任务概览卡片 -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="card-title mb-0">
+                    <i class="bi bi-info-circle"></i> 任务概览
+                </h4>
+                <div class="btn-group" role="group">
+                    <button class="btn btn-warning btn-sm" id="cancel-task-btn" style="display:none;">
+                        <i class="bi bi-stop-circle"></i> 停止任务
+                    </button>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-info btn-sm dropdown-toggle" data-bs-toggle="dropdown"
+                                id="restart-dropdown-btn" style="display:none;">
+                            <i class="bi bi-arrow-clockwise"></i> 重启任务
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="restartTask(true)">
+                                <i class="bi bi-play-circle"></i> 从断点重启
+                            </a></li>
+                            <li><a class="dropdown-item" href="#" onclick="restartTask(false)">
+                                <i class="bi bi-arrow-repeat"></i> 从头重启
+                            </a></li>
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+                            <li><a class="dropdown-item" href="#" onclick="goToCreateRestartTask()">
+                                <i class="bi bi-plus-circle"></i> 跳转到创建重启任务
+                            </a></li>
+                        </ul>
+                    </div>
+                    <button class="btn btn-outline-info btn-sm" id="check-status-btn" onclick="checkTaskStatus()">
+                        <i class="bi bi-search"></i> 检查状态
+                    </button>
+                    <a href="{{ url_for('google_sheet.index', version='c5') }}" class="btn btn-secondary btn-sm">
+                        <i class="bi bi-arrow-left"></i> 返回首页
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="card bg-light h-100">
+                                    <div class="card-body">
+                                        <h6 class="card-title text-muted mb-3">任务信息</h6>
+                                        <div class="row mb-2">
+                                            <div class="col-4"><strong>任务名称:</strong></div>
+                                            <div class="col-8 text-primary" id="task-name">-</div>
+                                        </div>
+                                        <div class="row mb-2">
+                                            <div class="col-4"><strong>任务ID:</strong></div>
+                                            <div class="col-8 text-muted small" id="task-id">-</div>
+                                        </div>
+                                        <div class="row mb-2">
+                                            <div class="col-4"><strong>状态:</strong></div>
+                                            <div class="col-8" id="task-status">-</div>
+                                        </div>
+                                        <div class="row mb-2">
+                                            <div class="col-4"><strong>进度:</strong></div>
+                                            <div class="col-8" id="task-progress">-</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div class="card bg-light h-100">
+                                    <div class="card-body">
+                                        <h6 class="card-title text-muted mb-3">时间信息</h6>
+                                        <div class="row mb-2">
+                                            <div class="col-4"><strong>开始时间:</strong></div>
+                                            <div class="col-8 text-success" id="start-time">-</div>
+                                        </div>
+                                        <div class="row mb-2">
+                                            <div class="col-4"><strong>结束时间:</strong></div>
+                                            <div class="col-8 text-info" id="end-time">-</div>
+                                        </div>
+                                        <div class="row mb-2">
+                                            <div class="col-4"><strong>执行时长:</strong></div>
+                                            <div class="col-8 text-warning" id="execution-duration">-</div>
+                                        </div>
+                                        <div class="row mb-2" id="error-info" style="display: none;">
+                                            <div class="col-4"><strong>错误信息:</strong></div>
+                                            <div class="col-8 text-danger" id="error-message">-</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-primary text-white h-100">
+                            <div class="card-body text-center">
+                                <h5 class="card-title">执行统计</h5>
+                                <div class="row text-center">
+                                    <div class="col-6">
+                                        <h3 id="success-count">0</h3>
+                                        <small>成功</small>
+                                    </div>
+                                    <div class="col-6">
+                                        <h3 id="failed-count">0</h3>
+                                        <small>失败</small>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <div class="progress" style="height: 8px;">
+                                        <div class="progress-bar bg-success" id="success-progress"
+                                             style="width: 0%"></div>
+                                    </div>
+                                    <small class="mt-1 d-block">成功率</small>
+                                </div>
+
+                                <!-- 刷新控制区域 -->
+                                <div class="mt-4 pt-3 border-top border-light">
+                                    <div class="row g-2">
+                                        <div class="col-8">
+                                            <select class="form-select form-select-sm" id="refresh-frequency">
+                                                <option value="5000">5秒</option>
+                                                <option value="15000">15秒</option>
+                                                <option value="30000">30秒</option>
+                                                <option value="60000" selected>1分钟</option>
+                                                <option value="120000">2分钟</option>
+                                                <option value="300000">5分钟</option>
+                                                <option value="600000">10分钟</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-4">
+                                            <button class="btn btn-light btn-sm w-100" id="manual-refresh-btn"
+                                                    title="手动刷新">
+                                                <i class="bi bi-arrow-clockwise"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <small class="text-light mt-1 d-block">自动刷新</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 配置信息卡片 -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="card-title mb-0">
+                    <i class="bi bi-gear"></i> 配置信息
+                </h4>
+                <button class="btn btn-primary btn-sm" id="edit-config-btn" onclick="openEditConfigModal()"
+                        style="display:none;">
+                    <i class="bi bi-pencil"></i> 编辑配置
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-muted mb-3">Google Sheet 配置</h6>
+                        <div id="config-container">
+                            <!-- 配置信息将通过JavaScript动态填充 -->
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-muted mb-3">参数配置</h6>
+                        <div id="parameters-container">
+                            <!-- 参数信息将通过JavaScript动态填充 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h4 class="card-title mb-0">
+                    <i class="bi bi-journal-text"></i> 任务日志
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="log-container" id="log-container">
+                    <!-- 日志内容将通过JavaScript动态填充 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 执行结果卡片 -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="card-title mb-0">
+                    <i class="bi bi-list-check"></i> 执行结果
+                </h4>
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshResults()">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV()">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> 导出 CSV
+                    </button>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                                data-bs-toggle="dropdown">
+                            <i class="bi bi-funnel"></i> 筛选
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="filterResults('all')">全部结果</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="filterResults('success')">成功</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="filterResults('failed')">失败</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="results-summary" class="mb-3 small text-muted"></div>
+
+                <div id="results-list" class="row g-3">
+                    <!-- 结果卡片将通过JavaScript动态填充 -->
+                </div>
+
+                <!-- 分页控件 -->
+                <nav aria-label="结果分页">
+                    <ul class="pagination justify-content-center" id="results-pagination">
+                        <!-- 分页按钮将通过JavaScript动态生成 -->
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 结果详情模态框 -->
+<div class="modal fade" id="resultDetailModal" tabindex="-1" aria-labelledby="resultDetailModalLabel"
+     aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="resultDetailModalLabel">结果详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="result-detail-meta" class="mb-3 small text-muted"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead>
+                        <tr>
+                            <th style="width: 130px;">字段</th>
+                            <th>值</th>
+                            <th style="width: 130px;">字段</th>
+                            <th>值</th>
+                        </tr>
+                        </thead>
+                        <tbody id="result-detail-body">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑配置模态框 -->
+<div class="modal fade" id="editConfigModal" tabindex="-1" aria-labelledby="editConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editConfigModalLabel">
+                    <i class="bi bi-pencil-square"></i> 编辑任务配置
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>注意：</strong>修改配置后，建议从头重新执行任务以确保数据一致性。如果从断点继续，请确保参数组合数量和顺序没有改变。
+                </div>
+
+                <form id="edit-config-form">
+                    <!-- 任务基本信息卡片 -->
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h6 class="mb-3"><i class="bi bi-info-circle"></i> 任务基本信息</h6>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="edit-task-name" class="form-label">任务名称</label>
+                                    <input type="text" class="form-control" id="edit-task-name"
+                                           placeholder="请输入任务名称">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="edit-task-description" class="form-label">任务描述</label>
+                                    <textarea class="form-control" id="edit-task-description" rows="2"
+                                              placeholder="请输入任务描述"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 主参数卡片：parameters[0] 作为可增删的小卡片列表 -->
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h6 class="mb-3"><i class="bi bi-sliders"></i> 核心参数（parameters[0]）</h6>
+                            <div class="mb-2">
+                                <label class="form-label" for="edit-product-code-input">股票/产品代码</label>
+                                <div class="input-group mb-2">
+                                    <input type="text" class="form-control" id="edit-product-code-input"
+                                           placeholder="如：600000,600001 或 600000 600001">
+                                    <button class="btn btn-outline-primary" type="button"
+                                            id="edit-add-product-code-btn">添加
+                                    </button>
+                                </div>
+                                <div class="form-text mb-2">支持逗号、空格等分隔符，一次可输入多个代码；仅作用于
+                                    parameters[0]。
+                                </div>
+                                <div id="edit-product-code-chips"
+                                     class="product-code-chips d-flex flex-wrap gap-1"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Google Sheets 与更多参数卡片 -->
+                    <div class="card mb-0">
+                        <div class="card-body">
+                            <h6 class="mb-3"><i class="bi bi-gear"></i> 更多参数与 Sheets 配置</h6>
+
+                            <!-- Sheets 多行配置：每行三个输入框 -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-table"></i> Sheets 配置
+                                </label>
+                                <div id="edit-sheets-list">
+                                    <!-- 每行通过 JS 生成：spreadsheet_id / title / sheet_name -->
+                                </div>
+                                <div class="text-center mt-2">
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button type="button" class="btn btn-outline-primary" id="edit-add-sheet-btn">
+                                            <i class="bi bi-plus-circle"></i> 添加一行
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger" id="edit-remove-sheet-btn">
+                                            <i class="bi bi-dash-circle"></i> 删除最后一行
+                                        </button>
+                                    </div>
+                                </div>
+                                <small class="text-muted d-block mt-2">每行对应 config.sheets 中的一项，分别为
+                                    spreadsheet_id、title（可选）、sheet_name。</small>
+                            </div>
+
+                            <details class="mt-2">
+                                <summary class="text-muted">展开更多参数</summary>
+                                <div class="mt-3">
+                                    <div class="row mb-3">
+                                        <div class="col-md-3 mb-3">
+                                            <label class="form-label d-block">统计方式 count_mode</label>
+                                            <select class="form-select" id="edit-count-mode">
+                                                <option value="n_plus_1">n_plus_1</option>
+                                                <option value="total">total</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label class="form-label d-block">时间范围类型 date_range_mode</label>
+                                            <div>
+                                                <div class="form-check form-check-inline mb-1">
+                                                    <input class="form-check-input" type="checkbox"
+                                                           id="edit-date-range-full" value="full">
+                                                    <label class="form-check-label" for="edit-date-range-full">整年
+                                                        full</label>
+                                                </div>
+                                                <div class="form-check form-check-inline mb-1">
+                                                    <input class="form-check-input" type="checkbox"
+                                                           id="edit-date-range-recent" value="recent">
+                                                    <label class="form-check-label" for="edit-date-range-recent">近年
+                                                        recent</label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="edit-start-date" class="form-label">开始日期 start_date</label>
+                                            <input type="date" class="form-control" id="edit-start-date">
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="edit-end-date" class="form-label">结束日期 end_date</label>
+                                            <input type="date" class="form-control" id="edit-end-date">
+                                        </div>
+                                    </div>
+
+                                    <div class="row mb-3">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="edit-market-type" class="form-label">市场类型
+                                                market_type</label>
+                                            <input type="text" class="form-control" id="edit-market-type"
+                                                   placeholder="如：cn">
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="edit-proxy-url" class="form-label">代理地址 proxy_url</label>
+                                            <input type="text" class="form-control" id="edit-proxy-url"
+                                                   placeholder="可选，HTTP/HTTPS 代理URL">
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="edit-token-type" class="form-label">认证方式 token_type</label>
+                                            <select class="form-select" id="edit-token-type">
+                                                <option value="file">文件 token_file</option>
+                                                <option value="json">JSON token_json</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="row mb-3">
+                                        <div class="col-md-6 mb-3" id="edit-token-file-container">
+                                            <label for="edit-token-file" class="form-label">Token 文件路径
+                                                token_file</label>
+                                            <input type="text" class="form-control" id="edit-token-file"
+                                                   placeholder="如 data/token.json">
+                                        </div>
+                                        <div class="col-md-6 mb-3" id="edit-token-json-container" style="display:none;">
+                                            <label for="edit-token-json" class="form-label">Token JSON 字符串
+                                                token_json</label>
+                                            <textarea class="form-control" id="edit-token-json" rows="3"
+                                                      placeholder="粘贴 JSON 字符串"></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="edit-parameters-raw"
+                                               class="form-label">完整参数结构（只读/高级）</label>
+                                        <textarea class="form-control" id="edit-parameters-raw" rows="4"
+                                                  readonly></textarea>
+                                        <small class="text-muted">这里展示完整的 config.parameters
+                                            JSON，仅供参考，真正提交时将以上方两个主参数为准构造 parameters[0]。</small>
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveTaskConfig()">
+                    <i class="bi bi-save"></i> 保存配置
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+    /* 优化结果表格样式 */
+    #results-table {
+        font-size: 0.875rem;
+    }
+
+    #results-table td {
+        vertical-align: middle;
+        padding: 0.5rem 0.75rem;
+    }
+
+    #results-table th {
+        padding: 0.75rem 0.75rem;
+        font-weight: 600;
+        font-size: 0.875rem;
+    }
+
+    .result-content {
+        max-height: 120px;
+        overflow-y: auto;
+        font-size: 0.75rem;
+        line-height: 1.3;
+    }
+
+    .result-content pre {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 4px;
+        padding: 8px;
+        margin: 0;
+        font-family: 'Courier New', monospace;
+        font-size: 0.7rem;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+
+    .result-content::-webkit-scrollbar {
+        width: 4px;
+    }
+
+    .result-content::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 2px;
+    }
+
+    .result-content::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 2px;
+    }
+
+    .result-content::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+    }
+
+    /* 参数组合标签样式 */
+    .badge {
+        font-size: 0.7rem;
+        padding: 0.25rem 0.5rem;
+    }
+
+    /* 状态徽章样式 */
+    .badge.bg-success, .badge.bg-danger {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+    }
+
+    /* 表格行悬停效果 */
+    #results-table tbody tr:hover {
+        background-color: rgba(0, 123, 255, 0.05);
+    }
+
+    /* 紧凑型分页 */
+    .pagination {
+        margin-bottom: 0;
+        padding-top: 1rem;
+    }
+
+    .page-link {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+    }
+
+    /* 旋转动画 */
+    @keyframes spin {
+        from {
+            transform: rotate(0deg);
+        }
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .result-header-status {
+        white-space: nowrap;
+    }
+</style>
+<script>
+    // 全局变量
+    let currentTaskId = null;
+    let statusInterval = null;
+    let refreshInterval = null;
+    let allResults = [];
+    let groupedResults = [];
+    let flattenedResults = [];
+    let filteredResults = [];
+    let currentResultsPage = 1;
+    let resultsPerPage = 10;
+    let resultsTotalPages = 1;
+    let resultsTotalCount = 0;
+    let resultsTotalSuccess = null;
+    let resultsTotalFailed = null;
+    let currentResultsFilter = 'all';
+    let currentRefreshFrequency = 60000; // 默认1分钟，将从配置加载
+    let taskStartTime = null; // 存储任务开始时间
+    let currentTaskData = null; // 存储当前任务数据
+    let editConfigModal = null; // 编辑配置模态框实例
+
+    // 页面加载完成后获取任务详情
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('页面加载完成');
+        currentTaskId = getTaskIdFromUrl();
+        console.log('获取到的任务ID:', currentTaskId);
+
+        // 初始化编辑配置模态框
+        const modalElement = document.getElementById('editConfigModal');
+        if (modalElement && typeof bootstrap !== 'undefined') {
+            editConfigModal = new bootstrap.Modal(modalElement);
+        }
+
+        // 绑定编辑弹窗内的事件（chips & sheets）
+        const addCodeBtn = document.getElementById('edit-add-product-code-btn');
+        const codeInput = document.getElementById('edit-product-code-input');
+        if (addCodeBtn && codeInput) {
+            const addCodes = function () {
+                const raw = (codeInput.value || '').trim();
+                if (!raw) return;
+                const parts = raw.split(/[\s,，]+/).map(v => v.trim()).filter(v => v);
+                const existing = collectEditProductCodesFromChips();
+                renderEditProductCodeChips(existing.concat(parts));
+                codeInput.value = '';
+            };
+            addCodeBtn.addEventListener('click', addCodes);
+            codeInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addCodes();
+                }
+            });
+        }
+
+        const addSheetBtn = document.getElementById('edit-add-sheet-btn');
+        const removeSheetBtn = document.getElementById('edit-remove-sheet-btn');
+        if (addSheetBtn) {
+            addSheetBtn.addEventListener('click', function () {
+                const list = document.getElementById('edit-sheets-list');
+                if (!list) return;
+                const row = document.createElement('div');
+                row.className = 'row g-2 align-items-end mb-2 edit-sheet-row';
+                row.innerHTML = `
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">spreadsheet_id</label>
+                        <input type="text" class="form-control form-control-sm edit-sheet-spreadsheet-id" value="">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">title</label>
+                        <input type="text" class="form-control form-control-sm edit-sheet-title" value="">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">sheet_name</label>
+                        <input type="text" class="form-control form-control-sm edit-sheet-name" value="">
+                    </div>
+                `;
+                list.appendChild(row);
+            });
+        }
+        if (removeSheetBtn) {
+            removeSheetBtn.addEventListener('click', function () {
+                const list = document.getElementById('edit-sheets-list');
+                if (!list) return;
+                const rows = list.querySelectorAll('.edit-sheet-row');
+                if (rows.length > 1) {
+                    list.removeChild(rows[rows.length - 1]);
+                }
+            });
+        }
+
+        if (currentTaskId) {
+            // 从配置加载默认刷新频率
+            ajaxRequest('/api/config', 'GET', null, function (err, data) {
+                if (!err && data && data.config && data.config.detail_refresh_interval) {
+                    currentRefreshFrequency = data.config.detail_refresh_interval;
+                    // 更新下拉框的默认选择
+                    const frequencySelect = document.getElementById('refresh-frequency');
+                    if (frequencySelect) {
+                        frequencySelect.value = currentRefreshFrequency;
+                    }
+                }
+
+                loadTaskDetail();
+                initializeRefreshControls();
+                // 启动自动刷新
+                startAutoRefresh();
+            });
+        } else {
+            showNotification('任务ID无效', 'error');
+        }
+    });
+
+    // 页面卸载时清理定时器
+    window.addEventListener('beforeunload', function () {
+        stopAutoRefresh();
+    });
+
+    // 初始化刷新控制
+    function initializeRefreshControls() {
+        const frequencySelect = document.getElementById('refresh-frequency');
+        const manualRefreshBtn = document.getElementById('manual-refresh-btn');
+
+        // 刷新频率选择事件
+        frequencySelect.addEventListener('change', function () {
+            currentRefreshFrequency = parseInt(this.value);
+            console.log('刷新频率更改为:', currentRefreshFrequency + 'ms');
+            startAutoRefresh(); // 重新启动自动刷新
+            showNotification(`自动刷新频率已设置为 ${getFrequencyText(currentRefreshFrequency)}`, 'info');
+        });
+
+        // 手动刷新按钮事件
+        manualRefreshBtn.addEventListener('click', function () {
+            manualRefresh();
+        });
+    }
+
+    // 获取频率文本
+    function getFrequencyText(milliseconds) {
+        const seconds = milliseconds / 1000;
+        if (seconds < 60) {
+            return `${seconds}秒`;
+        } else {
+            const minutes = seconds / 60;
+            return `${minutes}分钟`;
+        }
+    }
+
+    // 手动刷新
+    function manualRefresh() {
+        const btn = document.getElementById('manual-refresh-btn');
+        const icon = btn.querySelector('i');
+
+        // 添加旋转动画
+        icon.style.animation = 'spin 1s linear infinite';
+        btn.disabled = true;
+
+        console.log('执行手动刷新...');
+        loadTaskDetail();
+
+        // 1秒后恢复按钮
+        setTimeout(() => {
+            icon.style.animation = '';
+            btn.disabled = false;
+        }, 1000);
+
+        showNotification('手动刷新完成', 'success');
+    }
+
+    // 获取URL中的任务ID
+    function getTaskIdFromUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get('task_id');
+    }
+
+    // 加载任务详情
+    function loadTaskDetail() {
+        console.log('开始加载任务详情，任务ID:', currentTaskId);
+        ajaxRequest(`/api/tasks/${currentTaskId}`, 'GET', null, function (err, data) {
+            console.log('API响应:', err, data);
+            if (!err && data && data.task) {
+                const task = data.task;
+                console.log('任务数据:', task);
+
+                // 保存任务数据供编辑使用
+                currentTaskData = task;
+
+                // 填充基本信息
+                document.getElementById('task-id').textContent = task.id;
+                document.getElementById('task-name').textContent = task.name;
+                document.getElementById('task-status').innerHTML = `<span class="badge ${getStatusClass(task.status)}">${getStatusText(task.status)}</span>`;
+
+                // 更新进度显示（增强对比度和可见性）
+                const progressPercent = task.total_steps > 0 ? Math.round((task.current_step / task.total_steps) * 100) : 0;
+                const visiblePercent = progressPercent > 0 ? Math.max(progressPercent, 5) : 0;
+                const progressBarClass = getProgressBarClass(task.status) + (task.status === 'running' ? ' progress-bar-striped progress-bar-animated' : '');
+                let progress_html = null
+                progress_html = `
+                    <div class="progress" style="height: 20px; background-color: #e9ecef; position: relative;">
+                        <div class="progress-bar ${progressBarClass}" role="progressbar"
+                             style="width: ${visiblePercent}%;">
+                        </div>
+                        <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+                               display: flex; align-items: center; justify-content: center;
+                               color: black;  z-index: 10; font-size: 12px;">
+                            ${task.current_step}/${task.total_steps} (${progressPercent}%)
+                        </span>
+                    </div>
+                `;
+                     /*
+                     *
+                     *
+                     *                      progress_html= ` <div class="progress" style="height: 20px; background-color: #e9ecef;">
+                            <div class="progress-bar ${progressBarClass}" role="progressbar"
+                                 style="width: ${visiblePercent}%;">
+                                ${task.current_step}/${total_steps} (${progressPercent}%)
+                            </div>
+                        </div>
+                    `;
+                     * */
+
+                document.getElementById('task-progress').innerHTML = progress_html;
+
+                // 更新时间信息
+                document.getElementById('start-time').textContent = formatTime(task.start_time);
+                document.getElementById('end-time').textContent = formatTime(task.end_time);
+
+                // 保存任务开始时间用于计算耗时
+                if (task.start_time) {
+                    taskStartTime = new Date(task.start_time);
+                }
+
+                // 计算执行时长
+                let duration = 0;
+                if (task.start_time) {
+                    const startTime = new Date(task.start_time);
+                    const endTime = task.end_time ? new Date(task.end_time) : new Date();
+                    duration = Math.max(0, Math.round((endTime - startTime) / 1000)); // 确保不为负数
+                }
+                document.getElementById('execution-duration').textContent = formatDuration(duration);
+
+                // 显示/隐藏错误信息
+                const errorInfo = document.getElementById('error-info');
+                if (task.error_message) {
+                    document.getElementById('error-message').textContent = task.error_message;
+                    errorInfo.style.display = 'block';
+                } else {
+                    errorInfo.style.display = 'none';
+                }
+
+                // 显示/隐藏取消按钮
+                const cancelBtn = document.getElementById('cancel-task-btn');
+                if (task.status === 'running') {
+                    cancelBtn.style.display = 'inline-block';
+                    cancelBtn.setAttribute('data-task-id', task.id);
+                } else {
+                    cancelBtn.style.display = 'none';
+                }
+
+                // 显示/隐藏重启按钮（包括pending状态）
+                const restartBtn = document.getElementById('restart-dropdown-btn');
+                if (task.status === 'pending' || task.status === 'completed' || task.status === 'error' || task.status === 'cancelled') {
+                    restartBtn.style.display = 'inline-block';
+                } else {
+                    restartBtn.style.display = 'none';
+                }
+
+                // 显示/隐藏编辑按钮（只有非运行状态才能编辑）
+                const editBtn = document.getElementById('edit-config-btn');
+                if (task.status !== 'running') {
+                    editBtn.style.display = 'inline-block';
+                } else {
+                    editBtn.style.display = 'none';
+                }
+
+                // 填充配置信息（兼容 config 为字符串或对象的情况）
+                let cfg = task.config;
+                if (typeof cfg === 'string') {
+                    try {
+                        cfg = JSON.parse(cfg);
+                    } catch (e) {
+                        console.warn('解析任务配置失败，将按原始字符串展示', e);
+                    }
+                }
+
+                loadTaskConfig(cfg);
+                loadTaskParameters(cfg);
+
+                // 加载任务日志
+                loadTaskLogs();
+
+                // 加载任务结果
+                loadTaskResults();
+
+                // 更新页面标题
+                document.title = `任务详情 - ${task.name}`;
+
+                // 如果任务还在运行，启动定时刷新
+                if (task.status === 'running') {
+                    startAutoRefresh();
+                } else {
+                    stopAutoRefresh();
+                }
+            } else {
+                showNotification('获取任务详情失败: ' + (data ? data.message : '未知错误'), 'error');
+            }
+        });
+    }
+
+    // ===== 编辑配置模态框辅助函数 =====
+    function renderEditProductCodeChips(codes) {
+        const container = document.getElementById('edit-product-code-chips');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const unique = [];
+        const seen = new Set();
+        (codes || []).forEach(c => {
+            const val = String(c).trim();
+            if (!val || seen.has(val)) return;
+            seen.add(val);
+            unique.push(val);
+        });
+
+        unique.forEach(code => {
+            const chip = document.createElement('span');
+            chip.className = 'badge bg-primary d-flex align-items-center me-1 mb-1';
+            chip.style.cursor = 'default';
+            chip.dataset.value = code;
+            chip.innerHTML = `
+                <span class="me-1">${code}</span>
+                <button type="button" class="btn btn-sm btn-light btn-close p-0 ms-1" aria-label="删除" style="font-size: 0.5rem;"></button>
+            `;
+            const closeBtn = chip.querySelector('button');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    chip.remove();
+                });
+            }
+            container.appendChild(chip);
+        });
+    }
+
+    function collectEditProductCodesFromChips() {
+        const container = document.getElementById('edit-product-code-chips');
+        if (!container) return [];
+        const vals = [];
+        const seen = new Set();
+        container.querySelectorAll('[data-value]').forEach(el => {
+            const v = (el.dataset.value || '').trim();
+            if (v && !seen.has(v)) {
+                seen.add(v);
+                vals.push(v);
+            }
+        });
+        return vals;
+    }
+
+    function renderEditSheetsRows(sheets) {
+        const list = document.getElementById('edit-sheets-list');
+        if (!list) return;
+        list.innerHTML = '';
+        const data = Array.isArray(sheets) && sheets.length > 0 ? sheets : [{}];
+
+        data.forEach(s => {
+            const row = document.createElement('div');
+            row.className = 'row g-2 align-items-end mb-2 edit-sheet-row';
+            row.innerHTML = `
+                <div class="col-md-4">
+                    <label class="form-label small mb-1">spreadsheet_id</label>
+                    <input type="text" class="form-control form-control-sm edit-sheet-spreadsheet-id" value="${s.spreadsheet_id || ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small mb-1">title</label>
+                    <input type="text" class="form-control form-control-sm edit-sheet-title" value="${s.title || ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small mb-1">sheet_name</label>
+                    <input type="text" class="form-control form-control-sm edit-sheet-name" value="${s.sheet_name || ''}">
+                </div>
+            `;
+            list.appendChild(row);
+        });
+    }
+
+    function openEditConfigModal() {
+        if (!currentTaskData) {
+            showNotification('任务数据未加载', 'error');
+            return;
+        }
+
+        // 解析任务配置（必须是包含 sheets / parameters 结构的对象）
+        var config = currentTaskData.config || {};
+        if (typeof config === 'string') {
+            try {
+                config = JSON.parse(config);
+            } catch (e) {
+                console.warn('解析任务配置失败，将按原始字符串展示', e);
+            }
+        }
+
+        // 任务基本信息
+        const editTaskNameEl = document.getElementById('edit-task-name');
+        if (editTaskNameEl) {
+            editTaskNameEl.value = currentTaskData.name || '';
+        }
+        const editTaskDescEl = document.getElementById('edit-task-description');
+        if (editTaskDescEl) {
+            editTaskDescEl.value = currentTaskData.description || '';
+        }
+
+        // 主参数：parameters[0] 渲染为 chips
+        var mainParams = Array.isArray(config.parameters && config.parameters[0])
+                ? config.parameters[0].slice()
+                : [];
+        renderEditProductCodeChips(mainParams);
+
+        // 完整 parameters 只读展示
+        const paramsRawEl = document.getElementById('edit-parameters-raw');
+        if (paramsRawEl) {
+            try {
+                paramsRawEl.value = config.parameters
+                        ? JSON.stringify(config.parameters, null, 2)
+                        : '';
+            } catch (e) {
+                paramsRawEl.value = '';
+            }
+        }
+
+        // sheets 多行输入
+        const sheets = Array.isArray(config.sheets) ? config.sheets : [];
+        renderEditSheetsRows(sheets);
+
+        // 更多参数区域
+        const countModeEl = document.getElementById('edit-count-mode');
+        if (countModeEl) {
+            countModeEl.value = config.count_mode || 'n_plus_1';
+        }
+
+        const fullModeEl = document.getElementById('edit-date-range-full');
+        const recentModeEl = document.getElementById('edit-date-range-recent');
+        let drmList = [];
+        if (Array.isArray(config.date_range_mode)) {
+            drmList = config.date_range_mode;
+        } else if (typeof config.date_range_mode === 'string' && config.date_range_mode) {
+            drmList = [config.date_range_mode];
+        }
+        if (drmList.length === 0) {
+            drmList = ['full'];
+        }
+
+        function applyEditDateRangeModes(enableOnly) {
+            const currentMode = (countModeEl && countModeEl.value) || 'n_plus_1';
+            const enable = currentMode === 'n_plus_1';
+            if (fullModeEl) {
+                fullModeEl.disabled = !enable;
+                if (!enable) {
+                    fullModeEl.checked = false;
+                } else if (!enableOnly) {
+                    fullModeEl.checked = drmList.includes('full');
+                }
+            }
+            if (recentModeEl) {
+                recentModeEl.disabled = !enable;
+                if (!enable) {
+                    recentModeEl.checked = false;
+                } else if (!enableOnly) {
+                    recentModeEl.checked = drmList.includes('recent');
+                }
+            }
+        }
+
+        applyEditDateRangeModes(false);
+        if (countModeEl) {
+            countModeEl.addEventListener('change', function () {
+                applyEditDateRangeModes(true);
+            });
+        }
+
+        const startDateEl = document.getElementById('edit-start-date');
+        if (startDateEl) {
+            startDateEl.value = config.start_date || '';
+        }
+
+        const endDateEl = document.getElementById('edit-end-date');
+        if (endDateEl) {
+            endDateEl.value = config.end_date || '';
+        }
+
+        const marketTypeEl = document.getElementById('edit-market-type');
+        if (marketTypeEl) {
+            marketTypeEl.value = config.market_type || '';
+        }
+
+        // 认证方式 / Token
+        var tokenType = config.token_type || 'file';
+        var tokenTypeSelect = document.getElementById('edit-token-type');
+        var fileContainer = document.getElementById('edit-token-file-container');
+        var jsonContainer = document.getElementById('edit-token-json-container');
+
+        if (tokenTypeSelect) {
+            tokenTypeSelect.value = tokenType;
+
+            // 绑定切换事件（只绑定一次）
+            if (!tokenTypeSelect._bindedForToggle) {
+                tokenTypeSelect.addEventListener('change', function () {
+                    const t = this.value || 'file';
+                    if (fileContainer) fileContainer.style.display = t === 'file' ? 'block' : 'none';
+                    if (jsonContainer) jsonContainer.style.display = t === 'json' ? 'block' : 'none';
+                });
+                tokenTypeSelect._bindedForToggle = true;
+            }
+        }
+
+        if (fileContainer) fileContainer.style.display = tokenType === 'file' ? 'block' : 'none';
+        if (jsonContainer) jsonContainer.style.display = tokenType === 'json' ? 'block' : 'none';
+
+        const editTokenFileEl = document.getElementById('edit-token-file');
+        if (editTokenFileEl) {
+            editTokenFileEl.value = config.token_file || 'data/token.json';
+        }
+        const editTokenJsonEl = document.getElementById('edit-token-json');
+        if (editTokenJsonEl) {
+            editTokenJsonEl.value = config.token_json || '';
+        }
+
+        const editProxyUrlEl = document.getElementById('edit-proxy-url');
+        if (editProxyUrlEl) {
+            editProxyUrlEl.value = config.proxy_url || '';
+        }
+
+        // 打开模态框
+        if (editConfigModal) {
+            editConfigModal.show();
+        }
+    }
+
+    window.openEditConfigModal = openEditConfigModal;
+
+    // 加载任务配置
+    function loadTaskConfig(config) {
+        const container = document.getElementById('config-container');
+        container.innerHTML = '';
+
+        if (!config) {
+            container.innerHTML = '<div class="text-muted">无配置信息</div>';
+            return;
+        }
+
+        // C4 专用渲染：按 sheets + 汇总信息展示
+        const sheets = Array.isArray(config.sheets) ? config.sheets : [];
+        const codeCount = Array.isArray(config.parameters && config.parameters[0])
+                ? config.parameters[0].length
+                : 0;
+        const dateRange = (config.start_date || '-') + ' ~ ' + (config.end_date || '-');
+        let dateRangeModeDisplay = '-';
+        if (Array.isArray(config.date_range_mode)) {
+            dateRangeModeDisplay = config.date_range_mode.join(',');
+        } else if (typeof config.date_range_mode === 'string' && config.date_range_mode) {
+            dateRangeModeDisplay = config.date_range_mode;
+        }
+        const dateRangeMode = config.date_range_mode || 'full';
+
+        // 工作表列表：每个表一行（表N + ID + 名称）
+        const sheetsBlock = document.createElement('div');
+        sheetsBlock.className = 'mb-2';
+        sheetsBlock.innerHTML = '<strong class="d-block mb-1">工作表</strong>';
+
+        if (sheets.length > 0) {
+            sheets.forEach((s, idx) => {
+                const row = document.createElement('div');
+                row.className = 'small text-muted mb-1';
+                const titleText = s.title || '';
+                row.innerHTML = `
+                    <span class="badge bg-secondary me-2">表${idx + 1}</span>
+                    <span>Spreadsheet ID: ${s.spreadsheet_id || '-'}</span>
+                    <span class="ms-2">Sheet: ${s.sheet_name || '-'}</span>
+                    <span class="ms-2 text-muted">Title: ${titleText || '-'}</span>
+                `;
+                sheetsBlock.appendChild(row);
+            });
+        } else {
+            const empty = document.createElement('div');
+            empty.className = 'text-muted small';
+            empty.textContent = '无工作表配置';
+            sheetsBlock.appendChild(empty);
+        }
+
+        container.appendChild(sheetsBlock);
+
+        // 汇总信息折叠显示（只在需要时展开查看）
+        const details = document.createElement('details');
+        details.className = 'mt-2 small';
+
+        const summary = document.createElement('summary');
+        summary.className = 'text-muted';
+        summary.textContent = '更多配置';
+        details.appendChild(summary);
+
+        const list = document.createElement('div');
+        list.className = 'mt-2';
+
+        const configItems = [
+            {label: '产品代码数', value: codeCount, icon: 'bi-list-ul'},
+            {label: '统计方式', value: config.count_mode || 'total', icon: 'bi-calculator'},
+            {label: '时间范围类型', value: dateRangeModeDisplay, icon: 'bi-clock-history'},
+            {label: '数据时间范围', value: dateRange, icon: 'bi-calendar-range'},
+            {label: '认证方式', value: config.token_type || '-', icon: 'bi-shield-lock'},
+            {label: '代理URL', value: config.proxy_url || '无', icon: 'bi-globe'}
+        ];
+
+        configItems.forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'mb-1 d-flex align-items-center';
+            row.innerHTML = `
+                <i class="${item.icon} text-muted me-2"></i>
+                <strong class="me-2">${item.label}:</strong>
+                <span class="text-muted">${item.value}</span>
+            `;
+            list.appendChild(row);
+        });
+
+        details.appendChild(list);
+        container.appendChild(details);
+    }
+
+    // 加载任务日志
+    function loadTaskLogs() {
+        console.log('开始加载任务日志...');
+        ajaxRequest(`/api/tasks/${currentTaskId}/logs`, 'GET', null, function (err, data) {
+            console.log('日志API响应:', err, data);
+            if (!err && data && data.logs) {
+                const logContainer = document.getElementById('log-container');
+                console.log('找到日志容器:', logContainer);
+                console.log('日志数量:', data.logs.length);
+
+                if (data.logs.length > 0) {
+                    // 保存当前滚动位置
+                    const wasAtBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 5;
+
+                    // 更新日志内容
+                    logContainer.innerHTML = data.logs.map(log => {
+                        const level = log.level || 'info';
+                        const levelClass = level === 'error' ? 'text-danger' :
+                                level === 'warning' ? 'text-warning' :
+                                        level === 'info' ? 'text-info' : 'text-light';
+                        return `<div class="${levelClass}">[${formatTime(log.timestamp)}] ${log.message}</div>`;
+                    }).join('');
+
+                    // 如果之前在底部，保持滚动到底部
+                    if (wasAtBottom) {
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                    }
+
+                    console.log('日志已显示');
+                } else {
+                    logContainer.innerHTML = '<div class="text-muted">暂无日志</div>';
+                    console.log('没有日志数据');
+                }
+            } else {
+                console.error('加载日志失败:', err, data);
+                const logContainer = document.getElementById('log-container');
+                logContainer.innerHTML = '<div class="text-danger">加载日志失败</div>';
+            }
+        });
+    }
+
+    // 加载任务参数
+    function loadTaskParameters(config) {
+        const container = document.getElementById('parameters-container');
+        container.innerHTML = '';
+
+        if (!config || !Array.isArray(config.parameters) || config.parameters.length === 0) {
+            container.innerHTML = '<div class="text-muted">无参数配置</div>';
+            return;
+        }
+
+        // 样式与 google_sheet/detail.html 一致：badge + code(JSON.stringify)
+        const paramsArr = config.parameters;
+
+        paramsArr.forEach((paramGroup, index) => {
+            const paramDiv = document.createElement('div');
+            paramDiv.className = 'mb-2';
+            paramDiv.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-primary me-2">参数${index + 1}</span>
+                    <code class="text-dark">${JSON.stringify(paramGroup)}</code>
+                </div>
+            `;
+            container.appendChild(paramDiv);
+        });
+    }
+
+    // 加载任务结果（后端分页）
+    function loadTaskResults(page) {
+        const targetPage = page || 1;
+        const url = `/api/tasks/${currentTaskId}/results?page=${targetPage}&per_page=${resultsPerPage}`;
+
+        ajaxRequest(url, 'GET', null, function (err, data) {
+            if (!err && data && Array.isArray(data.results)) {
+                allResults = data.results;
+                groupedResults = groupResults(data.results);
+                flattenedResults = flattenResults(data.results);
+
+                resultsTotalPages = data.pages || 1;
+                resultsTotalCount = data.total != null ? data.total : groupedResults.length;
+                resultsTotalSuccess = typeof data.total_success === 'number' ? data.total_success : null;
+                resultsTotalFailed = typeof data.total_failed === 'number' ? data.total_failed : null;
+                currentResultsPage = data.current_page || targetPage;
+
+                applyResultsFilter();
+                updateResultsStatistics();
+                renderResults();
+            }
+        });
+    }
+
+    // 按每条 result（参数组合）分组，内部包含多个模型结果
+    function groupResults(resultsArray) {
+        const list = [];
+
+        if (!Array.isArray(resultsArray)) {
+            return list;
+        }
+
+        resultsArray.forEach((item) => {
+            const params = item.parameters || {};
+            const stockCode = params.stock_code || '-';
+
+            let klineRange = '-';
+            if (Array.isArray(params.kline) && params.kline.length > 0) {
+                const sortedKline = params.kline
+                        .filter(r => r && r.stock_date)
+                        .slice()
+                        .sort((a, b) => (a.stock_date > b.stock_date ? 1 : -1));
+                if (sortedKline.length > 0) {
+                    const first = sortedKline[0];
+                    const last = sortedKline[sortedKline.length - 1];
+                    klineRange = `${first.stock_date || '-'} ~ ${last.stock_date || '-'}`;
+                }
+            }
+
+            const a1 = params.A1 != null ? params.A1 : null;
+            const b1 = params.B1 != null ? params.B1 : null;
+
+            const resultObj = item.result && typeof item.result === 'object' ? item.result : {};
+            const models = [];
+
+            Object.keys(resultObj).forEach((keyName) => {
+                const metrics = resultObj[keyName] || {};
+
+                const d2 = metrics.D2 != null ? metrics.D2 : null;
+                const d3 = metrics.D3 != null ? metrics.D3 : null;
+                const d4 = metrics.D4 != null ? metrics.D4 : null;
+                const d5 = metrics.D5 != null ? metrics.D5 : null;
+                const d6 = metrics.D6 != null ? metrics.D6 : null;
+                const d7 = metrics.D7 != null ? metrics.D7 : null;
+
+                const startReturn = metrics.start_return_xpl || {};
+                const indexReturn = metrics.index_return_xpl || {};
+
+                const startSharpe = startReturn.sharpe_ratio != null ? startReturn.sharpe_ratio : null;
+                const indexSharpe = indexReturn.sharpe_ratio != null ? indexReturn.sharpe_ratio : null;
+
+                const keyParts = String(keyName).split('__');
+                const modelCode = keyParts[0] || String(keyName);
+                const modelTitle = keyParts.slice(1).join('__');
+
+                models.push({
+                    modelKey: keyName,
+                    modelCode: modelCode,
+                    modelTitle: modelTitle,
+                    d2: d2,
+                    d3: d3,
+                    d4: d4,
+                    d5: d5,
+                    d6: d6,
+                    d7: d7,
+                    startSharpe: startSharpe,
+                    indexSharpe: indexSharpe,
+                    rawMetrics: metrics
+                });
+            });
+
+            list.push({
+                stepIndex: item.step_index,
+                success: !!item.success,
+                errorMessage: item.error_message || null,
+                timestamp: item.timestamp || null,
+                taskId: item.task_id || null,
+                rowId: item.id != null ? item.id : null,
+                parameters: params,
+                stockCode: stockCode,
+                a1: a1,
+                b1: b1,
+                klineRange: klineRange,
+                models: models
+            });
+        });
+
+        return list;
+    }
+
+    // 将后端返回的 results 扁平化为按 result-key 展示的列表
+    function flattenResults(resultsArray) {
+        const list = [];
+
+        if (!Array.isArray(resultsArray)) {
+            return list;
+        }
+
+        resultsArray.forEach((item) => {
+            const params = item.parameters || {};
+            const stockCode = params.stock_code || '-';
+
+            let klineRange = '-';
+            if (Array.isArray(params.kline) && params.kline.length > 0) {
+                const sortedKline = params.kline
+                        .filter(r => r && r.stock_date)
+                        .slice()
+                        .sort((a, b) => (a.stock_date > b.stock_date ? 1 : -1));
+                if (sortedKline.length > 0) {
+                    const first = sortedKline[0];
+                    const last = sortedKline[sortedKline.length - 1];
+                    klineRange = `${first.stock_date || '-'} ~ ${last.stock_date || '-'}`;
+                }
+            }
+
+            const resultObj = item.result && typeof item.result === 'object' ? item.result : {};
+            Object.keys(resultObj).forEach((keyName) => {
+                const metrics = resultObj[keyName] || {};
+                const d2 = metrics.D2 != null ? metrics.D2 : null;
+                const d3 = metrics.D3 != null ? metrics.D3 : null;
+
+                const startReturn = metrics.start_return_xpl || {};
+                const indexReturn = metrics.index_return_xpl || {};
+
+                const startSharpe = startReturn.sharpe_ratio != null ? startReturn.sharpe_ratio : null;
+                const indexSharpe = indexReturn.sharpe_ratio != null ? indexReturn.sharpe_ratio : null;
+
+                const keyParts = String(keyName).split('__');
+                const modelCode = keyParts[0] || String(keyName);
+                const modelTitle = keyParts.slice(1).join('__');
+
+                list.push({
+                    stepIndex: item.step_index,
+                    success: !!item.success,
+                    errorMessage: item.error_message || null,
+                    timestamp: item.timestamp || null,
+                    taskId: item.task_id || null,
+                    rowId: item.id != null ? item.id : null,
+                    parameters: params,
+                    stockCode: stockCode,
+                    klineRange: klineRange,
+                    modelKey: keyName,
+                    modelCode: modelCode,
+                    modelTitle: modelTitle,
+                    d2: d2,
+                    d3: d3,
+                    startSharpe: startSharpe,
+                    indexSharpe: indexSharpe,
+                    rawMetrics: metrics
+                });
+            });
+        });
+
+        return list;
+    }
+
+    // 应用结果筛选（以分组为单位）
+    function applyResultsFilter() {
+        if (currentResultsFilter === 'all') {
+            filteredResults = groupedResults;
+        } else if (currentResultsFilter === 'success') {
+            filteredResults = groupedResults.filter(result => result.success);
+        } else if (currentResultsFilter === 'failed') {
+            filteredResults = groupedResults.filter(result => !result.success);
+        }
+    }
+
+    // 筛选结果
+    function filterResults(filter) {
+        currentResultsFilter = filter;
+        currentResultsPage = 1; // 切换筛选条件时重置到第一页
+        applyResultsFilter();
+        renderResults();
+    }
+
+    // 渲染结果列表（按参数组合分组的卡片视图）
+    function renderResults() {
+        const listContainer = document.getElementById('results-list');
+        const summaryEl = document.getElementById('results-summary');
+        listContainer.innerHTML = '';
+
+        // 后端分页：filteredResults 已经是当前页的数据，直接使用
+        const pageResults = filteredResults;
+
+        // 统计总数优先使用后端返回的全局统计
+        let totalCount;
+        let successCount;
+        let failedCount;
+
+        if (typeof resultsTotalSuccess === 'number' && typeof resultsTotalFailed === 'number') {
+            successCount = resultsTotalSuccess;
+            failedCount = resultsTotalFailed;
+            totalCount = resultsTotalCount || (resultsTotalSuccess + resultsTotalFailed);
+        } else {
+            totalCount = resultsTotalCount || groupedResults.length;
+            successCount = groupedResults.filter(r => r.success).length;
+            failedCount = totalCount - successCount;
+        }
+
+        if (summaryEl) {
+            summaryEl.textContent = `共 ${totalCount} 条模型结果，其中成功 ${successCount} 条，失败 ${failedCount} 条。`;
+        }
+
+        if (!Array.isArray(pageResults) || pageResults.length === 0) {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'text-muted text-center py-3';
+            emptyDiv.textContent = '暂无执行结果';
+            listContainer.appendChild(emptyDiv);
+        } else {
+            pageResults.forEach((group, idx) => {
+                const col = document.createElement('div');
+                col.className = 'col-12';
+                const groupIndex = idx; // 当前页内的索引
+
+                const modelsRows = (group.models || []).map((model, mIndex) => {
+                    const d2Text = model.d2 != null
+                            ? (typeof model.d2 === 'number' ? model.d2.toFixed(4) : String(model.d2))
+                            : '-';
+                    const d3Text = model.d3 != null
+                            ? (typeof model.d3 === 'number' ? model.d3.toFixed(4) : String(model.d3))
+                            : '-';
+                    const d4Text = model.d4 != null
+                            ? (typeof model.d4 === 'number' ? model.d4.toFixed(4) : String(model.d4))
+                            : '-';
+                    const d5Text = model.d5 != null
+                            ? (typeof model.d5 === 'number' ? model.d5.toFixed(4) : String(model.d5))
+                            : '-';
+                    const d6Text = model.d6 != null
+                            ? (typeof model.d6 === 'number' ? model.d6.toFixed(4) : String(model.d6))
+                            : '-';
+                    const d7Text = model.d7 != null
+                            ? (typeof model.d7 === 'number' ? model.d7.toFixed(4) : String(model.d7))
+                            : '-';
+                    let iXplText = '-';
+                    if (model.indexSharpe != null) {
+                        const v = Number(model.indexSharpe);
+                        iXplText = isNaN(v) ? String(model.indexSharpe) : v.toFixed(4);
+                    }
+
+                    let sXplText = '-';
+                    if (model.startSharpe != null) {
+                        const v2 = Number(model.startSharpe);
+                        sXplText = isNaN(v2) ? String(model.startSharpe) : v2.toFixed(4);
+                    }
+
+                    const titleText = model.modelTitle && model.modelTitle.length > 0
+                            ? escapeHtml(model.modelTitle)
+                            : escapeHtml(model.modelKey || '');
+
+                    return `
+                        <tr>
+                            <td class="small">${titleText}</td>
+                            <td class="small text-center">${d2Text}</td>
+                            <td class="small text-center">${d3Text}</td>
+                            <td class="small text-center">${d4Text}</td>
+                            <td class="small text-center">${d5Text}</td>
+                            <td class="small text-center">${d6Text}</td>
+                            <td class="small text-center">${d7Text}</td>
+                            <td class="small text-center">${iXplText}</td>
+                            <td class="small text-center">${sXplText}</td>
+                            <td class="small text-end">
+                                <button type="button" class="btn btn-link btn-sm p-0" onclick="showResultDetail(${groupIndex}, ${mIndex})">更多</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('') || '<tr><td colspan="10" class="text-muted small text-center">无模型结果</td></tr>';
+
+                col.innerHTML = `
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="small text-muted result-header-meta">
+                                    <span>股票代码：</span>
+                                    <span class="fw-semibold">${group.stockCode}</span>
+                                    <span> · K线区间：${group.klineRange}</span>
+                                    <span> · 步骤 ${group.stepIndex + 1}</span>
+                                    <span> · A1：${group.a1 != null ? group.a1 : '-'}</span>
+                                    <span> · B1：${group.b1 != null ? group.b1 : '-'}</span>
+                                    <span> · 执行时间：${formatTime(group.timestamp) || '-'}</span>
+                                </div>
+                            </div>
+                            <div class="text-end small result-header-status">
+                                <span class="badge ${group.success ? 'bg-success' : 'bg-danger'} me-2">
+                                    <i class="bi ${group.success ? 'bi-check-circle' : 'bi-x-circle'}"></i>
+                                    ${group.success ? '成功' : '失败'}
+                                </span>
+                                <span class="text-muted">ID: ${group.rowId != null ? group.rowId : '-'}</span>
+                            </div>
+                        </div>
+                        <div class="card-body p-2">
+                            <div class="table-responsive mb-0">
+                                <table class="table table-sm table-bordered mb-0">
+                                    <thead>
+                                        <tr class="small text-center align-middle">
+                                            <th style="width: 25%;">模型标题</th>
+                                            <th style="width: 10%;">Return%</th>
+                                            <th style="width: 10%;">Annualized</th>
+                                            <th style="width: 10%;">Max DD%</th>
+                                            <th style="width: 10%;">Index Return</th>
+                                            <th style="width: 10%;">Annualized</th>
+                                            <th style="width: 10%;">Index max dd</th>
+                                            <th style="width: 10%;">i xpl</th>
+                                            <th style="width: 10%;">s xpl</th>
+                                            <th style="width: 5%;">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${modelsRows}
+                                    </tbody>
+                                </table>
+                            </div>
+                            ${group.errorMessage ? `<div class="small text-danger mt-2">错误：${group.errorMessage}</div>`
+            :
+                ''
+            }
+        </div>
+        </div>
+            `;
+
+                listContainer.appendChild(col);
+            });
+        }
+
+        // 渲染分页
+        renderResultsPagination();
+    }
+
+    // 渲染结果分页
+    function renderResultsPagination() {
+        const pagination = document.getElementById('results-pagination');
+        pagination.innerHTML = '';
+
+        const totalPages = resultsTotalPages || 1;
+
+        if (totalPages <= 1) return;
+        
+        // 上一页
+        const prevLi = document.createElement('li');
+        prevLi.className = `
+            page - item${currentResultsPage === 1 ? 'disabled' : ''}`;
+        prevLi.innerHTML = ` < a
+
+            class
+
+            = "page-link"
+            href = "#"
+            onclick = "return changeResultsPage(${currentResultsPage - 1})" > 上一页 < /a>`;
+            pagination.appendChild(prevLi);
+
+            // 页码
+            const startPage = Math.max(1, currentResultsPage - 2);
+            const endPage = Math.min(totalPages, currentResultsPage + 2);
+
+            for (let i = startPage; i <= endPage; i++) {
+                const li = document.createElement('li');
+                li.className = `page-item ${i === currentResultsPage ? 'active' : ''}`;
+                li.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${i})">${i}</a>`;
+                pagination.appendChild(li);
+            }
+
+            // 下一页
+            const nextLi = document.createElement('li');
+            nextLi.className = `page-item ${currentResultsPage === totalPages ? 'disabled' : ''}`;
+            nextLi.innerHTML = `<a class="page-link" href="#" onclick="return changeResultsPage(${currentResultsPage + 1})">下一页</a>`;
+            pagination.appendChild(nextLi);
+        }
+
+        // 切换结果页面
+        function changeResultsPage(page) {
+            const totalPages = resultsTotalPages || 1;
+            if (page >= 1 && page <= totalPages) {
+                loadTaskResults(page);
+            }
+            // 阻止 <a href="#"> 的默认跳转，避免页面滚动到顶部
+            return false;
+        }
+
+        // 刷新结果
+        function refreshResults() {
+            loadTaskResults(currentResultsPage || 1);
+            showNotification('结果列表已刷新', 'info');
+        }
+
+        // 导出当前筛选条件下的所有结果为 CSV（按参数组合展开每个模型为一行）
+        function exportResultsToCSV() {
+            // 为了导出完整结果，这里单独请求一次不分页的结果集
+            ajaxRequest(`/api/tasks/${currentTaskId}/results`, 'GET', null, function (err, data) {
+                if (err || !data || !Array.isArray(data.results) || data.results.length === 0) {
+                    showNotification('暂无可导出的结果', 'warning');
+                    return;
+                }
+
+                const exportGroupedResults = groupResults(data.results);
+
+                const rows = [];
+
+                // 使用字段映射表中的 D2-D20 作为指标列，按统一排序
+                const metricKeys = sortMetricKeys(Object.keys(metricDisplayNameMap));
+
+                // 表头：尽量与前端展示列对应，并附加部分补充信息
+                const header = [
+                    'step_index',
+                    'success',
+                    'stock_code',
+                    'kline_range',
+                    'xm',
+                    'ml',
+                    'model_title'
+                ];
+
+                // D2-D20：使用映射表中的显示名
+                metricKeys.forEach(key => {
+                    header.push(getMetricDisplayLabel(key));
+                });
+
+                // 追加 xpl 相关统计字段
+                header.push(
+                        'start_avg_monthly_return',
+                        'start_monthly_std_dev',
+                        'start_annual_std_dev',
+                        'start_xpl',
+                        'index_avg_monthly_return',
+                        'index_monthly_std_dev',
+                        'index_annual_std_dev',
+                        'index_xpl',
+                        'task_id',
+                        'timestamp',
+                        'error_message'
+                );
+                rows.push(header);
+
+                exportGroupedResults.forEach(group => {
+                    const baseInfo = {
+                        stepIndex: group.stepIndex != null ? group.stepIndex : '',
+                        success: group.success ? 'success' : 'failed',
+                        stockCode: group.stockCode != null ? group.stockCode : '',
+                        klineRange: group.klineRange != null ? group.klineRange : '',
+                        a1: group.a1 != null ? group.a1 : '',
+                        b1: group.b1 != null ? group.b1 : '',
+                        rowId: group.rowId != null ? group.rowId : '',
+                        taskId: group.taskId != null ? group.taskId : '',
+                        timestamp: group.timestamp != null ? formatTime(group.timestamp) : '',
+                        errorMessage: group.errorMessage != null ? group.errorMessage : ''
+                    };
+
+                    const models = Array.isArray(group.models) ? group.models : [];
+                    if (models.length === 0) {
+                        const emptyMetrics = metricKeys.map(() => '');
+                        rows.push([
+                            baseInfo.stepIndex,   // step_index
+                            baseInfo.success,     // success
+                            baseInfo.stockCode,   // stock_code
+                            baseInfo.klineRange,  // kline_range
+                            baseInfo.a1,          // xm
+                            baseInfo.b1,          // ml
+                            '',                   // model_title
+                            ...emptyMetrics,      // D2-D20 指标列
+                            '',                   // start_avg_monthly_return
+                            '',                   // start_monthly_std_dev
+                            '',                   // start_annual_std_dev
+                            '',                   // start_xpl
+                            '',                   // index_avg_monthly_return
+                            '',                   // index_monthly_std_dev
+                            '',                   // index_annual_std_dev
+                            '',                   // index_xpl
+                            baseInfo.taskId,      // task_id
+                            baseInfo.timestamp,   // timestamp
+                            baseInfo.errorMessage // error_message
+                        ]);
+                        return;
+                    }
+
+                    models.forEach(model => {
+                        const iSharpe = model.indexSharpe != null ? model.indexSharpe : '';
+                        const sSharpe = model.startSharpe != null ? model.startSharpe : '';
+
+                        // 从 rawMetrics 中读取 start/index 的 xpl 统计字段
+                        const metrics = model.rawMetrics || {};
+                        const startXpl = metrics.start_return_xpl || {};
+                        const indexXpl = metrics.index_return_xpl || {};
+
+                        const startAvgRet = startXpl.avg_monthly_return != null ? startXpl.avg_monthly_return : '';
+                        const startStd = startXpl.monthly_std_dev != null ? startXpl.monthly_std_dev : '';
+                        const startAnnualStd = startXpl.annual_std_dev != null ? startXpl.annual_std_dev : '';
+
+                        const indexAvgRet = indexXpl.avg_monthly_return != null ? indexXpl.avg_monthly_return : '';
+                        const indexStd = indexXpl.monthly_std_dev != null ? indexXpl.monthly_std_dev : '';
+                        const indexAnnualStd = indexXpl.annual_std_dev != null ? indexXpl.annual_std_dev : '';
+
+                        const title = model.modelTitle && model.modelTitle.length > 0
+                                ? model.modelTitle
+                                : (model.modelKey || '');
+
+                        // D2-D20：按 metricKeys 顺序从 rawMetrics 中取值
+                        const metricValues = metricKeys.map(key => (
+                                metrics[key] != null ? metrics[key] : ''
+                        ));
+
+                        rows.push([
+                            baseInfo.stepIndex,
+                            baseInfo.success,
+                            baseInfo.stockCode,
+                            baseInfo.klineRange,
+                            baseInfo.a1,
+                            baseInfo.b1,
+                            title,
+                            ...metricValues,
+                            startAvgRet,
+                            startStd,
+                            startAnnualStd,
+                            sSharpe,
+                            indexAvgRet,
+                            indexStd,
+                            indexAnnualStd,
+                            iSharpe,
+                            baseInfo.taskId,
+                            baseInfo.timestamp,
+                            baseInfo.errorMessage
+                        ]);
+                    });
+                });
+                // 在导出前对 rows 进行排序：
+                // 1) 同一 stock_code 内
+                // 2) 按 kline_range 中 "~" 后的结束年份降序
+                // 3) 再按 Return% 降序
+                // 表头始终保持在第一行
+
+                if (rows.length > 1) {
+                    const headerRow = rows[0];
+                    const dataRows = rows.slice(1);
+
+                    // stock_code 与 kline_range 的固定列索引
+                    const STOCK_CODE_COL = 2; // stock_code
+                    const KLINE_RANGE_COL = 3; // kline_range
+
+                    // 找到 Return% 在 metricKeys 中对应的列索引（D2 -> Return%）
+                    const returnMetricIndex = metricKeys.indexOf('D2');
+                    let RETURN_COL = null;
+                    if (returnMetricIndex !== -1) {
+                        // 前面 7 列是固定列，从第 8 列开始是指标列
+                        RETURN_COL = 7 + returnMetricIndex;
+                    }
+
+                    const parseEndYear = (range) => {
+                        if (!range) return -Infinity;
+                        const str = String(range);
+                        const parts = str.split('~');
+                        if (parts.length < 2) return -Infinity;
+                        const endPart = parts[1].trim();
+                        const yearStr = endPart.slice(0, 4);
+                        const year = parseInt(yearStr, 10);
+                        return Number.isNaN(year) ? -Infinity : year;
+                    };
+
+                    const parseReturn = (val) => {
+                        if (val == null || RETURN_COL === null) return -Infinity;
+                        const num = parseFloat(String(val).replace('%', '').trim());
+                        return Number.isNaN(num) ? -Infinity : num;
+                    };
+
+                    dataRows.sort((a, b) => {
+                        const stockA = (a[STOCK_CODE_COL] || '').toString();
+                        const stockB = (b[STOCK_CODE_COL] || '').toString();
+                        if (stockA !== stockB) {
+                            // stock_code 降序
+                            return stockB.localeCompare(stockA);
+                        }
+
+                        const yearA = parseEndYear(a[KLINE_RANGE_COL]);
+                        const yearB = parseEndYear(b[KLINE_RANGE_COL]);
+                        if (yearA !== yearB) {
+                            // 结束年份降序
+                            return yearB - yearA;
+                        }
+
+                        if (RETURN_COL !== null) {
+                            const retA = parseReturn(a[RETURN_COL]);
+                            const retB = parseReturn(b[RETURN_COL]);
+                            if (retA !== retB) {
+                                // Return% 降序
+                                return retB - retA;
+                            }
+                        }
+
+                        return 0;
+                    });
+
+                    rows.length = 0;
+                    rows.push(headerRow, ...dataRows);
+                }
+
+                const csvContent = convertRowsToCSV(rows);
+                if (!csvContent) {
+                    showNotification('生成 CSV 内容失败', 'error');
+                    return;
+                }
+
+                const blob = new Blob([csvContent], {type: 'text/csv;charset=utf-8;'});
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                let task_name = currentTaskData.name || ''
+                let filename = null
+                if (task_name !== '') {
+                    filename = `C5_results_${task_name}.csv`;
+                } else {
+                    const now = new Date();
+                    const pad = n => String(n).padStart(2, '0');
+                    filename = `c4_results_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
+
+                }
+
+
+                a.download = filename;
+
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                showNotification('CSV 导出已开始下载', 'success');
+            });
+        }
+
+        // 将二维数组转换为 CSV 文本
+        function convertRowsToCSV(rows) {
+            if (!Array.isArray(rows) || rows.length === 0) {
+                return '';
+            }
+
+            const escapeCell = (value) => {
+                if (value == null) {
+                    return '';
+                }
+                let str = String(value);
+                if (str.includes('"')) {
+                    str = str.replace(/"/g, '""');
+                }
+                if (str.search(/[",\n\r]/) !== -1) {
+                    str = '"' + str + '"';
+                }
+                return str;
+            };
+
+            return rows.map(row => (Array.isArray(row) ? row.map(escapeCell).join(',') : '')).join('\r\n');
+        }
+
+        // 更新结果统计
+        function updateResultsStatistics() {
+            let successCount;
+            let failedCount;
+            let totalCount;
+
+            if (typeof resultsTotalSuccess === 'number' && typeof resultsTotalFailed === 'number') {
+                successCount = resultsTotalSuccess;
+                failedCount = resultsTotalFailed;
+                totalCount = resultsTotalCount || (resultsTotalSuccess + resultsTotalFailed);
+            } else {
+                successCount = groupedResults.filter(result => result.success).length;
+                failedCount = groupedResults.filter(result => !result.success).length;
+                totalCount = groupedResults.length;
+            }
+            const successRate = totalCount > 0 ? Math.round((successCount / totalCount) * 100) : 0;
+
+            document.getElementById('success-count').textContent = successCount;
+            document.getElementById('failed-count').textContent = failedCount;
+            document.getElementById('success-progress').style.width = successRate + '%';
+        }
+
+        // 显示单条结果详情（指定分组和模型索引）
+        function showResultDetail(groupIndex, modelIndex) {
+            if (!Array.isArray(groupedResults) || groupIndex < 0 || groupIndex >= groupedResults.length) {
+                return;
+            }
+
+            const group = groupedResults[groupIndex];
+            const models = group.models || [];
+            if (modelIndex < 0 || modelIndex >= models.length) {
+                return;
+            }
+
+            const result = models[modelIndex];
+            const modalTitle = document.getElementById('resultDetailModalLabel');
+            const metaEl = document.getElementById('result-detail-meta');
+            const tbody = document.getElementById('result-detail-body');
+
+            if (!modalTitle || !metaEl || !tbody) {
+                return;
+            }
+
+            if (result.modelTitle && result.modelTitle.length > 0) {
+                modalTitle.textContent = `${result.modelTitle}`;
+            } else {
+                modalTitle.textContent = `${result.modelKey || ''}`;
+            }
+
+            metaEl.textContent = `股票代码：${group.stockCode || '-'} · K线区间：${group.klineRange || '-'} · 步骤 ${group.stepIndex + 1} · A1：${group.a1 != null ? group.a1 : '-'} · B1：${group.b1 != null ? group.b1 : '-'} · 执行时间：${formatTime(group.timestamp) || '-'}`;
+
+            const metrics = result.rawMetrics || {};
+
+            // 专门处理 start_return_xpl 和 index_return_xpl，两者为字典，显示为卡片
+            const startReturn = metrics.start_return_xpl || null;
+            const indexReturn = metrics.index_return_xpl || null;
+
+            const cards = [];
+
+            if (startReturn) {
+                cards.push(`
+                <div class="col-md-6 mb-2">
+                    <div class="card border-secondary">
+                        <div class="card-header py-1 px-2 small fw-semibold">start return xpl</div>
+                        <div class="card-body py-2 px-2 small">
+                            ${renderStatLine('起始日期', startReturn.start_date)}
+                            ${renderStatLine('结束日期', startReturn.end_date)}
+                            ${renderStatLine('月份数', startReturn.month_count)}
+                            ${renderStatLine('平均月收益', startReturn.avg_monthly_return.toFixed(6))}
+                            ${renderStatLine('月度波动率', startReturn.monthly_std_dev.toFixed(6))}
+                            ${renderStatLine('年化波动率', startReturn.annual_std_dev.toFixed(6))}
+                            ${renderStatLine('夏普率', startReturn.sharpe_ratio.toFixed(6))}
+                        </div>
+                    </div>
+                </div>
+            `);
+            }
+
+            if (indexReturn) {
+                cards.push(`
+                <div class="col-md-6 mb-2">
+                    <div class="card border-secondary">
+                        <div class="card-header py-1 px-2 small fw-semibold">index return xpl</div>
+                        <div class="card-body py-2 px-2 small">
+                            ${renderStatLine('起始日期', indexReturn.start_date)}
+                            ${renderStatLine('结束日期', indexReturn.end_date)}
+                            ${renderStatLine('月份数', indexReturn.month_count)}
+                            ${renderStatLine('平均月收益', indexReturn.avg_monthly_return.toFixed(6))}
+                            ${renderStatLine('月度波动率', indexReturn.monthly_std_dev.toFixed(6))}
+                            ${renderStatLine('年化波动率', indexReturn.annual_std_dev.toFixed(6))}
+                            ${renderStatLine('夏普率', indexReturn.sharpe_ratio.toFixed(6))}
+                        </div>
+                    </div>
+                </div>
+            `);
+            }
+
+            // 剩余字段进入通用两列表格（剔除字典字段），并按排序规则排
+            const metricKeys = Object.keys(metrics).filter(k => k !== 'start_return_xpl' && k !== 'index_return_xpl');
+            const keys = sortMetricKeys(metricKeys);
+            const rows = [];
+
+            for (let i = 0; i < keys.length; i += 2) {
+                const k1 = keys[i];
+                const k2 = keys[i + 1];
+
+                const v1 = metrics[k1];
+                const v2 = k2 != null ? metrics[k2] : undefined;
+
+                const display1 = formatMetricDisplayValue(v1);
+                const display2 = k2 != null ? formatMetricDisplayValue(v2) : '<span class="text-muted small">-</span>';
+
+                rows.push(`
+                <tr>
+                    <td class="small fw-semibold">${getMetricDisplayLabel(k1)}</td>
+                    <td>${display1}</td>
+                    <td class="small fw-semibold">${k2 != null ? getMetricDisplayLabel(k2) : ''}</td>
+                    <td>${k2 != null ? display2 : ''}</td>
+                </tr>
+            `);
+            }
+
+            // 先渲染统计卡片，再渲染表格行
+            const cardsHtml = cards.length > 0
+                    ? `<tr><td colspan="4" class="p-0"><div class="row g-2 m-0">${cards.join('')}</div></td></tr>`
+                    : '';
+
+            if (rows.length === 0 && !cardsHtml) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center small">无详细指标</td></tr>';
+            } else {
+                tbody.innerHTML = cardsHtml + rows.join('');
+            }
+
+            if (typeof bootstrap !== 'undefined') {
+                const modalEl = document.getElementById('resultDetailModal');
+                const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.show();
+            }
+        }
+
+        // 在统计卡片中渲染一行 label + value
+        function renderStatLine(label, value) {
+            const safeLabel = escapeHtml(String(label));
+            let safeValue;
+
+            if (value == null || value === '') {
+                safeValue = '<span class="text-muted">-</span>';
+            } else if (typeof value === 'number') {
+                safeValue = String(value);
+            } else {
+                safeValue = escapeHtml(String(value));
+            }
+
+            return `
+            <div class="d-flex justify-content-between mb-1">
+                <span class="text-muted me-2">${safeLabel}</span>
+                <span class="text-end">${safeValue}</span>
+            </div>
+        `;
+        }
+
+        // HTML 转义
+        function escapeHtml(str) {
+            return str
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+        }
+
+        // D2-D20 显示名称映射
+        const metricDisplayNameMap = {
+            D2: 'Return%',
+            D3: 'Annualized',
+            D4: 'Max DD%',
+            D5: 'Index Return',
+            D6: 'Annualized',
+            D7: 'Index max dd',
+            D8: 'Fee total',
+            D9: 'Fee annualized',
+            D10: '年换手率',
+            D11: 'return beats',
+            D12: 'dd beats',
+            D13: 'max(1y beats%)',
+            D14: 'min(1y beats%)',
+            D15: '最大理论杠杆率',
+            D16: '平均理论杠杆率',
+            D17: '单位理论杠杆率收益',
+            D18: '最大实际杠杆率',
+            D19: '平均实际杠杆率',
+            D20: '单位实际杠杆率收益'
+        };
+
+        function getMetricDisplayLabel(key) {
+            const rawKey = String(key);
+            const mapped = metricDisplayNameMap[rawKey];
+            return escapeHtml(mapped || rawKey);
+        }
+
+        // 指标 key 排序：D* 优先，其次按首字母分组和数字顺序
+        function sortMetricKeys(keys) {
+            return keys.slice().sort((a, b) => {
+                const pa = parseMetricKey(a);
+                const pb = parseMetricKey(b);
+
+                // 先把以 D 开头的放在最前面
+                const aIsD = pa.prefix === 'D';
+                const bIsD = pb.prefix === 'D';
+                if (aIsD && !bIsD) return -1;
+                if (!aIsD && bIsD) return 1;
+
+                // 其余按前缀再按数字
+                if (pa.prefix !== pb.prefix) {
+                    return pa.prefix.localeCompare(pb.prefix);
+                }
+                if (pa.num !== null && pb.num !== null) {
+                    return pa.num - pb.num;
+                }
+                return a.localeCompare(b);
+            });
+        }
+
+        function parseMetricKey(key) {
+            const m = String(key).match(/^([A-Za-z_]+)(\d+)?$/);
+            if (m) {
+                return {prefix: m[1], num: m[2] != null ? parseInt(m[2], 10) : null};
+            }
+            return {prefix: String(key), num: null};
+        }
+
+        function formatMetricDisplayValue(value) {
+            if (value == null) {
+                return '<span class="text-muted small">-</span>';
+            }
+            if (typeof value === 'object') {
+                // 常规对象在表格里显示为 JSON（特殊的 start_return_xpl / index_return_xpl 已在上方卡片中处理，不会走到这里）
+                return `<pre class="mb-0 small text-muted">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+            }
+            if (typeof value === 'number') {
+                return String(value);
+            }
+            return escapeHtml(String(value));
+        }
+
+        // 取消任务
+        function cancelTask() {
+            if (confirm('确定要取消这个任务吗？')) {
+                ajaxRequest(`/api/tasks/${currentTaskId}/cancel`, 'POST', null, function (err, data) {
+                    if (!err && data && data.status === 'success') {
+                        showNotification('任务已取消', 'success');
+                        loadTaskDetail(); // 刷新任务详情
+                    } else {
+                        showNotification('取消任务失败: ' + (data ? data.message : '未知错误'), 'error');
+                    }
+                });
+            }
+        }
+
+        // 自动刷新相关变量（已在全局变量中声明）
+
+        // 启动自动刷新
+        function startAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+
+            console.log(`启动自动刷新，每${getFrequencyText(currentRefreshFrequency)}刷新一次`);
+            refreshInterval = setInterval(function () {
+                console.log('自动刷新任务详情和日志...');
+                loadTaskDetail(); // 这会重新加载所有信息，包括日志
+            }, currentRefreshFrequency);
+        }
+
+        // 停止自动刷新
+        function stopAutoRefresh() {
+            if (refreshInterval) {
+                console.log('停止自动刷新');
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+
+        // 页面卸载时清理定时器
+        window.addEventListener('beforeunload', function () {
+            stopAutoRefresh();
+        });
+
+        // 绑定取消任务按钮事件
+        document.addEventListener('click', function (e) {
+            if (e.target.id === 'cancel-task-btn') {
+                cancelTask();
+            }
+        });
+
+        // 辅助函数
+        function formatDuration(seconds) {
+            if (seconds < 60) {
+                return `${seconds}秒`;
+            } else if (seconds < 3600) {
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                return `${minutes}分${remainingSeconds}秒`;
+            } else {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                return `${hours}小时${minutes}分钟`;
+            }
+        }
+
+        function getProgressBarClass(status) {
+            switch (status) {
+                case 'completed':
+                    return 'bg-success';
+                case 'error':
+                    return 'bg-danger';
+                case 'running':
+                    return 'bg-primary';
+                default:
+                    return 'bg-secondary';
+            }
+        }
+
+        // 检查任务状态
+        function checkTaskStatus() {
+            const btn = document.getElementById('check-status-btn');
+            const icon = btn.querySelector('i');
+
+            // 添加旋转动画
+            icon.style.animation = 'spin 1s linear infinite';
+            btn.disabled = true;
+
+            ajaxRequest(`/api/tasks/${currentTaskId}/status-check`, 'GET', null, function (err, data) {
+                icon.style.animation = '';
+                btn.disabled = false;
+
+                if (!err && data && data.status === 'success') {
+                    const statusCheck = data.status_check;
+                    let message = `状态检查结果:\n`;
+                    message += `数据库状态: ${statusCheck.db_status}\n`;
+                    message += `内存运行状态: ${statusCheck.memory_running ? '运行中' : '未运行'}\n`;
+                    message += `当前步骤: ${statusCheck.current_step}/${statusCheck.total_steps}\n`;
+
+                    if (statusCheck.latest_log_time) {
+                        message += `最新日志时间: ${formatTime(statusCheck.latest_log_time)}\n`;
+                    }
+
+                    if (statusCheck.can_restart) {
+                        message += `\n⚠️ 检测到问题: ${statusCheck.restart_reason}\n`;
+                        message += `建议重启任务`;
+
+                        if (confirm(message + '\n\n是否立即重启任务？')) {
+                            restartTask(true);
+                        }
+                    } else {
+                        message += `\n✅ 任务状态正常`;
+                        showNotification(message, 'info');
+                    }
+                } else {
+                    showNotification('检查任务状态失败: ' + (data ? data.message : '未知错误'), 'error');
+                }
+            });
+        }
+
+        // 重启任务
+        function restartTask(resumeFromCheckpoint) {
+            const action = resumeFromCheckpoint ? '从断点重启' : '从头重启';
+
+            if (!confirm(`确定要${action}任务吗？`)) {
+                return;
+            }
+
+            const requestData = {
+                resume_from_checkpoint: resumeFromCheckpoint
+            };
+
+            ajaxRequest(`/api/tasks/${currentTaskId}/restart`, 'POST', requestData, function (err, data) {
+                if (data && data.status === 'success') {
+                    showNotification(`任务${action}成功`, 'success');
+                    // 刷新任务详情
+                    loadTaskDetail();
+                } else {
+                    // 处理错误情况 - data可能包含错误信息，即使err存在
+                    const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');
+                    showNotification(`${action}失败: ${errorMessage}`, 'error');
+                }
+            });
+        }
+
+        // 跳转到创建重启任务页面（C5 模式）
+        function goToCreateRestartTask() {
+            window.location.href = `/google-sheet/create-restart/${currentTaskId}?version=c5`;
+        }
+
+        // 创建新的重启任务
+        function createRestartTask() {
+            if (!confirm('确定要创建新的重启任务吗？这将基于当前任务的配置创建一个新任务。')) {
+                return;
+            }
+
+            ajaxRequest(`/api/tasks/${currentTaskId}/create-restart`, 'POST', {}, function (err, data) {
+                if (data && data.status === 'success') {
+                    showNotification(`新重启任务创建成功`, 'success');
+
+                    // 询问是否跳转到新任务
+                    if (confirm('是否跳转到新任务的详情页面？')) {
+                        window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}&version=c4`;
+                    }
+                } else {
+                    const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');
+                    showNotification(`创建重启任务失败: ${errorMessage}`, 'error');
+                }
+            });
+        }
+
+        // 保存任务配置
+        function saveTaskConfig() {
+            try {
+                // 收集基本信息
+                const name = document.getElementById('edit-task-name').value.trim();
+                const description = document.getElementById('edit-task-description').value.trim();
+
+                if (!name) {
+                    showNotification('请输入任务名称', 'error');
+                    return;
+                }
+
+                // 主参数：从 chips 收集 parameters[0]
+                const params0 = collectEditProductCodesFromChips();
+                if (!params0 || params0.length === 0) {
+                    showNotification('请至少添加一个产品代码（parameters[0]）', 'error');
+                    return;
+                }
+
+                // sheets：从多行输入收集
+                const list = document.getElementById('edit-sheets-list');
+                const sheets = [];
+                if (list) {
+                    list.querySelectorAll('.edit-sheet-row').forEach(row => {
+                        const sidEl = row.querySelector('.edit-sheet-spreadsheet-id');
+                        const titleEl = row.querySelector('.edit-sheet-title');
+                        const nameEl = row.querySelector('.edit-sheet-name');
+                        const sid = sidEl ? sidEl.value.trim() : '';
+                        const sname = nameEl ? nameEl.value.trim() : '';
+                        const title = titleEl ? titleEl.value.trim() : '';
+                        if (sid || sname || title) {
+                            const item = {
+                                spreadsheet_id: sid || null,
+                                sheet_name: sname || null
+                            };
+                            if (title) item.title = title;
+                            sheets.push(item);
+                        }
+                    });
+                }
+
+                // 其它参数
+                const countMode = document.getElementById('edit-count-mode').value || 'n_plus_1';
+                const fullModeEl = document.getElementById('edit-date-range-full');
+                const recentModeEl = document.getElementById('edit-date-range-recent');
+                const dateRangeModeList = [];
+                if (fullModeEl && fullModeEl.checked) {
+                    dateRangeModeList.push('full');
+                }
+                if (recentModeEl && recentModeEl.checked) {
+                    dateRangeModeList.push('recent');
+                }
+                if (dateRangeModeList.length === 0) {
+                    dateRangeModeList.push('full');
+                    if (fullModeEl) {
+                        fullModeEl.checked = true;
+                    }
+                }
+                const startDate = document.getElementById('edit-start-date').value || null;
+                const endDate = document.getElementById('edit-end-date').value || null;
+                const marketType = document.getElementById('edit-market-type').value.trim() || null;
+
+                const tokenType = document.getElementById('edit-token-type').value;
+                const tokenFile = document.getElementById('edit-token-file').value.trim();
+                const tokenJson = document.getElementById('edit-token-json').value.trim();
+                const proxyUrl = document.getElementById('edit-proxy-url').value.trim();
+
+                if (tokenType === 'file' && !tokenFile) {
+                    showNotification('请输入 Token 文件路径', 'error');
+                    return;
+                }
+                if (tokenType === 'json' && !tokenJson) {
+                    showNotification('请输入 Token JSON 字符串', 'error');
+                    return;
+                }
+
+                const config = {
+                    count_mode: countMode,
+                    date_range_mode: dateRangeModeList,
+                    start_date: startDate,
+                    end_date: endDate,
+                    market_type: marketType,
+                    parameters: [params0],
+                    sheets: sheets,
+                    proxy_url: proxyUrl || null,
+                    token_type: tokenType,
+                    token_file: tokenFile,
+                    token_json: tokenJson
+                };
+
+                const requestData = {
+                    name: name,
+                    description: description,
+                    config: config
+                };
+
+                ajaxRequest(`/api/tasks/${currentTaskId}/config`, 'PUT', requestData, function (err, data) {
+                    if (!err && data && data.status === 'success') {
+                        showNotification('配置更新成功', 'success');
+
+                        // 关闭模态框
+                        if (editConfigModal) {
+                            editConfigModal.hide();
+                        }
+
+                        // 刷新任务详情
+                        loadTaskDetail();
+                    } else {
+                        const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');
+                        showNotification(`配置更新失败: ${errorMessage}`, 'error');
+                    }
+                });
+            } catch (e) {
+                showNotification(`保存配置时出错: ${e.message}`, 'error');
+                console.error('保存配置错误:', e);
+            }
+        }
+</script>
+{% endblock %}

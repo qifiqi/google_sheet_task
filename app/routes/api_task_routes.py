@@ -3,6 +3,7 @@ import queue
 
 from flask import Response, jsonify, request
 
+from app.extensions import db
 from app.models import Task
 from app.services.config_schema import normalize_task_config, validate_task_config
 from app.services.task_manager import task_manager
@@ -73,7 +74,7 @@ def register_task_routes(api_bp):
 
             name = data.get("name")
             description = data.get("description")
-            task = Task.query.get(task_id)
+            task = db.session.get(Task, task_id)
             if not task:
                 return jsonify({"status": "error", "message": "任务不存在"}), 404
 

@@ -1,0 +1,639 @@
+{% extends "google_sheet/base.html" %}
+
+{% block title %}首页 - Google Sheet C4 参数批量校验{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <!-- 欢迎横幅 -->
+        <div class="card bg-gradient-primary text-white mb-4">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h2 class="card-title mb-2">
+                            <i class="bi bi-speedometer2"></i> Google Sheet 参数批量校验
+                        </h2>
+                        <p class="card-text mb-0">高效批量处理Google Sheet参数，支持实时监控和任务管理</p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <a href="{{ url_for('google_sheet.create', version='c4') }}" class="btn btn-light btn-lg">
+                            <i class="bi bi-plus-circle"></i> 创建新任务
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 待重启任务提示 -->
+        <div class="alert alert-warning alert-dismissible fade show" id="pending-tasks-alert" style="display: none;">
+            <div class="d-flex align-items-center">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <div class="flex-grow-1">
+                    <strong>发现待重启的任务!</strong>
+                    <span id="pending-tasks-message"></span>
+                </div>
+                <button type="button" class="btn btn-outline-warning btn-sm me-2" onclick="checkAllPendingTasks()">
+                    <i class="bi bi-search"></i> 查看详情
+                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        </div>
+
+        <!-- 统计概览 -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card text-white bg-primary mb-3 h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h3 class="card-title mb-1" id="total-tasks">0</h3>
+                            <p class="card-text mb-0">总任务数</p>
+                        </div>
+                        <div class="ms-3">
+                            <i class="bi bi-list-task" style="font-size: 2rem;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-success mb-3 h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h3 class="card-title mb-1" id="completed-tasks">0</h3>
+                            <p class="card-text mb-0">已完成</p>
+                        </div>
+                        <div class="ms-3">
+                            <i class="bi bi-check-circle" style="font-size: 2rem;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-warning mb-3 h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h3 class="card-title mb-1" id="running-tasks">0</h3>
+                            <p class="card-text mb-0">执行中</p>
+                        </div>
+                        <div class="ms-3">
+                            <i class="bi bi-play-circle" style="font-size: 2rem;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-danger mb-3 h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h3 class="card-title mb-1" id="error-tasks">0</h3>
+                            <p class="card-text mb-0">执行出错</p>
+                        </div>
+                        <div class="ms-3">
+                            <i class="bi bi-exclamation-triangle" style="font-size: 2rem;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 任务列表 -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="card-title mb-0">
+                    <i class="bi bi-clock-history"></i> 任务列表
+                </h4>
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshTasks()">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                    <select class="form-select form-select-sm" id="filter-select" onchange="filterTasks(this.value)" style="width: auto;">
+                        <option value="all">全部任务</option>
+                        <option value="running">执行中</option>
+                        <option value="completed">已完成</option>
+                        <option value="error">执行出错</option>
+                        <option value="cancelled">已取消</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="tasks-table">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>任务名称</th>
+                                <th>状态</th>
+                                <th>进度</th>
+                                <th>开始时间</th>
+                                <th>结束时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tasks-table-body">
+                            <!-- 任务列表将通过JavaScript动态填充 -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 分页控件 - 单行布局 -->
+                <div class="d-flex justify-content-center align-items-center flex-wrap gap-4 mt-4 py-3">
+                    <!-- 显示信息 -->
+                    <span class="text-muted" id="pagination-info">
+                        显示第 1-10 条，共 0 条记录
+                    </span>
+                    
+                    <!-- 分页导航 -->
+                    <nav aria-label="任务分页">
+                        <ul class="pagination pagination-sm mb-0" id="pagination">
+                            <!-- 分页按钮将通过JavaScript动态生成 -->
+                        </ul>
+                    </nav>
+                    
+                    <!-- 每页显示数量 -->
+                    <div class="d-flex align-items-center">
+                        <label class="form-label me-2 mb-0 text-muted">每页显示:</label>
+                        <select class="form-select form-select-sm" id="page-size-select" onchange="changePageSize()" style="width: auto;">
+                            <option value="5">5条</option>
+                            <option value="10" selected>10条</option>
+                            <option value="20">20条</option>
+                            <option value="50">50条</option>
+                            <option value="100">100条</option>
+                        </select>
+                    </div>
+                    
+                    <!-- 快速跳转 -->
+                    <div class="d-flex align-items-center">
+                        <span class="text-muted me-2">跳转到:</span>
+                        <input type="number" class="form-control form-control-sm" id="page-jump-input" 
+                               style="width: 60px;" min="1" placeholder="页">
+                        <button class="btn btn-outline-secondary btn-sm ms-1" onclick="jumpToPage()">
+                            <i class="bi bi-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // 全局变量
+    let allTasks = [];
+    let filteredTasks = [];
+    let currentPage = 1;
+    let tasksPerPage = 10;
+    let currentFilter = 'all';
+
+    // 页面加载完成后启动任务列表轮询
+    document.addEventListener('DOMContentLoaded', function() {
+        // 恢复用户偏好设置
+        restoreUserPreferences();
+        
+        // 从URL参数获取当前页面和筛选条件
+        loadStateFromUrl();
+        loadTasks();
+        checkPendingTasks(); // 检查待重启任务
+        
+        // 从后端获取轮询间隔配置
+        ajaxRequest('/api/config', 'GET', null, function(err, data) {
+            const interval = (data && data.config && data.config.frontend_polling_interval) ? 
+                            data.config.frontend_polling_interval : 15000;
+            setInterval(loadTasks, interval);
+        });
+        
+        // 监听浏览器前进后退按钮
+        window.addEventListener('popstate', function(event) {
+            loadStateFromUrl();
+            applyFilter();
+            renderTasks();
+        });
+        
+        // 添加跳转输入框的键盘事件
+        const pageJumpInput = document.getElementById('page-jump-input');
+        if (pageJumpInput) {
+            pageJumpInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    jumpToPage();
+                }
+            });
+            
+            // 限制只能输入数字
+            pageJumpInput.addEventListener('input', function(e) {
+                this.value = this.value.replace(/[^0-9]/g, '');
+            });
+        }
+    });
+
+    // 从URL参数加载状态
+    function loadStateFromUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const page = urlParams.get('page');
+        const filter = urlParams.get('filter');
+        
+        if (page && !isNaN(page) && parseInt(page) > 0) {
+            currentPage = parseInt(page);
+        }
+        
+        if (filter && ['all', 'running', 'completed', 'error', 'cancelled'].includes(filter)) {
+            currentFilter = filter;
+        }
+        
+        // 更新筛选下拉框的选中状态
+        const filterSelect = document.getElementById('filter-select');
+        if (filterSelect) {
+            filterSelect.value = currentFilter;
+        }
+    }
+
+    // 更新URL参数
+    function updateUrl() {
+        const url = new URL(window.location);
+        url.searchParams.set('page', currentPage);
+        url.searchParams.set('filter', currentFilter);
+        
+        // 使用pushState更新URL而不刷新页面
+        window.history.pushState({}, '', url);
+    }
+
+    // 获取所有任务
+    function loadTasks() {
+        ajaxRequest('/api/tasks', 'GET', null, function(err, data) {
+            if (!err && data && data.tasks) {
+                // 只展示 C4 任务
+                allTasks = data.tasks.filter(task => task.task_type === 'google_sheet_C4');
+                applyFilter();
+                updateStatistics(allTasks);
+                renderTasks();
+            }
+        });
+    }
+
+    // 应用筛选
+    function applyFilter() {
+        if (currentFilter === 'all') {
+            filteredTasks = allTasks;
+        } else {
+            filteredTasks = allTasks.filter(task => task.status === currentFilter);
+        }
+        // 检查当前页面是否超出范围
+        const totalPages = Math.ceil(filteredTasks.length / tasksPerPage);
+        if (currentPage > totalPages && totalPages > 0) {
+            currentPage = totalPages;
+        }
+    }
+
+    // 筛选任务
+    function filterTasks(filter) {
+        currentFilter = filter;
+        currentPage = 1; // 重置到第一页
+        applyFilter();
+        renderTasks();
+        updateUrl(); // 更新URL
+    }
+
+    // 渲染任务列表
+    function renderTasks() {
+        const tbody = document.getElementById('tasks-table-body');
+        tbody.innerHTML = '';
+        
+        // 计算分页
+        const startIndex = (currentPage - 1) * tasksPerPage;
+        const endIndex = startIndex + tasksPerPage;
+        const pageTasks = filteredTasks.slice(startIndex, endIndex);
+        
+        // 填充任务列表
+        pageTasks.forEach(function(task) {
+            const row = document.createElement('tr');
+            const typeLabel = task.task_type === 'google_sheet_C4' ? 'C4' : '默认';
+            const typeBadgeClass = task.task_type === 'google_sheet_C4' ? 'bg-warning' : 'bg-secondary';
+
+            row.innerHTML = `
+                <td>
+                    <div class="fw-bold">
+                        ${task.name}
+                        <span class="badge ${typeBadgeClass} ms-1">${typeLabel}</span>
+                    </div>
+                    ${task.description ? `<small class="text-muted">${task.description}</small>` : ''}
+                </td>
+                <td><span class="badge ${getStatusClass(task.status)}">${getStatusText(task.status)}</span></td>
+                <td>
+                    ${task.total_steps > 0 ? `
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar ${getProgressBarClass(task.status)}" role="progressbar" 
+                                 style="width: ${Math.round(task.current_step / task.total_steps * 100)}%">
+                                ${task.current_step}/${task.total_steps}
+                            </div>
+                        </div>
+                    ` : '<span class="text-muted">-</span>'}
+                </td>
+                <td>${formatTime(task.start_time)}</td>
+                <td>${formatTime(task.end_time)}</td>
+                <td>
+                    <div class="btn-group" role="group">
+                        <a href="/google-sheet/detail?task_id=${task.id}&version=c4" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-eye"></i> 查看
+                        </a>
+                        ${task.status === 'running' ? `
+                            <button class="btn btn-sm btn-warning cancel-task" data-task-id="${task.id}">
+                                <i class="bi bi-stop-circle"></i> 停止
+                            </button>
+                        ` : (task.status === 'completed' || task.status === 'error') ? `
+                            <button class="btn btn-sm btn-danger delete-task" data-task-id="${task.id}">
+                                <i class="bi bi-trash"></i> 删除
+                            </button>
+                        ` : ''}
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+        
+        // 绑定事件
+        bindTaskEvents();
+        
+        // 渲染分页
+        renderPagination();
+    }
+
+    // 绑定任务事件
+    function bindTaskEvents() {
+        // 取消任务事件
+        document.querySelectorAll('.cancel-task').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const taskId = this.getAttribute('data-task-id');
+                cancelTask(taskId);
+            });
+        });
+        
+        // 删除任务事件
+        document.querySelectorAll('.delete-task').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const taskId = this.getAttribute('data-task-id');
+                deleteTask(taskId);
+            });
+        });
+    }
+
+    // 渲染分页
+    function renderPagination() {
+        const pagination = document.getElementById('pagination');
+        const paginationInfo = document.getElementById('pagination-info');
+        const pageJumpInput = document.getElementById('page-jump-input');
+        
+        pagination.innerHTML = '';
+        
+        const totalPages = Math.ceil(filteredTasks.length / tasksPerPage);
+        const startIndex = (currentPage - 1) * tasksPerPage + 1;
+        const endIndex = Math.min(currentPage * tasksPerPage, filteredTasks.length);
+        
+        // 更新显示信息
+        if (filteredTasks.length === 0) {
+            paginationInfo.textContent = '暂无数据';
+        } else {
+            paginationInfo.textContent = `显示第 ${startIndex}-${endIndex} 条，共 ${filteredTasks.length} 条记录`;
+        }
+        
+        // 更新跳转输入框的最大值
+        if (pageJumpInput) {
+            pageJumpInput.max = totalPages;
+            pageJumpInput.value = '';
+            pageJumpInput.placeholder = totalPages > 0 ? `1-${totalPages}` : '页';
+        }
+        
+        if (totalPages <= 1) {
+            // 隐藏分页按钮但保留信息显示
+            pagination.parentElement.style.display = totalPages === 0 ? 'none' : 'block';
+            return;
+        }
+        
+        pagination.parentElement.style.display = 'block';
+        
+        // 上一页按钮
+        const prevLi = document.createElement('li');
+        prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+        prevLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${currentPage - 1})">上页</a>`;
+        pagination.appendChild(prevLi);
+        
+        // 页码按钮 - 简化显示逻辑，类似图片样式
+        const maxVisiblePages = 7; // 显示更多页码
+        let startPage, endPage;
+        
+        if (totalPages <= maxVisiblePages) {
+            // 如果总页数不超过最大显示数，显示所有页码
+            startPage = 1;
+            endPage = totalPages;
+        } else {
+            // 否则计算显示范围
+            const halfVisible = Math.floor(maxVisiblePages / 2);
+            
+            if (currentPage <= halfVisible) {
+                startPage = 1;
+                endPage = maxVisiblePages;
+            } else if (currentPage + halfVisible >= totalPages) {
+                startPage = totalPages - maxVisiblePages + 1;
+                endPage = totalPages;
+            } else {
+                startPage = currentPage - halfVisible;
+                endPage = currentPage + halfVisible;
+            }
+        }
+        
+        // 如果起始页大于1，显示第一页和省略号
+        if (startPage > 1) {
+            const firstLi = document.createElement('li');
+            firstLi.className = 'page-item';
+            firstLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(1)">1</a>`;
+            pagination.appendChild(firstLi);
+            
+            if (startPage > 2) {
+                const ellipsisLi = document.createElement('li');
+                ellipsisLi.className = 'page-item disabled';
+                ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
+                pagination.appendChild(ellipsisLi);
+            }
+        }
+        
+        // 页码按钮
+        for (let i = startPage; i <= endPage; i++) {
+            const li = document.createElement('li');
+            li.className = `page-item ${i === currentPage ? 'active' : ''}`;
+            li.innerHTML = `<a class="page-link" href="#" onclick="changePage(${i})">${i}</a>`;
+            pagination.appendChild(li);
+        }
+        
+        // 如果结束页小于总页数，显示省略号和最后一页
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                const ellipsisLi = document.createElement('li');
+                ellipsisLi.className = 'page-item disabled';
+                ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
+                pagination.appendChild(ellipsisLi);
+            }
+            
+            const lastLi = document.createElement('li');
+            lastLi.className = 'page-item';
+            lastLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${totalPages})">${totalPages}</a>`;
+            pagination.appendChild(lastLi);
+        }
+        
+        // 下一页按钮
+        const nextLi = document.createElement('li');
+        nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+        nextLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${currentPage + 1})">下页</a>`;
+        pagination.appendChild(nextLi);
+    }
+
+    // 切换页面
+    function changePage(page) {
+        const totalPages = Math.ceil(filteredTasks.length / tasksPerPage);
+        if (page >= 1 && page <= totalPages) {
+            currentPage = page;
+            renderTasks();
+            updateUrl(); // 更新URL
+        }
+    }
+
+    // 改变每页显示数量
+    function changePageSize() {
+        const pageSizeSelect = document.getElementById('page-size-select');
+        const newPageSize = parseInt(pageSizeSelect.value);
+        
+        // 计算当前显示的第一条记录在新分页中的页码
+        const currentFirstRecord = (currentPage - 1) * tasksPerPage + 1;
+        const newPage = Math.ceil(currentFirstRecord / newPageSize);
+        
+        tasksPerPage = newPageSize;
+        currentPage = newPage;
+        
+        renderTasks();
+        updateUrl();
+        
+        // 保存用户偏好到localStorage
+        localStorage.setItem('tasksPerPage', tasksPerPage);
+    }
+
+    // 跳转到指定页面
+    function jumpToPage() {
+        const pageJumpInput = document.getElementById('page-jump-input');
+        const targetPage = parseInt(pageJumpInput.value);
+        const totalPages = Math.ceil(filteredTasks.length / tasksPerPage);
+        
+        if (isNaN(targetPage)) {
+            showNotification('请输入有效的页码', 'warning');
+            return;
+        }
+        
+        if (targetPage < 1 || targetPage > totalPages) {
+            showNotification(`页码必须在 1 到 ${totalPages} 之间`, 'warning');
+            return;
+        }
+        
+        changePage(targetPage);
+        pageJumpInput.value = '';
+    }
+
+    // 从localStorage恢复用户偏好
+    function restoreUserPreferences() {
+        const savedPageSize = localStorage.getItem('tasksPerPage');
+        if (savedPageSize) {
+            tasksPerPage = parseInt(savedPageSize);
+            const pageSizeSelect = document.getElementById('page-size-select');
+            if (pageSizeSelect) {
+                pageSizeSelect.value = tasksPerPage;
+            }
+        }
+    }
+
+    // 刷新任务
+    function refreshTasks() {
+        loadTasks();
+        showNotification('任务列表已刷新', 'info');
+    }
+
+    // 更新统计信息
+    function updateStatistics(tasks) {
+        const totalTasks = tasks.length;
+        const completedTasks = tasks.filter(task => task.status === 'completed').length;
+        const runningTasks = tasks.filter(task => task.status === 'running').length;
+        const errorTasks = tasks.filter(task => task.status === 'error').length;
+        
+        document.getElementById('total-tasks').textContent = totalTasks;
+        document.getElementById('completed-tasks').textContent = completedTasks;
+        document.getElementById('running-tasks').textContent = runningTasks;
+        document.getElementById('error-tasks').textContent = errorTasks;
+    }
+
+    // 取消任务
+    function cancelTask(taskId) {
+        if (confirm('确定要停止这个任务吗？')) {
+            ajaxRequest(`/api/tasks/${taskId}/cancel`, 'POST', null, function(err, data) {
+                if (!err && data.status === 'success') {
+                    showNotification('任务已停止', 'success');
+                    loadTasks();
+                } else {
+                    showNotification('停止任务失败: ' + (data ? data.message : '未知错误'), 'error');
+                }
+            });
+        }
+    }
+
+    // 删除任务
+    function deleteTask(taskId) {
+        if (confirm('确定要删除这个任务吗？删除后无法恢复！')) {
+            ajaxRequest(`/api/tasks/${taskId}`, 'DELETE', null, function(err, data) {
+                if (!err && data.status === 'success') {
+                    showNotification('任务已删除', 'success');
+                    loadTasks();
+                } else {
+                    showNotification('删除任务失败: ' + (data ? data.message : '未知错误'), 'error');
+                }
+            });
+        }
+    }
+
+    // 获取进度条样式
+    function getProgressBarClass(status) {
+        switch(status) {
+            case 'completed': return 'bg-success';
+            case 'error': return 'bg-danger';
+            case 'running': return 'bg-primary';
+            default: return 'bg-secondary';
+        }
+    }
+
+    // 检查待重启的任务
+    function checkPendingTasks() {
+        ajaxRequest('/api/tasks', 'GET', null, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                const pendingTasks = data.tasks.filter(task => 
+                    task.status === 'pending' && task.current_step > 0
+                );
+                
+                if (pendingTasks.length > 0) {
+                    const alertDiv = document.getElementById('pending-tasks-alert');
+                    const messageSpan = document.getElementById('pending-tasks-message');
+                    
+                    messageSpan.textContent = `检测到 ${pendingTasks.length} 个任务可能因应用重启而中断，建议检查并重新启动。`;
+                    alertDiv.style.display = 'block';
+                }
+            }
+        });
+    }
+
+    // 查看所有待重启任务详情
+    function checkAllPendingTasks() {
+        // 设置筛选条件为pending并刷新列表
+        currentFilter = 'pending';
+        updateFilterButtons();
+        applyFilter();
+        renderTasks();
+        
+        // 隐藏提示
+        const alertDiv = document.getElementById('pending-tasks-alert');
+        alertDiv.style.display = 'none';
+        
+        showNotification('已筛选出所有待处理的任务', 'info');
+    }
+</script>
+{% endblock %}

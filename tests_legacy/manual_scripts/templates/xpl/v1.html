@@ -1,0 +1,1766 @@
+{% extends "admin/base.html" %}
+
+{% block title %}V1 Google Sheet 分析 - 任务管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">V1：Google Sheet 分析</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a class="btn btn-sm btn-outline-secondary" href="/xpl/">
+                <i class="bi bi-arrow-left"></i> 返回
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body p-3">
+        <div class="row g-2 align-items-start">
+            <div class="col-lg-7">
+                <input type="text" class="form-control" id="gs-url"
+                       placeholder="Google Sheet URL：https://docs.google.com/spreadsheets/d/..." autocomplete="off"/>
+                <div class="small text-muted mt-1" id="gs-meta" style="min-height: 1.2em;"></div>
+            </div>
+            <div class="col-lg-3">
+                <select id="gs-sheet-name" class="form-select" disabled>
+                    <option value="">工作表：请先输入 URL</option>
+                </select>
+            </div>
+            <div class="col-lg-2 d-grid gap-2">
+                <button class="btn btn-outline-primary" id="btn-fetch-sheets" type="button">
+                    <i class="bi bi-list-task me-1"></i>获取
+                </button>
+                <button class="btn btn-primary" id="btn-analyze-v1" type="button" disabled>
+                    <i class="bi bi-lightning-charge-fill me-1"></i>分析
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4" id="summary-cards">
+    <div class="col-md-3">
+        <div class="card border-primary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">跑赢年份</h6>
+                <h2 class="card-title" id="v1-outperform-year">-</h2>
+                <p class="card-text text-muted small">outperform_year</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-success h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">月超额波动率</h6>
+                <h2 class="card-title" id="v1-monthly-excess-vol">-</h2>
+                <p class="card-text text-muted small">monthly_excess_volatility</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-warning h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">超额回撤胜率</h6>
+                <h2 class="card-title" id="v1-excess-dd-win">-</h2>
+                <p class="card-text text-muted small">excess_drawdown_winning_rate</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-danger h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">年超额收益(整体)</h6>
+                <h2 class="card-title" id="v1-excess-annual-all">-</h2>
+                <p class="card-text text-muted small">excess_returns[all]</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card border-secondary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">指数盈利年%</h6>
+                <h2 class="card-title" id="v1-index-profit-annual">-</h2>
+                <p class="card-text text-muted small">index_profit_annual</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-secondary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">模型盈利年%</h6>
+                <h2 class="card-title" id="v1-start-profit-annual">-</h2>
+                <p class="card-text text-muted small">start_profit_annual</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-secondary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">指数月波动率</h6>
+                <h2 class="card-title" id="v1-index-monthly-vol">-</h2>
+                <p class="card-text text-muted small">index_monthly_return_volatility</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-secondary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">模型月波动率</h6>
+                <h2 class="card-title" id="v1-start-monthly-vol">-</h2>
+                <p class="card-text text-muted small">start_monthly_return_volatility</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4" id="details-card">
+    <div class="card-header bg-white border-0 py-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#v1-details-collapse" aria-expanded="false" aria-controls="v1-details-collapse">
+                <i class="bi bi-layout-text-sidebar-reverse me-1"></i>V1 数据明细（展开/收起）
+            </button>
+            <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
+                <i class="bi bi-download me-1"></i>导出并下载
+            </button>
+        </div>
+    </div>
+    <div class="collapse" id="v1-details-collapse">
+        <div class="card-body p-3">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <div class="list-group" id="v1-detail-tabs" role="tablist">
+                        <button class="list-group-item list-group-item-action active" data-bs-toggle="list"
+                                data-bs-target="#tab-annual" type="button" role="tab">年度收益/回撤
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-excess" type="button" role="tab">超额收益
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-monthly-excess" type="button" role="tab">月超额收益
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-kama" type="button" role="tab">卡玛比率
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-sotino" type="button" role="tab">所提诺比例
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-sharpe" type="button" role="tab">夏普比率
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-profit" type="button" role="tab">盈利统计
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-scalars" type="button" role="tab">关键标量
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-sheet-result" type="button" role="tab">Sheet 结果
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-raw" type="button" role="tab">全量 JSON
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-10">
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="tab-annual" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-lg-6">
+                                    <div class="card h-100">
+                                        <div class="card-header py-2"><h6 class="card-title mb-0">年度收益率对比</h6>
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>指数收益</th>
+                                                        <th>模型收益</th>
+                                                        <th>差值</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-annual-compare"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="card h-100">
+                                        <div class="card-header py-2"><h6 class="card-title mb-0">年度最大回撤对比</h6>
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>指数回撤</th>
+                                                        <th>模型回撤</th>
+                                                        <th>日期(指数/模型)</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-drawdown-compare"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <div class="card">
+                                        <div class="card-header py-2"><h6 class="card-title mb-0">月超额收益百分比</h6>
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>月超额收益占比</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-monthly-excess-pct"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-excess" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Year</th>
+                                        <th>模型年化</th>
+                                        <th>指数年化</th>
+                                        <th>超额</th>
+                                        <th>区间</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-excess-returns"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-monthly-excess" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Year-Month</th>
+                                        <th>index_monthly_return</th>
+                                        <th>start_monthly_return</th>
+                                        <th>diff</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-monthly-excess-returns"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-kama" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Year</th>
+                                        <th>index_Kama</th>
+                                        <th>start_Kama</th>
+                                        <th>index_年化</th>
+                                        <th>start_年化</th>
+                                        <th>index_回撤</th>
+                                        <th>start_回撤</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-kama"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-sotino" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Year</th>
+                                        <th>index_Sotino</th>
+                                        <th>start_Sotino</th>
+                                        <th>index_月均年化</th>
+                                        <th>start_月均年化</th>
+                                        <th>index_下行标准差</th>
+                                        <th>start_下行标准差</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-sotino"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-sharpe" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>index_Sharpe</th>
+                                        <th>start_Sharpe</th>
+                                        <th>index_Avg</th>
+                                        <th>start_Avg</th>
+                                        <th>index_月Std</th>
+                                        <th>start_月Std</th>
+                                        <th>index_年Std</th>
+                                        <th>start_年Std</th>
+                                        <th>Start</th>
+                                        <th>End</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-sharpe"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-profit" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-lg-6">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-striped mb-0">
+                                            <thead>
+                                            <tr>
+                                                <th colspan="2">盈利年百分比</th>
+                                            </tr>
+                                            <tr>
+                                                <th>指数</th>
+                                                <th>模型</th>
+                                            </tr>
+                                            </thead>
+                                            <tbody id="tbl-profit-annual"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th colspan="2">指数盈利月占比</th>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>占比</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-index-profit-monthly"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                        <div class="col-12">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th colspan="2">模型盈利月占比</th>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>占比</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-start-profit-monthly"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-scalars" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-scalars"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-sheet-result" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-sheet-result"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-raw" role="tabpanel">
+                            <div class="d-flex justify-content-end mb-2">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" id="btn-copy-raw-json">复制</button>
+                            </div>
+                            <pre id="pre-raw-json" class="mb-0" style="max-height: 520px; overflow:auto;"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4" id="charts-card">
+    <div class="card-header">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-graph-up"></i> V1 图表（底部）
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">年度收益率（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-annual-returns"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">年超额收益（模型 - 指数）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-excess-annual"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">年度最大回撤（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-annual-drawdown"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">卡玛比率（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-kama"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">所提诺比例（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-sotino"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">月收益率波动率（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-monthly-vol"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-12">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">月超额收益（模型 - 指数）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:340px;">
+                            <canvas id="chart-monthly-excess-returns"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-12">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">夏普比率对比（all / year_* / past_*）</h6>
+                    </div>
+                    <div class="card-body p-2">
+                        <div style="height:340px;">
+                            <canvas id="chart-sharpe-compare"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-12">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">盈利月百分比（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-profit-monthly"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="loading-overlay"
+     class="position-fixed top-0 start-0 w-100 h-100 d-none d-flex flex-column justify-content-center align-items-center bg-dark bg-opacity-75"
+     style="z-index: 9999;">
+    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+        <span class="visually-hidden">加载中...</span>
+    </div>
+    <div class="mt-3 text-white fs-5">请求中，请稍候...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    let abortController = null;
+    const state = {
+        worksheets: [],
+        spreadsheetId: '',
+        lastFetchedSpreadsheetId: '',
+        spreadsheetTitle: '',
+        lastResults: null,
+        lastSheetName: '',
+        charts: {}
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('btn-fetch-sheets').addEventListener('click', fetchWorksheets);
+        document.getElementById('btn-analyze-v1').addEventListener('click', runAnalyzeV1);
+        document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
+        document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
+        document.getElementById('gs-url').addEventListener('input', debounce(() => {
+            const changed = updateMeta();
+            if (changed) {
+                resetWorksheetSelect();
+            }
+            autoFetchWorksheets();
+        }, 500));
+        updateMeta();
+    });
+
+    async function copyRawJson() {
+        const pre = document.getElementById('pre-raw-json');
+        const text = pre?.textContent || '';
+        if (!text) {
+            showAlert('无可复制内容', 'warning');
+            return;
+        }
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+                if (!ok) throw new Error('copy failed');
+            }
+            showAlert('已复制', 'success');
+        } catch (e) {
+            showAlert('复制失败', 'danger');
+        }
+    }
+
+    function debounce(fn, wait) {
+        let t = null;
+        return (...args) => {
+            if (t) clearTimeout(t);
+            t = setTimeout(() => fn(...args), wait);
+        };
+    }
+
+    function showLoading() {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) overlay.classList.remove('d-none');
+
+        const urlInput = document.getElementById('gs-url');
+        const sheetSelect = document.getElementById('gs-sheet-name');
+        const btnFetch = document.getElementById('btn-fetch-sheets');
+        const btnAnalyze = document.getElementById('btn-analyze-v1');
+        if (urlInput) urlInput.disabled = true;
+        if (sheetSelect) sheetSelect.disabled = true;
+        if (btnFetch) btnFetch.disabled = true;
+        if (btnAnalyze) btnAnalyze.disabled = true;
+
+        const meta = document.getElementById('gs-meta');
+        if (meta && meta.textContent) {
+            meta.dataset.prev = meta.innerHTML;
+            meta.innerHTML = meta.innerHTML + ' <span class="text-muted">| 请求中...</span>';
+        }
+    }
+
+    function hideLoading() {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) overlay.classList.add('d-none');
+
+        const urlInput = document.getElementById('gs-url');
+        const sheetSelect = document.getElementById('gs-sheet-name');
+        const btnFetch = document.getElementById('btn-fetch-sheets');
+        const btnAnalyze = document.getElementById('btn-analyze-v1');
+        if (urlInput) urlInput.disabled = false;
+        if (btnFetch) btnFetch.disabled = false;
+
+        const hasSheets = state.worksheets && state.worksheets.length > 0;
+        if (sheetSelect) sheetSelect.disabled = !hasSheets;
+        if (btnAnalyze) btnAnalyze.disabled = !hasSheets;
+
+        const meta = document.getElementById('gs-meta');
+        if (meta && meta.dataset.prev) {
+            meta.innerHTML = meta.dataset.prev;
+            delete meta.dataset.prev;
+        }
+    }
+
+    function showAlert(message, type = 'info') {
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show`;
+        alert.role = 'alert';
+        alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
+        const container = document.createElement('div');
+        container.className = 'position-fixed top-0 end-0 p-3';
+        container.style.zIndex = '9999';
+        container.appendChild(alert);
+        document.body.appendChild(container);
+        setTimeout(() => {
+            try {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            } catch (e) {
+                alert.remove();
+            }
+            setTimeout(() => container.remove(), 150);
+        }, 2500);
+    }
+
+    function extractSpreadsheetId(url) {
+        if (!url) return '';
+        const m1 = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        if (m1 && m1[1]) return m1[1];
+        const m2 = url.match(/[?&]id=([a-zA-Z0-9-_]+)/);
+        if (m2 && m2[1]) return m2[1];
+        return '';
+    }
+
+    function updateMeta() {
+        const url = document.getElementById('gs-url').value.trim();
+        const spreadsheetId = extractSpreadsheetId(url);
+        const changed = spreadsheetId !== state.spreadsheetId;
+        state.spreadsheetId = spreadsheetId;
+        const meta = document.getElementById('gs-meta');
+        if (!url) {
+            meta.textContent = '';
+            return changed;
+        }
+        if (!spreadsheetId) {
+            meta.innerHTML = '<span class="text-danger">无法解析 spreadsheet_id</span>';
+            return changed;
+        }
+        meta.innerHTML = `<span class="text-muted">spreadsheet_id: </span><span class="fw-semibold">${spreadsheetId}</span>`;
+        return changed;
+    }
+
+    function resetWorksheetSelect() {
+        state.worksheets = [];
+        state.spreadsheetTitle = '';
+        const select = document.getElementById('gs-sheet-name');
+        select.innerHTML = '<option value="">工作表：等待获取...</option>';
+        select.disabled = true;
+        document.getElementById('btn-analyze-v1').disabled = true;
+    }
+
+    function autoFetchWorksheets() {
+        const url = document.getElementById('gs-url').value.trim();
+        const spreadsheetId = extractSpreadsheetId(url);
+        if (!url || !spreadsheetId) return;
+        if (spreadsheetId === state.lastFetchedSpreadsheetId) return;
+        fetchWorksheets(true);
+    }
+
+    async function fetchWorksheets(silent = false) {
+        const url = document.getElementById('gs-url').value.trim();
+        const spreadsheetId = extractSpreadsheetId(url);
+        if (!url || !spreadsheetId) {
+            if (!silent) showAlert('请先输入正确的 Google Sheet URL（需要能解析 spreadsheet_id）', 'warning');
+            return;
+        }
+
+        state.lastFetchedSpreadsheetId = spreadsheetId;
+
+        showLoading();
+        abortController = new AbortController();
+
+        try {
+            const resp = await fetch('/api/google-sheet/worksheets', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                },
+                body: JSON.stringify({spreadsheet_id: spreadsheetId}),
+                signal: abortController.signal
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || data.status !== 'success') {
+                throw new Error(data.message || `HTTP error! status: ${resp.status}`);
+            }
+
+            state.worksheets = Array.isArray(data.worksheets) ? data.worksheets : [];
+            state.spreadsheetTitle = data.title || '';
+
+            const meta = document.getElementById('gs-meta');
+            meta.innerHTML = `<span class="text-muted">spreadsheet_id: </span><span class="fw-semibold">${spreadsheetId}</span>` + (state.spreadsheetTitle ? ` <span class="text-muted">| 标题：</span><span class="fw-semibold">${escapeHtml(state.spreadsheetTitle)}</span>` : '');
+
+            const select = document.getElementById('gs-sheet-name');
+            select.innerHTML = '';
+
+            if (state.worksheets.length === 0) {
+                select.innerHTML = '<option value="">未找到工作表</option>';
+                select.disabled = true;
+                document.getElementById('btn-analyze-v1').disabled = true;
+                if (!silent) showAlert('未找到任何工作表', 'warning');
+                return;
+            }
+
+            state.worksheets.forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                select.appendChild(opt);
+            });
+            select.disabled = false;
+            document.getElementById('btn-analyze-v1').disabled = false;
+            if (!silent) showAlert('工作表已加载', 'success');
+        } catch (e) {
+            if (e.name === 'AbortError') {
+                if (!silent) showAlert('操作已取消', 'info');
+            } else {
+                if (!silent) showAlert('获取工作表失败：' + (e.message || '未知错误'), 'danger');
+            }
+        } finally {
+            hideLoading();
+            abortController = null;
+        }
+    }
+
+    async function exportV1Details() {
+        if (!state.lastResults) {
+            showAlert('请先完成分析再导出', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('btn-export-v1');
+        if (btn) btn.disabled = true;
+
+        try {
+            const filenameSafeTitle = (state.spreadsheetTitle || 'v1').replaceAll(/[\\/:*?"<>|]/g, '_');
+            const filenameSafeSheet = (state.lastSheetName || 'sheet').replaceAll(/[\\/:*?"<>|]/g, '_');
+            const filename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
+
+            const resp = await fetch('/xpl/export', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                },
+                body: JSON.stringify({
+                    filename:filename,
+                    filename_title:filenameSafeTitle,
+                    analyze_result: state.lastResults
+                })
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.message || `HTTP error! status: ${resp.status}`);
+            }
+
+            const blob = await resp.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+            showAlert('已开始下载', 'success');
+        } catch (e) {
+            showAlert('导出失败：' + (e.message || '未知错误'), 'danger');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+    }
+
+    async function runAnalyzeV1() {
+        const url = document.getElementById('gs-url').value.trim();
+        const spreadsheetId = extractSpreadsheetId(url);
+        const sheetName = document.getElementById('gs-sheet-name').value;
+        if (!url) {
+            showAlert('请输入 Google Sheet URL', 'warning');
+            return;
+        }
+        if (!sheetName) {
+            showAlert('请选择工作表', 'warning');
+            return;
+        }
+
+        showLoading();
+        abortController = new AbortController();
+
+        try {
+            const resp = await fetch('/xpl/v1/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                },
+                body: JSON.stringify({
+                    google_sheet_url: url,
+                    spreadsheet_id: spreadsheetId,
+                    google_sheet_name: sheetName
+                }),
+                signal: abortController.signal
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || data.status !== 'success') {
+                throw new Error(data.message || `HTTP error! status: ${resp.status}`);
+            }
+
+            if (!data.results) {
+                showAlert('后端未返回 results', 'warning');
+                return;
+            }
+
+            state.lastResults = data.results;
+            state.lastSheetName = sheetName;
+            const exportBtn = document.getElementById('btn-export-v1');
+            if (exportBtn) exportBtn.disabled = false;
+
+            renderSummary(data.results);
+            renderTables(data.results);
+            renderCharts(data.results);
+            showAlert('V1 分析完成', 'success');
+        } catch (e) {
+            if (e.name === 'AbortError') {
+                showAlert('操作已取消', 'info');
+            } else {
+                showAlert('分析失败：' + (e.message || '未知错误'), 'danger');
+            }
+        } finally {
+            hideLoading();
+            abortController = null;
+        }
+    }
+
+    function fmtPct(v, digits = 2) {
+        if (v === null || v === undefined || Number.isNaN(v)) return '-';
+        return (Number(v) * 100).toFixed(digits) + '%';
+    }
+
+    function fmtNum(v, digits = 4) {
+        if (v === null || v === undefined || Number.isNaN(v)) return '-';
+        return Number(v).toFixed(digits);
+    }
+
+    function renderSummary(r) {
+        document.getElementById('v1-outperform-year').textContent = r.outperform_year !== undefined ? fmtPct(r.outperform_year, 2) : '-';
+        document.getElementById('v1-monthly-excess-vol').textContent = r.monthly_excess_volatility !== undefined ? fmtNum(r.monthly_excess_volatility, 4) : '-';
+        document.getElementById('v1-excess-dd-win').textContent = r.excess_drawdown_winning_rate !== undefined ? fmtPct(r.excess_drawdown_winning_rate, 2) : '-';
+
+        const allExcess = Array.isArray(r.excess_returns) ? r.excess_returns.find(x => String(x.year) === 'all') : null;
+        document.getElementById('v1-excess-annual-all').textContent = allExcess ? fmtPct(allExcess.annualized_return_diff, 2) : '-';
+
+        document.getElementById('v1-index-profit-annual').textContent = r.index_profit_annual !== undefined ? fmtPct(r.index_profit_annual, 2) : '-';
+        document.getElementById('v1-start-profit-annual').textContent = r.start_profit_annual !== undefined ? fmtPct(r.start_profit_annual, 2) : '-';
+        document.getElementById('v1-index-monthly-vol').textContent = r.index_monthly_return_volatility !== undefined ? fmtNum(r.index_monthly_return_volatility, 6) : '-';
+        document.getElementById('v1-start-monthly-vol').textContent = r.start_monthly_return_volatility !== undefined ? fmtNum(r.start_monthly_return_volatility, 6) : '-';
+    }
+
+    function idxByYear(list, valueKey) {
+        const m = new Map();
+        if (!Array.isArray(list)) return m;
+        list.forEach(item => {
+            if (!item) return;
+            const y = String(item.year);
+            const v = item[valueKey];
+            m.set(y, item);
+        });
+        return m;
+    }
+
+    function setPreJson(elId, obj) {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        try {
+            el.textContent = JSON.stringify(obj, null, 2);
+        } catch (e) {
+            el.textContent = String(obj);
+        }
+    }
+
+    function fillScalarsTable(tbodyId, r) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const scalarKeys = [
+            'outperform_year',
+            'monthly_excess_volatility',
+            'excess_drawdown_winning_rate',
+            'index_profit_annual',
+            'start_profit_annual',
+            'index_monthly_return_volatility',
+            'start_monthly_return_volatility'
+        ];
+
+        scalarKeys.forEach(k => {
+            if (r[k] === undefined) return;
+            const tr = document.createElement('tr');
+            let v = r[k];
+            if (k.includes('profit_annual') || k.includes('outperform_year') || k.includes('winning_rate')) {
+                v = fmtPct(v, 2);
+            } else if (typeof v === 'number') {
+                v = fmtNum(v, 6);
+            }
+            tr.innerHTML = `<td><code>${k}</code></td><td>${v}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function fillSheetResultTable(tbodyId, sheetResult) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!sheetResult || typeof sheetResult !== 'object' || Array.isArray(sheetResult)) {
+            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        const keys = Object.keys(sheetResult).sort();
+        if (keys.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        keys.forEach(k => {
+            const tr = document.createElement('tr');
+            const v = sheetResult[k];
+            tr.innerHTML = `<td><code>${k}</code></td><td>${v ?? '-'}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 月超额收益 tab：渲染每个月“模型-指数”的超额收益
+    function fillMonthlyExcessReturnsTable(list, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!Array.isArray(list) || list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        list.forEach(item => {
+            const tr = document.createElement('tr');
+            const diff = item?.monthly_excess_return_diff;
+            tr.innerHTML = `
+                <td>${item?.year_month ?? '-'}</td>
+                <td class="${(item?.index_monthly_return || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(item?.index_monthly_return, 2)}</td>
+                <td class="${(item?.start_monthly_return || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(item?.start_monthly_return, 2)}</td>
+                <td class="${(diff || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(diff, 2)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 标量 tab：渲染页面顶部摘要对应的关键标量
+    function renderTabScalars(r) {
+        fillScalarsTable('tbl-scalars', r);
+    }
+
+    // Sheet结果 tab：渲染 analyze_v1 返回的 sheet_result（字典键值）
+    function renderTabSheetResult(r) {
+        fillSheetResultTable('tbl-sheet-result', r.sheet_result);
+    }
+
+    // 年度收益/回撤 tab：渲染年度收益对比、年度回撤对比、月超额收益百分比
+    function renderTabAnnualAndDrawdown(r) {
+        const idxAnnual = idxByYear(r.index_returns_rate, 'annual_return');
+        const stAnnual = idxByYear(r.start_returns_rate, 'annual_return');
+
+        const years = Array.from(new Set([...idxAnnual.keys(), ...stAnnual.keys()])).filter(y => y !== 'all').sort();
+        const annualTbody = document.getElementById('tbl-annual-compare');
+        annualTbody.innerHTML = '';
+
+        years.forEach(y => {
+            const a1 = idxAnnual.get(y)?.annual_return;
+            const a2 = stAnnual.get(y)?.annual_return;
+            const diff = (a2 !== undefined && a1 !== undefined) ? (a2 - a1) : null;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${y}</td><td class="${(a1 || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(a1, 2)}</td><td class="${(a2 || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(a2, 2)}</td><td class="${(diff || 0) >= 0 ? 'text-success' : 'text-danger'}">${diff === null ? '-' : fmtPct(diff, 2)}</td>`;
+            annualTbody.appendChild(tr);
+        });
+
+        const idxDd = idxByYear(r.index_maximum_drawdown?.year_maximum_drawdown, 'drawdown');
+        const stDd = idxByYear(r.start_maximum_drawdown?.year_maximum_drawdown, 'drawdown');
+        const ddYears = Array.from(new Set([...idxDd.keys(), ...stDd.keys()])).filter(y => y !== 'all').sort();
+        const ddTbody = document.getElementById('tbl-drawdown-compare');
+        ddTbody.innerHTML = '';
+        ddYears.forEach(y => {
+            const d1 = idxDd.get(y);
+            const d2 = stDd.get(y);
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${y}</td><td class="text-danger">${fmtPct(d1?.drawdown, 2)}</td><td class="text-danger">${fmtPct(d2?.drawdown, 2)}</td><td>${(d1?.date || '-') + ' / ' + (d2?.date || '-')}</td>`;
+            ddTbody.appendChild(tr);
+        });
+
+        const mPct = document.getElementById('tbl-monthly-excess-pct');
+        mPct.innerHTML = '';
+        if (Array.isArray(r.monthly_excess_return_percentage)) {
+            r.monthly_excess_return_percentage.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${item.year}</td><td>${fmtPct(item.excess_return, 2)}</td>`;
+                mPct.appendChild(tr);
+            });
+        }
+    }
+
+    // 年超额收益 tab
+    function renderTabExcessReturns(r) {
+        fillExcessReturnsTable(r);
+    }
+
+    // 月超额收益 tab（monthly_excess_returns）
+    function renderTabMonthlyExcessReturns(r) {
+        fillMonthlyExcessReturnsTable(r.monthly_excess_returns, 'tbl-monthly-excess-returns');
+    }
+
+    // 卡玛 tab
+    function renderTabKama(r) {
+        fillKamaMerged(r.index_kama_ratio, r.start_kama_ratio, 'tbl-kama');
+    }
+
+    // 所提诺 tab
+    function renderTabSotino(r) {
+        fillSotinoMerged(r.index_sotino_ratio, r.start_sotino_ratio, 'tbl-sotino');
+    }
+
+    // 夏普 tab
+    function renderTabSharpe(r) {
+        fillSharpeMerged(r.index_sharpe_ratios, r.start_sharpe_ratios, 'tbl-sharpe');
+    }
+
+    // 盈利统计 tab
+    function renderTabProfit(r) {
+        fillProfitAnnualTable(r);
+        fillProfitMonthlyTable(r.index_profit_monthly, 'tbl-index-profit-monthly');
+        fillProfitMonthlyTable(r.start_profit_monthly, 'tbl-start-profit-monthly');
+    }
+
+    function fillExcessReturnsTable(r) {
+        const tbody = document.getElementById('tbl-excess-returns');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!Array.isArray(r.excess_returns)) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        r.excess_returns.forEach(item => {
+            const tr = document.createElement('tr');
+            const diff = item?.annualized_return_diff;
+            tr.innerHTML = `
+                <td>${item?.year ?? '-'}</td>
+                <td class="${(item?.start_annualized_return || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(item?.start_annualized_return, 2)}</td>
+                <td class="${(item?.index_annualized_return || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(item?.index_annualized_return, 2)}</td>
+                <td class="${(diff || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(diff, 2)}</td>
+                <td>${item?.start_end_date ?? '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function fillKamaTable(list, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!Array.isArray(list)) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        list.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${item?.year ?? '-'}</td>
+                <td>${fmtNum(item?.kama_ratio, 6)}</td>
+                <td>${fmtPct(item?.annualized_return, 2)}</td>
+                <td>${fmtPct(item?.drawdown, 2)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function fillKamaMerged(indexList, startList, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const idx = idxByYear(indexList, 'kama_ratio');
+        const st = idxByYear(startList, 'kama_ratio');
+        const years = Array.from(new Set([...idx.keys(), ...st.keys()])).filter(y => y !== 'all').sort();
+
+        if (years.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        years.forEach(y => {
+            const i = idx.get(y);
+            const s = st.get(y);
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${y}</td>
+                <td>${fmtNum(i?.kama_ratio, 6)}</td>
+                <td>${fmtNum(s?.kama_ratio, 6)}</td>
+                <td>${fmtPct(i?.annualized_return, 2)}</td>
+                <td>${fmtPct(s?.annualized_return, 2)}</td>
+                <td>${fmtPct(i?.drawdown, 2)}</td>
+                <td>${fmtPct(s?.drawdown, 2)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function fillSotinoTable(list, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!Array.isArray(list)) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        list.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${item?.year ?? '-'}</td>
+                <td>${fmtNum(item?.sotino_ratio, 6)}</td>
+                <td>${fmtNum(item?.average_monthly_annualized_return, 6)}</td>
+                <td>${fmtNum(item?.downside_standard_deviation, 6)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function fillSotinoMerged(indexList, startList, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const idx = idxByYear(indexList, 'sotino_ratio');
+        const st = idxByYear(startList, 'sotino_ratio');
+        const years = Array.from(new Set([...idx.keys(), ...st.keys()])).filter(y => y !== 'all').sort();
+
+        if (years.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        years.forEach(y => {
+            const i = idx.get(y);
+            const s = st.get(y);
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${y}</td>
+                <td>${fmtNum(i?.sotino_ratio, 6)}</td>
+                <td>${fmtNum(s?.sotino_ratio, 6)}</td>
+                <td>${fmtNum(i?.average_monthly_annualized_return, 6)}</td>
+                <td>${fmtNum(s?.average_monthly_annualized_return, 6)}</td>
+                <td>${fmtNum(i?.downside_standard_deviation, 6)}</td>
+                <td>${fmtNum(s?.downside_standard_deviation, 6)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function fillSharpeTable(obj, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!obj || typeof obj !== 'object') {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        const keys = Object.keys(obj).sort();
+        keys.forEach(k => {
+            const v = obj[k];
+            if (!v || typeof v !== 'object') return;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><code>${k}</code></td>
+                <td>${fmtNum(v?.sharpe_ratio, 6)}</td>
+                <td>${fmtPct(v?.avg_monthly_return, 2)}</td>
+                <td>${fmtPct(v?.monthly_std_dev, 2)}</td>
+                <td>${fmtPct(v?.annual_std_dev, 2)}</td>
+                <td>${v?.start_date ?? '-'}</td>
+                <td>${v?.end_date ?? '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        if (tbody.children.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">无可展示条目</td></tr>';
+        }
+    }
+
+    function fillSharpeMerged(indexObj, startObj, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const idx = (indexObj && typeof indexObj === 'object') ? indexObj : {};
+        const st = (startObj && typeof startObj === 'object') ? startObj : {};
+        const keys = Array.from(new Set([...Object.keys(idx), ...Object.keys(st)])).sort();
+
+        if (keys.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+
+        keys.forEach(k => {
+            const i = idx[k];
+            const s = st[k];
+            const base = (i && typeof i === 'object') ? i : ((s && typeof s === 'object') ? s : null);
+            if (!base) return;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><code>${formatSharpeKey(k)}</code></td>
+                <td>${fmtNum(i?.sharpe_ratio, 6)}</td>
+                <td>${fmtNum(s?.sharpe_ratio, 6)}</td>
+                <td>${fmtPct(i?.avg_monthly_return, 2)}</td>
+                <td>${fmtPct(s?.avg_monthly_return, 2)}</td>
+                <td>${fmtPct(i?.monthly_std_dev, 2)}</td>
+                <td>${fmtPct(s?.monthly_std_dev, 2)}</td>
+                <td>${fmtPct(i?.annual_std_dev, 2)}</td>
+                <td>${fmtPct(s?.annual_std_dev, 2)}</td>
+                <td>${base?.start_date ?? '-'}</td>
+                <td>${base?.end_date ?? '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        if (tbody.children.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">无可展示条目</td></tr>';
+        }
+    }
+
+    function fillProfitAnnualTable(r) {
+        const tbody = document.getElementById('tbl-profit-annual');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${fmtPct(r.index_profit_annual, 2)}</td><td>${fmtPct(r.start_profit_annual, 2)}</td>`;
+        tbody.appendChild(tr);
+    }
+
+    function fillProfitMonthlyTable(list, tbodyId) {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        if (!Array.isArray(list)) {
+            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">无数据</td></tr>';
+            return;
+        }
+        list.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${item?.year ?? '-'}</td><td>${fmtPct(item?.profit_monthly_percentage, 2)}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function renderTables(r) {
+        setPreJson('pre-raw-json', r);
+        renderTabScalars(r);
+        renderTabSheetResult(r);
+        renderTabAnnualAndDrawdown(r);
+        renderTabExcessReturns(r);
+        renderTabMonthlyExcessReturns(r);
+        renderTabKama(r);
+        renderTabSotino(r);
+        renderTabSharpe(r);
+        renderTabProfit(r);
+    }
+
+    function destroyChart(key) {
+        const c = state.charts[key];
+        if (c) {
+            try {
+                c.destroy();
+            } catch (e) {
+            }
+        }
+        state.charts[key] = null;
+    }
+
+    function buildLineChart(canvasId, key, labels, datasets, yTitle) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+        destroyChart(key);
+        state.charts[key] = new Chart(el, {
+            type: 'line',
+            data: {labels, datasets},
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {mode: 'index', intersect: false},
+                scales: {
+                    y: {title: {display: true, text: yTitle}},
+                    x: {title: {display: true, text: 'Year'}}
+                }
+            }
+        });
+    }
+
+    function buildBarChart(canvasId, key, labels, datasets, yTitle) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+        destroyChart(key);
+        state.charts[key] = new Chart(el, {
+            type: 'bar',
+            data: {labels, datasets},
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: yTitle}},
+                    x: {title: {display: true, text: 'Year'}}
+                }
+            }
+        });
+    }
+
+    function normalizeYearSeries(list, valueKey) {
+        const m = new Map();
+        if (Array.isArray(list)) {
+            list.forEach(item => {
+                if (!item) return;
+                const y = String(item.year);
+                if (y === 'all') return;
+                m.set(y, item[valueKey]);
+            });
+        }
+        const labels = Array.from(m.keys()).sort();
+        const values = labels.map(y => m.get(y));
+        return {labels, values, map: m};
+    }
+
+    function renderCharts(r) {
+        const idxAnnual = normalizeYearSeries(r.index_returns_rate, 'annual_return');
+        const stAnnual = normalizeYearSeries(r.start_returns_rate, 'annual_return');
+        const labelsAnnual = Array.from(new Set([...idxAnnual.labels, ...stAnnual.labels])).sort();
+        const idxAnnualVals = labelsAnnual.map(y => idxAnnual.map.get(y) ?? null);
+        const stAnnualVals = labelsAnnual.map(y => stAnnual.map.get(y) ?? null);
+
+        buildLineChart(
+                'chart-annual-returns',
+                'annualReturns',
+                labelsAnnual,
+                [
+                    {
+                        label: '指数年度收益(%)',
+                        data: idxAnnualVals.map(v => v === null ? null : v * 100),
+                        borderColor: '#0d6efd',
+                        backgroundColor: 'rgba(13,110,253,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    },
+                    {
+                        label: '模型年度收益(%)',
+                        data: stAnnualVals.map(v => v === null ? null : v * 100),
+                        borderColor: '#198754',
+                        backgroundColor: 'rgba(25,135,84,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    }
+                ],
+                'Return (%)'
+        );
+
+        const exMap = new Map();
+        if (Array.isArray(r.excess_returns)) {
+            r.excess_returns.forEach(item => {
+                const y = String(item.year);
+                if (y === 'all') return;
+                exMap.set(y, item.annualized_return_diff);
+            });
+        }
+        const exLabels = Array.from(exMap.keys()).sort();
+        const exVals = exLabels.map(y => (exMap.get(y) ?? 0) * 100);
+        buildBarChart(
+                'chart-excess-annual',
+                'excessAnnual',
+                exLabels,
+                [{
+                    label: '年超额收益(%)',
+                    data: exVals,
+                    backgroundColor: exVals.map(v => v >= 0 ? 'rgba(25,135,84,0.5)' : 'rgba(220,53,69,0.5)'),
+                    borderColor: exVals.map(v => v >= 0 ? '#198754' : '#dc3545'),
+                    borderWidth: 1
+                }],
+                'Excess Return (%)'
+        );
+
+        const idxDd = normalizeYearSeries(r.index_maximum_drawdown?.year_maximum_drawdown, 'drawdown');
+        const stDd = normalizeYearSeries(r.start_maximum_drawdown?.year_maximum_drawdown, 'drawdown');
+        const ddLabels = Array.from(new Set([...idxDd.labels, ...stDd.labels])).sort();
+        const idxDdVals = ddLabels.map(y => idxDd.map.get(y) ?? null);
+        const stDdVals = ddLabels.map(y => stDd.map.get(y) ?? null);
+        buildLineChart(
+                'chart-annual-drawdown',
+                'annualDrawdown',
+                ddLabels,
+                [
+                    {
+                        label: '指数最大回撤(%)',
+                        data: idxDdVals.map(v => v === null ? null : v * 100),
+                        borderColor: '#dc3545',
+                        backgroundColor: 'rgba(220,53,69,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    },
+                    {
+                        label: '模型最大回撤(%)',
+                        data: stDdVals.map(v => v === null ? null : v * 100),
+                        borderColor: '#fd7e14',
+                        backgroundColor: 'rgba(253,126,20,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    }
+                ],
+                'Drawdown (%)'
+        );
+
+        const kamaIdx = normalizeYearSeries(r.index_kama_ratio, 'kama_ratio');
+        const kamaSt = normalizeYearSeries(r.start_kama_ratio, 'kama_ratio');
+        const kamaLabels = Array.from(new Set([...kamaIdx.labels, ...kamaSt.labels])).sort();
+        const kamaIdxVals = kamaLabels.map(y => kamaIdx.map.get(y) ?? null);
+        const kamaStVals = kamaLabels.map(y => kamaSt.map.get(y) ?? null);
+        buildLineChart(
+                'chart-kama',
+                'kama',
+                kamaLabels,
+                [
+                    {
+                        label: '指数Kama',
+                        data: kamaIdxVals,
+                        borderColor: '#0dcaf0',
+                        backgroundColor: 'rgba(13,202,240,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    },
+                    {
+                        label: '模型Kama',
+                        data: kamaStVals,
+                        borderColor: '#6610f2',
+                        backgroundColor: 'rgba(102,16,242,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    }
+                ],
+                'Kama Ratio'
+        );
+
+        const sotIdx = normalizeYearSeries(r.index_sotino_ratio, 'sotino_ratio');
+        const sotSt = normalizeYearSeries(r.start_sotino_ratio, 'sotino_ratio');
+        const sotLabels = Array.from(new Set([...sotIdx.labels, ...sotSt.labels])).sort();
+        const sotIdxVals = sotLabels.map(y => sotIdx.map.get(y) ?? null);
+        const sotStVals = sotLabels.map(y => sotSt.map.get(y) ?? null);
+        buildLineChart(
+                'chart-sotino',
+                'sotino',
+                sotLabels,
+                [
+                    {
+                        label: '指数Sotino',
+                        data: sotIdxVals,
+                        borderColor: '#20c997',
+                        backgroundColor: 'rgba(32,201,151,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    },
+                    {
+                        label: '模型Sotino',
+                        data: sotStVals,
+                        borderColor: '#d63384',
+                        backgroundColor: 'rgba(214,51,132,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    }
+                ],
+                'Sotino Ratio'
+        );
+
+        const volLabels = ['指数', '模型'];
+        const volVals = [
+            r.index_monthly_return_volatility !== undefined ? r.index_monthly_return_volatility : null,
+            r.start_monthly_return_volatility !== undefined ? r.start_monthly_return_volatility : null
+        ];
+        destroyChart('monthlyVol');
+        const volEl = document.getElementById('chart-monthly-vol');
+        if (volEl) {
+            state.charts.monthlyVol = new Chart(volEl, {
+                type: 'bar',
+                data: {
+                    labels: volLabels,
+                    datasets: [{
+                        label: '月收益率波动率',
+                        data: volVals,
+                        backgroundColor: ['rgba(13,110,253,0.5)', 'rgba(25,135,84,0.5)'],
+                        borderColor: ['#0d6efd', '#198754'],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {y: {title: {display: true, text: 'Volatility'}}}
+                }
+            });
+        }
+
+        renderMonthlyExcessReturnsChart(r);
+        renderSharpeCompare(r);
+        renderProfitMonthly(r);
+    }
+
+    function renderMonthlyExcessReturnsChart(r) {
+        const el = document.getElementById('chart-monthly-excess-returns');
+        if (!el) return;
+        destroyChart('monthlyExcessReturns');
+
+        const list = Array.isArray(r.monthly_excess_returns) ? r.monthly_excess_returns : [];
+        const sorted = list
+            .filter(x => x && x.year_month)
+            .slice()
+            .sort((a, b) => String(a.year_month).localeCompare(String(b.year_month)));
+
+        const labels = sorted.map(x => String(x.year_month));
+        const vals = sorted.map(x => (x.monthly_excess_return_diff ?? null));
+        const valsPct = vals.map(v => v === null ? null : Number(v) * 100);
+        const colors = vals.map(v => (v ?? 0) >= 0 ? 'rgba(25,135,84,0.55)' : 'rgba(220,53,69,0.55)');
+        const borderColors = vals.map(v => (v ?? 0) >= 0 ? '#198754' : '#dc3545');
+
+        state.charts.monthlyExcessReturns = new Chart(el, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: '月超额收益(%)',
+                    data: valsPct,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: 'Excess Return (%)'}},
+                    x: {ticks: {autoSkip: true, maxRotation: 60, minRotation: 0}}
+                }
+            }
+        });
+    }
+
+    function formatSharpeKey(key) {
+        const k = String(key ?? '');
+        if (!k) return k;
+        if (k === 'all') return 'all';
+
+        const mPast = k.match(/^past_(\d+)(?:_.*)?$/);
+        if (mPast) {
+            const n = Number(mPast[1]);
+            return `近${n}年`;
+        }
+
+        const mYear = k.match(/^year_\d+_(\d{4})$/);
+        if (mYear) {
+            return mYear[1];
+        }
+
+        return k;
+    }
+
+    function sharpeEntriesToSeries(obj) {
+        const arr = [];
+        if (!obj || typeof obj !== 'object') return arr;
+        Object.entries(obj).forEach(([k, v]) => {
+            if (!v || typeof v !== 'object') return;
+            if (v.sharpe_ratio === undefined || v.sharpe_ratio === null) return;
+            arr.push({key: formatSharpeKey(k), sharpe: v.sharpe_ratio});
+        });
+        arr.sort((a, b) => {
+            if (a.key === 'all' && b.key !== 'all') return -1;
+            if (b.key === 'all' && a.key !== 'all') return 1;
+            return a.key.localeCompare(b.key);
+        });
+        return arr;
+    }
+
+    function renderSharpeCompare(r) {
+        const idxSeries = sharpeEntriesToSeries(r.index_sharpe_ratios);
+        const stSeries = sharpeEntriesToSeries(r.start_sharpe_ratios);
+        const labels = Array.from(new Set([...idxSeries.map(x => x.key), ...stSeries.map(x => x.key)])).sort((a, b) => {
+            if (a === 'all' && b !== 'all') return -1;
+            if (b === 'all' && a !== 'all') return 1;
+            return String(a).localeCompare(String(b));
+        });
+        const idxMap = new Map(idxSeries.map(x => [x.key, x.sharpe]));
+        const stMap = new Map(stSeries.map(x => [x.key, x.sharpe]));
+        const idxVals = labels.map(k => idxMap.get(k) ?? null);
+        const stVals = labels.map(k => stMap.get(k) ?? null);
+
+        const el = document.getElementById('chart-sharpe-compare');
+        if (!el) return;
+        destroyChart('sharpeCompare');
+        state.charts.sharpeCompare = new Chart(el, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: '指数夏普',
+                        data: idxVals,
+                        backgroundColor: 'rgba(13,110,253,0.45)',
+                        borderColor: '#0d6efd',
+                        borderWidth: 1
+                    },
+                    {
+                        label: '模型夏普',
+                        data: stVals,
+                        backgroundColor: 'rgba(25,135,84,0.45)',
+                        borderColor: '#198754',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: 'Sharpe Ratio'}},
+                    x: {ticks: {autoSkip: false, maxRotation: 60, minRotation: 20}}
+                }
+            }
+        });
+    }
+
+    function profitMonthlySeries(list) {
+        const m = new Map();
+        if (Array.isArray(list)) {
+            list.forEach(item => {
+                if (!item) return;
+                const y = String(item.year);
+                m.set(y, item.profit_monthly_percentage);
+            });
+        }
+        return m;
+    }
+
+    function renderProfitMonthly(r) {
+        const idxMap = profitMonthlySeries(r.index_profit_monthly);
+        const stMap = profitMonthlySeries(r.start_profit_monthly);
+        const labels = Array.from(new Set([...idxMap.keys(), ...stMap.keys()])).sort();
+        const idxVals = labels.map(y => (idxMap.get(y) ?? null));
+        const stVals = labels.map(y => (stMap.get(y) ?? null));
+
+        const el = document.getElementById('chart-profit-monthly');
+        if (!el) return;
+        destroyChart('profitMonthly');
+        state.charts.profitMonthly = new Chart(el, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: '指数盈利月占比(%)',
+                        data: idxVals.map(v => v === null ? null : v * 100),
+                        borderColor: '#0d6efd',
+                        backgroundColor: 'rgba(13,110,253,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    },
+                    {
+                        label: '模型盈利月占比(%)',
+                        data: stVals.map(v => v === null ? null : v * 100),
+                        borderColor: '#198754',
+                        backgroundColor: 'rgba(25,135,84,0.08)',
+                        tension: 0.1,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: 'Percentage (%)'}, beginAtZero: true, max: 100}
+                }
+            }
+        });
+    }
+</script>
+{% endblock %}
