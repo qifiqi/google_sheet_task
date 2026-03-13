@@ -33,6 +33,60 @@ def test_get_task_detail_returns_task_payload(client, monkeypatch):
     assert response.get_json() == {"status": "success", "task": expected_task}
 
 
+def test_create_task_normalizes_c5_payload_before_start(client, monkeypatch):
+    """创建任务接口应先完成 C5 配置归一化，再交给任务管理器启动。"""
+    captured = {}
+
+    def fake_create_task(name, description, task_type, config):
+        captured["name"] = name
+        captured["description"] = description
+        captured["task_type"] = task_type
+        captured["config"] = config
+        return "task-c5-created"
+
+    monkeypatch.setattr(api_task_routes.task_manager, "create_task", fake_create_task)
+    monkeypatch.setattr(api_task_routes.task_manager, "start_task", lambda task_id: task_id == "task-c5-created")
+
+    response = client.post(
+        "/api/tasks",
+        json={
+            "name": "C5 测试任务",
+            "description": "用于校验创建链路",
+            "task_type": "google_sheet_C5",
+            "config": {
+                "token_type": "file",
+                "token_file": "data/token.json",
+                "spreadsheet_id": "sheet-c5",
+                "sheet_name": "SheetC5",
+                "parameters": [["000001"], [5], [10]],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["task_id"] == "task-c5-created"
+    assert captured["task_type"] == "google_sheet_C5"
+    assert captured["config"]["task_type"] == "google_sheet_C5"
+    assert captured["config"]["sheets"] == [
+        {"spreadsheet_id": "sheet-c5", "sheet_name": "SheetC5", "title": ""}
+    ]
+    assert captured["config"]["parameters"] == [["000001"], [5], [10]]
+
+
+def test_create_task_rejects_missing_config(client):
+    """创建任务接口在缺少 config 时应直接返回 400。"""
+    response = client.post(
+        "/api/tasks",
+        json={
+            "name": "缺少配置的任务",
+            "task_type": "google_sheet",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "config is required"
+
+
 def test_update_task_config_normalizes_c4_payload(client, app, monkeypatch):
     """更新配置接口应先按任务类型归一化，再把结果交给 TaskManager。"""
     with app.app_context():
@@ -74,6 +128,26 @@ def test_update_task_config_normalizes_c4_payload(client, app, monkeypatch):
         {"spreadsheet_id": "sheet-c4", "sheet_name": "SheetC4", "title": ""}
     ]
     assert captured["new_config"]["parameters"] == [["000001"]]
+
+
+def test_check_task_status_returns_manager_payload(client, monkeypatch):
+    """本地状态检查接口应透传 TaskManager 的检查结果。"""
+    expected = {
+        "db_status": "running",
+        "runtime_status": "active",
+        "has_event_queue": True,
+    }
+
+    monkeypatch.setattr(
+        api_task_routes.task_manager,
+        "check_local_task_status",
+        lambda task_id: expected if task_id == "task-004" else {},
+    )
+
+    response = client.get("/api/tasks/task-004/status-check")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "success", "status_check": expected}
 
 
 def test_restart_task_returns_400_when_manager_rejects(client, monkeypatch):

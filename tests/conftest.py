@@ -1,10 +1,32 @@
 import os
+import sys
+import types
+
+import requests
 
 import pytest
 
 
 # 提前注入一个兜底测试数据库地址，确保导入应用前不会连接到默认实例库。
 os.environ["DATABASE_URL"] = "sqlite:///tests_bootstrap.db"
+
+
+class _FakeCurlSession(requests.Session):
+    """测试环境下替代 curl_cffi Session，忽略指纹伪装参数。"""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.pop("impersonate", None)
+        super().__init__()
+
+
+fake_curl_module = types.ModuleType("curl_cffi")
+fake_curl_module.requests = types.SimpleNamespace(Session=_FakeCurlSession)
+sys.modules.setdefault("curl_cffi", fake_curl_module)
+
+fake_yfinance_module = types.ModuleType("yfinance")
+fake_yfinance_module.Ticker = object
+fake_yfinance_module.download = lambda *args, **kwargs: None
+sys.modules.setdefault("yfinance", fake_yfinance_module)
 
 from app import create_app  # noqa: E402
 from app.extensions import db  # noqa: E402
