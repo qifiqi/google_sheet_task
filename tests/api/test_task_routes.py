@@ -130,6 +130,34 @@ def test_update_task_config_normalizes_c4_payload(client, app, monkeypatch):
     assert captured["new_config"]["parameters"] == [["000001"]]
 
 
+def test_update_task_config_rejects_missing_request_body(client):
+    """详情编辑保存接口在请求体为空时应返回 400。"""
+    response = client.put("/api/tasks/task-c4/config", json={})
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "request body is required"
+
+
+def test_update_task_config_returns_404_when_task_missing(client):
+    """详情编辑保存接口在任务不存在时应返回 404。"""
+    response = client.put(
+        "/api/tasks/not-found/config",
+        json={
+            "name": "不存在的任务",
+            "config": {
+                "token_type": "file",
+                "token_file": "data/token.json",
+                "spreadsheet_id": "sheet-missing",
+                "sheet_name": "SheetMissing",
+                "parameters": [["000001"]],
+            },
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.get_json()["message"] == "任务不存在"
+
+
 def test_check_task_status_returns_manager_payload(client, monkeypatch):
     """本地状态检查接口应透传 TaskManager 的检查结果。"""
     expected = {
@@ -179,4 +207,19 @@ def test_create_restart_task_starts_new_task(client, monkeypatch):
         "status": "success",
         "new_task_id": "task-003-restart",
         "message": "重启任务创建并启动成功",
+    }
+
+
+def test_create_restart_task_returns_warning_when_start_fails(client, monkeypatch):
+    """创建重启任务接口在启动失败时也应返回新任务 ID 和提示信息。"""
+    monkeypatch.setattr(api_task_routes.task_manager, "create_restart_task", lambda task_id: "task-003-restart")
+    monkeypatch.setattr(api_task_routes.task_manager, "start_task", lambda task_id: False)
+
+    response = client.post("/api/tasks/task-003/create-restart")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "success",
+        "new_task_id": "task-003-restart",
+        "message": "重启任务创建成功，但启动失败",
     }

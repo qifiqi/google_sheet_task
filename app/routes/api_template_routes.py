@@ -79,7 +79,8 @@ def register_template_routes(api_bp):
     def get_template(template_id):
         """获取模板详情。"""
         try:
-            template = TaskTemplate.query.get(template_id)
+            # 使用 Session.get 兼容 SQLAlchemy 2.x，避免遗留 Query.get 警告。
+            template = db.session.get(TaskTemplate, template_id)
             if not template:
                 return jsonify({"status": "error", "message": "模板不存在"}), 404
 
@@ -96,7 +97,8 @@ def register_template_routes(api_bp):
     def update_template(template_id):
         """更新模板。"""
         try:
-            template = TaskTemplate.query.get(template_id)
+            # 使用 Session.get 兼容 SQLAlchemy 2.x，避免遗留 Query.get 警告。
+            template = db.session.get(TaskTemplate, template_id)
             if not template:
                 return jsonify({"status": "error", "message": "模板不存在"}), 404
 
@@ -125,7 +127,8 @@ def register_template_routes(api_bp):
     def delete_template(template_id):
         """删除模板。"""
         try:
-            template = TaskTemplate.query.get(template_id)
+            # 使用 Session.get 兼容 SQLAlchemy 2.x，避免遗留 Query.get 警告。
+            template = db.session.get(TaskTemplate, template_id)
             if not template:
                 return jsonify({"status": "error", "message": "模板不存在"}), 404
 
