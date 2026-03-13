@@ -850,7 +850,7 @@ class GoogleSheetService:
             stock_config = self.dfcf_api.get_search_list_by_stock_code(parameter, 10)
             # stock_config = [i for i in stock_config if i['securityTypeName'] == '美股']
 
-            stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
+            # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
             if stock_config:
                 stock_config = stock_config[0]
             market = stock_config['market']
@@ -967,5 +967,5 @@ class GoogleSheetService:
         return data, len(all_kline) + 20,KLINE_DATA_MAP
 
 if __name__ == '__main__':
-    GoogleSheetService({}, '')._get_all_parameters('QQQ', 'n_plus_1', 'kp_price','2025-05-01', '2023-05-01', 'en',
+    GoogleSheetService({}, '')._get_all_parameters('lcm', 'n_plus_1', 'kp_price','2025-05-01', '2023-05-01', 'cn',
                                                    ['full','recent'],[[],[1,2],[1,2]])
