@@ -419,14 +419,3 @@ class GoogleSheetService(BaseMultiSheetGoogleSheetService):
         return data, len(all_kline) + 20, kline_data_map
 
 
-if __name__ == "__main__":
-    GoogleSheetService({}, "")._get_all_parameters(
-        "QQQ",
-        "n_plus_1",
-        "kp_price",
-        "2025-05-01",
-        "2023-05-01",
-        "en",
-        ["full", "recent"],
-        [[], [1, 2], [1, 2]],
-    )

@@ -68,6 +68,7 @@ class DFCJStockApi:
 
 
         # 生成随机浏览器指纹
+        self.ut_fixed = None
         self.browser_fingerprint = self._get_random_browser_fingerprint()
         # 创建支持指纹伪装的session
         self.session = c_requests.Session(impersonate=self.browser_fingerprint)
@@ -227,68 +228,47 @@ class DFCJStockApi:
             raise e
 
 
-    def generate_wbp2u(self,_time):
+    def generate_wbp2u(self):
         """生成 wbp2u 参数"""
-        timestamp = int(_time * 1000) * 1000 + random.randint(0, 9999)
+        timestamp = int(time.time() * 1000) * 1000 + random.randint(0, 9999)
         return f"{timestamp}|0|1|0|web"
 
-    def get_ut(self,_time, use_random=False):
+    def get_ut(self, use_random=False):
         """获取 ut 参数"""
         if use_random:
-            raw_string = f"{_time}{random.random()}"
+            raw_string = f"{time.time()}{random.random()}"
             return hashlib.md5(raw_string.encode()).hexdigest()
         else:
             return self.ut_fixed
 
-
     def _build_eastmoney_url(self, stock_type, stock_code,  limit,kline_type='101'):
         """构建东方财富API URL"""
-        # base_url = "http://push2his.eastmoney.com/api/qt/stock/kline/get"
+        """构建东方财富API URL"""
         base_url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-        _time = time.time()
-        ut = self.get_ut(_time, True)
-        wbp2u = self.generate_wbp2u(_time)
-        if limit is None:
-            secid = f"{stock_type}.{stock_code}"
-            params = {
-                "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
-                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-                "beg": "0",
-                "end": "20500101",
-                "ut": ut,
-                "rtntype": "6",
-                "secid": secid,
-                "klt": kline_type,
-                "fqt": "1",
-            }
 
-            # 构建查询字符串
-            query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
-            built = f"{base_url}?{query_string}"
-            self.logger.debug(f"构建的URL: {built}")
-            return built
-        else:
-            secid = f"{stock_type}.{stock_code}"
-            params = {
-                "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
-                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-                "ut": ut,
-                "secid": secid,
-                "dect": "1",
-                "klt": kline_type,
-                "lmt": str(limit),
-                "fqt": "1",
-                "forcect": "1",
-                "end": "20500101",
-                "wbp2u": wbp2u,
-                # "cb": "__jp0"
-            }
+        ut = self.get_ut(True)
+        secid = f"{stock_type}.{stock_code}"
+        params = {
+            "fields1": "f1,f2,f3,f4,f5,f6,f7,f8",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65",
+            "ut": ut,
+            "secid": secid,
+            "dect": "1",
+            "klt": kline_type,
+            "lmt": str(limit),
+            "fqt": "1",
+            "forcect": "1",
+            "end": "20500000",
+            "wbp2u":self.generate_wbp2u(),
+            # "cb": "__jp0"
+        }
 
-            # 构建查询字符串
-            query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
-            built = f"{base_url}?{query_string}"
-            self.logger.debug(f"构建的URL: {built}")
-            return built
+        # 构建查询字符串
+        query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
+        built = f"{base_url}?{query_string}"
+        self.logger.debug(f"构建的URL: {built}")
+        return built
+
 
     def _parse_kline_data(self, line, stock_code):
         """解析K线数据"""
