@@ -8,8 +8,7 @@ WORKDIR /app
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    FLASK_APP=run.py \
-    FLASK_ENV=production
+    FLASK_APP=run.py
 
 # # 安装系统依赖
 # RUN apt-get update \

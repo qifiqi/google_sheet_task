@@ -78,6 +78,7 @@ class TaskWatchdog:
                         if task.status == "pending":
                             result = task_manager.restart_task(task.id, resume_from_checkpoint=True)
                             logger.warning(f"status pending watchdog restart result: {task.id}, {result}")
+                            time.sleep(2)
                             continue
 
                         # 检查任务日志更新时间

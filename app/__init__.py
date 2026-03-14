@@ -1,41 +1,61 @@
+import os
+from pathlib import Path
+
 from flask import Flask
-from app.config import Config
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*_args, **_kwargs):
+        return False
+
 from app.extensions import db, migrate
 from app.routes import register_blueprints
 from app.utils.ding_talk_notifier import DingTalkNotifier
 
 
+def load_app_environment():
+    project_root = Path(__file__).parent.parent
+
+    base_env = project_root / '.env'
+    if base_env.exists():
+        load_dotenv(base_env, override=False)
+
+    app_env = os.environ.get('APP_ENV', 'development').strip().lower() or 'development'
+    scoped_env = project_root / f'.env.{app_env}'
+    if scoped_env.exists():
+        load_dotenv(scoped_env, override=False)
+
+
 def create_app():
-    # 获取应用根目录
-    import os
-    from pathlib import Path
-    
-    # 获取当前文件所在目录的父目录（即项目根目录）
+    load_app_environment()
+
+    from app.config import get_config_class
+
     current_dir = Path(__file__).parent.parent
     template_dir = current_dir / 'templates'
     static_dir = current_dir / 'static'
-    
-    app = Flask(__name__, 
-                template_folder=str(template_dir), 
-                static_folder=str(static_dir))
-                
-    app.config.from_object(Config)
-    
-    # 初始化扩展
+
+    config_class = get_config_class()
+    config_class.init_app()
+
+    app = Flask(
+        __name__,
+        template_folder=str(template_dir),
+        static_folder=str(static_dir),
+    )
+    app.config.from_object(config_class)
+
     db.init_app(app)
     migrate.init_app(app, db)
 
     from app.services.config_manager import get_config_manager
     get_config_manager().init_app(app)
 
-    # 仅注册原有蓝图路由，不再启用 Flask-RESTX Swagger 文档路由
     register_blueprints(app)
-    
-    notifier = DingTalkNotifier(
-        access_token=Config.dd_access_token,
-        secret=Config.dd_secret
-    )
 
-    app.notifier = notifier
+    app.notifier = DingTalkNotifier(
+        access_token=app.config.get('DING_TALK_ACCESS_TOKEN', ''),
+        secret=app.config.get('DING_TALK_SECRET', ''),
+    )
 
     return app

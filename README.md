@@ -116,15 +116,38 @@ docker-compose logs -f app
 应用将在 `http://localhost:5000` 启动。
 
 #### Docker 环境变量配置
-创建 `.env` 文件并配置以下环境变量：
+统一后的环境文件如下：
+
 ```bash
+.env                  # 公共配置
+.env.development      # 开发环境，SQLite
+.env.production       # 生产环境，PostgreSQL
+.env.example          # 公共配置模板
+```
+
+公共配置 `.env`：
+```bash
+APP_ENV=development
 SECRET_KEY=your_secure_random_key_here_at_least_32_characters_long
-DATABASE_URL=sqlite:///data/app.db
-FLASK_ENV=production
 MAX_CONCURRENT_TASKS=5
 TASK_TIMEOUT=3600
 LOG_LEVEL=INFO
-GOOGLE_TOKEN_FILE=data/token.json
+BASE_URL=http://localhost:5000
+SQLALCHEMY_ECHO=False
+FLASK_DEBUG=False
+DING_TALK_ACCESS_TOKEN=
+DING_TALK_SECRET=
+```
+
+开发环境 `.env.development`：
+```bash
+DATABASE_URL=sqlite:///instance/app.db
+```
+
+生产环境 `.env.production`：
+```bash
+APP_ENV=production
+DATABASE_URL=postgresql://validator_user:123456@172.18.20.17:5432/googlesheet_validator
 ```
 
 ## 使用指南
@@ -165,17 +188,22 @@ GOOGLE_TOKEN_FILE=data/token.json
 # 生成安全的密钥 (至少32字符)
 export SECRET_KEY="your_secure_random_key_here"
 
-# 设置数据库URL
-export DATABASE_URL="sqlite:///production.db"
+# 开发环境数据库
+export APP_ENV="development"
+export DATABASE_URL="sqlite:///instance/app.db"
+
+# 生产环境数据库
+export APP_ENV="production"
+export DATABASE_URL="postgresql://validator_user:123456@172.18.20.17:5432/googlesheet_validator"
 
 # 其他配置
 export MAX_CONCURRENT_TASKS=5
 export LOG_LEVEL=INFO
 ```
 
-复制 `env.example` 为 `.env` 并修改配置：
+复制 `.env.example` 为 `.env` 并修改配置：
 ```bash
-cp env.example .env
+cp .env.example .env
 # 编辑 .env 文件设置实际的配置值
 ```
 

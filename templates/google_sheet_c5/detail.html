@@ -2023,7 +2023,8 @@
                 let task_name = currentTaskData.name || ''
                 let filename = null
                 if (task_name !== '') {
-                    filename = `C5_results_${task_name}.csv`;
+                    filename = `${task_name}.csv`;
+                    // filename = `C5_results_${task_name}.csv`;
                 } else {
                     const now = new Date();
                     const pad = n => String(n).padStart(2, '0');

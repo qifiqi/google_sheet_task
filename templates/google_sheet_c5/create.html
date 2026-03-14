@@ -966,7 +966,7 @@
         tokens.forEach(token => {
             const option = document.createElement('option');
             option.value = String(token.id);
-            option.textContent = `${token.name} | 已用 ${token.task_usage_count} | 上限 ${token.max_usage_count > 0 ? token.max_usage_count : '无限'}`;
+            option.textContent = `${token.name} | 占用 ${token.current_in_use_count || 0} | 累计 ${token.task_usage_count} | 上限 ${token.max_usage_count > 0 ? token.max_usage_count : '无限'}`;
             option.disabled = !token.is_available;
             tokenIdEl.appendChild(option);
         });

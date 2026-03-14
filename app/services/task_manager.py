@@ -24,6 +24,7 @@ class TaskManager:
         self.running_tasks: Dict[str, threading.Thread] = {}
         self.task_events: Dict[str, queue.Queue] = {}
         self.start_errors: Dict[str, str] = {}
+        self.task_token_occupancy: Dict[str, int] = {}
         # 不再在初始化时缓存配置，而是每次动态获取
     
     def _get_config(self, key: str, default: Any = None) -> Any:
@@ -62,10 +63,13 @@ class TaskManager:
     def start_task(self, task_id: str) -> bool:
         """启动任务"""
         self.start_errors.pop(task_id, None)
+        acquired_token_id = None
         # 创建任务专用日志记录器
         task_logger = get_task_logger(task_id, f"{__name__}.start")
         
         # 动态获取最大并发任务数配置，确保实时生效
+        # 系统级并发限制：控制同时运行中的任务总数。
+        # 这和 token 占用限制不同，后者由 GoogleSheetTokenService 单独判断。
         max_concurrent = int(self._get_config('max_concurrent_tasks', 5))
         
         if len(self.running_tasks) >= max_concurrent:
@@ -79,6 +83,9 @@ class TaskManager:
         if not task:
             error_msg = "任务不存在"
             self.start_errors[task_id] = error_msg
+            if acquired_token_id:
+                get_google_sheet_token_service().release_usage(acquired_token_id)
+                self.task_token_occupancy.pop(task_id, None)
             task_logger.error(error_msg)
             logger.error(f"任务不存在: {task_id}")
             return False
@@ -97,6 +104,8 @@ class TaskManager:
                 token_service = get_google_sheet_token_service()
                 token_service.validate_task_start(config_data)
                 token_service.increment_usage(token_id)
+                acquired_token_id = int(token_id)
+                self.task_token_occupancy[task_id] = acquired_token_id
         except Exception as e:
             error_msg = str(e)
             self.start_errors[task_id] = error_msg
@@ -135,6 +144,16 @@ class TaskManager:
         task_logger.info("任务执行线程启动成功")
         logger.info(f"启动任务: {task_id}")
         return True
+
+    def _release_task_token_occupancy(self, task_id: str):
+        # token 占用数是“运行中占用”，不是累计次数。
+        # 因此任务在线程结束、报错或被取消时，需要在 finally 里统一释放。
+        token_id = self.task_token_occupancy.pop(task_id, None)
+        if token_id:
+            try:
+                get_google_sheet_token_service().release_usage(token_id)
+            except Exception as e:
+                logger.warning(f"release token occupancy failed: task_id={task_id}, token_id={token_id}, err={str(e)}")
 
     def get_start_error(self, task_id: str) -> str:
         return self.start_errors.get(task_id, '任务启动失败')
@@ -592,6 +611,7 @@ class TaskManager:
             self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
         
         finally:
+            self._release_task_token_occupancy(task_id)
             # 清理资源
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
@@ -693,6 +713,7 @@ class TaskManager:
             self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
         
         finally:
+            self._release_task_token_occupancy(task_id)
             # 清理资源
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
@@ -794,6 +815,7 @@ class TaskManager:
             self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
         
         finally:
+            self._release_task_token_occupancy(task_id)
             # 清理资源
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]

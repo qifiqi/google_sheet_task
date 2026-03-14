@@ -916,10 +916,11 @@ def google_sheet_token_detail(token_id):
 
 @api_bp.route('/google-sheet-tokens/import', methods=['POST'])
 def import_google_sheet_token():
-    """导入Google Sheet Token"""
+    """Add or import a Google Sheet token."""
     try:
         data = request.get_json() or {}
         token_file = (data.get('token_file') or '').strip()
+        token_context = data.get('token_context')
         name = (data.get('name') or '').strip() or None
         max_usage_count = data.get('max_usage_count')
         if max_usage_count not in (None, ''):
@@ -928,22 +929,22 @@ def import_google_sheet_token():
             max_usage_count = None
 
         token, created = get_google_sheet_token_service().import_token(
+            token_context=token_context,
             token_file=token_file,
             name=name,
-            max_usage_count=max_usage_count
+            max_usage_count=max_usage_count,
         )
         return jsonify({
             "status": "success",
-            "message": "Token导入成功" if created else "Token已更新",
-            "token": token
+            "message": "\u0054oken\u65b0\u589e\u6210\u529f" if created else "\u0054oken\u66f4\u65b0\u6210\u529f",
+            "token": token,
         })
     except ValueError as e:
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
-        logger.error(f"导入Google Sheet Token失败: {str(e)}")
+        logger.error(f"Add Google Sheet token failed: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# 数据库监控相关API
 @api_bp.route('/google-sheet-tokens/<int:token_id>', methods=['DELETE'])
 def delete_google_sheet_token(token_id):
     """删除 Google Sheet Token"""

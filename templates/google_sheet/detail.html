@@ -406,6 +406,27 @@
         font-size: 0.75rem;
         padding: 0.3rem 0.6rem;
     }
+
+    .log-container {
+        height: 320px;
+        overflow-y: auto;
+        overflow-x: auto;
+        background: #0b1220;
+        color: #dbeafe;
+        padding: 12px 14px;
+        border-radius: 0.75rem;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        line-height: 1.6;
+        white-space: pre;
+        word-break: normal;
+    }
+
+    .log-container > div {
+        white-space: pre;
+        word-break: normal;
+        margin-bottom: 0.25rem;
+    }
     
     /* 表格行悬停效果 */
     #results-table tbody tr:hover {
@@ -699,17 +720,11 @@
                     const wasAtBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 5;
                     
                     // 更新日志内容
-                    logContainer.innerHTML = data.logs.map(log => {
-                        const level = log.level || 'info';
-                        const levelClass = level === 'error' ? 'text-danger' : 
-                                         level === 'warning' ? 'text-warning' : 
-                                         level === 'info' ? 'text-info' : 'text-light';
-                        return `<div class="${levelClass}">[${formatTime(log.timestamp)}] ${log.message}</div>`;
-                    }).join('');
+                    logContainer.innerHTML = renderTaskLogs(data.logs);
                     
                     // 如果之前在底部，保持滚动到底部
                     if (wasAtBottom) {
-                logContainer.scrollTop = logContainer.scrollHeight;
+                        logContainer.scrollTop = logContainer.scrollHeight;
                     }
                     
                     console.log('日志已显示');
@@ -723,6 +738,38 @@
                 logContainer.innerHTML = '<div class="text-danger">加载日志失败</div>';
             }
         });
+    }
+
+    function renderTaskLogs(logs) {
+        return logs.map(log => {
+            const levelClass = getLogLevelClass(log.level);
+            const timestamp = log && log.timestamp ? formatTime(log.timestamp) : '-';
+            const message = escapeHtml(log && log.message ? String(log.message) : '');
+
+            return `<div class="${levelClass}">[${timestamp}] ${message}</div>`;
+        }).join('');
+    }
+
+    function getLogLevelClass(level) {
+        switch ((level || 'info').toLowerCase()) {
+            case 'error':
+                return 'text-danger';
+            case 'warning':
+                return 'text-warning';
+            case 'info':
+                return 'text-info';
+            default:
+                return 'text-light';
+        }
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     // 加载任务参数

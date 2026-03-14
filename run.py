@@ -3,13 +3,38 @@
 应用启动文件
 """
 import os
+import time
 from datetime import datetime
+from sqlalchemy import inspect, text
 from app import create_app
 from app.extensions import db
 from app.models import Task, TaskLog, TaskResult, SystemConfig, ScheduledTask, GoogleSheetToken
 from app.config import init_config as init_config2
 from app.utils.logger import initialize_logging
 app = create_app()
+
+
+def ensure_google_sheet_token_schema():
+    inspector = inspect(db.engine)
+    tables = inspector.get_table_names()
+    if 'google_sheet_tokens' not in tables:
+        return
+
+    columns = {column['name'] for column in inspector.get_columns('google_sheet_tokens')}
+    if 'current_in_use_count' not in columns:
+        # 轻量补字段，避免线上已有库因为没有迁移脚本而启动失败。
+        db.session.execute(
+            text("ALTER TABLE google_sheet_tokens ADD COLUMN current_in_use_count INTEGER NOT NULL DEFAULT 0")
+        )
+        db.session.commit()
+
+
+def reset_google_sheet_token_occupancy():
+    # current_in_use_count 表示进程内“正在占用”的资源。
+    # 应用重启后原线程已经不存在，因此启动时统一清零，避免脏占用残留。
+    if GoogleSheetToken.query.filter(GoogleSheetToken.current_in_use_count != 0).count() > 0:
+        GoogleSheetToken.query.update({'current_in_use_count': 0}, synchronize_session=False)
+        db.session.commit()
 
 @app.shell_context_processor
 def make_shell_context():
@@ -27,6 +52,7 @@ def make_shell_context():
 def init_db():
     """初始化数据库"""
     db.create_all()
+    ensure_google_sheet_token_schema()
     print("数据库初始化完成")
 
 @app.cli.command()
@@ -72,6 +98,7 @@ def check_and_cleanup_dead_tasks():
                     )
                     
                     logger.info(f"已将任务 {task.id} 重置为pending状态，用户可选择重新启动")
+
                 else:
                     logger.info(f"任务 {task.id} 状态正常")
             
@@ -131,6 +158,8 @@ if __name__ == '__main__':
         # 初始化数据库
         with app.app_context():
             db.create_all()
+            ensure_google_sheet_token_schema()
+            reset_google_sheet_token_occupancy()
             init_config2()
 
         # 检查并清理挂死的任务

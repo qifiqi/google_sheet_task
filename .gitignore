@@ -133,7 +133,9 @@ logs/*.log
 
 # Config files with sensitive data
 config/config.json
+.env
 .env.local
+.env.development
 .env.production
 .env.*
 !.env.example

@@ -1,282 +1,311 @@
 from datetime import datetime
-
-from sqlalchemy.orm import relationship
+import json
 
 from app.extensions import db
-import json
+
 
 class Task(db.Model):
     """任务模型"""
-    __tablename__ = 'tasks'
-    
-    id = db.Column(db.String(36), primary_key=True)  # UUID
-    name = db.Column(db.String(255), nullable=False)  # 任务名称
-    description = db.Column(db.Text)  # 任务描述
-    status = db.Column(db.String(20), default='pending', index=True)  # 添加索引，常用于过滤
-    task_type = db.Column(db.String(50), default='google_sheet', index=True)  # 添加索引
-    
-    # 配置信息
-    config = db.Column(db.Text)  # JSON格式的配置
-    
-    # 执行信息
-    start_time = db.Column(db.DateTime)
-    end_time = db.Column(db.DateTime)
-    current_step = db.Column(db.Integer, default=0)
-    total_steps = db.Column(db.Integer, default=0)
-    error_message = db.Column(db.Text)
-    
-    # 时间戳
-    created_at = db.Column(db.DateTime, default=datetime.now, index=True)  # 添加索引，常用于排序
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-    
-    # 关联 - 优化懒加载策略
-    logs = db.relationship('TaskLog', backref='task', lazy='dynamic', cascade='all, delete-orphan')
-    results = db.relationship('TaskResult', backref='task', lazy='dynamic', cascade='all, delete-orphan')
 
-    # 新增：直接关联到TaskResultReturn（时间序列数据）
-    returns_return = db.relationship('TaskResultReturn', backref='task',
-                             lazy='dynamic',
-                             cascade='all, delete-orphan')
-
-    # 复合索引 - 提升常用查询性能
+    __tablename__ = "tasks"
     __table_args__ = (
-        db.Index('idx_status_created', 'status', 'created_at'),  # 按状态和时间查询
-        db.Index('idx_type_status', 'task_type', 'status'),  # 按类型和状态查询
+        db.Index("idx_status_created", "status", "created_at"),
+        db.Index("idx_type_status", "task_type", "status"),
+        {"comment": "任务主表"},
     )
-    
+
+    id = db.Column(db.String(36), primary_key=True, comment="任务ID")
+    name = db.Column(db.String(255), nullable=False, comment="任务名称")
+    description = db.Column(db.Text, comment="任务描述")
+    status = db.Column(db.String(20), default="pending", index=True, comment="任务状态")
+    task_type = db.Column(db.String(50), default="google_sheet", index=True, comment="任务类型")
+    config = db.Column(db.Text, comment="任务配置JSON")
+    start_time = db.Column(db.DateTime, comment="开始时间")
+    end_time = db.Column(db.DateTime, comment="结束时间")
+    current_step = db.Column(db.Integer, default=0, comment="当前步骤")
+    total_steps = db.Column(db.Integer, default=0, comment="总步骤数")
+    error_message = db.Column(db.Text, comment="错误信息")
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+
+    logs = db.relationship("TaskLog", backref="task", lazy="dynamic", cascade="all, delete-orphan")
+    results = db.relationship("TaskResult", backref="task", lazy="dynamic", cascade="all, delete-orphan")
+    returns_return = db.relationship(
+        "TaskResultReturn",
+        backref="task",
+        lazy="dynamic",
+        cascade="all, delete-orphan",
+    )
+
     def to_dict(self):
         return {
-            'id': self.id,
-            'name': self.name,
-            'description': self.description,
-            'status': self.status,
-            'task_type': self.task_type,
-            'config': json.loads(self.config) if self.config else {},
-            'start_time': self.start_time.isoformat() if self.start_time else None,
-            'end_time': self.end_time.isoformat() if self.end_time else None,
-            'current_step': self.current_step,
-            'total_steps': self.total_steps,
-            'error_message': self.error_message,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "status": self.status,
+            "task_type": self.task_type,
+            "config": json.loads(self.config) if self.config else {},
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "current_step": self.current_step,
+            "total_steps": self.total_steps,
+            "error_message": self.error_message,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
-    
+
     def get_progress_percentage(self):
         if self.total_steps == 0:
             return 0
         return round((self.current_step / self.total_steps) * 100, 2)
 
+
 class TaskLog(db.Model):
     """任务日志模型"""
-    __tablename__ = 'task_logs'
-    
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    task_id = db.Column(db.String(36), db.ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False, index=True)
-    level = db.Column(db.String(20), default='info', index=True)  # 添加索引
-    message = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.now, index=True)  # 添加索引
-    
-    # 复合索引 - 提升查询性能
+
+    __tablename__ = "task_logs"
     __table_args__ = (
-        db.Index('idx_task_timestamp', 'task_id', 'timestamp'),  # 按任务和时间查询
-        db.Index('idx_level_timestamp', 'level', 'timestamp'),  # 按级别和时间查询
+        db.Index("idx_task_logs_task_timestamp", "task_id", "timestamp"),
+        db.Index("idx_level_timestamp", "level", "timestamp"),
+        {"comment": "任务日志表"},
     )
-    
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="日志ID")
+    task_id = db.Column(
+        db.String(36),
+        db.ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联任务ID",
+    )
+    level = db.Column(db.String(20), default="info", index=True, comment="日志级别")
+    message = db.Column(db.Text, nullable=False, comment="日志内容")
+    timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="日志时间")
+
     def to_dict(self):
         return {
-            'id': self.id,
-            'level': self.level,
-            'message': self.message,
-            'timestamp': self.timestamp.isoformat()
+            "id": self.id,
+            "level": self.level,
+            "message": self.message,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
         }
+
 
 class TaskResult(db.Model):
     """任务结果模型"""
-    __tablename__ = 'task_results'
-    
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    task_id = db.Column(db.String(36), db.ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False, index=True)
-    step_index = db.Column(db.Integer, nullable=False, index=True)  # 添加索引
-    parameters = db.Column(db.Text)  # JSON格式的参数
-    result = db.Column(db.Text)  # JSON格式的结果
-    success = db.Column(db.Boolean, default=True, index=True)  # 添加索引
-    error_message = db.Column(db.Text)
-    timestamp = db.Column(db.DateTime, default=datetime.now, index=True)  # 添加索引
 
-    # 复合索引 - 提升查询性能
+    __tablename__ = "task_results"
     __table_args__ = (
-        db.Index('idx_task_step', 'task_id', 'step_index'),  # 按任务和步骤查询
-        db.Index('idx_task_timestamp', 'task_id', 'timestamp'),
-        db.Index('idx_success_timestamp', 'success', 'timestamp'),  # 按成功状态和时间查询
-        # db.Index('idx_error_type', 'error_type'),  # 按错误类型查询
+        db.Index("idx_task_step", "task_id", "step_index"),
+        db.Index("idx_task_results_task_timestamp", "task_id", "timestamp"),
+        db.Index("idx_success_timestamp", "success", "timestamp"),
+        {"comment": "任务结果表"},
     )
 
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="结果ID")
+    task_id = db.Column(
+        db.String(36),
+        db.ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联任务ID",
+    )
+    step_index = db.Column(db.Integer, nullable=False, index=True, comment="步骤序号")
+    parameters = db.Column(db.Text, comment="参数JSON")
+    result = db.Column(db.Text, comment="结果JSON")
+    success = db.Column(db.Boolean, default=True, index=True, comment="是否成功")
+    error_message = db.Column(db.Text, comment="错误信息")
+    timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="结果时间")
+
     def to_dict(self):
         result_dict = {
-            'id': self.id,
-            'task_id': self.task_id,
-            'step_index': self.step_index,
-            'parameters': json.loads(self.parameters) if self.parameters else {},
-            'result': json.loads(self.result) if self.result else {},
-            'success': self.success,
-            'error_message': self.error_message,
-            'timestamp': self.timestamp.isoformat()
+            "id": self.id,
+            "task_id": self.task_id,
+            "step_index": self.step_index,
+            "parameters": json.loads(self.parameters) if self.parameters else {},
+            "result": json.loads(self.result) if self.result else {},
+            "success": self.success,
+            "error_message": self.error_message,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
         }
-        # 添加C5增强字段（如果存在）
-        if hasattr(self, 'retry_count') and self.retry_count is not None:
-            result_dict['retry_count'] = self.retry_count
-        if hasattr(self, 'execution_time') and self.execution_time is not None:
-            result_dict['execution_time'] = self.execution_time
-        if hasattr(self, 'error_type') and self.error_type:
-            result_dict['error_type'] = self.error_type
-        if hasattr(self, 'http_status') and self.http_status is not None:
-            result_dict['http_status'] = self.http_status
-        if hasattr(self, 'session_id') and self.session_id:
-            result_dict['session_id'] = self.session_id
-        if hasattr(self, 'request_id') and self.request_id:
-            result_dict['request_id'] = self.request_id
-        if hasattr(self, 'retry_round') and self.retry_round is not None:
-            result_dict['retry_round'] = self.retry_round
+        if hasattr(self, "retry_count") and self.retry_count is not None:
+            result_dict["retry_count"] = self.retry_count
+        if hasattr(self, "execution_time") and self.execution_time is not None:
+            result_dict["execution_time"] = self.execution_time
+        if hasattr(self, "error_type") and self.error_type:
+            result_dict["error_type"] = self.error_type
+        if hasattr(self, "http_status") and self.http_status is not None:
+            result_dict["http_status"] = self.http_status
+        if hasattr(self, "session_id") and self.session_id:
+            result_dict["session_id"] = self.session_id
+        if hasattr(self, "request_id") and self.request_id:
+            result_dict["request_id"] = self.request_id
+        if hasattr(self, "retry_round") and self.retry_round is not None:
+            result_dict["retry_round"] = self.retry_round
         return result_dict
-    
+
+
 class TaskResultReturn(db.Model):
-    __tablename__ = 'task_results_return'
+    """任务收益时间序列表"""
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    task_id = db.Column(db.String(36), db.ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False, index=True)
-    stock_date = db.Column(db.String(50))
-    index_return = db.Column(db.Float)
-    start_return = db.Column(db.Float)
+    __tablename__ = "task_results_return"
+    __table_args__ = ({"comment": "任务收益时间序列表"},)
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    task_id = db.Column(
+        db.String(36),
+        db.ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联任务ID",
+    )
+    stock_date = db.Column(db.String(50), comment="日期")
+    index_return = db.Column(db.Float, comment="指数收益")
+    start_return = db.Column(db.Float, comment="策略起始收益")
 
     def to_dict(self):
-        result_dict = {
-            'id': self.id,
-            'task_id': self.task_id,
-            'stock_date': self.stock_date,
-            'index_return': self.index_return,
-            'start_return': self.start_return,
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "stock_date": self.stock_date,
+            "index_return": self.index_return,
+            "start_return": self.start_return,
         }
-        return result_dict
+
 
 class TaskTemplate(db.Model):
     """任务模板模型"""
-    __tablename__ = 'task_templates'
-    
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String(255), nullable=False, index=True)  # 模板名称
-    description = db.Column(db.Text)  # 模板描述
-    config = db.Column(db.Text)  # JSON格式的配置
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
+    __tablename__ = "task_templates"
+    __table_args__ = ({"comment": "任务模板表"},)
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="模板ID")
+    name = db.Column(db.String(255), nullable=False, index=True, comment="模板名称")
+    description = db.Column(db.Text, comment="模板描述")
+    config = db.Column(db.Text, comment="模板配置JSON")
+    created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+
     def to_dict(self):
         return {
-            'id': self.id,
-            'name': self.name,
-            'description': self.description,
-            'config': json.loads(self.config) if self.config else {},
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "config": json.loads(self.config) if self.config else {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
 
 class SystemConfig(db.Model):
     """系统配置模型"""
-    __tablename__ = 'system_configs'
-    
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    key = db.Column(db.String(100), unique=True, nullable=False)
-    value = db.Column(db.Text)
-    description = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
+    __tablename__ = "system_configs"
+    __table_args__ = ({"comment": "系统配置表"},)
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="配置ID")
+    key = db.Column(db.String(100), unique=True, nullable=False, comment="配置键")
+    value = db.Column(db.Text, comment="配置值")
+    description = db.Column(db.Text, comment="配置说明")
+    created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+
     def to_dict(self):
         return {
-            'key': self.key,
-            'value': self.value,
-            'description': self.description,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            "key": self.key,
+            "value": self.value,
+            "description": self.description,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
 class GoogleSheetToken(db.Model):
-    """Google Sheet Token 配置"""
-    __tablename__ = 'google_sheet_tokens'
+    """Google Sheet token pool model."""
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String(255), nullable=False, index=True)
-    token_file = db.Column(db.String(500), unique=True, nullable=False)
-    token_context = db.Column(db.Text, nullable=False)
-    task_usage_count = db.Column(db.Integer, default=0, nullable=False)
-    max_usage_count = db.Column(db.Integer, default=0, nullable=False)  # 0 表示不限制
-    is_active = db.Column(db.Boolean, default=True, nullable=False, index=True)
-    last_used_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
-
+    __tablename__ = "google_sheet_tokens"
     __table_args__ = (
-        db.Index('idx_google_sheet_token_active_usage', 'is_active', 'task_usage_count'),
+        db.Index("idx_google_sheet_token_active_usage", "is_active", "current_in_use_count"),
+        {"comment": "谷歌 Sheet Token 池表"},
     )
 
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    name = db.Column(db.String(255), nullable=False, index=True, comment="Token展示名称")
+    token_file = db.Column(db.String(500), unique=True, nullable=False, comment="运行时落地文件路径")
+    token_context = db.Column(db.Text, nullable=False, comment="Token JSON原文")
+    task_usage_count = db.Column(db.Integer, default=0, nullable=False, comment="累计使用次数")
+    current_in_use_count = db.Column(db.Integer, default=0, nullable=False, comment="当前占用次数")
+    max_usage_count = db.Column(
+        db.Integer,
+        default=0,
+        nullable=False,
+        comment="最大同时占用次数，0表示不限制",
+    )
+    is_active = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否启用")
+    last_used_at = db.Column(db.DateTime, comment="最后使用时间")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
+
     def is_available(self):
-        return self.is_active and (self.max_usage_count <= 0 or self.task_usage_count < self.max_usage_count)
+        return self.is_active and (self.max_usage_count <= 0 or self.current_in_use_count < self.max_usage_count)
 
     def to_dict(self, include_context: bool = False):
         data = {
-            'id': self.id,
-            'name': self.name,
-            'token_file': self.token_file,
-            'task_usage_count': self.task_usage_count,
-            'max_usage_count': self.max_usage_count,
-            'is_active': self.is_active,
-            'is_available': self.is_available(),
-            'last_used_at': self.last_used_at.isoformat() if self.last_used_at else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'token_context_size': len(self.token_context or ''),
+            "id": self.id,
+            "name": self.name,
+            "token_file": self.token_file,
+            "task_usage_count": self.task_usage_count,
+            "current_in_use_count": self.current_in_use_count,
+            "max_usage_count": self.max_usage_count,
+            "is_active": self.is_active,
+            "is_available": self.is_available(),
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "token_context_size": len(self.token_context or ""),
         }
         if include_context:
-            data['token_context'] = self.token_context
+            data["token_context"] = self.token_context
         return data
+
 
 class ScheduledTask(db.Model):
     """定时任务模型"""
-    __tablename__ = 'scheduled_tasks'
-    
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String(255), nullable=False, index=True)  # 任务名称
-    description = db.Column(db.Text)  # 任务描述
-    cron_expression = db.Column(db.String(100), nullable=False)  # cron表达式
-    task_type = db.Column(db.String(50), nullable=False, default='cleanup')  # 任务类型
-    task_function = db.Column(db.String(255), nullable=False)  # 执行的函数名
-    task_params = db.Column(db.Text)  # JSON格式的任务参数
-    is_active = db.Column(db.Boolean, default=True, index=True)  # 是否启用
-    last_run_time = db.Column(db.DateTime)  # 上次执行时间
-    next_run_time = db.Column(db.DateTime, index=True)  # 下次执行时间
-    run_count = db.Column(db.Integer, default=0)  # 执行次数
-    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
-    
-    # 复合索引
+
+    __tablename__ = "scheduled_tasks"
     __table_args__ = (
-        db.Index('idx_active_next_run', 'is_active', 'next_run_time'),
-        db.Index('idx_type_active', 'task_type', 'is_active'),
+        db.Index("idx_active_next_run", "is_active", "next_run_time"),
+        db.Index("idx_type_active", "task_type", "is_active"),
+        {"comment": "定时任务表"},
     )
-    
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="定时任务ID")
+    name = db.Column(db.String(255), nullable=False, index=True, comment="任务名称")
+    description = db.Column(db.Text, comment="任务描述")
+    cron_expression = db.Column(db.String(100), nullable=False, comment="Cron表达式")
+    task_type = db.Column(db.String(50), nullable=False, default="cleanup", comment="任务类型")
+    task_function = db.Column(db.String(255), nullable=False, comment="执行函数名")
+    task_params = db.Column(db.Text, comment="任务参数JSON")
+    is_active = db.Column(db.Boolean, default=True, index=True, comment="是否启用")
+    last_run_time = db.Column(db.DateTime, comment="上次执行时间")
+    next_run_time = db.Column(db.DateTime, index=True, comment="下次执行时间")
+    run_count = db.Column(db.Integer, default=0, comment="执行次数")
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+
     def to_dict(self):
         return {
-            'id': self.id,
-            'name': self.name,
-            'description': self.description,
-            'cron_expression': self.cron_expression,
-            'task_type': self.task_type,
-            'task_function': self.task_function,
-            'task_params': json.loads(self.task_params) if self.task_params else {},
-            'is_active': self.is_active,
-            'last_run_time': self.last_run_time.isoformat() if self.last_run_time else None,
-            'next_run_time': self.next_run_time.isoformat() if self.next_run_time else None,
-            'run_count': self.run_count,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "cron_expression": self.cron_expression,
+            "task_type": self.task_type,
+            "task_function": self.task_function,
+            "task_params": json.loads(self.task_params) if self.task_params else {},
+            "is_active": self.is_active,
+            "last_run_time": self.last_run_time.isoformat() if self.last_run_time else None,
+            "next_run_time": self.next_run_time.isoformat() if self.next_run_time else None,
+            "run_count": self.run_count,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
