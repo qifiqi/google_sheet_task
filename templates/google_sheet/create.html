@@ -125,7 +125,7 @@
                                     </select>
                                 </div>
                                 <div class="col-md-6 mb-3" id="token_file_container">
-                                    <label for="token_file" class="form-label">
+                                    <label for="token_id" class="form-label">
                                         <i class="bi bi-file-earmark-text"></i> Token文件路径
                                     </label>
                                     <input type="text" class="form-control" id="token_file" 
@@ -420,6 +420,9 @@
 <script>
     let currentTaskId = null;
     let eventSource = null;
+    let googleSheetTokens = [];
+    let googleSheetRandomValue = '__random__';
+    let pendingTokenSelection = null;
 
     // 从模板加载数据
     function loadFromTemplate(template) {
@@ -453,6 +456,14 @@
                 if (config.token_type) {
                     document.getElementById('token_type').value = config.token_type;
                     document.getElementById('token_type').dispatchEvent(new Event('change'));
+                }
+                if (config.token_id) {
+                    pendingTokenSelection = {
+                        token_id: config.token_id,
+                        token_file: config.token_file || '',
+                        token_selection_mode: config.token_selection_mode || ''
+                    };
+                    applyPendingTokenSelection();
                 }
                 
                 if (config.token_file) {
@@ -516,6 +527,7 @@
         const spreadsheetInput = document.getElementById('spreadsheet').value;
         const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
         const tokenType = document.getElementById('token_type').value;
+        const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
         const tokenFile = document.getElementById('token_file').value;
         const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
@@ -545,6 +557,7 @@
         // 准备请求数据
         const requestData = {
             spreadsheet_id: spreadsheetId,
+            token_id: tokenType === 'file' ? tokenId : undefined,
             token_file: tokenType === 'file' ? tokenFile : undefined,
             proxy_url: proxyUrl || undefined
         };
@@ -623,8 +636,167 @@
     }
 
     // 页面加载完成后绑定事件
+    function initTokenSelectorUI() {
+        const container = document.getElementById('token_file_container');
+        if (!container || container.getAttribute('data-token-selector-ready') === '1') {
+            return;
+        }
+
+        container.setAttribute('data-token-selector-ready', '1');
+        container.innerHTML = `
+            <label for="token_id" class="form-label">
+                <i class="bi bi-file-earmark-lock"></i> Token閫夋嫨
+            </label>
+            <select class="form-select mb-2" id="token_id">
+                <option value="">姝ｅ湪鍔犺浇Token...</option>
+            </select>
+            <input type="hidden" id="token_file" value="">
+            <div class="input-group">
+                <input type="text" class="form-control" id="token_import_path" placeholder="杈撳叆Token鏂囦欢璺緞鍚庣偣鍑诲鍏?">
+                <button type="button" class="btn btn-outline-primary" id="import-token-btn">瀵煎叆</button>
+            </div>
+            <div class="form-text">鏀寔閫夋嫨宸叉湁Token锛屼篃鍙€夋嫨闅忔満Token鎸夊綋鍓嶄娇鐢ㄦ暟鍧囪　鍒嗛厤</div>
+        `;
+    }
+
+    function syncSelectedTokenMeta() {
+        const tokenTypeEl = document.getElementById('token_type');
+        const tokenIdEl = document.getElementById('token_id');
+        const tokenFileEl = document.getElementById('token_file');
+        if (!tokenTypeEl || !tokenIdEl || !tokenFileEl) {
+            return;
+        }
+
+        if (tokenTypeEl.value !== 'file') {
+            tokenFileEl.value = '';
+            return;
+        }
+
+        const selected = googleSheetTokens.find(token => String(token.id) === String(tokenIdEl.value));
+        tokenFileEl.value = selected ? (selected.token_file || '') : '';
+    }
+
+    function applyPendingTokenSelection() {
+        const tokenIdEl = document.getElementById('token_id');
+        const tokenFileEl = document.getElementById('token_file');
+        if (!tokenIdEl || !tokenFileEl) {
+            return;
+        }
+
+        if (!pendingTokenSelection) {
+            syncSelectedTokenMeta();
+            return;
+        }
+
+        const tokenId = pendingTokenSelection.token_id;
+        const tokenFile = pendingTokenSelection.token_file;
+        let matchedValue = '';
+
+        if (tokenId && Array.from(tokenIdEl.options).some(option => option.value === String(tokenId))) {
+            matchedValue = String(tokenId);
+        } else if (tokenFile) {
+            const matchedToken = googleSheetTokens.find(token => token.token_file === tokenFile);
+            if (matchedToken) {
+                matchedValue = String(matchedToken.id);
+            }
+        }
+
+        if (!matchedValue && pendingTokenSelection.token_selection_mode === googleSheetRandomValue) {
+            matchedValue = googleSheetRandomValue;
+        }
+
+        if (matchedValue) {
+            tokenIdEl.value = matchedValue;
+        }
+
+        tokenFileEl.value = tokenFile || '';
+        syncSelectedTokenMeta();
+    }
+
+    function renderGoogleSheetTokenOptions(tokens) {
+        const tokenIdEl = document.getElementById('token_id');
+        if (!tokenIdEl) {
+            return;
+        }
+
+        tokenIdEl.innerHTML = '';
+
+        const randomOption = document.createElement('option');
+        randomOption.value = googleSheetRandomValue;
+        randomOption.textContent = '闅忔満Token锛堟寜鏈€浣庝娇鐢ㄦ暟鍧囪　鍒嗛厤锛?';
+        tokenIdEl.appendChild(randomOption);
+
+        tokens.forEach(token => {
+            const option = document.createElement('option');
+            option.value = String(token.id);
+            option.textContent = `${token.name} | 宸茬敤 ${token.task_usage_count} | 涓婇檺 ${token.max_usage_count > 0 ? token.max_usage_count : '鏃犻檺'}`;
+            option.disabled = !token.is_available;
+            tokenIdEl.appendChild(option);
+        });
+
+        applyPendingTokenSelection();
+    }
+
+    function loadGoogleSheetTokens(preferredValue = null) {
+        if (preferredValue) {
+            pendingTokenSelection = { token_id: preferredValue };
+        }
+
+        fetch('/api/google-sheet-tokens')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '鍔犺浇Token澶辫触');
+                }
+                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
+                googleSheetRandomValue = data.random_value || '__random__';
+                renderGoogleSheetTokenOptions(googleSheetTokens);
+            })
+            .catch(error => {
+                const tokenIdEl = document.getElementById('token_id');
+                if (tokenIdEl) {
+                    tokenIdEl.innerHTML = '<option value="">鍔犺浇Token澶辫触</option>';
+                }
+                console.error('鍔犺浇Google Sheet Token澶辫触:', error);
+            });
+    }
+
+    function importGoogleSheetToken() {
+        const input = document.getElementById('token_import_path');
+        const tokenFile = input ? input.value.trim() : '';
+        if (!tokenFile) {
+            showNotification('璇疯緭鍏oken鏂囦欢璺緞', 'warning');
+            return;
+        }
+
+        fetch('/api/google-sheet-tokens/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ token_file: tokenFile })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '瀵煎叆Token澶辫触');
+                }
+                showNotification(data.message || 'Token瀵煎叆鎴愬姛', 'success');
+                pendingTokenSelection = { token_id: data.token && data.token.id ? String(data.token.id) : '' };
+                loadGoogleSheetTokens();
+                if (input) {
+                    input.value = '';
+                }
+            })
+            .catch(error => {
+                showNotification(`瀵煎叆Token澶辫触: ${error.message}`, 'error');
+            });
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
+        initTokenSelectorUI();
         bindEvents();
+        loadGoogleSheetTokens();
         loadTemplates(); // 加载模板列表
         
         // URL 参数驱动的数据加载：
@@ -758,6 +930,14 @@
                     document.getElementById('token_type').value = config.token_type;
                     document.getElementById('token_type').dispatchEvent(new Event('change'));
                 }
+                if (config.token_id) {
+                    pendingTokenSelection = {
+                        token_id: config.token_id,
+                        token_file: config.token_file || '',
+                        token_selection_mode: config.token_selection_mode || ''
+                    };
+                    applyPendingTokenSelection();
+                }
                 if (config.token_file) {
                     document.getElementById('token_file').value = config.token_file;
                 }
@@ -832,8 +1012,22 @@
                 fileContainer.style.display = 'none';
                 jsonContainer.style.display = 'block';
             }
+            syncSelectedTokenMeta();
             debouncedSaveFormData();
         });
+
+        const tokenIdEl = document.getElementById('token_id');
+        if (tokenIdEl) {
+            tokenIdEl.addEventListener('change', function() {
+                syncSelectedTokenMeta();
+                debouncedSaveFormData();
+            });
+        }
+
+        const importTokenBtn = document.getElementById('import-token-btn');
+        if (importTokenBtn) {
+            importTokenBtn.addEventListener('click', importGoogleSheetToken);
+        }
 
         // 参数输入变化事件
         document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
@@ -845,7 +1039,7 @@
 
         // 为所有输入字段添加自动保存
         const inputFields = [
-            'spreadsheet', 'custom_sheet_name', 'token_file', 'token_json', 'proxy_url'
+            'spreadsheet', 'custom_sheet_name', 'token_import_path', 'token_json', 'proxy_url'
         ];
         
         inputFields.forEach(function(fieldId) {
@@ -1046,6 +1240,7 @@
         const customSheetName = document.getElementById('custom_sheet_name').value;
         const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
         const tokenType = document.getElementById('token_type').value;
+        const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
         const tokenFile = document.getElementById('token_file').value;
         const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
@@ -1061,7 +1256,7 @@
             return;
         }
         
-        if (tokenType === 'file' && !tokenFile) {
+        if (tokenType === 'file' && !tokenId) {
             showNotification('请输入Token文件路径', 'error');
             return;
         }
@@ -1093,6 +1288,7 @@
             spreadsheet_id: spreadsheetId,
             sheet_name: sheetName,
             token_type: tokenType,
+            token_id: tokenType === 'file' ? tokenId : null,
             token_file: tokenFile,
             token_json: tokenJson,
             proxy_url: proxyUrl || null,
@@ -1175,6 +1371,7 @@
             sheet_name: document.getElementById('sheet_name').value,
             custom_sheet_name: document.getElementById('custom_sheet_name').value,
             token_type: document.getElementById('token_type').value,
+            token_id: document.getElementById('token_id') ? document.getElementById('token_id').value : '',
             token_file: document.getElementById('token_file').value,
             token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
@@ -1211,6 +1408,10 @@
                 }
                 if (formData.custom_sheet_name) document.getElementById('custom_sheet_name').value = formData.custom_sheet_name;
                 if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
+                if (formData.token_id) {
+                    pendingTokenSelection = { token_id: formData.token_id, token_file: formData.token_file || '' };
+                    applyPendingTokenSelection();
+                }
                 if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
                 if (formData.token_json) document.getElementById('token_json').value = formData.token_json;
                 if (formData.proxy_url) document.getElementById('proxy_url').value = formData.proxy_url;
@@ -1280,6 +1481,7 @@
             const customSheetName = document.getElementById('custom_sheet_name').value;
             const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
             const tokenType = document.getElementById('token_type').value;
+            const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
             const tokenFile = document.getElementById('token_file').value;
             const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
@@ -1295,7 +1497,7 @@
                 return null;
             }
 
-            if (tokenType === 'file' && !tokenFile) {
+            if (tokenType === 'file' && !tokenId) {
                 showError('请输入Token文件路径');
                 return null;
             }
@@ -1324,6 +1526,7 @@
                 spreadsheet_id: spreadsheetId,
                 sheet_name: sheetName,
                 token_type: tokenType,
+                token_id: tokenType === 'file' ? tokenId : null,
                 token_file: tokenFile,
                 token_json: tokenJson,
                 proxy_url: proxyUrl || null,
@@ -1415,6 +1618,14 @@
                 document.getElementById('token_type').value = restartConfig.token_type;
                 // 触发change事件来显示对应的输入框
                 document.getElementById('token_type').dispatchEvent(new Event('change'));
+            }
+            if (restartConfig.token_id) {
+                pendingTokenSelection = {
+                    token_id: restartConfig.token_id,
+                    token_file: restartConfig.token_file || '',
+                    token_selection_mode: restartConfig.token_selection_mode || ''
+                };
+                applyPendingTokenSelection();
             }
             if (restartConfig.token_file) {
                 document.getElementById('token_file').value = restartConfig.token_file;

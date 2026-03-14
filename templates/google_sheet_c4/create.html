@@ -241,11 +241,21 @@
                                             </select>
                                         </div>
                                         <div class="col-md-6 mb-3" id="token_file_container">
-                                            <label for="token_file" class="form-label">
-                                                <i class="bi bi-file-earmark-text"></i> Token文件路径
+                                            <label for="token_id" class="form-label">
+                                                <i class="bi bi-file-earmark-lock"></i> Token选择
                                             </label>
-                                            <input type="text" class="form-control" id="token_file" 
-                                                   placeholder="请输入Token文件路径" value="data/token.json">
+                                            <select class="form-select mb-2" id="token_id">
+                                                <option value="">正在加载Token...</option>
+                                            </select>
+                                            <input type="hidden" id="token_file" value="">
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="token_import_path"
+                                                       placeholder="输入Token文件路径后点击导入">
+                                                <button type="button" class="btn btn-outline-primary" id="import-token-btn">
+                                                    导入
+                                                </button>
+                                            </div>
+                                            <div class="form-text">支持选择指定Token，或选择“随机Token（按最低使用数均衡分配）”</div>
                                         </div>
                                         <div class="col-md-6 mb-3" id="token_json_container" style="display: none;">
                                             <label for="token_json" class="form-label">
@@ -509,6 +519,10 @@
 
 {% block scripts %}
 <script>
+    let googleSheetTokens = [];
+    let googleSheetRandomValue = '__random__';
+    let pendingTokenSelection = null;
+
     let currentTaskId = null;
     let eventSource = null;
     let productCodes = [];
@@ -676,6 +690,7 @@
         const spreadsheetInput = spreadsheetInputEl.value;
         const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
         const tokenType = document.getElementById('token_type').value;
+        const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
         const tokenFile = document.getElementById('token_file').value;
         const proxyUrl = document.getElementById('proxy_url').value;
 
@@ -701,6 +716,7 @@
         // 准备请求数据
         const requestData = {
             spreadsheet_id: spreadsheetId,
+            token_id: tokenType === 'file' ? tokenId : undefined,
             token_file: tokenType === 'file' ? tokenFile : undefined,
             proxy_url: proxyUrl || undefined
         };
@@ -797,9 +813,143 @@
         }
     }
 
+    function syncSelectedTokenMeta() {
+        const tokenTypeEl = document.getElementById('token_type');
+        const tokenIdEl = document.getElementById('token_id');
+        const tokenFileEl = document.getElementById('token_file');
+        if (!tokenTypeEl || !tokenIdEl || !tokenFileEl) {
+            return;
+        }
+
+        if (tokenTypeEl.value !== 'file') {
+            tokenFileEl.value = '';
+            return;
+        }
+
+        const selected = googleSheetTokens.find(token => String(token.id) === String(tokenIdEl.value));
+        tokenFileEl.value = selected ? (selected.token_file || '') : '';
+    }
+
+    function applyPendingTokenSelection() {
+        if (!pendingTokenSelection) {
+            syncSelectedTokenMeta();
+            return;
+        }
+
+        const tokenIdEl = document.getElementById('token_id');
+        const tokenFileEl = document.getElementById('token_file');
+        if (!tokenIdEl || !tokenFileEl) {
+            return;
+        }
+
+        const tokenId = pendingTokenSelection.token_id;
+        const tokenFile = pendingTokenSelection.token_file;
+        let matchedValue = '';
+
+        if (tokenId && Array.from(tokenIdEl.options).some(option => option.value === String(tokenId))) {
+            matchedValue = String(tokenId);
+        } else if (tokenFile) {
+            const matchedToken = googleSheetTokens.find(token => token.token_file === tokenFile);
+            if (matchedToken) {
+                matchedValue = String(matchedToken.id);
+            }
+        }
+
+        if (!matchedValue && pendingTokenSelection.token_selection_mode === googleSheetRandomValue) {
+            matchedValue = googleSheetRandomValue;
+        }
+
+        if (matchedValue) {
+            tokenIdEl.value = matchedValue;
+        }
+        tokenFileEl.value = tokenFile || '';
+        syncSelectedTokenMeta();
+    }
+
+    function renderGoogleSheetTokenOptions(tokens) {
+        const tokenIdEl = document.getElementById('token_id');
+        if (!tokenIdEl) {
+            return;
+        }
+
+        tokenIdEl.innerHTML = '';
+
+        const randomOption = document.createElement('option');
+        randomOption.value = googleSheetRandomValue;
+        randomOption.textContent = '随机Token（按最低使用数均衡分配）';
+        tokenIdEl.appendChild(randomOption);
+
+        tokens.forEach(token => {
+            const option = document.createElement('option');
+            option.value = String(token.id);
+            option.textContent = `${token.name} | 已用 ${token.task_usage_count} | 上限 ${token.max_usage_count > 0 ? token.max_usage_count : '无限'}`;
+            option.disabled = !token.is_available;
+            tokenIdEl.appendChild(option);
+        });
+
+        applyPendingTokenSelection();
+    }
+
+    function loadGoogleSheetTokens(preferredValue = null) {
+        if (preferredValue) {
+            pendingTokenSelection = { token_id: preferredValue };
+        }
+
+        fetch('/api/google-sheet-tokens')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '加载Token失败');
+                }
+                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
+                googleSheetRandomValue = data.random_value || '__random__';
+                renderGoogleSheetTokenOptions(googleSheetTokens);
+            })
+            .catch(error => {
+                const tokenIdEl = document.getElementById('token_id');
+                if (tokenIdEl) {
+                    tokenIdEl.innerHTML = '<option value="">加载Token失败</option>';
+                }
+                console.error('加载Google Sheet Token失败:', error);
+            });
+    }
+
+    function importGoogleSheetToken() {
+        const input = document.getElementById('token_import_path');
+        const tokenFile = input ? input.value.trim() : '';
+        if (!tokenFile) {
+            showNotification('请输入Token文件路径', 'warning');
+            return;
+        }
+
+        fetch('/api/google-sheet-tokens/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ token_file: tokenFile })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '导入Token失败');
+                }
+                showNotification(data.message || 'Token导入成功', 'success');
+                pendingTokenSelection = { token_id: data.token && data.token.id ? String(data.token.id) : '' };
+                loadGoogleSheetTokens();
+                if (input) {
+                    input.value = '';
+                }
+            })
+            .catch(error => {
+                showNotification(`导入Token失败: ${error.message}`, 'error');
+            });
+    }
+
     // 页面加载完成后绑定事件
     document.addEventListener('DOMContentLoaded', function() {
         bindEvents();
+        loadGoogleSheetTokens();
         loadTemplates(); // 加载模板列表
 
         // URL 参数驱动的数据加载：
@@ -835,8 +985,8 @@
 
         // 为其他输入字段添加防抖的自动保存
         const inputFields = [
-            'task_name', 'task_description', 'custom_sheet_name', 
-            'token_file', 'token_json', 'proxy_url'
+            'task_name', 'task_description', 'custom_sheet_name',
+            'token_import_path', 'token_json', 'proxy_url'
         ];
         
         inputFields.forEach(function(fieldId) {
@@ -975,6 +1125,12 @@
                     document.getElementById('token_type').value = config.token_type;
                     document.getElementById('token_type').dispatchEvent(new Event('change'));
                 }
+                pendingTokenSelection = {
+                    token_id: config.token_id || '',
+                    token_file: config.token_file || '',
+                    token_selection_mode: config.token_selection_mode || ''
+                };
+                applyPendingTokenSelection();
                 if (config.token_file) {
                     document.getElementById('token_file').value = config.token_file;
                 }
@@ -1154,12 +1310,26 @@
             if (this.value === 'file') {
                 fileContainer.style.display = 'block';
                 jsonContainer.style.display = 'none';
+                syncSelectedTokenMeta();
             } else {
                 fileContainer.style.display = 'none';
                 jsonContainer.style.display = 'block';
             }
             debouncedSaveFormData();
         });
+
+        const tokenIdEl = document.getElementById('token_id');
+        if (tokenIdEl) {
+            tokenIdEl.addEventListener('change', function() {
+                syncSelectedTokenMeta();
+                debouncedSaveFormData();
+            });
+        }
+
+        const importTokenBtn = document.getElementById('import-token-btn');
+        if (importTokenBtn) {
+            importTokenBtn.addEventListener('click', importGoogleSheetToken);
+        }
 
         // 参数输入变化事件
         document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
@@ -1527,6 +1697,7 @@
         const customSheetName = document.getElementById('custom_sheet_name').value;
         const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
         const tokenType = document.getElementById('token_type').value;
+        const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
         const tokenFile = document.getElementById('token_file').value;
         const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
@@ -1547,8 +1718,8 @@
             return;
         }
         
-        if (tokenType === 'file' && !tokenFile) {
-            showNotification('请输入Token文件路径', 'error');
+        if (tokenType === 'file' && !tokenId) {
+            showNotification('请选择Token', 'error');
             return;
         }
         
@@ -1625,6 +1796,7 @@
         // 构造任务配置（C4 任务仅使用 sheets 数组，不再重复顶层 spreadsheet_id/sheet_name）
         const taskConfig = {
             token_type: tokenType,
+            token_id: tokenType === 'file' ? tokenId : null,
             token_file: tokenFile,
             token_json: tokenJson,
             proxy_url: proxyUrl || null,
@@ -1714,6 +1886,7 @@
             sheet_name: document.getElementById('sheet_name').value,
             custom_sheet_name: document.getElementById('custom_sheet_name').value,
             token_type: document.getElementById('token_type').value,
+            token_id: document.getElementById('token_id') ? document.getElementById('token_id').value : '',
             token_file: document.getElementById('token_file').value,
             token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
@@ -1748,6 +1921,9 @@
                 }
                 if (formData.custom_sheet_name) document.getElementById('custom_sheet_name').value = formData.custom_sheet_name;
                 if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
+                if (formData.token_id) {
+                    pendingTokenSelection = { token_id: formData.token_id, token_file: formData.token_file || '' };
+                }
                 if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
                 if (formData.token_json) document.getElementById('token_json').value = formData.token_json;
                 if (formData.proxy_url) document.getElementById('proxy_url').value = formData.proxy_url;
@@ -1825,6 +2001,7 @@
             const customSheetName = document.getElementById('custom_sheet_name').value;
             const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
             const tokenType = document.getElementById('token_type').value;
+            const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
             const tokenFile = document.getElementById('token_file').value;
             const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
@@ -1844,8 +2021,8 @@
                 return null;
             }
 
-            if (tokenType === 'file' && !tokenFile) {
-                showError('请输入Token文件路径');
+            if (tokenType === 'file' && !tokenId) {
+                showError('请选择Token');
                 return null;
             }
 
@@ -1911,6 +2088,7 @@
             return {
                 task_type: 'google_sheet_C4',
                 token_type: tokenType,
+                token_id: tokenType === 'file' ? tokenId : null,
                 token_file: tokenFile,
                 token_json: tokenJson,
                 proxy_url: proxyUrl || null,
@@ -2005,6 +2183,7 @@
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',
             token_type: raw.token_type || 'file',
+            token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',
             token_json: raw.token_json || '',
             proxy_url: raw.proxy_url || null,
@@ -2078,6 +2257,12 @@
                 // 触发change事件来显示对应的输入框
                 document.getElementById('token_type').dispatchEvent(new Event('change'));
             }
+            pendingTokenSelection = {
+                token_id: restartConfig.token_id || '',
+                token_file: restartConfig.token_file || '',
+                token_selection_mode: restartConfig.token_selection_mode || ''
+            };
+            applyPendingTokenSelection();
             if (restartConfig.token_file) {
                 document.getElementById('token_file').value = restartConfig.token_file;
             }

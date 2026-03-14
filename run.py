@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from app import create_app
 from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, SystemConfig, ScheduledTask
+from app.models import Task, TaskLog, TaskResult, SystemConfig, ScheduledTask, GoogleSheetToken
 from app.config import init_config as init_config2
 from app.utils.logger import initialize_logging
 app = create_app()
@@ -19,7 +19,8 @@ def make_shell_context():
         'TaskLog': TaskLog,
         'TaskResult': TaskResult,
         'SystemConfig': SystemConfig,
-        'ScheduledTask': ScheduledTask
+        'ScheduledTask': ScheduledTask,
+        'GoogleSheetToken': GoogleSheetToken
     }
 
 @app.cli.command()

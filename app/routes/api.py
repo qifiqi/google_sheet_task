@@ -5,10 +5,11 @@ import json
 import queue
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
-from app.models import Task, TaskLog, TaskTemplate, TaskResult, SystemConfig, db
+from app.models import Task, TaskLog, TaskTemplate, TaskResult, SystemConfig, GoogleSheetToken, db
 from app.utils.logger import get_logger
 from flask import current_app
 from app.services.google_sheet_service import GoogleSheetService
+from app.services.google_sheet_token_service import get_google_sheet_token_service, RANDOM_TOKEN_VALUE
 
 logger = get_logger(__name__)
 
@@ -46,10 +47,17 @@ def tasks():
 
             if task_manager.start_task(task_id):
                 return jsonify({"status": "success", "task_id": task_id, "message": "任务创建并启动成功"})
-            return jsonify({"status": "error", "task_id": task_id, "message": "任务创建成功，但启动失败"})
+            return jsonify({
+                "status": "error",
+                "task_id": task_id,
+                "message": task_manager.get_start_error(task_id)
+            }), 400
 
         return jsonify({"status": "error", "message": "任务配置为空"}), 400
 
+    except ValueError as e:
+        logger.warning(f"处理任务接口校验失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
         logger.error(f"处理任务接口失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -583,12 +591,20 @@ def get_worksheets():
 
         spreadsheet_id = data.get('spreadsheet_id')
         token_file = data.get('token_file', 'data/token.json')
+        token_id = data.get('token_id')
         proxy_url = data.get('proxy_url')
 
         if not spreadsheet_id:
             return jsonify({"status": "error", "message": "缺少spreadsheet_id参数"}), 400
+
+        if token_id:
+            token = get_google_sheet_token_service()._pick_token(token_id)
+            token_file = get_google_sheet_token_service().ensure_token_file(token)
+
         result, status_code = _get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
         return jsonify(result), status_code
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
         logger.error(f"获取工作表列表失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -847,7 +863,103 @@ def get_latest_logs():
         logger.error(f"获取最新日志失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@api_bp.route('/google-sheet-tokens', methods=['GET'])
+def list_google_sheet_tokens():
+    """获取Google Sheet Token列表"""
+    try:
+        return jsonify({
+            "status": "success",
+            "random_value": RANDOM_TOKEN_VALUE,
+            "tokens": get_google_sheet_token_service().list_tokens(),
+            "summary": get_google_sheet_token_service().get_usage_summary()
+        })
+    except Exception as e:
+        logger.error(f"获取Google Sheet Token列表失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@api_bp.route('/google-sheet-tokens/<int:token_id>', methods=['GET', 'PUT'])
+def google_sheet_token_detail(token_id):
+    """获取或更新 Google Sheet Token"""
+    try:
+        token_service = get_google_sheet_token_service()
+
+        if request.method == 'GET':
+            include_context = request.args.get('include_context', '0') in ('1', 'true', 'True')
+            return jsonify({
+                "status": "success",
+                "token": token_service.get_token(token_id, include_context=include_context)
+            })
+
+        data = request.get_json() or {}
+        payload = {}
+        for key in ('name', 'token_context', 'is_active'):
+            if key in data:
+                payload[key] = data.get(key)
+        if 'max_usage_count' in data:
+            payload['max_usage_count'] = data.get('max_usage_count')
+
+        token = token_service.update_token(token_id, **payload)
+        return jsonify({
+            "status": "success",
+            "message": "Token更新成功",
+            "token": token
+        })
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"处理Google Sheet Token详情失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@api_bp.route('/google-sheet-tokens/import', methods=['POST'])
+def import_google_sheet_token():
+    """导入Google Sheet Token"""
+    try:
+        data = request.get_json() or {}
+        token_file = (data.get('token_file') or '').strip()
+        name = (data.get('name') or '').strip() or None
+        max_usage_count = data.get('max_usage_count')
+        if max_usage_count not in (None, ''):
+            max_usage_count = int(max_usage_count)
+        else:
+            max_usage_count = None
+
+        token, created = get_google_sheet_token_service().import_token(
+            token_file=token_file,
+            name=name,
+            max_usage_count=max_usage_count
+        )
+        return jsonify({
+            "status": "success",
+            "message": "Token导入成功" if created else "Token已更新",
+            "token": token
+        })
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        logger.error(f"导入Google Sheet Token失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # 数据库监控相关API
+@api_bp.route('/google-sheet-tokens/<int:token_id>', methods=['DELETE'])
+def delete_google_sheet_token(token_id):
+    """删除 Google Sheet Token"""
+    try:
+        token = GoogleSheetToken.query.get(token_id)
+        if not token:
+            return jsonify({"status": "error", "message": "Token不存在"}), 404
+
+        db.session.delete(token)
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Token删除成功"})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"删除Google Sheet Token失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @api_bp.route('/database/status', methods=['GET'])
 def get_database_status():
     """获取数据库状态"""

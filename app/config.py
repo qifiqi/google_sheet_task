@@ -102,6 +102,7 @@ def init_config():
         'spreadsheet_id': '',
         'sheet_name': 'data',
         'token_file': 'data/token.json',
+        'google_sheet_token_global_max_usage': 0,
         'proxy_url': None,
         'max_concurrent_tasks': 5,
         'task_timeout': 36000,

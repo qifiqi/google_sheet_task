@@ -13,6 +13,7 @@ from app.services.google_sheet_service_C5 import GoogleSheetService as GoogleShe
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.database import transaction_required, safe_delete, safe_update, safe_create
 from app.services.config_manager import get_config_manager
+from app.services.google_sheet_token_service import get_google_sheet_token_service
 
 logger = get_logger(__name__)
 
@@ -22,6 +23,7 @@ class TaskManager:
     def __init__(self):
         self.running_tasks: Dict[str, threading.Thread] = {}
         self.task_events: Dict[str, queue.Queue] = {}
+        self.start_errors: Dict[str, str] = {}
         # 不再在初始化时缓存配置，而是每次动态获取
     
     def _get_config(self, key: str, default: Any = None) -> Any:
@@ -33,6 +35,9 @@ class TaskManager:
     def create_task(self, name: str, description: str, task_type: str, config: Dict[str, Any]) -> str:
         """创建新任务"""
         task_id = str(uuid.uuid4())
+
+        if isinstance(config, dict):
+            config = get_google_sheet_token_service().prepare_task_config(config)
         
         # 确保配置被正确序列化
         config_str = json.dumps(config) if isinstance(config, dict) else str(config)
@@ -56,6 +61,7 @@ class TaskManager:
     
     def start_task(self, task_id: str) -> bool:
         """启动任务"""
+        self.start_errors.pop(task_id, None)
         # 创建任务专用日志记录器
         task_logger = get_task_logger(task_id, f"{__name__}.start")
         
@@ -64,6 +70,7 @@ class TaskManager:
         
         if len(self.running_tasks) >= max_concurrent:
             error_msg = f"任务队列已满，无法启动任务 (当前运行: {len(self.running_tasks)}, 最大并发数: {max_concurrent})"
+            self.start_errors[task_id] = error_msg
             task_logger.warning(error_msg)
             logger.warning(f"任务队列已满，无法启动任务: {task_id} (最大并发数: {max_concurrent})")
             return False
@@ -71,14 +78,30 @@ class TaskManager:
         task = Task.query.get(task_id)
         if not task:
             error_msg = "任务不存在"
+            self.start_errors[task_id] = error_msg
             task_logger.error(error_msg)
             logger.error(f"任务不存在: {task_id}")
             return False
         
         if task.status != 'pending':
             error_msg = f"任务状态不是pending，当前状态: {task.status}"
+            self.start_errors[task_id] = error_msg
             task_logger.warning(error_msg)
             logger.warning(f"任务状态不是pending，无法启动: {task_id}")
+            return False
+
+        try:
+            config_data = json.loads(task.config) if isinstance(task.config, str) else (task.config or {})
+            token_id = config_data.get('token_id')
+            if token_id:
+                token_service = get_google_sheet_token_service()
+                token_service.validate_task_start(config_data)
+                token_service.increment_usage(token_id)
+        except Exception as e:
+            error_msg = str(e)
+            self.start_errors[task_id] = error_msg
+            task_logger.warning(f"Token校验失败，无法启动任务: {error_msg}")
+            logger.warning(f"Token校验失败，任务无法启动: {task_id}, {error_msg}")
             return False
         
         task_logger.info(f"开始启动任务 - 名称: {task.name}, 类型: {task.task_type}")
@@ -112,6 +135,9 @@ class TaskManager:
         task_logger.info("任务执行线程启动成功")
         logger.info(f"启动任务: {task_id}")
         return True
+
+    def get_start_error(self, task_id: str) -> str:
+        return self.start_errors.get(task_id, '任务启动失败')
 
     @transaction_required
     def cancel_task(self, task_id: str) -> bool:
