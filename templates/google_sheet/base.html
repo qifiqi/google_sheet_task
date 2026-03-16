@@ -104,20 +104,24 @@
             xhr.open(method, url, true);
             xhr.setRequestHeader('Content-Type', 'application/json');
             xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4) {
-                    if (xhr.status === 200) {
-                        try {
-                            // 清理响应文本中的NaN值
-                            const sanitizedResponse = sanitizeJSONString(xhr.responseText);
-                            const response = JSON.parse(sanitizedResponse);
-                            callback(null, response);
-                        } catch (e) {
-                            callback(e, null);
-                        }
-                    } else {
-                        callback(new Error(`Request failed with status ${xhr.status}`), null);
-                    }
+                if (xhr.readyState !== 4) {
+                    return;
                 }
+                    let response = null;
+                    try {
+                        const sanitizedResponse = sanitizeJSONString(xhr.responseText || '');
+                        response = sanitizedResponse ? JSON.parse(sanitizedResponse) : null;
+                    } catch (e) {
+                        response = null;
+                    }
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        callback(null, response);
+                    } else {
+                        const message = response && response.message
+                            ? response.message
+                            : `Request failed with status ${xhr.status}`;
+                        callback(new Error(message), response);
+                    }
             };
             xhr.send(data ? JSON.stringify(data) : null);
         }

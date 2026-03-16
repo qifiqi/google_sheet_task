@@ -170,6 +170,7 @@ class TaskManager:
         
         # 使用safe_update更新任务状态
         safe_update(task, commit=False, status='cancelled', end_time=datetime.now())
+        self._release_task_token_occupancy(task_id)
         
         # 清理资源
         if task_id in self.running_tasks:
@@ -316,6 +317,7 @@ class TaskManager:
                 task.current_step = 0
 
                 # 删除该任务历史结果，避免新一轮执行与旧结果混淆
+                self._release_task_token_occupancy(task_id)
                 TaskResult.query.filter_by(task_id=task_id).delete()
                 db.session.commit()
 
@@ -448,6 +450,7 @@ class TaskManager:
                     # 直接更新状态，避免嵌套事务
                     task.status = 'cancelled'
                     task.end_time = datetime.now()
+                    self._release_task_token_occupancy(task_id)
                 
                 # 删除任务结果
                 TaskResult.query.filter_by(task_id=task_id).delete()

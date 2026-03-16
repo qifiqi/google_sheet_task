@@ -419,7 +419,7 @@ class WorksheetsResource(Resource):
         """获取Google Sheet中的所有工作表名称（示例：{'spreadsheet_id':'1AbcXYZ...'}）"""
         data = request.get_json() or {}
         spreadsheet_id = data.get('spreadsheet_id')
-        token_file = data.get('token_file', 'data/token.json')
+        token_file = 'data/token.json'
         proxy_url = data.get('proxy_url')
 
         result, status_code = _get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)

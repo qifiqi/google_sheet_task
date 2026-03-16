@@ -590,16 +590,11 @@ def get_worksheets():
             return jsonify({"status": "error", "message": "请求数据为空"}), 400
 
         spreadsheet_id = data.get('spreadsheet_id')
-        token_file = data.get('token_file', 'data/token.json')
-        token_id = data.get('token_id')
+        token_file = 'data/token.json'
         proxy_url = data.get('proxy_url')
 
         if not spreadsheet_id:
             return jsonify({"status": "error", "message": "缺少spreadsheet_id参数"}), 400
-
-        if token_id:
-            token = get_google_sheet_token_service()._pick_token(token_id)
-            token_file = get_google_sheet_token_service().ensure_token_file(token)
 
         result, status_code = _get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
         return jsonify(result), status_code

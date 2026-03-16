@@ -342,18 +342,26 @@
             xhr.open(method, url, true);
             xhr.setRequestHeader('Content-Type', 'application/json');
             xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4) {
-                    if (xhr.status === 200) {
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            callback(null, response);
-                        } catch (e) {
-                            callback(e, null);
-                        }
-                    } else {
-                        callback(new Error('Request failed'), null);
-                    }
+                if (xhr.readyState !== 4) {
+                    return;
                 }
+
+                let response = null;
+                try {
+                    response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                } catch (e) {
+                    response = null;
+                }
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    callback(null, response);
+                    return;
+                }
+
+                const message = response && response.message
+                    ? response.message
+                    : `Request failed with status ${xhr.status}`;
+                callback(new Error(message), response);
             };
             xhr.send(data ? JSON.stringify(data) : null);
         }

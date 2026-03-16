@@ -682,10 +682,15 @@
         container.innerHTML = '';
         
         if (config) {
+            const tokenSelectionMode = config.token_selection_mode === '__random__'
+                ? '随机 Token'
+                : (config.token_selection_mode || '-');
             const configItems = [
                 { label: '电子表格ID', value: config.spreadsheet_id || '-', icon: 'bi-link-45deg' },
                 { label: '工作表名称', value: config.sheet_name || '-', icon: 'bi-file-spreadsheet' },
                 { label: '认证方式', value: config.token_type || '-', icon: 'bi-shield-lock' },
+                { label: 'Token 名称', value: config.token_name || '-', icon: 'bi-tag' },
+                { label: 'Token 选择模式', value: tokenSelectionMode, icon: 'bi-shuffle' },
                 { label: '代理URL', value: config.proxy_url || '无', icon: 'bi-globe' },
                 { label: '参数数量', value: config.parameters ? config.parameters.length : 0, icon: 'bi-list-ul' }
             ];

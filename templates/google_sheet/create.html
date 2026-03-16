@@ -637,12 +637,62 @@
 
     // 页面加载完成后绑定事件
     function initTokenSelectorUI() {
+        const tokenTypeEl = document.getElementById('token_type');
         const container = document.getElementById('token_file_container');
-        if (!container || container.getAttribute('data-token-selector-ready') === '1') {
+        const tokenJsonContainer = document.getElementById('token_json_container');
+        const proxyUrlEl = document.getElementById('proxy_url');
+        const cardBody = tokenTypeEl ? tokenTypeEl.closest('.card-body') : null;
+        if (!container || !tokenJsonContainer || !proxyUrlEl || !cardBody) {
+            return;
+        }
+
+        const existingAdvanced = document.getElementById('advanced-config');
+        if (!existingAdvanced) {
+            const advancedWrapper = document.createElement('div');
+            advancedWrapper.className = 'border-top pt-3 mt-3';
+            advancedWrapper.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-semibold"><i class="bi bi-sliders"></i> \u66f4\u591a\u914d\u7f6e</span>
+                    <button type="button" class="btn btn-link btn-sm p-0" id="toggle-advanced-config-btn">
+                        <span id="advanced-config-toggle-text">\u5c55\u5f00</span>
+                        <i class="bi bi-chevron-down ms-1" id="advanced-config-toggle-icon"></i>
+                    </button>
+                </div>
+                <div id="advanced-config" style="display: none;">
+                    <div class="row mt-2"></div>
+                </div>
+            `;
+            cardBody.appendChild(advancedWrapper);
+
+            const advancedRow = advancedWrapper.querySelector('.row');
+            const tokenTypeGroup = tokenTypeEl.closest('.col-md-6.mb-3');
+            const proxyGroup = proxyUrlEl.closest('.col-md-6.mb-3');
+            [tokenTypeGroup, container, tokenJsonContainer, proxyGroup]
+                .filter(Boolean)
+                .forEach(element => advancedRow.appendChild(element));
+        }
+
+        if (container.getAttribute('data-token-selector-ready') === '1') {
             return;
         }
 
         container.setAttribute('data-token-selector-ready', '1');
+        container.innerHTML = `
+            <label for="token_id" class="form-label">
+                <i class="bi bi-file-earmark-lock"></i> Token \u9009\u62e9
+            </label>
+            <select class="form-select mb-2" id="token_id">
+                <option value="">\u6b63\u5728\u52a0\u8f7d Token...</option>
+            </select>
+            <input type="hidden" id="token_file" value="">
+            <div class="input-group">
+                <input type="text" class="form-control" id="token_import_path" placeholder="\u8f93\u5165 Token \u6587\u4ef6\u8def\u5f84\u540e\u70b9\u51fb\u5bfc\u5165">
+                <button type="button" class="btn btn-outline-primary" id="import-token-btn">\u5bfc\u5165</button>
+            </div>
+            <div class="form-text">\u652f\u6301\u6307\u5b9a Token\uff0c\u6216\u9009\u62e9\u968f\u673a Token\u3002</div>
+        `;
+        return;
+
         container.innerHTML = `
             <label for="token_id" class="form-label">
                 <i class="bi bi-file-earmark-lock"></i> Token閫夋嫨
@@ -720,6 +770,23 @@
         }
 
         tokenIdEl.innerHTML = '';
+        {
+        const randomOption = document.createElement('option');
+        randomOption.value = googleSheetRandomValue;
+        randomOption.textContent = '\u968f\u673a Token\uff08\u7cfb\u7edf\u81ea\u52a8\u9009\u62e9\u672a\u8fbe\u4e0a\u9650\u7684 Token\uff09';
+        tokenIdEl.appendChild(randomOption);
+
+        tokens.forEach(token => {
+            const option = document.createElement('option');
+            option.value = String(token.id);
+            option.textContent = `${token.name} | \u5360\u7528 ${token.current_in_use_count || 0} | \u7d2f\u8ba1 ${token.task_usage_count} | \u4e0a\u9650 ${token.max_usage_count > 0 ? token.max_usage_count : '\u65e0\u9650'}`;
+            option.disabled = !token.is_available;
+            tokenIdEl.appendChild(option);
+        });
+
+        applyPendingTokenSelection();
+        return;
+        }
 
         const randomOption = document.createElement('option');
         randomOption.value = googleSheetRandomValue;
@@ -746,6 +813,25 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status !== 'success') {
+                    throw new Error(data.message || '\u52a0\u8f7d Token \u5217\u8868\u5931\u8d25');
+                }
+                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
+                googleSheetRandomValue = data.random_value || '__random__';
+                renderGoogleSheetTokenOptions(googleSheetTokens);
+            })
+            .catch(error => {
+                const tokenIdEl = document.getElementById('token_id');
+                if (tokenIdEl) {
+                    tokenIdEl.innerHTML = '<option value="">加载 Token 失败</option>';
+                }
+                console.error('加载 Google Sheet Token 失败', error);
+            });
+        return;
+
+        fetch('/api/google-sheet-tokens')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
                     throw new Error(data.message || '鍔犺浇Token澶辫触');
                 }
                 googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
@@ -764,6 +850,35 @@
     function importGoogleSheetToken() {
         const input = document.getElementById('token_import_path');
         const tokenFile = input ? input.value.trim() : '';
+        if (!tokenFile) {
+            showNotification('\u8bf7\u8f93\u5165 Token \u6587\u4ef6\u8def\u5f84', 'warning');
+            return;
+        }
+
+        fetch('/api/google-sheet-tokens/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ token_file: tokenFile })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '\u5bfc\u5165 Token \u5931\u8d25');
+                }
+                showNotification(data.message || 'Token 导入成功', 'success');
+                pendingTokenSelection = { token_id: data.token && data.token.id ? String(data.token.id) : '' };
+                loadGoogleSheetTokens();
+                if (input) {
+                    input.value = '';
+                }
+            })
+            .catch(error => {
+                showNotification(`导入 Token 失败: ${error.message}`, 'error');
+            });
+        return;
+
         if (!tokenFile) {
             showNotification('璇疯緭鍏oken鏂囦欢璺緞', 'warning');
             return;
@@ -1027,6 +1142,22 @@
         const importTokenBtn = document.getElementById('import-token-btn');
         if (importTokenBtn) {
             importTokenBtn.addEventListener('click', importGoogleSheetToken);
+        }
+        const toggleAdvancedBtn = document.getElementById('toggle-advanced-config-btn');
+        if (toggleAdvancedBtn) {
+            toggleAdvancedBtn.addEventListener('click', function() {
+                const advanced = document.getElementById('advanced-config');
+                const textSpan = document.getElementById('advanced-config-toggle-text');
+                const icon = document.getElementById('advanced-config-toggle-icon');
+                if (!advanced || !textSpan || !icon) {
+                    return;
+                }
+                const isHidden = advanced.style.display === 'none' || advanced.style.display === '';
+                advanced.style.display = isHidden ? 'block' : 'none';
+                textSpan.textContent = isHidden ? '收起' : '展开';
+                icon.classList.toggle('bi-chevron-down', !isHidden);
+                icon.classList.toggle('bi-chevron-up', isHidden);
+            });
         }
 
         // 参数输入变化事件

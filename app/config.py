@@ -148,48 +148,170 @@ def init_config():
     config_manager = get_config_manager()
 
     default_configs = {
-        'spreadsheet_id': '',
-        'sheet_name': 'data',
-        'token_file': 'data/token.json',
-        'google_sheet_token_global_max_usage': 0,
-        'proxy_url': None,
-        'max_concurrent_tasks': 20,
-        'task_timeout': 36000,
-        'task_status_check_timeout': 600,
-        'watchdog_enabled': True,
-        'watchdog_interval_seconds': 1800,
-        'watchdog_log_timeout_minutes': 30,
-        'execution_delay_min': 20,
-        'execution_delay_max': 30,
-        'api_retry_max_attempts': 10,
-        'api_retry_delay': 30,
-        'frontend_polling_interval': 15000,
-        'dashboard_refresh_interval': 30000,
-        'detail_refresh_interval': 60000,
-        'log_polling_interval': 3000,
-        'log_realtime_interval': 3000,
-        'tasks_admin_refresh_interval': 30000,
-        'parameter_positions': ['B6', 'B7', 'B9', 'B10', 'B11', 'B12'],
-        'check_positions': ['I6', 'I7', 'I9', 'I10', 'I11', 'I12'],
-        'result_positions': ['I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23'],
-        'c4_input_column_a': 'A',
-        'c4_input_column_b': 'B',
-        'c4_output_range_1': 'D2:D20',
-        'c4_output_range_2': 'D22:F25',
-        'c4_output_column_j': 'J',
-        'c4_output_column_l': 'L',
-        'c5_parameter_positions': ['A1', 'B1'],
-        'c5_check_positions': ['G1', 'H1'],
-        'c5_input_column_a': 'A',
-        'c5_input_column_b': 'B',
-        'c5_output_range_1': 'D2:D20',
-        'c5_output_range_2': 'D22:F25',
-        'c5_output_column_j': 'J',
-        'c5_output_column_l': 'L',
+        'spreadsheet_id': {
+            'value': '',
+            'description': '默认 Google Spreadsheet ID，为空时需在任务或页面配置中指定。',
+        },
+        'sheet_name': {
+            'value': 'data',
+            'description': '默认工作表名称。',
+        },
+        'token_file': {
+            'value': 'data/token.json',
+            'description': '默认单 token 文件路径；启用 token 池后可被任务级 token_file 覆盖。',
+        },
+        'google_sheet_token_global_max_usage': {
+            'value': 0,
+            'description': 'Google token 全局总占用上限，0 表示不限制。',
+        },
+        'proxy_url': {
+            'value': None,
+            'description': 'Google Sheet 请求默认代理地址，为空表示直连。',
+        },
+        'max_concurrent_tasks': {
+            'value': 20,
+            'description': '系统允许同时运行的任务总数上限。',
+        },
+        'task_timeout': {
+            'value': 36000,
+            'description': '单个任务执行超时时间，单位秒。',
+        },
+        'task_status_check_timeout': {
+            'value': 600,
+            'description': '任务状态检查超时时间，单位秒。',
+        },
+        'watchdog_enabled': {
+            'value': True,
+            'description': '是否启用任务看门狗线程。',
+        },
+        'watchdog_interval_seconds': {
+            'value': 1800,
+            'description': '看门狗巡检间隔，单位秒。',
+        },
+        'watchdog_log_timeout_minutes': {
+            'value': 30,
+            'description': '任务日志超过多少分钟未更新时，判定为可能卡死。',
+        },
+        'execution_delay_min': {
+            'value': 20,
+            'description': '批量执行时每步最小延迟，单位秒。',
+        },
+        'execution_delay_max': {
+            'value': 30,
+            'description': '批量执行时每步最大延迟，单位秒。',
+        },
+        'api_retry_max_attempts': {
+            'value': 10,
+            'description': '外部 API 最大重试次数。',
+        },
+        'api_retry_delay': {
+            'value': 30,
+            'description': '外部 API 重试间隔，单位秒。',
+        },
+        'frontend_polling_interval': {
+            'value': 15000,
+            'description': '前端任务轮询间隔，单位毫秒。',
+        },
+        'dashboard_refresh_interval': {
+            'value': 30000,
+            'description': '仪表盘自动刷新间隔，单位毫秒。',
+        },
+        'detail_refresh_interval': {
+            'value': 60000,
+            'description': '详情页自动刷新间隔，单位毫秒。',
+        },
+        'log_polling_interval': {
+            'value': 3000,
+            'description': '日志轮询间隔，单位毫秒。',
+        },
+        'log_realtime_interval': {
+            'value': 3000,
+            'description': '日志实时刷新间隔，单位毫秒。',
+        },
+        'tasks_admin_refresh_interval': {
+            'value': 30000,
+            'description': '管理页任务列表刷新间隔，单位毫秒。',
+        },
+        'parameter_positions': {
+            'value': ['B6', 'B7', 'B9', 'B10', 'B11', 'B12'],
+            'description': 'Google Sheet 主流程参数输入单元格位置列表。',
+        },
+        'check_positions': {
+            'value': ['I6', 'I7', 'I9', 'I10', 'I11', 'I12'],
+            'description': 'Google Sheet 主流程勾选/触发单元格位置列表。',
+        },
+        'result_positions': {
+            'value': ['I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23'],
+            'description': 'Google Sheet 主流程结果读取单元格位置列表。',
+        },
+        'c4_input_column_a': {
+            'value': 'A',
+            'description': 'C4 模板输入列 A 的列标识。',
+        },
+        'c4_input_column_b': {
+            'value': 'B',
+            'description': 'C4 模板输入列 B 的列标识。',
+        },
+        'c4_output_range_1': {
+            'value': 'D2:D20',
+            'description': 'C4 模板第一段结果读取区域。',
+        },
+        'c4_output_range_2': {
+            'value': 'D22:F25',
+            'description': 'C4 模板第二段结果读取区域。',
+        },
+        'c4_output_column_j': {
+            'value': 'J',
+            'description': 'C4 模板输出列 J 的列标识。',
+        },
+        'c4_output_column_l': {
+            'value': 'L',
+            'description': 'C4 模板输出列 L 的列标识。',
+        },
+        'c5_parameter_positions': {
+            'value': ['A1', 'B1'],
+            'description': 'C5 模板参数输入单元格位置列表。',
+        },
+        'c5_check_positions': {
+            'value': ['G1', 'H1'],
+            'description': 'C5 模板勾选/触发单元格位置列表。',
+        },
+        'c5_input_column_a': {
+            'value': 'A',
+            'description': 'C5 模板输入列 A 的列标识。',
+        },
+        'c5_input_column_b': {
+            'value': 'B',
+            'description': 'C5 模板输入列 B 的列标识。',
+        },
+        'c5_output_range_1': {
+            'value': 'D2:D20',
+            'description': 'C5 模板第一段结果读取区域。',
+        },
+        'c5_output_range_2': {
+            'value': 'D22:F25',
+            'description': 'C5 模板第二段结果读取区域。',
+        },
+        'c5_output_column_j': {
+            'value': 'J',
+            'description': 'C5 模板输出列 J 的列标识。',
+        },
+        'c5_output_column_l': {
+            'value': 'L',
+            'description': 'C5 模板输出列 L 的列标识。',
+        },
     }
 
-    existing_keys = {c.key for c in SystemConfig.query.with_entities(SystemConfig.key).all()}
-    for key, value in default_configs.items():
-        if key not in existing_keys:
-            config_manager.set_config(key, value)
+    existing_configs = {
+        row.key: row.description
+        for row in SystemConfig.query.with_entities(SystemConfig.key, SystemConfig.description).all()
+    }
+    for key, item in default_configs.items():
+        value = item['value']
+        description = item['description']
+        if key not in existing_configs:
+            config_manager.set_config(key, value, description=description)
             print(f"初始化默认配置: {key}")
+        elif not existing_configs.get(key):
+            config_manager.set_config(key, config_manager.get_config(key, value), description=description)
+            print(f"补充配置说明: {key}")
