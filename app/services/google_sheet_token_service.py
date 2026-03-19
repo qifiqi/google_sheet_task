@@ -27,7 +27,7 @@ class GoogleSheetTokenService:
     def get_token(self, token_id: int, include_context: bool = False):
         token = GoogleSheetToken.query.get(int(token_id))
         if not token:
-            raise ValueError("\u6240\u9009 Token \u4e0d\u5b58\u5728")
+            raise ValueError("?? Token ???")
         return token.to_dict(include_context=include_context)
 
     def import_token(
@@ -72,7 +72,7 @@ class GoogleSheetTokenService:
     def update_token(self, token_id: int, **payload):
         token = GoogleSheetToken.query.get(int(token_id))
         if not token:
-            raise ValueError("\u6240\u9009 Token \u4e0d\u5b58\u5728")
+            raise ValueError("?? Token ???")
 
         name = payload.get("name")
         max_usage_count = payload.get("max_usage_count")
@@ -158,7 +158,7 @@ class GoogleSheetTokenService:
 
         token = GoogleSheetToken.query.get(int(token_id))
         if not token:
-            raise ValueError("\u6240\u9009 Token \u4e0d\u5b58\u5728")
+            raise ValueError("?? Token ???")
 
         if not token.is_available():
             raise ValueError(
@@ -173,7 +173,7 @@ class GoogleSheetTokenService:
 
         token = GoogleSheetToken.query.get(int(token_id))
         if not token:
-            raise ValueError("\u6240\u9009 Token \u4e0d\u5b58\u5728")
+            raise ValueError("?? Token ???")
 
         if not token.is_available():
             raise ValueError(
@@ -206,16 +206,16 @@ class GoogleSheetTokenService:
             if not token_path.is_absolute():
                 token_path = Path.cwd() / token_path
             if not token_path.exists():
-                raise ValueError(f"token\u6587\u4ef6\u4e0d\u5b58\u5728: {token_file}")
+                raise ValueError(f"token?????: {token_file}")
             raw_context = token_path.read_text(encoding="utf-8")
 
         if not raw_context:
-            raise ValueError("token\u5185\u5bb9\u4e0d\u80fd\u4e3a\u7a7a")
+            raise ValueError("token??????")
 
         try:
             parsed = json.loads(raw_context)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"token\u5185\u5bb9\u4e0d\u662f\u6709\u6548JSON: {exc}") from exc
+            raise ValueError(f"token??????JSON: {exc}") from exc
 
         return json.dumps(parsed, ensure_ascii=False, indent=2)
 
@@ -241,7 +241,7 @@ class GoogleSheetTokenService:
 
         token = GoogleSheetToken.query.get(int(token_selection))
         if not token:
-            raise ValueError("\u6240\u9009 Token \u4e0d\u5b58\u5728")
+            raise ValueError("?? Token ???")
         if not token.is_available():
             raise ValueError(
                 f"Token [{token.name}] \u5df2\u8fbe\u5230\u6700\u5927\u5360\u7528\u6b21\u6570\uff0c\u8bf7\u66f4\u6362 Token"
@@ -257,7 +257,7 @@ class GoogleSheetTokenService:
         available = [token for token in tokens if token.is_available()]
         if not available:
             raise ValueError(
-                "\u6240\u6709 Token \u90fd\u5df2\u8fbe\u5230\u4e0a\u9650\uff0c\u8bf7\u5148\u8c03\u6574 Token \u6216\u7cfb\u7edf\u4e0a\u9650\u914d\u7f6e"
+                "?? Token ??????????? Token ???????"
             )
 
         min_usage = min(int(token.current_in_use_count or 0) for token in available)
@@ -274,7 +274,7 @@ class GoogleSheetTokenService:
         ).scalar() or 0
         if int(current_total) >= max_usage:
             raise ValueError(
-                f"\u6240\u6709 Token \u5f53\u524d\u5360\u7528\u6b21\u6570\u5df2\u8fbe\u5230\u7cfb\u7edf\u4e0a\u9650({max_usage})\uff0c\u505c\u6b62\u751f\u6210\u4efb\u52a1"
+                f"?? Token ?????????????({max_usage})???????"
             )
 
     def _get_global_max_usage(self):

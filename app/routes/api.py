@@ -931,7 +931,7 @@ def import_google_sheet_token():
         )
         return jsonify({
             "status": "success",
-            "message": "\u0054oken\u65b0\u589e\u6210\u529f" if created else "\u0054oken\u66f4\u65b0\u6210\u529f",
+            "message": "Token????" if created else "Token????",
             "token": token,
         })
     except ValueError as e:
