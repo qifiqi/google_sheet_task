@@ -58,7 +58,7 @@ class TaskWatchdog:
                 with app.app_context():
                     # running_tasks = Task.query.filter_by(status='running').all()
 
-                    status_list = ['running', 'pending']
+                    status_list = ['running']
                     running_tasks = Task.query.filter(Task.status.in_(status_list)).all()
 
                     for task in running_tasks:
@@ -74,12 +74,6 @@ class TaskWatchdog:
                         #     result = task_manager.restart_task(task.id, resume_from_checkpoint=True)
                         #     logger.warning(f"watchdog restart result: {task.id}, {result}")
                         #     continue
-
-                        if task.status == "pending":
-                            result = task_manager.restart_task(task.id, resume_from_checkpoint=True)
-                            logger.warning(f"status pending watchdog restart result: {task.id}, {result}")
-                            time.sleep(2)
-                            continue
 
                         # 检查任务日志更新时间
                         latest_log = TaskLog.query.filter_by(task_id=task.id).order_by(TaskLog.timestamp.desc()).first()

@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 class GoogleSheetService:
     """Google Sheet服务"""
 
-    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None):
+    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
         self.config = config
         self.google_sheet:Optional[GoogleSheet] = None
         self.api_client = StockAPIClient()
@@ -32,8 +32,26 @@ class GoogleSheetService:
         self.task_id = task_id
         self.event_queue = event_queue
         self.app = app
+        self.stop_event = stop_event
         # 创建任务专用日志记录器 - 不使用TaskLogger的前缀功能，我们自己控制格式
         self.task_logger = get_logger(f"{__name__}.{task_id}")
+
+    def _is_cancel_requested(self) -> bool:
+        if self.stop_event and self.stop_event.is_set():
+            return True
+        try:
+            task = Task.query.get(self.task_id)
+            return bool(task and task.status == 'cancelled')
+        except Exception:
+            return False
+
+    def _interruptible_sleep(self, seconds: float) -> bool:
+        if seconds <= 0:
+            return not self._is_cancel_requested()
+        if self.stop_event:
+            return not self.stop_event.wait(seconds)
+        time.sleep(seconds)
+        return not self._is_cancel_requested()
 
     def error_dd(self,error_msg):
         error_msg = self.app.notifier.error_google_task_templates(
@@ -68,6 +86,9 @@ class GoogleSheetService:
                 if task.status == 'cancelled':
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
                     return 'cancelled'
+                if self._is_cancel_requested():
+                    self._log_info(f'task {self.task_id} cancellation requested')
+                    return 'cancelled'
 
                 # 解析配置
                 if isinstance(task.config, str):
@@ -100,6 +121,9 @@ class GoogleSheetService:
                 # 检查任务是否已被取消
                 if task.status == 'cancelled':
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
+                    return 'cancelled'
+                if self._is_cancel_requested():
+                    self._log_info(f'task {self.task_id} cancellation requested')
                     return 'cancelled'
 
                 stock_param = self.get_single_stock_template_param(name)
@@ -201,6 +225,9 @@ class GoogleSheetService:
             success_count = start_index # 成功执行计数器，从断点除重新来
 
             for i in range(start_index, total_combinations):
+                if self._is_cancel_requested():
+                    self._log_warning("task cancellation requested")
+                    return success_count, failed_count, 'cancelled'
                 self._log_step(i + 1, total_combinations, f"开始执行参数组合")
                 
                 # 按需计算参数组合，避免内存问题
@@ -564,7 +591,9 @@ class GoogleSheetService:
                 delay_max = int(config_manager.get_config('execution_delay_max', 30))
                 _ = get_sell_sleep(delay_min, delay_max)
                 self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
-                time.sleep(_)
+                if not self._interruptible_sleep(_):
+                    self._log_warning("task cancelled during wait")
+                    raise RuntimeError("task cancelled")
 
                 # 检查所有位置是否都有产出
                 all_completed = True

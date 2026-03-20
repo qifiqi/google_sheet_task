@@ -173,6 +173,39 @@ def check_task_status(task_id):
         logger.error(f"检查任务状态失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@api_bp.route('/tasks/<task_id>/stop-confirmation', methods=['GET'])
+def get_task_stop_confirmation(task_id):
+    """确认任务是否已经完全停止"""
+    try:
+        task = Task.query.get(task_id)
+        if not task:
+            return jsonify({"status": "error", "message": "任务不存在"}), 404
+
+        status_check = task_manager.check_local_task_status(task_id)
+        thread = task_manager.running_tasks.get(task_id)
+        stop_event = task_manager.task_stop_events.get(task_id)
+        thread_alive = bool(thread and thread.is_alive())
+        stop_requested = bool(stop_event and stop_event.is_set())
+        stop_confirmed = (task.status != 'running') and (not thread_alive)
+
+        return jsonify({
+            "status": "success",
+            "task_id": task_id,
+            "db_status": task.status,
+            "thread_alive": thread_alive,
+            "memory_running": status_check.get("memory_running", thread_alive),
+            "stop_requested": stop_requested,
+            "stop_confirmed": stop_confirmed,
+            "current_step": task.current_step,
+            "total_steps": task.total_steps,
+            "status_check": status_check,
+            "checked_at": time.time(),
+        })
+    except Exception as e:
+        logger.error(f"获取任务停止确认失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @api_bp.route('/tasks/<task_id>/restart', methods=['POST'])
 def restart_task(task_id):
     """重启任务"""
@@ -931,7 +964,7 @@ def import_google_sheet_token():
         )
         return jsonify({
             "status": "success",
-            "message": "Token????" if created else "Token????",
+            "message": "Token新增成功" if created else "Token更新成功",
             "token": token,
         })
     except ValueError as e:

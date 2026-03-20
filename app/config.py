@@ -19,7 +19,16 @@ CONFIG_DIR = BASE_DIR / 'config'
 
 
 def _resolve_database_url(default_url):
-    return os.environ.get('DATABASE_URL') or default_url
+    database_url = os.environ.get('DATABASE_URL') or default_url
+
+    if database_url.startswith('sqlite:///'):
+        sqlite_path = database_url.replace('sqlite:///', '', 1)
+        sqlite_path_obj = Path(sqlite_path)
+        if not sqlite_path_obj.is_absolute():
+            sqlite_path_obj = BASE_DIR / sqlite_path_obj
+        database_url = f"sqlite:///{sqlite_path_obj.resolve()}"
+
+    return database_url
 
 
 def _build_engine_options(database_url):

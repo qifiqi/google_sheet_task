@@ -338,6 +338,7 @@
             const row = document.createElement('tr');
             const typeLabel = task.task_type === task_type ? upper_version : '默认';
             const typeBadgeClass = task.task_type === task_type ? 'bg-warning' : 'bg-secondary';
+            const tokenName = getTaskTokenName(task);
 
             row.innerHTML = `
                 <td>
@@ -345,6 +346,7 @@
                         ${task.name}
                         <span class="badge ${typeBadgeClass} ms-1">${typeLabel}</span>
                     </div>
+                    ${tokenName ? `<div><small class="text-muted">Token: ${escapeHtml(tokenName)}</small></div>` : ''}
                     ${task.description ? `<small class="text-muted">${task.description}</small>` : ''}
                 </td>
                 <td><span class="badge ${getStatusClass(task.status)}">${getStatusText(task.status)}</span></td>
@@ -381,6 +383,22 @@
     }
 
     // 绑定任务事件
+    function getTaskTokenName(task) {
+        if (!task || !task.config || typeof task.config !== 'object') {
+            return '';
+        }
+        return task.config.token_name || '';
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function bindTaskEvents() {
         // 取消任务事件
         document.querySelectorAll('.cancel-task').forEach(function(btn) {

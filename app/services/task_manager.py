@@ -23,6 +23,7 @@ class TaskManager:
     def __init__(self):
         self.running_tasks: Dict[str, threading.Thread] = {}
         self.task_events: Dict[str, queue.Queue] = {}
+        self.task_stop_events: Dict[str, threading.Event] = {}
         self.start_errors: Dict[str, str] = {}
         self.task_token_occupancy: Dict[str, int] = {}
         # 不再在初始化时缓存配置，而是每次动态获取
@@ -64,6 +65,11 @@ class TaskManager:
         """启动任务"""
         self.start_errors.pop(task_id, None)
         acquired_token_id = None
+        if task_id in self.running_tasks and self.running_tasks[task_id].is_alive():
+            error_msg = "任务已在启动或运行中，拒绝重复启动"
+            self.start_errors[task_id] = error_msg
+            logger.warning(f"重复启动任务被拒绝: {task_id}")
+            return False
         # 创建任务专用日志记录器
         task_logger = get_task_logger(task_id, f"{__name__}.start")
         
@@ -72,6 +78,7 @@ class TaskManager:
         # 这和 token 占用限制不同，后者由 GoogleSheetTokenService 单独判断。
         max_concurrent = int(self._get_config('max_concurrent_tasks', 5))
         
+        self.running_tasks.pop(task_id, None)
         if len(self.running_tasks) >= max_concurrent:
             error_msg = f"任务队列已满，无法启动任务 (当前运行: {len(self.running_tasks)}, 最大并发数: {max_concurrent})"
             self.start_errors[task_id] = error_msg
@@ -117,6 +124,7 @@ class TaskManager:
         
         # 创建事件队列
         self.task_events[task_id] = queue.Queue()
+        self.task_stop_events[task_id] = threading.Event()
         task_logger.info("创建任务事件队列成功")
 
         app = current_app._get_current_object()
@@ -133,13 +141,28 @@ class TaskManager:
             task_logger.info("创建Google Sheet C5 任务执行线程")
         else:
             error_msg = f"不支持的任务类型: {task.task_type}"
+            self.start_errors[task_id] = error_msg
+            self.task_events.pop(task_id, None)
+            self.task_stop_events.pop(task_id, None)
+            self._release_task_token_occupancy(task_id)
             task_logger.error(error_msg)
             logger.error(f"不支持的任务类型: {task.task_type}")
             return False
         
         # thread.daemon = True
         self.running_tasks[task_id] = thread
-        thread.start()
+        try:
+            thread.start()
+        except Exception as e:
+            self.running_tasks.pop(task_id, None)
+            self.task_events.pop(task_id, None)
+            self.task_stop_events.pop(task_id, None)
+            self._release_task_token_occupancy(task_id)
+            error_msg = f"任务线程启动失败: {str(e)}"
+            self.start_errors[task_id] = error_msg
+            task_logger.error(error_msg)
+            logger.error(f"任务线程启动失败: {task_id}, err={str(e)}")
+            return False
         
         task_logger.info("任务执行线程启动成功")
         logger.info(f"启动任务: {task_id}")
@@ -167,16 +190,14 @@ class TaskManager:
         
         if task.status in ['completed', 'cancelled', 'error']:
             return False
+        stop_event = self.task_stop_events.get(task_id)
+        if stop_event:
+            stop_event.set()
         
         # 使用safe_update更新任务状态
         safe_update(task, commit=False, status='cancelled', end_time=datetime.now())
-        self._release_task_token_occupancy(task_id)
         
         # 清理资源
-        if task_id in self.running_tasks:
-            del self.running_tasks[task_id]
-        if task_id in self.task_events:
-            del self.task_events[task_id]
         
         self._add_task_log(task_id, 'info', f'任务已取消')
         logger.info(f"取消任务: {task_id}")
@@ -296,14 +317,22 @@ class TaskManager:
             # 停止现有任务（如果在运行）
             if task_id in self.running_tasks:
                 try:
+                    thread = self.running_tasks.get(task_id)
                     self.cancel_task(task_id)
+                    if thread and thread.is_alive():
+                        thread.join(timeout=3.0)
                     logger.info(f"已停止原有任务线程: {task_id}")
                 except Exception as e:
                     logger.warning(f"停止原有任务线程失败: {str(e)}")
             
             # 清理任务状态
+            alive_thread = self.running_tasks.get(task_id)
+            if alive_thread and alive_thread.is_alive():
+                return {"status": "error", "message": "task is still stopping, please retry shortly"}
             if task_id in self.task_events:
                 del self.task_events[task_id]
+            if task_id in self.task_stop_events:
+                del self.task_stop_events[task_id]
             start_time = None
             # 根据断点恢复设置，决定从哪里开始
             if resume_from_checkpoint:
@@ -469,6 +498,9 @@ class TaskManager:
                     del self.task_events[task_id]
                 if task_id in self.running_tasks:
                     del self.running_tasks[task_id]
+                if task_id in self.task_stop_events:
+                    self.task_stop_events[task_id].set()
+                    del self.task_stop_events[task_id]
                 
                 logger.info(f"任务删除成功: {task_id}")
                 return True
@@ -556,7 +588,7 @@ class TaskManager:
                 
                 # 创建Google Sheet服务
                 config = task.config
-                service = GoogleSheetService(config, task_id, self.task_events.get(task_id), app)
+                service = GoogleSheetService(config, task_id, self.task_events.get(task_id), app, self.task_stop_events.get(task_id))
                 
                 task_logger.info("开始执行任务业务逻辑")
                 
@@ -621,6 +653,9 @@ class TaskManager:
                 task_logger.info("清理任务线程资源")
             if task_id in self.task_events:
                 del self.task_events[task_id]
+            if task_id in self.task_stop_events:
+                del self.task_stop_events[task_id]
+                task_logger.info("stop event cleaned")
                 task_logger.info("清理任务事件队列")
             
             task_logger.info("任务执行器退出")
@@ -658,7 +693,7 @@ class TaskManager:
                 
                 # 创建Google Sheet C4 服务
                 config = task.config
-                service = GoogleSheetServiceC4(config, task_id, self.task_events.get(task_id), app)
+                service = GoogleSheetServiceC4(config, task_id, self.task_events.get(task_id), app, self.task_stop_events.get(task_id))
                 
                 task_logger.info("开始执行 C4 任务业务逻辑")
                 
@@ -723,6 +758,9 @@ class TaskManager:
                 task_logger.info("清理任务线程资源")
             if task_id in self.task_events:
                 del self.task_events[task_id]
+            if task_id in self.task_stop_events:
+                del self.task_stop_events[task_id]
+                task_logger.info("stop event cleaned")
                 task_logger.info("清理任务事件队列")
             
             task_logger.info("任务执行器退出")
@@ -760,7 +798,7 @@ class TaskManager:
                 
                 # 创建Google Sheet C5 服务
                 config = task.config
-                service = GoogleSheetServiceC5(config, task_id, self.task_events.get(task_id), app)
+                service = GoogleSheetServiceC5(config, task_id, self.task_events.get(task_id), app, self.task_stop_events.get(task_id))
                 
                 task_logger.info("开始执行 C5 任务业务逻辑")
                 
@@ -825,6 +863,9 @@ class TaskManager:
                 task_logger.info("清理任务线程资源")
             if task_id in self.task_events:
                 del self.task_events[task_id]
+            if task_id in self.task_stop_events:
+                del self.task_stop_events[task_id]
+                task_logger.info("stop event cleaned")
                 task_logger.info("清理任务事件队列")
             
             task_logger.info("任务执行器退出")

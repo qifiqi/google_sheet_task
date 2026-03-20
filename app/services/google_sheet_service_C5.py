@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 class GoogleSheetService:
     """Google Sheet服务"""
 
-    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None):
+    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
         self.config = config
         self.google_sheets: list[GoogleSheet] = []
         self.api_client = StockAPIClient()
@@ -33,11 +33,29 @@ class GoogleSheetService:
         self.task_id = task_id
         self.event_queue = event_queue
         self.app = app
+        self.stop_event = stop_event
         # 创建任务专用日志记录器 - 不使用TaskLogger的前缀功能，我们自己控制格式
         self.task_logger = get_logger(f"{__name__}.{task_id}")
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
+
+    def _is_cancel_requested(self) -> bool:
+        if self.stop_event and self.stop_event.is_set():
+            return True
+        try:
+            task = Task.query.get(self.task_id)
+            return bool(task and task.status == 'cancelled')
+        except Exception:
+            return False
+
+    def _interruptible_sleep(self, seconds: float) -> bool:
+        if seconds <= 0:
+            return not self._is_cancel_requested()
+        if self.stop_event:
+            return not self.stop_event.wait(seconds)
+        time.sleep(seconds)
+        return not self._is_cancel_requested()
 
 
     def error_dd(self, error_msg):
@@ -221,12 +239,15 @@ class GoogleSheetService:
                 google_sheet.clear_range(f"{c5_input_column_a}2:{c5_input_column_b}{A_num+2}")
 
             self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
-            time.sleep(20)
+            if not self._interruptible_sleep(20):
+                return success_count, failed_count, 'cancelled'
 
             processed_index = 0  # 已处理的组合数量
             cache_parameters = {'combination': {}}
             for outer_idx, (combinations, column_A_length,KLINE_DATA_MAP) in enumerate(precomputed_params):
                 for combination in combinations:
+                    if self._is_cancel_requested():
+                        return success_count, failed_count, 'cancelled'
                     # 跳过已完成的组合（断点恢复）
                     if processed_index < start_index:
                         processed_index += 1
@@ -492,7 +513,8 @@ class GoogleSheetService:
 
                 if initial_result_sleep:
                     self._log_info(f"刷新参数等待：{initial_result_sleep}秒")
-                    time.sleep(initial_result_sleep)
+                    if not self._interruptible_sleep(initial_result_sleep):
+                        raise RuntimeError("task cancelled")
 
                 for google_sheet in self.google_sheets:
                     initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c5_output_range_1)
@@ -569,7 +591,8 @@ class GoogleSheetService:
                 delay_max = int(config_manager.get_config('execution_delay_max', 30))
                 _ = get_sell_sleep(delay_min, delay_max)
                 self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
-                time.sleep(_)
+                if not self._interruptible_sleep(_):
+                    raise RuntimeError("task cancelled")
                 all_num = 0
                 for google_sheet in self.google_sheets:
                     _result = google_sheet.get_range(c5_output_range_1)

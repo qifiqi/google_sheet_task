@@ -1,13 +1,11 @@
 @echo off
 setlocal
-chcp 65001 >nul
 
 cd /d "%~dp0"
-title Google 参数批量校验 - 启动器
+title Google Validator Launcher
 
 set "APP_ENV=production"
 set "FLASK_DEBUG=false"
-
 set "PYTHON_CMD="
 
 if exist ".venv\Scripts\python.exe" (
@@ -18,22 +16,23 @@ if exist ".venv\Scripts\python.exe" (
     set "PYTHON_CMD=env\Scripts\python.exe"
 ) else (
     where python >nul 2>nul
-    if errorlevel 1 (
+    if not errorlevel 1 (
+        set "PYTHON_CMD=python"
+    ) else (
         where py >nul 2>nul
-        if errorlevel 1 (
-            echo [ERROR] 未找到 Python。
-            echo 请先安装 Python，或在项目目录创建 .venv / venv / env 虚拟环境。
+        if not errorlevel 1 (
+            set "PYTHON_CMD=py -3"
+        ) else (
+            echo [ERROR] Python was not found.
+            echo Install Python or create .venv, venv, or env first.
             pause
             exit /b 1
         )
-        set "PYTHON_CMD=py -3"
-    ) else (
-        set "PYTHON_CMD=python"
     )
 )
 
 if not exist "run.py" (
-    echo [ERROR] 当前目录未找到 run.py
+    echo [ERROR] run.py was not found in the current directory.
     pause
     exit /b 1
 )
@@ -41,19 +40,19 @@ if not exist "run.py" (
 if not exist "logs" mkdir "logs" >nul 2>nul
 if not exist "data" mkdir "data" >nul 2>nul
 
-echo [INFO] 工作目录: %cd%
+echo [INFO] Workdir: %cd%
 echo [INFO] Python: %PYTHON_CMD%
 echo [INFO] APP_ENV=%APP_ENV%
 echo [INFO] FLASK_DEBUG=%FLASK_DEBUG%
-echo [INFO] 正在启动应用...
+echo [INFO] Starting application...
 echo.
 
-%PYTHON_CMD% run.py %*
+call %PYTHON_CMD% run.py %*
 set "EXIT_CODE=%ERRORLEVEL%"
 
 if not "%EXIT_CODE%"=="0" (
     echo.
-    echo [ERROR] 应用启动失败，退出码: %EXIT_CODE%
+    echo [ERROR] Startup failed. Exit code: %EXIT_CODE%
     pause
 )
 
