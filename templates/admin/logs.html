@@ -2,6 +2,43 @@
 
 {% block title %}系统日志 - 任务管理系统{% endblock %}
 
+{% block head %}
+<style>
+    .log-container {
+        height: 600px;
+        overflow-y: auto;
+        overflow-x: auto;
+        background: #0b1220;
+        color: #dbeafe;
+        padding: 12px 14px;
+        border-radius: 0.75rem;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        line-height: 1.6;
+        white-space: pre;
+        word-break: normal;
+    }
+
+    .log-container > div {
+        white-space: pre;
+        word-break: normal;
+        margin-bottom: 0;
+    }
+
+    .log-line-info {
+        color: #93c5fd;
+    }
+
+    .log-line-warning {
+        color: #fcd34d;
+    }
+
+    .log-line-error {
+        color: #fca5a5;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">系统日志</h1>
@@ -66,16 +103,7 @@
         </h5>
     </div>
     <div class="card-body p-0">
-        <div class="log-container" id="log-container" style="
-            background: #1e1e1e; 
-            color: #d4d4d4; 
-            height: 600px; 
-            overflow-y: auto; 
-            padding: 10px; 
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            line-height: 1.4;
-        ">
+        <div class="log-container" id="log-container">
             <!-- 日志内容将通过JavaScript动态填充 -->
         </div>
     </div>
@@ -201,16 +229,12 @@
 
         const logHtml = filteredLogs.map(log => {
             const time = formatTime(log.timestamp);
-            const levelColor = getLevelColor(log.level);
+            const levelClass = getLevelClass(log.level);
+            const level = (log.level || 'info').toUpperCase();
+            const source = log.source ? `[${log.source}] ` : '';
+            const lineText = `[${time}] [${level}] ${source}${log.message || ''}`;
             
-            return `
-                <div class="log-line" style="margin-bottom: 2px;">
-                    <span style="color: #7c7c7c;">${time}</span> 
-                    <span style="color: ${levelColor}; font-weight: bold;">[${log.level.toUpperCase()}]</span> 
-                    <span style="color: #8c8c8c;">[${log.source}]</span> 
-                    <span style="color: #d4d4d4;">${log.message}</span>
-                </div>
-            `;
+            return `<div class="${levelClass}">${escapeHtml(lineText)}</div>`;
         }).join('');
 
         // 保存当前滚动位置
@@ -224,13 +248,22 @@
         }
     }
 
-    function getLevelColor(level) {
+    function getLevelClass(level) {
         switch (level) {
-            case 'info': return '#0d6efd';     // 蓝色
-            case 'warning': return '#fd7e14';  // 橙色
-            case 'error': return '#dc3545';    // 红色
-            default: return '#6c757d';         // 灰色
+            case 'warning': return 'log-line-warning';
+            case 'error': return 'log-line-error';
+            case 'info': return 'log-line-info';
+            default: return '';
         }
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function refreshLogs() {

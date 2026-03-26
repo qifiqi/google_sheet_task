@@ -166,45 +166,39 @@
                         <div class="card-body">
                             <div id="sheet-config-list">
                                 <div class="sheet-config-item border rounded p-3 mb-3" data-sheet-config-index="0">
-                                    <div class="row align-items-end">
-                                        <div class="col-md-4 mb-3">
+                                    <div class="row align-items-start">
+                                        <div class="col-md-6 mb-3">
                                             <label for="spreadsheet" class="form-label">
-                                                <i class="bi bi-link-45deg"></i> 电子表格ID或URL
-                                            </label>
-                                            <input type="text" class="form-control" id="spreadsheet"
-                                                   placeholder="请输入Google Sheet的ID或完整URL" required>
-                                            <div class="form-text">
-                                                <i class="bi bi-info-circle"></i> 支持直接输入ID或完整URL
-                                            </div>
-                                        </div>
-                                        <div class="col-md-4 mb-3">
-                                            <label for="spreadsheet_title" class="form-label">
-                                                <i class="bi bi-type"></i> 表标题（可选）
-                                            </label>
-                                            <input type="text" class="form-control" id="spreadsheet_title"
-                                                   placeholder="用于标记或显示的表名称">
-                                            <div class="form-text">将作为任务配置中的标题字段一并保存</div>
-                                        </div>
-                                        <div class="col-md-4 mb-3">
-                                            <label for="sheet_name" class="form-label">
-                                                <i class="bi bi-file-spreadsheet"></i> 工作表名称
+                                                <i class="bi bi-link-45deg"></i> 选择 Google Sheet
                                             </label>
                                             <div class="input-group">
-                                                <select class="form-select" id="sheet_name">
-                                                    <option value="">请先输入电子表格ID</option>
+                                                <select class="form-select google-sheet-select" id="spreadsheet" required>
+                                                    <option value="">请选择 Google Sheet</option>
                                                 </select>
-                                                <button class="btn btn-outline-secondary" type="button" id="refresh-sheets" title="刷新工作表列表">
+                                                <button class="btn btn-outline-secondary" type="button" id="refresh-google-sheets" title="刷新 Google Sheet 列表">
                                                     <i class="bi bi-arrow-clockwise"></i>
                                                 </button>
                                             </div>
-                                            <div class="form-text" id="sheet-name-help">选择要操作的工作表</div>
+                                            <input type="hidden" id="google_sheet_id">
+                                            <div class="form-text" id="spreadsheet-help">
+                                                <i class="bi bi-info-circle"></i> 请从列表中选择可用的 Google Sheet
+                                            </div>
                                         </div>
-                                        <div class="col-md-6 mb-3" id="custom-sheet-container" style="display: none;">
-                                            <label for="custom_sheet_name" class="form-label">
-                                                <i class="bi bi-pencil"></i> 自定义工作表名称
+                                        <div class="col-md-3 mb-3">
+                                            <label for="spreadsheet_title" class="form-label">
+                                                <i class="bi bi-type"></i> 表标题（可选）
                                             </label>
-                                            <input type="text" class="form-control" id="custom_sheet_name"
-                                                   placeholder="请输入工作表名称">
+                                            <input type="text" class="form-control spreadsheet-title-input" id="spreadsheet_title"
+                                                   placeholder="用于标记或显示的表名称">
+                                            <div class="form-text">将作为任务配置中的标题字段一并保存</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="sheet_name" class="form-label">
+                                                <i class="bi bi-file-spreadsheet"></i> 工作表名称
+                                            </label>
+                                            <input type="text" class="form-control worksheet-name-input" id="sheet_name"
+                                                   placeholder="选择 Google Sheet 后自动带出" readonly>
+                                            <div class="form-text" id="sheet-name-help">默认展示接口返回的第一个工作表</div>
                                         </div>
                                     </div>
                                 </div>
@@ -634,50 +628,8 @@
                     config = JSON.parse(config);
                 }
 
-                // 优先使用新版 sheets 数组结构，兼容旧的 spreadsheet_id/sheet_name 字段
-                let primarySpreadsheetId = '';
-                let primarySheetName = '';
-
-                if (Array.isArray(config.sheets) && config.sheets.length > 0) {
-                    const firstSheet = config.sheets[0] || {};
-                    primarySpreadsheetId = firstSheet.spreadsheet_id || '';
-                    primarySheetName = firstSheet.sheet_name || '';
-                } else {
-                    primarySpreadsheetId = config.spreadsheet_id || '';
-                    primarySheetName = config.sheet_name || '';
-                }
-
-                if (primarySpreadsheetId) {
-                    document.getElementById('spreadsheet').value = primarySpreadsheetId;
-                }
-
-                if (primarySheetName) {
-                    const sheetSelect = document.getElementById('sheet_name');
-                    sheetSelect.setAttribute('data-saved-value', primarySheetName);
-                }
-
-                // 如果有多张表，自动为后续表创建可视配置块并填充值（仅设置文本，不强制加载工作表列表）
-                if (Array.isArray(config.sheets) && config.sheets.length > 1) {
-                    const list = document.getElementById('sheet-config-list');
-                    config.sheets.slice(1).forEach(sheetCfg => {
-                        if (!list) return;
-                        addVisualSheetConfigItem();
-                        const items = list.querySelectorAll('.sheet-config-item');
-                        const item = items[items.length - 1];
-                        if (!item) return;
-
-                        const textInputs = item.querySelectorAll('input[type="text"]');
-                        const spreadsheetInputEl = textInputs[0];
-                        const customInputEl = textInputs[1] || null;
-
-                        if (spreadsheetInputEl && sheetCfg.spreadsheet_id) {
-                            spreadsheetInputEl.value = sheetCfg.spreadsheet_id;
-                        }
-                        if (customInputEl && sheetCfg.sheet_name) {
-                            customInputEl.value = sheetCfg.sheet_name;
-                        }
-                    });
-                }
+                config = normalizeC4Config(config);
+                applySheetsToForm(config.sheets);
 
                 if (config.token_type) {
                     document.getElementById('token_type').value = config.token_type;
@@ -757,47 +709,133 @@
         };
     }
 
-    // 获取单个配置块的工作表列表
-    function loadWorksheetsForItem(item, isManualRefresh = false) {
-        if (!item) return;
+    function getSheetConfigElements(item) {
+        if (!item) {
+            return {};
+        }
 
-        // 当前配置块内的元素
-        const spreadsheetInputEl = item.querySelector('input[type="text"]');
-        const sheetSelect = item.querySelector('select');
-        const refreshBtn = item.querySelector('button.btn-outline-secondary');
-        const helpText = item.querySelector('.form-text');
+        return {
+            spreadsheetSelect: item.querySelector('.google-sheet-select') || item.querySelector('#spreadsheet'),
+            googleSheetIdInput: item.querySelector('#google_sheet_id'),
+            spreadsheetHelp: item.querySelector('#spreadsheet-help'),
+            titleInput: item.querySelector('.spreadsheet-title-input') || item.querySelector('#spreadsheet_title'),
+            worksheetInput: item.querySelector('.worksheet-name-input') || item.querySelector('#sheet_name'),
+            refreshWorksheetsBtn: item.querySelector('.refresh-worksheets-btn') || item.querySelector('#refresh-sheets'),
+            sheetHelp: item.querySelector('.sheet-name-help') || item.querySelector('#sheet-name-help'),
+            customContainer: item.querySelector('.custom-sheet-container') || item.querySelector('#custom-sheet-container'),
+            customInput: item.querySelector('.custom-sheet-name-input') || item.querySelector('#custom_sheet_name'),
+            refreshGoogleSheetsBtn: item.querySelector('#refresh-google-sheets')
+        };
+    }
 
-        if (!spreadsheetInputEl || !sheetSelect || !refreshBtn || !helpText) {
+    function syncSelectedGoogleSheetMetaForItem(item) {
+        const { spreadsheetSelect, googleSheetIdInput, spreadsheetHelp } = getSheetConfigElements(item);
+        if (!spreadsheetSelect || !googleSheetIdInput || !spreadsheetHelp) {
             return;
         }
 
-        const spreadsheetInput = spreadsheetInputEl.value;
-        const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
+        const selectedOption = spreadsheetSelect.options[spreadsheetSelect.selectedIndex];
+        googleSheetIdInput.value = selectedOption ? (selectedOption.dataset.googleSheetId || '') : '';
+
+        if (spreadsheetSelect.value) {
+            spreadsheetHelp.innerHTML = `<i class="bi bi-info-circle"></i> 已选择 Google Sheet：${spreadsheetSelect.value}`;
+        } else {
+            spreadsheetHelp.innerHTML = '<i class="bi bi-info-circle"></i> 请从列表中选择可用的 Google Sheet';
+        }
+    }
+
+    function updateWorksheetSelectionUI(item) {
+        const { worksheetInput, sheetHelp } = getSheetConfigElements(item);
+        if (!worksheetInput || !sheetHelp) {
+            return;
+        }
+        sheetHelp.textContent = worksheetInput.value
+            ? `默认使用第一个工作表：${worksheetInput.value}`
+            : '默认展示接口返回的第一个工作表';
+    }
+
+    function loadGoogleSheetsForItem(item, preferredSpreadsheetId = '') {
+        const { spreadsheetSelect, refreshGoogleSheetsBtn } = getSheetConfigElements(item);
+        if (!item || !spreadsheetSelect) {
+            return Promise.resolve();
+        }
+
+        spreadsheetSelect.disabled = true;
+        if (refreshGoogleSheetsBtn) {
+            refreshGoogleSheetsBtn.disabled = true;
+        }
+
+        return fetch('/api/google-sheets?only_available=1')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '加载 Google Sheet 列表失败');
+                }
+
+                const items = Array.isArray(data.items) ? data.items : [];
+                spreadsheetSelect.innerHTML = '<option value="">请选择 Google Sheet</option>';
+
+                items.forEach(sheetItem => {
+                    const option = document.createElement('option');
+                    option.value = sheetItem.spreadsheet_id || '';
+                    option.textContent = `${sheetItem.name} (${sheetItem.spreadsheet_id})`;
+                    option.dataset.googleSheetId = sheetItem.id || '';
+                    spreadsheetSelect.appendChild(option);
+                });
+
+                if (preferredSpreadsheetId) {
+                    const exists = Array.from(spreadsheetSelect.options).some(option => option.value === preferredSpreadsheetId);
+                    if (!exists) {
+                        const option = document.createElement('option');
+                        option.value = preferredSpreadsheetId;
+                        option.textContent = `当前配置 (${preferredSpreadsheetId})`;
+                        option.dataset.googleSheetId = '';
+                        spreadsheetSelect.appendChild(option);
+                    }
+                    spreadsheetSelect.value = preferredSpreadsheetId;
+                }
+
+                syncSelectedGoogleSheetMetaForItem(item);
+                if (spreadsheetSelect.value) {
+                    return loadWorksheetsForItem(item, false);
+                }
+            })
+            .catch(error => {
+                spreadsheetSelect.innerHTML = '<option value="">加载 Google Sheet 失败</option>';
+                showNotification(`加载 Google Sheet 失败：${error.message}`, 'error');
+            })
+            .finally(() => {
+                spreadsheetSelect.disabled = false;
+                if (refreshGoogleSheetsBtn) {
+                    refreshGoogleSheetsBtn.disabled = false;
+                }
+            });
+    }
+
+    // 获取单个配置块的工作表列表
+    function loadWorksheetsForItem(item, isManualRefresh = false) {
+        const {
+            spreadsheetSelect,
+            titleInput,
+            worksheetInput
+        } = getSheetConfigElements(item);
+
+        if (!item || !spreadsheetSelect || !titleInput || !worksheetInput) {
+            return Promise.resolve();
+        }
+
+        const spreadsheetId = extractSpreadsheetId(spreadsheetSelect.value || '');
         const tokenType = document.getElementById('token_type').value;
         const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
         const tokenFile = document.getElementById('token_file').value;
         const proxyUrl = document.getElementById('proxy_url').value;
 
         if (!spreadsheetId) {
-            sheetSelect.innerHTML = '<option value="">请先输入电子表格ID</option>';
-            helpText.textContent = '选择要操作的工作表';
-            refreshBtn.disabled = true;
-            return;
+            worksheetInput.value = '';
+            updateWorksheetSelectionUI(item);
+            return Promise.resolve();
         }
 
-        // 显示加载状态
-        sheetSelect.disabled = true;
-        refreshBtn.disabled = true;
-        if (isManualRefresh) {
-            const icon = refreshBtn.querySelector('i');
-            if (icon) {
-                icon.classList.add('spin');
-            }
-        }
-        sheetSelect.innerHTML = '<option value="">正在加载工作表列表...</option>';
-        helpText.textContent = '正在从Google Sheet获取工作表列表...';
-
-        // 准备请求数据
         const requestData = {
             spreadsheet_id: spreadsheetId,
             token_id: tokenType === 'file' ? tokenId : undefined,
@@ -805,96 +843,45 @@
             proxy_url: proxyUrl || undefined
         };
 
-        // 发送请求获取工作表列表
-        fetch('/api/google-sheet/worksheets', {
+        return fetch('/api/google-sheet/worksheets', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(requestData)
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success' && Array.isArray(data.worksheets)) {
-                if (data.worksheets.length === 0) {
-                    throw new Error('未找到任何工作表');
+            .then(response => response.json())
+            .then(data => {
+                if (!(data.status === 'success' && Array.isArray(data.worksheets))) {
+                    throw new Error(data.message || '获取工作表列表失败');
                 }
 
-                // 如果接口返回了表标题，自动写入标题输入框（仅当前配置块）
-                const titleInput = item.querySelector('#spreadsheet_title');
                 if (titleInput && typeof data.title === 'string' && data.title.trim() !== '') {
                     titleInput.value = data.title.trim();
                 }
+                worksheetInput.value = Array.isArray(data.worksheets) && data.worksheets.length > 0
+                    ? (data.worksheets[0] || '')
+                    : '';
+                updateWorksheetSelectionUI(item);
+                showNotification(isManualRefresh ? '表标题已刷新' : '表标题已自动加载', 'success');
+            })
+            .catch(error => {
+                console.error('获取工作表列表失败:', error);
+                worksheetInput.value = '';
+                updateWorksheetSelectionUI(item);
+                showError('获取工作表列表失败: ' + error.message);
+            });
+    }
 
-                // 清空并重新填充下拉列表
-                sheetSelect.innerHTML = '';
-                data.worksheets.forEach(worksheet => {
-                    const option = document.createElement('option');
-                    option.value = worksheet;
-                    option.textContent = worksheet;
-                    sheetSelect.appendChild(option);
-                });
-
-                // 添加自定义选项
-                const customOption = document.createElement('option');
-                customOption.value = '自定义';
-                customOption.textContent = '自定义';
-                sheetSelect.appendChild(customOption);
-
-                // 如果有保存的值，恢复它（仅对主配置块适用，其它块不使用 data-saved-value）
-                const savedValue = sheetSelect.getAttribute('data-saved-value');
-                if (savedValue) {
-                    if (data.worksheets.includes(savedValue)) {
-                        sheetSelect.value = savedValue;
-                        helpText.textContent = `已选择工作表: ${savedValue}`;
-                    } else if (savedValue === '自定义') {
-                        sheetSelect.value = '自定义';
-                        const customContainer = document.getElementById('custom-sheet-container');
-                        if (customContainer) {
-                            customContainer.style.display = 'block';
-                        }
-                        helpText.textContent = '使用自定义工作表名称';
-                    }
-                } else {
-                    // 默认选择第一个工作表
-                    const defaultSheet = data.worksheets[0];
-                    sheetSelect.value = defaultSheet;
-                    helpText.textContent = `已自动选择第一个工作表: ${defaultSheet}`;
-                }
-
-                if (!isManualRefresh) {
-                    showNotification('工作表列表已自动加载', 'success');
-                } else {
-                    showNotification('工作表列表已刷新', 'success');
-                }
-            } else {
-                throw new Error(data.message || '获取工作表列表失败');
-            }
-        })
-        .catch(error => {
-            console.error('获取工作表列表失败:', error);
-            sheetSelect.innerHTML = '<option value="">加载失败</option>';
-            helpText.textContent = '加载失败，请检查电子表格ID是否正确';
-            showError('获取工作表列表失败: ' + error.message);
-        })
-        .finally(() => {
-            sheetSelect.disabled = false;
-            refreshBtn.disabled = false;
-            if (isManualRefresh) {
-                const icon = refreshBtn.querySelector('i');
-                if (icon) {
-                    icon.classList.remove('spin');
-                }
-            }
-        });
+    function loadGoogleSheets(preferredSpreadsheetId = '') {
+        const firstItem = document.querySelector('#sheet-config-list .sheet-config-item');
+        return firstItem ? loadGoogleSheetsForItem(firstItem, preferredSpreadsheetId) : Promise.resolve();
     }
 
     // 保持原有接口，默认针对第一组主配置块
     function loadWorksheets(isManualRefresh = false) {
         const firstItem = document.querySelector('#sheet-config-list .sheet-config-item');
-        if (firstItem) {
-            loadWorksheetsForItem(firstItem, isManualRefresh);
-        }
+        return firstItem ? loadWorksheetsForItem(firstItem, isManualRefresh) : Promise.resolve();
     }
 
     function syncSelectedTokenMeta() {
@@ -1033,6 +1020,7 @@
     // 页面加载完成后绑定事件
     document.addEventListener('DOMContentLoaded', function() {
         bindEvents();
+        loadGoogleSheets();
         loadGoogleSheetTokens();
         loadTemplates(); // 加载模板列表
 
@@ -1055,9 +1043,9 @@
         const debouncedCalculateCombinations = debounce(calculateCombinations, 300);
         const debouncedSaveFormData = debounce(saveFormData, 300);
 
-        // 监听spreadsheet输入变化
+        // 监听spreadsheet选择变化
         const spreadsheetInput = document.getElementById('spreadsheet');
-        spreadsheetInput.addEventListener('input', debouncedLoadWorksheets);
+        spreadsheetInput.addEventListener('change', debouncedLoadWorksheets);
 
         // 为参数输入添加防抖
         document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
@@ -1069,7 +1057,7 @@
 
         // 为其他输入字段添加防抖的自动保存
         const inputFields = [
-            'task_name', 'task_description', 'custom_sheet_name',
+            'task_name', 'task_description',
             'token_import_path', 'token_json', 'proxy_url'
         ];
 
@@ -1192,42 +1180,37 @@
         if (!list) return;
         const items = list.querySelectorAll('.sheet-config-item');
 
+        const loadPromises = [];
+
         sheets.forEach((sheetCfg, idx) => {
             const item = items[idx];
             if (!item) return;
 
-            const sheetSelect = item.querySelector('select');
-            const textInputs = item.querySelectorAll('input[type="text"]');
-            const spreadsheetInputEl = textInputs[0] || null;
-            const sheetTitleEl = textInputs[1] || null;
-            const customInputEl = textInputs[2] || null;
+            const {
+                spreadsheetSelect,
+                titleInput,
+                worksheetInput
+            } = getSheetConfigElements(item);
 
-            if (spreadsheetInputEl && sheetCfg.spreadsheet_id) {
-                spreadsheetInputEl.value = sheetCfg.spreadsheet_id;
+            if (spreadsheetSelect && sheetCfg.spreadsheet_id) {
+                spreadsheetSelect.value = sheetCfg.spreadsheet_id;
             }
-            if (sheetTitleEl && sheetCfg.title !== undefined) {
-                sheetTitleEl.value = sheetCfg.title || '';
+            if (titleInput && sheetCfg.title !== undefined) {
+                titleInput.value = sheetCfg.title || '';
+            }
+            if (worksheetInput && sheetCfg.sheet_name) {
+                worksheetInput.value = sheetCfg.sheet_name || '';
+                updateWorksheetSelectionUI(item);
             }
 
-            if (sheetCfg.sheet_name) {
-                // 保持与 loadWorksheets 的行为一致：先设置 data-saved-value，等待下拉加载后选中
-                if (sheetSelect) {
-                    sheetSelect.setAttribute('data-saved-value', sheetCfg.sheet_name);
-                }
-
-                // 也写入自定义输入框，便于未加载下拉时显示
-                if (customInputEl) {
-                    customInputEl.value = sheetCfg.sheet_name;
-                }
+            if (sheetCfg.spreadsheet_id) {
+                loadPromises.push(loadGoogleSheetsForItem(item, sheetCfg.spreadsheet_id));
             }
         });
 
-        // 触发一次工作表列表加载，以便根据 data-saved-value 选中原来的工作表
-        try {
-            loadWorksheets(false);
-        } catch (e) {
-            console.warn('自动加载工作表列表失败:', e);
-        }
+        Promise.allSettled(loadPromises).catch(error => {
+            console.warn('自动加载 Google Sheet 配置失败:', error);
+        });
     }
 
     function applyConfigToForm(rawConfig, options = {}) {
@@ -1398,6 +1381,46 @@
         }
     }
 
+    function bindSheetConfigItemEvents(item, debouncedSaveFormData) {
+        const {
+            spreadsheetSelect,
+            titleInput,
+            worksheetInput,
+            customInput,
+            refreshWorksheetsBtn,
+            refreshGoogleSheetsBtn
+        } = getSheetConfigElements(item);
+
+        if (spreadsheetSelect) {
+            spreadsheetSelect.addEventListener('change', function() {
+                syncSelectedGoogleSheetMetaForItem(item);
+                loadWorksheetsForItem(item, false);
+                calculateCombinations();
+                debouncedSaveFormData();
+            });
+        }
+
+        if (refreshGoogleSheetsBtn) {
+            refreshGoogleSheetsBtn.addEventListener('click', function() {
+                loadGoogleSheetsForItem(item, spreadsheetSelect ? spreadsheetSelect.value : '');
+            });
+        }
+
+        if (refreshWorksheetsBtn) {
+            refreshWorksheetsBtn.addEventListener('click', function() {
+                loadWorksheetsForItem(item, true);
+            });
+        }
+
+        [titleInput, worksheetInput, customInput].forEach(function(field) {
+            if (!field) {
+                return;
+            }
+            field.addEventListener('input', debouncedSaveFormData);
+            field.addEventListener('change', debouncedSaveFormData);
+        });
+    }
+
     function bindEvents() {
         // 创建防抖版本的函数
         const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
@@ -1433,23 +1456,6 @@
         // 任务名称和描述变化事件
         document.getElementById('task_name').addEventListener('input', debouncedSaveFormData);
         document.getElementById('task_description').addEventListener('input', debouncedSaveFormData);
-
-        // 工作表名称选择变化事件
-        document.getElementById('sheet_name').addEventListener('change', function() {
-            const customContainer = document.getElementById('custom-sheet-container');
-            const helpText = document.getElementById('sheet-name-help');
-
-            if (this.value === '自定义') {
-                customContainer.style.display = 'block';
-                helpText.textContent = '使用自定义工作表名称';
-            } else {
-                customContainer.style.display = 'none';
-                if (this.value) {
-                    helpText.textContent = `已选择工作表: ${this.value}`;
-                }
-            }
-            debouncedSaveFormData();
-        });
 
         // 认证方式选择变化事件
         document.getElementById('token_type').addEventListener('change', function() {
@@ -1518,7 +1524,7 @@
 
         // 为所有输入字段添加自动保存
         const inputFields = [
-            'spreadsheet', 'custom_sheet_name', 'token_file', 'token_json', 'proxy_url',
+            'token_file', 'token_json', 'proxy_url',
             'start_date', 'end_date'
         ];
 
@@ -1530,21 +1536,8 @@
             }
         });
 
-        // 监听spreadsheet输入变化
-        const spreadsheetInput = document.getElementById('spreadsheet');
-        spreadsheetInput.addEventListener('input', function() {
-            const refreshBtn = document.getElementById('refresh-sheets');
-            if (this.value.trim()) {
-                refreshBtn.disabled = false;
-            } else {
-                refreshBtn.disabled = true;
-            }
-            debouncedLoadWorksheets(false);
-        });
-
-        // 刷新按钮点击事件
-        document.getElementById('refresh-sheets').addEventListener('click', function() {
-            debouncedLoadWorksheets(true); // 使用防抖，避免与输入触发的请求叠加
+        document.querySelectorAll('#sheet-config-list .sheet-config-item').forEach(function(item) {
+            bindSheetConfigItemEvents(item, debouncedSaveFormData);
         });
 
         // 添加一组表格配置（仅用于前端展示，实际提交仍使用第一组带有固定ID的配置）
@@ -1603,6 +1596,9 @@
         const inputs = clone.querySelectorAll('input, select, textarea');
         inputs.forEach(function(el) {
             if (el.id === 'spreadsheet' ||
+                el.id === 'google_sheet_id' ||
+                el.id === 'refresh-google-sheets' ||
+                el.id === 'spreadsheet_title' ||
                 el.id === 'sheet_name' ||
                 el.id === 'custom_sheet_name' ||
                 el.id === 'refresh-sheets') {
@@ -1617,33 +1613,15 @@
         });
 
         // 同时移除帮助文本上的ID，避免与主块冲突
-        const help = clone.querySelector('#sheet-name-help');
-        if (help) {
-            help.removeAttribute('id');
-        }
+        ['sheet-name-help', 'spreadsheet-help', 'custom-sheet-container'].forEach(function(idValue) {
+            const el = clone.querySelector(`#${idValue}`);
+            if (el) {
+                el.removeAttribute('id');
+            }
+        });
 
-        // 为克隆出来的配置块绑定独立的事件
-        const spreadsheetInputEl = clone.querySelector('input[type="text"]');
-        const refreshBtn = clone.querySelector('button.btn-outline-secondary');
-
-        if (spreadsheetInputEl && refreshBtn) {
-            const debouncedLoadForItem = debounce(function() {
-                loadWorksheetsForItem(clone, false);
-            }, 500);
-
-            spreadsheetInputEl.addEventListener('input', function() {
-                const value = (this.value || '').trim();
-                refreshBtn.disabled = !value;
-                debouncedLoadForItem();
-            });
-
-            refreshBtn.addEventListener('click', function() {
-                loadWorksheetsForItem(clone, true);
-            });
-
-            // 初始禁用刷新按钮
-            refreshBtn.disabled = true;
-        }
+        const debouncedSaveFormData = debounce(saveFormData, 300);
+        bindSheetConfigItemEvents(clone, debouncedSaveFormData);
 
         list.appendChild(clone);
     }
@@ -1912,43 +1890,31 @@
             const items = sheetConfigList.querySelectorAll('.sheet-config-item');
             items.forEach((item, index) => {
                 let sid = '';
-                let sname = '';
                 let stitle = '';
 
-                // 其他配置块：通过输入/下拉推导
-                const textInputs = item.querySelectorAll('input[type="text"]');
-                const spreadsheetInputEl = textInputs[0];
-                const sheetTitle = textInputs[1] || null;
-                const customInputEl = textInputs[2] || null;
-                const selectEl = item.querySelector('select');
+                const {
+                    spreadsheetSelect,
+                    titleInput,
+                    worksheetInput
+                } = getSheetConfigElements(item);
 
-                if (spreadsheetInputEl) {
-                    sid = extractSpreadsheetId(spreadsheetInputEl.value || '');
+                if (spreadsheetSelect) {
+                    sid = extractSpreadsheetId(spreadsheetSelect.value || '');
                 }
-                if  (sheetTitle) {
-                    stitle = sheetTitle.value.trim();
-                }
-                if (selectEl) {
-                    if (selectEl.value === '自定义' && customInputEl) {
-                        sname = (customInputEl.value || '').trim();
-                    } else if (selectEl.value) {
-                        sname = selectEl.value;
-                    } else if (customInputEl) {
-                        // 下拉无有效值时，允许直接用自定义输入
-                        sname = (customInputEl.value || '').trim();
-                    }
-                } else if (customInputEl) {
-                    sname = (customInputEl.value || '').trim();
+                if (titleInput) {
+                    stitle = titleInput.value.trim();
                 }
 
-                if (sid && sname) {
+                if (sid) {
                     const sheetConfig = {
                         spreadsheet_id: sid,
-                        title: stitle,
-                        sheet_name: sname
+                        title: stitle
                     };
+                    if (worksheetInput && worksheetInput.value.trim()) {
+                        sheetConfig.sheet_name = worksheetInput.value.trim();
+                    }
                     sheets.push(sheetConfig);
-                    console.log(`添加表格配置：${sid} - ${sname} - ${stitle}`);
+                    console.log(`添加表格配置：${sid} - ${stitle}`);
                 }
             });
         }
@@ -2045,7 +2011,6 @@
             spreadsheet: document.getElementById('spreadsheet').value,
             spreadsheet_title: document.getElementById('spreadsheet_title').value,
             sheet_name: document.getElementById('sheet_name').value,
-            custom_sheet_name: document.getElementById('custom_sheet_name').value,
             token_type: document.getElementById('token_type').value,
             token_id: document.getElementById('token_id') ? document.getElementById('token_id').value : '',
             token_file: document.getElementById('token_file').value,
@@ -2078,13 +2043,11 @@
                 // 恢复表单字段
                 if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
-                if (formData.spreadsheet) document.getElementById('spreadsheet').value = formData.spreadsheet;
-                if (formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.spreadsheet_title;
-                if (formData.sheet_name) {
-                    const sheetSelect = document.getElementById('sheet_name');
-                    sheetSelect.setAttribute('data-saved-value', formData.sheet_name);
+                if (formData.spreadsheet) {
+                    loadGoogleSheets(formData.spreadsheet);
                 }
-                if (formData.custom_sheet_name) document.getElementById('custom_sheet_name').value = formData.custom_sheet_name;
+                if (formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.spreadsheet_title;
+                if (formData.sheet_name) document.getElementById('sheet_name').value = formData.sheet_name;
                 if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
                 if (formData.token_id) {
                     pendingTokenSelection = { token_id: formData.token_id, token_file: formData.token_file || '' };
@@ -2125,7 +2088,6 @@
                 }
 
                 // 触发相关事件以更新UI状态
-                document.getElementById('sheet_name').dispatchEvent(new Event('change'));
                 document.getElementById('token_type').dispatchEvent(new Event('change'));
                 initProductCodeChipsFromParam1();
 
@@ -2180,9 +2142,7 @@
         try {
             const spreadsheetInput = document.getElementById('spreadsheet').value;
             const spreadsheetId = extractSpreadsheetId(spreadsheetInput);
-            const sheetNameSelect = document.getElementById('sheet_name').value;
-            const customSheetName = document.getElementById('custom_sheet_name').value;
-            const sheetName = sheetNameSelect === '自定义' ? customSheetName : sheetNameSelect;
+            const sheetName = document.getElementById('sheet_name').value.trim();
             const tokenType = document.getElementById('token_type').value;
             const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
             const tokenFile = document.getElementById('token_file').value;
@@ -2197,12 +2157,7 @@
 
             // 验证必要字段
             if (!spreadsheetId) {
-                showError('请输入电子表格ID或URL');
-                return null;
-            }
-
-            if (sheetNameSelect === '自定义' && !customSheetName) {
-                showError('请输入自定义工作表名称');
+                showError('请选择 Google Sheet');
                 return null;
             }
 
@@ -2233,41 +2188,32 @@
             if (sheetConfigList) {
                 const items = sheetConfigList.querySelectorAll('.sheet-config-item');
                 items.forEach((item, index) => {
-                    let sname;
-                    let sid;
-                    let stitle;
-                    const textInputs = item.querySelectorAll('input[type="text"]');
-                    const spreadsheetInputEl = textInputs[0];
-                    const sheetTitle = textInputs[1] || null;
-                    const customInputEl = textInputs[2] || null;
-                    const selectEl = item.querySelector('select');
+                    let sid = '';
+                    let stitle = '';
+                    const {
+                        spreadsheetSelect,
+                        titleInput,
+                        worksheetInput
+                    } = getSheetConfigElements(item);
 
-                    if (spreadsheetInputEl) {
-                        sid = extractSpreadsheetId(spreadsheetInputEl.value || '');
+                    if (spreadsheetSelect) {
+                        sid = extractSpreadsheetId(spreadsheetSelect.value || '');
                     }
-                    if (spreadsheetInputEl) {
-                        stitle = sheetTitle.value || ''
+                    if (titleInput) {
+                        stitle = titleInput.value || '';
                     }
-                    if (selectEl) {
-                        if (selectEl.value === '自定义' && customInputEl) {
-                            sname = (customInputEl.value || '').trim();
-                        } else if (selectEl.value) {
-                            sname = selectEl.value;
-                        } else if (customInputEl) {
-                            sname = (customInputEl.value || '').trim();
-                        }
-                    } else if (customInputEl) {
-                        sname = (customInputEl.value || '').trim();
-                    }
+                    const sheetNameValue = worksheetInput ? worksheetInput.value.trim() : '';
 
-
-                    if (sid && sname && stitle) {
-                        sheets.push({
+                    if (sid) {
+                        const sheetConfig = {
                             spreadsheet_id: sid,
-                            title: stitle,
-                            sheet_name: sname
-                        });
-                        console.log( `添加工作表：${sid} - ${sname} - ${stitle}`)
+                            title: stitle
+                        };
+                        if (sheetNameValue) {
+                            sheetConfig.sheet_name = sheetNameValue;
+                        }
+                        sheets.push(sheetConfig);
+                        console.log(`添加工作表：${sid} - ${stitle}`);
                     }
                 });
             }

@@ -5,18 +5,19 @@ import json
 import queue
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
-from app.models import Task, TaskLog, TaskTemplate, TaskResult, SystemConfig, GoogleSheetToken, db
+from app.models import Task, TaskLog, TaskTemplate, TaskResult, SystemConfig, GoogleSheetToken, GoogleSheet, db
 from app.utils.logger import get_logger
 from flask import current_app
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_token_service import get_google_sheet_token_service, RANDOM_TOKEN_VALUE
+from app.services.google_sheet_registry_service import get_google_sheet_registry_service
 
 logger = get_logger(__name__)
 
 # Google Sheet 工作表列表简单内存缓存
 _worksheets_cache = {}
-# 缓存默认过期时间（秒），10 天
-_WORKSHEETS_CACHE_TTL = 10 * 24 * 60 * 60
+# 缓存默认过期时间（秒），5 天
+_WORKSHEETS_CACHE_TTL = 5 * 24 * 60 * 60
 
 api_bp = Blueprint('api', __name__)
 
@@ -31,6 +32,27 @@ def tasks():
     try:
         if request.method == 'GET':
             task_type = request.args.get('task_type')
+            page = request.args.get('page', type=int)
+            per_page = request.args.get('per_page', type=int)
+            task_status = request.args.get('status')
+            keyword = request.args.get('keyword', '', type=str)
+
+            use_pagination = page is not None or per_page is not None or bool(task_status) or bool(keyword)
+            if use_pagination:
+                data = task_manager.get_tasks_paginated(
+                    page=page or 1,
+                    per_page=per_page or 10,
+                    task_type=task_type,
+                    status=task_status,
+                    keyword=keyword,
+                )
+                return jsonify({
+                    "status": "success",
+                    "tasks": data["tasks"],
+                    "pagination": data["pagination"],
+                    "statistics": data["statistics"],
+                })
+
             tasks = task_manager.get_all_tasks(task_type=task_type)
             return jsonify({"status": "success", "tasks": tasks})
 
@@ -635,6 +657,77 @@ def get_worksheets():
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
         logger.error(f"获取工作表列表失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@api_bp.route('/google-sheets', methods=['GET', 'POST'])
+def google_sheets():
+    """Google Sheet 配置表列表/创建"""
+    try:
+        service = get_google_sheet_registry_service()
+
+        if request.method == 'GET':
+            include_inactive = request.args.get('include_inactive', '0') in ('1', 'true', 'True')
+            only_available = request.args.get('only_available', '0') in ('1', 'true', 'True')
+            task_id = request.args.get('task_id', '', type=str) or None
+            return jsonify({
+                "status": "success",
+                "items": service.list_sheets(
+                    include_inactive=include_inactive,
+                    only_available=only_available,
+                    task_id=task_id,
+                )
+            })
+
+        data = request.get_json() or {}
+        item = service.create_sheet(
+            spreadsheet_id=data.get('spreadsheet_id', ''),
+            name=data.get('name'),
+            remark=data.get('remark'),
+            is_active=data.get('is_active', True),
+        )
+        return jsonify({
+            "status": "success",
+            "message": "Google Sheet 创建成功",
+            "item": item
+        })
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"处理 Google Sheet 列表接口失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@api_bp.route('/google-sheets/<int:sheet_id>', methods=['GET', 'PUT', 'DELETE'])
+def google_sheet_detail(sheet_id):
+    """Google Sheet 配置详情"""
+    try:
+        service = get_google_sheet_registry_service()
+
+        if request.method == 'GET':
+            item = service.get_sheet(sheet_id)
+            if not item:
+                return jsonify({"status": "error", "message": "Google Sheet 不存在"}), 404
+            return jsonify({"status": "success", "item": item})
+
+        if request.method == 'PUT':
+            data = request.get_json() or {}
+            payload = {}
+            for key in ('spreadsheet_id', 'name', 'remark'):
+                if key in data:
+                    payload[key] = data.get(key)
+            if 'is_active' in data:
+                payload['is_active'] = data.get('is_active')
+            item = service.update_sheet(sheet_id, **payload)
+            return jsonify({"status": "success", "message": "Google Sheet 更新成功", "item": item})
+
+        service.delete_sheet(sheet_id)
+        return jsonify({"status": "success", "message": "Google Sheet 删除成功"})
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"处理 Google Sheet 详情接口失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # 模板相关API

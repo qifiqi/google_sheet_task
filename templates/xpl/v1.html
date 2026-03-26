@@ -151,6 +151,12 @@
                                 data-bs-target="#tab-sharpe" type="button" role="tab">夏普比率
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-excess-metrics" type="button" role="tab">超额指标
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-repair-days" type="button" role="tab">回测修复天数
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-profit" type="button" role="tab">盈利统计
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
@@ -311,8 +317,8 @@
                                         <th>Key</th>
                                         <th>index_Sharpe</th>
                                         <th>start_Sharpe</th>
-                                        <th>index_Avg</th>
-                                        <th>start_Avg</th>
+                                        <th>index_平均月收益率</th>
+                                        <th>start_平均月收益率</th>
                                         <th>index_月Std</th>
                                         <th>start_月Std</th>
                                         <th>index_年Std</th>
@@ -322,6 +328,36 @@
                                     </tr>
                                     </thead>
                                     <tbody id="tbl-sharpe"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-excess-metrics" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-excess-metrics"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-repair-days" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Year</th>
+                                        <th>index</th>
+                                        <th>start</th>
+                                        <th>excess</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-repair-days"></tbody>
                                 </table>
                             </div>
                         </div>
@@ -509,6 +545,26 @@
                     <div class="card-body p-2">
                         <div style="height:340px;">
                             <canvas id="chart-sharpe-compare"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">超额指标（夏普 / 索提诺）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-excess-metrics"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">最大回测修复天数（index / start / excess）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-repair-days"></canvas>
                         </div>
                     </div>
                 </div>
@@ -986,10 +1042,15 @@
             'outperform_year',
             'monthly_excess_volatility',
             'excess_drawdown_winning_rate',
+            'excess_sharp',
+            'excess_of_promissory_note',
             'index_profit_annual',
             'start_profit_annual',
             'index_monthly_return_volatility',
-            'start_monthly_return_volatility'
+            'start_monthly_return_volatility',
+            'index_maximum_number_of_backtest_repair_days',
+            'start_maximum_number_of_backtest_repair_days',
+            'excess_maximum_number_of_backtest_repair_days'
         ];
 
         scalarKeys.forEach(k => {
@@ -998,6 +1059,8 @@
             let v = r[k];
             if (k.includes('profit_annual') || k.includes('outperform_year') || k.includes('winning_rate')) {
                 v = fmtPct(v, 2);
+            } else if (k.includes('maximum_number_of_backtest_repair_days') && typeof v === 'object') {
+                v = `<pre class="mb-0">${escapeHtml(JSON.stringify(v, null, 2))}</pre>`;
             } else if (typeof v === 'number') {
                 v = fmtNum(v, 6);
             }
@@ -1132,6 +1195,14 @@
     }
 
     // 盈利统计 tab
+    function renderTabExcessMetrics(r) {
+        fillExcessMetricsTable(r);
+    }
+
+    function renderTabRepairDays(r) {
+        fillRepairDaysTable(r);
+    }
+
     function renderTabProfit(r) {
         fillProfitAnnualTable(r);
         fillProfitMonthlyTable(r.index_profit_monthly, 'tbl-index-profit-monthly');
@@ -1351,6 +1422,55 @@
         tbody.appendChild(tr);
     }
 
+    function fillExcessMetricsTable(r) {
+        const tbody = document.getElementById('tbl-excess-metrics');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const rows = [
+            ['excess_sharp', r.excess_sharp],
+            ['excess_of_promissory_note', r.excess_of_promissory_note]
+        ];
+
+        rows.forEach(([key, value]) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><code>${key}</code></td><td>${value === undefined ? '-' : fmtNum(value, 6)}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function repairDaysEntries(obj) {
+        const map = new Map();
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return map;
+        Object.entries(obj).forEach(([year, value]) => {
+            map.set(String(year), value);
+        });
+        return map;
+    }
+
+    function fillRepairDaysTable(r) {
+        const tbody = document.getElementById('tbl-repair-days');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const idxMap = repairDaysEntries(r.index_maximum_number_of_backtest_repair_days);
+        const stMap = repairDaysEntries(r.start_maximum_number_of_backtest_repair_days);
+        const exMap = repairDaysEntries(r.excess_maximum_number_of_backtest_repair_days);
+        const years = Array.from(new Set([...idxMap.keys(), ...stMap.keys(), ...exMap.keys()])).sort();
+
+        if (years.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">鏃犳暟鎹?/td></tr>';
+            return;
+        }
+
+        years.forEach(year => {
+            const tr = document.createElement('tr');
+            const excess = exMap.get(year);
+            tr.innerHTML = `<td>${year}</td><td>${idxMap.get(year) ?? '-'}</td><td>${stMap.get(year) ?? '-'}</td><td class="${(excess ?? 0) >= 0 ? 'text-success' : 'text-danger'}">${excess ?? '-'}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
     function fillProfitMonthlyTable(list, tbodyId) {
         const tbody = document.getElementById(tbodyId);
         if (!tbody) return;
@@ -1376,6 +1496,8 @@
         renderTabKama(r);
         renderTabSotino(r);
         renderTabSharpe(r);
+        renderTabExcessMetrics(r);
+        renderTabRepairDays(r);
         renderTabProfit(r);
     }
 
@@ -1618,6 +1740,8 @@
 
         renderMonthlyExcessReturnsChart(r);
         renderSharpeCompare(r);
+        renderExcessMetricsChart(r);
+        renderRepairDaysChart(r);
         renderProfitMonthly(r);
     }
 
@@ -1794,6 +1918,80 @@
                 maintainAspectRatio: false,
                 scales: {
                     y: {title: {display: true, text: 'Percentage (%)'}, beginAtZero: true, max: 100}
+                }
+            }
+        });
+    }
+
+    function renderExcessMetricsChart(r) {
+        const el = document.getElementById('chart-excess-metrics');
+        if (!el) return;
+        destroyChart('excessMetrics');
+        state.charts.excessMetrics = new Chart(el, {
+            type: 'bar',
+            data: {
+                labels: ['excess_sharp', 'excess_of_promissory_note'],
+                datasets: [{
+                    label: 'Value',
+                    data: [r.excess_sharp ?? null, r.excess_of_promissory_note ?? null],
+                    backgroundColor: ['rgba(13,110,253,0.5)', 'rgba(25,135,84,0.5)'],
+                    borderColor: ['#0d6efd', '#198754'],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: 'Metric Value'}}
+                }
+            }
+        });
+    }
+
+    function renderRepairDaysChart(r) {
+        const el = document.getElementById('chart-repair-days');
+        if (!el) return;
+        destroyChart('repairDays');
+
+        const idxMap = repairDaysEntries(r.index_maximum_number_of_backtest_repair_days);
+        const stMap = repairDaysEntries(r.start_maximum_number_of_backtest_repair_days);
+        const exMap = repairDaysEntries(r.excess_maximum_number_of_backtest_repair_days);
+        const labels = Array.from(new Set([...idxMap.keys(), ...stMap.keys(), ...exMap.keys()])).sort();
+
+        state.charts.repairDays = new Chart(el, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'index',
+                        data: labels.map(year => idxMap.get(year) ?? null),
+                        backgroundColor: 'rgba(13,110,253,0.45)',
+                        borderColor: '#0d6efd',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'start',
+                        data: labels.map(year => stMap.get(year) ?? null),
+                        backgroundColor: 'rgba(25,135,84,0.45)',
+                        borderColor: '#198754',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'excess',
+                        data: labels.map(year => exMap.get(year) ?? null),
+                        backgroundColor: 'rgba(253,126,20,0.45)',
+                        borderColor: '#fd7e14',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: 'Days'}}
                 }
             }
         });

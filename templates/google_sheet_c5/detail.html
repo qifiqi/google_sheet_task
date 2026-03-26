@@ -705,6 +705,11 @@
                 const list = document.getElementById('edit-sheets-list');
                 if (!list) return;
                 const rows = list.querySelectorAll('.edit-sheet-row');
+                // 导出排序规则：
+                // 1) 按 stock_code 降序
+                // 2) 按 kline_range 的完整日期区间排序：先结束日期，再开始日期，都是降序
+                // 3) 同一完整日期区间内按 xm 升序，空值和 0 排最前
+                // 4) 同一 xm 内按 ReturnBeats 降序
                 if (rows.length > 1) {
                     list.removeChild(rows[rows.length - 1]);
                 }
@@ -1960,26 +1965,45 @@
                     const dataRows = rows.slice(1);
 
                     // stock_code 与 kline_range 的固定列索引
+                    // 固定列索引
                     const STOCK_CODE_COL = 2; // stock_code
                     const KLINE_RANGE_COL = 3; // kline_range
+                    const XM_COL = 4; // xm
 
                     // 找到 Return 在导出字段中的列索引（D2 -> Return）
-                    const returnMetricIndex = exportMetricKeys.indexOf('D2');
+                    // 找到 ReturnBeats 在导出字段中的列索引（D11 -> ReturnBeats）
+                    const returnMetricIndex = exportMetricKeys.indexOf('D11');
                     let RETURN_COL = null;
                     if (returnMetricIndex !== -1) {
                         // 前面 7 列是固定列，从第 8 列开始是指标列
                         RETURN_COL = 7 + returnMetricIndex;
                     }
 
-                    const parseEndYear = (range) => {
+                    const parseEndDate = (range) => {
                         if (!range) return -Infinity;
                         const str = String(range);
                         const parts = str.split('~');
                         if (parts.length < 2) return -Infinity;
                         const endPart = parts[1].trim();
-                        const yearStr = endPart.slice(0, 4);
-                        const year = parseInt(yearStr, 10);
-                        return Number.isNaN(year) ? -Infinity : year;
+                        const timestamp = Date.parse(endPart);
+                        return Number.isNaN(timestamp) ? -Infinity : timestamp;
+                    };
+
+                    const parseStartDate = (range) => {
+                        if (!range) return -Infinity;
+                        const str = String(range);
+                        const parts = str.split('~');
+                        if (parts.length < 1) return -Infinity;
+                        const startPart = parts[0].trim();
+                        const timestamp = Date.parse(startPart);
+                        return Number.isNaN(timestamp) ? -Infinity : timestamp;
+                    };
+
+                    const normalizeXm = (val) => {
+                        if (val == null) return '';
+                        const str = String(val).trim();
+                        if (!str || str === '0') return '';
+                        return str;
                     };
 
                     const parseReturn = (val) => {
@@ -1996,11 +2020,23 @@
                             return stockB.localeCompare(stockA);
                         }
 
-                        const yearA = parseEndYear(a[KLINE_RANGE_COL]);
-                        const yearB = parseEndYear(b[KLINE_RANGE_COL]);
-                        if (yearA !== yearB) {
+                        const endDateA = parseEndDate(a[KLINE_RANGE_COL]);
+                        const endDateB = parseEndDate(b[KLINE_RANGE_COL]);
+                        if (endDateA !== endDateB) {
                             // 结束年份降序
-                            return yearB - yearA;
+                            return endDateB - endDateA;
+                        }
+
+                        const startDateA = parseStartDate(a[KLINE_RANGE_COL]);
+                        const startDateB = parseStartDate(b[KLINE_RANGE_COL]);
+                        if (startDateA !== startDateB) {
+                            return startDateB - startDateA;
+                        }
+
+                        const xmA = normalizeXm(a[XM_COL]);
+                        const xmB = normalizeXm(b[XM_COL]);
+                        if (xmA !== xmB) {
+                            return xmA.localeCompare(xmB, 'zh-Hans-CN', { numeric: true });
                         }
 
                         if (RETURN_COL !== null) {

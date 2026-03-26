@@ -4,9 +4,10 @@ import queue
 import json
 # 获取当前应用实例，传递给后台线程
 from flask import current_app
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
-from app.models import Task, TaskLog, TaskResult, db
+from sqlalchemy import or_
+from app.models import Task, TaskLog, TaskResult, GoogleSheet, db
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_service_C4 import GoogleSheetService as GoogleSheetServiceC4
 from app.services.google_sheet_service_C5 import GoogleSheetService as GoogleSheetServiceC5
@@ -14,6 +15,7 @@ from app.utils.logger import get_logger, get_task_logger
 from app.utils.database import transaction_required, safe_delete, safe_update, safe_create
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_token_service import get_google_sheet_token_service
+from app.services.google_sheet_registry_service import get_google_sheet_registry_service
 
 logger = get_logger(__name__)
 
@@ -32,11 +34,21 @@ class TaskManager:
         """动态获取配置，确保实时生效"""
         config_manager = get_config_manager()
         return config_manager.get_config(key, default)
+
+    def _normalize_task_config_for_type(self, task_type: str, config):
+        if not isinstance(config, dict):
+            return config
+        normalized = dict(config)
+        if task_type in ('google_sheet_C4', 'google_sheet_C5'):
+            normalized.pop('spreadsheet_id', None)
+            normalized.pop('sheet_name', None)
+        return normalized
     
     @transaction_required
     def create_task(self, name: str, description: str, task_type: str, config: Dict[str, Any]) -> str:
         """创建新任务"""
         task_id = str(uuid.uuid4())
+        config = self._normalize_task_config_for_type(task_type, config)
 
         if isinstance(config, dict):
             config = get_google_sheet_token_service().prepare_task_config(config)
@@ -53,6 +65,9 @@ class TaskManager:
             config=config_str,
             status='pending'
         )
+
+        if isinstance(config, dict):
+            self._ensure_google_sheet_occupancy(task_id, config)
         
         # 使用任务专用日志记录器
         task_logger = get_task_logger(task_id, f"{__name__}.create")
@@ -106,6 +121,7 @@ class TaskManager:
 
         try:
             config_data = json.loads(task.config) if isinstance(task.config, str) else (task.config or {})
+            self._ensure_google_sheet_occupancy(task_id, config_data)
             token_id = config_data.get('token_id')
             if token_id:
                 token_service = get_google_sheet_token_service()
@@ -145,6 +161,7 @@ class TaskManager:
             self.task_events.pop(task_id, None)
             self.task_stop_events.pop(task_id, None)
             self._release_task_token_occupancy(task_id)
+            self._release_google_sheet_occupancy(task_id)
             task_logger.error(error_msg)
             logger.error(f"不支持的任务类型: {task.task_type}")
             return False
@@ -158,6 +175,7 @@ class TaskManager:
             self.task_events.pop(task_id, None)
             self.task_stop_events.pop(task_id, None)
             self._release_task_token_occupancy(task_id)
+            self._release_google_sheet_occupancy(task_id)
             error_msg = f"任务线程启动失败: {str(e)}"
             self.start_errors[task_id] = error_msg
             task_logger.error(error_msg)
@@ -178,6 +196,51 @@ class TaskManager:
             except Exception as e:
                 logger.warning(f"release token occupancy failed: task_id={task_id}, token_id={token_id}, err={str(e)}")
 
+    def _ensure_google_sheet_occupancy(self, task_id: str, config: Dict[str, Any] | None):
+        if not isinstance(config, dict):
+            return
+        sheet_ids: list[int] = []
+
+        direct_sheet_id = config.get('google_sheet_id')
+        if direct_sheet_id:
+            sheet_ids.append(int(direct_sheet_id))
+
+        spreadsheet_id = config.get('spreadsheet_id')
+        if spreadsheet_id:
+            matched_sheet = GoogleSheet.query.filter_by(spreadsheet_id=str(spreadsheet_id)).first()
+            if matched_sheet:
+                sheet_ids.append(int(matched_sheet.id))
+
+        sheets = config.get('sheets')
+        if isinstance(sheets, list):
+            for item in sheets:
+                if not isinstance(item, dict):
+                    continue
+                item_sheet_id = item.get('google_sheet_id')
+                if item_sheet_id:
+                    sheet_ids.append(int(item_sheet_id))
+                    continue
+                item_spreadsheet_id = item.get('spreadsheet_id')
+                if item_spreadsheet_id:
+                    matched_sheet = GoogleSheet.query.filter_by(spreadsheet_id=str(item_spreadsheet_id)).first()
+                    if matched_sheet:
+                        sheet_ids.append(int(matched_sheet.id))
+
+        for sheet_id in sorted(set(sheet_ids)):
+            get_google_sheet_registry_service().acquire_for_task(sheet_id, task_id)
+
+    def _release_google_sheet_occupancy(self, task_id: str):
+        try:
+            released = get_google_sheet_registry_service().release_for_task(task_id)
+            if not released:
+                task = Task.query.get(task_id)
+                if task:
+                    config_data = json.loads(task.config) if isinstance(task.config, str) else (task.config or {})
+                    if isinstance(config_data, dict) and config_data.get('google_sheet_id'):
+                        logger.warning(f"google sheet occupancy release skipped: task_id={task_id}, google_sheet_id={config_data.get('google_sheet_id')}")
+        except Exception as e:
+            logger.warning(f"release google sheet occupancy failed: task_id={task_id}, err={str(e)}")
+
     def get_start_error(self, task_id: str) -> str:
         return self.start_errors.get(task_id, '任务启动失败')
 
@@ -190,12 +253,15 @@ class TaskManager:
         
         if task.status in ['completed', 'cancelled', 'error']:
             return False
+        was_pending = task.status == 'pending'
         stop_event = self.task_stop_events.get(task_id)
         if stop_event:
             stop_event.set()
         
         # 使用safe_update更新任务状态
         safe_update(task, commit=False, status='cancelled', end_time=datetime.now())
+        if was_pending:
+            self._release_google_sheet_occupancy(task_id)
         
         # 清理资源
         
@@ -218,6 +284,91 @@ class TaskManager:
             query = query.filter_by(task_type=task_type)
         tasks = query.order_by(Task.created_at.desc()).all()
         return [task.to_dict() for task in tasks]
+
+    def get_tasks_paginated(
+        self,
+        page: int = 1,
+        per_page: int = 10,
+        task_type: Optional[str] = None,
+        status: Optional[str] = None,
+        keyword: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """分页获取任务列表，并返回当前筛选条件下的统计信息。"""
+        page = max(page or 1, 1)
+        per_page = max(min(per_page or 10, 100), 1)
+
+        query = Task.query
+        if task_type:
+            query = query.filter(Task.task_type == task_type)
+
+        if status and status != 'all':
+            query = query.filter(Task.status == status)
+
+        if keyword:
+            keyword = keyword.strip()
+            if keyword:
+                pattern = f"%{keyword}%"
+                query = query.filter(
+                    or_(
+                        Task.name.ilike(pattern),
+                        Task.description.ilike(pattern),
+                        Task.id.ilike(pattern),
+                    )
+                )
+
+        ordered_query = query.order_by(Task.created_at.desc())
+        pagination = ordered_query.paginate(page=page, per_page=per_page, error_out=False)
+        items = [task.to_dict() for task in pagination.items]
+
+        total = query.count()
+        completed_tasks = query.filter(Task.status == 'completed').count()
+        running_tasks = query.filter(Task.status == 'running').count()
+        error_tasks = query.filter(Task.status == 'error').count()
+        pending_tasks = query.filter(Task.status == 'pending', Task.current_step > 0).count()
+
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+        today_new_tasks = query.filter(
+            Task.created_at >= today_start,
+            Task.created_at < tomorrow_start
+        ).count()
+
+        completed_with_duration = query.filter(
+            Task.status == 'completed',
+            Task.start_time.isnot(None),
+            Task.end_time.isnot(None)
+        ).all()
+        duration_minutes = []
+        for task in completed_with_duration:
+            if task.start_time and task.end_time and task.end_time > task.start_time:
+                duration_minutes.append((task.end_time - task.start_time).total_seconds() / 60)
+
+        avg_duration_minutes = round(sum(duration_minutes) / len(duration_minutes)) if duration_minutes else 0
+        success_rate = round((completed_tasks / (completed_tasks + error_tasks) * 100), 1) if (completed_tasks + error_tasks) > 0 else 0
+        error_rate = round((error_tasks / total * 100), 1) if total > 0 else 0
+
+        return {
+            "tasks": items,
+            "pagination": {
+                "page": pagination.page,
+                "per_page": pagination.per_page,
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "has_prev": pagination.has_prev,
+                "has_next": pagination.has_next,
+            },
+            "statistics": {
+                "total_tasks": total,
+                "completed_tasks": completed_tasks,
+                "running_tasks": running_tasks,
+                "error_tasks": error_tasks,
+                "pending_tasks": pending_tasks,
+                "today_new_tasks": today_new_tasks,
+                "success_rate": success_rate,
+                "error_rate": error_rate,
+                "avg_duration_minutes": avg_duration_minutes,
+            }
+        }
     
     def check_local_task_status(self, task_id: str) -> Dict[str, Any]:
         """检查本地任务状态，识别可能挂死的任务"""
@@ -347,6 +498,7 @@ class TaskManager:
 
                 # 删除该任务历史结果，避免新一轮执行与旧结果混淆
                 self._release_task_token_occupancy(task_id)
+                self._release_google_sheet_occupancy(task_id)
                 TaskResult.query.filter_by(task_id=task_id).delete()
                 db.session.commit()
 
@@ -399,6 +551,7 @@ class TaskManager:
             
             # 复制原任务配置
             original_config = json.loads(original_task.config) if isinstance(original_task.config, str) else original_task.config
+            original_config = self._normalize_task_config_for_type(original_task.task_type, original_config)
             
             # 创建新任务，名称添加重启标识
             new_task = Task(
@@ -412,6 +565,9 @@ class TaskManager:
             
             db.session.add(new_task)
             db.session.commit()
+
+            if isinstance(original_config, dict):
+                self._ensure_google_sheet_occupancy(new_task_id, original_config)
             
             logger.info(f"创建重启任务: {new_task_id} (基于 {original_task_id})")
             return new_task_id
@@ -480,6 +636,7 @@ class TaskManager:
                     task.status = 'cancelled'
                     task.end_time = datetime.now()
                     self._release_task_token_occupancy(task_id)
+                self._release_google_sheet_occupancy(task_id)
                 
                 # 删除任务结果
                 TaskResult.query.filter_by(task_id=task_id).delete()
@@ -537,6 +694,18 @@ class TaskManager:
                 return {"status": "error", "message": "配置格式不正确"}
             
             # 确保配置被正确序列化
+            new_config = self._normalize_task_config_for_type(task.task_type, new_config)
+
+            old_config = json.loads(task.config) if task.config else {}
+            old_google_sheet_id = old_config.get('google_sheet_id') if isinstance(old_config, dict) else None
+            new_google_sheet_id = new_config.get('google_sheet_id')
+
+            if old_google_sheet_id != new_google_sheet_id:
+                if old_google_sheet_id:
+                    self._release_google_sheet_occupancy(task_id)
+                if new_google_sheet_id:
+                    self._ensure_google_sheet_occupancy(task_id, new_config)
+
             config_str = json.dumps(new_config)
             
             # 更新配置
@@ -647,6 +816,7 @@ class TaskManager:
         
         finally:
             self._release_task_token_occupancy(task_id)
+            self._release_google_sheet_occupancy(task_id)
             # 清理资源
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
@@ -752,6 +922,7 @@ class TaskManager:
         
         finally:
             self._release_task_token_occupancy(task_id)
+            self._release_google_sheet_occupancy(task_id)
             # 清理资源
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
@@ -857,6 +1028,7 @@ class TaskManager:
         
         finally:
             self._release_task_token_occupancy(task_id)
+            self._release_google_sheet_occupancy(task_id)
             # 清理资源
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]

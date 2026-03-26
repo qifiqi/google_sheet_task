@@ -1,0 +1,258 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Google Sheet 管理{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-1">Google Sheet 管理</h2>
+        <p class="text-muted mb-0">维护可选表格、启用状态和当前占用情况</p>
+    </div>
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#sheetModal" onclick="openCreateModal()">
+        <i class="bi bi-plus-circle me-1"></i> 新增表格
+    </button>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">关键词</label>
+                <input id="keyword" class="form-control" type="text" placeholder="名称 / Spreadsheet ID">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">状态</label>
+                <select id="activeFilter" class="form-select">
+                    <option value="">全部</option>
+                    <option value="1">启用</option>
+                    <option value="0">停用</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">占用情况</label>
+                <select id="usageFilter" class="form-select">
+                    <option value="">全部</option>
+                    <option value="1">使用中</option>
+                    <option value="0">空闲</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-grid">
+                <button class="btn btn-outline-secondary" type="button" onclick="loadGoogleSheetsAdmin()">
+                    <i class="bi bi-arrow-clockwise me-1"></i> 刷新
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>名称</th>
+                        <th>Spreadsheet ID</th>
+                        <th>备注</th>
+                        <th>启用</th>
+                        <th>是否使用中</th>
+                        <th>当前任务</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="sheetTableBody">
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">正在加载...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="sheetModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="sheetModalTitle">新增表格</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="sheetRecordId">
+                <div class="mb-3">
+                    <label class="form-label">名称</label>
+                    <input type="text" id="sheetName" class="form-control" placeholder="例如：主表-A">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Spreadsheet ID</label>
+                    <input type="text" id="sheetSpreadsheetId" class="form-control" placeholder="请输入 Google Sheet ID">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">备注</label>
+                    <textarea id="sheetRemark" class="form-control" rows="3" placeholder="可选"></textarea>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="sheetIsActive" checked>
+                    <label class="form-check-label" for="sheetIsActive">启用</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" type="button" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" type="button" onclick="submitSheetForm()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let googleSheetAdminItems = [];
+
+function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, function(char) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char];
+    });
+}
+
+function openCreateModal() {
+    document.getElementById('sheetModalTitle').textContent = '新增表格';
+    document.getElementById('sheetRecordId').value = '';
+    document.getElementById('sheetName').value = '';
+    document.getElementById('sheetSpreadsheetId').value = '';
+    document.getElementById('sheetRemark').value = '';
+    document.getElementById('sheetIsActive').checked = true;
+}
+
+function openEditModal(id) {
+    const item = googleSheetAdminItems.find(function(record) { return record.id === id; });
+    if (!item) {
+        showNotification('未找到对应记录', 'error');
+        return;
+    }
+    document.getElementById('sheetModalTitle').textContent = '编辑表格';
+    document.getElementById('sheetRecordId').value = item.id;
+    document.getElementById('sheetName').value = item.name || '';
+    document.getElementById('sheetSpreadsheetId').value = item.spreadsheet_id || '';
+    document.getElementById('sheetRemark').value = item.remark || '';
+    document.getElementById('sheetIsActive').checked = !!item.is_active;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('sheetModal')).show();
+}
+
+function renderGoogleSheetsAdmin() {
+    const keyword = document.getElementById('keyword').value.trim().toLowerCase();
+    const activeFilter = document.getElementById('activeFilter').value;
+    const usageFilter = document.getElementById('usageFilter').value;
+    const tbody = document.getElementById('sheetTableBody');
+
+    const rows = googleSheetAdminItems.filter(function(item) {
+        const matchKeyword = !keyword ||
+            String(item.name || '').toLowerCase().includes(keyword) ||
+            String(item.spreadsheet_id || '').toLowerCase().includes(keyword);
+        const matchActive = activeFilter === '' || String(Number(!!item.is_active)) === activeFilter;
+        const matchUsage = usageFilter === '' || String(Number(!!item.is_in_use)) === usageFilter;
+        return matchKeyword && matchActive && matchUsage;
+    });
+
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">暂无数据</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map(function(item) {
+        return `
+            <tr>
+                <td>${escapeHtml(item.name || '-')}</td>
+                <td><code>${escapeHtml(item.spreadsheet_id || '-')}</code></td>
+                <td>${escapeHtml(item.remark || '-')}</td>
+                <td>${item.is_active ? '<span class="badge bg-success">启用</span>' : '<span class="badge bg-secondary">停用</span>'}</td>
+                <td>${item.is_in_use ? '<span class="badge bg-warning text-dark">使用中</span>' : '<span class="badge bg-light text-dark">空闲</span>'}</td>
+                <td><code>${escapeHtml(item.current_task_id || '-')}</code></td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary me-2" type="button" onclick="openEditModal(${item.id})">编辑</button>
+                    <button class="btn btn-sm btn-outline-danger" type="button" onclick="deleteGoogleSheetRecord(${item.id})" ${item.is_in_use ? 'disabled' : ''}>删除</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function loadGoogleSheetsAdmin() {
+    fetch('/api/google-sheets?include_inactive=1')
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (data.status !== 'success') {
+                throw new Error(data.message || '加载表格列表失败');
+            }
+            googleSheetAdminItems = Array.isArray(data.items) ? data.items : [];
+            renderGoogleSheetsAdmin();
+        })
+        .catch(function(error) {
+            document.getElementById('sheetTableBody').innerHTML = `<tr><td colspan="7" class="text-center text-danger py-4">${escapeHtml(error.message)}</td></tr>`;
+            showNotification('加载表格列表失败：' + error.message, 'error');
+        });
+}
+
+function submitSheetForm() {
+    const id = document.getElementById('sheetRecordId').value;
+    const payload = {
+        name: document.getElementById('sheetName').value.trim(),
+        spreadsheet_id: document.getElementById('sheetSpreadsheetId').value.trim(),
+        remark: document.getElementById('sheetRemark').value.trim(),
+        is_active: document.getElementById('sheetIsActive').checked
+    };
+
+    if (!payload.spreadsheet_id) {
+        showNotification('请输入 Spreadsheet ID', 'error');
+        return;
+    }
+
+    const method = id ? 'PUT' : 'POST';
+    const url = id ? `/api/google-sheets/${id}` : '/api/google-sheets';
+
+    fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (data.status !== 'success') {
+                throw new Error(data.message || '保存失败');
+            }
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('sheetModal')).hide();
+            showNotification(data.message || '保存成功', 'success');
+            loadGoogleSheetsAdmin();
+        })
+        .catch(function(error) {
+            showNotification('保存失败：' + error.message, 'error');
+        });
+}
+
+function deleteGoogleSheetRecord(id) {
+    if (!confirm('确定删除这条 Google Sheet 配置吗？')) {
+        return;
+    }
+    fetch(`/api/google-sheets/${id}`, { method: 'DELETE' })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (data.status !== 'success') {
+                throw new Error(data.message || '删除失败');
+            }
+            showNotification(data.message || '删除成功', 'success');
+            loadGoogleSheetsAdmin();
+        })
+        .catch(function(error) {
+            showNotification('删除失败：' + error.message, 'error');
+        });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    ['keyword', 'activeFilter', 'usageFilter'].forEach(function(id) {
+        document.getElementById(id).addEventListener('input', renderGoogleSheetsAdmin);
+        document.getElementById(id).addEventListener('change', renderGoogleSheetsAdmin);
+    });
+    loadGoogleSheetsAdmin();
+});
+</script>
+{% endblock %}

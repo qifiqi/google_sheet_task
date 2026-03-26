@@ -44,7 +44,7 @@
             </div>
             <div class="col-md-4">
                 <label for="search-input" class="form-label">搜索</label>
-                <input type="text" class="form-control" id="search-input" placeholder="任务名称 / ID" onkeyup="filterTasks()">
+                <input type="text" class="form-control" id="search-input" placeholder="任务名称 / ID">
             </div>
             <div class="col-md-2 d-grid">
                 <label class="form-label">&nbsp;</label>
@@ -81,6 +81,7 @@
 
         <div class="d-flex justify-content-between align-items-center flex-wrap mt-3">
             <div class="d-flex align-items-center">
+                <span class="text-muted me-3" id="pagination-info">-</span>
                 <span class="text-muted me-2">每页</span>
                 <select class="form-select form-select-sm me-2" id="page-size-select" onchange="changePageSize()" style="width:auto;">
                     <option value="10">10</option>
@@ -240,16 +241,21 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
-    let allTasks = [];
-    let filteredTasks = [];
+    let currentTasks = [];
+    let paginationState = { page: 1, per_page: 10, total: 0, pages: 0, has_prev: false, has_next: false };
     let currentPage = 1;
     let itemsPerPage = 10;
     let currentTaskId = null;
     let taskMetricChart = null;
     let taskReturnChart = null;
+    let searchDebounceTimer = null;
 
     document.addEventListener('DOMContentLoaded', function() {
         loadTasks();
+        document.getElementById('search-input').addEventListener('input', function() {
+            window.clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = window.setTimeout(() => filterTasks(), 250);
+        });
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
             const interval = (data && data.config && data.config.tasks_admin_refresh_interval)
                 ? data.config.tasks_admin_refresh_interval : 30000;
@@ -257,11 +263,25 @@
         });
     });
 
-    function loadTasks() {
-        ajaxRequest('/api/tasks', 'GET', null, function(err, data) {
+    function loadTasks(page = currentPage) {
+        const status = document.getElementById('status-filter').value;
+        const taskType = document.getElementById('type-filter').value;
+        const keyword = document.getElementById('search-input').value.trim();
+        const params = new URLSearchParams();
+
+        params.set('page', page);
+        params.set('per_page', itemsPerPage);
+        if (status) params.set('status', status);
+        if (taskType) params.set('task_type', taskType);
+        if (keyword) params.set('keyword', keyword);
+
+        ajaxRequest(`/api/tasks?${params.toString()}`, 'GET', null, function(err, data) {
             if (!err && data && data.tasks) {
-                allTasks = data.tasks;
-                filterTasks();
+                currentTasks = data.tasks || [];
+                paginationState = data.pagination || paginationState;
+                currentPage = paginationState.page || page;
+                renderTasks();
+                renderPagination();
             } else {
                 showNotification('获取任务列表失败', 'error');
             }
@@ -269,20 +289,8 @@
     }
 
     function filterTasks() {
-        const statusFilter = document.getElementById('status-filter').value;
-        const typeFilter = document.getElementById('type-filter').value;
-        const searchInput = document.getElementById('search-input').value.toLowerCase();
-
-        filteredTasks = allTasks.filter(task => {
-            const statusMatch = !statusFilter || task.status === statusFilter;
-            const typeMatch = !typeFilter || task.task_type === typeFilter;
-            const searchMatch = !searchInput || task.name.toLowerCase().includes(searchInput) || task.id.toLowerCase().includes(searchInput);
-            return statusMatch && typeMatch && searchMatch;
-        });
-
         currentPage = 1;
-        renderTasks();
-        renderPagination();
+        loadTasks(1);
     }
 
     function clearFilters() {
@@ -304,8 +312,7 @@
 
     function renderTasks() {
         const tbody = document.getElementById('tasks-table-body');
-        const startIndex = (currentPage - 1) * itemsPerPage;
-        const pageTasks = filteredTasks.slice(startIndex, startIndex + itemsPerPage);
+        const pageTasks = currentTasks;
 
         tbody.innerHTML = pageTasks.map(task => `
             <tr>
@@ -320,7 +327,7 @@
                 <td style="min-width:160px;">
                     ${task.total_steps > 0 ? `
                         <div class="progress" style="height:18px;">
-                            <div class="progress-bar" style="width:${(task.current_step / task.total_steps) * 100}%">
+                            <div class="progress-bar" style="width:${Math.min(100, ((task.current_step || 0) / task.total_steps) * 100)}%">
                                 ${task.current_step}/${task.total_steps}
                             </div>
                         </div>` : '<span class="text-muted">-</span>'}
@@ -338,37 +345,59 @@
                 </td>
             </tr>
         `).join('');
+
+        if (!pageTasks.length) {
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">暂无任务数据</td></tr>';
+        }
     }
 
     function renderPagination() {
         const pagination = document.getElementById('pagination');
+        const paginationInfo = document.getElementById('pagination-info');
         pagination.innerHTML = '';
-        const totalPages = Math.ceil(filteredTasks.length / itemsPerPage);
+        const totalPages = paginationState.pages || 0;
+        const totalItems = paginationState.total || 0;
+
+        if (paginationInfo) {
+            if (!totalItems) {
+                paginationInfo.textContent = '暂无数据';
+            } else {
+                const startIndex = (currentPage - 1) * itemsPerPage + 1;
+                const endIndex = Math.min(currentPage * itemsPerPage, totalItems);
+                paginationInfo.textContent = `显示第 ${startIndex}-${endIndex} 条，共 ${totalItems} 条`;
+            }
+        }
+
         if (totalPages <= 1) return;
 
-        const prevDisabled = currentPage === 1 ? 'disabled' : '';
+        const prevDisabled = !paginationState.has_prev ? 'disabled' : '';
         pagination.insertAdjacentHTML('beforeend', `<li class="page-item ${prevDisabled}"><a class="page-link" href="#" onclick="changePage(${currentPage - 1})">上一页</a></li>`);
-        for (let i = 1; i <= totalPages; i++) {
+        const maxVisiblePages = 7;
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+        if (endPage - startPage + 1 < maxVisiblePages) {
+            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
             const active = i === currentPage ? 'active' : '';
             pagination.insertAdjacentHTML('beforeend', `<li class="page-item ${active}"><a class="page-link" href="#" onclick="changePage(${i})">${i}</a></li>`);
         }
-        const nextDisabled = currentPage === totalPages ? 'disabled' : '';
+        const nextDisabled = !paginationState.has_next ? 'disabled' : '';
         pagination.insertAdjacentHTML('beforeend', `<li class="page-item ${nextDisabled}"><a class="page-link" href="#" onclick="changePage(${currentPage + 1})">下一页</a></li>`);
     }
 
     function changePage(page) {
-        const totalPages = Math.ceil(filteredTasks.length / itemsPerPage);
+        const totalPages = paginationState.pages || 0;
         if (page < 1 || page > totalPages) return;
         currentPage = page;
-        renderTasks();
-        renderPagination();
+        loadTasks(page);
     }
 
     function changePageSize() {
         itemsPerPage = parseInt(document.getElementById('page-size-select').value, 10);
         currentPage = 1;
-        renderTasks();
-        renderPagination();
+        loadTasks(1);
     }
 
     function showCreateTaskModal() {

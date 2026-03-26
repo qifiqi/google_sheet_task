@@ -638,6 +638,45 @@ class XPLAnalyzer:
         start_index = maximum_drawdown[maximum_drawdown['start_drawdown'] < maximum_drawdown['index_drawdown']]
         return len(start_index['start_drawdown']) / len(maximum_drawdown['start_drawdown'])
 
+    def maximum_number_of_backtest_repair_days(self, data_df):
+        """
+            # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
+        """
+
+        data_df['previous_max'] = data_df['net_value'].expanding().max().shift(1)
+        #
+        # # 按年份分组处理
+        # yearly_groups = data_df.groupby('year')
+        #
+        # max_net_value_count = {}
+        #
+        # for year, year_df in yearly_groups:
+        #     if len(year_df) == 0:
+        #         continue
+        #     # mode_values = year_df['previous_max'].mode()
+        #     mode_freq = year_df['previous_max'].value_counts().max()
+        #
+        #     max_net_value_count[year] = int(mode_freq)
+        #
+        # return max_net_value_count
+
+        return int(data_df['previous_max'].value_counts().max())
+
+
+    def exceeding_maximum_number_of_backtest_repair_days(self, index_data,start_data):
+        """
+            # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
+        """
+
+        # start_index_data = {}
+        #
+        # for k,v in start_data.items():
+        #     start_index_data[k] = v - index_data[k]
+        # return start_index_data
+
+        return start_data - index_data
+
+
     def get_xpl(self, data: List[Dict[str, Any]], date='date', val='daily_return'):
         if not data:
             return {}
@@ -883,6 +922,30 @@ class XPLAnalyzer:
             error_msg = f"初始化Google Sheet连接失败: {str(e)}"
             raise error_msg
 
+    @staticmethod
+    def _parse_google_sheet_dates(date_series: pd.Series) -> pd.Series:
+        """兼容 Google Sheet 中混合的序列日期和字符串日期。"""
+        excel_base = pd.Timestamp('1899-12-30')
+        text_series = date_series.astype(str).str.strip()
+        numeric_values = pd.to_numeric(text_series, errors='coerce')
+        parsed_dates = pd.Series(pd.NaT, index=date_series.index, dtype='datetime64[ns]')
+
+        numeric_mask = numeric_values.notna()
+        if numeric_mask.any():
+            parsed_dates.loc[numeric_mask] = pd.to_timedelta(
+                numeric_values.loc[numeric_mask],
+                unit='d'
+            ) + excel_base
+
+        text_mask = (~numeric_mask) & text_series.ne('') & text_series.ne('nan') & text_series.ne('None')
+        if text_mask.any():
+            parsed_dates.loc[text_mask] = pd.to_datetime(
+                text_series.loc[text_mask],
+                errors='coerce'
+            )
+
+        return parsed_dates
+
     def get_google_sheet_data(self, spreadsheet_id: str, google_sheet_name: str)-> tuple[Any, dict[Any, Any], pd.DataFrame] | None:
         google_sheet = self._init_google_sheet(spreadsheet_id, google_sheet_name)
         title = google_sheet.title.upper()
@@ -898,7 +961,7 @@ class XPLAnalyzer:
                 "start_return","index_beats_M","start_DD_N"])
 
             # Excel/Google Sheets 的基准日期是 1899-12-30
-            sheet_df["date"] = pd.to_timedelta(sheet_df["date"], unit='d') + pd.Timestamp('1899-12-30')
+            sheet_df["date"] = self._parse_google_sheet_dates(sheet_df["date"])
 
             _data = sheet_df[['date','index_return','start_return']]
 
@@ -924,7 +987,7 @@ class XPLAnalyzer:
                 'year_beats_F','model_date_G','model_values_H','net_value_I','index_return',"index_DD_K",
                 "start_return","index_beats_M","start_DD_N"])
             # Excel/Google Sheets 的基准日期是 1899-12-30
-            sheet_df["date"] = pd.to_timedelta(sheet_df["date"], unit='d') + pd.Timestamp('1899-12-30')
+            sheet_df["date"] = self._parse_google_sheet_dates(sheet_df["date"])
 
             _data = sheet_df[['date', 'index_return', 'start_return']]
 
@@ -952,7 +1015,7 @@ class XPLAnalyzer:
                 "start_return", "_P", "start_DD_Q"])
 
             # Excel/Google Sheets 的基准日期是 1899-12-30
-            sheet_df["date"] = pd.to_timedelta(sheet_df["date"], unit='d') + pd.Timestamp('1899-12-30')
+            sheet_df["date"] = self._parse_google_sheet_dates(sheet_df["date"])
 
             _data = sheet_df[['date','index_return','start_return']].to_dict(orient='records')
             _data_result = {}
@@ -1064,6 +1127,25 @@ class XPLAnalyzer:
             excess_drawdown_winning_rate = self.calculate_excess_drawdown_winning_rate(index_maximum_drawdown,
                                                                                        start_maximum_drawdown)
 
+            # 超额夏普= 月超额收益（均值） * 12 / (月超额收益率标准差 * 根号12)
+            monthly_excess_return_diff_mean = monthly_excess_returns['monthly_excess_return_diff'].mean()
+            monthly_excess_return_standard_deviation = monthly_excess_returns['monthly_excess_return_diff'].std()
+            excess_sharp = (monthly_excess_return_diff_mean * 12) / (monthly_excess_return_standard_deviation * np.sqrt(12))
+
+            # 超额所提诺 = 月超额收益（均值） * 12 / (下行月超额收益率标准差 * 根号12)
+            excess_of_promissory_note = ((monthly_excess_return_diff_mean * 12) /
+                                         (monthly_excess_returns[monthly_excess_returns['monthly_excess_return_diff'] <= 0]['monthly_excess_return_diff'].std() * np.sqrt(12)))
+
+            # 最大回测修复天数 = （出现净值最多次数的天数）（每年）(index，start)
+            index_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(index_df)
+            start_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(start_df)
+
+
+            # 超额最大回测修复天数 = start - index
+            excess_maximum_number_of_backtest_repair_days = self.exceeding_maximum_number_of_backtest_repair_days(
+                index_maximum_number_of_backtest_repair_days, start_maximum_number_of_backtest_repair_days
+            )
+
             # 构建返回结果
             # Build return results
             result = {
@@ -1092,6 +1174,11 @@ class XPLAnalyzer:
                 "monthly_excess_return_percentage": monthly_excess_return_percentage,  # 月超额收益百分比
                 "monthly_excess_volatility": monthly_excess_volatility,  # 月超额波动率
                 "excess_drawdown_winning_rate": excess_drawdown_winning_rate,  # 超额回撤胜率
+                "excess_sharp": excess_sharp,  # 超额夏普
+                "excess_of_promissory_note": excess_of_promissory_note, # 超额所提诺
+                "index_maximum_number_of_backtest_repair_days": index_maximum_number_of_backtest_repair_days, # 最大回测修复天数 index
+                "start_maximum_number_of_backtest_repair_days": start_maximum_number_of_backtest_repair_days, # 最大回测修复天数 start
+                "excess_maximum_number_of_backtest_repair_days": excess_maximum_number_of_backtest_repair_days, # 超额最大回测修复天数
             }
 
             # 打印调试信息
@@ -1229,6 +1316,11 @@ class XPLAnalyzer:
         start_sotino_ratio_all = [i for i in start_sotino_ratios if i['year'] == 'all'][0]
         start_sotino_ratio = start_sotino_ratio_all.get('sotino_ratio')
 
+        excess_sharp = analyze_result.get('excess_sharp')
+        excess_of_promissory_note = analyze_result.get('excess_of_promissory_note')
+        start_maximum_number_of_backtest_repair_days = analyze_result.get('start_maximum_number_of_backtest_repair_days')
+        excess_maximum_number_of_backtest_repair_days = analyze_result.get('excess_maximum_number_of_backtest_repair_days')
+
 
         data_1_2d = [
             ["标的", "", "", ""],
@@ -1249,7 +1341,9 @@ class XPLAnalyzer:
             ["回撤", "年最大回撤", "", f"-{start_drawdown:.2%}"],
             ["比率", "夏普比率", f"{index_sharpe_ratio:.2%}", f"{start_sharpe_ratio:.2%}"],  # 注意：数字后面有空格
             ["比率", "卡玛比率", f"{index_kama_ratio:.2}", f"{start_kama_ratio:.2}"],
-            ["比率", "所提诺比率", f"{index_sotino_ratio:.2}", f"{start_sotino_ratio:.2}"]
+            ["比率", "所提诺比率", f"{index_sotino_ratio:.2}", f"{start_sotino_ratio:.2}"],
+            ["夏普", "超额夏普", f"", f"{excess_sharp:.2}"],
+            ["所提诺", "超额所提诺比率", f"", f"{excess_of_promissory_note:.2}"]
         ]
 
         data_2_2d = [
@@ -1274,7 +1368,9 @@ class XPLAnalyzer:
             ["年份"],
             ["指数"],
             ["策略"],
-            ["超额回撤"]
+            ["超额回撤"],
+            ["最大回测天数（start）"],
+            ["最大超额回测天数（start - index）"]
         ]
         index_year_maximum_drawdown = index_maximum_drawdown['year_maximum_drawdown']
         for index_drawdown,start_drawdown in zip(index_year_maximum_drawdown, start_maximum_drawdown['year_maximum_drawdown']):
@@ -1285,6 +1381,8 @@ class XPLAnalyzer:
             excessive_backtesting = f"{start_drawdown['drawdown']-index_drawdown['drawdown']:.2%}"
             excessive_backtesting = excessive_backtesting.replace('-', '') if '-' in excessive_backtesting else '-' + excessive_backtesting
             data_3_2d[4].append(excessive_backtesting)
+            data_3_2d[5].append(start_maximum_number_of_backtest_repair_days[str(index_drawdown['year'])])
+            data_3_2d[6].append(excess_maximum_number_of_backtest_repair_days[str(index_drawdown['year'])])
 
 
         data_4_2d = [
@@ -1339,9 +1437,11 @@ xpl_analyzer = XPLAnalyzer()
 
 if __name__ == "__main__":
     xpl_analyzer = XPLAnalyzer()
-    # parsed_data = xpl_analyzer._parse_input_data(data, 3)
+    from d import data
+    parsed_data = xpl_analyzer._parse_input_data(data)
 
+    xpl_analyzer._calculate_metrics_v1(parsed_data)
     # xpl_analyzer._calculate_metrics(parsed_data)
-    xpl_analyzer.analyze_v1('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
+    # xpl_analyzer.analyze_v1('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
     # xpl_analyzer.get_google_sheet_data('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
     # xpl_analyzer.get_google_sheet_data('1BxinniyEdRwSx-tPi_3qMi_WjhYbEQVTyX3Mg_sQr5U','control')

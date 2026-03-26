@@ -166,16 +166,13 @@
                         <div class="card-body">
                             <div id="sheet-config-list">
                                 <div class="sheet-config-item border rounded p-3 mb-3" data-sheet-config-index="0">
-                                    <div class="row align-items-end">
+                                    <div class="row align-items-start">
                                         <div class="col-md-4 mb-3">
                                             <label for="spreadsheet" class="form-label">
-                                                <i class="bi bi-link-45deg"></i> 电子表格ID或URL
+                                                <i class="bi bi-link-45deg"></i> 选择 Google Sheet
                                             </label>
                                             <input type="text" class="form-control" id="spreadsheet" 
-                                                   placeholder="请输入Google Sheet的ID或完整URL" required>
-                                            <div class="form-text">
-                                                <i class="bi bi-info-circle"></i> 支持直接输入ID或完整URL
-                                            </div>
+                                                   placeholder="请选择 Google Sheet" required>
                                         </div>
                                         <div class="col-md-4 mb-3">
                                             <label for="spreadsheet_title" class="form-label">
@@ -192,7 +189,7 @@
                                             </label>
                                             <div class="input-group">
                                                 <select class="form-select" id="sheet_name">
-                                                    <option value="">请先输入电子表格ID</option>
+                                                    <option value="">请先选择 Google Sheet</option>
                                                 </select>
                                                 <button class="btn btn-outline-secondary" type="button" id="refresh-sheets" title="刷新工作表列表">
                                                     <i class="bi bi-arrow-clockwise"></i>

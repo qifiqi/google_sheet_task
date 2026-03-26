@@ -27,6 +27,40 @@ def _safe_json_loads(raw_value, default=None):
         return default
 
 
+def _as_dict(value):
+    return value if isinstance(value, dict) else {}
+
+
+def _extract_parameter_label(parameters_payload, step_index: int):
+    if isinstance(parameters_payload, dict):
+        return (
+            parameters_payload.get('stock_code')
+            or parameters_payload.get('stock_no')
+            or parameters_payload.get('code')
+            or parameters_payload.get('symbol')
+            or f"step-{step_index + 1}"
+        )
+
+    if isinstance(parameters_payload, list):
+        for item in parameters_payload:
+            if isinstance(item, dict):
+                label = (
+                    item.get('stock_code')
+                    or item.get('stock_no')
+                    or item.get('code')
+                    or item.get('symbol')
+                )
+                if label:
+                    return label
+            elif item not in (None, ''):
+                return str(item)
+
+    if parameters_payload not in (None, '', {}):
+        return str(parameters_payload)
+
+    return f"step-{step_index + 1}"
+
+
 def _build_config_summary(task: Task):
     config = _safe_json_loads(task.config, {})
     parameters = config.get('parameters') if isinstance(config, dict) else None
@@ -93,7 +127,7 @@ def _build_result_summary(task_id: str):
 
     metric_points = []
     for result in results[-30:]:
-        result_payload = _safe_json_loads(result.result, {})
+        result_payload = _as_dict(_safe_json_loads(result.result, {}))
         parameters_payload = _safe_json_loads(result.parameters, {})
         annualized = result_payload.get('I16') or result_payload.get('annualized_rate') or result_payload.get('annualized')
         maxdd = result_payload.get('I17') or result_payload.get('maxdd')
@@ -104,7 +138,7 @@ def _build_result_summary(task_id: str):
             'annualized_rate': annualized,
             'max_drawdown': maxdd,
             'return_rate': return_rate,
-            'parameter_label': parameters_payload.get('stock_code') or parameters_payload.get('stock_no') or f"step-{result.step_index + 1}",
+            'parameter_label': _extract_parameter_label(parameters_payload, result.step_index),
         })
 
     returns = TaskResultReturn.query.filter_by(task_id=task_id).order_by(TaskResultReturn.stock_date.asc()).all()
@@ -193,6 +227,10 @@ def templates():
 def results():
     """任务结果管理页面"""
     return render_template('admin/results.html')
+
+@admin_bp.route('/google-sheets')
+def google_sheets():
+    return render_template('admin/google_sheets.html')
 
 @admin_bp.route('/scheduler')
 def scheduler():

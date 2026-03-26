@@ -269,6 +269,39 @@ class GoogleSheetToken(db.Model):
         return data
 
 
+class GoogleSheet(db.Model):
+    """Google Sheet registry model."""
+
+    __tablename__ = "google_sheet"
+    __table_args__ = (
+        db.Index("idx_google_sheet_active_in_use", "is_active", "is_in_use"),
+        {"comment": "Google Sheet 表ID配置表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    name = db.Column(db.String(255), nullable=False, index=True, comment="显示名称")
+    spreadsheet_id = db.Column(db.String(255), nullable=False, unique=True, index=True, comment="Google Sheet表ID")
+    remark = db.Column(db.Text, comment="备注")
+    is_active = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否启用")
+    is_in_use = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否使用中")
+    current_task_id = db.Column(db.String(36), index=True, comment="当前占用任务ID")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "spreadsheet_id": self.spreadsheet_id,
+            "remark": self.remark,
+            "is_active": self.is_active,
+            "is_in_use": self.is_in_use,
+            "current_task_id": self.current_task_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class ScheduledTask(db.Model):
     """定时任务模型"""
 
