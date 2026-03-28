@@ -30,10 +30,18 @@ def ensure_google_sheet_token_schema():
 
 
 def reset_google_sheet_token_occupancy():
-    # current_in_use_count 表示进程内“正在占用”的资源。
-    # 应用重启后原线程已经不存在，因此启动时统一清零，避免脏占用残留。
+    # current_in_use_count 表示进程内”正在占用”的资源。
+    # 应用重启后原线程已经不存在，因此启动时统一清零,避免脏占用残留。
     if GoogleSheetToken.query.filter(GoogleSheetToken.current_in_use_count != 0).count() > 0:
         GoogleSheetToken.query.update({'current_in_use_count': 0}, synchronize_session=False)
+        db.session.commit()
+
+
+def reset_google_sheet_occupancy():
+    # 应用重启后原线程已经不存在，清理所有 Google Sheet 的占用状态
+    from app.models import GoogleSheet
+    if GoogleSheet.query.filter(GoogleSheet.is_in_use == True).count() > 0:
+        GoogleSheet.query.update({'is_in_use': False, 'current_task_id': None}, synchronize_session=False)
         db.session.commit()
 
 @app.shell_context_processor
@@ -160,6 +168,7 @@ if __name__ == '__main__':
             db.create_all()
             ensure_google_sheet_token_schema()
             reset_google_sheet_token_occupancy()
+            reset_google_sheet_occupancy()
             init_config2()
 
         # 检查并清理挂死的任务

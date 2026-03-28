@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, jsonify, redirect, url_fo
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
 from app.services.scheduler_service import scheduler_service
-from app.models import Task, TaskLog, TaskResult, TaskResultReturn, ScheduledTask, db
+from app.models import Task, TaskLog, TaskResult, TaskResultReturn, ScheduledTask, db, GoogleSheetTableType
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -230,7 +230,7 @@ def results():
 
 @admin_bp.route('/google-sheets')
 def google_sheets():
-    return render_template('admin/google_sheets.html')
+    return render_template('admin/google_sheets.html', google_sheet_table_type_options=GoogleSheetTableType.choices())
 
 @admin_bp.route('/scheduler')
 def scheduler():

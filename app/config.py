@@ -253,6 +253,41 @@ def init_config():
             'value': ['I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23'],
             'description': 'Google Sheet 主流程结果读取单元格位置列表。',
         },
+
+        'c3_parameter_positions': {
+            'value': ['B6', 'B7', 'B9', 'B10', 'B11', 'B12'],
+            'description': 'C3 模板参数输入单元格位置列表。',
+        },
+        'c3_check_positions': {
+            'value': ['I6', 'I7', 'I9', 'I10', 'I11', 'I12'],
+            'description': 'C3 模板勾选/触发单元格位置列表。',
+        },
+        'c3_input_column_d': {
+            'value': 'D',
+            'description': 'C3 模板输入列 D 的列标识。',
+        },
+        'c3_input_column_e': {
+            'value': 'E',
+            'description': 'C3 模板输入列 E 的列标识。',
+        },
+        'c3_output_range_1': {
+            'value': 'I2:I12',
+            'description': 'C3 模板第一段结果读取区域。',
+        },
+        'c3_output_range_2': {
+            'value': 'I15:I23',
+            'description': 'C3 模板第二段结果读取区域。',
+        },
+        'c3_output_column_K': {
+            'value': 'K',
+            'description': 'C3 模板输出列 K 的列标识。',
+        },
+        'c3_output_column_O': {
+            'value': 'O',
+            'description': 'C3 模板输出列 O 的列标识。',
+        },
+
+
         'c4_input_column_a': {
             'value': 'A',
             'description': 'C4 模板输入列 A 的列标识。',

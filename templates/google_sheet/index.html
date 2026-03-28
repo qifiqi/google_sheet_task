@@ -22,6 +22,12 @@
 
                         <!-- 右侧：创建按钮 -->
                         <div class="col-lg-8 text-lg-end">
+                            {% if request.args.get('version') == 'c3' %}
+                            <a href="{{ url_for('google_sheet.create', version='c31') }}"
+                               class="btn btn-outline-primary btn-lg px-4 shadow-sm me-2">
+                                <i class="bi bi-collection-play me-2"></i>创建批量任务
+                            </a>
+                            {% endif %}
                             <a href="{{ url_for('google_sheet.create', version=request.args.get('version')) }}"
                                class="btn btn-primary btn-lg px-4 shadow-sm">
                                 <i class="bi bi-plus-circle me-2"></i>创建新任务

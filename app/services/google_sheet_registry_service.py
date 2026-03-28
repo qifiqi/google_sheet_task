@@ -5,12 +5,16 @@ from typing import Optional
 from sqlalchemy import or_
 
 from app.extensions import db
-from app.models import GoogleSheet
+from app.models import GoogleSheet, GoogleSheetTableType
 
 
 class GoogleSheetRegistryService:
-    def list_sheets(self, include_inactive: bool = False, only_available: bool = False, task_id: str | None = None):
+    def list_sheets(self, include_inactive: bool = False, only_available: bool = False, task_id: str | None = None,
+                    table_type: str | None = None):
         query = GoogleSheet.query
+        normalized_table_type = GoogleSheetTableType.normalize(table_type)
+        if normalized_table_type:
+            query = query.filter_by(table_type=normalized_table_type)
         if not include_inactive:
             query = query.filter_by(is_active=True)
         if only_available:
@@ -26,10 +30,15 @@ class GoogleSheetRegistryService:
         sheet = GoogleSheet.query.get(int(sheet_id))
         return sheet.to_dict() if sheet else None
 
-    def create_sheet(self, spreadsheet_id: str, name: str | None = None, remark: str | None = None, is_active: bool = True):
+    def create_sheet(self, spreadsheet_id: str, name: str | None = None, remark: str | None = None,
+                     is_active: bool = True, table_type: str | None = None):
         spreadsheet_id = (spreadsheet_id or '').strip()
         if not spreadsheet_id:
             raise ValueError("spreadsheet_id 不能为空")
+
+        normalized_table_type = GoogleSheetTableType.normalize(table_type, GoogleSheetTableType.C3.value)
+        if not normalized_table_type:
+            raise ValueError("table_type 无效")
 
         existing = GoogleSheet.query.filter_by(spreadsheet_id=spreadsheet_id).first()
         if existing:
@@ -38,6 +47,7 @@ class GoogleSheetRegistryService:
         sheet = GoogleSheet(
             spreadsheet_id=spreadsheet_id,
             name=(name or spreadsheet_id).strip(),
+            table_type=normalized_table_type,
             remark=(remark or '').strip() or None,
             is_active=bool(is_active),
         )
@@ -64,6 +74,11 @@ class GoogleSheetRegistryService:
 
         if 'name' in payload:
             sheet.name = (payload.get('name') or '').strip() or sheet.spreadsheet_id
+        if 'table_type' in payload:
+            normalized_table_type = GoogleSheetTableType.normalize(payload.get('table_type'))
+            if not normalized_table_type:
+                raise ValueError("table_type 无效")
+            sheet.table_type = normalized_table_type
         if 'remark' in payload:
             sheet.remark = (payload.get('remark') or '').strip() or None
         if 'is_active' in payload:

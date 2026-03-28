@@ -2,7 +2,7 @@ import json
 import random
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional,Tuple
 
 from flask import current_app
@@ -15,8 +15,10 @@ from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation, db_retry_manager
 from app.utils.db_stock_api import StockAPIClient
+from app.utils.dfcf_api import DFCJStockApi
 from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, validate_google_sheet_result, is_valid_result_value
+from app.utils.yf_api import YFApi
 
 logger = get_logger(__name__)
 
@@ -25,6 +27,8 @@ class GoogleSheetService:
     """Google Sheet服务"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
+        self.YF_api = YFApi()
+        self.dfcf_api = DFCJStockApi()
         self.config = config
         self.google_sheet:Optional[GoogleSheet] = None
         self.api_client = StockAPIClient()
@@ -33,6 +37,7 @@ class GoogleSheetService:
         self.event_queue = event_queue
         self.app = app
         self.stop_event = stop_event
+        self.task_name = ''
         # 创建任务专用日志记录器 - 不使用TaskLogger的前缀功能，我们自己控制格式
         self.task_logger = get_logger(f"{__name__}.{task_id}")
 
@@ -53,21 +58,23 @@ class GoogleSheetService:
         time.sleep(seconds)
         return not self._is_cancel_requested()
 
+    def _task_display_name(self) -> str:
+        return self.task_name or self.task_id
+
     def error_dd(self,error_msg):
         error_msg = self.app.notifier.error_google_task_templates(
-            f"{self.task_id} -- {self.task.name}",
+            f"{self.task_id} -- {self._task_display_name()}",
             error_msg,
             f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}")
         self.app.notifier.send_message(error_msg)
 
     def task_ok_to_dd(self,result):
         error_msg = self.app.notifier.google_task_ok_templates(
-            f"{self.task_id} -- {self.task.name}",
+            f"{self.task_id} -- {self._task_display_name()}",
             result,
             f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
                                                                )
         self.app.notifier.send_message(error_msg)
-
 
     def execute_task(self):
         """执行Google Sheet任务"""
@@ -116,6 +123,7 @@ class GoogleSheetService:
                     return 'error'
                 
                 name = task.name
+                self.task_name = name
                 sheet_name = config_data.get('sheet_name', "")
 
                 # 检查任务是否已被取消
@@ -196,6 +204,108 @@ class GoogleSheetService:
             self.error_dd(error_msg)
             return 'error'
 
+    def cell_kline_data(self,config_data):
+        stock_code = config_data.get('stock_code', '')
+        year_n = config_data.get('year_n', '1y')
+        # count_mode = config_data.get('count_mode', 'n_plus_1')
+        price_mode = config_data.get('price_mode', 'sp_price')
+        # date_range_mode = config_data.get('date_range_mode', [])
+        # end_date = config_data.get('end_date')
+        # start_date = config_data.get('start_date')
+        market_type = config_data.get('market_type','cn')
+
+        c3_input_column_d = config_data.get('c3_input_column_d').upper()
+        c3_input_column_e = config_data.get('c3_input_column_e').upper()
+
+
+
+        def _get_kline(klines, _year=None, _start_date_1=None, _end_date_1=None):
+            # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
+            # 根据price_mode决定使用开盘价还是收盘价
+            price_field = 'stock_kp' if price_mode == 'kp_price' else 'stock_sp'
+
+            if market_type == 'cn':
+                if _year:
+                    return [
+                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                        for k in klines if int(k['stock_date'][:4]) == _year
+                    ]
+                return [
+                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                    for k in klines
+                    if _start_date_1 <= k['stock_date'] <= _end_date_1
+                ]
+            else:
+                if _year:
+                    return [
+                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                        for k in klines if int(k['stock_date'][:4]) == _year
+                    ]
+                return [
+                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                    for k in klines
+                    if _start_date_1 <= k['stock_date'] <= _end_date_1
+                ]
+
+        year_text = str(year_n or '1y').strip().lower()
+        year_count = 1
+        if year_text.endswith('y'):
+            try:
+                year_count = max(1, int(year_text[:-1]))
+            except ValueError:
+                year_count = 1
+
+        end_dt = datetime.now() - timedelta(days=1)
+        start_dt = end_dt - timedelta(days=365 * year_count)
+        start_date = start_dt.strftime("%Y-%m-%d")
+        end_date = end_dt.strftime("%Y-%m-%d")
+
+        # A股按交易日粗略估算每年约 250 个交易日，美股按约 252 个交易日，额外留一点缓冲。
+        trading_days_per_year = 250 if market_type == 'cn' else 252
+        limit = max(300, year_count * trading_days_per_year + 80)
+
+        if market_type == 'cn':
+            stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_code, 10)
+            # stock_config = [i for i in stock_config if i['securityTypeName'] == '美股']
+
+            # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
+            if stock_config:
+                stock_config = stock_config[0]
+            market = stock_config['market']
+
+            klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit)
+        else:
+            klines = self.YF_api.get_kline_data(stock_code, '10y')
+
+        # 获取K线数据的时间范围
+        data_start_date = klines[0]['stock_date']
+        data_end_date = klines[-1]['stock_date']
+
+
+        # 检查用户设定的区间是否在数据范围内
+        if start_date < data_start_date or end_date > data_end_date:
+            raise Exception(
+                f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
+
+        if len(klines) < 100:
+            raise Exception(f"股票{stock_code} 数据量不足,k线数据量小于100条，无法在模型正确产生数据，或者联系开发")
+
+        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
+        cell_updates = {}
+        for i in range(len(all_kline)):
+            item = all_kline[i]
+            cell_num = i + 2
+            cell_A = f"{c3_input_column_d}{cell_num}"
+            cell_B = f"{c3_input_column_e}{cell_num}"
+            stock_date = item.get('stock_date', "")
+            stock_val = item.get('stock_val', "")
+            cell_updates[cell_A] = stock_date
+            cell_updates[cell_B] = stock_val
+        self.google_sheet.update_jumped_cells(cell_updates)
+
+
+        pass
+
     def get_bdl(self, task, name, parameters, config_data, index_z=0):
         """执行批量数据处理"""
         try:
@@ -216,13 +326,31 @@ class GoogleSheetService:
             failed_count = 0
             if index_z > total_combinations:
                 self._log_warning(f'任务数据库内条数:{index_z} > 参数组合条数:{total_combinations}，跳过执行,好像执行过的')
-                return 0, 0
+                return 0, 0, 'completed'
 
 
             # 检查是否从断点恢复
             start_index = max(index_z, task.current_step - 1) if task.current_step >= 1 else index_z
             self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
             success_count = start_index # 成功执行计数器，从断点除重新来
+
+            c3_input_column_d = config_data.get('c3_input_column_d').upper()
+            c3_input_column_e = config_data.get('c3_input_column_e').upper()
+
+
+            A_num = self.google_sheet.get_last_row('D')
+            if A_num > 10:
+                self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
+                self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num+2}")
+
+                self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+                if not self._interruptible_sleep(20):
+                    return success_count, failed_count, 'cancelled'
+
+            stock_code = config_data.get("stock_code")
+            if stock_code:
+                self.cell_kline_data(config_data)
+
 
             for i in range(start_index, total_combinations):
                 if self._is_cancel_requested():

@@ -26,6 +26,8 @@ def index():
 def create():
     """创建Google Sheet任务页面"""
     version = request.args.get('version')
+    if version == 'c31':
+        return render_template('google_sheet_c31/create.html', version='c31')
     if version == 'c5':
         return render_template('google_sheet_c5/create.html', version='c5')
     if version == 'c4':

@@ -29,6 +29,15 @@
                 </select>
             </div>
             <div class="col-md-3">
+                <label class="form-label">表类型</label>
+                <select id="tableTypeFilter" class="form-select">
+                    <option value="">全部</option>
+                    {% for option in google_sheet_table_type_options %}
+                    <option value="{{ option.value }}">{{ option.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label">占用情况</label>
                 <select id="usageFilter" class="form-select">
                     <option value="">全部</option>
@@ -36,7 +45,7 @@
                     <option value="0">空闲</option>
                 </select>
             </div>
-            <div class="col-md-2 d-grid">
+            <div class="col-md-1 d-grid">
                 <button class="btn btn-outline-secondary" type="button" onclick="loadGoogleSheetsAdmin()">
                     <i class="bi bi-arrow-clockwise me-1"></i> 刷新
                 </button>
@@ -53,6 +62,7 @@
                     <tr>
                         <th>名称</th>
                         <th>Spreadsheet ID</th>
+                        <th>表类型</th>
                         <th>备注</th>
                         <th>启用</th>
                         <th>是否使用中</th>
@@ -62,7 +72,7 @@
                 </thead>
                 <tbody id="sheetTableBody">
                     <tr>
-                        <td colspan="7" class="text-center text-muted py-4">正在加载...</td>
+                        <td colspan="8" class="text-center text-muted py-4">正在加载...</td>
                     </tr>
                 </tbody>
             </table>
@@ -85,7 +95,16 @@
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Spreadsheet ID</label>
-                    <input type="text" id="sheetSpreadsheetId" class="form-control" placeholder="请输入 Google Sheet ID">
+                    <input type="text" id="sheetSpreadsheetId" class="form-control" placeholder="请输入 Google Sheet ID 或完整 URL">
+                    <div class="form-text">支持直接粘贴 Google Sheet URL，系统会自动提取 ID</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">表类型</label>
+                    <select id="sheetTableType" class="form-select">
+                        {% for option in google_sheet_table_type_options %}
+                        <option value="{{ option.value }}">{{ option.label }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">备注</label>
@@ -108,6 +127,10 @@
 {% block scripts %}
 <script>
 let googleSheetAdminItems = [];
+const GOOGLE_SHEET_TABLE_TYPE_OPTIONS = {{ google_sheet_table_type_options | tojson }};
+const DEFAULT_GOOGLE_SHEET_TABLE_TYPE = GOOGLE_SHEET_TABLE_TYPE_OPTIONS.length
+    ? GOOGLE_SHEET_TABLE_TYPE_OPTIONS[0].value
+    : '';
 
 function escapeHtml(value) {
     return String(value || '').replace(/[&<>"']/g, function(char) {
@@ -120,8 +143,15 @@ function openCreateModal() {
     document.getElementById('sheetRecordId').value = '';
     document.getElementById('sheetName').value = '';
     document.getElementById('sheetSpreadsheetId').value = '';
+    document.getElementById('sheetTableType').value = DEFAULT_GOOGLE_SHEET_TABLE_TYPE;
     document.getElementById('sheetRemark').value = '';
     document.getElementById('sheetIsActive').checked = true;
+}
+
+function extractSpreadsheetId(input) {
+    if (!input) return '';
+    const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match ? match[1] : input.trim();
 }
 
 function openEditModal(id) {
@@ -134,6 +164,7 @@ function openEditModal(id) {
     document.getElementById('sheetRecordId').value = item.id;
     document.getElementById('sheetName').value = item.name || '';
     document.getElementById('sheetSpreadsheetId').value = item.spreadsheet_id || '';
+    document.getElementById('sheetTableType').value = item.table_type || DEFAULT_GOOGLE_SHEET_TABLE_TYPE;
     document.getElementById('sheetRemark').value = item.remark || '';
     document.getElementById('sheetIsActive').checked = !!item.is_active;
     bootstrap.Modal.getOrCreateInstance(document.getElementById('sheetModal')).show();
@@ -143,6 +174,7 @@ function renderGoogleSheetsAdmin() {
     const keyword = document.getElementById('keyword').value.trim().toLowerCase();
     const activeFilter = document.getElementById('activeFilter').value;
     const usageFilter = document.getElementById('usageFilter').value;
+    const tableTypeFilter = document.getElementById('tableTypeFilter').value;
     const tbody = document.getElementById('sheetTableBody');
 
     const rows = googleSheetAdminItems.filter(function(item) {
@@ -151,11 +183,12 @@ function renderGoogleSheetsAdmin() {
             String(item.spreadsheet_id || '').toLowerCase().includes(keyword);
         const matchActive = activeFilter === '' || String(Number(!!item.is_active)) === activeFilter;
         const matchUsage = usageFilter === '' || String(Number(!!item.is_in_use)) === usageFilter;
-        return matchKeyword && matchActive && matchUsage;
+        const matchTableType = tableTypeFilter === '' || String(item.table_type || '') === tableTypeFilter;
+        return matchKeyword && matchActive && matchUsage && matchTableType;
     });
 
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">暂无数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">暂无数据</td></tr>';
         return;
     }
 
@@ -164,6 +197,7 @@ function renderGoogleSheetsAdmin() {
             <tr>
                 <td>${escapeHtml(item.name || '-')}</td>
                 <td><code>${escapeHtml(item.spreadsheet_id || '-')}</code></td>
+                <td><span class="badge bg-info text-dark">${escapeHtml(String(item.table_type || '').toUpperCase() || '-')}</span></td>
                 <td>${escapeHtml(item.remark || '-')}</td>
                 <td>${item.is_active ? '<span class="badge bg-success">启用</span>' : '<span class="badge bg-secondary">停用</span>'}</td>
                 <td>${item.is_in_use ? '<span class="badge bg-warning text-dark">使用中</span>' : '<span class="badge bg-light text-dark">空闲</span>'}</td>
@@ -178,7 +212,12 @@ function renderGoogleSheetsAdmin() {
 }
 
 function loadGoogleSheetsAdmin() {
-    fetch('/api/google-sheets?include_inactive=1')
+    const tableTypeFilter = document.getElementById('tableTypeFilter').value;
+    const params = new URLSearchParams({ include_inactive: '1' });
+    if (tableTypeFilter) {
+        params.set('table_type', tableTypeFilter);
+    }
+    fetch(`/api/google-sheets?${params.toString()}`)
         .then(function(response) { return response.json(); })
         .then(function(data) {
             if (data.status !== 'success') {
@@ -188,16 +227,18 @@ function loadGoogleSheetsAdmin() {
             renderGoogleSheetsAdmin();
         })
         .catch(function(error) {
-            document.getElementById('sheetTableBody').innerHTML = `<tr><td colspan="7" class="text-center text-danger py-4">${escapeHtml(error.message)}</td></tr>`;
+            document.getElementById('sheetTableBody').innerHTML = `<tr><td colspan="8" class="text-center text-danger py-4">${escapeHtml(error.message)}</td></tr>`;
             showNotification('加载表格列表失败：' + error.message, 'error');
         });
 }
 
 function submitSheetForm() {
     const id = document.getElementById('sheetRecordId').value;
+    const spreadsheetInput = document.getElementById('sheetSpreadsheetId').value.trim();
     const payload = {
         name: document.getElementById('sheetName').value.trim(),
-        spreadsheet_id: document.getElementById('sheetSpreadsheetId').value.trim(),
+        spreadsheet_id: extractSpreadsheetId(spreadsheetInput),
+        table_type: document.getElementById('sheetTableType').value,
         remark: document.getElementById('sheetRemark').value.trim(),
         is_active: document.getElementById('sheetIsActive').checked
     };
@@ -248,7 +289,7 @@ function deleteGoogleSheetRecord(id) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    ['keyword', 'activeFilter', 'usageFilter'].forEach(function(id) {
+    ['keyword', 'activeFilter', 'usageFilter', 'tableTypeFilter'].forEach(function(id) {
         document.getElementById(id).addEventListener('input', renderGoogleSheetsAdmin);
         document.getElementById(id).addEventListener('change', renderGoogleSheetsAdmin);
     });

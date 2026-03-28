@@ -1,7 +1,28 @@
 from datetime import datetime
+from enum import Enum
 import json
 
 from app.extensions import db
+
+
+class GoogleSheetTableType(str, Enum):
+    C3 = "c3"
+    C4 = "c4"
+    C5 = "c5"
+
+    @classmethod
+    def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        raw = (value or "").strip().lower()
+        if raw == "c31":
+            raw = cls.C3.value
+        valid_values = {item.value for item in cls}
+        if raw in valid_values:
+            return raw
+        return default
+
+    @classmethod
+    def choices(cls):
+        return [{"value": item.value, "label": item.value.upper()} for item in cls]
 
 
 class Task(db.Model):
@@ -281,6 +302,7 @@ class GoogleSheet(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
     name = db.Column(db.String(255), nullable=False, index=True, comment="显示名称")
     spreadsheet_id = db.Column(db.String(255), nullable=False, unique=True, index=True, comment="Google Sheet表ID")
+    table_type = db.Column(db.String(20), nullable=False, default=GoogleSheetTableType.C3.value, index=True, comment="表类型：c3/c4/c5")
     remark = db.Column(db.Text, comment="备注")
     is_active = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否启用")
     is_in_use = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否使用中")
@@ -293,6 +315,7 @@ class GoogleSheet(db.Model):
             "id": self.id,
             "name": self.name,
             "spreadsheet_id": self.spreadsheet_id,
+            "table_type": self.table_type,
             "remark": self.remark,
             "is_active": self.is_active,
             "is_in_use": self.is_in_use,

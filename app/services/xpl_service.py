@@ -661,7 +661,8 @@ class XPLAnalyzer:
         # return max_net_value_count
 
         return int(data_df['previous_max'].value_counts().max())
-
+        # d_max = data_df['previous_max'].max()
+        # return data_df[data_df['previous_max'] == d_max]['previous_max'].count()
 
     def exceeding_maximum_number_of_backtest_repair_days(self, index_data,start_data):
         """
@@ -1136,15 +1137,21 @@ class XPLAnalyzer:
             excess_of_promissory_note = ((monthly_excess_return_diff_mean * 12) /
                                          (monthly_excess_returns[monthly_excess_returns['monthly_excess_return_diff'] <= 0]['monthly_excess_return_diff'].std() * np.sqrt(12)))
 
+
             # 最大回测修复天数 = （出现净值最多次数的天数）（每年）(index，start)
             index_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(index_df)
             start_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(start_df)
 
 
             # 超额最大回测修复天数 = start - index
-            excess_maximum_number_of_backtest_repair_days = self.exceeding_maximum_number_of_backtest_repair_days(
-                index_maximum_number_of_backtest_repair_days, start_maximum_number_of_backtest_repair_days
-            )
+            data_df_2 = pd.DataFrame()
+            data_df_2['net_value'] = start_df['net_value'] - index_df['net_value']
+            excess_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(data_df_2)
+
+            # # 超额最大回测修复天数 = start - index
+            # excess_maximum_number_of_backtest_repair_days = self.exceeding_maximum_number_of_backtest_repair_days(
+            #     index_maximum_number_of_backtest_repair_days, start_maximum_number_of_backtest_repair_days
+            # )
 
             # 构建返回结果
             # Build return results
@@ -1339,7 +1346,9 @@ class XPLAnalyzer:
             ["回撤", "年最大超额回撤", "", f"-{max_drawdown:.2%}"],
             ["回撤", "超额回撤胜率", "", f"-{excess_drawdown_winning_rate:.2%}"],
             ["回撤", "年最大回撤", "", f"-{start_drawdown:.2%}"],
-            ["比率", "夏普比率", f"{index_sharpe_ratio:.2%}", f"{start_sharpe_ratio:.2%}"],  # 注意：数字后面有空格
+            ["回撤", "最大修复天数", "", f"{start_maximum_number_of_backtest_repair_days}"],
+            ["回撤", "超额最大修复天数", "", f"{excess_maximum_number_of_backtest_repair_days}"],
+            ["比率", "夏普比率", f"{index_sharpe_ratio:.2}", f"{start_sharpe_ratio:.2}"],  # 注意：数字后面有空格
             ["比率", "卡玛比率", f"{index_kama_ratio:.2}", f"{start_kama_ratio:.2}"],
             ["比率", "所提诺比率", f"{index_sotino_ratio:.2}", f"{start_sotino_ratio:.2}"],
             ["夏普", "超额夏普", f"", f"{excess_sharp:.2}"],
@@ -1369,8 +1378,6 @@ class XPLAnalyzer:
             ["指数"],
             ["策略"],
             ["超额回撤"],
-            ["最大回测天数（start）"],
-            ["最大超额回测天数（start - index）"]
         ]
         index_year_maximum_drawdown = index_maximum_drawdown['year_maximum_drawdown']
         for index_drawdown,start_drawdown in zip(index_year_maximum_drawdown, start_maximum_drawdown['year_maximum_drawdown']):
@@ -1381,8 +1388,6 @@ class XPLAnalyzer:
             excessive_backtesting = f"{start_drawdown['drawdown']-index_drawdown['drawdown']:.2%}"
             excessive_backtesting = excessive_backtesting.replace('-', '') if '-' in excessive_backtesting else '-' + excessive_backtesting
             data_3_2d[4].append(excessive_backtesting)
-            data_3_2d[5].append(start_maximum_number_of_backtest_repair_days[str(index_drawdown['year'])])
-            data_3_2d[6].append(excess_maximum_number_of_backtest_repair_days[str(index_drawdown['year'])])
 
 
         data_4_2d = [
@@ -1406,9 +1411,9 @@ class XPLAnalyzer:
         data_4_start_row = 3
         data_4_end_row = data_4_start_row + len(data_4_2d)
 
-        target_df.iloc[0:19, 0:4] = data_1_2d
-        target_df.iloc[20:25, 0:data_2_col_num] = data_2_2d
-        target_df.iloc[26:31, 0:data3_col_num] = data_3_2d
+        target_df.iloc[0:23, 0:4] = data_1_2d
+        target_df.iloc[24:29, 0:data_2_col_num] = data_2_2d
+        target_df.iloc[30:35, 0:data3_col_num] = data_3_2d
         target_df.iloc[data_4_start_row:data_4_end_row, 9:12] = data_4_2d
 
         return target_df

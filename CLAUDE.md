@@ -3,6 +3,24 @@
 
 ## 命令
 
+### Windows 编码约定
+在 Windows PowerShell 中读取包含中文的文件时，默认编码可能不是 UTF-8，容易导致 `Get-Content` 输出乱码。
+
+- 读取文件时始终显式指定 `-Encoding UTF8`
+- 在需要把中文输出到终端前，先设置：
+
+```powershell
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+```
+
+- 推荐示例：
+
+```powershell
+Get-Content .\run.py -Encoding UTF8 -TotalCount 50
+Get-Content .\run.py -Encoding UTF8 | Select-String "应用|乱码|编码"
+```
+
 ### 运行开发服务器
 ```bash
 python run.py

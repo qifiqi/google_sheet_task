@@ -2,6 +2,7 @@ import uuid
 import threading
 import queue
 import json
+from itertools import product
 # 获取当前应用实例，传递给后台线程
 from flask import current_app
 from datetime import datetime, timedelta
@@ -75,7 +76,206 @@ class TaskManager:
         
         logger.info(f"创建任务: {task_id} - {name}")
         return task_id
-    
+
+    def create_and_start_task(self, name: str, description: str, task_type: str, config: Dict[str, Any]):
+        """创建并启动任务，供路由层直接调用。"""
+        task_id = self.create_task(name, description, task_type, config)
+        if self.start_task(task_id):
+            return {"status": "success", "task_id": task_id, "message": "任务创建并启动成功"}, 200
+        return {
+            "status": "error",
+            "task_id": task_id,
+            "message": self.get_start_error(task_id)
+        }, 400
+
+    def batch_create_and_start_task(self, data: Dict[str, Any]):
+        """C31 批量拆分为多个 C3 任务并尝试启动。"""
+        if not isinstance(data, dict):
+            raise ValueError("批量任务请求体必须是 JSON 对象")
+
+        config = data.get('config') or {}
+        if not isinstance(config, dict):
+            raise ValueError("缺少有效的 config 配置")
+
+        base_name = str(config.get('base_task_name') or data.get('name') or '').strip()
+        if not base_name:
+            raise ValueError("缺少 base_task_name")
+
+        description = str(data.get('description') or config.get('task_description') or '').strip()
+        child_task_type = 'google_sheet'
+
+        sheets = config.get('sheets') or []
+        stock_codes = config.get('stock_codes') or []
+        parameter_groups = config.get('parameters') or []
+
+        if not isinstance(sheets, list) or not sheets:
+            raise ValueError("至少需要一组 sheets 配置")
+        if not isinstance(stock_codes, list) or not stock_codes:
+            raise ValueError("至少需要一个 stock_codes")
+        if not isinstance(parameter_groups, list) or not parameter_groups:
+            raise ValueError("至少需要一组 parameters")
+
+        normalized_groups = self._normalize_c31_parameter_groups(parameter_groups)
+
+        parameter_combinations = list(product(*normalized_groups))
+        if not parameter_combinations:
+            raise ValueError("未生成任何参数组合")
+
+        sheet_count = len([sheet for sheet in sheets if isinstance(sheet, dict) and str(sheet.get('spreadsheet_id') or '').strip()])
+        combination_count = len(parameter_combinations)
+        if not self._is_count_compatible(combination_count, sheet_count):
+            raise ValueError(
+                f"参数组合数({combination_count})与Sheet数({sheet_count})必须相等，或其中一方是另一方的整数倍"
+            )
+
+        sheet_dict = {}
+        for sheet in sheets:
+            sheet_title = str(sheet.get('title') or '').strip()
+            s_t = sheet_title.strip("]").split('-')
+            year_n,sort_n = s_t[-2], int(s_t[-1])
+            sheet['sort_n'],sheet['year_n'] = sort_n,year_n
+            if sheet_title not in sheet_dict:
+                sheet_dict[year_n] = []
+            sheet_dict[year_n].append(sheet)
+
+
+        for k,v in sheet_dict.items():
+            if len(v) != combination_count:
+                raise ValueError(
+                    f"{k} 所含有的表格数，无法对齐参数数量，{combination_count},检查是否是参数设置过多还是表格创建过少"
+                )
+
+
+        created_task_ids = []
+        started_task_ids = []
+        failed_to_start = []
+        child_summaries = []
+        sequence = 1
+
+        shared_config = {
+            key: value for key, value in config.items()
+            if key not in {
+                'base_task_name', 'task_description', 'stock_codes',
+                'parameters', 'parameter_dimensions', 'sheets'
+            }
+        }
+
+
+        for stock_code in stock_codes:
+            stock_code = str(stock_code).strip()
+            if not stock_code:
+                continue
+
+            for i, parameter_combo in enumerate(parameter_combinations):
+                _sheet = [sheet_dict[k][i] for k in sheet_dict.keys()]
+
+                for sheet in _sheet:
+                    if not isinstance(sheet, dict):
+                        continue
+
+                    spreadsheet_id = str(sheet.get('spreadsheet_id') or '').strip()
+                    sheet_name = str(sheet.get('sheet_name') or '').strip()
+                    sheet_title = str(sheet.get('title') or '').strip()
+                    sort_n = sheet.get('sort_n')
+                    year_n = str(sheet.get('year_n') or '').strip()
+                    if not spreadsheet_id:
+                        continue
+
+                    child_parameters = self._materialize_c31_parameter_combo(parameter_combo)
+                    task_name = f"{base_name}_{year_n}_{sort_n}"
+
+                    child_config = dict(shared_config)
+                    child_config.update({
+                        'spreadsheet_id': spreadsheet_id,
+                        'sheet_name': sheet_name,
+                        'title': sheet_title or None,
+                        'stock_code': stock_code,
+                        'year_n':year_n,
+                        'parameters': child_parameters,
+                    })
+
+                    task_id = self.create_task(task_name, description, child_task_type, child_config)
+                    created_task_ids.append(task_id)
+
+                    started = self.start_task(task_id)
+                    if started:
+                        started_task_ids.append(task_id)
+                    else:
+                        failed_to_start.append({
+                            "task_id": task_id,
+                            "task_name": task_name,
+                            "error": self.get_start_error(task_id)
+                        })
+
+                    child_summaries.append({
+                        "task_id": task_id,
+                        "task_name": task_name,
+                        "spreadsheet_id": spreadsheet_id,
+                        "sheet_name": sheet_name,
+                        "stock_code": stock_code,
+                        "parameters": child_parameters,
+                        "started": started
+                    })
+                    sequence += 1
+
+        if not created_task_ids:
+            raise ValueError("没有生成任何子任务，请检查 sheets / stock_codes / parameters 配置")
+
+        status = "success" if started_task_ids else "error"
+        message = (
+            f"C31 已拆分创建 {len(created_task_ids)} 个 C3 任务，"
+            f"成功启动 {len(started_task_ids)} 个，未启动 {len(failed_to_start)} 个"
+        )
+        http_status = 200 if started_task_ids else 400
+
+        return {
+            "status": status,
+            "message": message,
+            "task_id": started_task_ids[0] if started_task_ids else created_task_ids[0],
+            "task_ids": created_task_ids,
+            "started_task_ids": started_task_ids,
+            "failed_to_start": failed_to_start,
+            "total_created": len(created_task_ids),
+            "total_started": len(started_task_ids),
+            "children": child_summaries,
+        }, http_status
+
+    def _materialize_c31_parameter_combo(self, parameter_combo):
+        """把 C31 选中的单次组合整理成单个 C3 任务需要的完整二维数组。"""
+        rows = []
+        for item in parameter_combo:
+            if not isinstance(item, list) or not item:
+                raise ValueError("参数组合项必须是非空一维数组")
+            rows.append(item)
+        return rows
+
+    def _normalize_c31_parameter_groups(self, parameter_groups):
+        normalized_groups = []
+        for idx, group in enumerate(parameter_groups, start=1):
+            if not isinstance(group, list) or not group:
+                raise ValueError(f"参数组 {idx} 必须是非空数组")
+
+            if all(isinstance(group_item, list) for group_item in group):
+                candidate_group = []
+                for group_item in group:
+                    if not isinstance(group_item, list) or not group_item:
+                        raise ValueError(f"参数组 {idx} 的二维子项必须是非空一维数组")
+                    candidate_group.append(group_item)
+                normalized_groups.append(candidate_group)
+            else:
+                normalized_groups.append([group])
+        return normalized_groups
+
+    def _is_count_compatible(self, left_count: int, right_count: int) -> bool:
+        if left_count <= 0 or right_count <= 0:
+            return False
+        return (
+            left_count == right_count
+            or left_count % right_count == 0
+            or right_count % left_count == 0
+        )
+
+
     def start_task(self, task_id: str) -> bool:
         """启动任务"""
         self.start_errors.pop(task_id, None)
@@ -250,21 +450,25 @@ class TaskManager:
         task = Task.query.get(task_id)
         if not task:
             return False
-        
+
         if task.status in ['completed', 'cancelled', 'error']:
             return False
+
         was_pending = task.status == 'pending'
         stop_event = self.task_stop_events.get(task_id)
         if stop_event:
             stop_event.set()
-        
+
         # 使用safe_update更新任务状态
         safe_update(task, commit=False, status='cancelled', end_time=datetime.now())
+
+        # pending 状态的任务需要立即释放资源，因为没有运行线程
         if was_pending:
+            self._release_task_token_occupancy(task_id)
             self._release_google_sheet_occupancy(task_id)
-        
+
         # 清理资源
-        
+
         self._add_task_log(task_id, 'info', f'任务已取消')
         logger.info(f"取消任务: {task_id}")
         return True
@@ -815,8 +1019,9 @@ class TaskManager:
             self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
         
         finally:
-            self._release_task_token_occupancy(task_id)
-            self._release_google_sheet_occupancy(task_id)
+            with app.app_context():
+                self._release_task_token_occupancy(task_id)
+                self._release_google_sheet_occupancy(task_id)
             # 清理资源
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
@@ -921,8 +1126,9 @@ class TaskManager:
             self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
         
         finally:
-            self._release_task_token_occupancy(task_id)
-            self._release_google_sheet_occupancy(task_id)
+            with app.app_context():
+                self._release_task_token_occupancy(task_id)
+                self._release_google_sheet_occupancy(task_id)
             # 清理资源
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
@@ -1027,8 +1233,9 @@ class TaskManager:
             self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
         
         finally:
-            self._release_task_token_occupancy(task_id)
-            self._release_google_sheet_occupancy(task_id)
+            with app.app_context():
+                self._release_task_token_occupancy(task_id)
+                self._release_google_sheet_occupancy(task_id)
             # 清理资源
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]

@@ -5,7 +5,7 @@ import json
 import queue
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
-from app.models import Task, TaskLog, TaskTemplate, TaskResult, SystemConfig, GoogleSheetToken, GoogleSheet, db
+from app.models import Task, TaskLog, TaskTemplate, TaskResult, SystemConfig, GoogleSheetToken, GoogleSheet, db, GoogleSheetTableType
 from app.utils.logger import get_logger
 from flask import current_app
 from app.services.google_sheet_service import GoogleSheetService
@@ -64,16 +64,8 @@ def tasks():
             name = data.get('name', '未命名任务')
             description = data.get('description', '')
             task_type = data.get('task_type', 'google_sheet')
-
-            task_id = task_manager.create_task(name, description, task_type, config)
-
-            if task_manager.start_task(task_id):
-                return jsonify({"status": "success", "task_id": task_id, "message": "任务创建并启动成功"})
-            return jsonify({
-                "status": "error",
-                "task_id": task_id,
-                "message": task_manager.get_start_error(task_id)
-            }), 400
+            response, status_code = task_manager.create_and_start_task(name, description, task_type, config)
+            return jsonify(response), status_code
 
         return jsonify({"status": "error", "message": "任务配置为空"}), 400
 
@@ -82,6 +74,30 @@ def tasks():
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
         logger.error(f"处理任务接口失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@api_bp.route('/tasks/batch-create', methods=['POST'])
+def batch_create_tasks():
+    """C31 批量创建接口。
+
+    当前仅打印收到的参数，并最小映射到原有 C3 单任务创建流程。
+    后续再补真正的批量拆分逻辑。
+    """
+    try:
+        data = request.get_json() or {}
+        logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
+
+        response, status_code = task_manager.batch_create_and_start_task(data)
+        if status_code == 200:
+            response["debug_message"] = "已调用原有 C3 创建流程；当前仍为占位版批量接口"
+        return jsonify(response), status_code
+
+    except ValueError as e:
+        logger.warning(f"批量创建接口校验失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        logger.error(f"批量创建接口失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @api_bp.route('/tasks/<task_id>', methods=['GET'])
@@ -669,12 +685,14 @@ def google_sheets():
             include_inactive = request.args.get('include_inactive', '0') in ('1', 'true', 'True')
             only_available = request.args.get('only_available', '0') in ('1', 'true', 'True')
             task_id = request.args.get('task_id', '', type=str) or None
+            table_type = GoogleSheetTableType.normalize(request.args.get('table_type'))
             return jsonify({
                 "status": "success",
                 "items": service.list_sheets(
                     include_inactive=include_inactive,
                     only_available=only_available,
                     task_id=task_id,
+                    table_type=table_type,
                 )
             })
 
@@ -682,6 +700,7 @@ def google_sheets():
         item = service.create_sheet(
             spreadsheet_id=data.get('spreadsheet_id', ''),
             name=data.get('name'),
+            table_type=data.get('table_type'),
             remark=data.get('remark'),
             is_active=data.get('is_active', True),
         )
@@ -713,7 +732,7 @@ def google_sheet_detail(sheet_id):
         if request.method == 'PUT':
             data = request.get_json() or {}
             payload = {}
-            for key in ('spreadsheet_id', 'name', 'remark'):
+            for key in ('spreadsheet_id', 'name', 'remark', 'table_type'):
                 if key in data:
                     payload[key] = data.get(key)
             if 'is_active' in data:

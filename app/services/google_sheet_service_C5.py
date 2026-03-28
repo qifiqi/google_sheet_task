@@ -34,6 +34,7 @@ class GoogleSheetService:
         self.event_queue = event_queue
         self.app = app
         self.stop_event = stop_event
+        self.task_name = ''
         # 创建任务专用日志记录器 - 不使用TaskLogger的前缀功能，我们自己控制格式
         self.task_logger = get_logger(f"{__name__}.{task_id}")
         self.xpl = xpl_analyzer
@@ -57,17 +58,20 @@ class GoogleSheetService:
         time.sleep(seconds)
         return not self._is_cancel_requested()
 
+    def _task_display_name(self) -> str:
+        return self.task_name or self.task_id
+
 
     def error_dd(self, error_msg):
         error_msg = self.app.notifier.error_google_task_templates(
-            f"{self.task_id} -- {self.task.name}",
+            f"{self.task_id} -- {self._task_display_name()}",
             error_msg,
             f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}")
         self.app.notifier.send_message(error_msg)
 
     def task_ok_to_dd(self, result):
         error_msg = self.app.notifier.google_task_ok_templates(
-            f"{self.task_id} -- {self.task.name}",
+            f"{self.task_id} -- {self._task_display_name()}",
             result,
             f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
         )
@@ -129,6 +133,7 @@ class GoogleSheetService:
                     return 'error'
 
                 name = task.name
+                self.task_name = name
                 # 检查任务是否已被取消
                 if task.status == 'cancelled':
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
@@ -626,19 +631,17 @@ class GoogleSheetService:
                                 'stock_date': kline[i].get('stock_date'),
                                 'stock_val': _start_return[f"{c5_output_column_l}{i + 2}"]
                             })
-                            _index_start_return_date.append({
-                                'stock_date': kline[i].get('stock_date'),
-                                'index_return': _index_return[f"{c5_output_column_j}{i + 2}"],
-                                'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
-
-                            })
-
+                            # _index_start_return_date.append({
+                            #     'stock_date': kline[i].get('stock_date'),
+                            #     'index_return': _index_return[f"{c5_output_column_j}{i + 2}"],
+                            #     'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
+                            # })
 
                         _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
                         _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
                         _result['index_return_xpl'] = _index_return_xpl
                         _result['start_return_xpl'] = _start_return_xpl
-                        _result['_index_start_return_date'] = _index_start_return_date
+                        # _result['_index_start_return_date'] = _index_start_return_date
 
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
@@ -796,8 +799,9 @@ class GoogleSheetService:
 
         def save_result_operation():
             _index_start_return_date = None
-            if '_index_start_return_date' in result:
-                _index_start_return_date = result.pop('_index_start_return_date')
+            # __result = list(result.values())[0]
+            # if '_index_start_return_date' in __result:
+            #     _index_start_return_date = result.pop('_index_start_return_date')
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
@@ -806,7 +810,6 @@ class GoogleSheetService:
                 success=success
             )
             db.session.add(task_result)
-
             if _index_start_return_date:
                 for i in _index_start_return_date:
                     task_result_return = TaskResultReturn(

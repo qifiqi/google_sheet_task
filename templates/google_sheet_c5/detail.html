@@ -2504,7 +2504,7 @@
 
         // 跳转到创建重启任务页面（C5 模式）
         function goToCreateRestartTask() {
-            window.location.href = `/google-sheet/create?version=c5&restart_task_id=${encodeURIComponent(currentTaskId || '')}`;
+            window.location.href = `/google-sheet/create?version={{ version }}&restart_task_id=${encodeURIComponent(currentTaskId || '')}`;
         }
 
         // 创建新的重启任务
@@ -2519,7 +2519,7 @@
 
                     // 询问是否跳转到新任务
                     if (confirm('是否跳转到新任务的详情页面？')) {
-                        window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}&version=c4`;
+                        window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}&version={{ version }}`;
                     }
                 } else {
                     const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');
