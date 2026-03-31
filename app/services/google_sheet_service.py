@@ -11,8 +11,10 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, TaskLog, TaskResult, db
+from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.dfcf_api import DFCJStockApi
@@ -23,59 +25,20 @@ from app.utils.yf_api import YFApi
 logger = get_logger(__name__)
 
 
-class GoogleSheetService:
+class GoogleSheetService(BaseGoogleSheetService):
     """Google Sheet服务"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
+        super().__init__(config, task_id, event_queue=event_queue, app=app, stop_event=stop_event)
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
-        self.config = config
         self.google_sheet:Optional[GoogleSheet] = None
         self.api_client = StockAPIClient()
-        # 保存参数到实例变量
-        self.task_id = task_id
-        self.event_queue = event_queue
-        self.app = app
-        self.stop_event = stop_event
-        self.task_name = ''
-        # 创建任务专用日志记录器 - 不使用TaskLogger的前缀功能，我们自己控制格式
-        self.task_logger = get_logger(f"{__name__}.{task_id}")
 
-    def _is_cancel_requested(self) -> bool:
-        if self.stop_event and self.stop_event.is_set():
-            return True
-        try:
-            task = Task.query.get(self.task_id)
-            return bool(task and task.status == 'cancelled')
-        except Exception:
-            return False
-
-    def _interruptible_sleep(self, seconds: float) -> bool:
-        if seconds <= 0:
-            return not self._is_cancel_requested()
-        if self.stop_event:
-            return not self.stop_event.wait(seconds)
-        time.sleep(seconds)
-        return not self._is_cancel_requested()
-
-    def _task_display_name(self) -> str:
-        return self.task_name or self.task_id
-
-    def error_dd(self,error_msg):
-        error_msg = self.app.notifier.error_google_task_templates(
-            f"{self.task_id} -- {self._task_display_name()}",
-            error_msg,
-            f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}")
-        self.app.notifier.send_message(error_msg)
-
-    def task_ok_to_dd(self,result):
-        error_msg = self.app.notifier.google_task_ok_templates(
-            f"{self.task_id} -- {self._task_display_name()}",
-            result,
-            f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
-                                                               )
-        self.app.notifier.send_message(error_msg)
-
+    @alert_on_failure(
+        result_predicate=should_alert_execute_task_result,
+        message_builder=build_execute_task_alert,
+    )
     def execute_task(self):
         """执行Google Sheet任务"""
         try:
@@ -156,12 +119,6 @@ class GoogleSheetService:
                     # self.task_ok_to_dd(f'任务已取消！成功执行: {success_count}, 失败: {failed_count}')
                     return 'cancelled'
                 elif task_status == 'error':
-                    # 任务执行出错
-                    # 推送错误通知
-                    error_details = f'任务执行出错！成功: {success_count}, 失败: {failed_count}'
-                    if task.error:
-                        error_details += f', 错误信息: {str(task.error)}'
-                    self.error_dd(error_details)
                     return 'error'
                 else:
                     if stock_param is not None and stock_param != "error":
@@ -169,15 +126,10 @@ class GoogleSheetService:
                         if final_status == 'completed':
                             # 推送成功完成通知
                             self.task_ok_to_dd(f'任务成功完成！成功执行: {success_count}, 失败: {failed_count}')
-                        else:
-                            # 推送失败通知
-                            self.error_dd(f'任务执行失败！成功: {success_count}, 失败: {failed_count}')
                         return final_status
 
                 if success_count == 0 and failed_count == 0:
                     self._log_error('任务执行失败')
-                    # 推送无结果失败通知
-                    self.error_dd('任务执行失败！没有成功或失败的参数组合')
                     return 'error'
                 
                 # 推送任务完成通知
@@ -201,7 +153,6 @@ class GoogleSheetService:
             # 其他异常情况
             error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(e)}"
             self._log_error(error_msg)
-            self.error_dd(error_msg)
             return 'error'
 
     def cell_kline_data(self,config_data):

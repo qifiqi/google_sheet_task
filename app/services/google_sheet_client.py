@@ -64,11 +64,7 @@ class GoogleSheet:
         creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
         self.client = gspread.authorize(credentials=creds)
 
-        if self._proxy_url is not None and str(self._proxy_url).lower().startswith(('http','stock')):
-            logger.info(f"{self._log_ctx()}使用代理：{self._proxy_url}")
-            os.environ['HTTP_PROXY'] = self._proxy_url
-            os.environ['HTTPS_PROXY'] = self._proxy_url
-            self.client.session.proxies.update({"http": self._proxy_url, "https": self._proxy_url})
+        self._apply_proxy_settings()
 
         self._apply_default_timeout()
         self.sheet = self.client.open_by_key(self.spreadsheet_id)
@@ -113,7 +109,7 @@ class GoogleSheet:
 
     def _apply_default_timeout(self, timeout: Optional[int] = None):
         """为 gspread 底层 requests Session 注入默认 timeout，避免网络抖动时永久阻塞"""
-        if not self.client or not getattr(self.client, 'session', None):
+        if not self.client:
             return
 
         if timeout is None:
@@ -124,7 +120,18 @@ class GoogleSheet:
             except Exception:
                 timeout = 30
 
-        session = self.client.session
+        set_timeout = getattr(self.client, 'set_timeout', None)
+        if callable(set_timeout):
+            try:
+                set_timeout(timeout)
+                return
+            except Exception:
+                logger.debug(f"{self._log_ctx()}通过 client.set_timeout 设置超时失败，回退到 session patch", exc_info=True)
+
+        session = self._get_client_session()
+        if not session:
+            logger.warning(f"{self._log_ctx()}当前 gspread client 未暴露可用 session，跳过默认 timeout patch")
+            return
 
         # 已经打过补丁：如果 timeout 发生变化，更新即可
         if getattr(session, '_timeout_patched', False):
@@ -141,6 +148,58 @@ class GoogleSheet:
         session._default_timeout = timeout
         session.request = request_with_timeout
         session._timeout_patched = True
+
+    def _get_client_session(self):
+        """兼容不同 gspread 版本的 HTTP session 访问方式"""
+        if not self.client:
+            return None
+
+        session = getattr(self.client, 'session', None)
+        if session is not None:
+            return session
+
+        http_client = getattr(self.client, 'http_client', None)
+        if http_client is not None:
+            session = getattr(http_client, 'session', None)
+            if session is not None:
+                return session
+
+        internal_http_client = getattr(self.client, '_http_client', None)
+        if internal_http_client is not None:
+            session = getattr(internal_http_client, 'session', None)
+            if session is not None:
+                return session
+
+        return None
+
+    def _apply_proxy_settings(self):
+        """设置代理，兼容 gspread 6.x 等不同 client 结构"""
+        if not self.client or not self._proxy_url:
+            return
+
+        proxy_url = str(self._proxy_url).strip()
+        if not proxy_url.lower().startswith(('http://', 'https://', 'socks')):
+            return
+
+        logger.info(f"{self._log_ctx()}使用代理：{proxy_url}")
+        os.environ['HTTP_PROXY'] = proxy_url
+        os.environ['HTTPS_PROXY'] = proxy_url
+
+        session = self._get_client_session()
+        if session is None:
+            logger.warning(f"{self._log_ctx()}当前 gspread client 不支持直接访问 session，将仅使用环境变量代理")
+            return
+
+        try:
+            session.proxies.update({"http": proxy_url, "https": proxy_url})
+        except Exception:
+            logger.warning(f"{self._log_ctx()}写入 session 代理失败，将仅使用环境变量代理", exc_info=True)
+
+    @staticmethod
+    def _clear_proxy_settings():
+        for proxy_key in ('HTTP_PROXY', 'HTTPS_PROXY'):
+            if proxy_key in os.environ:
+                del os.environ[proxy_key]
 
     def get(self, name):
         """获取属性"""
@@ -474,11 +533,7 @@ class GoogleSheet:
             creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
             self.client = gspread.authorize(credentials=creds)
 
-            if self._proxy_url:
-                logger.info(f"{self._log_ctx()}使用代理：{self._proxy_url}")
-                os.environ['HTTP_PROXY'] = self._proxy_url
-                os.environ['HTTPS_PROXY'] = self._proxy_url
-                self.client.session.proxies.update({"http": self._proxy_url, "https": self._proxy_url})
+            self._apply_proxy_settings()
 
             self._apply_default_timeout()
             # 重新打开电子表格
@@ -591,18 +646,17 @@ class GoogleSheet:
         """关闭连接并清理资源"""
         try:
             # 清理代理设置
-            if 'HTTP_PROXY' in os.environ:
-                del os.environ['HTTP_PROXY']
-            if 'HTTPS_PROXY' in os.environ:
-                del os.environ['HTTPS_PROXY']
+            self._clear_proxy_settings()
             
             # 清理对象引用
             self.worksheet = None
             self.sheet = None
             if self.client:
                 try:
-                    self.client.session.close()  # 关闭gspread的session
-                except:
+                    session = self._get_client_session()
+                    if session and hasattr(session, 'close'):
+                        session.close()
+                except Exception:
                     pass
             self.client = None
             

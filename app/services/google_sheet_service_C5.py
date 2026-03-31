@@ -1,7 +1,6 @@
 import json
 import time
 import traceback
-from datetime import datetime
 from typing import Dict, Any, Optional
 
 from flask import current_app
@@ -9,74 +8,34 @@ from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db,TaskResultReturn
+from app.models import Task, TaskResult, db, TaskResultReturn
+from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.logger import get_logger
-from app.utils.result_validator import validate_result_dict, is_valid_result_value
+from app.utils.result_validator import is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
 from app.utils.yf_api import YFApi
-logger = get_logger(__name__)
 
 
-class GoogleSheetService:
-    """Google Sheet服务"""
+class GoogleSheetService(BaseGoogleSheetService):
+    """Google Sheet服务 - C5"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
-        self.config = config
+        super().__init__(config, task_id, event_queue=event_queue, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
         self.api_client = StockAPIClient()
-        # 保存参数到实例变量
-        self.task_id = task_id
-        self.event_queue = event_queue
-        self.app = app
-        self.stop_event = stop_event
-        self.task_name = ''
-        # 创建任务专用日志记录器 - 不使用TaskLogger的前缀功能，我们自己控制格式
-        self.task_logger = get_logger(f"{__name__}.{task_id}")
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
 
-    def _is_cancel_requested(self) -> bool:
-        if self.stop_event and self.stop_event.is_set():
-            return True
-        try:
-            task = Task.query.get(self.task_id)
-            return bool(task and task.status == 'cancelled')
-        except Exception:
-            return False
-
-    def _interruptible_sleep(self, seconds: float) -> bool:
-        if seconds <= 0:
-            return not self._is_cancel_requested()
-        if self.stop_event:
-            return not self.stop_event.wait(seconds)
-        time.sleep(seconds)
-        return not self._is_cancel_requested()
-
-    def _task_display_name(self) -> str:
-        return self.task_name or self.task_id
-
-
-    def error_dd(self, error_msg):
-        error_msg = self.app.notifier.error_google_task_templates(
-            f"{self.task_id} -- {self._task_display_name()}",
-            error_msg,
-            f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}")
-        self.app.notifier.send_message(error_msg)
-
-    def task_ok_to_dd(self, result):
-        error_msg = self.app.notifier.google_task_ok_templates(
-            f"{self.task_id} -- {self._task_display_name()}",
-            result,
-            f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
-        )
-        self.app.notifier.send_message(error_msg)
-
+    @alert_on_failure(
+        result_predicate=should_alert_execute_task_result,
+        message_builder=build_execute_task_alert,
+    )
     def execute_task(self):
         """执行Google Sheet任务"""
         try:
@@ -149,18 +108,10 @@ class GoogleSheetService:
                     # self.task_ok_to_dd(f'任务已取消！成功执行: {success_count}, 失败: {failed_count}')
                     return 'cancelled'
                 elif task_status == 'error':
-                    # 任务执行出错
-                    # 推送错误通知
-                    error_details = f'任务执行出错！成功: {success_count}, 失败: {failed_count}'
-                    if task.error:
-                        error_details += f', 错误信息: {str(task.error)}'
-                    self.error_dd(error_details)
                     return 'error'
 
                 if success_count == 0 and failed_count == 0:
                     self._log_error('任务执行失败')
-                    # 推送无结果失败通知
-                    self.error_dd('任务执行失败！没有成功或失败的参数组合')
                     return 'error'
 
                 # 推送任务完成通知
@@ -184,7 +135,6 @@ class GoogleSheetService:
             # 其他异常情况
             error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(e)}"
             self._log_error(error_msg)
-            self.error_dd(error_msg)
             return 'error'
         finally:
             # 释放 Advisory Lock（仅当成功获取时）
@@ -425,8 +375,7 @@ class GoogleSheetService:
             self._log_error(error_msg)
             raise
 
-    @staticmethod
-    def get_worksheets(spreadsheet_id: str, token_file: str = "data/token.json", proxy_url: str = None) -> Dict[
+    def get_worksheets(self,spreadsheet_id: str, token_file: str = "data/token.json", proxy_url: str = None) -> Dict[
         str, Any]:
         """
         获取指定电子表格的基础信息
@@ -453,7 +402,7 @@ class GoogleSheetService:
                 title = google_sheet.sheet.title if google_sheet.sheet else ""
                 return {"title": title, "worksheets": worksheets}
         except Exception as e:
-            logger.error(f"获取工作表列表失败: {str(e)}")
+            self._log_error(f"获取工作表列表失败: {str(e)}")
             raise
 
     @retry(
@@ -668,141 +617,11 @@ class GoogleSheetService:
             self._log_error(error_msg)
             raise e
 
-    def _log(self, level: str, message: str, log_type: str = 'general', **kwargs):
-        """
-        统一的日志记录接口 - 完整版，包含前端推送和数据库保存
-        
-        Args:
-            level: 日志级别 ('info', 'warning', 'error')
-            message: 日志消息
-            log_type: 日志类型 ('general', 'step', 'progress', 'api', 'api_error')
-            **kwargs: 额外参数，用于特定类型的日志
-        """
-        try:
-            # 根据日志类型格式化消息
-            formatted_message = self._format_log_message(message, log_type, **kwargs)
-
-            # 添加简洁的任务ID前缀
-            prefixed_message = f"[Task-{self.task_id[:8]}] {formatted_message}"
-
-            # 1. 记录到系统日志（现在已经不会重复了）
-            if level == 'error':
-                self.task_logger.error(prefixed_message)
-            elif level == 'warning':
-                self.task_logger.warning(prefixed_message)
-            else:
-                self.task_logger.info(prefixed_message)
-
-            # 2. 保存到数据库（TaskLog）
-            self._save_to_database(level, formatted_message)
-
-            # 3. 推送到前端（SSE）
-            self._push_to_frontend(level, formatted_message)
-
-        except Exception as e:
-            # 记录日志系统本身的错误，但不引起循环
-            pass
-
-    def _format_log_message(self, message: str, log_type: str, **kwargs) -> str:
-        """格式化日志消息"""
-        if log_type == 'step':
-            step = kwargs.get('step', 0)
-            total = kwargs.get('total', 0)
-            return f"[Step {step}/{total}] {message}"
-        elif log_type == 'progress':
-            percentage = kwargs.get('percentage', 0)
-            return f"[Progress {percentage:.1f}%] {message}"
-        elif log_type == 'api':
-            action = kwargs.get('action', '')
-            details = kwargs.get('details', '')
-            base_msg = f"[API] {action}"
-            return f"{base_msg} - {details}" if details else base_msg
-        elif log_type == 'api_error':
-            action = kwargs.get('action', '')
-            error = kwargs.get('error', '')
-            return f"[API_ERROR] {action} - {error}"
-        else:
-            return message
-
-    def _save_to_database(self, level: str, message: str):
-        """保存日志到数据库，包含重试逻辑"""
-        from app.models import TaskLog
-        from app.utils.database import safe_db_operation
-        from flask import current_app
-
-        def save_log_operation():
-            log = TaskLog(
-                task_id=self.task_id,
-                level=level,
-                message=message
-            )
-            db.session.add(log)
-            db.session.commit()
-
-        try:
-            if self.app:
-                with self.app.app_context():
-                    safe_db_operation(save_log_operation)
-            else:
-                with current_app.app_context():
-                    safe_db_operation(save_log_operation)
-        except Exception as e:
-            # 数据库保存失败时静默处理，不影响主流程
-            pass
-
-    def _push_to_frontend(self, level: str, message: str):
-        """推送日志到前端"""
-        try:
-            if self.event_queue:
-                self.event_queue.put({
-                    "type": "log_update",
-                    "data": {
-                        "level": level,
-                        "message": message,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                })
-        except Exception as e:
-            # 前端推送失败时静默处理，不影响主流程
-            pass
-
-    # 便捷的日志方法
-    def _log_info(self, message: str, log_type: str = 'general', **kwargs):
-        """记录info级别日志"""
-        self._log('info', message, log_type, **kwargs)
-
-    def _log_warning(self, message: str, log_type: str = 'general', **kwargs):
-        """记录warning级别日志"""
-        self._log('warning', message, log_type, **kwargs)
-
-    def _log_error(self, message: str, log_type: str = 'general', **kwargs):
-        """记录error级别日志"""
-        self._log('error', message, log_type, **kwargs)
-
-    def _log_step(self, step: int, total: int, message: str):
-        """记录步骤日志"""
-        self._log('info', message, 'step', step=step, total=total)
-
-    def _log_progress(self, percentage: float, message: str):
-        """记录进度日志"""
-        self._log('info', message, 'progress', percentage=percentage)
-
-    def _log_api(self, action: str, details: str = ''):
-        """记录API调用日志"""
-        self._log('info', '', 'api', action=action, details=details)
-
-    def _log_api_error(self, action: str, error: str):
-        """记录API错误日志"""
-        self._log('error', '', 'api_error', action=action, error=error)
-
     def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
         """保存任务结果到数据库，包含重试逻辑"""
 
         def save_result_operation():
             _index_start_return_date = None
-            # __result = list(result.values())[0]
-            # if '_index_start_return_date' in __result:
-            #     _index_start_return_date = result.pop('_index_start_return_date')
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
@@ -824,18 +643,15 @@ class GoogleSheetService:
 
         try:
             if self.app:
-                # 在后台线程中使用传递的应用实例
                 with self.app.app_context():
                     safe_db_operation(save_result_operation)
             else:
-                # 在主线程中使用当前应用上下文
                 from flask import current_app
                 with current_app.app_context():
                     safe_db_operation(save_result_operation)
         except Exception as e:
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
-            # 注意：这里不能使用_push_log，因为可能导致循环调用
 
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters):
 

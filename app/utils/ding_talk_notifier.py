@@ -6,6 +6,11 @@ import hashlib
 import base64
 import urllib.parse
 
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
+
 
 class DingTalkNotifier:
     """
@@ -155,13 +160,24 @@ class DingTalkNotifier:
             dict: 响应结果
         """
         try:
+            if not self.access_token or not self.secret:
+                logger.error("钉钉通知发送失败: access_token 或 secret 未配置")
+                return {"error": "ding_talk_not_configured"}
+
             timestamp, sign = self._generate_signature()
             url = f'{self.base_url}?access_token={self.access_token}&timestamp={timestamp}&sign={sign}'
-            response = requests.post(url, json=data)
+            response = requests.post(url, json=data, timeout=10)
+            response.raise_for_status()
+            result = response.json()
 
-            return response.json()
+            if result.get("errcode") not in (None, 0):
+                logger.error(f"钉钉通知发送失败: {result}")
+            else:
+                logger.info("钉钉通知发送成功")
+
+            return result
         except Exception as e:
-            print(f"发送消息失败: {str(e)}")
+            logger.error(f"发送钉钉消息失败: {str(e)}", exc_info=True)
             return {"error": str(e)}
 
 # 使用示例
