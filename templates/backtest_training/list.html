@@ -1,0 +1,122 @@
+{% extends "admin/base.html" %}
+
+{% block title %}回测数据训练任务列表{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">回测数据训练任务</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="/backtest-training/create" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> 创建任务
+        </a>
+    </div>
+</div>
+
+<!-- 统计信息 -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body text-center">
+                <h6 class="text-muted">总任务数</h6>
+                <h2 class="mb-0" id="totalTasks">0</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-primary">
+            <div class="card-body text-center">
+                <h6 class="text-muted">运行中</h6>
+                <h2 class="mb-0 text-primary" id="runningTasks">0</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-success">
+            <div class="card-body text-center">
+                <h6 class="text-muted">已完成</h6>
+                <h2 class="mb-0 text-success" id="completedTasks">0</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-danger">
+            <div class="card-body text-center">
+                <h6 class="text-muted">失败</h6>
+                <h2 class="mb-0 text-danger" id="failedTasks">0</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 任务列表 -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">任务列表</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>状态</th>
+                        <th>创建时间</th>
+                        <th>开始时间</th>
+                        <th>结束时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="taskTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadTasks() {
+    const res = await fetch('/backtest-training/api/tasks');
+    const data = await res.json();
+
+    const tbody = document.getElementById('taskTableBody');
+    tbody.innerHTML = '';
+
+    let running = 0, completed = 0, failed = 0;
+
+    data.tasks.forEach(task => {
+        if (task.status === 'running') running++;
+        else if (task.status === 'completed') completed++;
+        else if (task.status === 'failed') failed++;
+
+        const row = `<tr>
+            <td>${task.id}</td>
+            <td><span class="badge bg-${getStatusColor(task.status)}">${task.status}</span></td>
+            <td>${task.created_at || '-'}</td>
+            <td>${task.start_time || '-'}</td>
+            <td>${task.end_time || '-'}</td>
+            <td><a href="/backtest-training/detail/${task.id}" class="btn btn-sm btn-info">详情</a></td>
+        </tr>`;
+        tbody.insertAdjacentHTML('beforeend', row);
+    });
+
+    document.getElementById('totalTasks').textContent = data.total;
+    document.getElementById('runningTasks').textContent = running;
+    document.getElementById('completedTasks').textContent = completed;
+    document.getElementById('failedTasks').textContent = failed;
+}
+
+function getStatusColor(status) {
+    const colors = {
+        pending: 'secondary',
+        running: 'primary',
+        completed: 'success',
+        failed: 'danger'
+    };
+    return colors[status] || 'secondary';
+}
+
+loadTasks();
+setInterval(loadTasks, 5000);
+</script>
+{% endblock %}

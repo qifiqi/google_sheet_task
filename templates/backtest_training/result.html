@@ -1,0 +1,138 @@
+{% extends "admin/base.html" %}
+
+{% block title %}训练结果详情{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">训练结果详情 #<span id="resultId">{{ result_id }}</span></h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a class="btn btn-sm btn-outline-secondary" href="javascript:history.back()">
+                <i class="bi bi-arrow-left"></i> 返回
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4" id="summary-cards">
+    <div class="col-md-3">
+        <div class="card border-primary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">跑赢年份</h6>
+                <h2 class="card-title" id="v1-outperform-year">-</h2>
+                <p class="card-text text-muted small">outperform_year</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-success h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">月超额波动率</h6>
+                <h2 class="card-title" id="v1-monthly-excess-vol">-</h2>
+                <p class="card-text text-muted small">monthly_excess_volatility</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-warning h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">超额回撤胜率</h6>
+                <h2 class="card-title" id="v1-excess-dd-win">-</h2>
+                <p class="card-text text-muted small">excess_drawdown_winning_rate</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-danger h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">年超额收益(整体)</h6>
+                <h2 class="card-title" id="v1-excess-annual-all">-</h2>
+                <p class="card-text text-muted small">excess_returns[all]</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-0 py-2">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                data-bs-target="#details-collapse">
+            <i class="bi bi-layout-text-sidebar-reverse me-1"></i>数据明细（展开/收起）
+        </button>
+    </div>
+    <div class="collapse" id="details-collapse">
+        <div class="card-body p-3">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <div class="list-group" role="tablist">
+                        <button class="list-group-item list-group-item-action active" data-bs-toggle="list"
+                                data-bs-target="#tab-annual" type="button">年度收益/回撤</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-excess" type="button">超额收益</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-raw" type="button">全量 JSON</button>
+                    </div>
+                </div>
+                <div class="col-md-10">
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="tab-annual">
+                            <div class="card">
+                                <div class="card-header py-2"><h6 class="mb-0">年度收益率对比</h6></div>
+                                <div class="card-body p-2">
+                                    <table class="table table-sm table-striped mb-0">
+                                        <thead>
+                                            <tr><th>Year</th><th>指数收益</th><th>模型收益</th><th>差值</th></tr>
+                                        </thead>
+                                        <tbody id="tbl-annual-compare"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-excess">
+                            <div class="card">
+                                <div class="card-header py-2"><h6 class="mb-0">超额收益</h6></div>
+                                <div class="card-body p-2">
+                                    <pre id="excess-data" class="mb-0"></pre>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-raw">
+                            <pre id="raw-json" class="mb-0"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const resultId = {{ result_id }};
+
+async function loadResult() {
+    const res = await fetch(`/backtest-training/api/results/${resultId}`);
+    const data = await res.json();
+
+    if (data.data) {
+        populateCards(data.data);
+        populateTables(data.data);
+        document.getElementById('raw-json').textContent = JSON.stringify(data.data, null, 2);
+    }
+}
+
+function populateCards(data) {
+    document.getElementById('v1-outperform-year').textContent = data.outperform_year || '-';
+    document.getElementById('v1-monthly-excess-vol').textContent = data.monthly_excess_volatility || '-';
+    document.getElementById('v1-excess-dd-win').textContent = data.excess_drawdown_winning_rate || '-';
+    document.getElementById('v1-excess-annual-all').textContent = data.excess_returns?.all || '-';
+}
+
+function populateTables(data) {
+    // TODO: 根据实际数据结构填充表格
+}
+
+loadResult();
+</script>
+{% endblock %}

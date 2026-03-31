@@ -380,6 +380,52 @@
                                                             </div>
                                                         </div>
                                                     </div>
+                                                    <div class="col-md-9" id="recent_years_container" style="display: none;">
+                                                        <label class="form-label d-block text-danger fw-bold">选择要<u>移除</u>的近年区间</label>
+                                                        <div class="btn-group d-flex" role="group">
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_1" value="1">
+                                                                <label class="form-check-label" for="exclude_year_1">近1年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_2" value="2">
+                                                                <label class="form-check-label" for="exclude_year_2">近2年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_3" value="3">
+                                                                <label class="form-check-label" for="exclude_year_3">近3年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_4" value="4">
+                                                                <label class="form-check-label" for="exclude_year_4">近4年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_5" value="5">
+                                                                <label class="form-check-label" for="exclude_year_5">近5年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_6" value="6">
+                                                                <label class="form-check-label" for="exclude_year_6">近6年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_7" value="7">
+                                                                <label class="form-check-label" for="exclude_year_7">近7年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_8" value="8">
+                                                                <label class="form-check-label" for="exclude_year_8">近8年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_9" value="9">
+                                                                <label class="form-check-label" for="exclude_year_9">近9年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_10" value="10">
+                                                                <label class="form-check-label" for="exclude_year_10">近10年</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="form-text mt-2">勾选的年份区间将被<strong class="text-danger">移除</strong>，不参与计算</div>
+                                                    </div>
                                                 </div>
                                             </div>
 
@@ -463,7 +509,7 @@
                     <div class="card">
                         <div class="card-body">
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                                <a href="{{ url_for('google_sheet.index', version='c5') }}" class="btn btn-secondary me-md-2">
+                                <a href="{{ url_for('google_sheet.index', version=request.args.get('version', 'c5')) }}" class="btn btn-secondary me-md-2">
                                     <i class="bi bi-arrow-left"></i> 返回首页
                                 </a>
                                 <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="清除保存的表单数据">
@@ -1362,6 +1408,20 @@
         return modes;
     }
 
+    function getExcludedRecentYears() {
+        const recentEl = document.getElementById('date_range_recent');
+        // 如果没有勾选"近年"，返回空数组
+        if (!recentEl || !recentEl.checked) {
+            return [];
+        }
+        const excluded = [];
+        const checkboxes = document.querySelectorAll('.recent-year-checkbox:checked');
+        checkboxes.forEach(cb => {
+            excluded.push(parseInt(cb.value));
+        });
+        return excluded;
+    }
+
     function applyDateRangeModes(raw) {
         const fullEl = document.getElementById('date_range_full');
         const recentEl = document.getElementById('date_range_recent');
@@ -1432,6 +1492,8 @@
         const countModeRadios = document.querySelectorAll('input[name="count_mode"]');
         const drmFull = document.getElementById('date_range_full');
         const drmRecent = document.getElementById('date_range_recent');
+        const recentYearsContainer = document.getElementById('recent_years_container');
+
         function updateDateRangeModeAvailability() {
             const current = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
             const enable = current === 'n_plus_1';
@@ -1441,9 +1503,20 @@
             }
             if (drmRecent) {
                 drmRecent.disabled = !enable;
-                if (!enable) drmRecent.checked = false;
+                if (!enable) {
+                    drmRecent.checked = false;
+                    if (recentYearsContainer) recentYearsContainer.style.display = 'none';
+                }
             }
         }
+
+        // 近年复选框变化时显示/隐藏年份选择
+        if (drmRecent && recentYearsContainer) {
+            drmRecent.addEventListener('change', function() {
+                recentYearsContainer.style.display = this.checked ? 'block' : 'none';
+            });
+        }
+
         countModeRadios.forEach(r => {
             r.addEventListener('change', updateDateRangeModeAvailability);
         });
@@ -1931,6 +2004,7 @@
             price_mode: priceMode,
             market_type: marketType,
             date_range_mode: dateRangeModes,
+            exclude_recent_years: getExcludedRecentYears(),
             start_date: startDate,
             end_date: endDate,
             parameters: parameters,
@@ -2021,6 +2095,7 @@
             price_mode: document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price',
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
             date_range_mode: getSelectedDateRangeModes(),
+            exclude_recent_years: getExcludedRecentYears(),
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
             param3: document.getElementById('param3').value
@@ -2237,6 +2312,7 @@
                 price_mode: priceMode,
                 market_type: marketType,
                 date_range_mode: dateRangeModes,
+                exclude_recent_years: getExcludedRecentYears(),
                 start_date: startDate,
                 end_date: endDate,
                 parameters: parameters,

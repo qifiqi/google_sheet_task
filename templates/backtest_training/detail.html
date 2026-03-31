@@ -1,0 +1,102 @@
+{% extends "admin/base.html" %}
+
+{% block title %}任务详情{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">任务详情 #<span id="taskId">{{ task_id }}</span></h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="/backtest-training/list" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+<!-- 任务信息 -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h5 class="mb-0">任务信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3">
+                <strong>状态：</strong><span id="taskStatus"></span>
+            </div>
+            <div class="col-md-3">
+                <strong>创建时间：</strong><span id="taskCreated"></span>
+            </div>
+            <div class="col-md-3">
+                <strong>开始时间：</strong><span id="taskStart"></span>
+            </div>
+            <div class="col-md-3">
+                <strong>结束时间：</strong><span id="taskEnd"></span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 子任务列表 -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">训练结果</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>结果ID</th>
+                        <th>参数</th>
+                        <th>状态</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="subTaskTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const taskId = {{ task_id }};
+
+async function loadTaskDetail() {
+    const res = await fetch(`/backtest-training/api/tasks/${taskId}`);
+    const data = await res.json();
+
+    document.getElementById('taskStatus').innerHTML = `<span class="badge bg-${getStatusColor(data.task.status)}">${data.task.status}</span>`;
+    document.getElementById('taskCreated').textContent = data.task.created_at || '-';
+    document.getElementById('taskStart').textContent = data.task.start_time || '-';
+    document.getElementById('taskEnd').textContent = data.task.end_time || '-';
+
+    const tbody = document.getElementById('subTaskTableBody');
+    tbody.innerHTML = '';
+
+    data.sub_tasks.forEach(sub => {
+        const row = `<tr>
+            <td>${sub.id}</td>
+            <td>${JSON.stringify(sub.parameters || {})}</td>
+            <td><span class="badge bg-${getStatusColor(sub.status)}">${sub.status}</span></td>
+            <td>${sub.created_at || '-'}</td>
+            <td><a href="/backtest-training/result/${sub.id}" class="btn btn-sm btn-primary">查看结果</a></td>
+        </tr>`;
+        tbody.insertAdjacentHTML('beforeend', row);
+    });
+}
+
+function getStatusColor(status) {
+    const colors = {
+        pending: 'secondary',
+        running: 'primary',
+        completed: 'success',
+        failed: 'danger'
+    };
+    return colors[status] || 'secondary';
+}
+
+loadTaskDetail();
+</script>
+{% endblock %}

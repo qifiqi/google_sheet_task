@@ -346,6 +346,8 @@ class ScheduledTask(db.Model):
     last_run_time = db.Column(db.DateTime, comment="上次执行时间")
     next_run_time = db.Column(db.DateTime, index=True, comment="下次执行时间")
     run_count = db.Column(db.Integer, default=0, comment="执行次数")
+    is_running = db.Column(db.Boolean, default=False, index=True, comment="是否正在执行")
+    running_instance_id = db.Column(db.String(100), comment="执行实例ID")
     created_at = db.Column(db.DateTime, default=datetime.now, index=True, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 

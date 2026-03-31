@@ -146,6 +146,12 @@
                                             <textarea class="form-control" id="task_description" rows="2"
                                                       placeholder="记录这批任务的用途、来源或备注"></textarea>
                                         </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="stock_code_input" class="form-label">股票代码</label>
+                                            <input type="text" class="form-control" id="stock_code_input"
+                                                   placeholder="例如：601727">
+                                            <div class="form-text">输入单个股票代码</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -342,117 +348,6 @@
                         </div>
                     </div>
 
-                    <!-- 主要配置 -->
-                    <div class="card mb-4">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="card-title mb-0">
-                                <i class="bi bi-gear"></i> 主要配置
-                            </h5>
-                        </div>
-                        <div class="card-body">
-
-<!--?                            <!-- 配置选项：统计方式 + 开盘/收盘 + 市场类型 -->
-<!--?                            <div class="border-bottom pb-3 mb-3">-->
-<!--?                                <h6 class="text-muted mb-3">-->
-<!--?                                    <i class="bi bi-sliders"></i> 基础设置-->
-<!--?                                </h6>-->
-<!--?                                <div class="row g-3 align-items-center">-->
-<!--?                                    <div class="col-md-3">-->
-<!--?                                        <label class="form-label d-block">统计方式</label>-->
-<!--?                                        <div class="btn-group d-flex" role="group" aria-label="Count mode">-->
-<!--?                                            <input type="radio" class="btn-check" name="count_mode" id="count_mode_total" value="total" autocomplete="off" checked>-->
-<!--?                                            <label class="btn btn-outline-primary flex-fill" for="count_mode_total">总数</label>-->
-
-<!--?                                            <input type="radio" class="btn-check" name="count_mode" id="count_mode_n_plus_1" value="n_plus_1" autocomplete="off">-->
-<!--?                                            <label class="btn btn-outline-primary flex-fill" for="count_mode_n_plus_1">N+1</label>-->
-<!--?                                        </div>-->
-<!--?                                    </div>-->
-<!--?                                    <div class="col-md-3">-->
-<!--?                                        <label class="form-label d-block">开盘/收盘</label>-->
-<!--?                                        <div class="btn-group d-flex" role="group" aria-label="Price mode">-->
-<!--?                                            <input type="radio" class="btn-check" name="price_mode" id="kp_price" value="kp_price" autocomplete="off" checked>-->
-<!--?                                            <label class="btn btn-outline-primary flex-fill" for="kp_price">开盘</label>-->
-
-<!--?                                            <input type="radio" class="btn-check" name="price_mode" id="sp_price" value="sp_price" autocomplete="off">-->
-<!--?                                            <label class="btn btn-outline-primary flex-fill"-->
-<!--?                                                    for="sp_price">收盘</label>-->
-<!--?                                        </div>-->
-<!--?                                    </div>-->
-<!--?                                    <div class="col-md-3">-->
-<!--?                                        <label class="form-label d-block">市场类型</label>-->
-<!--?                                        <div class="btn-group d-flex" role="group" aria-label="Market type">-->
-<!--?                                            <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="us" autocomplete="off">-->
-<!--?                                            <label class="btn btn-outline-primary flex-fill" for="market_type_us">美股</label>-->
-
-<!--?                                            <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" autocomplete="off" checked>-->
-<!--?                                            <label class="btn btn-outline-primary flex-fill" for="market_type_cn">A股</label>-->
-<!--?                                        </div>-->
-<!--?                                    </div>-->
-<!--?                                    <div class="col-md-3">-->
-<!--?                                        <label class="form-label d-block">快速时间范围</label>-->
-<!--?                                        <div class="btn-group d-flex" role="group" aria-label="Quick date range">-->
-<!--?                                            <div class="form-check form-check-inline mb-0 me-2">-->
-<!--?                                                <input class="form-check-input" type="checkbox" id="date_range_full" value="full">-->
-<!--?                                                <label class="form-check-label" for="date_range_full">整年</label>-->
-<!--?                                            </div>-->
-<!--?                                            <div class="form-check form-check-inline mb-0">-->
-<!--?                                                <input class="form-check-input" type="checkbox" id="date_range_recent" value="recent">-->
-<!--?                                                <label class="form-check-label" for="date_range_recent">近年</label>-->
-<!--?                                            </div>-->
-<!--?                                        </div>-->
-<!--?                                    </div>-->
-<!--?                                </div>-->
-<!--?                            </div>-->
-
-                            <div class="border-bottom pb-3 mb-3">
-                                <h6 class="text-muted mb-3">
-                                    <i class="bi bi-tags"></i> 股票代码
-                                </h6>
-                                <div class="input-group mb-2">
-                                    <input type="text" class="form-control" id="stock_code_input" placeholder="如：AAPL, TSLA, 600519 或空格分隔">
-                                    <button class="btn btn-outline-dark" type="button" id="add_stock_code_btn">
-                                        <i class="bi bi-plus-circle"></i> 添加
-                                    </button>
-                                </div>
-                                <div class="form-text mb-2">支持逗号、空格、换行批量输入，去重保存。</div>
-                                <div id="stock_code_chips" class="d-flex flex-wrap gap-1"></div>
-                                <textarea class="form-control d-none" id="stock_codes_json"></textarea>
-                            </div>
-
-<!--?                            <!-- 时间范围详细配置 -->
-<!--?                            <div class="border-bottom pb-3 mb-3">-->
-<!--?                                <h6 class="text-muted mb-3">-->
-<!--?                                    <i class="bi bi-calendar-range"></i> 时间范围设置-->
-<!--?                                </h6>-->
-<!--?                                <div class="row g-3 align-items-center">-->
-<!--?                                    <div class="col-md-6">-->
-<!--?                                        <label class="form-label" for="start_date">开始日期</label>-->
-<!--?                                        <input type="date" class="form-control" id="start_date">-->
-<!--?                                    </div>-->
-<!--?                                    <div class="col-md-6">-->
-<!--?                                        <label class="form-label" for="end_date">结束日期</label>-->
-<!--?                                        <input type="date" class="form-control" id="end_date">-->
-<!--?                                    </div>-->
-<!--?                                    <div class="col-12">-->
-<!--?                                        <div class="form-text">结束日期默认昨天，开始日期默认结束日期往前推5年，可根据需要修改。可勾选上方"整年"或"近年"进行快速设置。</div>-->
-<!--?                                    </div>-->
-<!--?                                    <div class="col-12" id="recent-years-container" style="display: none;">-->
-<!--?                                        <label class="form-label d-block">近年移除范围多选</label>-->
-<!--?                                        <div class="d-flex flex-wrap gap-3" id="recent-years-options">-->
-<!--?                                            {% for year in range(1, 11) %}-->
-<!--?                                            <div class="form-check form-check-inline mb-0">-->
-<!--?                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="recent_year_{{ year }}" value="{{ year }}">-->
-<!--?                                                <label class="form-check-label" for="recent_year_{{ year }}">近{{ year }}年</label>-->
-<!--?                                            </div>-->
-<!--?                                            {% endfor %}-->
-<!--?                                        </div>-->
-<!--?                                        <div class="form-text">仅在选择 `N+1` 且勾选 `近年` 时生效。不勾选任何年限时，提交 `all`。<span style="color: red;">选中才是移除！！！！</span></div>-->
-<!--?                                    </div>-->
-<!--?                                </div>-->
-<!--?                            </div>-->
-<!--?                        </div>-->
-<!--?                    </div>-->
-
                     <!-- 参数组合预览 -->
                     <div class="card mb-4" id="combination-info" style="display: none;">
                         <div class="card-header">
@@ -467,6 +362,14 @@
                                         <i class="bi bi-info-circle"></i>
                                         <strong>参数组合信息：</strong>
                                         <span id="combination-count" class="badge bg-primary ms-2">0</span> 个参数组合将被执行
+                                        <div class="mt-2 small">
+                                            <span class="text-muted">单个任务组合数：</span>
+                                            <span id="single-combination-count" class="badge bg-secondary">0</span>
+                                            <span class="text-muted ms-2">× Sheet数：</span>
+                                            <span id="sheet-count-display" class="badge bg-secondary">0</span>
+                                            <span class="text-muted ms-2">× 股票数：</span>
+                                            <span id="stock-count-display" class="badge bg-secondary">0</span>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="col-md-4 text-end">
@@ -622,7 +525,7 @@
 
     let currentTaskId = null;
     let eventSource = null;
-    let stockCodes = [];
+    let stockCode = '';
 
     // 本页专用错误提示封装
     function showError(message) {
@@ -683,7 +586,8 @@
         const activeParameters = getActiveParameters(parameterValues);
         return activeParameters.map(group => {
             const isTwoDimensional = group.every(item => Array.isArray(item));
-            return isTwoDimensional ? group : [group];
+            // 二维数组：只取第一个子数组用于组合计算
+            return isTwoDimensional ? group[0] : group;
         });
     }
 
@@ -824,73 +728,9 @@
         updateRecentYearsVisibility();
     }
 
-    function syncStockCodesField() {
-        const field = document.getElementById('stock_codes_json');
-        if (field) {
-            field.value = JSON.stringify(stockCodes);
-        }
-    }
-
-    function renderStockCodeChips() {
-        const container = document.getElementById('stock_code_chips');
-        if (!container) {
-            return;
-        }
-
-        container.innerHTML = '';
-        stockCodes.forEach(code => {
-            const span = document.createElement('span');
-            span.className = 'badge bg-dark text-white d-inline-flex align-items-center';
-            span.style.fontSize = '0.75rem';
-            span.style.paddingRight = '0.35rem';
-            span.innerHTML = `
-                <span class="me-1">${code}</span>
-                <button type="button" class="btn-close btn-close-white btn-sm ms-1" data-stock-code-remove="${code}" style="font-size: 0.45rem;"></button>
-            `;
-            container.appendChild(span);
-        });
-
-        syncStockCodesField();
-    }
-
-    function addStockCodesFromInput() {
+    function getStockCode() {
         const input = document.getElementById('stock_code_input');
-        if (!input) {
-            return;
-        }
-
-        const items = (input.value || '')
-            .split(/[,\s\r\n]+/)
-            .map(item => item.trim())
-            .filter(Boolean);
-
-        if (!items.length) {
-            return;
-        }
-
-        stockCodes = Array.from(new Set([...stockCodes, ...items]));
-        input.value = '';
-        renderStockCodeChips();
-        saveFormData();
-    }
-
-    function removeStockCode(code) {
-        stockCodes = stockCodes.filter(item => item !== code);
-        renderStockCodeChips();
-        saveFormData();
-    }
-
-    function initStockCodesFromField() {
-        const field = document.getElementById('stock_codes_json');
-        if (!field || !field.value.trim()) {
-            stockCodes = [];
-            renderStockCodeChips();
-            return;
-        }
-
-        const parsed = parseJsonArray(field.value.trim());
-        stockCodes = Array.isArray(parsed) ? parsed.map(item => String(item).trim()).filter(Boolean) : [];
-        renderStockCodeChips();
+        return input ? input.value.trim() : '';
     }
 
     // 从模板加载数据
@@ -1314,7 +1154,6 @@
         // 初始化日期默认值（如果未从模板/重启/本地恢复）
         initDefaultDatesIfEmpty();
 
-        initStockCodesFromField();
         calculateCombinations();
 
         // 创建防抖版本的函数
@@ -1584,9 +1423,11 @@
                 }
             });
         }
-        if (Array.isArray(normalized.stock_codes)) {
-            stockCodes = normalized.stock_codes.map(item => String(item).trim()).filter(Boolean);
-            renderStockCodeChips();
+        if (Array.isArray(normalized.stock_codes) && normalized.stock_codes.length > 0) {
+            const input = document.getElementById('stock_code_input');
+            if (input) {
+                input.value = String(normalized.stock_codes[0]).trim();
+            }
         }
 
         // mode-specific title/header
@@ -1788,40 +1629,15 @@
             });
         });
 
-        // 股票代码添加事件
-        const addStockCodeBtn = document.getElementById('add_stock_code_btn');
+        // 股票代码输入事件
         const stockCodeInput = document.getElementById('stock_code_input');
-        if (addStockCodeBtn && stockCodeInput) {
-            addStockCodeBtn.addEventListener('click', function() {
-                addStockCodesFromInput();
-            });
-
-            stockCodeInput.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addStockCodesFromInput();
-                }
-            });
-        }
-
-        // 股票代码删除事件（事件委托）
-        const chipsContainer = document.getElementById('stock_code_chips');
-        if (chipsContainer) {
-            chipsContainer.addEventListener('click', function(e) {
-                const target = e.target;
-                const removeBtn = target.closest('[data-stock-code-remove]');
-                if (removeBtn) {
-                    const code = removeBtn.getAttribute('data-stock-code-remove');
-                    removeStockCode(code);
-                }
-            });
+        if (stockCodeInput) {
+            stockCodeInput.addEventListener('input', debouncedSaveFormData);
         }
 
         // 为所有输入字段添加自动保存
         const inputFields = [
-            'stock_codes_json'
-            // 'token_file', 'token_json', 'proxy_url',
-            // 'start_date', 'end_date'
+            'task_name', 'task_description', 'stock_code_input'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -1939,26 +1755,33 @@
         showNotification('已移除最后一组表格配置', 'success');
     }
 
-    // 计算参数组合数量（Google Sheet 数量 * 股票代码数量 * 参数数组长度乘积）
+    // 计算参数组合数量（Google Sheet 数量 * 参数数组长度乘积）
     function calculateCombinations() {
         const parameterValues = getParameterValues();
         const sheetCount = getSelectedSheetCount();
-        const stockCodeCount = stockCodes.length;
+        const stockCodeValue = getStockCode();
         let count = 0;
+        let parameterCombinationCount = 0;
 
-        if (sheetCount > 0 && stockCodeCount > 0 && validateC31Parameters(parameterValues, false)) {
-            const parameterCombinationCount = getC31ParameterCombinationCount(parameterValues);
+        if (sheetCount > 0 && stockCodeValue && validateC31Parameters(parameterValues, false)) {
+            parameterCombinationCount = getC31ParameterCombinationCount(parameterValues);
             if (parameterCombinationCount > 0) {
-                count = parameterCombinationCount * sheetCount * stockCodeCount;
+                count = parameterCombinationCount * sheetCount;
             }
         }
 
         const infoDiv = document.getElementById('combination-info');
         const countSpan = document.getElementById('combination-count');
+        const singleCountSpan = document.getElementById('single-combination-count');
+        const sheetCountSpan = document.getElementById('sheet-count-display');
+        const stockCountSpan = document.getElementById('stock-count-display');
 
         if (count > 0) {
             infoDiv.style.display = 'block';
             countSpan.textContent = count;
+            singleCountSpan.textContent = parameterCombinationCount;
+            sheetCountSpan.textContent = sheetCount;
+            stockCountSpan.textContent = 1;
         } else {
             infoDiv.style.display = 'none';
         }
@@ -1990,7 +1813,7 @@
         stockCodeBlock.className = 'mb-3 p-2 border rounded bg-light';
         stockCodeBlock.innerHTML = `
             <strong>股票代码:</strong>
-            <div class="small text-muted"><code>${JSON.stringify(stockCodes)}</code></div>
+            <div class="small text-muted"><code>${getStockCode()}</code></div>
         `;
         previewContainer.appendChild(stockCodeBlock);
 
@@ -2088,8 +1911,9 @@
             showNotification('请输入任务 Base Name', 'error');
             return;
         }
-        if (!stockCodes.length) {
-            showNotification('请至少添加一个股票代码', 'error');
+        const stockCodeValue = getStockCode();
+        if (!stockCodeValue) {
+            showNotification('请输入股票代码', 'error');
             return;
         }
 
@@ -2115,7 +1939,7 @@
         const taskConfig = {
             base_task_name: taskName,
             task_description: taskDescription,
-            stock_codes: stockCodes,
+            stock_codes: [getStockCode()],
             // token_type: tokenType,
             // token_id: tokenType === 'file' ? tokenId : null,
             // token_file: tokenFile,
@@ -2202,19 +2026,8 @@
         const formData = {
             task_name: document.getElementById('task_name').value,
             task_description: document.getElementById('task_description').value,
+            stock_code: getStockCode(),
             sheets: sheets,
-            // “更多配置”字段暂不缓存；注释保留，便于后续恢复。
-            // token_type: document.getElementById('token_type').value,
-            // token_id: document.getElementById('token_id') ? document.getElementById('token_id').value : '',
-            // token_file: document.getElementById('token_file').value,
-            // token_json: document.getElementById('token_json').value,
-            // proxy_url: document.getElementById('proxy_url').value,
-            // count_mode: document.querySelector('input[name="count_mode"]:checked')?.value || 'total',
-            // price_mode: document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price',
-            // market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
-            // date_range_mode: getSelectedDateRangeModes(),
-            // recent_years: getRecentYearsPayload(),
-            stock_codes_json: document.getElementById('stock_codes_json').value,
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
             param3: document.getElementById('param3').value,
@@ -2240,6 +2053,7 @@
                 // 恢复表单字段
                 if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
+                if (formData.stock_code) document.getElementById('stock_code_input').value = formData.stock_code;
                 if (Array.isArray(formData.sheets) && formData.sheets.length > 0) {
                     applySheetsToForm(formData.sheets);
                 } else if (formData.spreadsheet) {
@@ -2247,15 +2061,6 @@
                     if (formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.spreadsheet_title;
                     if (formData.sheet_name) document.getElementById('sheet_name').value = formData.sheet_name;
                 }
-                // “更多配置”字段已移除，暂不从缓存回填；保留结构供后续恢复。
-                // if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
-                // if (formData.token_id) {
-                //     pendingTokenSelection = { token_id: formData.token_id, token_file: formData.token_file || '' };
-                // }
-                // if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
-                // if (formData.token_json) document.getElementById('token_json').value = formData.token_json;
-                // if (formData.proxy_url) document.getElementById('proxy_url').value = formData.proxy_url;
-                if (formData.stock_codes_json) document.getElementById('stock_codes_json').value = formData.stock_codes_json;
                 const param1El = document.getElementById('param1');
                 if (formData.param1 && param1El) param1El.value = formData.param1;
                 const param2El = document.getElementById('param2');
@@ -2373,7 +2178,7 @@
                 task_type: TASK_TYPE,
                 base_task_name: baseTaskName,
                 task_description: taskDescription,
-                stock_codes: stockCodes,
+                stock_codes: [getStockCode()],
                 // “更多配置”目前不参与模板保存；注释保留供后续恢复。
                 // token_type: tokenType,
                 // token_id: tokenType === 'file' ? tokenId : null,

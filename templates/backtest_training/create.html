@@ -1,0 +1,277 @@
+{% extends "admin/base.html" %}
+
+{% block title %}创建回测数据训练任务{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">创建回测数据训练任务</h1>
+</div>
+
+<!-- 模型输入 -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h5 class="mb-0">模型输入</h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-8">
+                <label class="form-label">模型 URL</label>
+                <input type="text" class="form-control" id="modelUrl" placeholder="输入 Google Sheet URL">
+            </div>
+            <div class="col-md-4">
+                <button type="button" class="btn btn-secondary me-2" id="analyzeBtn">
+                    <i class="bi bi-search"></i> 分析
+                </button>
+                <button type="button" class="btn btn-primary" id="createBtn">
+                    <i class="bi bi-plus-circle"></i> 创建
+                </button>
+            </div>
+        </div>
+        <div class="row g-2 mb-3">
+            <div class="col-md-6">
+                <label class="form-label">股票代码</label>
+                <input type="text" class="form-control" id="stockCode" placeholder="输入股票代码">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">年份选择</label>
+                <div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="recentYearsCheck">
+                        <label class="form-check-label" for="recentYearsCheck">近年</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="fullYearsCheck">
+                        <label class="form-check-label" for="fullYearsCheck">整年</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="recentYearsOptions" style="display:none;" class="mb-3">
+            <label class="form-label">近年选择</label>
+            <div>
+                <div class="form-check form-check-inline" id="recentYearsCheckboxes"></div>
+            </div>
+        </div>
+        <div id="fullYearsOptions" style="display:none;" class="mb-3">
+            <label class="form-label">整年选择</label>
+            <div>
+                <div class="form-check form-check-inline" id="fullYearsCheckboxes"></div>
+            </div>
+        </div>
+        <div id="sheetInfo" style="display:none;" class="alert alert-info">
+            <div class="mb-2">
+                <strong>标题：</strong><span id="sheetTitle"></span>
+                <span class="ms-3"><strong>Sheet 名称：</strong><span id="sheetNames"></span></span>
+            </div>
+            <div class="row" id="yearsDisplay" style="display:none;">
+                <div class="col-md-6">
+                    <strong>近年：</strong><span id="recentYearsDisplay"></span>
+                </div>
+                <div class="col-md-6">
+                    <strong>整年：</strong><span id="fullYearsDisplay"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 参数管理 -->
+<div class="card" id="paramSection" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">参数管理</h5>
+        <button type="button" class="btn btn-success btn-sm" id="addParamBtn">
+            <i class="bi bi-plus"></i> 添加参数
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover" id="paramTable">
+                <thead class="table-light" id="paramTableHead"></thead>
+                <tbody id="paramTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let columnCount = 6;
+let sheetTitle = '';
+
+// 初始化年份选择
+const currentYear = new Date().getFullYear();
+const recentYearsContainer = document.getElementById('recentYearsCheckboxes');
+const fullYearsContainer = document.getElementById('fullYearsCheckboxes');
+
+for (let i = 1; i <= 7; i++) {
+    recentYearsContainer.innerHTML += `
+        <div class="form-check form-check-inline">
+            <input class="form-check-input recent-year" type="checkbox" id="recent${i}" value="${i}">
+            <label class="form-check-label" for="recent${i}">近${i}年</label>
+        </div>`;
+}
+
+for (let i = 0; i < 7; i++) {
+    const year = currentYear - i;
+    fullYearsContainer.innerHTML += `
+        <div class="form-check form-check-inline">
+            <input class="form-check-input full-year" type="checkbox" id="full${year}" value="${year}">
+            <label class="form-check-label" for="full${year}">${year}</label>
+        </div>`;
+}
+
+document.getElementById('recentYearsCheck').addEventListener('change', (e) => {
+    const isChecked = e.target.checked;
+    document.getElementById('recentYearsOptions').style.display = isChecked ? 'block' : 'none';
+
+    if (isChecked) {
+        document.querySelectorAll('.recent-year').forEach((cb, index) => {
+            cb.checked = index < 3;
+        });
+    } else {
+        document.querySelectorAll('.recent-year').forEach(cb => {
+            cb.checked = false;
+        });
+    }
+
+    updateYearsDisplay();
+});
+
+document.getElementById('fullYearsCheck').addEventListener('change', (e) => {
+    const isChecked = e.target.checked;
+    document.getElementById('fullYearsOptions').style.display = isChecked ? 'block' : 'none';
+
+    if (isChecked) {
+        document.querySelectorAll('.full-year').forEach((cb, index) => {
+            cb.checked = index < 3;
+        });
+    } else {
+        document.querySelectorAll('.full-year').forEach(cb => {
+            cb.checked = false;
+        });
+    }
+
+    updateYearsDisplay();
+});
+
+document.querySelectorAll('.recent-year, .full-year').forEach(cb => {
+    cb.addEventListener('change', updateYearsDisplay);
+});
+
+function updateYearsDisplay() {
+    const recentChecked = Array.from(document.querySelectorAll('.recent-year:checked')).map(cb => `近${cb.value}年`);
+    const fullChecked = Array.from(document.querySelectorAll('.full-year:checked')).map(cb => cb.value);
+
+    document.getElementById('recentYearsDisplay').textContent = recentChecked.join(', ') || '无';
+    document.getElementById('fullYearsDisplay').textContent = fullChecked.join(', ') || '无';
+
+    const yearsDisplay = document.getElementById('yearsDisplay');
+    if (recentChecked.length > 0 || fullChecked.length > 0) {
+        yearsDisplay.style.display = 'flex';
+    } else {
+        yearsDisplay.style.display = 'none';
+    }
+}
+
+document.getElementById('analyzeBtn').addEventListener('click', async () => {
+    const url = document.getElementById('modelUrl').value;
+    if (!url) { alert('请输入模型 URL'); return; }
+
+    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (!match) { alert('无效的 Google Sheet URL'); return; }
+    const spreadsheetId = match[1];
+
+    const res = await fetch('/api/google-sheet/worksheets', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({spreadsheet_id: spreadsheetId})
+    });
+    const data = await res.json();
+
+    if (data.status === 'success') {
+        sheetTitle = data.title || '';
+        document.getElementById('sheetTitle').textContent = sheetTitle;
+
+        const firstSheet = (data.worksheets && data.worksheets.length > 0) ? data.worksheets[0] : '';
+        document.getElementById('sheetNames').textContent = firstSheet;
+
+        document.getElementById('sheetInfo').style.display = 'block';
+
+        const upperTitle = sheetTitle.toUpperCase();
+        columnCount = (upperTitle.includes('C5') || upperTitle.includes('C4')) ? 2 : 6;
+        updateTableHeader();
+        document.getElementById('paramSection').style.display = 'block';
+    } else {
+        alert('分析失败: ' + (data.message || '未知错误'));
+    }
+});
+
+function updateTableHeader() {
+    const head = document.getElementById('paramTableHead');
+    let html = '<tr>';
+    for (let i = 1; i <= columnCount; i++) {
+        html += `<th>参数${i}</th>`;
+    }
+    html += '<th>操作</th></tr>';
+    head.innerHTML = html;
+}
+
+document.getElementById('addParamBtn').addEventListener('click', () => {
+    const tbody = document.getElementById('paramTableBody');
+    let row = '<tr>';
+    for (let i = 0; i < columnCount; i++) {
+        row += '<td><input type="text" class="form-control form-control-sm param-input"></td>';
+    }
+    row += '<td><button class="btn btn-danger btn-sm delete-row">删除</button></td></tr>';
+    tbody.insertAdjacentHTML('beforeend', row);
+});
+
+document.getElementById('paramTableBody').addEventListener('click', (e) => {
+    if (e.target.classList.contains('delete-row')) {
+        e.target.closest('tr').remove();
+    }
+});
+
+document.getElementById('createBtn').addEventListener('click', async () => {
+    const url = document.getElementById('modelUrl').value;
+    const stockCode = document.getElementById('stockCode').value;
+    const sheetName = document.getElementById('sheetNames').textContent;
+    if (!url) { alert('请输入模型 URL'); return; }
+    if (!stockCode) { alert('请输入股票代码'); return; }
+
+    const rows = document.querySelectorAll('#paramTableBody tr');
+    const parameters = [];
+    rows.forEach(row => {
+        const inputs = row.querySelectorAll('.param-input');
+        const rowData = Array.from(inputs).map(inp => inp.value);
+        parameters.push(rowData);
+    });
+
+    const recentYears = Array.from(document.querySelectorAll('.recent-year:checked')).map(cb => parseInt(cb.value));
+    const fullYears = Array.from(document.querySelectorAll('.full-year:checked')).map(cb => parseInt(cb.value));
+
+    const res = await fetch('/backtest-training/api/tasks', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            model_url: url,
+            stock_code: stockCode,
+            sheet_name: sheetName,
+            parameters,
+            title: sheetTitle,
+            recent_years: recentYears,
+            full_years: fullYears
+        })
+    });
+    const data = await res.json();
+
+    if (data.task_id) {
+        alert('任务创建成功');
+        window.location.href = '/backtest-training/list';
+    }
+});
+
+updateTableHeader();
+</script>
+{% endblock %}

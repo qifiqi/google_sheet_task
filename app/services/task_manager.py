@@ -1,8 +1,11 @@
+import time
 import uuid
 import threading
 import queue
 import json
 from itertools import product
+from functools import reduce
+import operator
 # 获取当前应用实例，传递给后台线程
 from flask import current_app
 from datetime import datetime, timedelta
@@ -131,10 +134,10 @@ class TaskManager:
         sheet_dict = {}
         for sheet in sheets:
             sheet_title = str(sheet.get('title') or '').strip()
-            s_t = sheet_title.strip("]").split('-')
+            s_t = sheet_title.strip().strip("]").split('-')
             year_n,sort_n = s_t[-2], int(s_t[-1])
             sheet['sort_n'],sheet['year_n'] = sort_n,year_n
-            if sheet_title not in sheet_dict:
+            if year_n not in sheet_dict:
                 sheet_dict[year_n] = []
             sheet_dict[year_n].append(sheet)
 
@@ -160,6 +163,12 @@ class TaskManager:
             }
         }
 
+        # 批量任务默认使用随机 token
+        if 'token_id' not in shared_config or not shared_config.get('token_id'):
+            from app.services.google_sheet_token_service import RANDOM_TOKEN_VALUE
+            shared_config['token_type'] = 'file'
+            shared_config['token_id'] = RANDOM_TOKEN_VALUE
+
 
         for stock_code in stock_codes:
             stock_code = str(stock_code).strip()
@@ -182,7 +191,7 @@ class TaskManager:
                         continue
 
                     child_parameters = self._materialize_c31_parameter_combo(parameter_combo)
-                    task_name = f"{base_name}_{year_n}_{sort_n}"
+                    task_name = f"{base_name}-{year_n}-{sort_n}"
 
                     child_config = dict(shared_config)
                     child_config.update({
@@ -194,7 +203,9 @@ class TaskManager:
                         'parameters': child_parameters,
                     })
 
-                    task_id = self.create_task(task_name, description, child_task_type, child_config)
+                    combo_count = reduce(operator.mul, [len(p) for p in child_parameters], 1)
+                    _description = '批量执行 {} 个参数组合'.format(combo_count)
+                    task_id = self.create_task(task_name, _description, child_task_type, child_config)
                     created_task_ids.append(task_id)
 
                     started = self.start_task(task_id)
@@ -217,6 +228,7 @@ class TaskManager:
                         "started": started
                     })
                     sequence += 1
+                    time.sleep(0.5)
 
         if not created_task_ids:
             raise ValueError("没有生成任何子任务，请检查 sheets / stock_codes / parameters 配置")
@@ -355,6 +367,9 @@ class TaskManager:
         elif task.task_type == 'google_sheet_C5':
             thread = threading.Thread(target=self._execute_google_sheet_C5_task, args=(task_id, app),name=task_id)
             task_logger.info("创建Google Sheet C5 任务执行线程")
+        elif task.task_type == 'backtest_training':
+            thread = threading.Thread(target=self._execute_backtest_training_task, args=(task_id, app),name=task_id)
+            task_logger.info("创建回测数据训练任务执行线程")
         else:
             error_msg = f"不支持的任务类型: {task.task_type}"
             self.start_errors[task_id] = error_msg
@@ -1277,7 +1292,63 @@ class TaskManager:
                     db.session.commit()
         except Exception as e:
             logger.error(f"添加任务日志失败: {str(e)}")
-    
+
+    def _execute_backtest_training_task(self, task_id: str, app):
+        """执行回测数据训练任务"""
+        task_logger = get_task_logger(task_id, f"{__name__}.backtest.{task_id}")
+
+        try:
+            with app.app_context():
+                task = Task.query.get(task_id)
+                if not task:
+                    task_logger.error("任务不存在")
+                    return
+
+                task_logger.info(f"开始执行回测数据训练任务: {task.name}")
+
+                rows = Task.query.filter(
+                    Task.id == task_id,
+                    Task.status != 'running'
+                ).update({
+                    'status': 'running',
+                    'start_time': datetime.now()
+                }, synchronize_session=False)
+                db.session.commit()
+                if rows == 0:
+                    task_logger.warning('任务已在运行，拒绝并发启动')
+                    self._add_task_log(task_id, 'warn', '任务已在运行，拒绝并发启动', app)
+                    return
+
+                self._add_task_log(task_id, 'info', '开始执行回测数据训练任务', app)
+
+                from app.services.backtest_training_service import BacktestTrainingService
+                config = task.config
+                service = BacktestTrainingService(config, task_id, self.task_events.get(task_id), app, self.task_stop_events.get(task_id))
+
+                task_result = service.execute_task()
+
+                task = Task.query.get(task_id)
+                if task and task.status == 'cancelled':
+                    task.end_time = datetime.now()
+                    db.session.commit()
+                    task_logger.info('任务执行完成，状态: cancelled')
+                    self._add_task_log(task_id, 'info', '任务执行完成，状态: cancelled', app)
+                else:
+                    status = 'completed' if task_result.get('success') else 'error'
+                    safe_update(Task, task_id, status=status, end_time=datetime.now())
+                    task_logger.info(f'任务执行完成，状态: {status}')
+                    self._add_task_log(task_id, 'info', f'任务执行完成，状态: {status}', app)
+
+        except Exception as e:
+            task_logger.error(f"任务执行失败: {str(e)}")
+            self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
+            safe_update(Task, task_id, status='error', end_time=datetime.now())
+        finally:
+            self.running_tasks.pop(task_id, None)
+            self.task_events.pop(task_id, None)
+            self.task_stop_events.pop(task_id, None)
+            self._release_task_token_occupancy(task_id)
+            self._release_google_sheet_occupancy(task_id)
 
 # 全局任务管理器实例
 task_manager = TaskManager()

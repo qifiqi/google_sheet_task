@@ -5,6 +5,8 @@ from croniter import croniter
 import json
 import threading
 import time
+import subprocess
+import sys
 from flask import current_app
 from app.extensions import db
 from app.models import ScheduledTask, TaskLog, TaskResult
@@ -22,8 +24,11 @@ class SchedulerService:
         self._lock = threading.Lock()
         self._tasks_lock = threading.Lock()
         self.app = None
-        # 跟踪正在运行的异步任务（仅用于手动“立即执行”时的状态查询）
+        # 跟踪正在运行的异步任务（仅用于手动”立即执行”时的状态查询）
         self.running_tasks = {}
+        # 实例ID，用于分布式锁
+        import uuid
+        self.instance_id = str(uuid.uuid4())[:8]
     
     def start(self, delay_seconds=30, app=None):
         """启动调度器（延时启动）"""
@@ -200,11 +205,11 @@ class SchedulerService:
             logger.error(f"提交定时任务到线程池失败: {e}")
     
     def _execute_task(self, task_id):
-        """执行定时任务"""
+        """执行定时任务（独立进程，带分布式锁）"""
         if not self.app:
             logger.error("Flask应用实例未设置，无法执行定时任务")
             return
-            
+
         try:
             with self.app.app_context():
                 # 获取任务信息
@@ -212,27 +217,75 @@ class SchedulerService:
                 if not scheduled_task or not scheduled_task.is_active:
                     logger.warning(f"定时任务 {task_id} 不存在或已禁用")
                     return
-                
-                logger.info(f"开始执行定时任务: {scheduled_task.name}")
-                
-                # 更新执行时间和次数
-                scheduled_task.last_run_time = datetime.now()
+
+                # 尝试获取分布式锁
+                if scheduled_task.is_running:
+                    logger.warning(f"定时任务 {scheduled_task.name} 正在被实例 {scheduled_task.running_instance_id} 执行，跳过")
+                    return
+
+                # 使用乐观锁获取执行权
+                rows_updated = db.session.query(ScheduledTask).filter(
+                    ScheduledTask.id == task_id,
+                    ScheduledTask.is_running == False
+                ).update({
+                    'is_running': True,
+                    'running_instance_id': self.instance_id,
+                    'last_run_time': datetime.now()
+                }, synchronize_session=False)
+                db.session.commit()
+
+                if rows_updated == 0:
+                    logger.warning(f"定时任务 {scheduled_task.name} 已被其他实例获取，跳过")
+                    return
+
+                logger.info(f"[实例 {self.instance_id}] 开始执行定时任务: {scheduled_task.name}")
+
+                # 更新执行次数和下次执行时间
                 scheduled_task.run_count += 1
                 self._update_next_run_time(scheduled_task)
                 db.session.commit()
-                
-                # 执行具体任务
-                success = self._run_task_function(scheduled_task)
-                
-                if success:
-                    logger.info(f"定时任务执行成功: {scheduled_task.name}")
-                else:
-                    logger.error(f"定时任务执行失败: {scheduled_task.name}")
-                    
+
+                # 使用独立进程执行任务
+                self._run_task_in_subprocess(scheduled_task)
+
         except Exception as e:
             logger.error(f"执行定时任务异常: {e}")
+            self._release_task_lock(task_id)
     
-    def _run_task_function(self, scheduled_task):
+    def _run_task_in_subprocess(self, scheduled_task):
+        """在独立进程中执行任务"""
+        try:
+            # 构建子进程命令
+            script_path = 'app/services/scheduled_task_worker.py'
+            cmd = [sys.executable, script_path, str(scheduled_task.id), self.instance_id]
+
+            # 启动子进程（非阻塞）
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd='.',
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            )
+
+            logger.info(f"定时任务 {scheduled_task.name} 已在独立进程 {process.pid} 中启动")
+
+        except Exception as e:
+            logger.error(f"启动独立进程失败: {e}")
+            self._release_task_lock(scheduled_task.id)
+
+    def _release_task_lock(self, task_id):
+        """释放任务锁"""
+        try:
+            with self.app.app_context():
+                task = ScheduledTask.query.get(task_id)
+                if task and task.running_instance_id == self.instance_id:
+                    task.is_running = False
+                    task.running_instance_id = None
+                    db.session.commit()
+        except Exception as e:
+            logger.error(f"释放任务锁失败: {e}")
+
         """运行具体的任务函数"""
         try:
             function_name = scheduled_task.task_function
@@ -257,35 +310,36 @@ class SchedulerService:
         """清理旧日志（批量处理优化）"""
         try:
             days = params.get('days', 10)
-            batch_size = params.get('batch_size', 1000)  # 批量处理大小
+            batch_size = params.get('batch_size', 200)  # 减小批次大小
+            delay = params.get('delay', 2)  # 增加批次间延迟（秒）
             cutoff_date = datetime.now() - timedelta(days=days)
-            
+
             total_deleted = 0
             while True:
                 # 分批删除，避免长时间锁定数据库
                 batch_query = TaskLog.query.filter(TaskLog.timestamp < cutoff_date).limit(batch_size)
                 batch_ids = [log.id for log in batch_query.all()]
-                
+
                 if not batch_ids:
                     break
-                
+
                 # 删除当前批次
                 deleted_count = TaskLog.query.filter(TaskLog.id.in_(batch_ids)).delete(synchronize_session=False)
                 db.session.commit()
-                
+
                 total_deleted += deleted_count
                 logger.info(f"已清理 {deleted_count} 条日志记录，总计: {total_deleted}")
-                
+
                 # 如果删除的记录少于批次大小，说明已经清理完毕
                 if deleted_count < batch_size:
                     break
-                
-                # 短暂休息，避免过度占用资源
-                time.sleep(0.1)
-            
+
+                # 延长休息时间，降低系统负载
+                time.sleep(delay)
+
             logger.info(f"清理完成，共删除 {total_deleted} 条超过 {days} 天的任务日志")
             return True
-            
+
         except Exception as e:
             logger.error(f"清理旧日志失败: {e}")
             db.session.rollback()
@@ -295,35 +349,36 @@ class SchedulerService:
         """清理旧结果（批量处理优化）"""
         try:
             days = params.get('days', 10)
-            batch_size = params.get('batch_size', 1000)  # 批量处理大小
+            batch_size = params.get('batch_size', 200)  # 减小批次大小
+            delay = params.get('delay', 2)  # 增加批次间延迟（秒）
             cutoff_date = datetime.now() - timedelta(days=days)
-            
+
             total_deleted = 0
             while True:
                 # 分批删除，避免长时间锁定数据库
                 batch_query = TaskResult.query.filter(TaskResult.timestamp < cutoff_date).limit(batch_size)
                 batch_ids = [result.id for result in batch_query.all()]
-                
+
                 if not batch_ids:
                     break
-                
+
                 # 删除当前批次
                 deleted_count = TaskResult.query.filter(TaskResult.id.in_(batch_ids)).delete(synchronize_session=False)
                 db.session.commit()
-                
+
                 total_deleted += deleted_count
                 logger.info(f"已清理 {deleted_count} 条结果记录，总计: {total_deleted}")
-                
+
                 # 如果删除的记录少于批次大小，说明已经清理完毕
                 if deleted_count < batch_size:
                     break
-                
-                # 短暂休息，避免过度占用资源
-                time.sleep(0.1)
-            
+
+                # 延长休息时间，降低系统负载
+                time.sleep(delay)
+
             logger.info(f"清理完成，共删除 {total_deleted} 条超过 {days} 天的任务结果")
             return True
-            
+
         except Exception as e:
             logger.error(f"清理旧结果失败: {e}")
             db.session.rollback()

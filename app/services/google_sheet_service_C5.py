@@ -203,6 +203,7 @@ class GoogleSheetService:
             count_mode = config_data.get('count_mode', 'n_plus_1')
             price_mode = config_data.get('price_mode', 'kp_price')
             date_range_mode = config_data.get('date_range_mode',[])
+            exclude_recent_years = config_data.get('exclude_recent_years', [])
             end_date = config_data.get('end_date')
             start_date = config_data.get('start_date')
             market_type = config_data.get('market_type')
@@ -215,7 +216,7 @@ class GoogleSheetService:
 
             for outer_param in parameters[0]:
                 combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
-                    outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,parameters
+                    outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters
                 )
                 precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
                 total_combinations += len(combinations)
@@ -836,7 +837,7 @@ class GoogleSheetService:
             self._log_error(error_msg)
             # 注意：这里不能使用_push_log，因为可能导致循环调用
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,parameters):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters):
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -934,36 +935,38 @@ class GoogleSheetService:
         #                     data.append(d)
 
 
-        for i, v1 in enumerate(parameters[1]):
-            for j, v2 in enumerate(parameters[2]):
-                Kline_key = f'{_end_year}-{_start_date}'
-                d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
-                # if i == 0 and j == 0:
-                # d['kline'] = all_kline
-                if Kline_key not in KLINE_DATA_MAP:
-                    KLINE_DATA_MAP[Kline_key] = all_kline
+        # 在 n+1 模式下，如果勾选了近年，则不生成全部区间（避免重复）
+        if count_mode != 'n_plus_1' or 'recent' not in date_range_mode:
+            for i, v1 in enumerate(parameters[1]):
+                for j, v2 in enumerate(parameters[2]):
+                    Kline_key = f'{_end_year}-{_start_date}'
+                    d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
+                    if Kline_key not in KLINE_DATA_MAP:
+                        KLINE_DATA_MAP[Kline_key] = all_kline
 
-                data.append(d)
+                    data.append(d)
 
         if count_mode != 'n_plus_1':
             return data, len(all_kline) + 20,KLINE_DATA_MAP
 
         if 'recent' in date_range_mode:
-            for year in range(1, (_end_year_1 - _start_date) + 1):
-                _year = year
-                if year != 0:
-                    _year = year - 1
+            total_years = (_end_year_1 - _start_date) + 1
+            for year in range(1, total_years):
+                # 如果当前年份在排除列表中，跳过
+                if year in exclude_recent_years:
+                    continue
 
-                _end_data = f"{_end_year_1 - _year}{end_date[4:]}"
+                # _year = year
+                # if year != 0:
+                #     _year = year - 1
+
+                _end_data = f"{_end_year_1}{end_date[4:]}"
                 _start_data = f"{_end_year_1 - year}{end_date[4:]}"
                 kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
                 Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
-                        # if i == 0 and j == 0:
-                        #     if kline:
-                        #         d['kline'] = kline
                         if kline:
                             if Kline_key not in KLINE_DATA_MAP:
                                 KLINE_DATA_MAP[Kline_key] = kline
