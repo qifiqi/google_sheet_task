@@ -418,6 +418,55 @@ class GoogleSheet:
         return self._retry_network_operation(_get_range_operation, f"get_range({range_a1})")
 
 
+    def get_ranges(self, range_a1_list, value_render_option: str = 'FORMATTED_VALUE'):
+        """批量获取多个 A1 区间的值，返回 {range_a1: {cell_a1: value}}"""
+        self._ensure_worksheet()
+
+        if not range_a1_list:
+            return {}
+
+        normalized_ranges = [range_a1 for range_a1 in range_a1_list if range_a1]
+        if not normalized_ranges:
+            return {}
+
+        try:
+            def _get_ranges_operation():
+                return self.worksheet.batch_get(
+                    normalized_ranges,
+                    value_render_option=value_render_option,
+                )
+
+            batch_values = self._retry_network_operation(_get_ranges_operation, "get_ranges")
+
+            results = {}
+            for range_a1, values_2d in zip(normalized_ranges, batch_values):
+                start_row, start_col = a1_to_rowcol(range_a1.split(':')[0])
+                range_result = {}
+                for r_idx, row in enumerate(values_2d):
+                    for c_idx, value in enumerate(row):
+                        row_num = start_row + r_idx
+                        col_num = start_col + c_idx
+                        cell_a1 = rowcol_to_a1(row_num, col_num)
+                        range_result[cell_a1] = value
+                results[range_a1] = range_result
+
+            for range_a1 in normalized_ranges:
+                results.setdefault(range_a1, {})
+
+            return results
+
+        except Exception as e:
+            logger.error(f"{self._log_ctx()}批量获取区间失败: {e}", exc_info=True)
+            logger.info(f"{self._log_ctx()}回退到逐个获取区间")
+            results = {}
+            for range_a1 in normalized_ranges:
+                try:
+                    results[range_a1] = self.get_range(range_a1, value_render_option=value_render_option)
+                except Exception as range_error:
+                    logger.error(f"{self._log_ctx()}获取区间 {range_a1} 失败: {range_error}")
+                    results[range_a1] = {}
+            return results
+
     def get_range_2d(self, range_a1: str, value_render_option: str = 'FORMATTED_VALUE'):
         """根据 A1 区间获取整块区域的值，
 

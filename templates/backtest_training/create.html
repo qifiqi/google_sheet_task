@@ -28,9 +28,15 @@
         </div>
         <div class="row g-2 mb-3">
             <div class="col-md-6">
-                <label class="form-label">股票代码</label>
-                <input type="text" class="form-control" id="stockCode" placeholder="输入股票代码，支持空格或逗号分隔">
+                <label class="form-label">任务名称</label>
+                <input type="text" class="form-control" id="taskName" placeholder="输入任务名称">
             </div>
+            <div class="col-md-6">
+                <label class="form-label">股票代码</label>
+                <input type="text" class="form-control" id="stockCode" placeholder="输入股票代码">
+            </div>
+        </div>
+        <div class="row g-2 mb-3">
             <div class="col-md-6">
                 <label class="form-label">年份选择</label>
                 <div>
@@ -44,6 +50,22 @@
                     </div>
                 </div>
             </div>
+            <div class="col-md-6 d-flex align-items-end">
+                <div id="sheetInfo" style="display:none;" class="alert alert-info w-100 mb-0">
+                    <div class="mb-2">
+                        <strong>标题：</strong> <span id="sheetTitle"></span>
+                        <span class="ms-3"><strong>Sheet 名称：</strong> <span id="sheetName"></span></span>
+                    </div>
+                    <div class="row" id="yearsDisplay" style="display:none;">
+                        <div class="col-md-6">
+                            <strong>近年：</strong> <span id="recentYearsDisplay"></span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>整年：</strong> <span id="fullYearsDisplay"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         <div id="recentYearsOptions" style="display:none;" class="mb-3">
             <label class="form-label">近年选择</label>
@@ -53,20 +75,6 @@
             <label class="form-label">整年选择</label>
             <div id="fullYearsCheckboxes"></div>
         </div>
-        <div id="sheetInfo" style="display:none;" class="alert alert-info">
-            <div class="mb-2">
-                <strong>标题：</strong><span id="sheetTitle"></span>
-                <span class="ms-3"><strong>Sheet 名称：</strong><span id="sheetNames"></span></span>
-            </div>
-            <div class="row" id="yearsDisplay" style="display:none;">
-                <div class="col-md-6">
-                    <strong>近年：</strong><span id="recentYearsDisplay"></span>
-                </div>
-                <div class="col-md-6">
-                    <strong>整年：</strong><span id="fullYearsDisplay"></span>
-                </div>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -74,7 +82,7 @@
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">参数管理</h5>
         <button type="button" class="btn btn-success btn-sm" id="addParamBtn">
-            <i class="bi bi-plus"></i> 添加参数
+            <i class="bi bi-plus"></i> 添加参数行
         </button>
     </div>
     <div class="card-body">
@@ -91,7 +99,7 @@
 {% block scripts %}
 <script>
 let columnCount = 6;
-let sheetTitle = '';
+let modelTitle = '';
 
 const currentYear = new Date().getFullYear();
 const recentYearsContainer = document.getElementById('recentYearsCheckboxes');
@@ -100,29 +108,6 @@ const fullYearsContainer = document.getElementById('fullYearsCheckboxes');
 function extractSpreadsheetId(url) {
     const match = (url || '').match(/\/d\/([a-zA-Z0-9-_]+)/);
     return match ? match[1] : '';
-}
-
-function normalizeParameterGroups(rows) {
-    const validRows = rows.filter(row => row.some(value => (value || '').trim() !== ''));
-    if (!validRows.length) {
-        return [];
-    }
-
-    const width = Math.max(...validRows.map(row => row.length));
-    const groups = [];
-    for (let col = 0; col < width; col++) {
-        const values = [];
-        validRows.forEach(row => {
-            const value = (row[col] || '').trim();
-            if (value && !values.includes(value)) {
-                values.push(value);
-            }
-        });
-        if (values.length) {
-            groups.push(values);
-        }
-    }
-    return groups;
 }
 
 function updateTableHeader() {
@@ -135,6 +120,12 @@ function updateTableHeader() {
     head.innerHTML = html;
 }
 
+function collectParameterRows() {
+    return Array.from(document.querySelectorAll('#paramTableBody tr'))
+        .map(row => Array.from(row.querySelectorAll('.param-input')).map(input => (input.value || '').trim()))
+        .filter(row => row.some(Boolean));
+}
+
 function updateYearsDisplay() {
     const recentChecked = Array.from(document.querySelectorAll('.recent-year:checked')).map(cb => `近${cb.value}年`);
     const fullChecked = Array.from(document.querySelectorAll('.full-year:checked')).map(cb => cb.value);
@@ -142,6 +133,16 @@ function updateYearsDisplay() {
     document.getElementById('recentYearsDisplay').textContent = recentChecked.join(', ') || '无';
     document.getElementById('fullYearsDisplay').textContent = fullChecked.join(', ') || '无';
     document.getElementById('yearsDisplay').style.display = (recentChecked.length || fullChecked.length) ? 'flex' : 'none';
+}
+
+function addParamRow() {
+    const tbody = document.getElementById('paramTableBody');
+    let row = '<tr>';
+    for (let i = 0; i < columnCount; i++) {
+        row += '<td><input type="text" class="form-control form-control-sm param-input"></td>';
+    }
+    row += '<td><button class="btn btn-danger btn-sm delete-row">删除</button></td></tr>';
+    tbody.insertAdjacentHTML('beforeend', row);
 }
 
 for (let i = 1; i <= 7; i++) {
@@ -195,7 +196,7 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
     const res = await fetch('/api/google-sheet/worksheets', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({spreadsheet_id: spreadsheetId})
+        body: JSON.stringify({ spreadsheet_id: spreadsheetId })
     });
     const data = await res.json();
 
@@ -204,26 +205,27 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
         return;
     }
 
-    sheetTitle = data.title || '';
-    document.getElementById('sheetTitle').textContent = sheetTitle;
-    document.getElementById('sheetNames').textContent = (data.worksheets && data.worksheets[0]) || '';
+    modelTitle = data.title || '';
+    document.getElementById('sheetTitle').textContent = modelTitle;
+    document.getElementById('sheetName').textContent = (data.worksheets && data.worksheets[0]) || '';
     document.getElementById('sheetInfo').style.display = 'block';
 
-    const upperTitle = sheetTitle.toUpperCase();
+    const taskNameInput = document.getElementById('taskName');
+    if (!taskNameInput.value.trim() && modelTitle) {
+        taskNameInput.value = modelTitle;
+    }
+
+    const upperTitle = modelTitle.toUpperCase();
     columnCount = (upperTitle.includes('C5') || upperTitle.includes('C4')) ? 2 : 6;
     updateTableHeader();
     document.getElementById('paramSection').style.display = 'block';
+
+    if (!document.querySelector('#paramTableBody tr')) {
+        addParamRow();
+    }
 });
 
-document.getElementById('addParamBtn').addEventListener('click', () => {
-    const tbody = document.getElementById('paramTableBody');
-    let row = '<tr>';
-    for (let i = 0; i < columnCount; i++) {
-        row += '<td><input type="text" class="form-control form-control-sm param-input"></td>';
-    }
-    row += '<td><button class="btn btn-danger btn-sm delete-row">删除</button></td></tr>';
-    tbody.insertAdjacentHTML('beforeend', row);
-});
+document.getElementById('addParamBtn').addEventListener('click', addParamRow);
 
 document.getElementById('paramTableBody').addEventListener('click', (e) => {
     if (e.target.classList.contains('delete-row')) {
@@ -232,13 +234,18 @@ document.getElementById('paramTableBody').addEventListener('click', (e) => {
 });
 
 document.getElementById('createBtn').addEventListener('click', async () => {
-    const url = document.getElementById('modelUrl').value.trim();
+    const modelUrl = document.getElementById('modelUrl').value.trim();
+    const taskName = document.getElementById('taskName').value.trim();
     const stockCode = document.getElementById('stockCode').value.trim();
-    const spreadsheetId = extractSpreadsheetId(url);
-    const sheetName = document.getElementById('sheetNames').textContent.trim() || 'data';
+    const spreadsheetId = extractSpreadsheetId(modelUrl);
+    const sheetName = document.getElementById('sheetName').textContent.trim() || 'data';
 
     if (!spreadsheetId) {
         alert('请输入有效的 Google Sheet URL');
+        return;
+    }
+    if (!taskName) {
+        alert('请输入任务名称');
         return;
     }
     if (!stockCode) {
@@ -246,54 +253,46 @@ document.getElementById('createBtn').addEventListener('click', async () => {
         return;
     }
 
-    const rows = Array.from(document.querySelectorAll('#paramTableBody tr')).map(row => {
-        return Array.from(row.querySelectorAll('.param-input')).map(input => input.value || '');
-    });
-    const parameterGroups = normalizeParameterGroups(rows);
-    if (parameterGroups.length < 2) {
-        alert('至少需要两列有效参数');
+    const parameterRows = collectParameterRows();
+    if (!parameterRows.length) {
+        alert('请至少填写一行参数');
         return;
     }
 
-    const stockCodes = stockCode
-        .replace(/\uFF0C/g, ',')
-        .split(/[\s,]+/)
-        .map(item => item.trim())
-        .filter(Boolean);
-
     const recentYears = Array.from(document.querySelectorAll('.recent-year:checked')).map(cb => parseInt(cb.value, 10));
     const fullYears = Array.from(document.querySelectorAll('.full-year:checked')).map(cb => parseInt(cb.value, 10));
-    const taskName = sheetTitle || `backtest-training-${stockCodes[0]}`;
+
+    const payload = {
+        name: taskName,
+        description: `backtest training task for ${sheetName}`,
+        task_type: 'backtest_training',
+        config: {
+            sheet: {
+                spreadsheet_id: spreadsheetId,
+                sheet_name: sheetName,
+                title: modelTitle || taskName
+            },
+            stock_code: stockCode,
+            parameters: parameterRows,
+            recent_years: recentYears,
+            full_years: fullYears
+        }
+    };
 
     const res = await fetch('/api/tasks', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            name: taskName,
-            description: `backtest training task for ${sheetName}`,
-            task_type: 'backtest_training',
-            config: {
-                sheets: [{
-                    spreadsheet_id: spreadsheetId,
-                    sheet_name: sheetName,
-                    title: sheetTitle || sheetName
-                }],
-                parameters: [stockCodes, parameterGroups[0], parameterGroups[1]],
-                model_url: url,
-                model_title: sheetTitle,
-                recent_years: recentYears,
-                full_years: fullYears
-            }
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
     });
     const data = await res.json();
 
     if (data.status === 'success' && data.task_id) {
         alert('任务创建成功');
         window.location.href = '/backtest-training/list';
-    } else {
-        alert('创建任务失败: ' + (data.message || '未知错误'));
+        return;
     }
+
+    alert('创建任务失败: ' + (data.message || '未知错误'));
 });
 
 updateTableHeader();

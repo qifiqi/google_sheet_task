@@ -552,20 +552,46 @@ class GoogleSheetService(BaseGoogleSheetService):
                 for google_sheet in self.google_sheets:
                     _result = google_sheet.get_range(c5_output_range_1)
                     if _validate_check_values(_result, google_sheet.spreadsheet_id):
+                        # # _result = check_result(_result)
+                        # _result_yearly = google_sheet.get_range(c5_output_range_2)
+                        # # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
+                        # _result.update(_result_yearly)
+                        #
+                        # try:
+                        #     _index_return = check_result(
+                        #         google_sheet.get_range(f"{c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1}")
+                        #     )
+                        #     _start_return = check_result(
+                        #         google_sheet.get_range(f"{c5_output_column_l}2:{c5_output_column_l}{len(kline) + 1}")
+                        #     )
+                        # except Exception as e:
+                        #     self._log_info(f"获取结果位置 {c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1} 时出错：{str(e)}")
+                        #     self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
+                        #     break
                         # _result = check_result(_result)
-                        _result_yearly = google_sheet.get_range(c5_output_range_2)
+                        merged_return_range_a1 = f"{c5_output_column_j}2:{c5_output_column_l}{len(kline) + 1}"
+                        batch_range_values = google_sheet.get_ranges([
+                            c5_output_range_2,
+                            merged_return_range_a1,
+                        ])
+                        _result_yearly = batch_range_values.get(c5_output_range_2, {})
                         # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
                         _result.update(_result_yearly)
 
                         try:
-                            _index_return = check_result(
-                                google_sheet.get_range(f"{c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1}")
-                            )
-                            _start_return = check_result(
-                                google_sheet.get_range(f"{c5_output_column_l}2:{c5_output_column_l}{len(kline) + 1}")
-                            )
+                            merged_return_range = batch_range_values.get(merged_return_range_a1, {})
+                            _index_return = check_result({
+                                position: value
+                                for position, value in merged_return_range.items()
+                                if position.startswith(c5_output_column_j)
+                            })
+                            _start_return = check_result({
+                                position: value
+                                for position, value in merged_return_range.items()
+                                if position.startswith(c5_output_column_l)
+                            })
                         except Exception as e:
-                            self._log_info(f"获取结果位置 {c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1} 时出错：{str(e)}")
+                            self._log_info(f"获取结果位置 {c5_output_column_j}2:{c5_output_column_l}{len(kline) + 1} 时出错：{str(e)}")
                             self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
                             break
 

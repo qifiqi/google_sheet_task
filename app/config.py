@@ -316,6 +316,7 @@ def init_config():
             'value': 'L',
             'description': 'C4 模板输出列 L 的列标识。',
         },
+
         'c5_parameter_positions': {
             'value': ['A1', 'B1'],
             'description': 'C5 模板参数输入单元格位置列表。',

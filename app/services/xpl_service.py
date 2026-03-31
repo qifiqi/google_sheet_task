@@ -1029,6 +1029,9 @@ class XPLAnalyzer:
 
             return _data,_data_result,sheet_df
 
+    def get_calculate_metrics_v1(self,data):
+        self._calculate_metrics_v1(data)
+
     def _calculate_metrics_v1(self, data) -> Dict[str, Any]:
         """
         计算各项指标
