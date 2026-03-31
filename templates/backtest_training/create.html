@@ -1,96 +1,201 @@
 {% extends "admin/base.html" %}
 
-{% block title %}创建回测数据训练任务{% endblock %}
+{% block title %}创建数据回测任务{% endblock %}
+
+{% block head %}
+<style>
+    .create-shell {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .hero-card {
+        background:
+            radial-gradient(circle at top right, rgba(13, 110, 253, 0.2), transparent 34%),
+            linear-gradient(135deg, rgba(232, 242, 255, 0.98), rgba(247, 250, 255, 0.98));
+        border: 1px solid rgba(13, 110, 253, 0.18);
+        box-shadow: 0 1rem 2.4rem rgba(13, 110, 253, 0.08);
+    }
+
+    .summary-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.32rem 0.78rem;
+        border-radius: 999px;
+        background: rgba(13, 110, 253, 0.1);
+        color: #0b5ed7;
+        font-size: 0.82rem;
+        margin-right: 0.45rem;
+        margin-bottom: 0.45rem;
+    }
+
+    .version-badge {
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+    }
+
+    .section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .parameter-table thead th {
+        white-space: nowrap;
+        font-size: 0.9rem;
+        background: linear-gradient(180deg, #eef5ff, #f8fbff);
+        color: #486682;
+        border: 0;
+        border-bottom: 1px solid rgba(13, 110, 253, 0.12);
+    }
+
+    .parameter-table tbody td {
+        vertical-align: middle;
+        border: 0;
+    }
+
+    .parameter-table {
+        border: 0;
+    }
+
+    .parameter-table tbody tr:hover {
+        background: rgba(13, 110, 253, 0.03);
+    }
+
+    .panel-note {
+        color: #5f6f85;
+        font-size: 0.9rem;
+    }
+
+    .empty-hint {
+        padding: 1rem;
+        border: 1px dashed rgba(13, 110, 253, 0.28);
+        border-radius: 0.75rem;
+        color: #52708f;
+        background: linear-gradient(135deg, rgba(240, 246, 255, 0.95), rgba(248, 251, 255, 0.98));
+    }
+
+    .create-actions .btn {
+        min-width: 8rem;
+    }
+
+    .create-actions .btn[disabled] {
+        cursor: wait;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h1 class="h2">创建回测数据训练任务</h1>
-</div>
-
-<div class="card mb-3">
-    <div class="card-header">
-        <h5 class="mb-0">模型输入</h5>
+<div class="create-shell">
+    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-1 border-bottom">
+        <div>
+            <h1 class="h2 mb-1">创建数据回测任务</h1>
+            <div class="text-muted">输入模型 URL 后自动识别模型版本，并按固定参数风格创建参数行。点击创建后会立即给出加载状态，避免按钮看起来无响应。</div>
+        </div>
+        <a href="{{ url_for('backtest_training.list_page') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回任务总表
+        </a>
     </div>
-    <div class="card-body">
-        <div class="row g-2 align-items-end mb-3">
-            <div class="col-md-8">
-                <label class="form-label">模型 URL</label>
-                <input type="text" class="form-control" id="modelUrl" placeholder="输入 Google Sheet URL">
+
+    <div class="card hero-card">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-lg-7">
+                    <label class="form-label">模型 URL</label>
+                    <input type="text" class="form-control" id="modelUrl" placeholder="粘贴 Google Sheet URL">
+                </div>
+                <div class="col-lg-3">
+                    <label class="form-label">股票代码</label>
+                    <input type="text" class="form-control" id="stockCode" placeholder="支持空格或逗号分隔">
+                </div>
+                <div class="col-lg-2 d-grid">
+                    <button type="button" class="btn btn-outline-primary" id="analyzeBtn">
+                        <i class="bi bi-search"></i> 识别 URL
+                    </button>
+                </div>
             </div>
-            <div class="col-md-4">
-                <button type="button" class="btn btn-secondary me-2" id="analyzeBtn">
-                    <i class="bi bi-search"></i> 分析
-                </button>
-                <button type="button" class="btn btn-primary" id="createBtn">
-                    <i class="bi bi-plus-circle"></i> 创建
-                </button>
+
+            <div class="row g-3 mt-1">
+                <div class="col-lg-6">
+                    <label class="form-label d-block">年份选项</label>
+                    <div class="d-flex flex-wrap gap-3">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="recentYearsCheck">
+                            <label class="form-check-label" for="recentYearsCheck">近年</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="fullYearsCheck">
+                            <label class="form-check-label" for="fullYearsCheck">整年</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <label class="form-label">页面说明</label>
+                    <div>
+                        <span class="summary-chip">统一入口</span>
+                        <span class="summary-chip">自动识别 C3 / C5</span>
+                        <span class="summary-chip">创建中禁用按钮防重复提交</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="recentYearsOptions" style="display:none;" class="mt-3">
+                <label class="form-label">近年范围</label>
+                <div id="recentYearsCheckboxes"></div>
+            </div>
+
+            <div id="fullYearsOptions" style="display:none;" class="mt-3">
+                <label class="form-label">整年范围</label>
+                <div id="fullYearsCheckboxes"></div>
+            </div>
+
+            <div id="sheetInfo" class="alert alert-info mt-3 mb-0" style="display:none;">
+                <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+                    <span><strong>标题：</strong><span id="sheetTitle"></span></span>
+                    <span><strong>Sheet：</strong><span id="sheetNames"></span></span>
+                    <span class="badge bg-dark version-badge" id="modelVersionBadge">C3</span>
+                </div>
+                <div class="row" id="yearsDisplay" style="display:none;">
+                    <div class="col-md-6">
+                        <strong>近年：</strong><span id="recentYearsDisplay"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>整年：</strong><span id="fullYearsDisplay"></span>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="row g-2 mb-3">
-            <div class="col-md-6">
-                <label class="form-label">任务名称</label>
-                <input type="text" class="form-control" id="taskName" placeholder="输入任务名称">
-            </div>
-            <div class="col-md-6">
-                <label class="form-label">股票代码</label>
-                <input type="text" class="form-control" id="stockCode" placeholder="输入股票代码">
-            </div>
-        </div>
-        <div class="row g-2 mb-3">
-            <div class="col-md-6">
-                <label class="form-label">年份选择</label>
+    </div>
+
+    <div class="card" id="paramSection" style="display:none;">
+        <div class="card-header">
+            <div class="section-title">
                 <div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" id="recentYearsCheck">
-                        <label class="form-check-label" for="recentYearsCheck">近年</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" id="fullYearsCheck">
-                        <label class="form-check-label" for="fullYearsCheck">整年</label>
-                    </div>
+                    <h5 class="mb-1">参数配对列表</h5>
+                    <div class="panel-note">页面沿用固定参数风格，但创建逻辑使用统一的 URL 自动识别流程。</div>
                 </div>
-            </div>
-            <div class="col-md-6 d-flex align-items-end">
-                <div id="sheetInfo" style="display:none;" class="alert alert-info w-100 mb-0">
-                    <div class="mb-2">
-                        <strong>标题：</strong> <span id="sheetTitle"></span>
-                        <span class="ms-3"><strong>Sheet 名称：</strong> <span id="sheetName"></span></span>
-                    </div>
-                    <div class="row" id="yearsDisplay" style="display:none;">
-                        <div class="col-md-6">
-                            <strong>近年：</strong> <span id="recentYearsDisplay"></span>
-                        </div>
-                        <div class="col-md-6">
-                            <strong>整年：</strong> <span id="fullYearsDisplay"></span>
-                        </div>
-                    </div>
+                <div class="d-flex gap-2 create-actions">
+                    <button type="button" class="btn btn-success btn-sm" id="addParamBtn">
+                        <i class="bi bi-plus"></i> 添加参数
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" id="createBtn">
+                        <i class="bi bi-check2-circle"></i> 创建任务
+                    </button>
                 </div>
             </div>
         </div>
-        <div id="recentYearsOptions" style="display:none;" class="mb-3">
-            <label class="form-label">近年选择</label>
-            <div id="recentYearsCheckboxes"></div>
-        </div>
-        <div id="fullYearsOptions" style="display:none;" class="mb-3">
-            <label class="form-label">整年选择</label>
-            <div id="fullYearsCheckboxes"></div>
-        </div>
-    </div>
-</div>
-
-<div class="card" id="paramSection" style="display:none;">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">参数管理</h5>
-        <button type="button" class="btn btn-success btn-sm" id="addParamBtn">
-            <i class="bi bi-plus"></i> 添加参数行
-        </button>
-    </div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-bordered table-hover" id="paramTable">
-                <thead class="table-light" id="paramTableHead"></thead>
-                <tbody id="paramTableBody"></tbody>
-            </table>
+        <div class="card-body">
+            <div id="emptyHint" class="empty-hint mb-3" style="display:none;">
+                识别 URL 后会根据模型版本生成表头，每一行代表一组待创建的参数。
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle parameter-table" id="paramTable">
+                    <thead class="table-light" id="paramTableHead"></thead>
+                    <tbody id="paramTableBody"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -98,58 +203,38 @@
 
 {% block scripts %}
 <script>
-let columnCount = 6;
-let modelTitle = '';
+let sheetTitle = '';
+let currentModelVersion = 'c3';
+let currentFields = [];
+let isCreatingTask = false;
+
+const FIELD_MAP = {
+    c5: [
+        { key: 'xm', label: 'X Multiplier (xm)', defaultValue: '' },
+        { key: 'ml', label: 'ML (ml)', defaultValue: '' }
+    ],
+    c3: [
+        { key: 'commission', label: 'Commission', defaultValue: '0.0350%' },
+        { key: 'xm', label: 'X Multiplier (xm)', defaultValue: '' },
+        { key: 'dbbh1', label: '单边保护1', defaultValue: '' },
+        { key: 'dbbh2', label: '单边保护2', defaultValue: '' },
+        { key: 'zlxc', label: '中立限仓', defaultValue: '' },
+        { key: 'zsgz', label: '指数跟踪', defaultValue: '' },
+        { key: 'ywf1', label: '一窝蜂 smoothing', defaultValue: '' },
+        { key: 'ywf2', label: '一窝蜂 bordering', defaultValue: '' }
+    ]
+};
+
 
 const currentYear = new Date().getFullYear();
 const recentYearsContainer = document.getElementById('recentYearsCheckboxes');
 const fullYearsContainer = document.getElementById('fullYearsCheckboxes');
 
-function extractSpreadsheetId(url) {
-    const match = (url || '').match(/\/d\/([a-zA-Z0-9-_]+)/);
-    return match ? match[1] : '';
-}
-
-function updateTableHeader() {
-    const head = document.getElementById('paramTableHead');
-    let html = '<tr>';
-    for (let i = 1; i <= columnCount; i++) {
-        html += `<th>参数${i}</th>`;
-    }
-    html += '<th>操作</th></tr>';
-    head.innerHTML = html;
-}
-
-function collectParameterRows() {
-    return Array.from(document.querySelectorAll('#paramTableBody tr'))
-        .map(row => Array.from(row.querySelectorAll('.param-input')).map(input => (input.value || '').trim()))
-        .filter(row => row.some(Boolean));
-}
-
-function updateYearsDisplay() {
-    const recentChecked = Array.from(document.querySelectorAll('.recent-year:checked')).map(cb => `近${cb.value}年`);
-    const fullChecked = Array.from(document.querySelectorAll('.full-year:checked')).map(cb => cb.value);
-
-    document.getElementById('recentYearsDisplay').textContent = recentChecked.join(', ') || '无';
-    document.getElementById('fullYearsDisplay').textContent = fullChecked.join(', ') || '无';
-    document.getElementById('yearsDisplay').style.display = (recentChecked.length || fullChecked.length) ? 'flex' : 'none';
-}
-
-function addParamRow() {
-    const tbody = document.getElementById('paramTableBody');
-    let row = '<tr>';
-    for (let i = 0; i < columnCount; i++) {
-        row += '<td><input type="text" class="form-control form-control-sm param-input"></td>';
-    }
-    row += '<td><button class="btn btn-danger btn-sm delete-row">删除</button></td></tr>';
-    tbody.insertAdjacentHTML('beforeend', row);
-}
-
 for (let i = 1; i <= 7; i++) {
     recentYearsContainer.innerHTML += `
         <div class="form-check form-check-inline">
             <input class="form-check-input recent-year" type="checkbox" id="recent${i}" value="${i}">
-            <label class="form-check-label" for="recent${i}">近${i}年</label>
+            <label class="form-check-label" for="recent${i}">近 ${i} 年</label>
         </div>`;
 }
 
@@ -162,20 +247,84 @@ for (let i = 0; i < 7; i++) {
         </div>`;
 }
 
+function updateYearsDisplay() {
+    const recentChecked = Array.from(document.querySelectorAll('.recent-year:checked')).map((cb) => `近 ${cb.value} 年`);
+    const fullChecked = Array.from(document.querySelectorAll('.full-year:checked')).map((cb) => cb.value);
+
+    document.getElementById('recentYearsDisplay').textContent = recentChecked.join(', ') || '无';
+    document.getElementById('fullYearsDisplay').textContent = fullChecked.join(', ') || '无';
+    document.getElementById('yearsDisplay').style.display = recentChecked.length || fullChecked.length ? 'flex' : 'none';
+}
+
+function inferModelVersion(title) {
+    const upperTitle = (title || '').toUpperCase();
+    if (upperTitle.includes('C5') || upperTitle.includes('C4')) {
+        return 'c5';
+    }
+    return 'c3';
+}
+
+function updateTableHeader() {
+    const head = document.getElementById('paramTableHead');
+    const headerCells = currentFields.map((field) => `<th>${field.label}</th>`).join('');
+    head.innerHTML = `<tr>${headerCells}<th>操作</th></tr>`;
+}
+
+function addParameterRow(initialValues = {}) {
+    const tbody = document.getElementById('paramTableBody');
+    const cells = currentFields.map((field) => {
+        const value = initialValues[field.key] ?? field.defaultValue ?? '';
+        return `<td><input type="text" class="form-control form-control-sm param-input" data-key="${field.key}" value="${value}"></td>`;
+    }).join('');
+
+    const row = `<tr>${cells}<td><button class="btn btn-danger btn-sm delete-row">删除</button></td></tr>`;
+    tbody.insertAdjacentHTML('beforeend', row);
+}
+
+function resetParameterTable() {
+    currentFields = FIELD_MAP[currentModelVersion];
+    updateTableHeader();
+    document.getElementById('paramTableBody').innerHTML = '';
+    addParameterRow();
+    document.getElementById('emptyHint').style.display = 'block';
+}
+
+function collectParameters() {
+    const rows = document.querySelectorAll('#paramTableBody tr');
+    return Array.from(rows).map((row) => {
+        return currentFields.map((field) => {
+            const input = row.querySelector(`.param-input[data-key="${field.key}"]`);
+            return input ? input.value.trim() : '';
+        });
+    });
+}
+
+function setCreateButtonState(isLoading) {
+    const createBtn = document.getElementById('createBtn');
+    const addParamBtn = document.getElementById('addParamBtn');
+
+    isCreatingTask = isLoading;
+    createBtn.disabled = isLoading;
+    addParamBtn.disabled = isLoading;
+    createBtn.innerHTML = isLoading
+        ? '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>创建中...'
+        : '<i class="bi bi-check2-circle"></i> 创建任务';
+}
+
 document.getElementById('recentYearsCheck').addEventListener('change', (e) => {
-    const checked = e.target.checked;
-    document.getElementById('recentYearsOptions').style.display = checked ? 'block' : 'none';
+    const isChecked = e.target.checked;
+    document.getElementById('recentYearsOptions').style.display = isChecked ? 'block' : 'none';
     document.querySelectorAll('.recent-year').forEach((cb, index) => {
-        cb.checked = checked && index < 3;
+        cb.checked = isChecked && index < 3;
     });
     updateYearsDisplay();
 });
 
 document.getElementById('fullYearsCheck').addEventListener('change', (e) => {
-    const checked = e.target.checked;
-    document.getElementById('fullYearsOptions').style.display = checked ? 'block' : 'none';
+    const isChecked = e.target.checked;
+    document.getElementById('fullYearsOptions').style.display = isChecked ? 'block' : 'none';
     document.querySelectorAll('.full-year').forEach((cb, index) => {
-        cb.checked = checked && index < 3;
+        cb.checked = isChecked && index < 3;
     });
     updateYearsDisplay();
 });
@@ -186,46 +335,9 @@ document.addEventListener('change', (e) => {
     }
 });
 
-document.getElementById('analyzeBtn').addEventListener('click', async () => {
-    const spreadsheetId = extractSpreadsheetId(document.getElementById('modelUrl').value);
-    if (!spreadsheetId) {
-        alert('请输入有效的 Google Sheet URL');
-        return;
-    }
-
-    const res = await fetch('/api/google-sheet/worksheets', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ spreadsheet_id: spreadsheetId })
-    });
-    const data = await res.json();
-
-    if (data.status !== 'success') {
-        alert('分析失败: ' + (data.message || '未知错误'));
-        return;
-    }
-
-    modelTitle = data.title || '';
-    document.getElementById('sheetTitle').textContent = modelTitle;
-    document.getElementById('sheetName').textContent = (data.worksheets && data.worksheets[0]) || '';
-    document.getElementById('sheetInfo').style.display = 'block';
-
-    const taskNameInput = document.getElementById('taskName');
-    if (!taskNameInput.value.trim() && modelTitle) {
-        taskNameInput.value = modelTitle;
-    }
-
-    const upperTitle = modelTitle.toUpperCase();
-    columnCount = (upperTitle.includes('C5') || upperTitle.includes('C4')) ? 2 : 6;
-    updateTableHeader();
-    document.getElementById('paramSection').style.display = 'block';
-
-    if (!document.querySelector('#paramTableBody tr')) {
-        addParamRow();
-    }
+document.getElementById('addParamBtn').addEventListener('click', () => {
+    addParameterRow();
 });
-
-document.getElementById('addParamBtn').addEventListener('click', addParamRow);
 
 document.getElementById('paramTableBody').addEventListener('click', (e) => {
     if (e.target.classList.contains('delete-row')) {
@@ -233,68 +345,111 @@ document.getElementById('paramTableBody').addEventListener('click', (e) => {
     }
 });
 
-document.getElementById('createBtn').addEventListener('click', async () => {
-    const modelUrl = document.getElementById('modelUrl').value.trim();
-    const taskName = document.getElementById('taskName').value.trim();
-    const stockCode = document.getElementById('stockCode').value.trim();
-    const spreadsheetId = extractSpreadsheetId(modelUrl);
-    const sheetName = document.getElementById('sheetName').textContent.trim() || 'data';
+document.getElementById('analyzeBtn').addEventListener('click', async () => {
+    const url = document.getElementById('modelUrl').value.trim();
+    if (!url) {
+        alert('请输入模型 URL');
+        return;
+    }
 
-    if (!spreadsheetId) {
-        alert('请输入有效的 Google Sheet URL');
+    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (!match) {
+        alert('无效的 Google Sheet URL');
         return;
     }
-    if (!taskName) {
-        alert('请输入任务名称');
+
+    const spreadsheetId = match[1];
+    const res = await fetch('/api/google-sheet/worksheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ spreadsheet_id: spreadsheetId })
+    });
+    const data = await res.json();
+
+    if (data.status !== 'success') {
+        alert('识别失败：' + (data.message || '未知错误'));
         return;
     }
+
+    sheetTitle = data.title || '';
+    currentModelVersion = inferModelVersion(sheetTitle);
+    document.getElementById('sheetTitle').textContent = sheetTitle;
+    document.getElementById('sheetNames').textContent = (data.worksheets && data.worksheets.length > 0) ? data.worksheets[0] : '';
+    document.getElementById('modelVersionBadge').textContent = currentModelVersion.toUpperCase();
+    document.getElementById('sheetInfo').style.display = 'block';
+    document.getElementById('paramSection').style.display = 'block';
+
+    resetParameterTable();
+});
+
+document.getElementById('createBtn').addEventListener('click', async () => {
+    if (isCreatingTask) {
+        return;
+    }
+
+    const url = document.getElementById('modelUrl').value.trim();
+    const stockCode = document.getElementById('stockCode').value.trim();
+    const sheetName = document.getElementById('sheetNames').textContent.trim();
+
+    if (!url) {
+        alert('请输入模型 URL');
+        return;
+    }
+
     if (!stockCode) {
         alert('请输入股票代码');
         return;
     }
 
-    const parameterRows = collectParameterRows();
-    if (!parameterRows.length) {
-        alert('请至少填写一行参数');
+    if (!currentFields.length) {
+        alert('请先识别 URL');
         return;
     }
 
-    const recentYears = Array.from(document.querySelectorAll('.recent-year:checked')).map(cb => parseInt(cb.value, 10));
-    const fullYears = Array.from(document.querySelectorAll('.full-year:checked')).map(cb => parseInt(cb.value, 10));
+    const parameters = collectParameters().filter((row) => row.some((value) => value));
+    if (!parameters.length) {
+        alert('请至少填写一组参数');
+        return;
+    }
 
-    const payload = {
-        name: taskName,
-        description: `backtest training task for ${sheetName}`,
-        task_type: 'backtest_training',
-        config: {
-            sheet: {
-                spreadsheet_id: spreadsheetId,
-                sheet_name: sheetName,
-                title: modelTitle || taskName
-            },
-            stock_code: stockCode,
-            parameters: parameterRows,
-            recent_years: recentYears,
-            full_years: fullYears
+    const recentYears = Array.from(document.querySelectorAll('.recent-year:checked')).map((cb) => parseInt(cb.value, 10));
+    const fullYears = Array.from(document.querySelectorAll('.full-year:checked')).map((cb) => parseInt(cb.value, 10));
+
+    setCreateButtonState(true);
+
+    try {
+        const res = await fetch('/backtest-training/api/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model_url: url,
+                stock_code: stockCode,
+                sheet_name: sheetName || 'Sheet1',
+                title: sheetTitle,
+                parameters,
+                recent_years: recentYears,
+                full_years: fullYears,
+                extra_config: {
+                    model_version: currentModelVersion,
+                    parameter_fields: currentFields,
+                    parameter_input_mode: 'rows'
+                }
+            })
+        });
+
+        const data = await res.json();
+        if (data.task_id) {
+            alert('任务创建成功');
+            window.location.href = '{{ url_for("backtest_training.list_page") }}';
+            return;
         }
-    };
 
-    const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-
-    if (data.status === 'success' && data.task_id) {
-        alert('任务创建成功');
-        window.location.href = '/backtest-training/list';
-        return;
+        alert('任务创建失败：' + (data.message || '未知错误'));
+    } catch (error) {
+        alert('任务创建失败：网络异常或服务未响应');
+    } finally {
+        setCreateButtonState(false);
     }
-
-    alert('创建任务失败: ' + (data.message || '未知错误'));
 });
-
-updateTableHeader();
 </script>
 {% endblock %}

@@ -236,8 +236,8 @@
                                     </a>
                                 </div>
                                 <div class="nav-item">
-                                    <a class="nav-link" href="{{ url_for('backtest_training.list_page') }}">
-                                        <i class="bi bi-graph-up"></i> 回测数据训练
+                                    <a class="nav-link {% if request.endpoint in ['backtest_training.list_page', 'backtest_training.create_page', 'backtest_training.parameter_create_page', 'backtest_training.detail_page', 'backtest_training.result_page'] %}active{% endif %}" href="{{ url_for('backtest_training.list_page') }}">
+                                        <i class="bi bi-graph-up"></i> 数据回测
                                     </a>
                                 </div>
                                 <div class="nav-item">

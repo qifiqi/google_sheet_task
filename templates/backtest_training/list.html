@@ -1,71 +1,307 @@
 {% extends "admin/base.html" %}
 
-{% block title %}回测数据训练任务列表{% endblock %}
+{% block title %}数据回测{% endblock %}
+
+{% block head %}
+<style>
+    .backtest-shell {
+        display: grid;
+        gap: 1.25rem;
+    }
+
+    .page-hero {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid rgba(13, 110, 253, 0.22);
+        background:
+            radial-gradient(circle at top right, rgba(13, 110, 253, 0.24), transparent 36%),
+            linear-gradient(135deg, rgba(223, 237, 255, 0.98), rgba(242, 248, 255, 0.98));
+        box-shadow: 0 1rem 2.6rem rgba(13, 110, 253, 0.1);
+    }
+
+    .page-hero::after {
+        content: "";
+        position: absolute;
+        inset: auto -6rem -6rem auto;
+        width: 14rem;
+        height: 14rem;
+        border-radius: 50%;
+        background: rgba(13, 110, 253, 0.14);
+        pointer-events: none;
+    }
+
+    .page-hero .card-body,
+    .page-hero .toolbar-row {
+        position: relative;
+        z-index: 1;
+    }
+
+    .hero-subtitle {
+        max-width: 44rem;
+        color: #40607f;
+    }
+
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1rem;
+    }
+
+    .summary-card {
+        border: 1px solid rgba(13, 110, 253, 0.16);
+        border-radius: 1rem;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 249, 255, 1));
+        padding: 1rem 1.1rem;
+        box-shadow: 0 0.75rem 1.9rem rgba(13, 110, 253, 0.08);
+    }
+
+    .summary-label {
+        color: #53708e;
+        font-size: 0.86rem;
+        margin-bottom: 0.45rem;
+    }
+
+    .summary-value {
+        font-size: 1.8rem;
+        line-height: 1;
+        font-weight: 700;
+        color: #0c2d57;
+    }
+
+    .summary-meta {
+        margin-top: 0.5rem;
+        font-size: 0.82rem;
+        color: #5b7692;
+    }
+
+    .summary-card.is-running,
+    .summary-card.is-completed,
+    .summary-card.is-failed {
+        background: linear-gradient(180deg, rgba(13, 110, 253, 0.12), rgba(255, 255, 255, 1));
+    }
+
+    .table-card {
+        overflow: hidden;
+        border: 1px solid rgba(13, 110, 253, 0.16);
+        box-shadow: 0 0.85rem 2rem rgba(13, 110, 253, 0.08);
+    }
+
+    .toolbar-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .table-note {
+        color: #5a7390;
+        font-size: 0.9rem;
+    }
+
+    .hero-create-btn {
+        position: relative;
+        z-index: 2;
+        min-width: 7.5rem;
+        border-radius: 0.85rem;
+        font-weight: 600;
+        box-shadow: 0 0.6rem 1.4rem rgba(13, 110, 253, 0.16);
+    }
+
+    .table thead th {
+        font-size: 0.82rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #4b6a88;
+        background: linear-gradient(180deg, #ecf4ff, #f8fbff);
+        border-bottom-color: rgba(13, 110, 253, 0.14);
+        white-space: nowrap;
+    }
+
+    .table tbody tr {
+        transition: background-color 0.2s ease;
+    }
+
+    .table tbody tr:hover {
+        background: rgba(13, 110, 253, 0.04);
+    }
+
+    .task-id {
+        font-weight: 700;
+        color: #0b2d57;
+    }
+
+    .task-meta {
+        margin-top: 0.2rem;
+        font-size: 0.82rem;
+        color: #57728f;
+    }
+
+    .model-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 3.7rem;
+        padding: 0.3rem 0.78rem;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #0d6efd, #1d4ed8);
+        color: #fff;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        box-shadow: 0 0.5rem 1rem rgba(13, 110, 253, 0.18);
+    }
+
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.38rem;
+        padding: 0.32rem 0.7rem;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .status-pill::before {
+        content: "";
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.75;
+    }
+
+    .status-pill.is-pending {
+        background: rgba(108, 117, 125, 0.12);
+        color: #6c757d;
+    }
+
+    .status-pill.is-running {
+        background: rgba(13, 110, 253, 0.12);
+        color: #0d6efd;
+    }
+
+    .status-pill.is-completed {
+        background: rgba(25, 135, 84, 0.12);
+        color: #198754;
+    }
+
+    .status-pill.is-cancelled {
+        background: rgba(255, 193, 7, 0.14);
+        color: #946c00;
+    }
+
+    .status-pill.is-error,
+    .status-pill.is-failed {
+        background: rgba(220, 53, 69, 0.12);
+        color: #dc3545;
+    }
+
+    .time-main {
+        font-weight: 600;
+        color: #12355d;
+    }
+
+    .time-sub {
+        margin-top: 0.18rem;
+        font-size: 0.78rem;
+        color: #5b7692;
+    }
+
+    .action-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .empty-row {
+        padding: 2.5rem 1rem;
+        text-align: center;
+        color: #5d7896;
+        background: linear-gradient(180deg, rgba(242, 248, 255, 0.8), rgba(255, 255, 255, 1));
+    }
+
+    @media (max-width: 991px) {
+        .summary-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 576px) {
+        .summary-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h1 class="h2">回测数据训练任务</h1>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <a href="/backtest-training/create" class="btn btn-primary">
-            <i class="bi bi-plus-circle"></i> 创建任务
-        </a>
+<div class="backtest-shell">
+    <div class="card page-hero">
+        <div class="card-body p-4">
+            <div class="toolbar-row">
+                <div>
+                    <h1 class="h2 mb-2">数据回测</h1>
+                    <div class="hero-subtitle">统一查看 C3 / C5 回测任务，在任务总表中直接区分模型版本、状态和时间，并支持查看详情或删除任务。</div>
+                </div>
+                <div class="btn-toolbar mb-2 mb-md-0">
+                    <a href="{{ url_for('backtest_training.create_page') }}" class="btn btn-primary hero-create-btn">创建任务</a>
+                </div>
+            </div>
+        </div>
     </div>
-</div>
 
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="card">
-            <div class="card-body text-center">
-                <h6 class="text-muted">总任务数</h6>
-                <h2 class="mb-0" id="totalTasks">0</h2>
-            </div>
+    <div class="summary-grid">
+        <div class="summary-card">
+            <div class="summary-label">任务总数</div>
+            <div class="summary-value" id="totalTasks">0</div>
+            <div class="summary-meta">当前全部数据回测任务</div>
+        </div>
+        <div class="summary-card is-running">
+            <div class="summary-label">运行中</div>
+            <div class="summary-value text-primary" id="runningTasks">0</div>
+            <div class="summary-meta">正在排队或执行中的任务</div>
+        </div>
+        <div class="summary-card is-completed">
+            <div class="summary-label">已完成</div>
+            <div class="summary-value text-success" id="completedTasks">0</div>
+            <div class="summary-meta">结果已落库，可直接查看</div>
+        </div>
+        <div class="summary-card is-failed">
+            <div class="summary-label">失败</div>
+            <div class="summary-value text-danger" id="failedTasks">0</div>
+            <div class="summary-meta">包含 error / failed 状态</div>
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card border-primary">
-            <div class="card-body text-center">
-                <h6 class="text-muted">运行中</h6>
-                <h2 class="mb-0 text-primary" id="runningTasks">0</h2>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-success">
-            <div class="card-body text-center">
-                <h6 class="text-muted">已完成</h6>
-                <h2 class="mb-0 text-success" id="completedTasks">0</h2>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-danger">
-            <div class="card-body text-center">
-                <h6 class="text-muted">失败</h6>
-                <h2 class="mb-0 text-danger" id="failedTasks">0</h2>
-            </div>
-        </div>
-    </div>
-</div>
 
-<div class="card">
-    <div class="card-header">
-        <h5 class="mb-0">任务列表</h5>
-    </div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-hover">
-                <thead class="table-light">
-                    <tr>
-                        <th>ID</th>
-                        <th>状态</th>
-                        <th>创建时间</th>
-                        <th>开始时间</th>
-                        <th>结束时间</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody id="taskTableBody"></tbody>
-            </table>
+    <div class="card table-card">
+        <div class="card-header bg-white border-0 pt-3 pb-0 px-3 px-md-4">
+            <div class="toolbar-row">
+                <div>
+                    <h5 class="mb-1">任务总表</h5>
+                    <div class="table-note">每 5 秒自动刷新一次。可直接从这里进入详情或删除任务。</div>
+                </div>
+                <div class="table-note">最后刷新：<span id="lastUpdated">-</span></div>
+            </div>
+        </div>
+        <div class="card-body px-3 px-md-4 pb-4">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>任务</th>
+                            <th>模型版本</th>
+                            <th>状态</th>
+                            <th>创建时间</th>
+                            <th>开始时间</th>
+                            <th>结束时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="taskTableBody"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -73,20 +309,93 @@
 
 {% block scripts %}
 <script>
-function getStatusColor(status) {
-    const colors = {
-        pending: 'secondary',
-        running: 'primary',
-        completed: 'success',
-        cancelled: 'warning',
-        error: 'danger',
-        failed: 'danger'
+function formatTime(value) {
+    if (!value) return '-';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return value;
+    }
+
+    return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+}
+
+function getStatusText(status) {
+    const labels = {
+        pending: '待执行',
+        running: '运行中',
+        completed: '已完成',
+        cancelled: '已取消',
+        error: '失败',
+        failed: '失败'
     };
-    return colors[status] || 'secondary';
+    return labels[status] || status || '-';
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderTimeCell(value) {
+    if (!value) {
+        return '<span class="text-muted">-</span>';
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return `<span class="time-main">${escapeHtml(value)}</span>`;
+    }
+
+    const main = date.toLocaleDateString('zh-CN');
+    const sub = date.toLocaleTimeString('zh-CN', { hour12: false });
+    return `<div class="time-main">${main}</div><div class="time-sub">${sub}</div>`;
+}
+
+function renderStatus(status) {
+    return `<span class="status-pill is-${escapeHtml(status || 'pending')}">${escapeHtml(getStatusText(status))}</span>`;
+}
+
+function renderTaskCell(task) {
+    const shortId = String(task.id || '').slice(0, 8);
+    const taskName = task.name || '未命名任务';
+    const sheetName = task.config && task.config.sheet_name ? task.config.sheet_name : '-';
+    return `
+        <div class="task-id" title="${escapeHtml(task.id || '')}">${escapeHtml(taskName)}</div>
+        <div class="task-meta">ID: ${escapeHtml(shortId)} · Sheet: ${escapeHtml(sheetName)}</div>
+    `;
+}
+
+async function deleteTask(taskId) {
+    if (!confirm(`确认删除任务 ${taskId} 吗？`)) {
+        return;
+    }
+
+    const res = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+    const data = await res.json();
+
+    if (res.ok && data.status === 'success') {
+        loadTasks();
+        return;
+    }
+
+    alert(`删除失败：${data.message || '未知错误'}`);
 }
 
 async function loadTasks() {
-    const res = await fetch('/api/tasks?task_type=backtest_training');
+    const res = await fetch('/backtest-training/api/tasks');
     const data = await res.json();
     const tasks = Array.isArray(data.tasks) ? data.tasks : [];
 
@@ -97,27 +406,52 @@ async function loadTasks() {
     let completed = 0;
     let failed = 0;
 
-    tasks.forEach(task => {
-        if (task.status === 'running') running++;
-        else if (task.status === 'completed') completed++;
-        else if (task.status === 'error' || task.status === 'failed') failed++;
+    tasks.forEach((task) => {
+        if (task.status === 'running') running += 1;
+        else if (task.status === 'completed') completed += 1;
+        else if (task.status === 'error' || task.status === 'failed') failed += 1;
 
         const row = `<tr>
-            <td>${task.id}</td>
-            <td><span class="badge bg-${getStatusColor(task.status)}">${task.status}</span></td>
-            <td>${task.created_at || '-'}</td>
-            <td>${task.start_time || '-'}</td>
-            <td>${task.end_time || '-'}</td>
-            <td><a href="/backtest-training/detail/${task.id}" class="btn btn-sm btn-info">详情</a></td>
+            <td>${renderTaskCell(task)}</td>
+            <td><span class="model-chip">${escapeHtml((task.model_version || '-').toUpperCase())}</span></td>
+            <td>${renderStatus(task.status)}</td>
+            <td>${renderTimeCell(task.created_at)}</td>
+            <td>${renderTimeCell(task.start_time)}</td>
+            <td>${renderTimeCell(task.end_time)}</td>
+            <td>
+                <div class="action-group">
+                    <a href="/backtest-training/detail/${task.id}" class="btn btn-sm btn-outline-primary">查看详情</a>
+                    <button type="button" class="btn btn-sm btn-outline-danger delete-task-btn" data-task-id="${escapeHtml(task.id)}">删除</button>
+                </div>
+            </td>
         </tr>`;
         tbody.insertAdjacentHTML('beforeend', row);
     });
 
-    document.getElementById('totalTasks').textContent = tasks.length;
+    if (!tasks.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="empty-row">
+                    当前还没有数据回测任务，点击右上角“创建任务”开始。
+                </td>
+            </tr>
+        `;
+    }
+
+    document.getElementById('totalTasks').textContent = data.total || tasks.length;
     document.getElementById('runningTasks').textContent = running;
     document.getElementById('completedTasks').textContent = completed;
     document.getElementById('failedTasks').textContent = failed;
+    document.getElementById('lastUpdated').textContent = formatTime(new Date().toISOString());
 }
+
+document.addEventListener('click', (event) => {
+    const button = event.target.closest('.delete-task-btn');
+    if (!button) {
+        return;
+    }
+    deleteTask(button.dataset.taskId);
+});
 
 loadTasks();
 setInterval(loadTasks, 5000);
