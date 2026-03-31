@@ -12,7 +12,6 @@
     </div>
 </div>
 
-<!-- 统计信息 -->
 <div class="row mb-4">
     <div class="col-md-3">
         <div class="card">
@@ -48,7 +47,6 @@
     </div>
 </div>
 
-<!-- 任务列表 -->
 <div class="card">
     <div class="card-header">
         <h5 class="mb-0">任务列表</h5>
@@ -75,19 +73,34 @@
 
 {% block scripts %}
 <script>
+function getStatusColor(status) {
+    const colors = {
+        pending: 'secondary',
+        running: 'primary',
+        completed: 'success',
+        cancelled: 'warning',
+        error: 'danger',
+        failed: 'danger'
+    };
+    return colors[status] || 'secondary';
+}
+
 async function loadTasks() {
-    const res = await fetch('/backtest-training/api/tasks');
+    const res = await fetch('/api/tasks?task_type=backtest_training');
     const data = await res.json();
+    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
 
     const tbody = document.getElementById('taskTableBody');
     tbody.innerHTML = '';
 
-    let running = 0, completed = 0, failed = 0;
+    let running = 0;
+    let completed = 0;
+    let failed = 0;
 
-    data.tasks.forEach(task => {
+    tasks.forEach(task => {
         if (task.status === 'running') running++;
         else if (task.status === 'completed') completed++;
-        else if (task.status === 'failed') failed++;
+        else if (task.status === 'error' || task.status === 'failed') failed++;
 
         const row = `<tr>
             <td>${task.id}</td>
@@ -100,20 +113,10 @@ async function loadTasks() {
         tbody.insertAdjacentHTML('beforeend', row);
     });
 
-    document.getElementById('totalTasks').textContent = data.total;
+    document.getElementById('totalTasks').textContent = tasks.length;
     document.getElementById('runningTasks').textContent = running;
     document.getElementById('completedTasks').textContent = completed;
     document.getElementById('failedTasks').textContent = failed;
-}
-
-function getStatusColor(status) {
-    const colors = {
-        pending: 'secondary',
-        running: 'primary',
-        completed: 'success',
-        failed: 'danger'
-    };
-    return colors[status] || 'secondary';
 }
 
 loadTasks();

@@ -12,7 +12,6 @@
     </div>
 </div>
 
-<!-- 任务信息 -->
 <div class="card mb-3">
     <div class="card-header">
         <h5 class="mb-0">任务信息</h5>
@@ -35,7 +34,6 @@
     </div>
 </div>
 
-<!-- 子任务列表 -->
 <div class="card">
     <div class="card-header">
         <h5 class="mb-0">训练结果</h5>
@@ -61,40 +59,52 @@
 
 {% block scripts %}
 <script>
-const taskId = {{ task_id }};
-
-async function loadTaskDetail() {
-    const res = await fetch(`/backtest-training/api/tasks/${taskId}`);
-    const data = await res.json();
-
-    document.getElementById('taskStatus').innerHTML = `<span class="badge bg-${getStatusColor(data.task.status)}">${data.task.status}</span>`;
-    document.getElementById('taskCreated').textContent = data.task.created_at || '-';
-    document.getElementById('taskStart').textContent = data.task.start_time || '-';
-    document.getElementById('taskEnd').textContent = data.task.end_time || '-';
-
-    const tbody = document.getElementById('subTaskTableBody');
-    tbody.innerHTML = '';
-
-    data.sub_tasks.forEach(sub => {
-        const row = `<tr>
-            <td>${sub.id}</td>
-            <td>${JSON.stringify(sub.parameters || {})}</td>
-            <td><span class="badge bg-${getStatusColor(sub.status)}">${sub.status}</span></td>
-            <td>${sub.created_at || '-'}</td>
-            <td><a href="/backtest-training/result/${sub.id}" class="btn btn-sm btn-primary">查看结果</a></td>
-        </tr>`;
-        tbody.insertAdjacentHTML('beforeend', row);
-    });
-}
+const taskId = {{ task_id|tojson }};
 
 function getStatusColor(status) {
     const colors = {
         pending: 'secondary',
         running: 'primary',
         completed: 'success',
+        cancelled: 'warning',
+        error: 'danger',
         failed: 'danger'
     };
     return colors[status] || 'secondary';
+}
+
+async function loadTaskDetail() {
+    const [taskRes, resultRes] = await Promise.all([
+        fetch(`/api/tasks/${taskId}`),
+        fetch(`/api/tasks/${taskId}/results`)
+    ]);
+    const taskData = await taskRes.json();
+    const resultData = await resultRes.json();
+
+    if (!(taskData.status === 'success' && taskData.task)) {
+        return;
+    }
+
+    document.getElementById('taskStatus').innerHTML = `<span class="badge bg-${getStatusColor(taskData.task.status)}">${taskData.task.status}</span>`;
+    document.getElementById('taskCreated').textContent = taskData.task.created_at || '-';
+    document.getElementById('taskStart').textContent = taskData.task.start_time || '-';
+    document.getElementById('taskEnd').textContent = taskData.task.end_time || '-';
+
+    const tbody = document.getElementById('subTaskTableBody');
+    tbody.innerHTML = '';
+
+    const results = Array.isArray(resultData.results) ? resultData.results : [];
+    results.forEach(result => {
+        const resultStatus = result.success ? 'completed' : 'failed';
+        const row = `<tr>
+            <td>${result.id}</td>
+            <td>${JSON.stringify(result.parameters || {})}</td>
+            <td><span class="badge bg-${getStatusColor(resultStatus)}">${resultStatus}</span></td>
+            <td>${result.timestamp || '-'}</td>
+            <td><a href="/backtest-training/result/${result.id}" class="btn btn-sm btn-primary">查看结果</a></td>
+        </tr>`;
+        tbody.insertAdjacentHTML('beforeend', row);
+    });
 }
 
 loadTaskDetail();

@@ -173,6 +173,10 @@ def init_config():
             'value': 0,
             'description': 'Google token 全局总占用上限，0 表示不限制。',
         },
+        'backtest_training_token_id': {
+            'value': '',
+            'description': 'Backtest training task token_id from google_sheet_tokens table.',
+        },
         'proxy_url': {
             'value': None,
             'description': 'Google Sheet 请求默认代理地址，为空表示直连。',

@@ -46,6 +46,15 @@ class TaskManager:
         if task_type in ('google_sheet_C4', 'google_sheet_C5'):
             normalized.pop('spreadsheet_id', None)
             normalized.pop('sheet_name', None)
+        if task_type == 'backtest_training' and not normalized.get('token_id'):
+            token_id = (
+                self._get_config('backtest_training_token_id')
+                or self._get_config('backtest_token_id')
+                or self._get_config('google_sheet_backtest_token_id')
+            )
+            if token_id not in (None, '', 0, '0'):
+                normalized['token_type'] = normalized.get('token_type', 'file')
+                normalized['token_id'] = token_id
         return normalized
     
     @transaction_required
@@ -1334,7 +1343,12 @@ class TaskManager:
                     task_logger.info('任务执行完成，状态: cancelled')
                     self._add_task_log(task_id, 'info', '任务执行完成，状态: cancelled', app)
                 else:
-                    status = 'completed' if task_result.get('success') else 'error'
+                    if task_result == 'cancelled':
+                        status = 'cancelled'
+                    elif task_result == 'completed':
+                        status = 'completed'
+                    else:
+                        status = 'error'
                     safe_update(Task, task_id, status=status, end_time=datetime.now())
                     task_logger.info(f'任务执行完成，状态: {status}')
                     self._add_task_log(task_id, 'info', f'任务执行完成，状态: {status}', app)

@@ -70,7 +70,7 @@
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-excess" type="button">超额收益</button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
-                                data-bs-target="#tab-raw" type="button">全量 JSON</button>
+                                data-bs-target="#tab-raw" type="button">完整 JSON</button>
                     </div>
                 </div>
                 <div class="col-md-10">
@@ -109,18 +109,8 @@
 
 {% block scripts %}
 <script>
-const resultId = {{ result_id }};
-
-async function loadResult() {
-    const res = await fetch(`/backtest-training/api/results/${resultId}`);
-    const data = await res.json();
-
-    if (data.data) {
-        populateCards(data.data);
-        populateTables(data.data);
-        document.getElementById('raw-json').textContent = JSON.stringify(data.data, null, 2);
-    }
-}
+const resultId = {{ result_id|tojson }};
+const taskId = {{ task_id|tojson }};
 
 function populateCards(data) {
     document.getElementById('v1-outperform-year').textContent = data.outperform_year || '-';
@@ -130,7 +120,49 @@ function populateCards(data) {
 }
 
 function populateTables(data) {
-    // TODO: 根据实际数据结构填充表格
+    document.getElementById('excess-data').textContent = JSON.stringify(data.excess_returns || {}, null, 2);
+
+    const annualBody = document.getElementById('tbl-annual-compare');
+    annualBody.innerHTML = '';
+
+    const indexAnnual = data.index_return_xpl?.yearly_returns || {};
+    const startAnnual = data.start_return_xpl?.yearly_returns || {};
+    const years = Array.from(new Set([...Object.keys(indexAnnual), ...Object.keys(startAnnual)])).sort();
+
+    years.forEach(year => {
+        const indexValue = indexAnnual[year];
+        const startValue = startAnnual[year];
+        const diff = (typeof indexValue === 'number' && typeof startValue === 'number')
+            ? (startValue - indexValue)
+            : null;
+
+        const row = `<tr>
+            <td>${year}</td>
+            <td>${indexValue ?? '-'}</td>
+            <td>${startValue ?? '-'}</td>
+            <td>${diff ?? '-'}</td>
+        </tr>`;
+        annualBody.insertAdjacentHTML('beforeend', row);
+    });
+}
+
+async function loadResult() {
+    if (!taskId) {
+        return;
+    }
+
+    const res = await fetch(`/api/tasks/${taskId}/results`);
+    const data = await res.json();
+    const results = Array.isArray(data.results) ? data.results : [];
+    const result = results.find(item => String(item.id) === String(resultId));
+
+    if (!result || !result.result) {
+        return;
+    }
+
+    populateCards(result.result);
+    populateTables(result.result);
+    document.getElementById('raw-json').textContent = JSON.stringify(result.result, null, 2);
 }
 
 loadResult();
