@@ -4,97 +4,84 @@
 
 {% block head %}
 <style>
-    .detail-meta-id {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-top: 0.4rem;
-        padding: 0.38rem 0.8rem;
-        border-radius: 999px;
-        background: rgba(13, 110, 253, 0.08);
-        color: #0d6efd;
-        font-size: 0.92rem;
-        font-weight: 600;
-    }
-
-    .param-table th {
-        white-space: nowrap;
-        font-size: 0.82rem;
-        background: linear-gradient(180deg, #eef5ff, #f8fbff);
-        color: #486682;
-    }
-
-    .param-empty {
-        padding: 1.4rem 1rem;
-        text-align: center;
-        color: #6c7a89;
-    }
+    .detail-card { border: none; border-radius: 1rem; box-shadow: 0 4px 16px rgba(0,0,0,0.03); overflow: hidden; }
+    .detail-header { background: #f8fafc; padding: 1.5rem; border-bottom: 1px solid #edf2f7; }
+    
+    .meta-label { color: #64748b; font-size: 0.85rem; margin-bottom: 0.25rem; }
+    .meta-value { color: #0f172a; font-weight: 600; font-size: 1rem; }
+    
+    .param-table th { background: #f8fafc; color: #475569; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+    .param-table td { vertical-align: middle; color: #334155; }
+    
+    .status-badge { padding: 0.4rem 0.8rem; border-radius: 6px; font-weight: 600; font-size: 0.8rem; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <div>
-        <h1 class="h2 mb-1">任务详情</h1>
-        <div class="detail-meta-id">任务 ID：<span id="taskIdText">{{ task_id }}</span></div>
-    </div>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <a href="/backtest-training/list" class="btn btn-sm btn-outline-secondary">
+<div class="pt-3 pb-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 fw-bold mb-1 text-dark">任务详情</h1>
+            <div class="text-muted d-flex align-items-center gap-2">
+                <span>Task ID: <code class="bg-light px-2 py-1 rounded text-primary fs-6" id="taskIdText">{{ task_id }}</code></span>
+            </div>
+        </div>
+        <a href="/backtest-training/list" class="btn btn-light rounded-pill px-4 shadow-sm border">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
     </div>
-</div>
 
-<div class="card mb-3">
-    <div class="card-header">
-        <h5 class="mb-0">任务信息</h5>
-    </div>
-    <div class="card-body">
-        <div class="row">
-            <div class="col-md-3">
-                <strong>状态：</strong> <span id="taskStatus"></span>
-            </div>
-            <div class="col-md-3">
-                <strong>创建时间：</strong> <span id="taskCreated"></span>
-            </div>
-            <div class="col-md-3">
-                <strong>开始时间：</strong> <span id="taskStart"></span>
-            </div>
-            <div class="col-md-3">
-                <strong>结束时间：</strong> <span id="taskEnd"></span>
+    <div class="card detail-card mb-4">
+        <div class="detail-header">
+            <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-info-circle text-primary me-2"></i>基础执行信息</h5>
+        </div>
+        <div class="card-body p-4">
+            <div class="row g-4">
+                <div class="col-md-3">
+                    <div class="meta-label">当前状态</div>
+                    <div class="meta-value" id="taskStatus"></div>
+                </div>
+                <div class="col-md-3">
+                    <div class="meta-label">创建时间</div>
+                    <div class="meta-value" id="taskCreated"><span class="text-muted placeholder col-6"></span></div>
+                </div>
+                <div class="col-md-3">
+                    <div class="meta-label">开始执行时间</div>
+                    <div class="meta-value" id="taskStart"><span class="text-muted placeholder col-6"></span></div>
+                </div>
+                <div class="col-md-3">
+                    <div class="meta-label">结束时间</div>
+                    <div class="meta-value" id="taskEnd"><span class="text-muted placeholder col-6"></span></div>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<div class="card mb-3">
-    <div class="card-header">
-        <h5 class="mb-0">任务输入参数</h5>
-    </div>
-    <div class="card-body">
+    <div class="card detail-card mb-4">
+        <div class="detail-header">
+            <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-sliders text-success me-2"></i>任务输入参数</h5>
+        </div>
         <div class="table-responsive">
-            <table class="table table-hover align-middle param-table mb-0" id="taskParamTable">
+            <table class="table table-hover mb-0 param-table" id="taskParamTable">
                 <thead id="taskParamHead"></thead>
                 <tbody id="taskParamBody"></tbody>
             </table>
         </div>
     </div>
-</div>
 
-<div class="card">
-    <div class="card-header">
-        <h5 class="mb-0">回测结果</h5>
-    </div>
-    <div class="card-body">
+    <div class="card detail-card mb-4">
+        <div class="detail-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-clipboard-data text-warning me-2"></i>回测生成结果 (Sub-tasks)</h5>
+        </div>
         <div class="table-responsive">
-            <table class="table table-hover">
-                <thead class="table-light">
+            <table class="table table-hover mb-0 param-table">
+                <thead>
                     <tr>
-                        <th>结果 ID</th>
-                        <th>参数</th>
+                        <th class="ps-4">结果 ID</th>
+                        <th>执行参数</th>
                         <th>状态</th>
                         <th>创建时间</th>
-                        <th>操作</th>
+                        <th class="pe-4 text-end">操作</th>
                     </tr>
                 </thead>
                 <tbody id="subTaskTableBody"></tbody>
@@ -102,126 +89,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-const taskId = {{ task_id|tojson }};
-
-function getStatusColor(status) {
-    const colors = {
-        pending: 'secondary',
-        running: 'primary',
-        completed: 'success',
-        cancelled: 'warning',
-        error: 'danger',
-        failed: 'danger'
-    };
-    return colors[status] || 'secondary';
-}
-
-function getStatusText(status) {
-    const labels = {
-        pending: '待执行',
-        running: '运行中',
-        completed: '已完成',
-        cancelled: '已取消',
-        error: '失败',
-        failed: '失败'
-    };
-    return labels[status] || status || '-';
-}
-
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-function normalizeTaskInput(config) {
-    const safeConfig = config && typeof config === 'object' ? config : {};
-    const rows = Array.isArray(safeConfig.parameter_rows) ? safeConfig.parameter_rows : [];
-    const fields = Array.isArray(safeConfig.parameter_fields) ? safeConfig.parameter_fields : [];
-
-    if (rows.length) {
-        const normalizedFields = fields.length
-            ? fields.map((field, index) => field.label || field.key || field.code || `参数${index + 1}`)
-            : rows[0].map((_, index) => `参数${index + 1}`);
-        return { fields: normalizedFields, rows };
-    }
-
-    if (safeConfig.parameter_payload && typeof safeConfig.parameter_payload === 'object') {
-        const payloadFields = Object.keys(safeConfig.parameter_payload);
-        const payloadRows = [payloadFields.map((key) => safeConfig.parameter_payload[key])];
-        return { fields: payloadFields, rows: payloadRows };
-    }
-
-    return { fields: [], rows: [] };
-}
-
-function renderTaskInputTable(config) {
-    const { fields, rows } = normalizeTaskInput(config);
-    const head = document.getElementById('taskParamHead');
-    const body = document.getElementById('taskParamBody');
-
-    if (!fields.length || !rows.length) {
-        head.innerHTML = '';
-        body.innerHTML = '<tr><td class="param-empty">当前任务还没有记录可展示的输入参数。</td></tr>';
-        return;
-    }
-
-    head.innerHTML = `<tr>${fields.map((field) => `<th>${escapeHtml(field)}</th>`).join('')}</tr>`;
-    body.innerHTML = rows
-        .map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value || '-')}</td>`).join('')}</tr>`)
-        .join('');
-}
-
-async function loadTaskDetail() {
-    const res = await fetch(`/backtest-training/api/tasks/${taskId}`);
-    const data = await res.json();
-
-    if (!(data.status === 'success' && data.task)) {
-        return;
-    }
-
-    document.getElementById('taskIdText').textContent = data.task.id || taskId;
-    document.getElementById('taskStatus').innerHTML = `<span class="badge bg-${getStatusColor(data.task.status)}">${getStatusText(data.task.status)}</span>`;
-    document.getElementById('taskCreated').textContent = data.task.created_at || '-';
-    document.getElementById('taskStart').textContent = data.task.start_time || '-';
-    document.getElementById('taskEnd').textContent = data.task.end_time || '-';
-
-    renderTaskInputTable(data.task.config || {});
-
-    const tbody = document.getElementById('subTaskTableBody');
-    tbody.innerHTML = '';
-
-    const subTasks = Array.isArray(data.sub_tasks) ? data.sub_tasks : [];
-    if (!subTasks.length) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="5" class="text-center text-muted py-4">
-                    当前还没有生成结果记录，请先查看上面的“任务输入参数”。
-                </td>
-            </tr>
-        `;
-        return;
-    }
-
-    subTasks.forEach((subTask) => {
-        const row = `<tr>
-            <td>${subTask.id}</td>
-            <td>${escapeHtml(JSON.stringify(subTask.parameters || {}))}</td>
-            <td><span class="badge bg-${getStatusColor(subTask.status)}">${getStatusText(subTask.status)}</span></td>
-            <td>${subTask.created_at || '-'}</td>
-            <td><a href="/backtest-training/result/${subTask.id}" class="btn btn-sm btn-primary">查看结果</a></td>
-        </tr>`;
-        tbody.insertAdjacentHTML('beforeend', row);
-    });
-}
-
-loadTaskDetail();
-</script>
 {% endblock %}

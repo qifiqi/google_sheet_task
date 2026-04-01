@@ -4,251 +4,87 @@
 
 {% block head %}
 <style>
-    .backtest-shell {
-        display: grid;
-        gap: 1.25rem;
-    }
-
+    .backtest-shell { display: grid; gap: 1.5rem; }
+    
+    /* 顶部横幅增强 */
     .page-hero {
-        position: relative;
-        overflow: hidden;
-        border: 1px solid rgba(13, 110, 253, 0.22);
-        background:
-            radial-gradient(circle at top right, rgba(13, 110, 253, 0.24), transparent 36%),
-            linear-gradient(135deg, rgba(223, 237, 255, 0.98), rgba(242, 248, 255, 0.98));
-        box-shadow: 0 1rem 2.6rem rgba(13, 110, 253, 0.1);
+        position: relative; overflow: hidden; border: none;
+        background: linear-gradient(135deg, #eef5ff 0%, #f8fbff 100%);
+        box-shadow: 0 4px 24px -6px rgba(13, 110, 253, 0.12);
+        border-radius: 1.25rem;
     }
-
     .page-hero::after {
-        content: "";
-        position: absolute;
-        inset: auto -6rem -6rem auto;
-        width: 14rem;
-        height: 14rem;
-        border-radius: 50%;
-        background: rgba(13, 110, 253, 0.14);
+        content: ""; position: absolute; top: -50%; right: -5%;
+        width: 300px; height: 300px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(13,110,253,0.1) 0%, transparent 70%);
         pointer-events: none;
     }
-
-    .page-hero .card-body,
-    .page-hero .toolbar-row {
-        position: relative;
-        z-index: 1;
-    }
-
-    .hero-subtitle {
-        max-width: 44rem;
-        color: #40607f;
-    }
-
-    .summary-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 1rem;
-    }
-
+    .hero-subtitle { color: #5a7390; font-size: 0.95rem; margin-top: 0.5rem; }
+    
+    /* 统计卡片 */
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; }
     .summary-card {
-        border: 1px solid rgba(13, 110, 253, 0.16);
-        border-radius: 1rem;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 249, 255, 1));
-        padding: 1rem 1.1rem;
-        box-shadow: 0 0.75rem 1.9rem rgba(13, 110, 253, 0.08);
+        border: none; border-radius: 1.25rem; background: #fff;
+        padding: 1.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        position: relative; overflow: hidden;
     }
-
-    .summary-label {
-        color: #53708e;
-        font-size: 0.86rem;
-        margin-bottom: 0.45rem;
+    .summary-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(13, 110, 253, 0.08); }
+    .summary-card::before {
+        content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+        background: #0d6efd; border-radius: 4px 0 0 4px; opacity: 0; transition: opacity 0.2s;
     }
+    .summary-card:hover::before { opacity: 1; }
+    .summary-card.is-running::before { background: #0d6efd; opacity: 1; }
+    .summary-card.is-completed::before { background: #198754; opacity: 1; }
+    .summary-card.is-failed::before { background: #dc3545; opacity: 1; }
 
-    .summary-value {
-        font-size: 1.8rem;
-        line-height: 1;
-        font-weight: 700;
-        color: #0c2d57;
-    }
+    .summary-label { color: #64748b; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .summary-value { font-size: 2rem; font-weight: 700; color: #1e293b; margin: 0.5rem 0; line-height: 1; }
+    .summary-meta { font-size: 0.8rem; color: #94a3b8; }
 
-    .summary-meta {
-        margin-top: 0.5rem;
-        font-size: 0.82rem;
-        color: #5b7692;
-    }
-
-    .summary-card.is-running,
-    .summary-card.is-completed,
-    .summary-card.is-failed {
-        background: linear-gradient(180deg, rgba(13, 110, 253, 0.12), rgba(255, 255, 255, 1));
-    }
-
-    .table-card {
-        overflow: hidden;
-        border: 1px solid rgba(13, 110, 253, 0.16);
-        box-shadow: 0 0.85rem 2rem rgba(13, 110, 253, 0.08);
-    }
-
-    .toolbar-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 1rem;
-        flex-wrap: wrap;
-    }
-
-    .table-note {
-        color: #5a7390;
-        font-size: 0.9rem;
-    }
-
-    .hero-create-btn {
-        position: relative;
-        z-index: 2;
-        min-width: 7.5rem;
-        border-radius: 0.85rem;
-        font-weight: 600;
-        box-shadow: 0 0.6rem 1.4rem rgba(13, 110, 253, 0.16);
-    }
-
+    /* 表格容器 */
+    .table-card { border: none; border-radius: 1.25rem; box-shadow: 0 4px 16px rgba(0,0,0,0.04); }
     .table thead th {
-        font-size: 0.82rem;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #4b6a88;
-        background: linear-gradient(180deg, #ecf4ff, #f8fbff);
-        border-bottom-color: rgba(13, 110, 253, 0.14);
-        white-space: nowrap;
+        font-size: 0.8rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+        color: #64748b; background: #f8fafc; border-bottom: 2px solid #e2e8f0; padding: 1rem;
     }
+    .table tbody td { padding: 1rem; vertical-align: middle; border-bottom: 1px solid #f1f5f9; color: #334155; }
+    .table tbody tr:hover { background-color: #f8fafc; }
 
-    .table tbody tr {
-        transition: background-color 0.2s ease;
-    }
-
-    .table tbody tr:hover {
-        background: rgba(13, 110, 253, 0.04);
-    }
-
-    .task-id {
-        font-weight: 700;
-        color: #0b2d57;
-    }
-
-    .task-meta {
-        margin-top: 0.2rem;
-        font-size: 0.82rem;
-        color: #57728f;
-    }
-
+    /* 状态与徽章 */
+    .task-id { font-weight: 600; color: #0f172a; font-size: 0.95rem; }
+    .task-meta { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
     .model-chip {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 3.7rem;
-        padding: 0.3rem 0.78rem;
-        border-radius: 999px;
-        background: linear-gradient(135deg, #0d6efd, #1d4ed8);
-        color: #fff;
-        font-size: 0.82rem;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        box-shadow: 0 0.5rem 1rem rgba(13, 110, 253, 0.18);
+        padding: 0.35rem 0.8rem; border-radius: 8px; background: #eff6ff;
+        color: #1d4ed8; font-size: 0.75rem; font-weight: 700; border: 1px solid #bfdbfe;
     }
-
     .status-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.38rem;
-        padding: 0.32rem 0.7rem;
-        border-radius: 999px;
-        font-size: 0.82rem;
-        font-weight: 600;
+        padding: 0.35rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;
+        display: inline-flex; align-items: center; gap: 0.35rem;
     }
-
-    .status-pill::before {
-        content: "";
-        width: 0.45rem;
-        height: 0.45rem;
-        border-radius: 50%;
-        background: currentColor;
-        opacity: 0.75;
-    }
-
-    .status-pill.is-pending {
-        background: rgba(108, 117, 125, 0.12);
-        color: #6c757d;
-    }
-
-    .status-pill.is-running {
-        background: rgba(13, 110, 253, 0.12);
-        color: #0d6efd;
-    }
-
-    .status-pill.is-completed {
-        background: rgba(25, 135, 84, 0.12);
-        color: #198754;
-    }
-
-    .status-pill.is-cancelled {
-        background: rgba(255, 193, 7, 0.14);
-        color: #946c00;
-    }
-
-    .status-pill.is-error,
-    .status-pill.is-failed {
-        background: rgba(220, 53, 69, 0.12);
-        color: #dc3545;
-    }
-
-    .time-main {
-        font-weight: 600;
-        color: #12355d;
-    }
-
-    .time-sub {
-        margin-top: 0.18rem;
-        font-size: 0.78rem;
-        color: #5b7692;
-    }
-
-    .action-group {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-    }
-
-    .empty-row {
-        padding: 2.5rem 1rem;
-        text-align: center;
-        color: #5d7896;
-        background: linear-gradient(180deg, rgba(242, 248, 255, 0.8), rgba(255, 255, 255, 1));
-    }
-
-    @media (max-width: 991px) {
-        .summary-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-    }
-
-    @media (max-width: 576px) {
-        .summary-grid {
-            grid-template-columns: 1fr;
-        }
-    }
+    .status-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .status-pill.is-pending { background: #f1f5f9; color: #64748b; }
+    .status-pill.is-running { background: #eff6ff; color: #2563eb; }
+    .status-pill.is-completed { background: #f0fdf4; color: #16a34a; }
+    .status-pill.is-error, .status-pill.is-failed { background: #fef2f2; color: #dc2626; }
+    
+    .time-main { font-weight: 500; color: #334155; font-size: 0.9rem; }
+    .time-sub { font-size: 0.75rem; color: #94a3b8; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="backtest-shell">
+<div class="backtest-shell pt-3">
     <div class="card page-hero">
-        <div class="card-body p-4">
-            <div class="toolbar-row">
-                <div>
-                    <h1 class="h2 mb-2">数据回测</h1>
-                    <div class="hero-subtitle">统一查看 C3 / C5 回测任务，在任务总表中直接区分模型版本、状态和时间，并支持查看详情或删除任务。</div>
-                </div>
-                <div class="btn-toolbar mb-2 mb-md-0">
-                    <a href="{{ url_for('backtest_training.create_page') }}" class="btn btn-primary hero-create-btn">创建任务</a>
-                </div>
+        <div class="card-body p-4 p-md-5 d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h1 class="h3 mb-1 fw-bold" style="color: #0f172a;">数据回测中心</h1>
+                <div class="hero-subtitle">统一查看与管理 C3 / C5 回测任务，实时追踪任务执行状态。</div>
             </div>
+            <a href="{{ url_for('backtest_training.create_page') }}" class="btn btn-primary px-4 py-2 rounded-pill shadow-sm fw-medium">
+                <i class="bi bi-plus-lg me-1"></i> 创建新任务
+            </a>
         </div>
     </div>
 
@@ -269,39 +105,33 @@
             <div class="summary-meta">结果已落库，可直接查看</div>
         </div>
         <div class="summary-card is-failed">
-            <div class="summary-label">失败</div>
+            <div class="summary-label">执行失败</div>
             <div class="summary-value text-danger" id="failedTasks">0</div>
-            <div class="summary-meta">包含 error / failed 状态</div>
+            <div class="summary-meta">包含系统错误或执行异常</div>
         </div>
     </div>
 
-    <div class="card table-card">
-        <div class="card-header bg-white border-0 pt-3 pb-0 px-3 px-md-4">
-            <div class="toolbar-row">
-                <div>
-                    <h5 class="mb-1">任务总表</h5>
-                    <div class="table-note">每 5 秒自动刷新一次。可直接从这里进入详情或删除任务。</div>
-                </div>
-                <div class="table-note">最后刷新：<span id="lastUpdated">-</span></div>
-            </div>
+    <div class="card table-card mb-4">
+        <div class="card-header bg-white border-0 p-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h5 class="mb-0 fw-bold" style="color: #1e293b;">任务列表</h5>
+            <span class="text-muted small bg-light px-3 py-1 rounded-pill">最后刷新：<span id="lastUpdated">-</span></span>
         </div>
-        <div class="card-body px-3 px-md-4 pb-4">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead>
-                        <tr>
-                            <th>任务</th>
-                            <th>模型版本</th>
-                            <th>状态</th>
-                            <th>创建时间</th>
-                            <th>开始时间</th>
-                            <th>结束时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="taskTableBody"></tbody>
-                </table>
-            </div>
+        <div class="table-responsive">
+            <table class="table mb-0">
+                <thead>
+                    <tr>
+                        <th class="ps-4">任务名称 & ID</th>
+                        <th>模型版本</th>
+                        <th>状态</th>
+                        <th>创建时间</th>
+                        <th>开始时间</th>
+                        <th>结束时间</th>
+                        <th class="pe-4 text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="taskTableBody">
+                    </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -365,13 +195,43 @@ function renderTimeCell(value) {
 }
 
 function renderStatus(status) {
-    return `<span class="status-pill is-${escapeHtml(status || 'pending')}">${escapeHtml(getStatusText(status))}</span>`;
+    const normalized = status || 'pending';
+    return `<span class="status-pill is-${escapeHtml(normalized)}">${escapeHtml(getStatusText(normalized))}</span>`;
+}
+
+function inferModelVersion(task) {
+    if (task.model_version) {
+        return String(task.model_version).toUpperCase();
+    }
+
+    const config = task.config || {};
+    const sheet = config.sheet || {};
+    const title = String(sheet.title || config.title || '').toUpperCase();
+    if (title.includes('C5')) {
+        return 'C5';
+    }
+    if (title.includes('C4')) {
+        return 'C4';
+    }
+
+    const parameters = Array.isArray(config.parameters) ? config.parameters : [];
+    const firstRow = Array.isArray(parameters[0]) ? parameters[0] : [];
+    if (firstRow.length === 2) {
+        return 'C5';
+    }
+    if (firstRow.length >= 7) {
+        return 'C3';
+    }
+    return '-';
 }
 
 function renderTaskCell(task) {
     const shortId = String(task.id || '').slice(0, 8);
     const taskName = task.name || '未命名任务';
-    const sheetName = task.config && task.config.sheet_name ? task.config.sheet_name : '-';
+    const sheetName = task.config && task.config.sheet && task.config.sheet.sheet_name
+        ? task.config.sheet.sheet_name
+        : '-';
+
     return `
         <div class="task-id" title="${escapeHtml(task.id || '')}">${escapeHtml(taskName)}</div>
         <div class="task-meta">ID: ${escapeHtml(shortId)} · Sheet: ${escapeHtml(sheetName)}</div>
@@ -411,34 +271,34 @@ async function loadTasks() {
         else if (task.status === 'completed') completed += 1;
         else if (task.status === 'error' || task.status === 'failed') failed += 1;
 
-        const row = `<tr>
-            <td>${renderTaskCell(task)}</td>
-            <td><span class="model-chip">${escapeHtml((task.model_version || '-').toUpperCase())}</span></td>
-            <td>${renderStatus(task.status)}</td>
-            <td>${renderTimeCell(task.created_at)}</td>
-            <td>${renderTimeCell(task.start_time)}</td>
-            <td>${renderTimeCell(task.end_time)}</td>
-            <td>
-                <div class="action-group">
+        const row = `
+            <tr>
+                <td class="ps-4">${renderTaskCell(task)}</td>
+                <td><span class="model-chip">${escapeHtml(inferModelVersion(task))}</span></td>
+                <td>${renderStatus(task.status)}</td>
+                <td>${renderTimeCell(task.created_at)}</td>
+                <td>${renderTimeCell(task.start_time)}</td>
+                <td>${renderTimeCell(task.end_time)}</td>
+                <td class="pe-4 text-end">
                     <a href="/backtest-training/detail/${task.id}" class="btn btn-sm btn-outline-primary">查看详情</a>
-                    <button type="button" class="btn btn-sm btn-outline-danger delete-task-btn" data-task-id="${escapeHtml(task.id)}">删除</button>
-                </div>
-            </td>
-        </tr>`;
+                    <button type="button" class="btn btn-sm btn-outline-danger delete-task-btn ms-2" data-task-id="${escapeHtml(task.id)}">删除</button>
+                </td>
+            </tr>
+        `;
         tbody.insertAdjacentHTML('beforeend', row);
     });
 
     if (!tasks.length) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" class="empty-row">
-                    当前还没有数据回测任务，点击右上角“创建任务”开始。
+                <td colspan="7" class="text-center text-muted py-5">
+                    当前还没有数据回测任务，点击右上角“创建新任务”开始。
                 </td>
             </tr>
         `;
     }
 
-    document.getElementById('totalTasks').textContent = data.total || tasks.length;
+    document.getElementById('totalTasks').textContent = tasks.length;
     document.getElementById('runningTasks').textContent = running;
     document.getElementById('completedTasks').textContent = completed;
     document.getElementById('failedTasks').textContent = failed;

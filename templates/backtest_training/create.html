@@ -4,199 +4,149 @@
 
 {% block head %}
 <style>
-    .create-shell {
-        display: grid;
-        gap: 1rem;
+    .create-shell { display: grid; gap: 1.5rem; }
+    
+    .card-modern {
+        border: none; border-radius: 1rem; box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+        background: #ffffff; overflow: hidden;
+    }
+    
+    .hero-bg {
+        background: linear-gradient(120deg, #f8fbff 0%, #ffffff 100%);
+        border-bottom: 1px solid #edf2f7;
     }
 
-    .hero-card {
-        background:
-            radial-gradient(circle at top right, rgba(13, 110, 253, 0.2), transparent 34%),
-            linear-gradient(135deg, rgba(232, 242, 255, 0.98), rgba(247, 250, 255, 0.98));
-        border: 1px solid rgba(13, 110, 253, 0.18);
-        box-shadow: 0 1rem 2.4rem rgba(13, 110, 253, 0.08);
+    .form-label { font-weight: 600; color: #475569; font-size: 0.9rem; margin-bottom: 0.4rem; }
+    .form-control { 
+        border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 1rem;
+        transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.02) inset;
     }
+    .form-control:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
 
     .summary-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        padding: 0.32rem 0.78rem;
-        border-radius: 999px;
-        background: rgba(13, 110, 253, 0.1);
-        color: #0b5ed7;
-        font-size: 0.82rem;
-        margin-right: 0.45rem;
-        margin-bottom: 0.45rem;
+        display: inline-flex; align-items: center; padding: 0.35rem 0.8rem;
+        border-radius: 6px; background: #f1f5f9; color: #475569;
+        font-size: 0.8rem; font-weight: 500; margin: 0 0.5rem 0.5rem 0;
     }
-
-    .version-badge {
-        font-size: 0.82rem;
-        letter-spacing: 0.08em;
-    }
-
-    .section-title {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-    }
-
-    .parameter-table thead th {
-        white-space: nowrap;
-        font-size: 0.9rem;
-        background: linear-gradient(180deg, #eef5ff, #f8fbff);
-        color: #486682;
-        border: 0;
-        border-bottom: 1px solid rgba(13, 110, 253, 0.12);
-    }
-
-    .parameter-table tbody td {
-        vertical-align: middle;
-        border: 0;
-    }
-
-    .parameter-table {
-        border: 0;
-    }
-
-    .parameter-table tbody tr:hover {
-        background: rgba(13, 110, 253, 0.03);
-    }
-
-    .panel-note {
-        color: #5f6f85;
-        font-size: 0.9rem;
-    }
+    .summary-chip i { margin-right: 4px; color: #3b82f6; }
 
     .empty-hint {
-        padding: 1rem;
-        border: 1px dashed rgba(13, 110, 253, 0.28);
-        border-radius: 0.75rem;
-        color: #52708f;
-        background: linear-gradient(135deg, rgba(240, 246, 255, 0.95), rgba(248, 251, 255, 0.98));
+        padding: 3rem 1rem; border: 2px dashed #cbd5e1; border-radius: 1rem;
+        color: #64748b; background: #f8fafc; text-align: center;
     }
+    .empty-hint i { font-size: 2rem; color: #94a3b8; margin-bottom: 1rem; display: block; }
 
-    .create-actions .btn {
-        min-width: 8rem;
-    }
-
-    .create-actions .btn[disabled] {
-        cursor: wait;
-    }
+    .parameter-table th { background: #f8fafc; color: #475569; font-weight: 600; font-size: 0.85rem; border-bottom: 2px solid #e2e8f0; }
+    .parameter-table td { vertical-align: middle; border-bottom: 1px solid #f1f5f9; }
+    .param-input { background-color: #f8fafc; border: 1px solid transparent; text-align: center; }
+    .param-input:focus { background-color: #fff; border-color: #3b82f6; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="create-shell">
-    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-1 border-bottom">
+<div class="create-shell pt-3 pb-5">
+    <div class="d-flex justify-content-between align-items-center mb-2">
         <div>
-            <h1 class="h2 mb-1">创建数据回测任务</h1>
-            <div class="text-muted">输入模型 URL 后自动识别模型版本，并按固定参数风格创建参数行。点击创建后会立即给出加载状态，避免按钮看起来无响应。</div>
+            <h1 class="h3 mb-2 fw-bold text-dark">创建数据回测任务</h1>
+            <p class="text-muted mb-0">输入模型 URL 自动识别模型版本，快速创建参数行。</p>
         </div>
-        <a href="{{ url_for('backtest_training.list_page') }}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> 返回任务总表
+        <a href="{{ url_for('backtest_training.list_page') }}" class="btn btn-light shadow-sm text-secondary fw-medium rounded-pill px-4">
+            <i class="bi bi-arrow-left"></i> 返回列表
         </a>
     </div>
 
-    <div class="card hero-card">
-        <div class="card-body">
-            <div class="row g-3 align-items-end">
+    <div class="card card-modern hero-bg">
+        <div class="card-body p-4 p-md-5">
+            <div class="row g-4 align-items-end">
                 <div class="col-lg-7">
                     <label class="form-label">Google Sheet URL</label>
-                    <input type="text" class="form-control" id="modelUrl" placeholder="粘贴 Google Sheet URL">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-link-45deg"></i></span>
+                        <input type="text" class="form-control border-start-0 ps-0" id="modelUrl" placeholder="请粘贴完整的 Google Sheet 链接...">
+                    </div>
                 </div>
                 <div class="col-lg-3">
                     <label class="form-label">股票代码</label>
-                    <input type="text" class="form-control" id="stockCode" placeholder="支持空格或逗号分隔">
+                    <input type="text" class="form-control" id="stockCode" placeholder="如 AAPL, MSFT (支持逗号分隔)">
                 </div>
                 <div class="col-lg-2 d-grid">
-                    <button type="button" class="btn btn-outline-primary" id="analyzeBtn">
-                        <i class="bi bi-search"></i> 识别 URL
+                    <button type="button" class="btn btn-primary shadow-sm" id="analyzeBtn">
+                        <i class="bi bi-magic me-1"></i> 智能识别
                     </button>
                 </div>
             </div>
 
-            <div class="row g-3 mt-1">
-                <div class="col-lg-3">
+            <hr class="my-4" style="border-color: #e2e8f0;">
+
+            <div class="row g-4">
+                <div class="col-lg-4">
                     <label class="form-label">任务名称</label>
-                    <input type="text" class="form-control" id="taskName" placeholder="识别 URL 后自动填充">
+                    <input type="text" class="form-control" id="taskName" placeholder="识别 URL 后将自动填充">
                 </div>
-                <div class="col-lg-3">
-                    <label class="form-label d-block">年份选项</label>
-                    <div class="d-flex flex-wrap gap-3">
-                        <div class="form-check form-check-inline">
-                            <input class="form-check-input" type="checkbox" id="recentYearsCheck">
-                            <label class="form-check-label" for="recentYearsCheck">近年</label>
+                <div class="col-lg-8">
+                    <label class="form-label d-block">回测年份选项</label>
+                    <div class="d-flex flex-wrap gap-4 pt-1">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="recentYearsCheck">
+                            <label class="form-check-label fw-medium" for="recentYearsCheck">选择近年</label>
                         </div>
-                        <div class="form-check form-check-inline">
-                            <input class="form-check-input" type="checkbox" id="fullYearsCheck">
-                            <label class="form-check-label" for="fullYearsCheck">整年</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="fullYearsCheck">
+                            <label class="form-check-label fw-medium" for="fullYearsCheck">选择整年</label>
                         </div>
                     </div>
                 </div>
-                <div class="col-lg-6">
-                    <label class="form-label">页面说明</label>
-                    <div>
-                        <span class="summary-chip">统一入口</span>
-                        <span class="summary-chip">自动识别 C3 / C5</span>
-                        <span class="summary-chip">创建中禁用按钮防重复提交</span>
-                    </div>
+            </div>
+
+            <div class="p-3 bg-light rounded-3 mt-3 border" style="display:none; border-color: #e2e8f0 !important;" id="yearsContainerWrapper">
+                <div id="recentYearsOptions" style="display:none;" class="mb-3">
+                    <label class="form-label text-primary small">近年范围</label>
+                    <div id="recentYearsCheckboxes" class="d-flex flex-wrap gap-3"></div>
+                </div>
+                <div id="fullYearsOptions" style="display:none;">
+                    <label class="form-label text-primary small">整年范围</label>
+                    <div id="fullYearsCheckboxes" class="d-flex flex-wrap gap-3"></div>
                 </div>
             </div>
 
-            <div id="recentYearsOptions" style="display:none;" class="mt-3">
-                <label class="form-label">近年范围</label>
-                <div id="recentYearsCheckboxes"></div>
-            </div>
-
-            <div id="fullYearsOptions" style="display:none;" class="mt-3">
-                <label class="form-label">整年范围</label>
-                <div id="fullYearsCheckboxes"></div>
-            </div>
-
-            <div id="sheetInfo" class="alert alert-info mt-3 mb-0" style="display:none;">
-                <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
-                    <span><strong>标题：</strong><span id="sheetTitle"></span></span>
-                    <span><strong>Sheet：</strong><span id="sheetNames"></span></span>
-                    <span class="badge bg-dark version-badge" id="modelVersionBadge">C3</span>
+            <div id="sheetInfo" class="alert mt-4 mb-0 border-0" style="display:none; background-color: #eff6ff; color: #1e3a8a;">
+                <div class="d-flex align-items-center mb-2 gap-3">
+                    <span class="badge bg-primary text-white px-3 py-2 rounded-pill fs-6 shadow-sm" id="modelVersionBadge">C3</span>
+                    <span class="fw-medium"><i class="bi bi-file-earmark-spreadsheet me-2"></i><span id="sheetTitle"></span></span>
+                    <span class="text-muted">|</span>
+                    <span class="fw-medium text-secondary">Sheet: <span id="sheetNames"></span></span>
                 </div>
-                <div class="row" id="yearsDisplay" style="display:none;">
-                    <div class="col-md-6">
-                        <strong>近年：</strong><span id="recentYearsDisplay"></span>
-                    </div>
-                    <div class="col-md-6">
-                        <strong>整年：</strong><span id="fullYearsDisplay"></span>
-                    </div>
+                <div class="row mt-2 text-sm" id="yearsDisplay" style="display:none;">
+                    <div class="col-md-6"><strong>近年：</strong> <span class="text-muted" id="recentYearsDisplay"></span></div>
+                    <div class="col-md-6"><strong>整年：</strong> <span class="text-muted" id="fullYearsDisplay"></span></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="card" id="paramSection" style="display:none;">
-        <div class="card-header">
-            <div class="section-title">
-                <div>
-                    <h5 class="mb-1">参数配对列表</h5>
-                    <div class="panel-note">页面沿用固定参数风格，但创建逻辑使用统一的 URL 自动识别流程。</div>
-                </div>
-                <div class="d-flex gap-2 create-actions">
-                    <button type="button" class="btn btn-success btn-sm" id="addParamBtn">
-                        <i class="bi bi-plus"></i> 添加参数
-                    </button>
-                    <button type="button" class="btn btn-primary btn-sm" id="createBtn">
-                        <i class="bi bi-check2-circle"></i> 创建任务
-                    </button>
-                </div>
+    <div class="card card-modern mt-2" id="paramSection" style="display:none;">
+        <div class="card-header bg-white border-bottom-0 pt-4 pb-2 px-4 d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-1 fw-bold text-dark">参数配置清单</h5>
+                <p class="text-muted small mb-0">系统已根据模型版本自动生成对应表头，请填写具体参数。</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-outline-primary px-3 rounded-pill" id="addParamBtn">
+                    <i class="bi bi-plus-lg"></i> 添加一组
+                </button>
+                <button type="button" class="btn btn-success px-4 rounded-pill shadow-sm" id="createBtn">
+                    <i class="bi bi-check2-circle me-1"></i> 提交创建
+                </button>
             </div>
         </div>
-        <div class="card-body">
+        <div class="card-body px-4 pb-4">
             <div id="emptyHint" class="empty-hint mb-3" style="display:none;">
+                <i class="bi bi-table"></i>
                 识别 URL 后会根据模型版本生成表头，每一行代表一组待创建的参数。
             </div>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle parameter-table" id="paramTable">
-                    <thead class="table-light" id="paramTableHead"></thead>
+            <div class="table-responsive rounded-3 border">
+                <table class="table table-hover mb-0 parameter-table" id="paramTable">
+                    <thead id="paramTableHead"></thead>
                     <tbody id="paramTableBody"></tbody>
                 </table>
             </div>
@@ -230,26 +180,44 @@ const FIELD_MAP = {
     ]
 };
 
-
 const currentYear = new Date().getFullYear();
 const recentYearsContainer = document.getElementById('recentYearsCheckboxes');
 const fullYearsContainer = document.getElementById('fullYearsCheckboxes');
+const yearsContainerWrapper = document.getElementById('yearsContainerWrapper');
+const recentYearsOptions = document.getElementById('recentYearsOptions');
+const fullYearsOptions = document.getElementById('fullYearsOptions');
+const emptyHint = document.getElementById('emptyHint');
+const paramSection = document.getElementById('paramSection');
+const analyzeBtn = document.getElementById('analyzeBtn');
 
 for (let i = 1; i <= 7; i++) {
-    recentYearsContainer.innerHTML += `
+    recentYearsContainer.insertAdjacentHTML('beforeend', `
         <div class="form-check form-check-inline">
             <input class="form-check-input recent-year" type="checkbox" id="recent${i}" value="${i}">
             <label class="form-check-label" for="recent${i}">近 ${i} 年</label>
-        </div>`;
+        </div>
+    `);
 }
 
 for (let i = 0; i < 7; i++) {
     const year = currentYear - i;
-    fullYearsContainer.innerHTML += `
+    fullYearsContainer.insertAdjacentHTML('beforeend', `
         <div class="form-check form-check-inline">
             <input class="form-check-input full-year" type="checkbox" id="full${year}" value="${year}">
             <label class="form-check-label" for="full${year}">${year}</label>
-        </div>`;
+        </div>
+    `);
+}
+
+function syncYearsWrapper() {
+    const showRecent = recentYearsOptions.style.display !== 'none';
+    const showFull = fullYearsOptions.style.display !== 'none';
+    yearsContainerWrapper.style.display = showRecent || showFull ? 'block' : 'none';
+}
+
+function syncEmptyState() {
+    const rowCount = document.querySelectorAll('#paramTableBody tr').length;
+    emptyHint.style.display = rowCount === 0 ? 'block' : 'none';
 }
 
 function updateYearsDisplay() {
@@ -282,16 +250,24 @@ function addParameterRow(initialValues = {}) {
         return `<td><input type="text" class="form-control form-control-sm param-input" data-key="${field.key}" value="${value}"></td>`;
     }).join('');
 
-    const row = `<tr>${cells}<td><button class="btn btn-danger btn-sm delete-row">删除</button></td></tr>`;
+    const row = `
+        <tr>
+            ${cells}
+            <td class="text-center">
+                <button type="button" class="btn btn-outline-danger btn-sm delete-row">删除</button>
+            </td>
+        </tr>
+    `;
     tbody.insertAdjacentHTML('beforeend', row);
+    syncEmptyState();
 }
 
 function resetParameterTable() {
-    currentFields = FIELD_MAP[currentModelVersion];
+    currentFields = FIELD_MAP[currentModelVersion] || FIELD_MAP.c3;
     updateTableHeader();
     document.getElementById('paramTableBody').innerHTML = '';
     addParameterRow();
-    document.getElementById('emptyHint').style.display = 'block';
+    syncEmptyState();
 }
 
 function collectParameters() {
@@ -313,24 +289,33 @@ function setCreateButtonState(isLoading) {
     addParamBtn.disabled = isLoading;
     createBtn.innerHTML = isLoading
         ? '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>创建中...'
-        : '<i class="bi bi-check2-circle"></i> 创建任务';
+        : '<i class="bi bi-check2-circle me-1"></i> 提交创建';
+}
+
+function setAnalyzeButtonState(isLoading) {
+    analyzeBtn.disabled = isLoading;
+    analyzeBtn.innerHTML = isLoading
+        ? '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>识别中...'
+        : '<i class="bi bi-magic me-1"></i> 智能识别';
 }
 
 document.getElementById('recentYearsCheck').addEventListener('change', (e) => {
     const isChecked = e.target.checked;
-    document.getElementById('recentYearsOptions').style.display = isChecked ? 'block' : 'none';
+    recentYearsOptions.style.display = isChecked ? 'block' : 'none';
     document.querySelectorAll('.recent-year').forEach((cb, index) => {
         cb.checked = isChecked && index < 3;
     });
+    syncYearsWrapper();
     updateYearsDisplay();
 });
 
 document.getElementById('fullYearsCheck').addEventListener('change', (e) => {
     const isChecked = e.target.checked;
-    document.getElementById('fullYearsOptions').style.display = isChecked ? 'block' : 'none';
+    fullYearsOptions.style.display = isChecked ? 'block' : 'none';
     document.querySelectorAll('.full-year').forEach((cb, index) => {
         cb.checked = isChecked && index < 3;
     });
+    syncYearsWrapper();
     updateYearsDisplay();
 });
 
@@ -347,6 +332,7 @@ document.getElementById('addParamBtn').addEventListener('click', () => {
 document.getElementById('paramTableBody').addEventListener('click', (e) => {
     if (e.target.classList.contains('delete-row')) {
         e.target.closest('tr').remove();
+        syncEmptyState();
     }
 });
 
@@ -364,28 +350,36 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
     }
 
     spreadsheetId = match[1];
-    const res = await fetch('/api/google-sheet/worksheets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spreadsheet_id: spreadsheetId })
-    });
-    const data = await res.json();
+    setAnalyzeButtonState(true);
 
-    if (data.status !== 'success') {
-        alert('识别失败：' + (data.message || '未知错误'));
-        return;
+    try {
+        const res = await fetch('/api/google-sheet/worksheets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ spreadsheet_id: spreadsheetId })
+        });
+        const data = await res.json();
+
+        if (data.status !== 'success') {
+            alert('识别失败：' + (data.message || '未知错误'));
+            return;
+        }
+
+        sheetTitle = data.title || '';
+        currentModelVersion = inferModelVersion(sheetTitle);
+        document.getElementById('sheetTitle').textContent = sheetTitle;
+        document.getElementById('taskName').value = sheetTitle;
+        document.getElementById('sheetNames').textContent = (data.worksheets && data.worksheets.length > 0) ? data.worksheets[0] : '';
+        document.getElementById('modelVersionBadge').textContent = currentModelVersion.toUpperCase();
+        document.getElementById('sheetInfo').style.display = 'block';
+        paramSection.style.display = 'block';
+
+        resetParameterTable();
+    } catch (error) {
+        alert('识别失败：网络异常或服务未响应');
+    } finally {
+        setAnalyzeButtonState(false);
     }
-
-    sheetTitle = data.title || '';
-    currentModelVersion = inferModelVersion(sheetTitle);
-    document.getElementById('sheetTitle').textContent = sheetTitle;
-    document.getElementById('taskName').value = sheetTitle;
-    document.getElementById('sheetNames').textContent = (data.worksheets && data.worksheets.length > 0) ? data.worksheets[0] : '';
-    document.getElementById('modelVersionBadge').textContent = currentModelVersion.toUpperCase();
-    document.getElementById('sheetInfo').style.display = 'block';
-    document.getElementById('paramSection').style.display = 'block';
-
-    resetParameterTable();
 });
 
 document.getElementById('createBtn').addEventListener('click', async () => {
@@ -464,5 +458,8 @@ document.getElementById('createBtn').addEventListener('click', async () => {
         setCreateButtonState(false);
     }
 });
+
+syncYearsWrapper();
+syncEmptyState();
 </script>
 {% endblock %}
