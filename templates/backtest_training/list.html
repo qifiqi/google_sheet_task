@@ -395,7 +395,7 @@ async function deleteTask(taskId) {
 }
 
 async function loadTasks() {
-    const res = await fetch('/backtest-training/api/tasks');
+    const res = await fetch('/api/tasks?task_type=backtest_training');
     const data = await res.json();
     const tasks = Array.isArray(data.tasks) ? data.tasks : [];
 

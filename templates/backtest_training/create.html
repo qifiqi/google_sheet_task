@@ -103,7 +103,7 @@
         <div class="card-body">
             <div class="row g-3 align-items-end">
                 <div class="col-lg-7">
-                    <label class="form-label">模型 URL</label>
+                    <label class="form-label">Google Sheet URL</label>
                     <input type="text" class="form-control" id="modelUrl" placeholder="粘贴 Google Sheet URL">
                 </div>
                 <div class="col-lg-3">
@@ -118,7 +118,11 @@
             </div>
 
             <div class="row g-3 mt-1">
-                <div class="col-lg-6">
+                <div class="col-lg-3">
+                    <label class="form-label">任务名称</label>
+                    <input type="text" class="form-control" id="taskName" placeholder="识别 URL 后自动填充">
+                </div>
+                <div class="col-lg-3">
                     <label class="form-label d-block">年份选项</label>
                     <div class="d-flex flex-wrap gap-3">
                         <div class="form-check form-check-inline">
@@ -204,6 +208,7 @@
 {% block scripts %}
 <script>
 let sheetTitle = '';
+let spreadsheetId = '';
 let currentModelVersion = 'c3';
 let currentFields = [];
 let isCreatingTask = false;
@@ -358,7 +363,7 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
         return;
     }
 
-    const spreadsheetId = match[1];
+    spreadsheetId = match[1];
     const res = await fetch('/api/google-sheet/worksheets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -374,6 +379,7 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
     sheetTitle = data.title || '';
     currentModelVersion = inferModelVersion(sheetTitle);
     document.getElementById('sheetTitle').textContent = sheetTitle;
+    document.getElementById('taskName').value = sheetTitle;
     document.getElementById('sheetNames').textContent = (data.worksheets && data.worksheets.length > 0) ? data.worksheets[0] : '';
     document.getElementById('modelVersionBadge').textContent = currentModelVersion.toUpperCase();
     document.getElementById('sheetInfo').style.display = 'block';
@@ -387,12 +393,17 @@ document.getElementById('createBtn').addEventListener('click', async () => {
         return;
     }
 
-    const url = document.getElementById('modelUrl').value.trim();
+    const taskName = document.getElementById('taskName').value.trim();
     const stockCode = document.getElementById('stockCode').value.trim();
     const sheetName = document.getElementById('sheetNames').textContent.trim();
 
-    if (!url) {
-        alert('请输入模型 URL');
+    if (!taskName) {
+        alert('请输入任务名称');
+        return;
+    }
+
+    if (!spreadsheetId) {
+        alert('请先识别 URL');
         return;
     }
 
@@ -418,21 +429,23 @@ document.getElementById('createBtn').addEventListener('click', async () => {
     setCreateButtonState(true);
 
     try {
-        const res = await fetch('/backtest-training/api/tasks', {
+        const res = await fetch('/api/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model_url: url,
-                stock_code: stockCode,
-                sheet_name: sheetName || 'Sheet1',
-                title: sheetTitle,
-                parameters,
-                recent_years: recentYears,
-                full_years: fullYears,
-                extra_config: {
-                    model_version: currentModelVersion,
-                    parameter_fields: currentFields,
-                    parameter_input_mode: 'rows'
+                name: taskName,
+                description: `backtest training task for ${sheetName}`,
+                task_type: 'backtest_training',
+                config: {
+                    sheet: {
+                        spreadsheet_id: spreadsheetId,
+                        sheet_name: sheetName || 'Sheet1',
+                        title: sheetTitle
+                    },
+                    stock_code: stockCode,
+                    parameters,
+                    recent_years: recentYears,
+                    full_years: fullYears
                 }
             })
         });

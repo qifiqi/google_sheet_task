@@ -360,28 +360,30 @@ class BacktestTrainingService(BaseGoogleSheetService):
         """初始化Google Sheet连接"""
         try:
             self._log_info("开始初始化Google Sheet连接")
-
-            sheets = config_data.get('sheets')
-
+            spreadsheet_id = config_data.get('spreadsheet_id')
+            sheet_name = config_data.get('sheet_name', 'data')
             token_file = config_data.get('token_file', 'data/token.json')
             proxy_url = config_data.get('proxy_url', None)
 
-            if not sheets:
+            if 'sheet' in config_data:
+                sheet = config_data['sheet']
+                spreadsheet_id = sheet.get('spreadsheet_id')
+                sheet_name = sheet.get('sheet_name', 'data')
+
+            if not spreadsheet_id:
                 error_msg = "缺少spreadsheet_id配置"
                 self._log_error(error_msg)
                 raise ValueError(error_msg)
-            self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
+
+            self._log_info(f"连接参数 - Spreadsheet ID: {spreadsheet_id}, Sheet: {sheet_name}, Token: {token_file}")
             if proxy_url:
                 self._log_info(f"使用代理: {proxy_url}")
-            for sheet in sheets:
-                spreadsheet_id = sheet.get('spreadsheet_id')
-                sheet_name = sheet.get('sheet_name', 'data')
-                google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
-                if not google_sheet.worksheet:
-                    raise Exception("请先选择工作表")
-                self.google_sheets.append(google_sheet)
-                self._log_info(f"已连接工作表: {sheet}")
 
+            self.google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
+            if not self.google_sheet.worksheet:
+                raise Exception("请先选择工作表")
+
+            self._log_info("Google Sheet连接初始化成功")
         except Exception as e:
             error_msg = f"初始化Google Sheet连接失败: {str(e)}"
             self._log_error(error_msg)
