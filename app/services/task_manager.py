@@ -11,7 +11,7 @@ from flask import current_app
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from sqlalchemy import or_
-from app.models import Task, TaskLog, TaskResult, GoogleSheet, db
+from app.models import Task, TaskLog, TaskResult, GoogleSheet, GoogleSheetTokenTaskType, db
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_service_C4 import GoogleSheetService as GoogleSheetServiceC4
 from app.services.google_sheet_service_C5 import GoogleSheetService as GoogleSheetServiceC5
@@ -43,6 +43,11 @@ class TaskManager:
         if not isinstance(config, dict):
             return config
         normalized = dict(config)
+        if task_type in ('google_sheet', 'google_sheet_C4', 'google_sheet_C5'):
+            normalized['token_task_type'] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
+        elif task_type == 'backtest_training':
+            normalized['token_task_type'] = GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
+            normalized.pop('token_file', None)
         if task_type in ('google_sheet_C4', 'google_sheet_C5'):
             normalized.pop('spreadsheet_id', None)
             normalized.pop('sheet_name', None)
@@ -1356,7 +1361,8 @@ class TaskManager:
         except Exception as e:
             task_logger.error(f"任务执行失败: {str(e)}")
             self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
-            safe_update(Task, task_id, status='error', end_time=datetime.now())
+            with app.app_context():
+                safe_update(Task, task_id, status='error', end_time=datetime.now())
         finally:
             self.running_tasks.pop(task_id, None)
             self.task_events.pop(task_id, None)

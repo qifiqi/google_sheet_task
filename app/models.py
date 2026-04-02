@@ -25,6 +25,26 @@ class GoogleSheetTableType(str, Enum):
         return [{"value": item.value, "label": item.value.upper()} for item in cls]
 
 
+class GoogleSheetTokenTaskType(str, Enum):
+    GOOGLE_SHEET = "google_sheet"
+    BACKTEST_TRAINING = "backtest_training"
+
+    @classmethod
+    def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        raw = (value or "").strip().lower()
+        valid_values = {item.value for item in cls}
+        if raw in valid_values:
+            return raw
+        return default
+
+    @classmethod
+    def choices(cls):
+        return [
+            {"value": cls.GOOGLE_SHEET.value, "label": "Google Sheet"},
+            {"value": cls.BACKTEST_TRAINING.value, "label": "Backtest Training"},
+        ]
+
+
 class Task(db.Model):
     """任务模型"""
 
@@ -252,6 +272,13 @@ class GoogleSheetToken(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
     name = db.Column(db.String(255), nullable=False, index=True, comment="Token展示名称")
+    task_type = db.Column(
+        db.String(50),
+        nullable=False,
+        default=GoogleSheetTokenTaskType.GOOGLE_SHEET.value,
+        index=True,
+        comment="适用任务类型",
+    )
     token_file = db.Column(db.String(500), unique=True, nullable=False, comment="运行时落地文件路径")
     token_context = db.Column(db.Text, nullable=False, comment="Token JSON原文")
     task_usage_count = db.Column(db.Integer, default=0, nullable=False, comment="累计使用次数")
@@ -274,6 +301,7 @@ class GoogleSheetToken(db.Model):
         data = {
             "id": self.id,
             "name": self.name,
+            "task_type": self.task_type or GoogleSheetTokenTaskType.GOOGLE_SHEET.value,
             "token_file": self.token_file,
             "task_usage_count": self.task_usage_count,
             "current_in_use_count": self.current_in_use_count,

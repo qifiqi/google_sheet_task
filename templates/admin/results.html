@@ -8,7 +8,7 @@
             <div class="input-group me-2">
                 <input type="text" class="form-control" id="taskIdFilter" placeholder="输入任务ID筛选">
                 <button class="btn btn-outline-secondary" type="button" id="filterButton">
-                    <i class="fas fa-search"></i> 筛选
+                    <i class="bi bi-search"></i> 筛选
                 </button>
             </div>
         </div>
@@ -37,7 +37,7 @@
     <div class="d-flex justify-content-between align-items-center flex-wrap mt-3">
         <div class="d-flex align-items-center">
             <span class="text-muted me-2">显示</span>
-            <select class="form-select form-select-sm me-2" id="page-size-select" onchange="changePageSize()" style="width: auto;">
+            <select class="form-select form-select-sm me-2 w-auto" id="page-size-select" onchange="changePageSize()">
                 <option value="10">10</option>
                 <option value="20" selected>20</option>
                 <option value="50">50</option>
@@ -64,15 +64,15 @@
             <div class="modal-body">
                 <div class="mb-3">
                     <h6>参数信息</h6>
-                    <pre id="resultParameters" class="bg-light p-3 rounded"></pre>
+                    <pre id="resultParameters" class="bg-body-tertiary p-3 rounded"></pre>
                 </div>
                 <div class="mb-3">
                     <h6>执行结果</h6>
-                    <pre id="resultData" class="bg-light p-3 rounded"></pre>
+                    <pre id="resultData" class="bg-body-tertiary p-3 rounded"></pre>
                 </div>
-                <div class="mb-3" id="errorMessageContainer" style="display: none;">
+                <div class="mb-3 d-none" id="errorMessageContainer">
                     <h6>错误信息</h6>
-                    <pre id="errorMessage" class="bg-light p-3 rounded text-danger"></pre>
+                    <pre id="errorMessage" class="bg-body-tertiary p-3 rounded text-danger"></pre>
                 </div>
             </div>
             <div class="modal-footer">
@@ -153,10 +153,10 @@ function loadResults(page = 1) {
                     <td>${new Date(result.timestamp).toLocaleString()}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary" onclick="viewResult(${result.id})">
-                            <i class="fas fa-eye"></i> 查看
+                            <i class="bi bi-eye"></i> 查看
                         </button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deleteResult(${result.id})">
-                            <i class="fas fa-trash"></i>
+                            <i class="bi bi-trash"></i>
                         </button>
                     </td>
                 `;
@@ -250,9 +250,9 @@ function viewResult(id) {
             const errorMessage = document.getElementById('errorMessage');
             if (result.error_message) {
                 errorMessage.textContent = result.error_message;
-                errorContainer.style.display = 'block';
+                errorContainer.classList.remove('d-none');
             } else {
-                errorContainer.style.display = 'none';
+                errorContainer.classList.add('d-none');
             }
             
             $('#viewResultModal').modal('show');

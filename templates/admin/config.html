@@ -100,7 +100,14 @@
                         <label for="token-import-max-usage" class="form-label">&#x5360;&#x7528;&#x4e0a;&#x9650;</label>
                         <input type="number" class="form-control" id="token-import-max-usage" min="0" placeholder="0=&#x65e0;&#x9650;">
                     </div>
-                    <div class="col-md-7">
+                    <div class="col-md-2">
+                        <label for="token-import-task-type" class="form-label">Task Type</label>
+                        <select class="form-select" id="token-import-task-type">
+                            <option value="google_sheet">google_sheet</option>
+                            <option value="backtest_training">backtest_training</option>
+                        </select>
+                    </div>
+                    <div class="col-md-5">
                         <label for="token-import-context" class="form-label">Token JSON</label>
                         <textarea class="form-control" id="token-import-context" rows="5" spellcheck="false" placeholder="&#x7c98;&#x8d34; token &#x7684; JSON &#x6587;&#x672c;"></textarea>
                     </div>
@@ -117,6 +124,7 @@
                             <tr>
                                 <th>ID</th>
                                 <th>&#x540d;&#x79f0;</th>
+                                <th>Task Type</th>
                                 <th>JSON&#x5927;&#x5c0f;</th>
                                 <th>&#x5f53;&#x524d;&#x5360;&#x7528;</th>
                                 <th>&#x7d2f;&#x8ba1;&#x4f7f;&#x7528;</th>
@@ -176,6 +184,13 @@
                     <div class="col-md-4">
                         <label class="form-label">&#x540d;&#x79f0;</label>
                         <input type="text" class="form-control" id="edit-token-name">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Task Type</label>
+                        <select class="form-select" id="edit-token-task-type">
+                            <option value="google_sheet">google_sheet</option>
+                            <option value="backtest_training">backtest_training</option>
+                        </select>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">&#x5360;&#x7528;&#x4e0a;&#x9650;</label>
@@ -354,6 +369,7 @@
             tr.innerHTML = `
                 <td>${token.id}</td>
                 <td>${escapeHtml(token.name)}</td>
+                <td><code>${escapeHtml(token.task_type || 'google_sheet')}</code></td>
                 <td>${token.token_context_size || 0}</td>
                 <td>${token.current_in_use_count || 0}</td>
                 <td>${token.task_usage_count || 0}</td>
@@ -375,6 +391,7 @@
         const tokenContext = document.getElementById('token-import-context').value.trim();
         const name = document.getElementById('token-import-name').value.trim();
         const maxUsageCount = document.getElementById('token-import-max-usage').value.trim();
+        const taskType = document.getElementById('token-import-task-type').value;
 
         if (!tokenContext) {
             showNotification('\u8bf7\u8f93\u5165 Token JSON \u5185\u5bb9', 'warning');
@@ -389,7 +406,8 @@
             body: JSON.stringify({
                 token_context: tokenContext,
                 name: name || null,
-                max_usage_count: maxUsageCount === '' ? null : Number(maxUsageCount)
+                max_usage_count: maxUsageCount === '' ? null : Number(maxUsageCount),
+                task_type: taskType || 'google_sheet'
             })
         })
             .then(response => response.json())
@@ -419,6 +437,7 @@
                 const token = data.token || {};
                 document.getElementById('edit-token-id').value = token.id || '';
                 document.getElementById('edit-token-name').value = token.name || '';
+                document.getElementById('edit-token-task-type').value = token.task_type || 'google_sheet';
                 document.getElementById('edit-token-max-usage').value = token.max_usage_count || 0;
                 document.getElementById('edit-token-active').value = token.is_active ? 'true' : 'false';
                 document.getElementById('edit-token-context').value = token.token_context || '';
@@ -434,6 +453,7 @@
         const tokenId = document.getElementById('edit-token-id').value;
         const payload = {
             name: document.getElementById('edit-token-name').value.trim(),
+            task_type: document.getElementById('edit-token-task-type').value || 'google_sheet',
             max_usage_count: Number(document.getElementById('edit-token-max-usage').value || 0),
             is_active: document.getElementById('edit-token-active').value === 'true',
             token_context: document.getElementById('edit-token-context').value

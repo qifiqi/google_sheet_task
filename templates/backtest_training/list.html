@@ -5,120 +5,77 @@
 {% block head %}
 <style>
     .backtest-shell { display: grid; gap: 1.5rem; }
-    
-    /* 顶部横幅增强 */
-    .page-hero {
-        position: relative; overflow: hidden; border: none;
-        background: linear-gradient(135deg, #eef5ff 0%, #f8fbff 100%);
-        box-shadow: 0 4px 24px -6px rgba(13, 110, 253, 0.12);
-        border-radius: 1.25rem;
+    .task-meta { font-size: 0.875rem; }
+    .time-sub { font-size: 0.75rem; }
+    html[data-bs-theme="dark"] .backtest-shell h1,
+    html[data-bs-theme="dark"] .backtest-shell .text-body {
+        color: #e5e7eb !important;
     }
-    .page-hero::after {
-        content: ""; position: absolute; top: -50%; right: -5%;
-        width: 300px; height: 300px; border-radius: 50%;
-        background: radial-gradient(circle, rgba(13,110,253,0.1) 0%, transparent 70%);
-        pointer-events: none;
+    html[data-bs-theme="dark"] .backtest-shell .card {
+        background-color: #182132;
     }
-    .hero-subtitle { color: #5a7390; font-size: 0.95rem; margin-top: 0.5rem; }
-    
-    /* 统计卡片 */
-    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; }
-    .summary-card {
-        border: none; border-radius: 1.25rem; background: #fff;
-        padding: 1.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-        position: relative; overflow: hidden;
-    }
-    .summary-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(13, 110, 253, 0.08); }
-    .summary-card::before {
-        content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
-        background: #0d6efd; border-radius: 4px 0 0 4px; opacity: 0; transition: opacity 0.2s;
-    }
-    .summary-card:hover::before { opacity: 1; }
-    .summary-card.is-running::before { background: #0d6efd; opacity: 1; }
-    .summary-card.is-completed::before { background: #198754; opacity: 1; }
-    .summary-card.is-failed::before { background: #dc3545; opacity: 1; }
-
-    .summary-label { color: #64748b; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-    .summary-value { font-size: 2rem; font-weight: 700; color: #1e293b; margin: 0.5rem 0; line-height: 1; }
-    .summary-meta { font-size: 0.8rem; color: #94a3b8; }
-
-    /* 表格容器 */
-    .table-card { border: none; border-radius: 1.25rem; box-shadow: 0 4px 16px rgba(0,0,0,0.04); }
-    .table thead th {
-        font-size: 0.8rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
-        color: #64748b; background: #f8fafc; border-bottom: 2px solid #e2e8f0; padding: 1rem;
-    }
-    .table tbody td { padding: 1rem; vertical-align: middle; border-bottom: 1px solid #f1f5f9; color: #334155; }
-    .table tbody tr:hover { background-color: #f8fafc; }
-
-    /* 状态与徽章 */
-    .task-id { font-weight: 600; color: #0f172a; font-size: 0.95rem; }
-    .task-meta { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
-    .model-chip {
-        padding: 0.35rem 0.8rem; border-radius: 8px; background: #eff6ff;
-        color: #1d4ed8; font-size: 0.75rem; font-weight: 700; border: 1px solid #bfdbfe;
-    }
-    .status-pill {
-        padding: 0.35rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;
-        display: inline-flex; align-items: center; gap: 0.35rem;
-    }
-    .status-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-    .status-pill.is-pending { background: #f1f5f9; color: #64748b; }
-    .status-pill.is-running { background: #eff6ff; color: #2563eb; }
-    .status-pill.is-completed { background: #f0fdf4; color: #16a34a; }
-    .status-pill.is-error, .status-pill.is-failed { background: #fef2f2; color: #dc2626; }
-    
-    .time-main { font-weight: 500; color: #334155; font-size: 0.9rem; }
-    .time-sub { font-size: 0.75rem; color: #94a3b8; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="backtest-shell pt-3">
-    <div class="card page-hero">
-        <div class="card-body p-4 p-md-5 d-flex justify-content-between align-items-center flex-wrap gap-3">
-            <div>
-                <h1 class="h3 mb-1 fw-bold" style="color: #0f172a;">数据回测中心</h1>
-                <div class="hero-subtitle">统一查看与管理 C3 / C5 回测任务，实时追踪任务执行状态。</div>
+    <div class="row g-3">
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card border-0 shadow-sm h-100 rounded-4 border-start border-4 border-secondary">
+                <div class="card-body">
+                    <div class="text-uppercase small fw-semibold text-body-secondary">任务总数</div>
+                    <div class="display-6 fw-bold mt-2 mb-1" id="totalTasks">0</div>
+                    <div class="small text-body-secondary">当前全部数据回测任务</div>
+                </div>
             </div>
-            <a href="{{ url_for('backtest_training.create_page') }}" class="btn btn-primary px-4 py-2 rounded-pill shadow-sm fw-medium">
-                <i class="bi bi-plus-lg me-1"></i> 创建新任务
-            </a>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card border-0 shadow-sm h-100 rounded-4 border-start border-4 border-primary">
+                <div class="card-body">
+                    <div class="text-uppercase small fw-semibold text-body-secondary">运行中</div>
+                    <div class="display-6 fw-bold text-primary mt-2 mb-1" id="runningTasks">0</div>
+                    <div class="small text-body-secondary">正在排队或执行中的任务</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card border-0 shadow-sm h-100 rounded-4 border-start border-4 border-success">
+                <div class="card-body">
+                    <div class="text-uppercase small fw-semibold text-body-secondary">已完成</div>
+                    <div class="display-6 fw-bold text-success mt-2 mb-1" id="completedTasks">0</div>
+                    <div class="small text-body-secondary">结果已落库，可直接查看</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card border-0 shadow-sm h-100 rounded-4 border-start border-4 border-danger">
+                <div class="card-body">
+                    <div class="text-uppercase small fw-semibold text-body-secondary">执行失败</div>
+                    <div class="display-6 fw-bold text-danger mt-2 mb-1" id="failedTasks">0</div>
+                    <div class="small text-body-secondary">包含系统错误或执行异常</div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="summary-grid">
-        <div class="summary-card">
-            <div class="summary-label">任务总数</div>
-            <div class="summary-value" id="totalTasks">0</div>
-            <div class="summary-meta">当前全部数据回测任务</div>
-        </div>
-        <div class="summary-card is-running">
-            <div class="summary-label">运行中</div>
-            <div class="summary-value text-primary" id="runningTasks">0</div>
-            <div class="summary-meta">正在排队或执行中的任务</div>
-        </div>
-        <div class="summary-card is-completed">
-            <div class="summary-label">已完成</div>
-            <div class="summary-value text-success" id="completedTasks">0</div>
-            <div class="summary-meta">结果已落库，可直接查看</div>
-        </div>
-        <div class="summary-card is-failed">
-            <div class="summary-label">执行失败</div>
-            <div class="summary-value text-danger" id="failedTasks">0</div>
-            <div class="summary-meta">包含系统错误或执行异常</div>
-        </div>
-    </div>
-
-    <div class="card table-card mb-4">
-        <div class="card-header bg-white border-0 p-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <h5 class="mb-0 fw-bold" style="color: #1e293b;">任务列表</h5>
-            <span class="text-muted small bg-light px-3 py-1 rounded-pill">最后刷新：<span id="lastUpdated">-</span></span>
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="card-header bg-body-tertiary border-0 p-4 d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <h1 class="h4 mb-1 fw-bold text-body">数据回测中心</h1>
+                <div class="text-body-secondary">统一查看与管理 C3 / C5 回测任务，实时追踪任务执行状态。</div>
+            </div>
+            <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                <span class="badge text-bg-secondary rounded-pill px-3 py-2 fw-normal">
+                    最后刷新：<span class="ms-1" id="lastUpdated">-</span>
+                </span>
+                <a href="{{ url_for('backtest_training.create_page') }}" class="btn btn-primary rounded-pill px-4">
+                    <i class="bi bi-plus-lg me-1"></i> 创建新任务
+                </a>
+            </div>
         </div>
         <div class="table-responsive">
-            <table class="table mb-0">
-                <thead>
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
                     <tr>
                         <th class="ps-4">任务名称 & ID</th>
                         <th>模型版本</th>
@@ -129,8 +86,7 @@
                         <th class="pe-4 text-end">操作</th>
                     </tr>
                 </thead>
-                <tbody id="taskTableBody">
-                    </tbody>
+                <tbody id="taskTableBody"></tbody>
             </table>
         </div>
     </div>
@@ -139,6 +95,9 @@
 
 {% block scripts %}
 <script>
+const TASK_API_BASE = '/api/tasks';
+const BACKTEST_TASK_TYPE = 'backtest_training';
+
 function formatTime(value) {
     if (!value) return '-';
 
@@ -181,22 +140,31 @@ function escapeHtml(value) {
 
 function renderTimeCell(value) {
     if (!value) {
-        return '<span class="text-muted">-</span>';
+        return '<span class="text-body-secondary">-</span>';
     }
 
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
-        return `<span class="time-main">${escapeHtml(value)}</span>`;
+        return `<span class="fw-medium">${escapeHtml(value)}</span>`;
     }
 
     const main = date.toLocaleDateString('zh-CN');
     const sub = date.toLocaleTimeString('zh-CN', { hour12: false });
-    return `<div class="time-main">${main}</div><div class="time-sub">${sub}</div>`;
+    return `<div class="fw-medium">${main}</div><div class="time-sub text-body-secondary">${sub}</div>`;
 }
 
 function renderStatus(status) {
     const normalized = status || 'pending';
-    return `<span class="status-pill is-${escapeHtml(normalized)}">${escapeHtml(getStatusText(normalized))}</span>`;
+    const classMap = {
+        pending: 'text-bg-secondary',
+        running: 'text-bg-primary',
+        completed: 'text-bg-success',
+        cancelled: 'text-bg-info',
+        error: 'text-bg-danger',
+        failed: 'text-bg-danger'
+    };
+    const badgeClass = classMap[normalized] || 'text-bg-secondary';
+    return `<span class="badge ${badgeClass} rounded-pill px-3 py-2">${escapeHtml(getStatusText(normalized))}</span>`;
 }
 
 function inferModelVersion(task) {
@@ -233,8 +201,8 @@ function renderTaskCell(task) {
         : '-';
 
     return `
-        <div class="task-id" title="${escapeHtml(task.id || '')}">${escapeHtml(taskName)}</div>
-        <div class="task-meta">ID: ${escapeHtml(shortId)} · Sheet: ${escapeHtml(sheetName)}</div>
+        <div class="fw-semibold" title="${escapeHtml(task.id || '')}">${escapeHtml(taskName)}</div>
+        <div class="task-meta text-body-secondary">ID: ${escapeHtml(shortId)} · Sheet: ${escapeHtml(sheetName)}</div>
     `;
 }
 
@@ -243,7 +211,7 @@ async function deleteTask(taskId) {
         return;
     }
 
-    const res = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+    const res = await fetch(`${TASK_API_BASE}/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
     const data = await res.json();
 
     if (res.ok && data.status === 'success') {
@@ -255,7 +223,8 @@ async function deleteTask(taskId) {
 }
 
 async function loadTasks() {
-    const res = await fetch('/api/tasks?task_type=backtest_training');
+    const query = new URLSearchParams({ task_type: BACKTEST_TASK_TYPE });
+    const res = await fetch(`${TASK_API_BASE}?${query.toString()}`);
     const data = await res.json();
     const tasks = Array.isArray(data.tasks) ? data.tasks : [];
 
@@ -274,7 +243,7 @@ async function loadTasks() {
         const row = `
             <tr>
                 <td class="ps-4">${renderTaskCell(task)}</td>
-                <td><span class="model-chip">${escapeHtml(inferModelVersion(task))}</span></td>
+                <td><span class="badge rounded-pill text-bg-light border">${escapeHtml(inferModelVersion(task))}</span></td>
                 <td>${renderStatus(task.status)}</td>
                 <td>${renderTimeCell(task.created_at)}</td>
                 <td>${renderTimeCell(task.start_time)}</td>
@@ -291,7 +260,7 @@ async function loadTasks() {
     if (!tasks.length) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" class="text-center text-muted py-5">
+                <td colspan="7" class="text-center text-body-secondary py-5">
                     当前还没有数据回测任务，点击右上角“创建新任务”开始。
                 </td>
             </tr>

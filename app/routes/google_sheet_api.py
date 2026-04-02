@@ -148,10 +148,11 @@ def google_sheet_detail(sheet_id):
 def list_google_sheet_tokens():
     """获取Google Sheet Token列表"""
     try:
+        task_type = request.args.get('task_type')
         return jsonify({
             "status": "success",
             "random_value": RANDOM_TOKEN_VALUE,
-            "tokens": get_google_sheet_token_service().list_tokens(),
+            "tokens": get_google_sheet_token_service().list_tokens(task_type=task_type),
             "summary": get_google_sheet_token_service().get_usage_summary()
         })
     except Exception as e:
@@ -173,7 +174,7 @@ def google_sheet_token_detail(token_id):
 
         data = request.get_json() or {}
         payload = {}
-        for key in ('name', 'token_context', 'is_active'):
+        for key in ('name', 'token_context', 'is_active', 'task_type'):
             if key in data:
                 payload[key] = data.get(key)
         if 'max_usage_count' in data:
@@ -200,6 +201,7 @@ def import_google_sheet_token():
         token_file = (data.get('token_file') or '').strip()
         token_context = data.get('token_context')
         name = (data.get('name') or '').strip() or None
+        task_type = data.get('task_type')
         max_usage_count = data.get('max_usage_count')
         if max_usage_count not in (None, ''):
             max_usage_count = int(max_usage_count)
@@ -211,6 +213,7 @@ def import_google_sheet_token():
             token_file=token_file,
             name=name,
             max_usage_count=max_usage_count,
+            task_type=task_type,
         )
         return jsonify({
             "status": "success",

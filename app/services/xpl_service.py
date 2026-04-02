@@ -1030,7 +1030,7 @@ class XPLAnalyzer:
             return _data,_data_result,sheet_df
 
     def get_calculate_metrics_v1(self,data):
-        self._calculate_metrics_v1(data)
+        return self._calculate_metrics_v1(data)
 
     def _calculate_metrics_v1(self, data) -> Dict[str, Any]:
         """
@@ -1448,7 +1448,7 @@ if __name__ == "__main__":
     from d import data
     parsed_data = xpl_analyzer._parse_input_data(data)
 
-    xpl_analyzer._calculate_metrics_v1(parsed_data)
+    print(xpl_analyzer._calculate_metrics_v1(parsed_data))
     # xpl_analyzer._calculate_metrics(parsed_data)
     # xpl_analyzer.analyze_v1('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
     # xpl_analyzer.get_google_sheet_data('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')

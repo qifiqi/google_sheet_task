@@ -113,7 +113,7 @@
             </div>
         </div>
         <!-- 待重启任务提示 -->
-        <div class="alert alert-warning alert-dismissible fade show" id="pending-tasks-alert" style="display: none;">
+        <div class="alert alert-warning alert-dismissible fade show d-none" id="pending-tasks-alert">
             <div class="d-flex align-items-center">
                 <i class="bi bi-exclamation-triangle-fill me-2"></i>
                 <div class="flex-grow-1">
@@ -136,7 +136,7 @@
                     <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshTasks()">
                         <i class="bi bi-arrow-clockwise"></i> 刷新
                     </button>
-                    <select class="form-select form-select-sm" id="filter-select" onchange="filterTasks(this.value)" style="width: auto;">
+                    <select class="form-select form-select-sm w-auto" id="filter-select" onchange="filterTasks(this.value)">
                         <option value="all">全部任务</option>
                         <option value="running">执行中</option>
                         <option value="completed">已完成</option>
@@ -149,7 +149,7 @@
                 <div class="table-responsive">
                     <table class="table table-sm table-hover" id="tasks-table">
                         <thead>
-                        <tr class="bg-light">
+                        <tr class="table-light">
                             <th class="ps-3 py-2 border-bottom">任务名称</th>
                             <th class="py-2 border-bottom">状态</th>
                             <th class="py-2 border-bottom">进度</th>
@@ -181,7 +181,7 @@
                     <!-- 每页显示数量 -->
                     <div class="d-flex align-items-center">
                         <label class="form-label me-2 mb-0 text-muted">每页显示:</label>
-                        <select class="form-select form-select-sm" id="page-size-select" onchange="changePageSize()" style="width: auto;">
+                        <select class="form-select form-select-sm w-auto" id="page-size-select" onchange="changePageSize()">
                             <option value="5">5条</option>
                             <option value="10" selected>10条</option>
                             <option value="20">20条</option>
@@ -862,7 +862,7 @@
                 const messageSpan = document.getElementById('pending-tasks-message');
 
                 messageSpan.textContent = `检测到 ${pendingTasks.length} 个任务可能因应用重启而中断，建议检查并重新启动。`;
-                alertDiv.style.display = 'block';
+                alertDiv.classList.remove('d-none');
             }
             return;
         }
@@ -879,7 +879,7 @@
 
         // 隐藏提示
         const alertDiv = document.getElementById('pending-tasks-alert');
-        alertDiv.style.display = 'none';
+        alertDiv.classList.add('d-none');
 
         showNotification('已筛选出所有待处理的任务', 'info');
     }

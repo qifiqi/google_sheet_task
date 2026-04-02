@@ -259,11 +259,11 @@ def init_config():
         },
 
         'c3_parameter_positions': {
-            'value': ['B6', 'B7', 'B9', 'B10', 'B11', 'B12'],
+            'value': ['B5','B6', 'B7', 'B8','B9', 'B10', 'B11', 'B12'],
             'description': 'C3 模板参数输入单元格位置列表。',
         },
         'c3_check_positions': {
-            'value': ['I6', 'I7', 'I9', 'I10', 'I11', 'I12'],
+            'value': ["I15","I16"],
             'description': 'C3 模板勾选/触发单元格位置列表。',
         },
         'c3_input_column_d': {
@@ -275,7 +275,7 @@ def init_config():
             'description': 'C3 模板输入列 E 的列标识。',
         },
         'c3_output_range_1': {
-            'value': 'I2:I12',
+            'value': 'I2:I23',
             'description': 'C3 模板第一段结果读取区域。',
         },
         'c3_output_range_2': {
@@ -322,7 +322,7 @@ def init_config():
             'description': 'C5 模板参数输入单元格位置列表。',
         },
         'c5_check_positions': {
-            'value': ['G1', 'H1'],
+            'value': ['D2', 'D3'],
             'description': 'C5 模板勾选/触发单元格位置列表。',
         },
         'c5_input_column_a': {

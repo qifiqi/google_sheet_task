@@ -4,149 +4,277 @@
 
 {% block head %}
 <style>
-    .create-shell { display: grid; gap: 1.5rem; }
-    
-    .card-modern {
-        border: none; border-radius: 1rem; box-shadow: 0 4px 20px rgba(0,0,0,0.04);
-        background: #ffffff; overflow: hidden;
+    html[data-bs-theme="dark"] .create-shell h1,
+    html[data-bs-theme="dark"] .create-shell .text-body {
+        color: #e5e7eb !important;
     }
-    
-    .hero-bg {
-        background: linear-gradient(120deg, #f8fbff 0%, #ffffff 100%);
-        border-bottom: 1px solid #edf2f7;
-    }
-
-    .form-label { font-weight: 600; color: #475569; font-size: 0.9rem; margin-bottom: 0.4rem; }
-    .form-control { 
-        border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 1rem;
-        transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.02) inset;
-    }
-    .form-control:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
-
-    .summary-chip {
-        display: inline-flex; align-items: center; padding: 0.35rem 0.8rem;
-        border-radius: 6px; background: #f1f5f9; color: #475569;
-        font-size: 0.8rem; font-weight: 500; margin: 0 0.5rem 0.5rem 0;
-    }
-    .summary-chip i { margin-right: 4px; color: #3b82f6; }
-
+    .create-shell { display: grid; gap: 1rem; }
     .empty-hint {
-        padding: 3rem 1rem; border: 2px dashed #cbd5e1; border-radius: 1rem;
-        color: #64748b; background: #f8fafc; text-align: center;
+        border: 2px dashed var(--bs-border-color);
+        border-radius: 1rem;
     }
-    .empty-hint i { font-size: 2rem; color: #94a3b8; margin-bottom: 1rem; display: block; }
-
-    .parameter-table th { background: #f8fafc; color: #475569; font-weight: 600; font-size: 0.85rem; border-bottom: 2px solid #e2e8f0; }
-    .parameter-table td { vertical-align: middle; border-bottom: 1px solid #f1f5f9; }
-    .param-input { background-color: #f8fafc; border: 1px solid transparent; text-align: center; }
-    .param-input:focus { background-color: #fff; border-color: #3b82f6; }
+    .parameter-table th {
+        white-space: nowrap;
+    }
+    .param-input {
+        min-width: 9rem;
+        text-align: center;
+    }
+    .section-toggle {
+        border: 0;
+        background: transparent;
+        padding: 0;
+        font: inherit;
+    }
+    .section-toggle .bi {
+        transition: transform 0.2s ease;
+    }
+    .section-toggle[aria-expanded="true"] .bi {
+        transform: rotate(180deg);
+    }
+    .config-fold-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+    .config-fold-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        color: var(--bs-secondary-color);
+        font-size: 0.95rem;
+    }
+    .years-switch-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+        margin-top: 0.75rem;
+    }
+    .years-switch-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.7rem 0.85rem;
+        border: 1px solid rgba(var(--bs-secondary-rgb), 0.18);
+        border-radius: 0.9rem;
+        background: var(--bs-tertiary-bg);
+    }
+    .years-switch-item .form-check {
+        margin-bottom: 0;
+        min-height: auto;
+    }
+    .years-switch-item .form-check-label {
+        color: var(--bs-body-color);
+    }
+    .years-switch-item .form-check-input {
+        cursor: pointer;
+    }
+    .years-options-box {
+        padding: 0.85rem 0.9rem;
+        border: 1px solid rgba(var(--bs-primary-rgb), 0.16);
+        border-radius: 0.9rem;
+        background: rgba(var(--bs-primary-rgb), 0.04);
+    }
+    .years-layout {
+        display: grid;
+        grid-template-columns: minmax(220px, 0.95fr) minmax(0, 1.55fr);
+        gap: 1rem;
+        margin-top: 0.6rem;
+        align-items: start;
+    }
+    .years-meta {
+        display: grid;
+        gap: 0.85rem;
+    }
+    .years-summary {
+        display: grid;
+        gap: 0.45rem;
+        color: var(--bs-secondary-color);
+        font-size: 0.875rem;
+    }
+    .years-summary strong {
+        color: var(--bs-body-color);
+    }
+    html[data-bs-theme="dark"] .years-switch-item {
+        border-color: rgba(148, 163, 184, 0.24);
+        background: #0f172a;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+    html[data-bs-theme="dark"] .years-switch-item .form-check-label {
+        color: #e5e7eb;
+    }
+    html[data-bs-theme="dark"] .years-switch-item .form-check-input {
+        background-color: #334155;
+        border-color: #475569;
+    }
+    html[data-bs-theme="dark"] .years-switch-item .form-check-input:not(:checked) {
+        --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23cbd5e1'/%3e%3c/svg%3e");
+    }
+    html[data-bs-theme="dark"] .years-switch-item .form-check-input:focus {
+        border-color: rgba(96, 165, 250, 0.7);
+        box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.18);
+    }
+    html[data-bs-theme="dark"] .years-options-box {
+        border-color: rgba(96, 165, 250, 0.24);
+        background: rgba(30, 41, 59, 0.7);
+    }
+    html[data-bs-theme="dark"] .years-summary {
+        color: #94a3b8;
+    }
+    html[data-bs-theme="dark"] .years-summary strong {
+        color: #e5e7eb;
+    }
+    @media (max-width: 575.98px) {
+        .years-switch-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+    @media (max-width: 991.98px) {
+        .years-layout {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="create-shell pt-3 pb-5">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <div>
-            <h1 class="h3 mb-2 fw-bold text-dark">创建数据回测任务</h1>
-            <p class="text-muted mb-0">输入模型 URL 自动识别模型版本，快速创建参数行。</p>
+<div class="create-shell pt-2 pb-4">
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="card-header bg-body-tertiary border-0 py-3 px-4 d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <h1 class="h4 mb-1 fw-bold text-body">创建数据回测任务</h1>
+                <div class="text-body-secondary">输入模型 URL 自动识别模型版本，快速创建参数行。</div>
+            </div>
+            <a href="{{ url_for('backtest_training.list_page') }}" class="btn btn-outline-secondary rounded-pill px-4">
+                <i class="bi bi-arrow-left"></i> 返回列表
+            </a>
         </div>
-        <a href="{{ url_for('backtest_training.list_page') }}" class="btn btn-light shadow-sm text-secondary fw-medium rounded-pill px-4">
-            <i class="bi bi-arrow-left"></i> 返回列表
-        </a>
-    </div>
-
-    <div class="card card-modern hero-bg">
-        <div class="card-body p-4 p-md-5">
-            <div class="row g-4 align-items-end">
+        <div class="card-body py-3 px-4">
+            <div class="row g-3 align-items-end">
                 <div class="col-lg-7">
-                    <label class="form-label">Google Sheet URL</label>
+                    <label class="form-label fw-semibold">Google Sheet URL</label>
                     <div class="input-group">
-                        <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-link-45deg"></i></span>
-                        <input type="text" class="form-control border-start-0 ps-0" id="modelUrl" placeholder="请粘贴完整的 Google Sheet 链接...">
+                        <span class="input-group-text"><i class="bi bi-link-45deg"></i></span>
+                        <input type="text" class="form-control" id="modelUrl" placeholder="请粘贴完整的 Google Sheet 链接...">
                     </div>
                 </div>
                 <div class="col-lg-3">
-                    <label class="form-label">股票代码</label>
-                    <input type="text" class="form-control" id="stockCode" placeholder="如 AAPL, MSFT (支持逗号分隔)">
+                    <label class="form-label fw-semibold">股票代码</label>
+                    <input type="text" class="form-control" id="stockCode" placeholder="如 AAPL 或 MSFT">
                 </div>
                 <div class="col-lg-2 d-grid">
-                    <button type="button" class="btn btn-primary shadow-sm" id="analyzeBtn">
+                    <button type="button" class="btn btn-primary" id="analyzeBtn">
                         <i class="bi bi-magic me-1"></i> 智能识别
                     </button>
                 </div>
             </div>
 
-            <hr class="my-4" style="border-color: #e2e8f0;">
+            <hr class="my-3">
 
-            <div class="row g-4">
-                <div class="col-lg-4">
-                    <label class="form-label">任务名称</label>
-                    <input type="text" class="form-control" id="taskName" placeholder="识别 URL 后将自动填充">
+            <div class="config-fold-header">
+                <div class="config-fold-title">
+                    <i class="bi bi-sliders2"></i>
+                    <span>任务配置与识别结果</span>
                 </div>
-                <div class="col-lg-8">
-                    <label class="form-label d-block">回测年份选项</label>
-                    <div class="d-flex flex-wrap gap-4 pt-1">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" role="switch" id="recentYearsCheck">
-                            <label class="form-check-label fw-medium" for="recentYearsCheck">选择近年</label>
-                        </div>
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" role="switch" id="fullYearsCheck">
-                            <label class="form-check-label fw-medium" for="fullYearsCheck">选择整年</label>
+                <button type="button" class="section-toggle text-primary fw-semibold text-nowrap" id="configToggleBtn" data-bs-toggle="collapse" data-bs-target="#taskConfigCollapse" aria-expanded="false" aria-controls="taskConfigCollapse">
+                    <span>展开配置</span>
+                    <i class="bi bi-chevron-down ms-1"></i>
+                </button>
+            </div>
+
+            <div class="collapse mt-3" id="taskConfigCollapse">
+                <div class="row g-3 align-items-stretch">
+                    <div class="col-lg-4">
+                        <label class="form-label fw-semibold">任务名称</label>
+                        <input type="text" class="form-control" id="taskName" placeholder="识别 URL 后将自动填充">
+                        <div class="form-text">任务名称会在识别 URL 后自动带出，你也可以手动调整。</div>
+                    </div>
+                    <div class="col-lg-4">
+                        <label class="form-label fw-semibold">回测 Token</label>
+                        <select class="form-select" id="tokenId">
+                            <option value="">加载 Token 中...</option>
+                        </select>
+                        <div class="form-text">仅显示回测任务可用的 Token，默认会优先选中第一个可用项。</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-semibold mb-1">回测年份选项</label>
+                        <div class="form-text mt-0">可以按近几年或整年维度筛选，默认开启最近 3 个整年。</div>
+                        <div class="years-layout">
+                            <div class="years-meta">
+                                <div class="years-summary">
+                                    <div><strong>近年：</strong><span id="recentYearsDisplay">无</span></div>
+                                    <div><strong>整年：</strong><span id="fullYearsDisplay">无</span></div>
+                                </div>
+                                <div class="years-switch-grid">
+                                    <div class="years-switch-item">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="recentYearsCheck">
+                                            <label class="form-check-label" for="recentYearsCheck">选择近年</label>
+                                        </div>
+                                    </div>
+                                    <div class="years-switch-item">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="fullYearsCheck" checked>
+                                            <label class="form-check-label" for="fullYearsCheck">选择整年</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="years-options-box d-none" id="yearsContainerWrapper">
+                                <div id="recentYearsOptions" class="mb-3 d-none">
+                                    <label class="form-label text-primary small">近年范围</label>
+                                    <div id="recentYearsCheckboxes" class="d-flex flex-wrap gap-3"></div>
+                                </div>
+                                <div id="fullYearsOptions" class="d-none">
+                                    <label class="form-label text-primary small">整年范围</label>
+                                    <div id="fullYearsCheckboxes" class="d-flex flex-wrap gap-3"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="p-3 bg-light rounded-3 mt-3 border" style="display:none; border-color: #e2e8f0 !important;" id="yearsContainerWrapper">
-                <div id="recentYearsOptions" style="display:none;" class="mb-3">
-                    <label class="form-label text-primary small">近年范围</label>
-                    <div id="recentYearsCheckboxes" class="d-flex flex-wrap gap-3"></div>
-                </div>
-                <div id="fullYearsOptions" style="display:none;">
-                    <label class="form-label text-primary small">整年范围</label>
-                    <div id="fullYearsCheckboxes" class="d-flex flex-wrap gap-3"></div>
-                </div>
-            </div>
-
-            <div id="sheetInfo" class="alert mt-4 mb-0 border-0" style="display:none; background-color: #eff6ff; color: #1e3a8a;">
-                <div class="d-flex align-items-center mb-2 gap-3">
-                    <span class="badge bg-primary text-white px-3 py-2 rounded-pill fs-6 shadow-sm" id="modelVersionBadge">C3</span>
-                    <span class="fw-medium"><i class="bi bi-file-earmark-spreadsheet me-2"></i><span id="sheetTitle"></span></span>
-                    <span class="text-muted">|</span>
-                    <span class="fw-medium text-secondary">Sheet: <span id="sheetNames"></span></span>
-                </div>
-                <div class="row mt-2 text-sm" id="yearsDisplay" style="display:none;">
-                    <div class="col-md-6"><strong>近年：</strong> <span class="text-muted" id="recentYearsDisplay"></span></div>
-                    <div class="col-md-6"><strong>整年：</strong> <span class="text-muted" id="fullYearsDisplay"></span></div>
+                <div id="sheetInfo" class="alert alert-primary mt-4 mb-0 d-none">
+                    <div class="d-flex align-items-center mb-2 gap-3 flex-wrap">
+                        <span class="badge bg-primary px-3 py-2 rounded-pill fs-6" id="modelVersionBadge">C3</span>
+                        <span class="fw-medium"><i class="bi bi-file-earmark-spreadsheet me-2"></i><span id="sheetTitle"></span></span>
+                        <span class="text-body-secondary">|</span>
+                        <span class="fw-medium text-body-secondary">Sheet: <span id="sheetNames"></span></span>
+                    </div>
+                    <div class="row mt-2 small d-none" id="yearsDisplay">
+                        <div class="col-md-6"><strong>近年：</strong> <span class="text-body-secondary" id="recentYearsInfoDisplay"></span></div>
+                        <div class="col-md-6"><strong>整年：</strong> <span class="text-body-secondary" id="fullYearsInfoDisplay"></span></div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="card card-modern mt-2" id="paramSection" style="display:none;">
-        <div class="card-header bg-white border-bottom-0 pt-4 pb-2 px-4 d-flex justify-content-between align-items-center">
+    <div class="card border-0 shadow-sm rounded-4 d-none" id="paramSection">
+        <div class="card-header bg-body-tertiary border-0 pt-4 pb-3 px-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
             <div>
-                <h5 class="mb-1 fw-bold text-dark">参数配置清单</h5>
-                <p class="text-muted small mb-0">系统已根据模型版本自动生成对应表头，请填写具体参数。</p>
+                <h5 class="mb-1 fw-bold">参数配置清单</h5>
+                <p class="text-body-secondary small mb-0">系统已根据模型版本自动生成对应表头，请填写具体参数。</p>
             </div>
             <div class="d-flex gap-2">
-                <button type="button" class="btn btn-outline-primary px-3 rounded-pill" id="addParamBtn">
+                <button type="button" class="btn btn-outline-primary rounded-pill" id="addParamBtn">
                     <i class="bi bi-plus-lg"></i> 添加一组
                 </button>
-                <button type="button" class="btn btn-success px-4 rounded-pill shadow-sm" id="createBtn">
+                <button type="button" class="btn btn-success rounded-pill" id="createBtn">
                     <i class="bi bi-check2-circle me-1"></i> 提交创建
                 </button>
             </div>
         </div>
         <div class="card-body px-4 pb-4">
-            <div id="emptyHint" class="empty-hint mb-3" style="display:none;">
-                <i class="bi bi-table"></i>
+            <div id="emptyHint" class="empty-hint text-center text-body-secondary bg-body-tertiary p-5 mb-3 d-none">
+                <i class="bi bi-table fs-1 d-block mb-3"></i>
                 识别 URL 后会根据模型版本生成表头，每一行代表一组待创建的参数。
             </div>
             <div class="table-responsive rounded-3 border">
-                <table class="table table-hover mb-0 parameter-table" id="paramTable">
-                    <thead id="paramTableHead"></thead>
+                <table class="table table-hover align-middle mb-0 parameter-table" id="paramTable">
+                    <thead class="table-light" id="paramTableHead"></thead>
                     <tbody id="paramTableBody"></tbody>
                 </table>
             </div>
@@ -157,11 +285,14 @@
 
 {% block scripts %}
 <script>
+const TASK_API_BASE = '/api/tasks';
+const BACKTEST_TASK_TYPE = 'backtest_training';
 let sheetTitle = '';
 let spreadsheetId = '';
 let currentModelVersion = 'c3';
 let currentFields = [];
 let isCreatingTask = false;
+let backtestTokens = [];
 
 const FIELD_MAP = {
     c5: [
@@ -186,9 +317,12 @@ const fullYearsContainer = document.getElementById('fullYearsCheckboxes');
 const yearsContainerWrapper = document.getElementById('yearsContainerWrapper');
 const recentYearsOptions = document.getElementById('recentYearsOptions');
 const fullYearsOptions = document.getElementById('fullYearsOptions');
+const configToggleBtn = document.getElementById('configToggleBtn');
+const taskConfigCollapse = document.getElementById('taskConfigCollapse');
 const emptyHint = document.getElementById('emptyHint');
 const paramSection = document.getElementById('paramSection');
 const analyzeBtn = document.getElementById('analyzeBtn');
+const tokenIdSelect = document.getElementById('tokenId');
 
 for (let i = 1; i <= 7; i++) {
     recentYearsContainer.insertAdjacentHTML('beforeend', `
@@ -210,14 +344,68 @@ for (let i = 0; i < 7; i++) {
 }
 
 function syncYearsWrapper() {
-    const showRecent = recentYearsOptions.style.display !== 'none';
-    const showFull = fullYearsOptions.style.display !== 'none';
-    yearsContainerWrapper.style.display = showRecent || showFull ? 'block' : 'none';
+    const showRecent = !recentYearsOptions.classList.contains('d-none');
+    const showFull = !fullYearsOptions.classList.contains('d-none');
+    yearsContainerWrapper.classList.toggle('d-none', !(showRecent || showFull));
+}
+
+function syncConfigToggleText() {
+    if (!configToggleBtn) return;
+    const expanded = configToggleBtn.getAttribute('aria-expanded') === 'true';
+    const label = configToggleBtn.querySelector('span');
+    if (label) {
+        label.textContent = expanded ? '收起配置' : '展开配置';
+    }
+}
+
+function renderBacktestTokenOptions(tokens) {
+    if (!tokenIdSelect) return;
+    tokenIdSelect.innerHTML = '';
+
+    if (!Array.isArray(tokens) || tokens.length === 0) {
+        tokenIdSelect.innerHTML = '<option value="">暂无可用 Token</option>';
+        return;
+    }
+
+    tokens.forEach((token, index) => {
+        const option = document.createElement('option');
+        option.value = String(token.id);
+        option.textContent = `${token.name} | 占用 ${token.current_in_use_count || 0} | 累计 ${token.task_usage_count || 0} | 上限 ${Number(token.max_usage_count || 0) > 0 ? token.max_usage_count : '无限'}`;
+        option.disabled = !token.is_available;
+        if (!option.disabled && tokenIdSelect.value === '') {
+            option.selected = index === 0;
+        }
+        tokenIdSelect.appendChild(option);
+    });
+
+    if (!Array.from(tokenIdSelect.options).some((option) => option.selected && !option.disabled)) {
+        const firstAvailable = Array.from(tokenIdSelect.options).find((option) => !option.disabled);
+        if (firstAvailable) {
+            firstAvailable.selected = true;
+        }
+    }
+}
+
+async function loadBacktestTokens() {
+    if (!tokenIdSelect) return;
+
+    try {
+        const resp = await fetch('/api/google-sheet-tokens?task_type=backtest_training');
+        const data = await resp.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '加载 Token 失败');
+        }
+        backtestTokens = Array.isArray(data.tokens) ? data.tokens : [];
+        renderBacktestTokenOptions(backtestTokens);
+    } catch (error) {
+        tokenIdSelect.innerHTML = '<option value="">加载 Token 失败</option>';
+        console.error('加载回测 Token 失败:', error);
+    }
 }
 
 function syncEmptyState() {
     const rowCount = document.querySelectorAll('#paramTableBody tr').length;
-    emptyHint.style.display = rowCount === 0 ? 'block' : 'none';
+    emptyHint.classList.toggle('d-none', rowCount !== 0);
 }
 
 function updateYearsDisplay() {
@@ -226,7 +414,9 @@ function updateYearsDisplay() {
 
     document.getElementById('recentYearsDisplay').textContent = recentChecked.join(', ') || '无';
     document.getElementById('fullYearsDisplay').textContent = fullChecked.join(', ') || '无';
-    document.getElementById('yearsDisplay').style.display = recentChecked.length || fullChecked.length ? 'flex' : 'none';
+    document.getElementById('recentYearsInfoDisplay').textContent = recentChecked.join(', ') || '无';
+    document.getElementById('fullYearsInfoDisplay').textContent = fullChecked.join(', ') || '无';
+    document.getElementById('yearsDisplay').classList.toggle('d-none', !(recentChecked.length || fullChecked.length));
 }
 
 function inferModelVersion(title) {
@@ -301,7 +491,7 @@ function setAnalyzeButtonState(isLoading) {
 
 document.getElementById('recentYearsCheck').addEventListener('change', (e) => {
     const isChecked = e.target.checked;
-    recentYearsOptions.style.display = isChecked ? 'block' : 'none';
+    recentYearsOptions.classList.toggle('d-none', !isChecked);
     document.querySelectorAll('.recent-year').forEach((cb, index) => {
         cb.checked = isChecked && index < 3;
     });
@@ -311,7 +501,7 @@ document.getElementById('recentYearsCheck').addEventListener('change', (e) => {
 
 document.getElementById('fullYearsCheck').addEventListener('change', (e) => {
     const isChecked = e.target.checked;
-    fullYearsOptions.style.display = isChecked ? 'block' : 'none';
+    fullYearsOptions.classList.toggle('d-none', !isChecked);
     document.querySelectorAll('.full-year').forEach((cb, index) => {
         cb.checked = isChecked && index < 3;
     });
@@ -371,8 +561,11 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
         document.getElementById('taskName').value = sheetTitle;
         document.getElementById('sheetNames').textContent = (data.worksheets && data.worksheets.length > 0) ? data.worksheets[0] : '';
         document.getElementById('modelVersionBadge').textContent = currentModelVersion.toUpperCase();
-        document.getElementById('sheetInfo').style.display = 'block';
-        paramSection.style.display = 'block';
+        document.getElementById('sheetInfo').classList.remove('d-none');
+        paramSection.classList.remove('d-none');
+        if (taskConfigCollapse) {
+            bootstrap.Collapse.getOrCreateInstance(taskConfigCollapse, { toggle: false }).show();
+        }
 
         resetParameterTable();
     } catch (error) {
@@ -390,6 +583,7 @@ document.getElementById('createBtn').addEventListener('click', async () => {
     const taskName = document.getElementById('taskName').value.trim();
     const stockCode = document.getElementById('stockCode').value.trim();
     const sheetName = document.getElementById('sheetNames').textContent.trim();
+    const tokenId = tokenIdSelect ? tokenIdSelect.value : '';
 
     if (!taskName) {
         alert('请输入任务名称');
@@ -406,8 +600,18 @@ document.getElementById('createBtn').addEventListener('click', async () => {
         return;
     }
 
+    if (stockCode.includes(',') || stockCode.includes('，')) {
+        alert('当前仅支持单个股票代码，请只输入一个股票');
+        return;
+    }
+
     if (!currentFields.length) {
         alert('请先识别 URL');
+        return;
+    }
+
+    if (!tokenId) {
+        alert('请选择回测 Token');
         return;
     }
 
@@ -423,13 +627,13 @@ document.getElementById('createBtn').addEventListener('click', async () => {
     setCreateButtonState(true);
 
     try {
-        const res = await fetch('/api/tasks', {
+        const res = await fetch(TASK_API_BASE, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: taskName,
                 description: `backtest training task for ${sheetName}`,
-                task_type: 'backtest_training',
+                task_type: BACKTEST_TASK_TYPE,
                 config: {
                     sheet: {
                         spreadsheet_id: spreadsheetId,
@@ -437,6 +641,8 @@ document.getElementById('createBtn').addEventListener('click', async () => {
                         title: sheetTitle
                     },
                     stock_code: stockCode,
+                    token_type: 'file',
+                    token_id: Number(tokenId),
                     parameters,
                     recent_years: recentYears,
                     full_years: fullYears
@@ -461,5 +667,10 @@ document.getElementById('createBtn').addEventListener('click', async () => {
 
 syncYearsWrapper();
 syncEmptyState();
+taskConfigCollapse?.addEventListener('shown.bs.collapse', syncConfigToggleText);
+taskConfigCollapse?.addEventListener('hidden.bs.collapse', syncConfigToggleText);
+syncConfigToggleText();
+loadBacktestTokens();
+document.getElementById('fullYearsCheck').dispatchEvent(new Event('change'));
 </script>
 {% endblock %}

@@ -83,7 +83,7 @@
             <div class="d-flex align-items-center">
                 <span class="text-muted me-3" id="pagination-info">-</span>
                 <span class="text-muted me-2">每页</span>
-                <select class="form-select form-select-sm me-2" id="page-size-select" onchange="changePageSize()" style="width:auto;">
+                <select class="form-select form-select-sm me-2 w-auto" id="page-size-select" onchange="changePageSize()">
                     <option value="10">10</option>
                     <option value="20">20</option>
                     <option value="50">50</option>
@@ -165,7 +165,7 @@
                     </div>
                     <div class="col-md-6">
                         <h6>任务配置</h6>
-                        <pre id="detail-task-config" class="bg-light p-3" style="max-height:300px; overflow-y:auto;"></pre>
+                        <pre id="detail-task-config" class="bg-body-tertiary rounded p-3 overflow-auto" style="max-height:300px;"></pre>
                         <h6 class="mt-3">参数摘要</h6>
                         <div id="detail-task-parameter-summary" class="small text-muted"></div>
                     </div>
@@ -173,7 +173,7 @@
 
                 <div class="row g-3 mt-1">
                     <div class="col-md-6">
-                        <div class="card bg-light">
+                        <div class="card bg-body-tertiary border-0">
                             <div class="card-body">
                                 <h6 class="card-title">结果摘要</h6>
                                 <div id="detail-task-result-summary" class="small"></div>
@@ -181,7 +181,7 @@
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <div class="card bg-light">
+                        <div class="card bg-body-tertiary border-0">
                             <div class="card-body">
                                 <h6 class="card-title">运行细节</h6>
                                 <div id="detail-task-runtime-notes" class="small"></div>

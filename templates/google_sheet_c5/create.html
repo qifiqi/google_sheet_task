@@ -124,7 +124,7 @@
                     <!-- 任务基本信息 -->
                     <div class="row mb-4">
                         <div class="col-12">
-                            <div class="card bg-light">
+                            <div class="card bg-body-tertiary border-0">
                                 <div class="card-body">
                                     <h5 class="card-title mb-3">
                                         <i class="bi bi-info-circle"></i> 任务基本信息
@@ -222,7 +222,7 @@
                                         <i class="bi bi-chevron-down ms-1" id="advanced-config-toggle-icon"></i>
                                     </button>
                                 </div>
-                                <div id="advanced-config" style="display: none;">
+                                <div id="advanced-config" class="d-none">
                                     <div class="row mt-2">
                                         <div class="col-md-6 mb-3">
                                             <label for="token_type" class="form-label">
@@ -250,7 +250,7 @@
                                             </div>
                                             <div class="form-text">支持选择指定Token，或选择“随机Token（按最低使用数均衡分配）”</div>
                                         </div>
-                                        <div class="col-md-6 mb-3" id="token_json_container" style="display: none;">
+                                        <div class="col-md-6 mb-3 d-none" id="token_json_container">
                                             <label for="token_json" class="form-label">
                                                 <i class="bi bi-code-square"></i> Token JSON字符串
                                             </label>
@@ -380,7 +380,7 @@
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div class="col-md-9" id="recent_years_container" style="display: none;">
+                                                    <div class="col-md-9 d-none" id="recent_years_container">
                                                         <label class="form-label d-block text-danger fw-bold">选择要<u>移除</u>的近年区间</label>
                                                         <div class="btn-group d-flex" role="group">
                                                             <div class="form-check form-check-inline mb-0 me-2">
@@ -480,7 +480,7 @@
                     </div>
 
                     <!-- 参数组合预览 -->
-                    <div class="card mb-4" id="combination-info" style="display: none;">
+                    <div class="card mb-4 d-none" id="combination-info">
                         <div class="card-header">
                             <h5 class="card-title mb-0">
                                 <i class="bi bi-eye"></i> 参数组合预览
@@ -562,11 +562,11 @@
                 <div class="row">
                     <div class="col-md-6">
                         <h6>执行参数:</h6>
-                        <pre id="confirm-params" class="bg-light p-3"></pre>
+                        <pre id="confirm-params" class="bg-body-tertiary p-3 rounded"></pre>
                     </div>
                     <div class="col-md-6">
                         <h6>执行结果:</h6>
-                        <pre id="confirm-results" class="bg-light p-3"></pre>
+                        <pre id="confirm-results" class="bg-body-tertiary p-3 rounded"></pre>
                     </div>
                 </div>
                 <div class="alert alert-warning">
@@ -623,12 +623,12 @@
                 </div>
                 <div class="mt-3">
                     <h6>任务状态</h6>
-                    <div id="task-status-message" class="border rounded p-2 bg-light" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+                    <div id="task-status-message" class="border rounded p-2 bg-body-tertiary overflow-auto font-monospace small" style="height: 200px;"></div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                <a href="/google-sheet/detail?version=c5" class="btn btn-primary" id="view-task-btn" style="display: none;">查看任务详情</a>
+                <a href="/google-sheet/detail?version=c5" class="btn btn-primary d-none" id="view-task-btn">查看任务详情</a>
             </div>
         </div>
     </div>
@@ -1505,7 +1505,7 @@
                 drmRecent.disabled = !enable;
                 if (!enable) {
                     drmRecent.checked = false;
-                    if (recentYearsContainer) recentYearsContainer.style.display = 'none';
+                    if (recentYearsContainer) recentYearsContainer.classList.add('d-none');
                 }
             }
         }
@@ -1513,7 +1513,7 @@
         // 近年复选框变化时显示/隐藏年份选择
         if (drmRecent && recentYearsContainer) {
             drmRecent.addEventListener('change', function() {
-                recentYearsContainer.style.display = this.checked ? 'block' : 'none';
+                recentYearsContainer.classList.toggle('d-none', !this.checked);
             });
         }
 
@@ -1536,12 +1536,12 @@
             const fileContainer = document.getElementById('token_file_container');
             const jsonContainer = document.getElementById('token_json_container');
             if (this.value === 'file') {
-                fileContainer.style.display = 'block';
-                jsonContainer.style.display = 'none';
+                fileContainer.classList.remove('d-none');
+                jsonContainer.classList.add('d-none');
                 syncSelectedTokenMeta();
             } else {
-                fileContainer.style.display = 'none';
-                jsonContainer.style.display = 'block';
+                fileContainer.classList.add('d-none');
+                jsonContainer.classList.remove('d-none');
             }
             debouncedSaveFormData();
         });
@@ -1638,8 +1638,7 @@
                 const textSpan = document.getElementById('advanced-config-toggle-text');
                 const icon = document.getElementById('advanced-config-toggle-icon');
                 if (!advanced || !textSpan || !icon) return;
-                const isHidden = advanced.style.display === 'none' || advanced.style.display === '';
-                advanced.style.display = isHidden ? 'block' : 'none';
+                const isHidden = advanced.classList.toggle('d-none');
                 textSpan.textContent = isHidden ? '收起' : '展开';
                 icon.classList.toggle('bi-chevron-down', !isHidden);
                 icon.classList.toggle('bi-chevron-up', isHidden);
@@ -1839,10 +1838,10 @@
         const countSpan = document.getElementById('combination-count');
 
         if (count > 0) {
-            infoDiv.style.display = 'block';
+            infoDiv.classList.remove('d-none');
             countSpan.textContent = count;
         } else {
-            infoDiv.style.display = 'none';
+            infoDiv.classList.add('d-none');
         }
         return count;
     }
@@ -2042,7 +2041,7 @@
                 // 清空表单
                 document.getElementById('parameter-form').reset();
                 // 隐藏组合信息
-                document.getElementById('combination-info').style.display = 'none';
+                document.getElementById('combination-info').classList.add('d-none');
                 // 清除保存的表单数据
                 clearSavedFormData();
 
@@ -2184,7 +2183,7 @@
             // 重置表单
             document.getElementById('parameter-form').reset();
             // 隐藏组合信息
-            document.getElementById('combination-info').style.display = 'none';
+            document.getElementById('combination-info').classList.add('d-none');
             // 重新计算组合数量
             calculateCombinations();
             console.log('已清除 C5 表单缓存');

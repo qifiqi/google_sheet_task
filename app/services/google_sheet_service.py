@@ -287,19 +287,18 @@ class GoogleSheetService(BaseGoogleSheetService):
 
             c3_input_column_d = config_data.get('c3_input_column_d').upper()
             c3_input_column_e = config_data.get('c3_input_column_e').upper()
-
-
-            A_num = self.google_sheet.get_last_row('D')
-            if A_num > 10:
-                self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
-                self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num+2}")
-
-                self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
-                if not self._interruptible_sleep(20):
-                    return success_count, failed_count, 'cancelled'
-
-            stock_code = config_data.get("stock_code")
+            stock_code = config_data.get("stock_code",'')
             if stock_code:
+
+                A_num = self.google_sheet.get_last_row('D')
+                if A_num > 10:
+                    self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
+                    self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num+2}")
+
+                    self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+                    if not self._interruptible_sleep(20):
+                        return success_count, failed_count, 'cancelled'
+
                 self.cell_kline_data(config_data)
 
 
@@ -568,7 +567,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 
                 # 使用选中的键和对应的值更新单元格
                 try:
-                    self.google_sheet.update_cell(random_key, random_value)
+                    self.google_sheet.update_cell(random_key, str(random_value))
                 except Exception as e:
                     self._log_error(f"更新单元格 {random_key} 失败，值: {random_value}, 错误: {str(e)}")
                     raise e

@@ -57,7 +57,7 @@ class TaskWatchdog:
 
                 with app.app_context():
                     from app.models import Task as TaskModel
-                    running_tasks = TaskModel.query.filter(TaskModel.status.in_(['running'])).all()
+                    running_tasks = TaskModel.query.filter(TaskModel.status == 'running').all()
 
                     for task in running_tasks:
                         if self._stop_event.is_set():

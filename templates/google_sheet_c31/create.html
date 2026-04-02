@@ -126,7 +126,7 @@
                                         <i class="bi bi-info-circle"></i> 任务基本信息
                                     </h5>
                                     <div class="row">
-                                        <div class="col-md-4 mb-3">
+                                        <div class="col-md-3 mb-3">
                                             <label for="task_template" class="form-label">选择模板</label>
                                             <select class="form-select" id="task_template">
                                                 <option value="">不使用模板</option>
@@ -151,6 +151,21 @@
                                             <input type="text" class="form-control" id="stock_code_input"
                                                    placeholder="例如：601727">
                                             <div class="form-text">输入单个股票代码</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="start_date" class="form-label">开始日期</label>
+                                            <input type="date" class="form-control" id="start_date">
+                                            <div class="form-text">用于批量运行的起始日期</div>
+                                        </div>
+                                        <div class="col-md-2 mb-3">
+                                            <label class="form-label d-block">市场</label>
+                                            <div class="btn-group w-100" role="group" aria-label="市场类型">
+                                                <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" checked>
+                                                <label class="btn btn-outline-primary" for="market_type_cn">A股</label>
+                                                <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="us">
+                                                <label class="btn btn-outline-primary" for="market_type_us">美股</label>
+                                            </div>
+                                            <div class="form-text">选择回测市场</div>
                                         </div>
                                     </div>
                                 </div>
@@ -1154,6 +1169,7 @@
         // 初始化日期默认值（如果未从模板/重启/本地恢复）
         initDefaultDatesIfEmpty();
 
+        normalizeBatchBasicFieldsMarkup();
         calculateCombinations();
 
         // 创建防抖版本的函数
@@ -1204,6 +1220,37 @@
         }
 
         loadSavedFormData();
+    }
+
+    function normalizeBatchBasicFieldsMarkup() {
+        const startDateInput = document.getElementById('start_date');
+        if (startDateInput) {
+            const startDateCol = startDateInput.closest('.col-md-3');
+            if (startDateCol) {
+                startDateCol.innerHTML = `
+                    <label for="start_date" class="form-label">Start Date</label>
+                    <input type="date" class="form-control" id="start_date">
+                    <div class="form-text">Batch run start date</div>
+                `;
+            }
+        }
+
+        const marketTypeCnInput = document.getElementById('market_type_cn');
+        if (marketTypeCnInput) {
+            const marketTypeCol = marketTypeCnInput.closest('.col-md-2');
+            if (marketTypeCol) {
+                marketTypeCol.innerHTML = `
+                    <label class="form-label d-block">Market</label>
+                    <div class="btn-group w-100" role="group" aria-label="Market Type">
+                        <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" checked>
+                        <label class="btn btn-outline-primary" for="market_type_cn">A-Share</label>
+                        <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="us">
+                        <label class="btn btn-outline-primary" for="market_type_us">US</label>
+                    </div>
+                    <div class="form-text">Select the target market</div>
+                `;
+            }
+        }
     }
 
     function fillFormWithRestartTask(taskId) {
@@ -1399,16 +1446,16 @@
         // refreshDateRangeModeAvailability();
         // applyRecentYears(normalized.recent_years);
         // updateRecentYearsVisibility();
-        // if (normalized.market_type) {
-        //     const mtInput = document.querySelector(`input[name="market_type"][value="${normalized.market_type}"]`);
-        //     if (mtInput) {
-        //         mtInput.checked = true;
-        //     }
-        // }
-        // if (normalized.start_date) {
-        //     const sd = document.getElementById('start_date');
-        //     if (sd) sd.value = normalized.start_date;
-        // }
+        if (normalized.market_type) {
+            const mtInput = document.querySelector(`input[name="market_type"][value="${normalized.market_type}"]`);
+            if (mtInput) {
+                mtInput.checked = true;
+            }
+        }
+        const startDateInput = document.getElementById('start_date');
+        if (startDateInput) {
+            startDateInput.value = normalized.start_date || '';
+        }
         // if (normalized.end_date) {
         //     const ed = document.getElementById('end_date');
         //     if (ed) ed.value = normalized.end_date;
@@ -1637,7 +1684,7 @@
 
         // 为所有输入字段添加自动保存
         const inputFields = [
-            'task_name', 'task_description', 'stock_code_input'
+            'task_name', 'task_description', 'stock_code_input', 'start_date'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -1646,6 +1693,10 @@
                 field.addEventListener('input', debouncedSaveFormData);
                 field.addEventListener('change', debouncedSaveFormData);
             }
+        });
+
+        document.querySelectorAll('input[name="market_type"]').forEach(function(field) {
+            field.addEventListener('change', debouncedSaveFormData);
         });
 
         document.querySelectorAll('#sheet-config-list .sheet-config-item').forEach(function(item) {
@@ -1918,6 +1969,8 @@
         }
 
         const taskDescription = document.getElementById('task_description').value.trim();
+        const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+        const startDate = document.getElementById('start_date')?.value || null;
 
         const parameterValues = getParameterValues();
         if (!validateC31Parameters(parameterValues)) {
@@ -1939,7 +1992,9 @@
         const taskConfig = {
             base_task_name: taskName,
             task_description: taskDescription,
-            stock_codes: [getStockCode()],
+            stock_codes: [stockCodeValue],
+            market_type: marketType,
+            start_date: startDate,
             // token_type: tokenType,
             // token_id: tokenType === 'file' ? tokenId : null,
             // token_file: tokenFile,
@@ -2027,6 +2082,8 @@
             task_name: document.getElementById('task_name').value,
             task_description: document.getElementById('task_description').value,
             stock_code: getStockCode(),
+            start_date: document.getElementById('start_date')?.value || '',
+            market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
             sheets: sheets,
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
@@ -2054,6 +2111,9 @@
                 if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
                 if (formData.stock_code) document.getElementById('stock_code_input').value = formData.stock_code;
+                if (typeof formData.start_date === 'string') {
+                    document.getElementById('start_date').value = formData.start_date;
+                }
                 if (Array.isArray(formData.sheets) && formData.sheets.length > 0) {
                     applySheetsToForm(formData.sheets);
                 } else if (formData.spreadsheet) {
@@ -2074,12 +2134,12 @@
                 const param6El = document.getElementById('param6');
                 if (formData.param6 && param6El) param6El.value = formData.param6;
 
-                // if (formData.market_type) {
-                //     const mtInput = document.querySelector(`input[name="market_type"][value="${formData.market_type}"]`);
-                //     if (mtInput) {
-                //         mtInput.checked = true;
-                //     }
-                // }
+                if (formData.market_type) {
+                    const mtInput = document.querySelector(`input[name="market_type"][value="${formData.market_type}"]`);
+                    if (mtInput) {
+                        mtInput.checked = true;
+                    }
+                }
                 // if (formData.count_mode) {
                 //     const cmInput = document.querySelector(`input[name="count_mode"][value="${formData.count_mode}"]`);
                 //     if (cmInput) {
@@ -2098,7 +2158,6 @@
                 // refreshDateRangeModeAvailability();
                 // applyRecentYears(formData.recent_years);
                 // document.getElementById('token_type').dispatchEvent(new Event('change'));
-                initStockCodesFromField();
                 calculateCombinations();
 
                 showNotification('表单数据已恢复', 'info');
@@ -2113,8 +2172,7 @@
         try {
             localStorage.removeItem(STORAGE_KEY);
             document.getElementById('parameter-form').reset();
-            stockCodes = [];
-            renderStockCodeChips();
+            document.getElementById('stock_code_input').value = '';
             document.getElementById('combination-info').style.display = 'none';
             calculateCombinations();
             showNotification('已清除 3.1 表单缓存', 'success');
@@ -2147,12 +2205,15 @@
         try {
             const baseTaskName = document.getElementById('task_name').value.trim();
             const taskDescription = document.getElementById('task_description').value.trim();
+            const stockCodeValue = getStockCode();
+            const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+            const startDate = document.getElementById('start_date')?.value || null;
 
             if (!baseTaskName) {
                 showError('请输入任务 Base Name');
                 return null;
             }
-            if (!stockCodes.length) {
+            if (!stockCodeValue) {
                 showError('请至少添加一个股票代码');
                 return null;
             }
@@ -2178,7 +2239,9 @@
                 task_type: TASK_TYPE,
                 base_task_name: baseTaskName,
                 task_description: taskDescription,
-                stock_codes: [getStockCode()],
+                stock_codes: [stockCodeValue],
+                market_type: marketType,
+                start_date: startDate,
                 // “更多配置”目前不参与模板保存；注释保留供后续恢复。
                 // token_type: tokenType,
                 // token_id: tokenType === 'file' ? tokenId : null,

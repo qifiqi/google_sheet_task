@@ -1,4 +1,5 @@
 import json
+import math
 import time
 import traceback
 from datetime import datetime, timedelta
@@ -27,11 +28,24 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
         super().__init__(config, task_id, event_queue=event_queue, app=app, stop_event=stop_event)
-        self.google_sheets: list[GoogleSheet] = []
         self.api_client = StockAPIClient()
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
+
+    def _task_detail_url(self) -> str:
+        return f"{current_app.config.get('BASE_URL')}/backtest-training/detail/{self.task_id}"
+
+    @staticmethod
+    def _sanitize_json_value(value):
+        """Convert NaN/Infinity values into JSON-safe nulls before persistence."""
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
+        if isinstance(value, dict):
+            return {key: BacktestTrainingService._sanitize_json_value(val) for key, val in value.items()}
+        if isinstance(value, list):
+            return [BacktestTrainingService._sanitize_json_value(item) for item in value]
+        return value
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -134,7 +148,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             return 'error'
 
     @staticmethod
-    def _c3_to_c5_get_config(config_data,sheet_type):
+    def _c3_to_c5_get_config(config_data):
         sheet = config_data.get('sheet')
         sheet_type = "C5" if "C5" in sheet.get('title','').upper() else "C3"
         if 'C5' in sheet_type.upper():
@@ -182,7 +196,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
             )
             precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
             total_combinations += len(combinations)
-
             # 更新任务总步数
             task.total_steps = total_combinations
             db_retry_manager.commit_with_retry(db.session)
@@ -199,12 +212,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 重置成功/失败计数器；如需精确恢复已完成组合数，可在外部通过历史结果统计
             success_count = start_index
 
-            for google_sheet in self.google_sheets:
-                A_num = google_sheet.get_last_row(last_row)
-                if A_num < 10:
-                    continue
-                self._log_info(f'{google_sheet.title} 当前时间列行数: {A_num},准备滞空 时间列 值列')
-                google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
+            A_num = self.google_sheet.get_last_row(last_row)
+            if A_num > 10:
+                self._log_info(f'{self.google_sheet.title} 当前时间列行数: {A_num},准备滞空 时间列 值列')
+                self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
 
             self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
             if not self._interruptible_sleep(20):
@@ -434,7 +445,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
 
             initial_results = {}
-
             results = {}
             cell_updates = {}
             parameter = combination['parameter']
@@ -455,11 +465,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 _kline_len = len(kline)
 
                 if Kline_key != cache_Kline_key or initial_result_sleep is not None:
-                    for google_sheet in self.google_sheets:
-                        # A_num = google_sheet.get_last_row('A')
-                        A_num = column_A_length
-                        self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
-                        google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
+                    # A_num = google_sheet.get_last_row('A')
+                    A_num = column_A_length
+                    self._log_info(f'{self.google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
+                    self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
 
                     # 准备要更新的单元格
                     for i in range(_kline_len):
@@ -482,16 +491,18 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     if not self._interruptible_sleep(initial_result_sleep):
                         raise RuntimeError("task cancelled")
 
-                for google_sheet in self.google_sheets:
-                    initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(output_range_1)
+                initial_results[self.google_sheet.spreadsheet_id] = self.google_sheet.get_range(output_range_1)
 
-                for google_sheet in self.google_sheets:
-                    self._log_info(f"向Google Sheet写入参数: {google_sheet.title} 长度：{len(cell_updates)}")
-                    google_sheet.update_jumped_cells(cell_updates)
+                self._log_info(f"向Google Sheet写入参数: {self.google_sheet.title} 长度：{len(cell_updates)}")
+                self.google_sheet.update_jumped_cells(cell_updates)
 
             set_googl_val()
             Kline_key = combination['Kline_key']
             kline = KLINE_DATA_MAP.get(Kline_key, None)
+
+            merged_return_range_a1 = f"{output_column_index}2:{output_column_start}{len(kline) + 1}"
+            sleep_num = 5
+            output_cell_list = [output_range_2,merged_return_range_a1] if len(parameter) == 2 else [merged_return_range_a1]
 
             def check_result(check_values):
                 _check_values = {}
@@ -526,13 +537,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 _check_values = initial_results[spreadsheet_id]
 
-                if (_check_values[parameter_positions[0]] == check_values[check_positions[0]]
-                        and _check_values[parameter_positions[0]] == check_values[check_positions[1]]):
+                if (_check_values[check_positions[0]] == check_values[check_positions[0]]
+                        and _check_values[check_positions[1]] == check_values[check_positions[1]]):
                     return False
 
                 return True
 
-            sleep_num = 5
 
             def get_sell_sleep(min_sleep: int, max_sleep: int) -> int:
                 nonlocal sleep_num
@@ -544,7 +554,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
             # 定时检查是否完成（最多检查60次，20-30秒）
             for attempt in range(60):
-
                 # 定期刷新参数，防止模型卡顿
                 if attempt != 0 and (attempt % 10 == 0 or attempt in [5,15,25,35]):
                     self._log_info(f"刷新参数")
@@ -559,62 +568,46 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 if not self._interruptible_sleep(_):
                     raise RuntimeError("task cancelled")
                 all_num = 0
-                for google_sheet in self.google_sheets:
-                    _result = google_sheet.get_range(output_range_1)
-                    if _validate_check_values(_result, google_sheet.spreadsheet_id):
-                        # _result = check_result(_result)
-                        merged_return_range_a1 = f"{output_column_index}2:{output_column_start}{len(kline) + 1}"
-                        batch_range_values = google_sheet.get_ranges([
-                            output_range_2,
-                            merged_return_range_a1,
-                        ])
-                        _result_yearly = batch_range_values.get(output_range_2, {})
-                        # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
-                        _result.update(_result_yearly)
+                _result = self.google_sheet.get_range(output_range_1)
+                if _validate_check_values(_result, self.google_sheet.spreadsheet_id):
+                    # _result = check_result(_result)
+                    batch_range_values = self.google_sheet.get_ranges(output_cell_list)
+                    _result_yearly = batch_range_values.get(output_range_2, {})
+                    # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
+                    _result.update(_result_yearly)
 
-                        try:
-                            merged_return_range = batch_range_values.get(merged_return_range_a1, {})
-                            _index_return = check_result({
-                                position: value
-                                for position, value in merged_return_range.items()
-                                if position.startswith(output_column_index)
-                            })
-                            _start_return = check_result({
-                                position: value
-                                for position, value in merged_return_range.items()
-                                if position.startswith(output_column_start)
-                            })
-                        except Exception as e:
-                            self._log_info(f"获取结果位置 {output_column_index}2:{output_column_start}{len(kline) + 1} 时出错：{str(e)}")
-                            self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
-                            break
-
-                        _return_date = []
-                        for i in range(len(kline)):
-                            _return_date.append({
-                                'date': kline[i].get('stock_date'),
-                                'index_return': _index_return[f"{output_column_index}{i + 2}"],
-                                'start_return': _start_return[f"{output_column_start}{i + 2}"]
-
-                            })
-                        calculate_metrics = self.xpl.get_calculate_metrics_v1(_return_date)
-                        _result['calculate_metrics'] = calculate_metrics
-                        results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
-                        all_num += 1
-                    else:
-                        self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
-                        self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
+                    try:
+                        merged_return_range = batch_range_values.get(merged_return_range_a1, {})
+                        _index_return = check_result({
+                            position: value
+                            for position, value in merged_return_range.items()
+                            if position.startswith(output_column_index)
+                        })
+                        _start_return = check_result({
+                            position: value
+                            for position, value in merged_return_range.items()
+                            if position.startswith(output_column_start)
+                        })
+                    except Exception as e:
+                        self._log_info(f"获取结果位置 {output_column_index}2:{output_column_start}{len(kline) + 1} 时出错：{str(e)}")
+                        self._log_info(f"_result：{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
                         break
 
-                if all_num == len(self.google_sheets):
-                    self._log_info(f"所有任务已完成")
+                    _return_date = []
+                    for i in range(len(kline)):
+                        _return_date.append({
+                            'date': kline[i].get('stock_date'),
+                            'index_return': _index_return[f"{output_column_index}{i + 2}"],
+                            'start_return': _start_return[f"{output_column_start}{i + 2}"]
+
+                        })
+                    calculate_metrics = self.xpl.get_calculate_metrics_v1(_return_date)
+                    _result['calculate_metrics'] = calculate_metrics
+                    results[f"{self.google_sheet.spreadsheet_id}__{self.google_sheet.title}"] = _result
                     return True, results
-
-                # if attempt in [5,15,25,35]:
-                #     for google_sheet in self.google_sheets:
-                #         self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                #         google_sheet.update_jumped_cells(cell_updates)
-
+                else:
+                    self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
+                    self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
             self._log_warning("执行超时，未在规定时间内完成")
             return False, {}
 
@@ -628,11 +621,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
         def save_result_operation():
             _index_start_return_date = None
+            safe_parameters = self._sanitize_json_value(parameters)
+            safe_result = self._sanitize_json_value(result)
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
-                parameters=json.dumps(parameters),
-                result=json.dumps(result),
+                parameters=json.dumps(safe_parameters, allow_nan=False),
+                result=json.dumps(safe_result, allow_nan=False),
                 success=success
             )
             db.session.add(task_result)
@@ -742,7 +737,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             for year in recent_years:
 
                 _end_data = end_date
-                _start_data = f"{year}{end_date[4:]}"
+                _start_data = f"{int(end_date[:4]) - year}{end_date[4:]}"
                 kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
                 Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
                 for item in parameters:

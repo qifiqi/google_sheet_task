@@ -6,7 +6,7 @@
         <h1 class="h2">任务模板管理</h1>
         <div class="btn-toolbar mb-2 mb-md-0">
             <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#createTemplateModal">
-                <i class="fas fa-plus"></i> 新建模板
+                <i class="bi bi-plus-lg"></i> 新建模板
             </button>
         </div>
     </div>
@@ -16,9 +16,9 @@
         <!-- 新建普通模板卡片 -->
         <div class="col-md-4 mb-4" data-template-placeholder="default">
             <div class="card h-100 border-primary">
-                <div class="card-body d-flex flex-column justify-content-center align-items-center" style="min-height: 200px;">
+                <div class="card-body d-flex flex-column justify-content-center align-items-center py-5" style="min-height: 200px;">
                     <a href="{{ url_for('google_sheet.create') }}" class="text-decoration-none text-center">
-                        <i class="fas fa-plus-circle fa-3x mb-3 text-primary"></i>
+                        <i class="bi bi-plus-circle display-4 mb-3 text-primary"></i>
                         <h5 class="card-title">新建模板</h5>
                         <p class="card-text text-muted">创建一个新的任务模板</p>
                     </a>
@@ -28,9 +28,9 @@
         <!-- 新建 C4 模板卡片 -->
         <div class="col-md-4 mb-4" data-template-placeholder="c4">
             <div class="card h-100 border-info">
-                <div class="card-body d-flex flex-column justify-content-center align-items-center" style="min-height: 200px;">
+                <div class="card-body d-flex flex-column justify-content-center align-items-center py-5" style="min-height: 200px;">
                     <a href="{{ url_for('google_sheet.create', version='c4') }}" class="text-decoration-none text-center">
-                        <i class="fas fa-plus-circle fa-3x mb-3 text-info"></i>
+                        <i class="bi bi-plus-circle display-4 mb-3 text-info"></i>
                         <h5 class="card-title">新建 C4 模板</h5>
                         <p class="card-text text-muted">为 Google Sheet C4 任务创建专用模板</p>
                     </a>
@@ -40,9 +40,9 @@
         <!-- 新建 C5 模板卡片 -->
         <div class="col-md-4 mb-4" data-template-placeholder="c5">
             <div class="card h-100 border-success">
-                <div class="card-body d-flex flex-column justify-content-center align-items-center" style="min-height: 200px;">
+                <div class="card-body d-flex flex-column justify-content-center align-items-center py-5" style="min-height: 200px;">
                     <a href="{{ url_for('google_sheet.create', version='c5') }}" class="text-decoration-none text-center">
-                        <i class="fas fa-plus-circle fa-3x mb-3 text-success"></i>
+                        <i class="bi bi-plus-circle display-4 mb-3 text-success"></i>
                         <h5 class="card-title">新建 C5 模板</h5>
                         <p class="card-text text-muted">为 Google Sheet C5 任务创建专用模板</p>
                     </a>
@@ -53,8 +53,8 @@
     </div>
 
     <!-- 没有模板时的提示 -->
-    <div id="noTemplates" class="text-center py-5" style="display: none;">
-        <i class="fas fa-folder-open fa-3x text-muted mb-3"></i>
+    <div id="noTemplates" class="text-center py-5 d-none">
+        <i class="bi bi-folder2-open display-4 text-muted mb-3"></i>
         <h5 class="text-muted">暂无模板</h5>
         <p class="text-muted">点击"新建模板"创建您的第一个模板</p>
     </div>
@@ -144,11 +144,11 @@ function loadTemplates() {
             placeholders.forEach(p => templateList.appendChild(p));
             
             if (!data.templates || data.templates.length === 0) {
-                noTemplates.style.display = 'block';
+                noTemplates.classList.remove('d-none');
                 return;
             }
             
-            noTemplates.style.display = 'none';
+            noTemplates.classList.add('d-none');
             data.templates.forEach(template => {
                 // 获取配置信息
                 let configInfo = '';
@@ -166,8 +166,8 @@ function loadTemplates() {
                             : (config.sheet_name || '默认');
                         configInfo = `
                             <div class="text-muted small mb-2">
-                                <i class="fas fa-table"></i> 工作表: ${firstSheetName}<br>
-                                <i class="fas fa-list"></i> 产品代码数: ${codeCount}
+                                <i class="bi bi-table"></i> 工作表: ${firstSheetName}<br>
+                                <i class="bi bi-list-ul"></i> 产品代码数: ${codeCount}
                             </div>
                         `;
                         typeBadge = '<span class="badge bg-info ms-2">C4</span>';
@@ -180,8 +180,8 @@ function loadTemplates() {
                         const p3Count = Array.isArray(config.parameters && config.parameters[2]) ? config.parameters[2].length : 0;
                         configInfo = `
                             <div class="text-muted small mb-2">
-                                <i class="fas fa-table"></i> 工作表: ${firstSheetName}<br>
-                                <i class="fas fa-list"></i> 参数1/2/3 组数: ${p1Count}/${p2Count}/${p3Count}
+                                <i class="bi bi-table"></i> 工作表: ${firstSheetName}<br>
+                                <i class="bi bi-list-ul"></i> 参数1/2/3 组数: ${p1Count}/${p2Count}/${p3Count}
                             </div>
                         `;
                         typeBadge = '<span class="badge bg-success ms-2">C5</span>';
@@ -189,8 +189,8 @@ function loadTemplates() {
                         const paramCount = config.parameters ? config.parameters.filter(p => Array.isArray(p) && p.length > 0).length : 0;
                         configInfo = `
                             <div class="text-muted small mb-2">
-                                <i class="fas fa-table"></i> 工作表: ${config.sheet_name || '默认'}<br>
-                                <i class="fas fa-list"></i> 参数组数: ${paramCount}
+                                <i class="bi bi-table"></i> 工作表: ${config.sheet_name || '默认'}<br>
+                                <i class="bi bi-list-ul"></i> 参数组数: ${paramCount}
                             </div>
                         `;
                     }
@@ -207,17 +207,17 @@ function loadTemplates() {
                             <h6 class="mb-0">${template.name}${typeBadge}</h6>
                             <div class="dropdown">
                                 <button class="btn btn-link text-muted p-0" type="button" data-bs-toggle="dropdown">
-                                    <i class="fas fa-ellipsis-v"></i>
+                                    <i class="bi bi-three-dots-vertical"></i>
                                 </button>
                                 <ul class="dropdown-menu">
                                     <li>
                                         <a class="dropdown-item" href="#" onclick="editTemplate(${template.id})">
-                                            <i class="fas fa-edit"></i> 编辑
+                                            <i class="bi bi-pencil-square"></i> 编辑
                                         </a>
                                     </li>
                                     <li>
                                         <a class="dropdown-item" href="#" onclick="duplicateTemplate(${template.id})">
-                                            <i class="fas fa-copy"></i> 复制
+                                            <i class="bi bi-copy"></i> 复制
                                         </a>
                                     </li>
                                     <li>
@@ -225,7 +225,7 @@ function loadTemplates() {
                                     </li>
                                     <li>
                                         <a class="dropdown-item text-danger" href="#" onclick="deleteTemplate(${template.id})">
-                                            <i class="fas fa-trash"></i> 删除
+                                            <i class="bi bi-trash"></i> 删除
                                         </a>
                                     </li>
                                 </ul>
@@ -235,12 +235,12 @@ function loadTemplates() {
                             <p class="card-text text-muted small">${template.description || '无描述'}</p>
                             ${configInfo}
                             <div class="text-muted small">
-                                <i class="fas fa-clock"></i> 创建于: ${new Date(template.created_at).toLocaleString()}
+                                <i class="bi bi-clock-history"></i> 创建于: ${new Date(template.created_at).toLocaleString()}
                             </div>
                         </div>
                         <div class="card-footer bg-transparent">
                             <button class="btn btn-primary btn-sm w-100" onclick="useTemplate(${template.id}, '${mode}')">
-                                <i class="fas fa-play"></i> 使用此模板
+                                <i class="bi bi-play-fill"></i> 使用此模板
                             </button>
                         </div>
                     </div>

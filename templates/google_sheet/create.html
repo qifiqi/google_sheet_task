@@ -43,7 +43,7 @@
                     <!-- 任务基本信息 -->
                     <div class="row mb-4">
                         <div class="col-12">
-                            <div class="card bg-light">
+                            <div class="card bg-body-tertiary border-0">
                                 <div class="card-body">
                                     <h5 class="card-title mb-3">
                                         <i class="bi bi-info-circle"></i> 任务基本信息
@@ -117,14 +117,14 @@
                                            placeholder="选择 Google Sheet 后自动带出" readonly>
                                     <div class="form-text" id="sheet-name-help">默认展示接口返回的第一个工作表</div>
                                 </div>
-                                <div class="col-lg-3 col-md-6 mb-3">
+                                <!-- <div class="col-lg-3 col-md-6 mb-3">
                                     <label for="stock_code" class="form-label">
                                         <i class="bi bi-bar-chart"></i> 股票代码
                                     </label>
                                     <input type="text" class="form-control" id="stock_code"
                                            placeholder="请输入股票代码">
                                     <div class="form-text">用于标识股票的代码</div>
-                                </div>
+                                </div> -->
                                 <div class="col-md-6 mb-3">
                                     <label for="token_type" class="form-label">
                                         <i class="bi bi-shield-lock"></i> 认证方式
@@ -141,7 +141,7 @@
                                     <input type="text" class="form-control" id="token_file" 
                                            placeholder="请输入Token文件路径" value="data/token.json">
                                 </div>
-                                <div class="col-md-6 mb-3" id="token_json_container" style="display: none;">
+                                <div class="col-md-6 mb-3 d-none" id="token_json_container">
                                     <label for="token_json" class="form-label">
                                         <i class="bi bi-code-square"></i> Token JSON字符串
                                     </label>
@@ -271,7 +271,7 @@
                     </div>
                     
                     <!-- 参数组合预览 -->
-                    <div class="card mb-4" id="combination-info" style="display: none;">
+                    <div class="card mb-4 d-none" id="combination-info">
                         <div class="card-header">
                             <h5 class="card-title mb-0">
                                 <i class="bi bi-eye"></i> 参数组合预览
@@ -353,11 +353,11 @@
                 <div class="row">
                     <div class="col-md-6">
                         <h6>执行参数:</h6>
-                        <pre id="confirm-params" class="bg-light p-3"></pre>
+                        <pre id="confirm-params" class="bg-body-tertiary p-3 rounded"></pre>
                     </div>
                     <div class="col-md-6">
                         <h6>执行结果:</h6>
-                        <pre id="confirm-results" class="bg-light p-3"></pre>
+                        <pre id="confirm-results" class="bg-body-tertiary p-3 rounded"></pre>
                     </div>
                 </div>
                 <div class="alert alert-warning">
@@ -414,12 +414,12 @@
                 </div>
                 <div class="mt-3">
                     <h6>任务状态</h6>
-                    <div id="task-status-message" class="border rounded p-2 bg-light" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+                    <div id="task-status-message" class="border rounded p-2 bg-body-tertiary overflow-auto font-monospace small" style="height: 200px;"></div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                <a href="/google-sheet/detail" class="btn btn-primary" id="view-task-btn" style="display: none;">查看任务详情</a>
+                <a href="/google-sheet/detail" class="btn btn-primary d-none" id="view-task-btn">查看任务详情</a>
             </div>
         </div>
     </div>
@@ -458,9 +458,9 @@
                 if (config.spreadsheet_title) {
                     document.getElementById('spreadsheet_title').value = config.spreadsheet_title;
                 }
-                if (config.stock_code) {
-                    document.getElementById('stock_code').value = config.stock_code;
-                }
+                // if (config.stock_code) {
+                //     document.getElementById('stock_code').value = config.stock_code;
+                // }
                 if (config.token_type) {
                     document.getElementById('token_type').value = config.token_type;
                     document.getElementById('token_type').dispatchEvent(new Event('change'));
@@ -717,7 +717,7 @@
                         <i class="bi bi-chevron-down ms-1" id="advanced-config-toggle-icon"></i>
                     </button>
                 </div>
-                <div id="advanced-config" style="display: none;">
+                <div id="advanced-config" class="d-none">
                     <div class="row mt-2"></div>
                 </div>
             `;
@@ -995,7 +995,7 @@
 
         // 为其他输入字段添加防抖的自动保存
         const inputFields = [
-            'task_name', 'task_description', 'spreadsheet_title', 'stock_code',
+            'task_name', 'task_description', 'spreadsheet_title', /* 'stock_code', */
             'token_file', 'token_json', 'proxy_url'
         ];
         
@@ -1091,9 +1091,9 @@
                 if (config.spreadsheet_title) {
                     document.getElementById('spreadsheet_title').value = config.spreadsheet_title;
                 }
-                if (config.stock_code) {
-                    document.getElementById('stock_code').value = config.stock_code;
-                }
+                // if (config.stock_code) {
+                //     document.getElementById('stock_code').value = config.stock_code;
+                // }
                 if (config.token_type) {
                     document.getElementById('token_type').value = config.token_type;
                     document.getElementById('token_type').dispatchEvent(new Event('change'));
@@ -1165,11 +1165,11 @@
             const fileContainer = document.getElementById('token_file_container');
             const jsonContainer = document.getElementById('token_json_container');
             if (this.value === 'file') {
-                fileContainer.style.display = 'block';
-                jsonContainer.style.display = 'none';
+                fileContainer.classList.remove('d-none');
+                jsonContainer.classList.add('d-none');
             } else {
-                fileContainer.style.display = 'none';
-                jsonContainer.style.display = 'block';
+                fileContainer.classList.add('d-none');
+                jsonContainer.classList.remove('d-none');
             }
             syncSelectedTokenMeta();
             debouncedSaveFormData();
@@ -1196,8 +1196,7 @@
                 if (!advanced || !textSpan || !icon) {
                     return;
                 }
-                const isHidden = advanced.style.display === 'none' || advanced.style.display === '';
-                advanced.style.display = isHidden ? 'block' : 'none';
+                const isHidden = advanced.classList.toggle('d-none');
                 textSpan.textContent = isHidden ? '收起' : '展开';
                 icon.classList.toggle('bi-chevron-down', !isHidden);
                 icon.classList.toggle('bi-chevron-up', isHidden);
@@ -1251,10 +1250,10 @@
         const countSpan = document.getElementById('combination-count');
         
         if (count > 0) {
-            infoDiv.style.display = 'block';
+            infoDiv.classList.remove('d-none');
             countSpan.textContent = count;
         } else {
-            infoDiv.style.display = 'none';
+            infoDiv.classList.add('d-none');
         }
         
         return count;
@@ -1447,7 +1446,7 @@
             spreadsheet_id: spreadsheetId,
             spreadsheet_title: spreadsheetTitle || null,
             sheet_name: sheetName,
-            stock_code: document.getElementById('stock_code').value.trim() || null,
+            // stock_code: document.getElementById('stock_code').value.trim() || null,
             token_type: tokenType,
             token_id: tokenType === 'file' ? tokenId : null,
             token_file: tokenFile,
@@ -1487,7 +1486,7 @@
                 // 清空表单
                 document.getElementById('parameter-form').reset();
                 // 隐藏组合信息
-                document.getElementById('combination-info').style.display = 'none';
+                document.getElementById('combination-info').classList.add('d-none');
                 // 清除保存的表单数据
                 clearSavedFormData();
                 
@@ -1531,7 +1530,7 @@
             spreadsheet: document.getElementById('spreadsheet').value,
             spreadsheet_title: document.getElementById('spreadsheet_title').value,
             sheet_name: document.getElementById('sheet_name').value,
-            stock_code: document.getElementById('stock_code').value,
+            // stock_code: document.getElementById('stock_code').value,
             token_type: document.getElementById('token_type').value,
             token_id: document.getElementById('token_id') ? document.getElementById('token_id').value : '',
             token_file: document.getElementById('token_file').value,
@@ -1564,7 +1563,7 @@
                 if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
                 if (formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.spreadsheet_title;
-                if (formData.stock_code) document.getElementById('stock_code').value = formData.stock_code;
+                // if (formData.stock_code) document.getElementById('stock_code').value = formData.stock_code;
                 if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
                 if (formData.token_id) {
                     pendingTokenSelection = { token_id: formData.token_id, token_file: formData.token_file || '' };
@@ -1604,7 +1603,7 @@
             // 重置表单
             document.getElementById('parameter-form').reset();
             // 隐藏组合信息
-            document.getElementById('combination-info').style.display = 'none';
+            document.getElementById('combination-info').classList.add('d-none');
             // 重新计算组合数量
             calculateCombinations();
             console.log('已清除保存的表单数据');
@@ -1684,7 +1683,7 @@
                 spreadsheet_id: spreadsheetId,
                 spreadsheet_title: spreadsheetTitle || null,
                 sheet_name: sheetName,
-                stock_code: document.getElementById('stock_code').value.trim() || null,
+                // stock_code: document.getElementById('stock_code').value.trim() || null,
                 token_type: tokenType,
                 token_id: tokenType === 'file' ? tokenId : null,
                 token_file: tokenFile,
@@ -1763,9 +1762,9 @@
             if (restartConfig.spreadsheet_title) {
                 document.getElementById('spreadsheet_title').value = restartConfig.spreadsheet_title;
             }
-            if (restartConfig.stock_code) {
-                document.getElementById('stock_code').value = restartConfig.stock_code;
-            }
+            // if (restartConfig.stock_code) {
+            //     document.getElementById('stock_code').value = restartConfig.stock_code;
+            // }
             if (restartConfig.token_type) {
                 document.getElementById('token_type').value = restartConfig.token_type;
                 // 触发change事件来显示对应的输入框

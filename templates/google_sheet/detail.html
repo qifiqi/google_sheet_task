@@ -12,11 +12,11 @@
                     <i class="bi bi-info-circle"></i> 任务概览
                 </h4>
                 <div class="btn-group" role="group">
-                    <button class="btn btn-warning btn-sm" id="cancel-task-btn" style="display:none;">
+                    <button class="btn btn-warning btn-sm d-none" id="cancel-task-btn">
                         <i class="bi bi-stop-circle"></i> 停止任务
                     </button>
                     <div class="btn-group" role="group">
-                        <button type="button" class="btn btn-info btn-sm dropdown-toggle" data-bs-toggle="dropdown" id="restart-dropdown-btn" style="display:none;">
+                        <button type="button" class="btn btn-info btn-sm dropdown-toggle d-none" data-bs-toggle="dropdown" id="restart-dropdown-btn">
                             <i class="bi bi-arrow-clockwise"></i> 重启任务
                         </button>
                         <ul class="dropdown-menu">
@@ -43,7 +43,7 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-4 mb-3">
-                        <div class="card bg-light h-100">
+                        <div class="card bg-body-tertiary h-100 border-0">
                             <div class="card-body">
                                 <h6 class="card-title text-muted mb-3">任务信息</h6>
                                 <div class="row mb-2">
@@ -66,7 +66,7 @@
                         </div>
                     </div>
                     <div class="col-md-4 mb-3">
-                        <div class="card bg-light h-100">
+                        <div class="card bg-body-tertiary h-100 border-0">
                             <div class="card-body">
                                 <h6 class="card-title text-muted mb-3">时间信息</h6>
                                 <div class="row mb-2">
@@ -81,7 +81,7 @@
                                     <div class="col-4"><strong>执行时长:</strong></div>
                                     <div class="col-8 text-warning" id="execution-duration">-</div>
                                 </div>
-                                <div class="row mb-2" id="error-info" style="display: none;">
+                                <div class="row mb-2 d-none" id="error-info">
                                     <div class="col-4"><strong>错误信息:</strong></div>
                                     <div class="col-8 text-danger" id="error-message">-</div>
                                 </div>
@@ -122,7 +122,7 @@
                 <h4 class="card-title mb-0">
                     <i class="bi bi-gear"></i> 配置信息
                 </h4>
-                <button class="btn btn-primary btn-sm" id="edit-config-btn" onclick="openEditConfigModal()" style="display:none;">
+                <button class="btn btn-primary btn-sm d-none" id="edit-config-btn" onclick="openEditConfigModal()">
                     <i class="bi bi-pencil"></i> 编辑配置
                 </button>
             </div>
@@ -181,7 +181,7 @@
             </div>
             <div class="card-body">
                 <div class="table-responsive">
-                    <table class="table table-hover table-sm" id="results-table" style="margin-bottom: 0;">
+                    <table class="table table-hover table-sm mb-0" id="results-table">
                         <thead class="table-dark">
                             <tr>
                                 <th style="width: 60px;">序号</th>
@@ -576,34 +576,34 @@
                 const errorInfo = document.getElementById('error-info');
                 if (task.error_message) {
                     document.getElementById('error-message').textContent = task.error_message;
-                    errorInfo.style.display = 'block';
+                    errorInfo.classList.remove('d-none');
                 } else {
-                    errorInfo.style.display = 'none';
+                    errorInfo.classList.add('d-none');
                 }
                 
                 // 显示/隐藏取消按钮
                 const cancelBtn = document.getElementById('cancel-task-btn');
                 if (task.status === 'running') {
-                    cancelBtn.style.display = 'inline-block';
+                    cancelBtn.classList.remove('d-none');
                     cancelBtn.setAttribute('data-task-id', task.id);
                 } else {
-                    cancelBtn.style.display = 'none';
+                    cancelBtn.classList.add('d-none');
                 }
                 
                 // 显示/隐藏重启按钮（包括pending状态）
                 const restartBtn = document.getElementById('restart-dropdown-btn');
                 if (task.status === 'pending' || task.status === 'completed' || task.status === 'error' || task.status === 'cancelled') {
-                    restartBtn.style.display = 'inline-block';
+                    restartBtn.classList.remove('d-none');
                 } else {
-                    restartBtn.style.display = 'none';
+                    restartBtn.classList.add('d-none');
                 }
                 
                 // 显示/隐藏编辑按钮（只有非运行状态才能编辑）
                 const editBtn = document.getElementById('edit-config-btn');
                 if (task.status !== 'running') {
-                    editBtn.style.display = 'inline-block';
+                    editBtn.classList.remove('d-none');
                 } else {
-                    editBtn.style.display = 'none';
+                    editBtn.classList.add('d-none');
                 }
                 
                 // 填充配置信息

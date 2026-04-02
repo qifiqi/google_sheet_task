@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from app.extensions import db
-from app.models import GoogleSheetToken, Task
+from app.models import GoogleSheetToken, GoogleSheetTokenTaskType, Task
 from app.services.config_manager import get_config_manager
 from app.utils.logger import get_logger
 
@@ -15,6 +15,10 @@ RANDOM_TOKEN_VALUE = "__random__"
 
 
 class GoogleSheetTokenService:
+    @staticmethod
+    def _normalize_token_task_type(task_type: Optional[str], default: Optional[str] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value) -> Optional[str]:
+        return GoogleSheetTokenTaskType.normalize(task_type, default=default)
+
     def _build_live_usage_snapshot(self):
         token_usage: Dict[int, int] = {}
         current_total = 0
@@ -66,9 +70,13 @@ class GoogleSheetTokenService:
 
         db.session.commit()
 
-    def list_tokens(self):
+    def list_tokens(self, task_type: Optional[str] = None):
         self.reconcile_in_use_counts()
-        tokens = GoogleSheetToken.query.order_by(
+        normalized_task_type = self._normalize_token_task_type(task_type, default=None)
+        query = GoogleSheetToken.query
+        if normalized_task_type:
+            query = query.filter_by(task_type=normalized_task_type)
+        tokens = query.order_by(
             GoogleSheetToken.is_active.desc(),
             GoogleSheetToken.current_in_use_count.asc(),
             GoogleSheetToken.task_usage_count.asc(),
@@ -88,14 +96,20 @@ class GoogleSheetTokenService:
         name: Optional[str] = None,
         max_usage_count: Optional[int] = None,
         token_file: Optional[str] = None,
+        task_type: Optional[str] = None,
     ):
+        normalized_task_type = self._normalize_token_task_type(task_type)
         normalized_context = self._load_token_context(token_context=token_context, token_file=token_file)
-        token = GoogleSheetToken.query.filter_by(token_context=normalized_context).first()
+        token = GoogleSheetToken.query.filter_by(
+            token_context=normalized_context,
+            task_type=normalized_task_type,
+        ).first()
         is_new = token is None
 
         if token is None:
             token = GoogleSheetToken(
                 name=(name or "").strip() or self._build_default_name(),
+                task_type=normalized_task_type,
                 token_file="",
                 token_context=normalized_context,
                 max_usage_count=max(0, int(max_usage_count or 0)),
@@ -106,6 +120,7 @@ class GoogleSheetTokenService:
             token.token_file = self._build_runtime_token_file(token.id)
         else:
             token.name = (name or "").strip() or token.name or self._build_default_name(token.id)
+            token.task_type = normalized_task_type
             token.token_context = normalized_context
             token.is_active = True
             if max_usage_count is not None:
@@ -130,6 +145,7 @@ class GoogleSheetTokenService:
         max_usage_count = payload.get("max_usage_count")
         is_active = payload.get("is_active")
         token_context = payload.get("token_context")
+        task_type = payload.get("task_type")
 
         if name is not None:
             token.name = str(name).strip() or token.name
@@ -137,6 +153,8 @@ class GoogleSheetTokenService:
             token.max_usage_count = max(0, int(max_usage_count))
         if is_active is not None:
             token.is_active = bool(is_active)
+        if task_type is not None:
+            token.task_type = self._normalize_token_task_type(task_type)
         if token_context is not None:
             token.token_context = self._load_token_context(token_context=token_context)
         if not token.token_file:
@@ -184,7 +202,8 @@ class GoogleSheetTokenService:
         if token_selection in (None, "", 0, "0"):
             return config
 
-        token = self._pick_token(token_selection)
+        token_task_type = self._normalize_token_task_type(config.get("token_task_type"))
+        token = self._pick_token(token_selection, task_type=token_task_type)
         token_file = self.ensure_token_file(token)
 
         resolved = dict(config)
@@ -213,6 +232,10 @@ class GoogleSheetTokenService:
         token = GoogleSheetToken.query.get(int(token_id))
         if not token:
             raise ValueError("所选 Token 不存在")
+        expected_task_type = self._normalize_token_task_type(config.get("token_task_type"))
+        actual_task_type = token.task_type or GoogleSheetTokenTaskType.GOOGLE_SHEET.value
+        if expected_task_type and actual_task_type != expected_task_type:
+            raise ValueError(f"Token [{token.name}] 不适用于当前任务类型")
         current_in_use = int(snapshot["token_usage"].get(int(token.id), 0))
         self._assert_token_usage_available(token, current_in_use)
 
@@ -284,22 +307,30 @@ class GoogleSheetTokenService:
 
         return runtime_path_str
 
-    def _pick_token(self, token_selection: Any):
+    def _pick_token(self, token_selection: Any, task_type: Optional[str] = None):
         snapshot = self._build_live_usage_snapshot()
+        normalized_task_type = self._normalize_token_task_type(task_type)
         if str(token_selection) == RANDOM_TOKEN_VALUE:
-            return self._pick_random_available_token(snapshot=snapshot)
+            return self._pick_random_available_token(snapshot=snapshot, task_type=normalized_task_type)
 
         token = GoogleSheetToken.query.get(int(token_selection))
         if not token:
             raise ValueError("所选 Token 不存在")
+        actual_task_type = token.task_type or GoogleSheetTokenTaskType.GOOGLE_SHEET.value
+        if normalized_task_type and actual_task_type != normalized_task_type:
+            raise ValueError(f"Token [{token.name}] 不属于 {normalized_task_type} 分组")
         current_in_use = int(snapshot["token_usage"].get(int(token.id), 0))
         self._assert_token_usage_available(token, current_in_use)
         return token
 
-    def _pick_random_available_token(self, snapshot: Optional[Dict[str, Any]] = None):
+    def _pick_random_available_token(self, snapshot: Optional[Dict[str, Any]] = None, task_type: Optional[str] = None):
         snapshot = snapshot or self._build_live_usage_snapshot()
         token_usage = snapshot["token_usage"]
-        tokens = GoogleSheetToken.query.filter_by(is_active=True).order_by(
+        normalized_task_type = self._normalize_token_task_type(task_type)
+        tokens = GoogleSheetToken.query.filter_by(
+            is_active=True,
+            task_type=normalized_task_type,
+        ).order_by(
             GoogleSheetToken.current_in_use_count.asc(),
             GoogleSheetToken.task_usage_count.asc(),
             GoogleSheetToken.id.asc(),
