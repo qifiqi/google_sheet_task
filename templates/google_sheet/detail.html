@@ -649,7 +649,12 @@
                 { label: '代理URL', value: config.proxy_url || '无', icon: 'bi-globe' },
                 { label: '参数数量', value: config.parameters ? config.parameters.length : 0, icon: 'bi-list-ul' }
             ];
-            
+            if (config.end_date || config.market_type) {
+                configItems.push(
+                    { label: '结束日期', value: config.end_date || '无', icon: 'bi-calendar' },
+                    { label: '市场类型', value: config.market_type || '无', icon: 'bi-calendar' }
+                );
+            }
             configItems.forEach(item => {
                 const itemDiv = document.createElement('div');
                 itemDiv.className = 'mb-2 d-flex align-items-center';

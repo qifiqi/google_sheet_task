@@ -160,6 +160,12 @@ class TaskManager:
         sheet_dict = {}
         for sheet in sheets:
             sheet_title = str(sheet.get('title') or '').strip()
+
+            if not sheet_title.endswith(']'):
+                raise ValueError(
+                   "格式必须以“任意前缀-数字y-数字]”结尾，例如：策略A-1y-3]"
+                )  
+
             s_t = sheet_title.strip().strip("]").split('-')
             year_n,sort_n = s_t[-2], int(s_t[-1])
             sheet['sort_n'],sheet['year_n'] = sort_n,year_n
@@ -218,6 +224,10 @@ class TaskManager:
 
                     child_parameters = self._materialize_c31_parameter_combo(parameter_combo)
                     task_name = f"{base_name}-{year_n}-{sort_n}"
+                    end_date = shared_config.get('end_date')
+                    if not end_date:
+                        end_dt = datetime.now() - timedelta(days=1)
+                        end_date = end_dt.strftime("%Y-%m-%d")
 
                     child_config = dict(shared_config)
                     child_config.update({
@@ -226,13 +236,13 @@ class TaskManager:
                         'title': sheet_title or None,
                         'stock_code': stock_code,
                         'market_type': shared_config.get('market_type', 'cn'),
-                        'end_date': shared_config.get('end_date'),
+                        'end_date': end_date,
                         'year_n':year_n,
                         'parameters': child_parameters,
                     })
 
                     combo_count = reduce(operator.mul, [len(p) for p in child_parameters], 1)
-                    _description = '批量执行 {} 个参数组合'.format(combo_count)
+                    _description = description or '批量执行 {} 个参数组合'.format(combo_count)
                     task_id = self.create_task(task_name, _description, child_task_type, child_config)
                     created_task_ids.append(task_id)
 
@@ -804,7 +814,7 @@ class TaskManager:
             new_task = Task(
                 id=new_task_id,
                 name=f"{original_task.name} (重启)",
-                description=f"基于任务 {original_task_id} 重启",
+                description=f"{original_task.description}基于任务 {original_task_id} 重启",
                 task_type=original_task.task_type,
                 config=json.dumps(original_config),
                 status='pending'

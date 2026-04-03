@@ -210,10 +210,8 @@ class GoogleSheetService(BaseGoogleSheetService):
             except ValueError:
                 year_count = 1
 
-        if end_date:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        else:
-            end_dt = datetime.now() - timedelta(days=1)
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            
         start_dt = end_dt - timedelta(days=365 * year_count)
         start_date = start_dt.strftime("%Y-%m-%d")
         end_date = end_dt.strftime("%Y-%m-%d")

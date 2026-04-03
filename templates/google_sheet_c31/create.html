@@ -203,11 +203,11 @@
                                         </div>
                                         <div class="col-md-3 mb-3">
                                             <label for="spreadsheet_title" class="form-label">
-                                                <i class="bi bi-type"></i> 表标题（可选）
+                                                <i class="bi bi-type"></i> 表标题
                                             </label>
                                             <input type="text" class="form-control spreadsheet-title-input" id="spreadsheet_title"
-                                                   placeholder="用于标记或显示的表名称">
-                                            <div class="form-text">将作为任务配置中的标题字段一并保存</div>
+                                                   placeholder="例如：任意前缀-1y-3]">
+                                            <div class="form-text">必填，格式必须以“任意前缀-数字y-数字]”结尾，例如：策略A-1y-3]</div>
                                         </div>
                                         <div class="col-md-3 mb-3">
                                             <label for="sheet_name" class="form-label">
@@ -599,11 +599,9 @@
 
     function getC31ParameterCandidateGroups(parameterValues) {
         const activeParameters = getActiveParameters(parameterValues);
-        return activeParameters.map(group => {
-            const isTwoDimensional = group.every(item => Array.isArray(item));
-            // 二维数组：只取第一个子数组用于组合计算
-            return isTwoDimensional ? group[0] : group;
-        });
+        // 与后端 _normalize_c31_parameter_groups 保持一致：
+        // 二维数组的每一行都是一个候选项；一维数组整体作为单个候选项。
+        return activeParameters;
     }
 
     function getC31ParameterCombinationCount(parameterValues) {
@@ -636,6 +634,40 @@
             }
         });
         return count;
+    }
+
+    function isValidC31SheetTitle(title) {
+        return /.+-\d+y-\d+\]$/.test(String(title || '').trim());
+    }
+
+    function validateSelectedSheetTitles(showToast = true) {
+        const sheetConfigList = document.getElementById('sheet-config-list');
+        if (!sheetConfigList) {
+            return true;
+        }
+
+        const items = sheetConfigList.querySelectorAll('.sheet-config-item');
+        for (let index = 0; index < items.length; index += 1) {
+            const item = items[index];
+            const { spreadsheetSelect, titleInput } = getSheetConfigElements(item);
+            const spreadsheetId = spreadsheetSelect ? extractSpreadsheetId(spreadsheetSelect.value || '') : '';
+            if (!spreadsheetId) {
+                continue;
+            }
+
+            const title = titleInput ? titleInput.value.trim() : '';
+            if (!isValidC31SheetTitle(title)) {
+                if (showToast) {
+                    showNotification(`第${index + 1}个Sheet的表标题格式无效，必须以“任意前缀-数字y-数字]”结尾，例如：策略A-1y-3]`, 'error');
+                }
+                if (titleInput) {
+                    titleInput.focus();
+                }
+                return false;
+            }
+        }
+
+        return true;
     }
 
     function collectSheetConfigs() {
@@ -1837,6 +1869,9 @@
         if (!validateC31Parameters(parameterValues)) {
             return;
         }
+        if (!validateSelectedSheetTitles(true)) {
+            return;
+        }
 
         const parameterGroups = getC31ParameterCandidateGroups(parameterValues).filter(item => Array.isArray(item) && item.length > 0);
         const parameterCombinationCount = getC31ParameterCombinationCount(parameterValues);
@@ -1966,6 +2001,9 @@
 
         const parameterValues = getParameterValues();
         if (!validateC31Parameters(parameterValues)) {
+            return;
+        }
+        if (!validateSelectedSheetTitles(true)) {
             return;
         }
 
