@@ -1,118 +1,384 @@
 # CLAUDE.md
-本文件为 Claude Code (claude.ai/code) 在此代码仓库中工作时提供指导。
 
-## 命令
+本文件用于指导 Claude Code / 代码代理在本仓库内工作。目标不是解释 Flask 基础概念，而是帮助代理快速理解这个项目的真实结构、常见风险点和推荐操作方式。
 
-### Windows 编码约定
-在 Windows PowerShell 中读取包含中文的文件时，默认编码可能不是 UTF-8，容易导致 `Get-Content` 输出乱码。
+## 项目定位
 
-- 读取文件时始终显式指定 `-Encoding UTF8`
-- 在需要把中文输出到终端前，先设置：
+这是一个基于 Flask 的任务执行平台，核心能力包括：
+
+- Google Sheet 参数任务执行
+- C3 / C4 / C5 多模板任务
+- C31 批量拆分为多个 C3 子任务
+- backtest_training 回测训练任务
+- 任务调度、看门狗、断点重启
+- Google Sheet token / sheet 资源占用管理
+- 管理后台、模板系统、任务日志和结果查询
+
+仓库明显以“长时间运行的任务系统”而不是“纯同步 Web CRUD”作为主线，因此任何修改都要优先考虑：
+
+- 线程生命周期
+- 数据库状态和内存状态一致性
+- Token / Google Sheet 占用释放
+- 失败后的可恢复性
+- 网络抖动下的重试和重连
+
+## 启动与常用命令
+
+### Windows PowerShell 编码
+
+仓库包含大量中文模板和注释。在 Windows PowerShell 里读取文件时，默认编码经常导致乱码。
+
+推荐先执行：
 
 ```powershell
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 ```
 
-- 推荐示例：
+读取文件时始终显式使用 UTF-8：
 
 ```powershell
-Get-Content .\run.py -Encoding UTF8 -TotalCount 50
-Get-Content .\run.py -Encoding UTF8 | Select-String "应用|乱码|编码"
+Get-Content .\run.py -Encoding UTF8
+Get-Content .\templates\google_sheet_c31\create.html -Encoding UTF8
 ```
 
-### 运行开发服务器
+### 本地运行
+
 ```bash
 python run.py
 ```
 
-### 使用 gunicorn 运行（生产环境）
-```bash
-gunicorn -w 4 -b 0.0.0.0:5000 'app:create_app()'
-```
-
-### Windows 批处理启动
-```bat
-start.bat
-```
-
 ### 安装依赖
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 数据库初始化和迁移
+### 数据库相关
+
 ```bash
-flask db init # 首次运行时执行
-flask db migrate -m "描述信息"
+flask db init
+flask db migrate -m "message"
 flask db upgrade
 ```
 
-### 运行测试
+注意：本项目并不总是完全依赖标准迁移流。`run.py` 里还包含若干启动时 schema 修补逻辑，因此遇到线上脏库问题时要先看 `run.py`。
+
+### 测试
+
 ```bash
 pytest
-pytest tests/test_specific.py::test_name # 运行单个测试
+pytest tests/test_specific.py::test_name
 ```
 
-## 环境配置
-
-复制 `.env.example` 到 `.env` 并设置以下变量：
-- `APP_ENV` — `development`（开发环境） / `production`（生产环境）
-- `SECRET_KEY` — Flask 密钥
-- `DATABASE_URL` — SQLite 或 PostgreSQL URI
-- `MAX_CONCURRENT_TASKS` — 并行任务上限
-- `TASK_TIMEOUT` — 看门狗终止任务前的超时时间（秒）
-- `GOOGLE_CREDENTIALS_PATH` — 服务账号 JSON 文件路径
-
-加载顺序：`.env` → `.env.{APP_ENV}`（后加载的文件会覆盖前面的配置）。
-
-## 架构概览
+## 真实入口与启动流程
 
 ### 应用工厂
-`app/__init__.py` 导出 `create_app()`。它负责注册蓝图，通过 `app/extensions.py` 初始化 SQLAlchemy/Migrate，并作为 `run.py` 和 gunicorn 的入口点。
 
-`run.py` 在 `create_app()` 之后执行启动钩子：架构补丁、令牌池重置、死任务清理、APScheduler 初始化、看门狗线程初始化。
+`app/__init__.py`
 
-### 路由蓝图
-| 模块 | 前缀 | 用途 |
-|------|------|------|
-| `app/routes/api.py` | `/api` | REST API：任务 CRUD、SSE 流式传输、配置、模板、结果、日志、令牌/表格管理 |
-| `app/routes/admin.py` | `/admin` | 管理界面页面 + 仪表盘/运行时详情/调度器的 JSON API |
-| `app/routes/`（其他） | 各种 | 其他特定表格类型路由（`google_sheet_c4`、`google_sheet_c5`、`xpl`） |
+- `create_app()` 创建 Flask 应用
+- 通过 `load_app_environment()` 按顺序加载 `.env` 和 `.env.{APP_ENV}`
+- 初始化 `db`、`migrate`
+- 初始化 `config_manager`
+- 注册蓝图
+- 初始化钉钉通知器
 
-### 任务执行引擎
-`app/services/task_manager.py` — `TaskManager` 单例（`task_manager`）。
-- 每个任务在其自己的守护线程中运行；`running_tasks` 字典映射 `task_id → 线程`。
-- `task_stop_events` 字典映射 `task_id → threading.Event`，用于实现优雅取消。
-- 在启动前获取一个令牌和/或一个 Google Sheet 资源，在完成、取消或出错时释放它们。
-- 将进度写入 `TaskLog` 行，并更新 `Task.current_step` / `Task.total_steps`。
-- `api.py` 中的 SSE 端点将日志行实时流式传输到浏览器。
+### 运行入口
 
-### 资源池管理
-- **令牌池** — `GoogleSheetToken` 模型；`TokenPoolService`（或 `task_manager` 中的内联逻辑）跟踪 `is_in_use` / `current_task_id`。
-- **表格注册表** — `app/services/google_sheet_registry_service.py`；`GoogleSheetRegistryService` 通过 `acquire_for_task` / `release_for_task` 提供基于数据库乐观锁的获取与释放。
+`run.py`
 
-### 数据模型 (`app/models.py`)
-| 模型 | 关键字段 |
-|------|------|
-| `Task` | `id`, `task_type`, `status`, `config` (JSON), `current_step`, `total_steps`, `start_time`, `end_time` |
-| `TaskLog` | `task_id`, `level`, `message`, `timestamp` |
-| `TaskResult` | `task_id`, `step_index`, `success`, `parameters` (JSON), `result` (JSON) |
-| `TaskResultReturn` | `task_id`, `stock_date`, `index_return`, `start_return` |
-| `TaskTemplate` | 可复用的任务配置预设 |
-| `SystemConfig` | 存储在数据库中的键值对应用配置 |
-| `GoogleSheetToken` | OAuth 令牌记录，包含 `is_in_use` 锁 |
-| `GoogleSheet` | 已注册的电子表格 ID，包含 `is_in_use` / `current_task_id` 锁 |
-| `ScheduledTask` | 持久化到数据库的 APScheduler 作业定义 |
+`run.py` 不是一个薄壳，它包含了多个启动期动作：
 
-### 配置服务
-`app/services/config_manager.py` — `get_config_manager()` 合并 `SystemConfig` 数据库行与环境变量覆盖。整个服务的运行时配置值都通过它获取。
+- 初始化日志
+- `db.create_all()`
+- `ensure_google_sheet_token_schema()`
+- `reset_google_sheet_token_occupancy()`
+- `reset_google_sheet_occupancy()`
+- `init_config2()`
+- `check_and_cleanup_dead_tasks()`
+- `init_scheduler()`
+- `init_task_watchdog()`
 
-### XPL 分析服务
-`app/services/xpl_service.py` — `XPLAnalyzer` 类。从 Google Sheets 读取收益率序列（支持 C3/C4/C5 列格式），计算：年化收益率、夏普比率、卡尔玛比率、索提诺比率、最大回撤、相对于指数的超额收益。结果以 `TaskResult` 行存储，键为 `I15`–`I17`。
+任何影响任务状态、token 占用或看门狗行为的修改，都要同时评估 `run.py` 的启动期修复流程。
 
-### Google Sheet 客户端
-使用 `gspread` + `google-auth` 服务账号凭据。每个任务使用从池中获取的令牌来实例化其自己的 sheet 客户端。
+## 路由与前端页面
 
-### 调度器
-`app/services/scheduler_service.py` — 封装 APScheduler；将作业持久化到 `ScheduledTask` 表中；暴露异步任务状态跟踪功能，供管理员调度器界面使用。
+蓝图注册在 `app/routes/__init__.py`。
+
+主要蓝图：
+
+- `admin_bp` -> `/admin`
+- `task_api_bp` -> `/api`
+- `config_api_bp` -> `/api`
+- `template_api_bp` -> `/api`
+- `google_sheet_api_bp` -> `/api`
+- `database_api_bp` -> `/api`
+- `google_sheet_bp` -> `/google-sheet`
+- `scheduler_api_bp` -> 根路径下调度接口
+- `backtest_training_bp` -> 回测训练页面和接口
+- `xpl_bp` -> `/xpl`
+- `yule_bp` -> `/yule`
+
+模板目录重点关注：
+
+- `templates/google_sheet/create.html`：C3 创建页
+- `templates/google_sheet_c4/create.html`
+- `templates/google_sheet_c5/create.html`
+- `templates/google_sheet_c31/create.html`：C31 批量创建页
+- `templates/backtest_training/create.html`
+- `templates/admin/*`
+
+前端页面里有大量内联 JavaScript，且存在“初始化后再重建部分 DOM”的写法。修改字段时不要只改静态 HTML，必须同时检查：
+
+- 表单初始化逻辑
+- localStorage 恢复逻辑
+- 模板回填逻辑
+- restart 回填逻辑
+- 提交 payload 逻辑
+
+## 任务系统核心
+
+### 任务主控
+
+`app/services/task_manager.py`
+
+这是最关键的服务之一。
+
+负责：
+
+- 创建任务
+- 启动任务线程
+- C31 批量拆分为多个 C3 子任务
+- 重启任务
+- 本地线程状态检查
+- Token 和 Google Sheet 占用管理
+
+重点数据结构：
+
+- `running_tasks`: `task_id -> thread`
+- `task_events`: `task_id -> queue.Queue`
+- `task_stop_events`: `task_id -> threading.Event`
+- `task_token_occupancy`
+
+修改任务执行相关逻辑时，必须同时检查：
+
+- `start_task()`
+- `_execute_google_sheet_task()`
+- `_execute_google_sheet_C4_task()`
+- `_execute_google_sheet_C5_task()`
+- `_execute_backtest_training_task()`
+- `restart_task()`
+- `batch_create_and_start_task()`
+
+### C31 特殊逻辑
+
+`google_sheet_C31` 不是独立执行器，而是前端批量创建页。最终会在 `TaskManager.batch_create_and_start_task()` 中拆成多个 `google_sheet` 子任务。
+
+因此如果 C31 页面新增字段需要真正参与执行：
+
+1. 前端提交到 `config`
+2. `batch_create_and_start_task()` 透传到每个 `child_config`
+3. 真正消费字段的服务（通常是 `google_sheet_service.py`）读取该字段
+
+只改前端或者只改 service 都不够。
+
+## Google Sheet 执行链路
+
+### 客户端
+
+`app/services/google_sheet_client.py`
+
+这是 Google Sheet 网络 IO 的底层封装，基于：
+
+- `gspread`
+- `google.oauth2.credentials.Credentials`
+
+现有实现包含：
+
+- 自动设置 HTTP timeout
+- 代理注入
+- worksheet 选择
+- 网络错误识别
+- 网络重试
+- 重连逻辑
+
+近期已补充：
+
+- 对可恢复网络错误显式抛出 `RetryableNetworkTaskError`
+- 网络重试耗尽后向任务层暴露“可自动重启”的错误类型
+
+如果任务因为网络问题失效，优先改这里，而不是在上层大量加散乱 `try/except`。
+
+### 业务服务
+
+- `app/services/google_sheet_service.py`：C3
+- `app/services/google_sheet_service_C4.py`
+- `app/services/google_sheet_service_C5.py`
+- `app/services/backtest_training_service.py`
+
+这些服务的共同模式：
+
+- 在 `execute_task()` 中加载任务配置
+- 初始化 Google Sheet 连接
+- 逐步执行参数组合
+- 保存 `TaskResult`
+- 写 `TaskLog`
+- 支持取消和断点恢复
+
+注意事项：
+
+- 这些服务都在后台线程中运行
+- 失败信息最终会回写到 `Task.error_message`
+- 网络异常已通过统一工具打标，可被看门狗自动识别
+
+## 看门狗与自动恢复
+
+`app/services/task_watchdog.py`
+
+看门狗会定期检查任务状态。当前策略重点包括：
+
+- 检查最近 5 天创建的任务
+- 检查 `running` 任务是否长时间无日志
+- 检查带 `[NETWORK_RETRYABLE]` 标记的 `error` 任务并自动重启
+
+这部分已经做过性能优化：
+
+- 使用单次查询获取需要检查的任务
+- 把创建时间窗口压到 SQL 层
+
+修改看门狗时要避免：
+
+- 扫描全表
+- 不加时间窗口地反复处理历史失败任务
+- 触发无限重启循环
+
+## 配置系统
+
+### 配置源
+
+- 环境变量
+- `.env`
+- `.env.{APP_ENV}`
+- 数据库中的 `SystemConfig`
+
+### 配置访问
+
+统一通过：
+
+`app/services/config_manager.py`
+
+不要在业务代码里散落地直接读取环境变量，尤其是运行时配置。已有代码绝大多数通过 `get_config_manager()` 或 `TaskManager._get_config()` 获取。
+
+## 数据模型
+
+`app/models.py`
+
+关键模型：
+
+- `Task`
+- `TaskLog`
+- `TaskResult`
+- `TaskResultReturn`
+- `TaskTemplate`
+- `SystemConfig`
+- `GoogleSheetToken`
+- `GoogleSheet`
+- `ScheduledTask`
+
+重要字段：
+
+### `Task`
+
+- `status`
+- `task_type`
+- `config`
+- `current_step`
+- `total_steps`
+- `start_time`
+- `end_time`
+- `error_message`
+- `created_at`
+
+其中：
+
+- `config` 是任务恢复、重启、前端回填的核心
+- `error_message` 现在同时承担“用户可见错误摘要”和“看门狗自动恢复信号”的作用
+
+因此不要随意覆盖成无结构的长 traceback。
+
+## 文档编写建议
+
+当你更新这个仓库时，`CLAUDE.md` 应优先记录：
+
+- 真正的入口文件和启动钩子
+- 实际执行链路
+- 容易踩坑的状态同步问题
+- 最近引入的重要恢复机制
+
+不要把它写成泛泛的 Flask 教程，也不要复制 README 的营销式描述。
+
+## 在本仓库工作时的具体建议
+
+### 1. 改任务参数时
+
+至少检查四层：
+
+- 页面字段
+- 页面回填 / localStorage / 模板恢复
+- `task_manager` 子任务透传
+- 最终执行 service 消费
+
+### 2. 改异常处理时
+
+优先保留原始异常链，不要写 `raise e`。
+
+推荐：
+
+```python
+raise
+```
+
+如果需要记录任务级错误摘要，使用统一工具：
+
+- `app/utils/task_error_utils.py`
+
+### 3. 改 Google Sheet 网络逻辑时
+
+优先改：
+
+- `google_sheet_client.py`
+
+其次才是：
+
+- `google_sheet_service*.py`
+- `task_manager.py`
+- `task_watchdog.py`
+
+### 4. 改看门狗时
+
+优先把筛选条件压到 SQL 层，避免在 Python 层扫大量无关任务。
+
+### 5. 改模板页面时
+
+如果页面里有内联 JS 动态重建 DOM，必须同步更新动态片段，否则刷新后会“变回旧字段”。
+
+## 当前已知重要实现细节
+
+- C31 页面目前把市场值传成英文：
+  - `A股 -> cn`
+  - `美股 -> en`
+- C31 日期字段已经统一命名为 `end_date`
+- C31 子任务会在 `task_manager.py` 中透传 `market_type` 与 `end_date`
+- `google_sheet_service.py` 的 `cell_kline_data()` 会优先使用 `config.end_date`，未传时走默认逻辑
+- 网络异常任务会带 `[NETWORK_RETRYABLE]` 前缀，供看门狗识别
+
+## 不要做的事
+
+- 不要只改模板不改 JS 回填逻辑
+- 不要只改 C31 前端不改 `TaskManager.batch_create_and_start_task()`
+- 不要在任务线程里吞掉异常但不写 `Task.error_message`
+- 不要把所有失败任务都交给看门狗自动重启
+- 不要用 `raise e`
+- 不要默认相信 PowerShell 读中文文件不会乱码
+
