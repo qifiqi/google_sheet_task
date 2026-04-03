@@ -189,13 +189,114 @@ def _extract_summary_rows(calculate_metrics, model_name):
     if not isinstance(calculate_metrics, dict) or not calculate_metrics:
         return "", []
 
+    def _fmt_percent(value):
+        if value is None or not math.isfinite(value):
+            return ""
+        return f"{value:.2%}"
+
+    def _fmt_number(value):
+        if value is None or not math.isfinite(value):
+            return ""
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    def _safe_all_entry(items, key_name):
+        if not isinstance(items, list):
+            return {}
+        for item in items:
+            if isinstance(item, dict) and str(item.get(key_name)) == "all":
+                return item
+        return {}
+
+    def _build_fallback_rows():
+        excess_all = _safe_all_entry(calculate_metrics.get("excess_returns"), "year")
+        index_profit_monthly_all = _safe_all_entry(calculate_metrics.get("index_profit_monthly"), "year")
+        start_profit_monthly_all = _safe_all_entry(calculate_metrics.get("start_profit_monthly"), "year")
+        index_kama_all = _safe_all_entry(calculate_metrics.get("index_kama_ratio"), "year")
+        start_kama_all = _safe_all_entry(calculate_metrics.get("start_kama_ratio"), "year")
+        index_sotino_all = _safe_all_entry(calculate_metrics.get("index_sotino_ratio"), "year")
+        start_sotino_all = _safe_all_entry(calculate_metrics.get("start_sotino_ratio"), "year")
+        monthly_excess_percentage_all = _safe_all_entry(
+            calculate_metrics.get("monthly_excess_return_percentage"), "year"
+        )
+        index_sharpe_all = (calculate_metrics.get("index_sharpe_ratios") or {}).get("all") or {}
+        start_sharpe_all = (calculate_metrics.get("start_sharpe_ratios") or {}).get("all") or {}
+
+        monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
+        valid_excess_months = [
+            item.get("monthly_excess_return_diff")
+            for item in monthly_excess_returns
+            if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
+        ]
+        avg_monthly_excess_returns = (
+            sum(valid_excess_months) / len(valid_excess_months) if valid_excess_months else None
+        )
+
+        max_drawdown = None
+        try:
+            index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
+            start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
+            year_excess_returns = [
+                int(item["year"])
+                for item in (calculate_metrics.get("excess_returns") or [])
+                if isinstance(item, dict)
+                and item.get("year") != "all"
+                and item.get("annualized_return_diff") is not None
+                and item.get("annualized_return_diff") > 0
+            ]
+            index_year_map = {
+                item["year"]: item
+                for item in index_max_dd.get("year_maximum_drawdown", [])
+                if isinstance(item, dict) and item.get("year") in year_excess_returns
+            }
+            start_year_map = {
+                item["year"]: item
+                for item in start_max_dd.get("year_maximum_drawdown", [])
+                if isinstance(item, dict) and item.get("year") in year_excess_returns
+            }
+            diffs = []
+            for year, index_item in index_year_map.items():
+                start_item = start_year_map.get(year) or {}
+                if index_item.get("drawdown") is None or start_item.get("drawdown") is None:
+                    continue
+                diffs.append(start_item["drawdown"] - index_item["drawdown"])
+            max_drawdown = max(diffs) if diffs else None
+        except Exception:
+            max_drawdown = None
+
+        total_max_drawdown = ((calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {})
+
+        period_text = excess_all.get("start_end_date", "")
+        rows = [
+            {"category": "绝对收益", "metric": "年化收益", "index_value": _fmt_percent(excess_all.get("index_annualized_return")), "model_value": _fmt_percent(excess_all.get("start_annualized_return"))},
+            {"category": "绝对收益", "metric": "盈利年份百分比", "index_value": _fmt_percent(calculate_metrics.get("index_profit_annual")), "model_value": _fmt_percent(calculate_metrics.get("start_profit_annual"))},
+            {"category": "绝对收益", "metric": "月盈利百分比", "index_value": _fmt_percent(index_profit_monthly_all.get("profit_monthly_percentage")), "model_value": _fmt_percent(start_profit_monthly_all.get("profit_monthly_percentage"))},
+            {"category": "绝对收益", "metric": "平均月收益率", "index_value": _fmt_percent(index_sharpe_all.get("avg_monthly_return")), "model_value": _fmt_percent(start_sharpe_all.get("avg_monthly_return"))},
+            {"category": "绝对收益", "metric": "月收益率波动率", "index_value": _fmt_percent(calculate_metrics.get("index_monthly_return_volatility")), "model_value": _fmt_percent(calculate_metrics.get("start_monthly_return_volatility"))},
+            {"category": "相对收益", "metric": "年化超额收益", "index_value": "", "model_value": _fmt_percent(excess_all.get("annualized_return_diff"))},
+            {"category": "相对收益", "metric": "跑赢年份(百分比)", "index_value": "", "model_value": _fmt_percent(calculate_metrics.get("outperform_year"))},
+            {"category": "相对收益", "metric": "月超额收益胜率", "index_value": "", "model_value": _fmt_percent(monthly_excess_percentage_all.get("excess_return"))},
+            {"category": "相对收益", "metric": "平均月超额", "index_value": "", "model_value": _fmt_percent(avg_monthly_excess_returns)},
+            {"category": "相对收益", "metric": "月超额波动率", "index_value": "", "model_value": _fmt_percent(calculate_metrics.get("monthly_excess_volatility"))},
+            {"category": "回撤", "metric": "年最大超额回撤", "index_value": "", "model_value": _fmt_percent(-max_drawdown) if max_drawdown is not None else ""},
+            {"category": "回撤", "metric": "超额回撤胜率", "index_value": "", "model_value": _fmt_percent(-(calculate_metrics.get("excess_drawdown_winning_rate"))) if calculate_metrics.get("excess_drawdown_winning_rate") is not None else ""},
+            {"category": "回撤", "metric": "年最大回撤", "index_value": "", "model_value": _fmt_percent(-(total_max_drawdown.get("drawdown"))) if total_max_drawdown.get("drawdown") is not None else ""},
+            {"category": "回撤", "metric": "最大修复天数", "index_value": "", "model_value": str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or "")},
+            {"category": "回撤", "metric": "超额最大修复天数", "index_value": "", "model_value": str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or "")},
+            {"category": "比率", "metric": "夏普比率", "index_value": _fmt_number(index_sharpe_all.get("sharpe_ratio")), "model_value": _fmt_number(start_sharpe_all.get("sharpe_ratio"))},
+            {"category": "比率", "metric": "卡玛比率", "index_value": _fmt_number(index_kama_all.get("kama_ratio")), "model_value": _fmt_number(start_kama_all.get("kama_ratio"))},
+            {"category": "比率", "metric": "所提诺比率", "index_value": _fmt_number(index_sotino_all.get("sotino_ratio")), "model_value": _fmt_number(start_sotino_all.get("sotino_ratio"))},
+            {"category": "夏普", "metric": "超额夏普", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_sharp"))},
+            {"category": "所提诺", "metric": "超额所提诺比率", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_of_promissory_note"))},
+        ]
+        return period_text, rows
+
     try:
         summary_df = xpl_analyzer.format_export_file_data({
             "analyze_result": calculate_metrics,
             "filename_title": model_name,
         })
     except Exception:
-        return "", []
+        return _build_fallback_rows()
 
     period_text = str(summary_df.iat[1, 1] or "").strip()
     rows = []
