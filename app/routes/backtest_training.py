@@ -4,8 +4,11 @@
 import json
 import math
 from collections import OrderedDict
+from io import BytesIO
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, render_template, request, send_file
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import load_only
 
 from app.models import Task, TaskResult
@@ -156,8 +159,8 @@ def _build_parameter_header(parameters):
         labels = [f"参数{i + 1}" for i in range(len(parameter_values))]
 
     parts = []
-    for label, value in zip(labels, parameter_values):
-        parts.append(f"{label}={value}")
+    for _, value in zip(labels, parameter_values):
+        parts.append(f"{value}")
     return " / ".join(parts)
 
 
@@ -334,6 +337,73 @@ def _build_global_preview_payload(task_id):
     }
 
 
+def _sanitize_excel_sheet_name(name, fallback):
+    raw_name = str(name or fallback or "Sheet")
+    invalid_chars = set('\\/:*?[]')
+    cleaned = ''.join('_' if char in invalid_chars else char for char in raw_name).strip()
+    cleaned = cleaned[:31].strip() or fallback
+    return cleaned
+
+
+def _build_global_preview_workbook(payload):
+    workbook = Workbook()
+    default_sheet = workbook.active
+    workbook.remove(default_sheet)
+
+    groups = payload.get("groups") or []
+    if not groups:
+        sheet = workbook.create_sheet("全局预览")
+        sheet.append(["暂无可导出的分组数据"])
+        return workbook
+
+    used_sheet_names = set()
+    for index, group in enumerate(groups, start=1):
+        base_name = _sanitize_excel_sheet_name(group.get("group_label"), f"分组{index}")
+        sheet_name = base_name
+        suffix = 1
+        while sheet_name in used_sheet_names:
+            suffix += 1
+            suffix_text = f"_{suffix}"
+            sheet_name = f"{base_name[:31 - len(suffix_text)]}{suffix_text}"
+        used_sheet_names.add(sheet_name)
+
+        sheet = workbook.create_sheet(sheet_name)
+        task = payload.get("task") or {}
+        sheet.append(["任务名称", task.get("name") or ""])
+        sheet.append(["任务ID", task.get("id") or ""])
+        sheet.append(["分组", group.get("group_label") or ""])
+        sheet.append(["区间", group.get("period") or ""])
+        sheet.append([])
+
+        header = ["指标类型", "指标", "指数"]
+        for column in group.get("columns") or []:
+            header.append(column.get("header") or f"结果 {column.get('result_id')}")
+        sheet.append(header)
+
+        for row in group.get("rows") or []:
+            values = [
+                row.get("category") or "",
+                row.get("metric") or "",
+                row.get("index_value") or "",
+            ]
+            for column in group.get("columns") or []:
+                values.append((row.get("values") or {}).get(column.get("column_key"), ""))
+            sheet.append(values)
+
+        sheet.freeze_panes = "A6"
+        width_map = {
+            "A": 14,
+            "B": 22,
+            "C": 14,
+        }
+        for column_index in range(4, len(header) + 1):
+            width_map[get_column_letter(column_index)] = 18
+        for key, width in width_map.items():
+            sheet.column_dimensions[key].width = width
+
+    return workbook
+
+
 @bp.route("/api/global-preview/<task_id>", methods=["GET"])
 def get_global_preview(task_id):
     payload = _build_global_preview_payload(task_id)
@@ -347,3 +417,29 @@ def get_global_preview(task_id):
         "status": "success",
         **_sanitize_json_value(payload),
     })
+
+
+@bp.route("/api/global-preview/<task_id>/export", methods=["GET"])
+def export_global_preview(task_id):
+    payload = _build_global_preview_payload(task_id)
+    if payload is None:
+        return jsonify({
+            "status": "error",
+            "message": "任务不存在",
+        }), 404
+
+    workbook = _build_global_preview_workbook(payload)
+    buffer = BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    task_name = (payload.get("task") or {}).get("name") or task_id
+    safe_name = "".join(char if char not in '\\/:*?\"<>|' else "_" for char in str(task_name)).strip() or task_id
+    filename = f"{safe_name}_global_preview.xlsx"
+
+    return send_file(
+        buffer,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
