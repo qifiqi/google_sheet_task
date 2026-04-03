@@ -252,6 +252,13 @@
                             <input type="text" class="form-control" id="edit-sheet-name" placeholder="请输入工作表名称">
                         </div>
                     </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <label for="edit-sheet-title" class="form-label">Sheet Title</label>
+                            <input type="text" class="form-control" id="edit-sheet-title" placeholder="请输入 Google Sheet 标题">
+                        </div>
+                    </div>
                     
                     <div class="row mb-3">
                         <div class="col-md-6">
@@ -649,10 +656,13 @@
                 { label: '代理URL', value: config.proxy_url || '无', icon: 'bi-globe' },
                 { label: '参数数量', value: config.parameters ? config.parameters.length : 0, icon: 'bi-list-ul' }
             ];
+            configItems.splice(2, 0, { label: 'Sheet Title', value: config.title || config.spreadsheet_title || '-', icon: 'bi-type' });
+            const endDateIcon = 'bi-calendar-event';
+            const marketTypeIcon = 'bi-graph-up-arrow';
             if (config.end_date || config.market_type) {
                 configItems.push(
-                    { label: '结束日期', value: config.end_date || '无', icon: 'bi-calendar' },
-                    { label: '市场类型', value: config.market_type || '无', icon: 'bi-calendar' }
+                    { label: '结束日期', value: config.end_date || '无', icon: endDateIcon },
+                    { label: '市场类型', value: config.market_type || '无', icon: marketTypeIcon }
                 );
             }
             configItems.forEach(item => {
@@ -1157,6 +1167,7 @@
         // 填充Google Sheet配置
         document.getElementById('edit-spreadsheet-id').value = config.spreadsheet_id || '';
         document.getElementById('edit-sheet-name').value = config.sheet_name || '';
+        document.getElementById('edit-sheet-title').value = config.title || config.spreadsheet_title || '';
         document.getElementById('edit-token-file').value = config.token_file || 'data/token.json';
         document.getElementById('edit-proxy-url').value = config.proxy_url || '';
         
@@ -1279,6 +1290,7 @@
             // 收集Google Sheet配置
             const spreadsheetId = document.getElementById('edit-spreadsheet-id').value.trim();
             const sheetName = document.getElementById('edit-sheet-name').value.trim();
+            const sheetTitle = document.getElementById('edit-sheet-title').value.trim();
             const tokenFile = document.getElementById('edit-token-file').value.trim();
             const proxyUrl = document.getElementById('edit-proxy-url').value.trim();
             
@@ -1323,6 +1335,7 @@
             const config = {
                 spreadsheet_id: spreadsheetId,
                 sheet_name: sheetName,
+                title: sheetTitle || null,
                 token_file: tokenFile,
                 proxy_url: proxyUrl,
                 parameters: parameters,

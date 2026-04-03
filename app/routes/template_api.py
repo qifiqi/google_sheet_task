@@ -1,5 +1,7 @@
 from flask import Blueprint, request, jsonify
 import json
+from sqlalchemy.orm import load_only
+
 from app.models import TaskTemplate, db
 from app.utils.logger import get_logger
 
@@ -135,10 +137,18 @@ def get_results():
     try:
         from app.models import TaskResult
         page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 20, type=int)
+        per_page = min(request.args.get('per_page', 20, type=int), 100)
         task_id = request.args.get('task_id', None)
 
-        query = TaskResult.query
+        query = TaskResult.query.options(
+            load_only(
+                TaskResult.id,
+                TaskResult.task_id,
+                TaskResult.step_index,
+                TaskResult.success,
+                TaskResult.timestamp,
+            )
+        )
 
         if task_id:
             query = query.filter_by(task_id=task_id)
@@ -147,7 +157,16 @@ def get_results():
             page=page, per_page=per_page, error_out=False
         )
 
-        results = [result.to_dict() for result in pagination.items]
+        results = [
+            {
+                "id": result.id,
+                "task_id": result.task_id,
+                "step_index": result.step_index,
+                "success": result.success,
+                "timestamp": result.timestamp.isoformat() if result.timestamp else None,
+            }
+            for result in pagination.items
+        ]
 
         return jsonify({
             "results": results,

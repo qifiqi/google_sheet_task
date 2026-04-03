@@ -455,8 +455,8 @@
                     config = JSON.parse(config);
                 }
                 
-                if (config.spreadsheet_title) {
-                    document.getElementById('spreadsheet_title').value = config.spreadsheet_title;
+                if (config.title || config.spreadsheet_title) {
+                    document.getElementById('spreadsheet_title').value = config.title || config.spreadsheet_title;
                 }
                 // if (config.stock_code) {
                 //     document.getElementById('stock_code').value = config.stock_code;
@@ -1088,8 +1088,8 @@
                 }
 
                 // 填充Google Sheet配置
-                if (config.spreadsheet_title) {
-                    document.getElementById('spreadsheet_title').value = config.spreadsheet_title;
+                if (config.title || config.spreadsheet_title) {
+                    document.getElementById('spreadsheet_title').value = config.title || config.spreadsheet_title;
                 }
                 // if (config.stock_code) {
                 //     document.getElementById('stock_code').value = config.stock_code;
@@ -1444,7 +1444,7 @@
         // 构造任务配置
         const taskConfig = {
             spreadsheet_id: spreadsheetId,
-            spreadsheet_title: spreadsheetTitle || null,
+            title: spreadsheetTitle || null,
             sheet_name: sheetName,
             // stock_code: document.getElementById('stock_code').value.trim() || null,
             token_type: tokenType,
@@ -1528,7 +1528,7 @@
             task_name: document.getElementById('task_name').value,
             task_description: document.getElementById('task_description').value,
             spreadsheet: document.getElementById('spreadsheet').value,
-            spreadsheet_title: document.getElementById('spreadsheet_title').value,
+            title: document.getElementById('spreadsheet_title').value,
             sheet_name: document.getElementById('sheet_name').value,
             // stock_code: document.getElementById('stock_code').value,
             token_type: document.getElementById('token_type').value,
@@ -1562,7 +1562,7 @@
                 // 恢复表单字段
                 if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
-                if (formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.spreadsheet_title;
+                if (formData.title || formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.title || formData.spreadsheet_title;
                 // if (formData.stock_code) document.getElementById('stock_code').value = formData.stock_code;
                 if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
                 if (formData.token_id) {
@@ -1681,7 +1681,7 @@
             // 构造配置对象
             return {
                 spreadsheet_id: spreadsheetId,
-                spreadsheet_title: spreadsheetTitle || null,
+                title: spreadsheetTitle || null,
                 sheet_name: sheetName,
                 // stock_code: document.getElementById('stock_code').value.trim() || null,
                 token_type: tokenType,
@@ -1759,8 +1759,8 @@
             }
             
             // 填充Google Sheet配置
-            if (restartConfig.spreadsheet_title) {
-                document.getElementById('spreadsheet_title').value = restartConfig.spreadsheet_title;
+            if (restartConfig.title || restartConfig.spreadsheet_title) {
+                document.getElementById('spreadsheet_title').value = restartConfig.title || restartConfig.spreadsheet_title;
             }
             // if (restartConfig.stock_code) {
             //     document.getElementById('stock_code').value = restartConfig.stock_code;
