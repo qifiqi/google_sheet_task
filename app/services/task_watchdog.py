@@ -2,12 +2,13 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 
 from app.models import Task,TaskLog
 from app.services.config_manager import get_config_manager
 from app.services.task_manager import task_manager
 from app.utils.logger import get_logger
+from app.utils.task_error_utils import NETWORK_ERROR_PREFIX
 
 logger = get_logger(__name__)
 
@@ -57,11 +58,34 @@ class TaskWatchdog:
 
                 with app.app_context():
                     from app.models import Task as TaskModel
-                    running_tasks = TaskModel.query.filter(TaskModel.status == 'running').all()
+                    created_cutoff = datetime.now() - timedelta(days=5)
+                    watched_tasks = TaskModel.query.filter(
+                        TaskModel.created_at >= created_cutoff,
+                        or_(
+                            TaskModel.status == 'running',
+                            and_(
+                                TaskModel.status == 'error',
+                                TaskModel.error_message.isnot(None),
+                                TaskModel.error_message.startswith(NETWORK_ERROR_PREFIX)
+                            )
+                        )
+                    ).all()
 
-                    for task in running_tasks:
+                    for task in watched_tasks:
                         if self._stop_event.is_set():
                             break
+                        if task.status == 'error':
+                            error_message = str(task.error_message or "")
+                            try:
+                                logger.warning(
+                                    f"watchdog detected retryable network error task: task_id={task.id}, "
+                                    f"error={error_message}"
+                                )
+                                result = task_manager.restart_task(task.id, resume_from_checkpoint=True)
+                                logger.warning(f"watchdog network restart result: {task.id}, {result}")
+                            except Exception as restart_error:
+                                logger.error(f"watchdog network restart error: {task.id}, {str(restart_error)}", exc_info=True)
+                            continue
                         #
                         # # 检查任务管理器状态
                         # status_check = task_manager.check_local_task_status(task.id)

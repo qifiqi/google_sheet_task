@@ -21,6 +21,7 @@ from app.utils.dfcf_api import DFCJStockApi
 from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, validate_google_sheet_result, is_valid_result_value
 from app.utils.yf_api import YFApi
+from app.utils.task_error_utils import build_task_error_message, unwrap_exception
 
 logger = get_logger(__name__)
 
@@ -151,7 +152,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                 pass
             
             # 其他异常情况
-            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(e)}"
+            root = unwrap_exception(e) or e
+            if self.task:
+                self.task.error_message = build_task_error_message(e)
+                db.session.commit()
+            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
             return 'error'
 
@@ -160,10 +165,9 @@ class GoogleSheetService(BaseGoogleSheetService):
         year_n = config_data.get('year_n', '1y')
         # count_mode = config_data.get('count_mode', 'n_plus_1')
         price_mode = config_data.get('price_mode', 'sp_price')
-        # date_range_mode = config_data.get('date_range_mode', [])
-        # end_date = config_data.get('end_date')
-        # start_date = config_data.get('start_date')
+        end_date = str(config_data.get('end_date') or '').strip()
         market_type = config_data.get('market_type','cn')
+        C3_commission_cell = config_data.get('C3_commission_cell','B5')
 
         c3_input_column_d = config_data.get('c3_input_column_d').upper()
         c3_input_column_e = config_data.get('c3_input_column_e').upper()
@@ -206,7 +210,10 @@ class GoogleSheetService(BaseGoogleSheetService):
             except ValueError:
                 year_count = 1
 
-        end_dt = datetime.now() - timedelta(days=1)
+        if end_date:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        else:
+            end_dt = datetime.now() - timedelta(days=1)
         start_dt = end_dt - timedelta(days=365 * year_count)
         start_date = start_dt.strftime("%Y-%m-%d")
         end_date = end_dt.strftime("%Y-%m-%d")
@@ -242,7 +249,9 @@ class GoogleSheetService(BaseGoogleSheetService):
             raise Exception(f"股票{stock_code} 数据量不足,k线数据量小于100条，无法在模型正确产生数据，或者联系开发")
 
         all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
-        cell_updates = {}
+
+        sxf = '0.035%' if market_type == 'cn' else '0.002%'
+        cell_updates = {C3_commission_cell: sxf}
         for i in range(len(all_kline)):
             item = all_kline[i]
             cell_num = i + 2
@@ -438,7 +447,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             self._log_api_error("发送股票模板参数数据", str(e))
             log('error',f"发送股票模板参数数据失败: {str(e)}")
-            raise e
+            raise
 
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次
@@ -570,7 +579,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     self.google_sheet.update_cell(random_key, str(random_value))
                 except Exception as e:
                     self._log_error(f"更新单元格 {random_key} 失败，值: {random_value}, 错误: {str(e)}")
-                    raise e
+                    raise
                 return None
 
             def check_result(_position, _value=None):
@@ -725,7 +734,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         return True, results
 
                     except checkForErrors as e:
-                        raise e
+                        raise
                     except Exception as e:
                         error_msg = f"批量获取结果时出错: {str(e)}"
                         self._log_error(error_msg)
@@ -759,7 +768,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
             self._log_error(error_msg)
-            raise e
+            raise
 
     def _log(self, level: str, message: str, log_type: str = 'general', **kwargs):
         """

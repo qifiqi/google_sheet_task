@@ -19,6 +19,7 @@ from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
 from app.utils.yf_api import YFApi
+from app.utils.task_error_utils import build_task_error_message, unwrap_exception
 
 
 class GoogleSheetService(BaseGoogleSheetService):
@@ -133,7 +134,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                 pass
 
             # 其他异常情况
-            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(e)}"
+            root = unwrap_exception(e) or e
+            if self.task:
+                self.task.error_message = build_task_error_message(e)
+                db.session.commit()
+            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
             return 'error'
         finally:
@@ -318,7 +323,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             self._log_api_error("发送股票模板参数数据", str(e))
             log('error', f"发送股票模板参数数据失败: {str(e)}")
-            raise e
+            raise
 
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次
@@ -641,7 +646,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
             self._log_error(error_msg)
-            raise e
+            raise
 
     def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
         """保存任务结果到数据库，包含重试逻辑"""

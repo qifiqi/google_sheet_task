@@ -67,10 +67,10 @@ def db_retry(
                             raise DatabaseLockError(f"数据库锁定重试失败: {str(e)}")
                     else:
                         # 其他数据库错误，直接抛出
-                        raise e
+                        raise
                 except Exception as e:
                     # 非数据库错误，直接抛出
-                    raise e
+                    raise
             
             # 如果所有重试都失败了
             if last_exception:
@@ -123,9 +123,9 @@ def safe_db_operation(
                     logger.error(f"数据库锁定重试失败，已达到最大重试次数 {max_attempts}")
                     raise DatabaseLockError(f"数据库锁定重试失败: {str(e)}")
             else:
-                raise e
+                raise
         except Exception as e:
-            raise e
+            raise
     
     if last_exception:
         raise last_exception

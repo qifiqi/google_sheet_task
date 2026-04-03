@@ -20,6 +20,7 @@ from app.utils.database import transaction_required, safe_delete, safe_update, s
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.services.google_sheet_registry_service import get_google_sheet_registry_service
+from app.utils.task_error_utils import build_task_error_message, unwrap_exception
 
 logger = get_logger(__name__)
 
@@ -38,6 +39,17 @@ class TaskManager:
         """动态获取配置，确保实时生效"""
         config_manager = get_config_manager()
         return config_manager.get_config(key, default)
+
+    def _record_task_exception(self, task_id: str, exc: Exception, app):
+        error_message = build_task_error_message(exc)
+        with app.app_context():
+            task = Task.query.get(task_id)
+            if task:
+                task.status = 'error'
+                task.error_message = error_message
+                task.end_time = datetime.now()
+                db.session.commit()
+        return error_message
 
     def _normalize_task_config_for_type(self, task_type: str, config):
         if not isinstance(config, dict):
@@ -213,6 +225,8 @@ class TaskManager:
                         'sheet_name': sheet_name,
                         'title': sheet_title or None,
                         'stock_code': stock_code,
+                        'market_type': shared_config.get('market_type', 'cn'),
+                        'end_date': shared_config.get('end_date'),
                         'year_n':year_n,
                         'parameters': child_parameters,
                     })
@@ -1031,21 +1045,16 @@ class TaskManager:
                         self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
             
         except Exception as e:
-            task_logger.exception(f"执行任务失败: {str(e)}")
+            root = unwrap_exception(e) or e
+            task_logger.exception(f"执行任务失败: {str(root)}")
             
             # 更新任务状态为错误
             try:
-                with app.app_context():
-                    task = Task.query.get(task_id)
-                    if task:
-                        task.status = 'error'
-                        task.error_message = str(e)
-                        task.end_time = datetime.now()
-                        db.session.commit()
+                self._record_task_exception(task_id, e, app)
             except Exception as update_error:
                 task_logger.error(f"更新任务状态失败: {str(update_error)}")
             
-            self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
+            self._add_task_log(task_id, 'error', f'任务执行失败: {build_task_error_message(e)}', app)
         
         finally:
             with app.app_context():
@@ -1138,21 +1147,16 @@ class TaskManager:
                         self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
         
         except Exception as e:
-            task_logger.exception(f"执行 C4 任务失败: {str(e)}")
+            root = unwrap_exception(e) or e
+            task_logger.exception(f"执行 C4 任务失败: {str(root)}")
             
             # 更新任务状态为错误
             try:
-                with app.app_context():
-                    task = Task.query.get(task_id)
-                    if task:
-                        task.status = 'error'
-                        task.error_message = str(e)
-                        task.end_time = datetime.now()
-                        db.session.commit()
+                self._record_task_exception(task_id, e, app)
             except Exception as update_error:
                 task_logger.error(f"更新任务状态失败: {str(update_error)}")
             
-            self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
+            self._add_task_log(task_id, 'error', f'任务执行失败: {build_task_error_message(e)}', app)
         
         finally:
             with app.app_context():
@@ -1245,21 +1249,16 @@ class TaskManager:
                         self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
         
         except Exception as e:
-            task_logger.exception(f"执行 C5 任务失败: {str(e)}")
+            root = unwrap_exception(e) or e
+            task_logger.exception(f"执行 C5 任务失败: {str(root)}")
             
             # 更新任务状态为错误
             try:
-                with app.app_context():
-                    task = Task.query.get(task_id)
-                    if task:
-                        task.status = 'error'
-                        task.error_message = str(e)
-                        task.end_time = datetime.now()
-                        db.session.commit()
+                self._record_task_exception(task_id, e, app)
             except Exception as update_error:
                 task_logger.error(f"更新任务状态失败: {str(update_error)}")
             
-            self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
+            self._add_task_log(task_id, 'error', f'任务执行失败: {build_task_error_message(e)}', app)
         
         finally:
             with app.app_context():
@@ -1359,10 +1358,10 @@ class TaskManager:
                     self._add_task_log(task_id, 'info', f'任务执行完成，状态: {status}', app)
 
         except Exception as e:
-            task_logger.error(f"任务执行失败: {str(e)}")
-            self._add_task_log(task_id, 'error', f'任务执行失败: {str(e)}', app)
-            with app.app_context():
-                safe_update(Task, task_id, status='error', end_time=datetime.now())
+            root = unwrap_exception(e) or e
+            task_logger.error(f"任务执行失败: {str(root)}")
+            self._add_task_log(task_id, 'error', f'任务执行失败: {build_task_error_message(e)}', app)
+            self._record_task_exception(task_id, e, app)
         finally:
             self.running_tasks.pop(task_id, None)
             self.task_events.pop(task_id, None)

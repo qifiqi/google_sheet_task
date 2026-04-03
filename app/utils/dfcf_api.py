@@ -225,7 +225,7 @@ class DFCJStockApi:
             return kline_data
 
         except Exception as e:
-            raise e
+            raise
 
 
     def generate_wbp2u(self):

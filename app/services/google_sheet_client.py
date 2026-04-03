@@ -13,6 +13,7 @@ import functools
 
 from gspread import Cell
 from app.utils.logger import get_logger
+from app.utils.task_error_utils import RetryableNetworkTaskError, is_retryable_network_error
 
 logger = get_logger(__name__)
 
@@ -58,6 +59,8 @@ class GoogleSheet:
                 f"{self._log_ctx()}初始化Google Sheet连接失败: {str(e)}\n"
                 f"连接参数 - Spreadsheet ID: {self.spreadsheet_id}, Sheet: {self._sheet_name}, Token: {self._token_file}"
             )
+            if is_retryable_network_error(e):
+                raise RetryableNetworkTaskError(f"{self._log_ctx()}初始化Google Sheet连接失败: {str(e)}") from e
             raise
 
     def _connect_and_select_worksheet(self):
@@ -642,6 +645,10 @@ class GoogleSheet:
             if not self._reconnect():
                 # 关键：重连失败时抛出原始异常，让上层按网络错误重试/退出
                 if self._last_reconnect_exception is not None:
+                    if is_retryable_network_error(self._last_reconnect_exception):
+                        raise RetryableNetworkTaskError(
+                            f"{self._log_ctx()}重连Google Sheet失败: {str(self._last_reconnect_exception)}"
+                        ) from self._last_reconnect_exception
                     raise self._last_reconnect_exception
                 raise Exception("请先选择工作表")
 
@@ -685,11 +692,15 @@ class GoogleSheet:
                     time.sleep(wait_time)
                 else:
                     logger.error(f"{operation_name} 网络错误，已重试 {max_retries} 次仍失败: {str(e)}")
-                    raise
+                    raise RetryableNetworkTaskError(
+                        f"{self._log_ctx()}{operation_name} 网络错误，已重试 {max_retries} 次仍失败: {str(e)}"
+                    ) from e
         
         # 如果所有重试都失败了
         if last_exception:
-            raise last_exception
+            raise RetryableNetworkTaskError(
+                f"{self._log_ctx()}{operation_name} 网络错误: {str(last_exception)}"
+            ) from last_exception
 
     def close(self):
         """关闭连接并清理资源"""

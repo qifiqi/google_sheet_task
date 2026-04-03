@@ -258,6 +258,11 @@ def init_config():
             'description': 'Google Sheet 主流程结果读取单元格位置列表。',
         },
 
+        "C3_commission_cell": {
+            "value": "B5",
+            "description": "C3 模板佣金单元格位置。",
+        },
+
         'c3_parameter_positions': {
             'value': ['B5','B6', 'B7', 'B8','B9', 'B10', 'B11', 'B12'],
             'description': 'C3 模板参数输入单元格位置列表。',

@@ -153,16 +153,16 @@
                                             <div class="form-text">输入单个股票代码</div>
                                         </div>
                                         <div class="col-md-3 mb-3">
-                                            <label for="start_date" class="form-label">开始日期</label>
-                                            <input type="date" class="form-control" id="start_date">
-                                            <div class="form-text">用于批量运行的起始日期</div>
+                                            <label for="end_date" class="form-label">结束时间</label>
+                                            <input type="date" class="form-control" id="end_date">
+                                            <div class="form-text">不选择则按后端默认逻辑处理</div>
                                         </div>
                                         <div class="col-md-2 mb-3">
                                             <label class="form-label d-block">市场</label>
                                             <div class="btn-group w-100" role="group" aria-label="市场类型">
                                                 <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" checked>
                                                 <label class="btn btn-outline-primary" for="market_type_cn">A股</label>
-                                                <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="us">
+                                                <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="en">
                                                 <label class="btn btn-outline-primary" for="market_type_us">美股</label>
                                             </div>
                                             <div class="form-text">选择回测市场</div>
@@ -748,6 +748,10 @@
         return input ? input.value.trim() : '';
     }
 
+    function normalizeMarketTypeValue(value) {
+        return value === 'us' || value === 'en' || value === '美股' ? 'en' : 'cn';
+    }
+
     // 从模板加载数据
     function loadFromTemplate(template) {
         if (!template) return;
@@ -1166,9 +1170,6 @@
         // - 其它 -> loadSavedFormData()
         initFromUrlParams();
 
-        // 初始化日期默认值（如果未从模板/重启/本地恢复）
-        initDefaultDatesIfEmpty();
-
         normalizeBatchBasicFieldsMarkup();
         calculateCombinations();
 
@@ -1223,32 +1224,44 @@
     }
 
     function normalizeBatchBasicFieldsMarkup() {
-        const startDateInput = document.getElementById('start_date');
-        if (startDateInput) {
-            const startDateCol = startDateInput.closest('.col-md-3');
-            if (startDateCol) {
-                startDateCol.innerHTML = `
-                    <label for="start_date" class="form-label">Start Date</label>
-                    <input type="date" class="form-control" id="start_date">
-                    <div class="form-text">Batch run start date</div>
+        const endDateInput = document.getElementById('end_date');
+        const currentEndDate = endDateInput ? endDateInput.value : '';
+        if (endDateInput) {
+            const endDateCol = endDateInput.closest('.col-md-3');
+            if (endDateCol) {
+                endDateCol.innerHTML = `
+                    <label for="end_date" class="form-label">结束时间</label>
+                    <input type="date" class="form-control" id="end_date">
+                    <div class="form-text">不选择则按后端默认逻辑处理</div>
                 `;
+                const rebuiltEndDateInput = endDateCol.querySelector('#end_date');
+                if (rebuiltEndDateInput) {
+                    rebuiltEndDateInput.value = currentEndDate;
+                }
             }
         }
 
         const marketTypeCnInput = document.getElementById('market_type_cn');
+        const currentMarketType = normalizeMarketTypeValue(
+            document.querySelector('input[name="market_type"]:checked')?.value
+        );
         if (marketTypeCnInput) {
             const marketTypeCol = marketTypeCnInput.closest('.col-md-2');
             if (marketTypeCol) {
                 marketTypeCol.innerHTML = `
-                    <label class="form-label d-block">Market</label>
-                    <div class="btn-group w-100" role="group" aria-label="Market Type">
+                    <label class="form-label d-block">市场</label>
+                    <div class="btn-group w-100" role="group" aria-label="市场类型">
                         <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" checked>
-                        <label class="btn btn-outline-primary" for="market_type_cn">A-Share</label>
-                        <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="us">
-                        <label class="btn btn-outline-primary" for="market_type_us">US</label>
+                        <label class="btn btn-outline-primary" for="market_type_cn">A股</label>
+                        <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="en">
+                        <label class="btn btn-outline-primary" for="market_type_us">美股</label>
                     </div>
-                    <div class="form-text">Select the target market</div>
+                    <div class="form-text">选择后会按英文值传给后端</div>
                 `;
+                const targetMarketInput = marketTypeCol.querySelector(`input[name="market_type"][value="${currentMarketType}"]`);
+                if (targetMarketInput) {
+                    targetMarketInput.checked = true;
+                }
             }
         }
     }
@@ -1447,14 +1460,14 @@
         // applyRecentYears(normalized.recent_years);
         // updateRecentYearsVisibility();
         if (normalized.market_type) {
-            const mtInput = document.querySelector(`input[name="market_type"][value="${normalized.market_type}"]`);
+            const mtInput = document.querySelector(`input[name="market_type"][value="${normalizeMarketTypeValue(normalized.market_type)}"]`);
             if (mtInput) {
                 mtInput.checked = true;
             }
         }
-        const startDateInput = document.getElementById('start_date');
-        if (startDateInput) {
-            startDateInput.value = normalized.start_date || '';
+        const endDateInput = document.getElementById('end_date');
+        if (endDateInput) {
+            endDateInput.value = normalized.end_date || normalized.start_date || '';
         }
         // if (normalized.end_date) {
         //     const ed = document.getElementById('end_date');
@@ -1495,31 +1508,10 @@
         }
     }
 
-    // 初始化日期默认值：结束=昨天，开始=结束往前推5年（仅在两者都为空时）
+    // 日期由用户决定是否传递，不再前端自动填充
     function initDefaultDatesIfEmpty() {
-        const startInput = document.getElementById('start_date');
         const endInput = document.getElementById('end_date');
-        if (!startInput || !endInput) return;
-
-        // 已有值（来自模板/重启/本地存储），不覆盖
-        if (startInput.value || endInput.value) {
-            return;
-        }
-
-        const today = new Date();
-        // 昨天
-        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-        // 五年前同一天
-        const start = new Date(end.getFullYear() - 5, end.getMonth(), end.getDate());
-
-        const toISODate = (d) => {
-            const m = (d.getMonth() + 1).toString().padStart(2, '0');
-            const day = d.getDate().toString().padStart(2, '0');
-            return `${d.getFullYear()}-${m}-${day}`;
-        };
-
-        endInput.value = toISODate(end);
-        startInput.value = toISODate(start);
+        if (!endInput || endInput.value) return;
     }
 
     function getSelectedDateRangeModes() {
@@ -1684,7 +1676,7 @@
 
         // 为所有输入字段添加自动保存
         const inputFields = [
-            'task_name', 'task_description', 'stock_code_input', 'start_date'
+            'task_name', 'task_description', 'stock_code_input', 'end_date'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -1946,7 +1938,7 @@
         // const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
         // const dateRangeModes = getSelectedDateRangeModes();
         // const recentYears = getRecentYearsPayload();
-        // const startDate = document.getElementById('start_date')?.value || null;
+        // const endDate = document.getElementById('end_date')?.value || null;
         // const endDate = document.getElementById('end_date')?.value || null;
         // if (tokenType === 'file' && !tokenId) {
         //     showNotification('请选择Token', 'error');
@@ -1969,8 +1961,8 @@
         }
 
         const taskDescription = document.getElementById('task_description').value.trim();
-        const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
-        const startDate = document.getElementById('start_date')?.value || null;
+        const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+        const endDate = document.getElementById('end_date')?.value?.trim() || '';
 
         const parameterValues = getParameterValues();
         if (!validateC31Parameters(parameterValues)) {
@@ -1994,7 +1986,6 @@
             task_description: taskDescription,
             stock_codes: [stockCodeValue],
             market_type: marketType,
-            start_date: startDate,
             // token_type: tokenType,
             // token_id: tokenType === 'file' ? tokenId : null,
             // token_file: tokenFile,
@@ -2011,6 +2002,9 @@
             parameters: parameters,
             sheets: sheets
         };
+        if (endDate) {
+            taskConfig.end_date = endDate;
+        }
 
         // 禁用执行按钮
         const executeBtn = document.getElementById('execute-btn');
@@ -2082,8 +2076,8 @@
             task_name: document.getElementById('task_name').value,
             task_description: document.getElementById('task_description').value,
             stock_code: getStockCode(),
-            start_date: document.getElementById('start_date')?.value || '',
-            market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
+            end_date: document.getElementById('end_date')?.value || '',
+            market_type: normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value),
             sheets: sheets,
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
@@ -2111,8 +2105,10 @@
                 if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
                 if (formData.stock_code) document.getElementById('stock_code_input').value = formData.stock_code;
-                if (typeof formData.start_date === 'string') {
-                    document.getElementById('start_date').value = formData.start_date;
+                if (typeof formData.end_date === 'string') {
+                    document.getElementById('end_date').value = formData.end_date;
+                } else if (typeof formData.start_date === 'string') {
+                    document.getElementById('end_date').value = formData.start_date;
                 }
                 if (Array.isArray(formData.sheets) && formData.sheets.length > 0) {
                     applySheetsToForm(formData.sheets);
@@ -2135,7 +2131,7 @@
                 if (formData.param6 && param6El) param6El.value = formData.param6;
 
                 if (formData.market_type) {
-                    const mtInput = document.querySelector(`input[name="market_type"][value="${formData.market_type}"]`);
+                    const mtInput = document.querySelector(`input[name="market_type"][value="${normalizeMarketTypeValue(formData.market_type)}"]`);
                     if (mtInput) {
                         mtInput.checked = true;
                     }
@@ -2206,8 +2202,8 @@
             const baseTaskName = document.getElementById('task_name').value.trim();
             const taskDescription = document.getElementById('task_description').value.trim();
             const stockCodeValue = getStockCode();
-            const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
-            const startDate = document.getElementById('start_date')?.value || null;
+            const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+            const endDate = document.getElementById('end_date')?.value?.trim() || '';
 
             if (!baseTaskName) {
                 showError('请输入任务 Base Name');
@@ -2235,13 +2231,12 @@
             // 构造参数列表：只加入非空数组
             const parameters = getActiveParameters(parameterValues);
 
-            return {
+            const currentConfig = {
                 task_type: TASK_TYPE,
                 base_task_name: baseTaskName,
                 task_description: taskDescription,
                 stock_codes: [stockCodeValue],
                 market_type: marketType,
-                start_date: startDate,
                 // “更多配置”目前不参与模板保存；注释保留供后续恢复。
                 // token_type: tokenType,
                 // token_id: tokenType === 'file' ? tokenId : null,
@@ -2259,6 +2254,10 @@
                 parameters: parameters,
                 sheets: sheets
             };
+            if (endDate) {
+                currentConfig.end_date = endDate;
+            }
+            return currentConfig;
         } catch (error) {
             console.error('获取当前配置失败:', error);
             showError('获取当前配置失败: ' + error.message);
@@ -2344,7 +2343,7 @@
             price_mode: raw.price_mode || 'kp_price',
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
-            market_type: raw.market_type || 'cn',
+            market_type: normalizeMarketTypeValue(raw.market_type),
             token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',
