@@ -51,6 +51,50 @@ class TaskManager:
                 db.session.commit()
         return error_message
 
+    def _get_task_fresh(self, task_id: str):
+        """Always re-read the latest task state from DB, bypassing session cache."""
+        try:
+            db.session.expire_all()
+        except Exception:
+            pass
+        return Task.query.populate_existing().filter(Task.id == task_id).first()
+
+    def _finalize_task_execution(self, task_id: str, app, task_logger, task_result: str):
+        """Finalize task state using fresh DB status to avoid cancelled -> completed races."""
+        task = self._get_task_fresh(task_id)
+        if not task:
+            task_logger.warning(f"任务不存在，无法收尾: {task_id}")
+            return
+
+        if task.status == 'cancelled':
+            task.end_time = datetime.now()
+            db.session.commit()
+            task_logger.info('任务执行完成，状态: cancelled（任务被取消）')
+            self._add_task_log(task_id, 'info', '任务执行完成，状态: cancelled（任务被取消）', app)
+            return
+
+        if task_result == 'cancelled':
+            task.status = 'cancelled'
+            task.end_time = datetime.now()
+            db.session.commit()
+            task_logger.info('任务执行完成，状态: cancelled（执行过程中被取消）')
+            self._add_task_log(task_id, 'info', '任务执行完成，状态: cancelled（执行过程中被取消）', app)
+            return
+
+        if task_result == 'completed':
+            task.status = 'completed'
+            task.end_time = datetime.now()
+            db.session.commit()
+            task_logger.info('任务执行完成，状态: completed')
+            self._add_task_log(task_id, 'info', '任务执行完成，状态: completed', app)
+            return
+
+        task.status = 'error'
+        task.end_time = datetime.now()
+        db.session.commit()
+        task_logger.info('任务执行完成，状态: error')
+        self._add_task_log(task_id, 'info', '任务执行完成，状态: error', app)
+
     def _normalize_task_config_for_type(self, task_type: str, config):
         if not isinstance(config, dict):
             return config
@@ -1020,39 +1064,7 @@ class TaskManager:
                 
                 # 执行任务
                 task_result = service.execute_task()
-                
-                # 检查任务当前状态（可能在执行过程中被取消）
-                task = Task.query.get(task_id)
-                if task and task.status == 'cancelled':
-                    # 任务已被取消，保持cancelled状态
-                    task.end_time = datetime.now()
-                    db.session.commit()
-                    task_logger.info('任务执行完成，状态: cancelled（任务被取消）')
-                    self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（任务被取消）', app)
-                else:
-                    # 根据执行结果更新状态
-                    # task_result 可能是: 'completed', 'error', 'cancelled'
-                    if task_result == 'cancelled':
-                        # 任务在执行过程中被取消
-                        task.status = 'cancelled'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: cancelled（执行过程中被取消）')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（执行过程中被取消）', app)
-                    elif task_result == 'completed':
-                        # 任务成功完成
-                        task.status = 'completed'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: completed')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: completed', app)
-                    else:
-                        # 任务执行出错
-                        task.status = 'error'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: error')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
+                self._finalize_task_execution(task_id, app, task_logger, task_result)
             
         except Exception as e:
             root = unwrap_exception(e) or e
@@ -1122,39 +1134,7 @@ class TaskManager:
                 
                 # 执行任务
                 task_result = service.execute_task()
-                
-                # 检查任务当前状态（可能在执行过程中被取消）
-                task = Task.query.get(task_id)
-                if task and task.status == 'cancelled':
-                    # 任务已被取消，保持cancelled状态
-                    task.end_time = datetime.now()
-                    db.session.commit()
-                    task_logger.info('任务执行完成，状态: cancelled（任务被取消）')
-                    self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（任务被取消）', app)
-                else:
-                    # 根据执行结果更新状态
-                    # task_result 可能是: 'completed', 'error', 'cancelled'
-                    if task_result == 'cancelled':
-                        # 任务在执行过程中被取消
-                        task.status = 'cancelled'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: cancelled（执行过程中被取消）')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（执行过程中被取消）', app)
-                    elif task_result == 'completed':
-                        # 任务成功完成
-                        task.status = 'completed'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: completed')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: completed', app)
-                    else:
-                        # 任务执行出错
-                        task.status = 'error'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: error')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
+                self._finalize_task_execution(task_id, app, task_logger, task_result)
         
         except Exception as e:
             root = unwrap_exception(e) or e
@@ -1224,39 +1204,7 @@ class TaskManager:
                 
                 # 执行任务
                 task_result = service.execute_task()
-                
-                # 检查任务当前状态（可能在执行过程中被取消）
-                task = Task.query.get(task_id)
-                if task and task.status == 'cancelled':
-                    # 任务已被取消，保持cancelled状态
-                    task.end_time = datetime.now()
-                    db.session.commit()
-                    task_logger.info('任务执行完成，状态: cancelled（任务被取消）')
-                    self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（任务被取消）', app)
-                else:
-                    # 根据执行结果更新状态
-                    # task_result 可能是: 'completed', 'error', 'cancelled'
-                    if task_result == 'cancelled':
-                        # 任务在执行过程中被取消
-                        task.status = 'cancelled'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: cancelled（执行过程中被取消）')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: cancelled（执行过程中被取消）', app)
-                    elif task_result == 'completed':
-                        # 任务成功完成
-                        task.status = 'completed'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: completed')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: completed', app)
-                    else:
-                        # 任务执行出错
-                        task.status = 'error'
-                        task.end_time = datetime.now()
-                        db.session.commit()
-                        task_logger.info('任务执行完成，状态: error')
-                        self._add_task_log(task_id, 'info', f'任务执行完成，状态: error', app)
+                self._finalize_task_execution(task_id, app, task_logger, task_result)
         
         except Exception as e:
             root = unwrap_exception(e) or e
@@ -1349,23 +1297,7 @@ class TaskManager:
                 service = BacktestTrainingService(config, task_id, self.task_events.get(task_id), app, self.task_stop_events.get(task_id))
 
                 task_result = service.execute_task()
-
-                task = Task.query.get(task_id)
-                if task and task.status == 'cancelled':
-                    task.end_time = datetime.now()
-                    db.session.commit()
-                    task_logger.info('任务执行完成，状态: cancelled')
-                    self._add_task_log(task_id, 'info', '任务执行完成，状态: cancelled', app)
-                else:
-                    if task_result == 'cancelled':
-                        status = 'cancelled'
-                    elif task_result == 'completed':
-                        status = 'completed'
-                    else:
-                        status = 'error'
-                    safe_update(Task, task_id, status=status, end_time=datetime.now())
-                    task_logger.info(f'任务执行完成，状态: {status}')
-                    self._add_task_log(task_id, 'info', f'任务执行完成，状态: {status}', app)
+                self._finalize_task_execution(task_id, app, task_logger, task_result)
 
         except Exception as e:
             root = unwrap_exception(e) or e
