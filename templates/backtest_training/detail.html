@@ -86,6 +86,38 @@
         word-break: normal;
         margin-bottom: 0.25rem;
     }
+    .summary-table-wrap {
+        overflow: auto;
+    }
+    .summary-table {
+        min-width: 1680px;
+        margin-bottom: 0;
+    }
+    .summary-table thead th {
+        white-space: nowrap;
+        text-align: center;
+        vertical-align: middle;
+        font-weight: 700;
+    }
+    .summary-table tbody td {
+        white-space: nowrap;
+        text-align: center;
+        vertical-align: middle;
+    }
+    .summary-parameter-cell {
+        background: color-mix(in srgb, var(--bs-tertiary-bg) 78%, white 22%);
+        font-weight: 600;
+    }
+    .summary-highlight {
+        background: linear-gradient(180deg, #fff3bf, #ffe69c) !important;
+    }
+    html[data-bs-theme="dark"] .summary-parameter-cell {
+        background: #111827;
+    }
+    html[data-bs-theme="dark"] .summary-highlight {
+        background: linear-gradient(180deg, rgba(146, 64, 14, 0.82), rgba(161, 98, 7, 0.92)) !important;
+        color: #fef3c7 !important;
+    }
 </style>
 {% endblock %}
 
@@ -101,9 +133,11 @@
                     <code class="bg-body px-2 py-1 rounded text-primary fs-6" id="taskIdText">{{ task_id }}</code>
                 </div>
             </div>
-            <a href="/backtest-training/list" class="btn btn-outline-secondary rounded-pill px-4">
-                <i class="bi bi-arrow-left"></i> 返回列表
-            </a>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <a href="/backtest-training/list" class="btn btn-outline-secondary rounded-pill px-4">
+                    <i class="bi bi-arrow-left"></i> 返回列表
+                </a>
+            </div>
         </div>
         <div class="card-body p-4">
             <div class="row g-4">
@@ -176,30 +210,69 @@
                 id="taskResultToggle"
             >
                 <i class="bi bi-clipboard-data text-warning me-2"></i>
-                <span>回测生成结果</span>
+                <span id="taskResultSectionTitle">回测生成结果</span>
                 <i class="bi bi-chevron-down ms-2" id="taskResultToggleIcon"></i>
             </button>
         </div>
         <div class="collapse show" id="taskResultCollapse">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="ps-4">结果 ID</th>
-                            <th>执行参数</th>
-                            <th>状态</th>
-                            <th>创建时间</th>
-                            <th class="pe-4 text-end">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="subTaskTableBody"></tbody>
-                </table>
+            <div id="c5TaskResultView">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">结果 ID</th>
+                                <th>执行参数</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th class="pe-4 text-end">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="subTaskTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 px-4 py-3 border-top bg-body-tertiary">
+                    <div class="small text-body-secondary" id="taskResultPaginationSummary">共 0 条结果</div>
+                    <nav aria-label="回测结果分页">
+                        <ul class="pagination pagination-sm mb-0" id="taskResultPagination"></ul>
+                    </nav>
+                </div>
             </div>
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 px-4 py-3 border-top bg-body-tertiary">
-                <div class="small text-body-secondary" id="taskResultPaginationSummary">共 0 条结果</div>
-                <nav aria-label="回测结果分页">
-                    <ul class="pagination pagination-sm mb-0" id="taskResultPagination"></ul>
-                </nav>
+            <div id="c3SummaryView" class="d-none">
+                <div class="summary-table-wrap">
+                    <table class="table table-hover align-middle mb-0 summary-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>X Multiplier</th>
+                                <th>tp1</th>
+                                <th>tp2</th>
+                                <th>nl</th>
+                                <th>if</th>
+                                <th>ywfs</th>
+                                <th>ywfb</th>
+                                <th>年份</th>
+                                <th>return%</th>
+                                <th>index%</th>
+                                <th class="summary-highlight">beats Index%</th>
+                                <th>strat max dd%</th>
+                                <th>index max dd%</th>
+                                <th class="summary-highlight">beats%</th>
+                                <th>Fee total年化</th>
+                                <th>年换手率</th>
+                                <th>指数月夏普</th>
+                                <th>策略月夏普</th>
+                                <th>日均abs(chg%)</th>
+                                <th>MAX abs(chg%)</th>
+                                <th>日均abs标准差</th>
+                                <th class="pe-4 text-end">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="c3SummaryTableBody">
+                            <tr>
+                                <td colspan="22" class="text-center text-body-secondary py-4">正在加载参数汇总...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -260,6 +333,7 @@
     };
     let refreshInterval = null;
     let taskActionInProgress = false;
+    let currentModelVersion = 'c3';
     let taskResultPaginationState = {
         page: 1,
         per_page: TASK_RESULT_PAGE_SIZE,
@@ -352,6 +426,168 @@
             }
             return `<tr>${cells.join('')}</tr>`;
         }).join('');
+    }
+
+    function formatPercentValue(value, digits = 2) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return escapeHtml(value);
+        }
+        return `${(Number(value) * 100).toFixed(digits)}%`;
+    }
+
+    function formatNumberValue(value, digits = 6) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return escapeHtml(value);
+        }
+        return Number(value).toFixed(digits);
+    }
+
+    function formatTurnoverValue(value) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return escapeHtml(value);
+        }
+        return Number(value).toFixed(2);
+    }
+
+    function formatDrawdownValue(value) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return escapeHtml(value);
+        }
+        return `${(Number(value) * 100).toFixed(2)}%`;
+    }
+
+    function metricClass(value) {
+        if (value === null || value === undefined || value === '' || typeof value === 'string') {
+            return '';
+        }
+        return Number(value) >= 0 ? 'text-success' : 'text-danger';
+    }
+
+    function buildSummaryGroupKey(row) {
+        return [
+            row.commission ?? '',
+            row.xm ?? '',
+            row.dbbh1 ?? '',
+            row.dbbh2 ?? '',
+            row.zlxc ?? '',
+            row.zsgz ?? '',
+            row.ywf1 ?? '',
+            row.ywf2 ?? ''
+        ].join('|');
+    }
+
+    function groupSummaryRows(rows) {
+        const groups = [];
+        let currentGroup = null;
+
+        (rows || []).forEach((row) => {
+            const key = buildSummaryGroupKey(row);
+            if (!currentGroup || currentGroup.key !== key) {
+                currentGroup = { key, rows: [] };
+                groups.push(currentGroup);
+            }
+            currentGroup.rows.push(row);
+        });
+
+        return groups;
+    }
+
+    function renderC3SummaryRows(rows) {
+        const tbody = document.getElementById('c3SummaryTableBody');
+        if (!tbody) {
+            return;
+        }
+
+        const groups = groupSummaryRows(rows);
+        if (!groups.length) {
+            tbody.innerHTML = '<tr><td colspan="22" class="text-center text-body-secondary py-4">暂无参数汇总数据</td></tr>';
+            return;
+        }
+
+        const html = [];
+        groups.forEach((group) => {
+            const rowspan = group.rows.length;
+            group.rows.forEach((row, rowIndex) => {
+                const resultLink = `/backtest-training/result/${encodeURIComponent(row.task_result_id)}`;
+                html.push('<tr>');
+
+                if (rowIndex === 0) {
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.xm ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.dbbh1 ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.dbbh2 ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.zlxc ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.zsgz ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.ywf1 ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.ywf2 ?? '')}</td>`);
+                }
+
+                html.push(`<td class="fw-semibold">${escapeHtml(row.year ?? '')}</td>`);
+                html.push(`<td class="${metricClass(row.strategy_return)}">${formatPercentValue(row.strategy_return)}</td>`);
+                html.push(`<td class="${metricClass(row.index_return)}">${formatPercentValue(row.index_return)}</td>`);
+                html.push(`<td class="${metricClass(row.beats_index)}">${formatPercentValue(row.beats_index)}</td>`);
+                html.push(`<td class="text-danger">${formatDrawdownValue(row.strategy_max_drawdown)}</td>`);
+                html.push(`<td class="text-danger">${formatDrawdownValue(row.index_max_drawdown)}</td>`);
+                html.push(`<td class="${metricClass(row.drawdown_beats)}">${formatPercentValue(row.drawdown_beats)}</td>`);
+                html.push(`<td>${formatPercentValue(row.fee_total)}</td>`);
+                html.push(`<td>${formatTurnoverValue(row.year_rate)}</td>`);
+                html.push(`<td class="${metricClass(row.index_monthly_sharpe)}">${formatNumberValue(row.index_monthly_sharpe)}</td>`);
+                html.push(`<td class="${metricClass(row.strategy_monthly_sharpe)}">${formatNumberValue(row.strategy_monthly_sharpe)}</td>`);
+                html.push('<td></td>');
+                html.push('<td></td>');
+                html.push('<td></td>');
+                html.push(`<td class="pe-4 text-end"><a href="${resultLink}" class="btn btn-sm btn-outline-primary">查看结果</a></td>`);
+                html.push('</tr>');
+            });
+        });
+
+        tbody.innerHTML = html.join('');
+    }
+
+    function updateTaskResultSectionMode(config) {
+        currentModelVersion = inferModelVersion(config);
+        const title = document.getElementById('taskResultSectionTitle');
+        const c3View = document.getElementById('c3SummaryView');
+        const c5View = document.getElementById('c5TaskResultView');
+
+        if (currentModelVersion === 'c3') {
+            if (title) title.textContent = '参数汇总表';
+            if (c3View) c3View.classList.remove('d-none');
+            if (c5View) c5View.classList.add('d-none');
+            return;
+        }
+
+        if (title) title.textContent = '回测生成结果';
+        if (c3View) c3View.classList.add('d-none');
+        if (c5View) c5View.classList.remove('d-none');
+    }
+
+    function loadC3Summary(options = {}) {
+        const { silent = false } = options;
+        ajaxRequest(`/backtest-training/api/task-summary/${encodeURIComponent(currentTaskId)}`, 'GET', null, function(err, data) {
+            if (err || !data || data.status !== 'success') {
+                const tbody = document.getElementById('c3SummaryTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="22" class="text-center text-body-secondary py-4">参数汇总加载失败</td></tr>';
+                }
+                if (!silent) {
+                    showNotification(`加载参数汇总失败：${err ? err.message : '未知错误'}`, 'error');
+                }
+                return;
+            }
+            renderC3SummaryRows(data.rows || []);
+        });
     }
 
     function summarizeParameters(parameters) {
@@ -674,6 +910,12 @@
             document.getElementById('taskStart').innerHTML = renderValue(formatTime(task.start_time));
             document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
             renderParameterTable(task.config || {});
+            updateTaskResultSectionMode(task.config || {});
+            if (currentModelVersion === 'c3') {
+                loadC3Summary({ silent });
+            } else {
+                loadTaskResults({ silent });
+            }
         });
     }
 
@@ -735,7 +977,6 @@
     function refreshPageData(options = {}) {
         const { silent = false } = options;
         loadTaskDetail({ silent });
-        loadTaskResults({ silent });
         loadTaskLogs({ silent });
     }
 

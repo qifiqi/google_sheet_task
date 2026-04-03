@@ -8,7 +8,10 @@
     html[data-bs-theme="dark"] .create-shell .text-body {
         color: #e5e7eb !important;
     }
-    .create-shell { display: grid; gap: 1rem; }
+    .create-shell {
+        display: grid;
+        gap: 1rem;
+    }
     .empty-hint {
         border: 2px dashed var(--bs-border-color);
         border-radius: 1rem;
@@ -72,6 +75,7 @@
         cursor: pointer;
     }
     .years-options-box {
+        align-self: end;
         padding: 0.85rem 0.9rem;
         border: 1px solid rgba(var(--bs-primary-rgb), 0.16);
         border-radius: 0.9rem;
@@ -82,7 +86,7 @@
         grid-template-columns: minmax(220px, 0.95fr) minmax(0, 1.55fr);
         gap: 1rem;
         margin-top: 0.6rem;
-        align-items: start;
+        align-items: end;
     }
     .years-meta {
         display: grid;
@@ -96,6 +100,63 @@
     }
     .years-summary strong {
         color: var(--bs-body-color);
+    }
+    .excel-import-status {
+        min-height: 1.3rem;
+    }
+    .excel-import-status.text-warning {
+        color: var(--bs-warning-text-emphasis) !important;
+    }
+    .stock-search-shell {
+        position: relative;
+    }
+    .stock-search-results {
+        position: fixed;
+        z-index: 99999;
+        max-height: 15rem;
+        min-width: 16rem;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 0.35rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.85rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+    }
+    .stock-search-item {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        display: grid;
+        gap: 0.1rem;
+        padding: 0.55rem 0.65rem;
+        border-radius: 0.7rem;
+        text-align: left;
+    }
+    .stock-search-item:hover,
+    .stock-search-item:focus {
+        background: rgba(var(--bs-primary-rgb), 0.08);
+        outline: none;
+    }
+    .stock-search-code {
+        font-weight: 700;
+        letter-spacing: 0.02em;
+    }
+    .stock-search-meta {
+        color: var(--bs-secondary-color);
+        font-size: 0.84rem;
+    }
+    html[data-bs-theme="dark"] .stock-search-results {
+        background: #0f172a;
+        border-color: #334155;
+        box-shadow: 0 18px 36px rgba(2, 6, 23, 0.42);
+    }
+    html[data-bs-theme="dark"] .stock-search-item:hover,
+    html[data-bs-theme="dark"] .stock-search-item:focus {
+        background: rgba(96, 165, 250, 0.18);
+    }
+    html[data-bs-theme="dark"] .stock-search-meta {
+        color: #94a3b8;
     }
     html[data-bs-theme="dark"] .years-switch-item {
         border-color: rgba(148, 163, 184, 0.24);
@@ -134,6 +195,10 @@
     @media (max-width: 991.98px) {
         .years-layout {
             grid-template-columns: 1fr;
+            align-items: stretch;
+        }
+        .years-options-box {
+            align-self: stretch;
         }
     }
 </style>
@@ -141,7 +206,7 @@
 
 {% block content %}
 <div class="create-shell pt-2 pb-4">
-    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+    <div class="card border-0 shadow-sm rounded-4">
         <div class="card-header bg-body-tertiary border-0 py-3 px-4 d-flex justify-content-between align-items-start flex-wrap gap-3">
             <div>
                 <h1 class="h4 mb-1 fw-bold text-body">创建数据回测任务</h1>
@@ -162,7 +227,10 @@
                 </div>
                 <div class="col-lg-3">
                     <label class="form-label fw-semibold">股票代码</label>
-                    <input type="text" class="form-control" id="stockCode" placeholder="如 AAPL 或 MSFT">
+                    <div class="stock-search-shell">
+                        <input type="text" class="form-control" id="stockCode" placeholder="如 AAPL、MSFT、平安银行" autocomplete="off">
+                        <div class="stock-search-results d-none" id="stockSearchResults"></div>
+                    </div>
                 </div>
                 <div class="col-lg-2 d-grid">
                     <button type="button" class="btn btn-primary" id="analyzeBtn">
@@ -188,8 +256,8 @@
                 <div class="row g-3 align-items-stretch">
                     <div class="col-lg-4">
                         <label class="form-label fw-semibold">任务名称</label>
-                        <input type="text" class="form-control" id="taskName" placeholder="识别 URL 后将自动填充">
-                        <div class="form-text">任务名称会在识别 URL 后自动带出，你也可以手动调整。</div>
+                        <input type="text" class="form-control" id="taskName" placeholder="C3 将按股票代码 + 整/近 + 起止年份 + 分钟时间自动生成">
+                        <div class="form-text">C3 模式会按命名规则自动生成任务名称。</div>
                     </div>
                     <div class="col-lg-4">
                         <label class="form-label fw-semibold">回测 Token</label>
@@ -197,6 +265,11 @@
                             <option value="">加载 Token 中...</option>
                         </select>
                         <div class="form-text">仅显示回测任务可用的 Token，默认会优先选中第一个可用项。</div>
+                    </div>
+                    <div class="col-lg-4" id="commissionConfigGroup">
+                        <label class="form-label fw-semibold">手续费</label>
+                        <input type="text" class="form-control" id="commissionInput" value="0.0350%" placeholder="如 0.0350%">
+                        <div class="form-text">单个股票任务只保留一个手续费，提交时会应用到全部参数组。</div>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-semibold mb-1">回测年份选项</label>
@@ -256,9 +329,13 @@
         <div class="card-header bg-body-tertiary border-0 pt-4 pb-3 px-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
             <div>
                 <h5 class="mb-1 fw-bold">参数配置清单</h5>
-                <p class="text-body-secondary small mb-0">系统已根据模型版本自动生成对应表头，请填写具体参数。</p>
+                <p class="text-body-secondary small mb-0">系统会根据模型版本生成表头，你也可以直接从 Excel 导入股票代码、年份和参数行。</p>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 flex-wrap">
+                <input type="file" id="excelFileInput" accept=".xlsx,.xlsm" class="d-none">
+                <button type="button" class="btn btn-outline-secondary rounded-pill" id="importExcelBtn">
+                    <i class="bi bi-file-earmark-excel me-1"></i> 从 Excel 读取参数
+                </button>
                 <button type="button" class="btn btn-outline-primary rounded-pill" id="addParamBtn">
                     <i class="bi bi-plus-lg"></i> 添加一组
                 </button>
@@ -268,6 +345,9 @@
             </div>
         </div>
         <div class="card-body px-4 pb-4">
+            <div class="excel-import-status text-body-secondary small mb-3" id="excelImportStatus">
+                导入后会自动填充股票代码、年份和参数行。
+            </div>
             <div id="emptyHint" class="empty-hint text-center text-body-secondary bg-body-tertiary p-5 mb-3 d-none">
                 <i class="bi bi-table fs-1 d-block mb-3"></i>
                 识别 URL 后会根据模型版本生成表头，每一行代表一组待创建的参数。
@@ -293,6 +373,8 @@ let currentModelVersion = 'c3';
 let currentFields = [];
 let isCreatingTask = false;
 let backtestTokens = [];
+let currentExcelImport = null;
+let importedParameterRows = [];
 
 const FIELD_MAP = {
     c5: [
@@ -300,7 +382,6 @@ const FIELD_MAP = {
         { key: 'ml', label: 'ML (ml)', defaultValue: '' }
     ],
     c3: [
-        { key: 'commission', label: 'Commission', defaultValue: '0.0350%' },
         { key: 'xm', label: 'X Multiplier (xm)', defaultValue: '' },
         { key: 'dbbh1', label: '单边保护1', defaultValue: '' },
         { key: 'dbbh2', label: '单边保护2', defaultValue: '' },
@@ -323,8 +404,20 @@ const emptyHint = document.getElementById('emptyHint');
 const paramSection = document.getElementById('paramSection');
 const analyzeBtn = document.getElementById('analyzeBtn');
 const tokenIdSelect = document.getElementById('tokenId');
+const commissionConfigGroup = document.getElementById('commissionConfigGroup');
+const commissionInput = document.getElementById('commissionInput');
+const importExcelBtn = document.getElementById('importExcelBtn');
+const excelFileInput = document.getElementById('excelFileInput');
+const excelImportStatus = document.getElementById('excelImportStatus');
+const stockCodeInput = document.getElementById('stockCode');
+const stockSearchResults = document.getElementById('stockSearchResults');
+const DEFAULT_C3_COMMISSION = '0.0350%';
+let stockSearchAbortController = null;
+let stockSearchDebounceTimer = null;
+let stockSearchPositionFrame = null;
+let lastStockSearchResults = [];
 
-for (let i = 1; i <= 7; i++) {
+for (let i = 1; i <= 7; i += 1) {
     recentYearsContainer.insertAdjacentHTML('beforeend', `
         <div class="form-check form-check-inline">
             <input class="form-check-input recent-year" type="checkbox" id="recent${i}" value="${i}">
@@ -333,7 +426,7 @@ for (let i = 1; i <= 7; i++) {
     `);
 }
 
-for (let i = 0; i < 7; i++) {
+for (let i = 0; i < 7; i += 1) {
     const year = currentYear - i;
     fullYearsContainer.insertAdjacentHTML('beforeend', `
         <div class="form-check form-check-inline">
@@ -350,7 +443,9 @@ function syncYearsWrapper() {
 }
 
 function syncConfigToggleText() {
-    if (!configToggleBtn) return;
+    if (!configToggleBtn) {
+        return;
+    }
     const expanded = configToggleBtn.getAttribute('aria-expanded') === 'true';
     const label = configToggleBtn.querySelector('span');
     if (label) {
@@ -358,8 +453,41 @@ function syncConfigToggleText() {
     }
 }
 
+function resolveModelVersion(value) {
+    return value && FIELD_MAP[value] ? value : 'c3';
+}
+
+function setExcelImportStatus(message, tone = 'muted') {
+    if (!excelImportStatus) {
+        return;
+    }
+    excelImportStatus.classList.remove('text-body-secondary', 'text-success', 'text-warning', 'text-danger');
+    if (tone === 'success') {
+        excelImportStatus.classList.add('text-success');
+    } else if (tone === 'warning') {
+        excelImportStatus.classList.add('text-warning');
+    } else if (tone === 'danger') {
+        excelImportStatus.classList.add('text-danger');
+    } else {
+        excelImportStatus.classList.add('text-body-secondary');
+    }
+    excelImportStatus.textContent = message;
+}
+
+function setExcelImportButtonState(isLoading) {
+    if (!importExcelBtn) {
+        return;
+    }
+    importExcelBtn.disabled = isLoading;
+    importExcelBtn.innerHTML = isLoading
+        ? '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>读取中...'
+        : '<i class="bi bi-file-earmark-excel me-1"></i> 从 Excel 读取参数';
+}
+
 function renderBacktestTokenOptions(tokens) {
-    if (!tokenIdSelect) return;
+    if (!tokenIdSelect) {
+        return;
+    }
     tokenIdSelect.innerHTML = '';
 
     if (!Array.isArray(tokens) || tokens.length === 0) {
@@ -387,7 +515,9 @@ function renderBacktestTokenOptions(tokens) {
 }
 
 async function loadBacktestTokens() {
-    if (!tokenIdSelect) return;
+    if (!tokenIdSelect) {
+        return;
+    }
 
     try {
         const resp = await fetch('/api/google-sheet-tokens?task_type=backtest_training');
@@ -403,9 +533,214 @@ async function loadBacktestTokens() {
     }
 }
 
+function updateStockCodeHint(message, tone = 'muted') {
+    return { message, tone };
+}
+
+function ensureStockSearchPortal() {
+    if (!stockSearchResults) {
+        return;
+    }
+    if (stockSearchResults.parentElement !== document.body) {
+        document.body.appendChild(stockSearchResults);
+    }
+    stockSearchResults.style.position = 'fixed';
+    stockSearchResults.style.zIndex = '99999';
+}
+
+function positionStockSearchResults() {
+    if (!stockCodeInput || !stockSearchResults || stockSearchResults.classList.contains('d-none')) {
+        return;
+    }
+
+    ensureStockSearchPortal();
+    const rect = stockCodeInput.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
+    const width = rect.width;
+    const left = Math.max(12, Math.min(rect.left, viewportWidth - width - 12));
+    const dropdownHeight = Math.min(stockSearchResults.scrollHeight || 240, 240);
+    const preferAbove = rect.bottom + 6 + dropdownHeight > viewportHeight - 12 && rect.top - dropdownHeight - 6 >= 12;
+    const top = preferAbove ? Math.max(12, rect.top - dropdownHeight - 6) : rect.bottom + 6;
+
+    stockSearchResults.style.top = `${top}px`;
+    stockSearchResults.style.left = `${left}px`;
+    stockSearchResults.style.width = `${width}px`;
+}
+
+function scheduleStockSearchResultsPosition() {
+    if (!stockSearchResults || stockSearchResults.classList.contains('d-none')) {
+        return;
+    }
+
+    if (stockSearchPositionFrame) {
+        window.cancelAnimationFrame(stockSearchPositionFrame);
+    }
+    stockSearchPositionFrame = window.requestAnimationFrame(() => {
+        stockSearchPositionFrame = null;
+        positionStockSearchResults();
+    });
+}
+
+function trackStockSearchPositionDuringTransition(duration = 300) {
+    if (!stockSearchResults || stockSearchResults.classList.contains('d-none')) {
+        return;
+    }
+
+    const endTime = window.performance.now() + duration;
+    const tick = () => {
+        if (!stockSearchResults || stockSearchResults.classList.contains('d-none')) {
+            stockSearchPositionFrame = null;
+            return;
+        }
+
+        positionStockSearchResults();
+        if (window.performance.now() < endTime) {
+            stockSearchPositionFrame = window.requestAnimationFrame(tick);
+        } else {
+            stockSearchPositionFrame = null;
+        }
+    };
+
+    if (stockSearchPositionFrame) {
+        window.cancelAnimationFrame(stockSearchPositionFrame);
+    }
+    stockSearchPositionFrame = window.requestAnimationFrame(tick);
+}
+
+function hideStockSearchResults() {
+    if (!stockSearchResults) {
+        return;
+    }
+    stockSearchResults.classList.add('d-none');
+    stockSearchResults.style.top = '';
+    stockSearchResults.style.left = '';
+    stockSearchResults.style.width = '';
+}
+
+function selectStockSuggestion(item) {
+    if (!item || !stockCodeInput) {
+        return;
+    }
+    stockCodeInput.value = item.code || '';
+    hideStockSearchResults();
+    updateStockCodeHint(`已选择 ${item.code}${item.name ? ` · ${item.name}` : ''}${item.security_type_name ? ` · ${item.security_type_name}` : ''}。`, 'success');
+}
+
+function renderStockSearchResults(results, keyword) {
+    lastStockSearchResults = Array.isArray(results) ? results : [];
+    if (!stockSearchResults) {
+        return;
+    }
+
+    if (!lastStockSearchResults.length) {
+        hideStockSearchResults();
+        if (keyword) {
+            updateStockCodeHint(`没有找到与“${keyword}”相关的股票，请检查代码或名称。`, 'warning');
+        }
+        return;
+    }
+
+    stockSearchResults.innerHTML = lastStockSearchResults.map((item, index) => `
+        <button type="button" class="stock-search-item" data-stock-index="${index}">
+            <span class="stock-search-code">${escapeHtml(item.code || '-')}</span>
+            <span class="stock-search-meta">${escapeHtml(item.name || '未命名')}${item.security_type_name ? ` · ${escapeHtml(item.security_type_name)}` : ''}</span>
+        </button>
+    `).join('');
+    ensureStockSearchPortal();
+    stockSearchResults.classList.remove('d-none');
+    scheduleStockSearchResultsPosition();
+}
+
+async function fetchStockSuggestions(keyword) {
+    const trimmedKeyword = (keyword || '').trim();
+    if (!trimmedKeyword) {
+        lastStockSearchResults = [];
+        hideStockSearchResults();
+        updateStockCodeHint('支持输入股票代码或名称，系统会自动搜索候选项。');
+        return;
+    }
+
+    if (stockSearchAbortController) {
+        stockSearchAbortController.abort();
+    }
+    stockSearchAbortController = new AbortController();
+
+    try {
+        const response = await fetch(`/backtest-training/api/search-stocks?q=${encodeURIComponent(trimmedKeyword)}`, {
+            signal: stockSearchAbortController.signal
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || '股票搜索失败');
+        }
+        renderStockSearchResults(data.results || [], trimmedKeyword);
+        if ((data.results || []).length) {
+            updateStockCodeHint('已找到候选股票，点击即可填充代码。');
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            return;
+        }
+        console.error('股票搜索失败:', error);
+        hideStockSearchResults();
+        updateStockCodeHint(`股票搜索失败：${error.message || '未知错误'}`, 'danger');
+    }
+}
+
+function scheduleStockSearch() {
+    if (!stockCodeInput) {
+        return;
+    }
+    const keyword = stockCodeInput.value.trim();
+    window.clearTimeout(stockSearchDebounceTimer);
+    stockSearchDebounceTimer = window.setTimeout(() => {
+        fetchStockSuggestions(keyword);
+    }, 260);
+}
+
+async function normalizeStockInputValue() {
+    if (!stockCodeInput) {
+        return;
+    }
+    const keyword = stockCodeInput.value.trim();
+    if (!keyword) {
+        hideStockSearchResults();
+        updateStockCodeHint('支持输入股票代码或名称，系统会自动搜索候选项。');
+        return;
+    }
+
+    const loweredKeyword = keyword.toLowerCase();
+    const exactLocalMatch = lastStockSearchResults.find((item) => {
+        const code = String(item.code || '').toLowerCase();
+        const name = String(item.name || '').toLowerCase();
+        return code === loweredKeyword || name === loweredKeyword;
+    });
+    if (exactLocalMatch) {
+        selectStockSuggestion(exactLocalMatch);
+        return;
+    }
+
+    await fetchStockSuggestions(keyword);
+    const exactMatch = lastStockSearchResults.find((item) => item.is_exact_match)
+        || lastStockSearchResults.find((item) => String(item.name || '').toLowerCase() === loweredKeyword);
+    if (exactMatch) {
+        selectStockSuggestion(exactMatch);
+    }
+}
+
 function syncEmptyState() {
     const rowCount = document.querySelectorAll('#paramTableBody tr').length;
     emptyHint.classList.toggle('d-none', rowCount !== 0);
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function updateYearsDisplay() {
@@ -427,7 +762,35 @@ function inferModelVersion(title) {
     return 'c3';
 }
 
+function getC3CommissionValue() {
+    if (!commissionInput) {
+        return DEFAULT_C3_COMMISSION;
+    }
+    const value = commissionInput.value.trim();
+    return value || DEFAULT_C3_COMMISSION;
+}
+
+function setC3CommissionValue(value) {
+    if (!commissionInput) {
+        return;
+    }
+    const normalizedValue = String(value || '').trim();
+    commissionInput.value = normalizedValue || DEFAULT_C3_COMMISSION;
+}
+
+function syncCommissionConfigVisibility() {
+    if (!commissionConfigGroup) {
+        return;
+    }
+    const isC3Mode = resolveModelVersion(currentModelVersion) === 'c3';
+    commissionConfigGroup.classList.toggle('d-none', !isC3Mode);
+    if (isC3Mode) {
+        setC3CommissionValue(getC3CommissionValue());
+    }
+}
+
 function updateTableHeader() {
+    currentFields = FIELD_MAP[resolveModelVersion(currentModelVersion)] || FIELD_MAP.c3;
     const head = document.getElementById('paramTableHead');
     const headerCells = currentFields.map((field) => `<th>${field.label}</th>`).join('');
     head.innerHTML = `<tr>${headerCells}<th>操作</th></tr>`;
@@ -452,22 +815,113 @@ function addParameterRow(initialValues = {}) {
     syncEmptyState();
 }
 
-function resetParameterTable() {
-    currentFields = FIELD_MAP[currentModelVersion] || FIELD_MAP.c3;
+function projectImportedRows(rows) {
+    return (Array.isArray(rows) ? rows : [])
+        .map((row) => {
+            const projected = {};
+            currentFields.forEach((field) => {
+                projected[field.key] = row && row[field.key] ? String(row[field.key]).trim() : '';
+            });
+            return projected;
+        })
+        .filter((row) => Object.values(row).some((value) => value));
+}
+
+function resetParameterTable(initialRows = []) {
+    syncCommissionConfigVisibility();
     updateTableHeader();
-    document.getElementById('paramTableBody').innerHTML = '';
-    addParameterRow();
+    const tbody = document.getElementById('paramTableBody');
+    tbody.innerHTML = '';
+
+    const rows = projectImportedRows(initialRows);
+    if (rows.length) {
+        rows.forEach((row) => addParameterRow(row));
+    } else {
+        addParameterRow();
+    }
     syncEmptyState();
 }
 
-function collectParameters() {
+function collectParameterDraftRows() {
     const rows = document.querySelectorAll('#paramTableBody tr');
-    return Array.from(rows).map((row) => {
-        return currentFields.map((field) => {
-            const input = row.querySelector(`.param-input[data-key="${field.key}"]`);
-            return input ? input.value.trim() : '';
-        });
-    });
+    return Array.from(rows).map((row) => currentFields.map((field) => {
+        const input = row.querySelector(`.param-input[data-key="${field.key}"]`);
+        return input ? input.value.trim() : '';
+    }));
+}
+
+function collectParameters(rows = collectParameterDraftRows()) {
+    if (resolveModelVersion(currentModelVersion) !== 'c3') {
+        return rows;
+    }
+    const commission = getC3CommissionValue();
+    return rows.map((row) => [commission, ...row]);
+}
+
+function padNumber(value) {
+    return String(value).padStart(2, '0');
+}
+
+function getMinuteTimestamp() {
+    const now = new Date();
+    return `${now.getFullYear()}${padNumber(now.getMonth() + 1)}${padNumber(now.getDate())}${padNumber(now.getHours())}${padNumber(now.getMinutes())}`;
+}
+
+function getSelectedRunYearLabel() {
+    const recentYears = Array.from(document.querySelectorAll('.recent-year:checked'))
+        .map((checkbox) => Number.parseInt(checkbox.value, 10))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+
+    const fullYears = Array.from(document.querySelectorAll('.full-year:checked'))
+        .map((checkbox) => checkbox.value)
+        .filter(Boolean);
+
+    const parts = [];
+
+    if (fullYears.length) {
+        const numericYears = fullYears
+            .map((value) => Number.parseInt(value, 10))
+            .filter((value) => Number.isFinite(value))
+            .sort((a, b) => a - b);
+        if (numericYears.length) {
+            parts.push(`整_${numericYears[0]}_${numericYears[numericYears.length - 1]}`);
+        }
+    }
+
+    if (recentYears.length) {
+        const maxRecentYear = Math.max(...recentYears);
+        const startYear = currentYear - maxRecentYear;
+        parts.push(`近_${startYear}_${currentYear}`);
+    }
+
+    return parts.join('_') || '未选年份';
+}
+
+function buildC3TaskName() {
+    const stockCode = (document.getElementById('stockCode')?.value || '').trim().toUpperCase();
+    const runYearLabel = getSelectedRunYearLabel();
+    const timeLabel = getMinuteTimestamp();
+
+    if (!stockCode) {
+        return '';
+    }
+
+    return `C3_${stockCode}_${runYearLabel}_${timeLabel}`;
+}
+
+function refreshTaskNameByRule() {
+    const taskNameInput = document.getElementById('taskName');
+    if (!taskNameInput) {
+        return;
+    }
+
+    if (resolveModelVersion(currentModelVersion) !== 'c3') {
+        return;
+    }
+
+    const generatedName = buildC3TaskName();
+    taskNameInput.value = generatedName || '';
 }
 
 function setCreateButtonState(isLoading) {
@@ -489,44 +943,55 @@ function setAnalyzeButtonState(isLoading) {
         : '<i class="bi bi-magic me-1"></i> 智能识别';
 }
 
-document.getElementById('recentYearsCheck').addEventListener('change', (e) => {
-    const isChecked = e.target.checked;
-    recentYearsOptions.classList.toggle('d-none', !isChecked);
-    document.querySelectorAll('.recent-year').forEach((cb, index) => {
-        cb.checked = isChecked && index < 3;
+function applyImportedYearSelection(recentValues, fullValues) {
+    const normalizedRecent = (Array.isArray(recentValues) ? recentValues : []).map((value) => String(value));
+    const normalizedFull = (Array.isArray(fullValues) ? fullValues : []).map((value) => String(value));
+
+    document.getElementById('recentYearsCheck').checked = normalizedRecent.length > 0;
+    recentYearsOptions.classList.toggle('d-none', normalizedRecent.length === 0);
+    document.querySelectorAll('.recent-year').forEach((checkbox) => {
+        checkbox.checked = normalizedRecent.includes(checkbox.value);
     });
+
+    document.getElementById('fullYearsCheck').checked = normalizedFull.length > 0;
+    fullYearsOptions.classList.toggle('d-none', normalizedFull.length === 0);
+    document.querySelectorAll('.full-year').forEach((checkbox) => {
+        checkbox.checked = normalizedFull.includes(checkbox.value);
+    });
+
     syncYearsWrapper();
     updateYearsDisplay();
-});
+}
 
-document.getElementById('fullYearsCheck').addEventListener('change', (e) => {
-    const isChecked = e.target.checked;
-    fullYearsOptions.classList.toggle('d-none', !isChecked);
-    document.querySelectorAll('.full-year').forEach((cb, index) => {
-        cb.checked = isChecked && index < 3;
-    });
-    syncYearsWrapper();
-    updateYearsDisplay();
-});
-
-document.addEventListener('change', (e) => {
-    if (e.target.classList.contains('recent-year') || e.target.classList.contains('full-year')) {
-        updateYearsDisplay();
+function applyImportedPayload(data) {
+    if (data.stock_code) {
+        document.getElementById('stockCode').value = data.stock_code;
     }
-});
 
-document.getElementById('addParamBtn').addEventListener('click', () => {
-    addParameterRow();
-});
-
-document.getElementById('paramTableBody').addEventListener('click', (e) => {
-    if (e.target.classList.contains('delete-row')) {
-        e.target.closest('tr').remove();
-        syncEmptyState();
+    currentExcelImport = data.excel_import || null;
+    importedParameterRows = Array.isArray(data.parameters) ? data.parameters : [];
+    const firstCommission = importedParameterRows.find((row) => row && row.commission)?.commission;
+    if (firstCommission) {
+        setC3CommissionValue(firstCommission);
     }
-});
+    applyImportedYearSelection(data.recent_years || [], data.full_years || []);
 
-document.getElementById('analyzeBtn').addEventListener('click', async () => {
+    if (!spreadsheetId) {
+        currentModelVersion = resolveModelVersion(data.model_version);
+    }
+    syncCommissionConfigVisibility();
+    paramSection.classList.remove('d-none');
+    resetParameterTable(importedParameterRows);
+
+    if (taskConfigCollapse) {
+        bootstrap.Collapse.getOrCreateInstance(taskConfigCollapse, { toggle: false }).show();
+    }
+
+    const rowCount = importedParameterRows.length;
+    setExcelImportStatus(`已从 Excel 导入：股票 ${data.stock_code || '-'}，${rowCount} 组参数，近年 ${Array.isArray(data.recent_years) && data.recent_years.length ? data.recent_years.join(', ') : '无'}。`, 'success');
+}
+
+async function analyzeSpreadsheet() {
     const url = document.getElementById('modelUrl').value.trim();
     if (!url) {
         alert('请输入模型 URL');
@@ -551,36 +1016,176 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
         const data = await res.json();
 
         if (data.status !== 'success') {
-            alert('识别失败：' + (data.message || '未知错误'));
+            alert(`识别失败：${data.message || '未知错误'}`);
             return;
         }
 
+        const previousModelVersion = currentModelVersion;
         sheetTitle = data.title || '';
         currentModelVersion = inferModelVersion(sheetTitle);
         document.getElementById('sheetTitle').textContent = sheetTitle;
-        document.getElementById('taskName').value = sheetTitle;
+        if (resolveModelVersion(currentModelVersion) === 'c3') {
+            refreshTaskNameByRule();
+        } else {
+            document.getElementById('taskName').value = sheetTitle;
+        }
         document.getElementById('sheetNames').textContent = (data.worksheets && data.worksheets.length > 0) ? data.worksheets[0] : '';
         document.getElementById('modelVersionBadge').textContent = currentModelVersion.toUpperCase();
         document.getElementById('sheetInfo').classList.remove('d-none');
         paramSection.classList.remove('d-none');
+        syncCommissionConfigVisibility();
+
         if (taskConfigCollapse) {
             bootstrap.Collapse.getOrCreateInstance(taskConfigCollapse, { toggle: false }).show();
         }
 
-        resetParameterTable();
+        resetParameterTable(importedParameterRows);
+        if (importedParameterRows.length && previousModelVersion !== currentModelVersion) {
+            setExcelImportStatus(`当前模板按 ${currentModelVersion.toUpperCase()} 表头显示；Excel 中不匹配的字段已自动忽略。`, 'warning');
+        } else if (!importedParameterRows.length) {
+            setExcelImportStatus('导入后会自动填充股票代码、年份和参数行。');
+        }
     } catch (error) {
         alert('识别失败：网络异常或服务未响应');
     } finally {
         setAnalyzeButtonState(false);
     }
+}
+
+async function importExcelFile(file) {
+    if (!file) {
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    setExcelImportButtonState(true);
+    setExcelImportStatus(`正在读取 ${file.name} ...`);
+
+    try {
+        const response = await fetch('/backtest-training/api/import-excel', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || 'Excel 读取失败');
+        }
+        applyImportedPayload(data);
+    } catch (error) {
+        console.error('Excel 导入失败:', error);
+        setExcelImportStatus(`Excel 导入失败：${error.message || '未知错误'}`, 'danger');
+        alert(`Excel 导入失败：${error.message || '未知错误'}`);
+    } finally {
+        excelFileInput.value = '';
+        setExcelImportButtonState(false);
+    }
+}
+
+document.getElementById('recentYearsCheck').addEventListener('change', (event) => {
+    const isChecked = event.target.checked;
+    recentYearsOptions.classList.toggle('d-none', !isChecked);
+    document.querySelectorAll('.recent-year').forEach((checkbox, index) => {
+        checkbox.checked = isChecked && index < 3;
+    });
+    syncYearsWrapper();
+    updateYearsDisplay();
 });
+
+document.getElementById('fullYearsCheck').addEventListener('change', (event) => {
+    const isChecked = event.target.checked;
+    fullYearsOptions.classList.toggle('d-none', !isChecked);
+    document.querySelectorAll('.full-year').forEach((checkbox, index) => {
+        checkbox.checked = isChecked && index < 3;
+    });
+    syncYearsWrapper();
+    updateYearsDisplay();
+});
+
+document.addEventListener('change', (event) => {
+    if (event.target.classList.contains('recent-year') || event.target.classList.contains('full-year')) {
+        updateYearsDisplay();
+        refreshTaskNameByRule();
+    }
+});
+
+document.getElementById('addParamBtn').addEventListener('click', () => {
+    addParameterRow();
+});
+
+document.getElementById('paramTableBody').addEventListener('click', (event) => {
+    if (event.target.classList.contains('delete-row')) {
+        event.target.closest('tr').remove();
+        syncEmptyState();
+    }
+});
+
+analyzeBtn.addEventListener('click', analyzeSpreadsheet);
+
+if (importExcelBtn && excelFileInput) {
+    importExcelBtn.addEventListener('click', () => {
+        excelFileInput.click();
+    });
+    excelFileInput.addEventListener('change', async (event) => {
+        const [file] = event.target.files || [];
+        await importExcelFile(file);
+    });
+}
+
+if (stockCodeInput) {
+    stockCodeInput.addEventListener('input', () => {
+        updateStockCodeHint('支持输入股票代码或名称，系统会自动搜索候选项。');
+        refreshTaskNameByRule();
+        scheduleStockSearch();
+    });
+    stockCodeInput.addEventListener('focus', () => {
+        if (stockCodeInput.value.trim() && lastStockSearchResults.length) {
+            ensureStockSearchPortal();
+            stockSearchResults.classList.remove('d-none');
+            scheduleStockSearchResultsPosition();
+        }
+    });
+    stockCodeInput.addEventListener('blur', () => {
+        window.setTimeout(() => {
+            normalizeStockInputValue();
+            refreshTaskNameByRule();
+            hideStockSearchResults();
+        }, 160);
+    });
+}
+
+if (stockSearchResults) {
+    stockSearchResults.addEventListener('click', (event) => {
+        const target = event.target.closest('[data-stock-index]');
+        if (!target) {
+            return;
+        }
+        const index = Number(target.getAttribute('data-stock-index'));
+        const selected = lastStockSearchResults[index];
+        if (selected) {
+            selectStockSuggestion(selected);
+        }
+    });
+}
+
+document.addEventListener('click', (event) => {
+    if (!event.target.closest('.stock-search-shell') && !event.target.closest('#stockSearchResults')) {
+        hideStockSearchResults();
+    }
+});
+
+window.addEventListener('resize', scheduleStockSearchResultsPosition);
+window.addEventListener('scroll', scheduleStockSearchResultsPosition, true);
 
 document.getElementById('createBtn').addEventListener('click', async () => {
     if (isCreatingTask) {
         return;
     }
 
-    const taskName = document.getElementById('taskName').value.trim();
+    const resolvedTaskName = resolveModelVersion(currentModelVersion) === 'c3'
+        ? buildC3TaskName()
+        : document.getElementById('taskName').value.trim();
+    const taskName = resolvedTaskName.trim();
     const stockCode = document.getElementById('stockCode').value.trim();
     const sheetName = document.getElementById('sheetNames').textContent.trim();
     const tokenId = tokenIdSelect ? tokenIdSelect.value : '';
@@ -601,7 +1206,7 @@ document.getElementById('createBtn').addEventListener('click', async () => {
     }
 
     if (stockCode.includes(',') || stockCode.includes('，')) {
-        alert('当前仅支持单个股票代码，请只输入一个股票');
+        alert('当前仅支持单个股票代码，请只输入一个股票。');
         return;
     }
 
@@ -615,18 +1220,36 @@ document.getElementById('createBtn').addEventListener('click', async () => {
         return;
     }
 
-    const parameters = collectParameters().filter((row) => row.some((value) => value));
-    if (!parameters.length) {
+    const parameterDraftRows = collectParameterDraftRows().filter((row) => row.some((value) => value));
+    if (!parameterDraftRows.length) {
         alert('请至少填写一组参数');
         return;
     }
+    const parameters = collectParameters(parameterDraftRows);
 
-    const recentYears = Array.from(document.querySelectorAll('.recent-year:checked')).map((cb) => parseInt(cb.value, 10));
-    const fullYears = Array.from(document.querySelectorAll('.full-year:checked')).map((cb) => parseInt(cb.value, 10));
+    const recentYears = Array.from(document.querySelectorAll('.recent-year:checked')).map((checkbox) => parseInt(checkbox.value, 10));
+    const fullYears = Array.from(document.querySelectorAll('.full-year:checked')).map((checkbox) => parseInt(checkbox.value, 10));
 
     setCreateButtonState(true);
 
     try {
+        const config = {
+            sheet: {
+                spreadsheet_id: spreadsheetId,
+                sheet_name: sheetName || 'Sheet1',
+                title: sheetTitle
+            },
+            stock_code: stockCode,
+            token_type: 'file',
+            token_id: Number(tokenId),
+            parameters,
+            recent_years: recentYears,
+            full_years: fullYears
+        };
+        if (currentExcelImport) {
+            config.excel_import = currentExcelImport;
+        }
+
         const res = await fetch(TASK_API_BASE, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -634,19 +1257,7 @@ document.getElementById('createBtn').addEventListener('click', async () => {
                 name: taskName,
                 description: `backtest training task for ${sheetName}`,
                 task_type: BACKTEST_TASK_TYPE,
-                config: {
-                    sheet: {
-                        spreadsheet_id: spreadsheetId,
-                        sheet_name: sheetName || 'Sheet1',
-                        title: sheetTitle
-                    },
-                    stock_code: stockCode,
-                    token_type: 'file',
-                    token_id: Number(tokenId),
-                    parameters,
-                    recent_years: recentYears,
-                    full_years: fullYears
-                }
+                config
             })
         });
 
@@ -657,7 +1268,7 @@ document.getElementById('createBtn').addEventListener('click', async () => {
             return;
         }
 
-        alert('任务创建失败：' + (data.message || '未知错误'));
+        alert(`任务创建失败：${data.message || '未知错误'}`);
     } catch (error) {
         alert('任务创建失败：网络异常或服务未响应');
     } finally {
@@ -667,8 +1278,23 @@ document.getElementById('createBtn').addEventListener('click', async () => {
 
 syncYearsWrapper();
 syncEmptyState();
-taskConfigCollapse?.addEventListener('shown.bs.collapse', syncConfigToggleText);
-taskConfigCollapse?.addEventListener('hidden.bs.collapse', syncConfigToggleText);
+syncCommissionConfigVisibility();
+taskConfigCollapse?.addEventListener('show.bs.collapse', () => {
+    syncConfigToggleText();
+    trackStockSearchPositionDuringTransition();
+});
+taskConfigCollapse?.addEventListener('shown.bs.collapse', () => {
+    syncConfigToggleText();
+    scheduleStockSearchResultsPosition();
+});
+taskConfigCollapse?.addEventListener('hide.bs.collapse', () => {
+    syncConfigToggleText();
+    trackStockSearchPositionDuringTransition();
+});
+taskConfigCollapse?.addEventListener('hidden.bs.collapse', () => {
+    syncConfigToggleText();
+    scheduleStockSearchResultsPosition();
+});
 syncConfigToggleText();
 loadBacktestTokens();
 document.getElementById('fullYearsCheck').dispatchEvent(new Event('change'));
