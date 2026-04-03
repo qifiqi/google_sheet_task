@@ -178,6 +178,14 @@ def _build_c3_summary_rows(task_id):
             parameter_map[field_key] = parameter_values[index] if index < len(parameter_values) else None
 
         calculate_metrics, sheet_result = _extract_task_result_payload(task_result)
+        def _safe_all_entry(items, key_name="year"):
+            if not isinstance(items, list):
+                return {}
+            for item in items:
+                if isinstance(item, dict) and str(item.get(key_name)) == "all":
+                    return item
+            return {}
+
         index_sharpe_all = (
             (calculate_metrics.get("index_sharpe_ratios") or {}).get("all")
             if isinstance(calculate_metrics.get("index_sharpe_ratios"), dict)
@@ -195,6 +203,26 @@ def _build_c3_summary_rows(task_id):
                 if isinstance(item, dict) and str(item.get("year")) == "all"
             ),
             {}
+        )
+        index_profit_monthly_all = _safe_all_entry(calculate_metrics.get("index_profit_monthly"))
+        start_profit_monthly_all = _safe_all_entry(calculate_metrics.get("start_profit_monthly"))
+        index_kama_all = _safe_all_entry(calculate_metrics.get("index_kama_ratio"))
+        start_kama_all = _safe_all_entry(calculate_metrics.get("start_kama_ratio"))
+        index_sotino_all = _safe_all_entry(calculate_metrics.get("index_sotino_ratio"))
+        start_sotino_all = _safe_all_entry(calculate_metrics.get("start_sotino_ratio"))
+        monthly_excess_percentage_all = _safe_all_entry(
+            calculate_metrics.get("monthly_excess_return_percentage")
+        )
+        monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
+        monthly_excess_values = [
+            item.get("monthly_excess_return_diff")
+            for item in monthly_excess_returns
+            if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
+        ]
+        avg_monthly_excess_return = (
+            sum(monthly_excess_values) / len(monthly_excess_values)
+            if monthly_excess_values
+            else None
         )
 
         source_window = str(parameters.get("year") or parameters.get("Kline_key") or "")
@@ -219,16 +247,41 @@ def _build_c3_summary_rows(task_id):
             **parameter_map,
             "year": year_label,
             "strategy_return": strategy_return,
+            "strategy_annualized": _parse_percent_like_value(sheet_result.get("I16")),
             "index_return": index_return,
+            "index_annualized": _parse_percent_like_value(sheet_result.get("I19")),
             "beats_index": beats_index,
             "strategy_max_drawdown": strategy_max_drawdown,
             "index_max_drawdown": index_max_drawdown,
             "drawdown_beats": drawdown_beats,
-            "fee_total": _parse_percent_like_value(sheet_result.get("I22")),
+            "fee_total": _parse_percent_like_value(sheet_result.get("I21")),
             "fee_annualized": _parse_percent_like_value(sheet_result.get("I22")),
             "year_rate": _parse_percent_like_value(sheet_result.get("I23")),
             "index_monthly_sharpe": _parse_percent_like_value(index_sharpe_all.get("sharpe_ratio")),
             "strategy_monthly_sharpe": _parse_percent_like_value(start_sharpe_all.get("sharpe_ratio")),
+            "index_avg_monthly_return": _parse_percent_like_value(index_sharpe_all.get("avg_monthly_return")),
+            "strategy_avg_monthly_return": _parse_percent_like_value(start_sharpe_all.get("avg_monthly_return")),
+            "index_monthly_return_volatility": _parse_percent_like_value(calculate_metrics.get("index_monthly_return_volatility")),
+            "strategy_monthly_return_volatility": _parse_percent_like_value(calculate_metrics.get("start_monthly_return_volatility")),
+            "excess_annualized_return": _parse_percent_like_value(all_excess.get("annualized_return_diff")),
+            "outperform_year": _parse_percent_like_value(calculate_metrics.get("outperform_year")),
+            "monthly_excess_return_percentage": _parse_percent_like_value(monthly_excess_percentage_all.get("excess_return")),
+            "avg_monthly_excess_return": _parse_percent_like_value(avg_monthly_excess_return),
+            "monthly_excess_volatility": _parse_percent_like_value(calculate_metrics.get("monthly_excess_volatility")),
+            "index_profit_annual": _parse_percent_like_value(calculate_metrics.get("index_profit_annual")),
+            "strategy_profit_annual": _parse_percent_like_value(calculate_metrics.get("start_profit_annual")),
+            "index_profit_monthly_percentage": _parse_percent_like_value(index_profit_monthly_all.get("profit_monthly_percentage")),
+            "strategy_profit_monthly_percentage": _parse_percent_like_value(start_profit_monthly_all.get("profit_monthly_percentage")),
+            "index_kama_ratio": _parse_percent_like_value(index_kama_all.get("kama_ratio")),
+            "strategy_kama_ratio": _parse_percent_like_value(start_kama_all.get("kama_ratio")),
+            "index_sotino_ratio": _parse_percent_like_value(index_sotino_all.get("sotino_ratio")),
+            "strategy_sotino_ratio": _parse_percent_like_value(start_sotino_all.get("sotino_ratio")),
+            "excess_sharp": _parse_percent_like_value(calculate_metrics.get("excess_sharp")),
+            "excess_of_promissory_note": _parse_percent_like_value(calculate_metrics.get("excess_of_promissory_note")),
+            "excess_drawdown_winning_rate": _parse_percent_like_value(calculate_metrics.get("excess_drawdown_winning_rate")),
+            "index_maximum_number_of_backtest_repair_days": _parse_percent_like_value(calculate_metrics.get("index_maximum_number_of_backtest_repair_days")),
+            "strategy_maximum_number_of_backtest_repair_days": _parse_percent_like_value(calculate_metrics.get("start_maximum_number_of_backtest_repair_days")),
+            "excess_maximum_number_of_backtest_repair_days": _parse_percent_like_value(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days")),
             "date_range": all_excess.get("start_end_date"),
             "source_window": source_window,
             "task_result_id": task_result.id,
