@@ -189,6 +189,27 @@ def _extract_summary_rows(calculate_metrics, model_name):
     if not isinstance(calculate_metrics, dict) or not calculate_metrics:
         return "", []
 
+    def _normalize_metric_label(label):
+        text = str(label or "").strip()
+        text = text.replace("（", "(").replace("）", ")")
+        metric_aliases = {
+            "跑赢年份(百分比)": "跑赢年份(百分比)",
+            "跑赢年份(百分比 )": "跑赢年份(百分比)",
+            "超额最大修复天数": "超额最大修复天数",
+            "最大修复天数": "最大修复天数",
+            "所提诺比率": "所提诺比率",
+            "超额所提诺比率": "超额所提诺比率",
+        }
+        return metric_aliases.get(text, text)
+
+    def _normalize_display_value(value):
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        while text.startswith("--"):
+            text = text[1:]
+        return text
+
     def _fmt_percent(value):
         if value is None or not math.isfinite(value):
             return ""
@@ -224,7 +245,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
         monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
         valid_excess_months = [
             item.get("monthly_excess_return_diff")
-            for item in monthly_excess_returns
+        for item in monthly_excess_returns
             if isinstance(item, dict) and item.get("monthly_excess_return_diff") is not None
         ]
         avg_monthly_excess_returns = (
@@ -307,9 +328,9 @@ def _extract_summary_rows(calculate_metrics, model_name):
             continue
         rows.append({
             "category": category,
-            "metric": metric,
-            "index_value": str(summary_df.iat[row_index, 2] or "").strip(),
-            "model_value": str(summary_df.iat[row_index, 3] or "").strip(),
+            "metric": _normalize_metric_label(metric),
+            "index_value": _normalize_display_value(summary_df.iat[row_index, 2]),
+            "model_value": _normalize_display_value(summary_df.iat[row_index, 3]),
         })
     return period_text, rows
 
