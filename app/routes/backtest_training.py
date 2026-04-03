@@ -8,6 +8,7 @@ from io import BytesIO
 
 from flask import Blueprint, jsonify, render_template, request, send_file
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import load_only
 
@@ -275,6 +276,7 @@ def _build_global_preview_payload(task_id):
             "result_id": task_result.id,
             "step_index": task_result.step_index,
             "header": _build_parameter_header(parameters),
+            "model_name": model_name,
             "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
             "parameter_values": parameters.get("parameter") if isinstance(parameters.get("parameter"), list) else [],
         })
@@ -349,6 +351,14 @@ def _build_global_preview_workbook(payload):
     workbook = Workbook()
     default_sheet = workbook.active
     workbook.remove(default_sheet)
+    header_fill = PatternFill("solid", fgColor="F7E1A1")
+    sub_header_fill = PatternFill("solid", fgColor="FCECC5")
+    title_font = Font(name="Microsoft YaHei", size=12, bold=True)
+    header_font = Font(name="Microsoft YaHei", size=11, bold=True)
+    body_font = Font(name="Microsoft YaHei", size=10, bold=False)
+    center_alignment = Alignment(horizontal="center", vertical="center")
+    thin_side = Side(style="thin", color="D0D0D0")
+    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
 
     groups = payload.get("groups") or []
     if not groups:
@@ -369,15 +379,16 @@ def _build_global_preview_workbook(payload):
 
         sheet = workbook.create_sheet(sheet_name)
         task = payload.get("task") or {}
-        sheet.append(["任务名称", task.get("name") or ""])
-        sheet.append(["任务ID", task.get("id") or ""])
-        sheet.append(["分组", group.get("group_label") or ""])
-        sheet.append(["区间", group.get("period") or ""])
-        sheet.append([])
+        stock_code = task.get("stock_code") or group.get("year") or task.get("name") or ""
+        columns = group.get("columns") or []
+        row_1 = [stock_code, "", ""]
+        for column in columns:
+            row_1.append(column.get("header") or f"结果 {column.get('result_id')}")
+        sheet.append(row_1)
 
         header = ["指标类型", "指标", "指数"]
-        for column in group.get("columns") or []:
-            header.append(column.get("header") or f"结果 {column.get('result_id')}")
+        for column in columns:
+            header.append(column.get("model_name") or "模型")
         sheet.append(header)
 
         for row in group.get("rows") or []:
@@ -386,11 +397,13 @@ def _build_global_preview_workbook(payload):
                 row.get("metric") or "",
                 row.get("index_value") or "",
             ]
-            for column in group.get("columns") or []:
+            for column in columns:
                 values.append((row.get("values") or {}).get(column.get("column_key"), ""))
             sheet.append(values)
 
-        sheet.freeze_panes = "A6"
+        if columns:
+            sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=3)
+        sheet.freeze_panes = "A3"
         width_map = {
             "A": 14,
             "B": 22,
@@ -400,6 +413,37 @@ def _build_global_preview_workbook(payload):
             width_map[get_column_letter(column_index)] = 18
         for key, width in width_map.items():
             sheet.column_dimensions[key].width = width
+
+        sheet.row_dimensions[1].height = 26
+        sheet.row_dimensions[2].height = 24
+
+        max_row = sheet.max_row
+        max_col = sheet.max_column
+        for row_index in range(1, max_row + 1):
+            for col_index in range(1, max_col + 1):
+                cell = sheet.cell(row=row_index, column=col_index)
+                cell.alignment = center_alignment
+                cell.border = thin_border
+                cell.font = body_font
+                if row_index == 1:
+                    cell.fill = header_fill
+                    cell.font = title_font
+                elif row_index == 2:
+                    cell.fill = sub_header_fill
+                    cell.font = header_font
+
+        if group.get("period"):
+            period_col = max_col + 1
+            sheet.cell(row=1, column=period_col, value="区间")
+            sheet.cell(row=2, column=period_col, value=group.get("period"))
+            period_letter = get_column_letter(period_col)
+            sheet.column_dimensions[period_letter].width = 24
+            for row_index in (1, 2):
+                cell = sheet.cell(row=row_index, column=period_col)
+                cell.alignment = center_alignment
+                cell.border = thin_border
+                cell.font = title_font if row_index == 1 else body_font
+                cell.fill = header_fill if row_index == 1 else sub_header_fill
 
     return workbook
 
