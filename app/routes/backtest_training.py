@@ -245,6 +245,7 @@ def _build_global_preview_payload(task_id):
     for task_result in task_results:
         parameters = json.loads(task_result.parameters) if task_result.parameters else {}
         year_key = str(parameters.get("year") or "未分组")
+        model_name = _detect_model_name(task.name, parameters)
         group = groups.setdefault(year_key, {
             "group_key": year_key,
             "group_label": f"{year_key} 年",
@@ -255,21 +256,6 @@ def _build_global_preview_payload(task_id):
             "failed_results": 0,
         })
 
-        if not task_result.success:
-            failed_count += 1
-            group["failed_results"] += 1
-            continue
-
-        result_core = _extract_result_core(task_result)
-        calculate_metrics = result_core.get("calculate_metrics") if isinstance(result_core, dict) else {}
-        model_name = _detect_model_name(task.name, parameters)
-        period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
-        if not summary_rows:
-            failed_count += 1
-            group["failed_results"] += 1
-            continue
-
-        success_count += 1
         column_key = f"result_{task_result.id}"
         group["columns"].append({
             "column_key": column_key,
@@ -277,9 +263,25 @@ def _build_global_preview_payload(task_id):
             "step_index": task_result.step_index,
             "header": _build_parameter_header(parameters),
             "model_name": model_name,
+            "success": bool(task_result.success),
             "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
             "parameter_values": parameters.get("parameter") if isinstance(parameters.get("parameter"), list) else [],
         })
+
+        if not task_result.success:
+            failed_count += 1
+            group["failed_results"] += 1
+            continue
+
+        result_core = _extract_result_core(task_result)
+        calculate_metrics = result_core.get("calculate_metrics") if isinstance(result_core, dict) else {}
+        period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
+        if not summary_rows:
+            failed_count += 1
+            group["failed_results"] += 1
+            continue
+
+        success_count += 1
         if period_text and not group["period"]:
             group["period"] = period_text
 
@@ -353,6 +355,7 @@ def _build_global_preview_workbook(payload):
     workbook.remove(default_sheet)
     header_fill = PatternFill("solid", fgColor="F7E1A1")
     sub_header_fill = PatternFill("solid", fgColor="FCECC5")
+    first_col_fill = PatternFill("solid", fgColor="F7E1A1")
     title_font = Font(name="Microsoft YaHei", size=12, bold=True)
     header_font = Font(name="Microsoft YaHei", size=11, bold=True)
     body_font = Font(name="Microsoft YaHei", size=10, bold=False)
@@ -388,7 +391,10 @@ def _build_global_preview_workbook(payload):
 
         header = ["指标类型", "指标", "指数"]
         for column in columns:
-            header.append(column.get("model_name") or "模型")
+            model_label = column.get("model_name") or "模型"
+            if not column.get("success", True):
+                model_label = f"{model_label}(失败)"
+            header.append(model_label)
         sheet.append(header)
 
         for row in group.get("rows") or []:
@@ -431,6 +437,10 @@ def _build_global_preview_workbook(payload):
                 elif row_index == 2:
                     cell.fill = sub_header_fill
                     cell.font = header_font
+                if col_index == 1 and row_index >= 2:
+                    cell.fill = first_col_fill
+                    if row_index == 2:
+                        cell.font = header_font
 
         if group.get("period"):
             period_col = max_col + 1
