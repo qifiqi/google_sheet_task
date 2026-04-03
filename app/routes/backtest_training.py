@@ -3,11 +3,13 @@
 
 import json
 import math
+from collections import OrderedDict
 
 from flask import Blueprint, jsonify, render_template, request
 from sqlalchemy.orm import load_only
 
-from app.models import TaskResult
+from app.models import Task, TaskResult
+from app.services.xpl_service import xpl_analyzer
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
 
@@ -36,6 +38,11 @@ def list_page():
 @bp.route("/detail/<task_id>")
 def detail_page(task_id):
     return render_template("backtest_training/detail.html", task_id=task_id)
+
+
+@bp.route("/global-preview/<task_id>")
+def global_preview_page(task_id):
+    return render_template("backtest_training/global_preview.html", task_id=task_id)
 
 
 @bp.route("/result/<int:result_id>")
@@ -135,4 +142,208 @@ def get_task_result_detail(task_result_id):
             **(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "sheet_result": sheet_result,
         }),
+    })
+
+
+def _build_parameter_header(parameters):
+    parameter_values = parameters.get("parameter")
+    if not isinstance(parameter_values, list) or not parameter_values:
+        return "未命名参数"
+
+    if len(parameter_values) == 2:
+        labels = ["xm", "ml"]
+    else:
+        labels = [f"参数{i + 1}" for i in range(len(parameter_values))]
+
+    parts = []
+    for label, value in zip(labels, parameter_values):
+        parts.append(f"{label}={value}")
+    return " / ".join(parts)
+
+
+def _extract_result_core(task_result):
+    payload = task_result.to_dict().get("result") or {}
+    if not isinstance(payload, dict) or not payload:
+        return {}
+    first_value = next(iter(payload.values()), {})
+    return first_value if isinstance(first_value, dict) else {}
+
+
+def _detect_model_name(task_name, parameters):
+    upper_name = (task_name or "").upper()
+    for model_name in ("C5", "C4", "C3"):
+        if model_name in upper_name:
+            return model_name
+
+    parameter_values = parameters.get("parameter")
+    if isinstance(parameter_values, list) and len(parameter_values) == 2:
+        return "C5"
+    return "C3"
+
+
+def _extract_summary_rows(calculate_metrics, model_name):
+    if not isinstance(calculate_metrics, dict) or not calculate_metrics:
+        return "", []
+
+    try:
+        summary_df = xpl_analyzer.format_export_file_data({
+            "analyze_result": calculate_metrics,
+            "filename_title": model_name,
+        })
+    except Exception:
+        return "", []
+
+    period_text = str(summary_df.iat[1, 1] or "").strip()
+    rows = []
+    for row_index in range(3, 23):
+        category = str(summary_df.iat[row_index, 0] or "").strip()
+        metric = str(summary_df.iat[row_index, 1] or "").strip()
+        if not category and not metric:
+            continue
+        rows.append({
+            "category": category,
+            "metric": metric,
+            "index_value": str(summary_df.iat[row_index, 2] or "").strip(),
+            "model_value": str(summary_df.iat[row_index, 3] or "").strip(),
+        })
+    return period_text, rows
+
+
+def _build_global_preview_payload(task_id):
+    task = Task.query.get(task_id)
+    if not task:
+        return None
+
+    task_config = task.to_dict().get("config") or {}
+    task_results = (
+        TaskResult.query
+        .options(
+            load_only(
+                TaskResult.id,
+                TaskResult.task_id,
+                TaskResult.step_index,
+                TaskResult.parameters,
+                TaskResult.result,
+                TaskResult.success,
+                TaskResult.error_message,
+                TaskResult.timestamp,
+            )
+        )
+        .filter_by(task_id=task_id)
+        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
+        .all()
+    )
+
+    groups = OrderedDict()
+    success_count = 0
+    failed_count = 0
+
+    for task_result in task_results:
+        parameters = json.loads(task_result.parameters) if task_result.parameters else {}
+        year_key = str(parameters.get("year") or "未分组")
+        group = groups.setdefault(year_key, {
+            "group_key": year_key,
+            "group_label": f"{year_key} 年",
+            "year": year_key,
+            "period": "",
+            "columns": [],
+            "rows": OrderedDict(),
+            "failed_results": 0,
+        })
+
+        if not task_result.success:
+            failed_count += 1
+            group["failed_results"] += 1
+            continue
+
+        result_core = _extract_result_core(task_result)
+        calculate_metrics = result_core.get("calculate_metrics") if isinstance(result_core, dict) else {}
+        model_name = _detect_model_name(task.name, parameters)
+        period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
+        if not summary_rows:
+            failed_count += 1
+            group["failed_results"] += 1
+            continue
+
+        success_count += 1
+        column_key = f"result_{task_result.id}"
+        group["columns"].append({
+            "column_key": column_key,
+            "result_id": task_result.id,
+            "step_index": task_result.step_index,
+            "header": _build_parameter_header(parameters),
+            "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
+            "parameter_values": parameters.get("parameter") if isinstance(parameters.get("parameter"), list) else [],
+        })
+        if period_text and not group["period"]:
+            group["period"] = period_text
+
+        for summary_row in summary_rows:
+            row_key = f"{summary_row['category']}::{summary_row['metric']}"
+            row = group["rows"].setdefault(row_key, {
+                "category": summary_row["category"],
+                "metric": summary_row["metric"],
+                "index_value": summary_row["index_value"],
+                "values": {},
+            })
+            if not row["index_value"] and summary_row["index_value"]:
+                row["index_value"] = summary_row["index_value"]
+            row["values"][column_key] = summary_row["model_value"]
+
+    serialized_groups = []
+    for year_key in sorted(groups.keys(), reverse=True):
+        group = groups[year_key]
+        ordered_rows = []
+        for row in group["rows"].values():
+            ordered_rows.append({
+                "category": row["category"],
+                "metric": row["metric"],
+                "index_value": row["index_value"],
+                "values": {
+                    column["column_key"]: row["values"].get(column["column_key"], "")
+                    for column in group["columns"]
+                },
+            })
+
+        serialized_groups.append({
+            "group_key": group["group_key"],
+            "group_label": group["group_label"],
+            "year": group["year"],
+            "period": group["period"],
+            "columns": group["columns"],
+            "rows": ordered_rows,
+            "failed_results": group["failed_results"],
+            "column_count": len(group["columns"]),
+        })
+
+    return {
+        "task": {
+            "id": task.id,
+            "name": task.name,
+            "status": task.status,
+            "stock_code": task_config.get("stock_code"),
+            "market_type": task_config.get("market_type"),
+        },
+        "summary": {
+            "total_results": len(task_results),
+            "success_results": success_count,
+            "failed_results": failed_count,
+            "group_count": len(serialized_groups),
+        },
+        "groups": serialized_groups,
+    }
+
+
+@bp.route("/api/global-preview/<task_id>", methods=["GET"])
+def get_global_preview(task_id):
+    payload = _build_global_preview_payload(task_id)
+    if payload is None:
+        return jsonify({
+            "status": "error",
+            "message": "任务不存在",
+        }), 404
+
+    return jsonify({
+        "status": "success",
+        **_sanitize_json_value(payload),
     })
