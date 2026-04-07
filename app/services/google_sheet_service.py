@@ -29,8 +29,8 @@ logger = get_logger(__name__)
 class GoogleSheetService(BaseGoogleSheetService):
     """Google Sheet服务"""
 
-    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
-        super().__init__(config, task_id, event_queue=event_queue, app=app, stop_event=stop_event)
+    def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
         self.google_sheet:Optional[GoogleSheet] = None
@@ -796,9 +796,6 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 2. 保存到数据库（TaskLog）
             self._save_to_database(level, formatted_message)
             
-            # 3. 推送到前端（SSE）
-            self._push_to_frontend(level, formatted_message)
-            
         except Exception as e:
             # 记录日志系统本身的错误，但不引起循环
             pass
@@ -845,22 +842,6 @@ class GoogleSheetService(BaseGoogleSheetService):
                     safe_db_operation(save_log_operation)
         except Exception as e:
             # 数据库保存失败时静默处理，不影响主流程
-            pass
-    
-    def _push_to_frontend(self, level: str, message: str):
-        """推送日志到前端"""
-        try:
-            if self.event_queue:
-                self.event_queue.put({
-                    "type": "log_update",
-                    "data": {
-                        "level": level,
-                        "message": message,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                })
-        except Exception as e:
-            # 前端推送失败时静默处理，不影响主流程
             pass
     
     # 便捷的日志方法

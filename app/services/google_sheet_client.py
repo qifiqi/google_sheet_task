@@ -312,7 +312,7 @@ class GoogleSheet:
         except Exception as e:
             logger.error(f'设置表格{sheet_rows},值:{sheet_values}错误。错误内容：{str(e)}')
             return f'设置表格{sheet_rows},值:{sheet_values}错误。错误内容：{str(e)}'
-
+        
     def update_cell(self, cell_address, cell_value):
         """更新单个单元格"""
         try:
@@ -333,7 +333,8 @@ class GoogleSheet:
             logger.info(f"{self._log_ctx()}更新单元格 {cell_address} = {cell_value} (类型: {type(cell_value)})")
 
             def _update_operation():
-                self.worksheet.update(cell_address, cell_value)
+                # 修复：将值包装成二维列表格式
+                self.worksheet.update(cell_address, [[cell_value]])
 
             self._retry_network_operation(_update_operation, f"update_cell({cell_address})")
 
@@ -341,7 +342,7 @@ class GoogleSheet:
             error_msg = f"{self._log_ctx()}更新单元格 {cell_address} 失败，值: {cell_value}, 错误: {str(e)}"
             logger.error(error_msg)
             raise Exception(error_msg) from e
-
+        
     def update_jumped_cells(self, cell_updates):
         """
         更新跳跃的单元格（带网络重试）

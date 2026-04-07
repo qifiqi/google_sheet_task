@@ -5,6 +5,107 @@ import json
 from app.extensions import db
 
 
+# ==================== RBAC ====================
+
+role_permissions = db.Table('role_permissions',
+    db.Column('role_id', db.Integer, db.ForeignKey('role.id'), primary_key=True),
+    db.Column('permission_id', db.Integer, db.ForeignKey('permission.id'), primary_key=True),
+)
+
+user_roles = db.Table('user_roles',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+    db.Column('role_id', db.Integer, db.ForeignKey('role.id'), primary_key=True),
+)
+
+
+class User(db.Model):
+    """用户模型"""
+
+    __tablename__ = 'user'
+    __table_args__ = {'comment': '用户表'}
+
+    id = db.Column(db.Integer, primary_key=True, comment='用户ID')
+    username = db.Column(db.String(80), unique=True, nullable=False, comment='用户名')
+    password_hash = db.Column(db.String(256), nullable=False, comment='密码哈希')
+    is_active = db.Column(db.Boolean, default=True, comment='是否启用')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
+    last_login = db.Column(db.DateTime, comment='最后登录时间')
+    roles = db.relationship('Role', secondary=user_roles, backref='users')
+
+    def get_permissions(self):
+        perms = set()
+        for role in self.roles:
+            for p in role.permissions:
+                perms.add(p.code)
+        return perms
+
+    def to_dict(self, include_permissions=False):
+        d = {
+            'id': self.id,
+            'username': self.username,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'roles': [r.to_dict() for r in self.roles],
+        }
+        if include_permissions:
+            d['permissions'] = sorted(self.get_permissions())
+        return d
+
+
+class Role(db.Model):
+    """角色模型"""
+
+    __tablename__ = 'role'
+    __table_args__ = {'comment': '角色表'}
+
+    id = db.Column(db.Integer, primary_key=True, comment='角色ID')
+    name = db.Column(db.String(50), nullable=False, comment='角色名称')
+    code = db.Column(db.String(50), unique=True, nullable=False, comment='角色编码，如 admin/operator')
+    description = db.Column(db.String(200), comment='角色描述')
+    is_system = db.Column(db.Boolean, default=False, comment='是否系统内置角色（不可删除）')
+    permissions = db.relationship('Permission', secondary=role_permissions, backref='roles')
+
+    def to_dict(self, include_permissions=False):
+        d = {
+            'id': self.id,
+            'name': self.name,
+            'code': self.code,
+            'description': self.description,
+            'is_system': self.is_system,
+        }
+        if include_permissions:
+            d['permissions'] = [p.to_dict() for p in self.permissions]
+        return d
+
+
+class Permission(db.Model):
+    """权限模型"""
+
+    __tablename__ = 'permission'
+    __table_args__ = {'comment': '权限表'}
+
+    id = db.Column(db.Integer, primary_key=True, comment='权限ID')
+    name = db.Column(db.String(100), nullable=False, comment='权限名称，如"创建任务"')
+    code = db.Column(db.String(100), unique=True, nullable=False, comment='权限编码，格式为 资源:操作，如 task:create')
+    group = db.Column(db.String(50), nullable=False, comment='权限分组，如 task/config/admin')
+    description = db.Column(db.String(200), comment='权限描述')
+    route_path = db.Column(db.String(200), comment='关联前端路由路径，如 /admin/config，仅供展示')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'code': self.code,
+            'group': self.group,
+            'description': self.description,
+            'route_path': self.route_path,
+        }
+
+
+# ==================== Enums ====================
+
+
 class GoogleSheetTableType(str, Enum):
     C3 = "c3"
     C4 = "c4"

@@ -13,6 +13,8 @@ def register_blueprints(app):
     from app.routes.xpl import xpl_bp
     from app.routes.yule import yule_bp
     from app.routes.backtest_training import bp as backtest_training_bp
+    from app.routes.meta_api import meta_api_bp
+    from app.routes.auth_api import auth_api_bp
 
     app.register_blueprint(xpl_bp, url_prefix='/xpl')
     app.register_blueprint(yule_bp, url_prefix='/yule')
@@ -28,3 +30,5 @@ def register_blueprints(app):
     app.register_blueprint(google_sheet_bp, url_prefix='/google-sheet')
     app.register_blueprint(scheduler_api_bp)
     app.register_blueprint(backtest_training_bp)
+    app.register_blueprint(meta_api_bp, url_prefix='/api')
+    app.register_blueprint(auth_api_bp, url_prefix='/api')

@@ -1,7 +1,6 @@
 import time
 import uuid
 import threading
-import queue
 import json
 from itertools import product
 from functools import reduce
@@ -29,7 +28,6 @@ class TaskManager:
     
     def __init__(self):
         self.running_tasks: Dict[str, threading.Thread] = {}
-        self.task_events: Dict[str, queue.Queue] = {}
         self.task_stop_events: Dict[str, threading.Event] = {}
         self.start_errors: Dict[str, str] = {}
         self.task_token_occupancy: Dict[str, int] = {}
@@ -432,10 +430,8 @@ class TaskManager:
         
         task_logger.info(f"开始启动任务 - 名称: {task.name}, 类型: {task.task_type}")
         
-        # 创建事件队列
-        self.task_events[task_id] = queue.Queue()
+        # 创建停止事件
         self.task_stop_events[task_id] = threading.Event()
-        task_logger.info("创建任务事件队列成功")
 
         app = current_app._get_current_object()
         
@@ -455,7 +451,6 @@ class TaskManager:
         else:
             error_msg = f"不支持的任务类型: {task.task_type}"
             self.start_errors[task_id] = error_msg
-            self.task_events.pop(task_id, None)
             self.task_stop_events.pop(task_id, None)
             self._release_task_token_occupancy(task_id)
             self._release_google_sheet_occupancy(task_id)
@@ -469,7 +464,6 @@ class TaskManager:
             thread.start()
         except Exception as e:
             self.running_tasks.pop(task_id, None)
-            self.task_events.pop(task_id, None)
             self.task_stop_events.pop(task_id, None)
             self._release_task_token_occupancy(task_id)
             self._release_google_sheet_occupancy(task_id)
@@ -781,8 +775,6 @@ class TaskManager:
             alive_thread = self.running_tasks.get(task_id)
             if alive_thread and alive_thread.is_alive():
                 return {"status": "error", "message": "task is still stopping, please retry shortly"}
-            if task_id in self.task_events:
-                del self.task_events[task_id]
             if task_id in self.task_stop_events:
                 del self.task_stop_events[task_id]
             start_time = None
@@ -951,9 +943,7 @@ class TaskManager:
                 # 提交事务
                 db.session.commit()
                 
-                # 清理内存中的任务事件队列
-                if task_id in self.task_events:
-                    del self.task_events[task_id]
+                # 清理内存中的任务状态
                 if task_id in self.running_tasks:
                     del self.running_tasks[task_id]
                 if task_id in self.task_stop_events:
@@ -1058,7 +1048,7 @@ class TaskManager:
                 
                 # 创建Google Sheet服务
                 config = task.config
-                service = GoogleSheetService(config, task_id, self.task_events.get(task_id), app, self.task_stop_events.get(task_id))
+                service = GoogleSheetService(config, task_id, app, self.task_stop_events.get(task_id))
                 
                 task_logger.info("开始执行任务业务逻辑")
                 
@@ -1086,8 +1076,6 @@ class TaskManager:
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
                 task_logger.info("清理任务线程资源")
-            if task_id in self.task_events:
-                del self.task_events[task_id]
             if task_id in self.task_stop_events:
                 del self.task_stop_events[task_id]
                 task_logger.info("stop event cleaned")
@@ -1128,7 +1116,7 @@ class TaskManager:
                 
                 # 创建Google Sheet C4 服务
                 config = task.config
-                service = GoogleSheetServiceC4(config, task_id, self.task_events.get(task_id), app, self.task_stop_events.get(task_id))
+                service = GoogleSheetServiceC4(config, task_id, app, self.task_stop_events.get(task_id))
                 
                 task_logger.info("开始执行 C4 任务业务逻辑")
                 
@@ -1156,8 +1144,6 @@ class TaskManager:
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
                 task_logger.info("清理任务线程资源")
-            if task_id in self.task_events:
-                del self.task_events[task_id]
             if task_id in self.task_stop_events:
                 del self.task_stop_events[task_id]
                 task_logger.info("stop event cleaned")
@@ -1198,7 +1184,7 @@ class TaskManager:
                 
                 # 创建Google Sheet C5 服务
                 config = task.config
-                service = GoogleSheetServiceC5(config, task_id, self.task_events.get(task_id), app, self.task_stop_events.get(task_id))
+                service = GoogleSheetServiceC5(config, task_id, app, self.task_stop_events.get(task_id))
                 
                 task_logger.info("开始执行 C5 任务业务逻辑")
                 
@@ -1226,8 +1212,6 @@ class TaskManager:
             if task_id in self.running_tasks:
                 del self.running_tasks[task_id]
                 task_logger.info("清理任务线程资源")
-            if task_id in self.task_events:
-                del self.task_events[task_id]
             if task_id in self.task_stop_events:
                 del self.task_stop_events[task_id]
                 task_logger.info("stop event cleaned")
@@ -1294,7 +1278,7 @@ class TaskManager:
 
                 from app.services.backtest_training_service import BacktestTrainingService
                 config = task.config
-                service = BacktestTrainingService(config, task_id, self.task_events.get(task_id), app, self.task_stop_events.get(task_id))
+                service = BacktestTrainingService(config, task_id, app, self.task_stop_events.get(task_id))
 
                 task_result = service.execute_task()
                 self._finalize_task_execution(task_id, app, task_logger, task_result)
@@ -1306,7 +1290,6 @@ class TaskManager:
             self._record_task_exception(task_id, e, app)
         finally:
             self.running_tasks.pop(task_id, None)
-            self.task_events.pop(task_id, None)
             self.task_stop_events.pop(task_id, None)
             self._release_task_token_occupancy(task_id)
             self._release_google_sheet_occupancy(task_id)

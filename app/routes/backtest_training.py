@@ -16,6 +16,7 @@ from app.models import Task, TaskResult
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.xpl_service import xpl_analyzer
 from app.utils.dfcf_api import DFCJStockApi
+from app.utils.auth import login_required, permission_required
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
 
@@ -280,6 +281,8 @@ def result_page(result_id):
 
 
 @bp.route("/api/import-excel", methods=["POST"])
+@login_required
+@permission_required('backtest:create')
 def import_excel():
     excel_file = request.files.get("file")
     if not excel_file or not excel_file.filename:
@@ -308,6 +311,8 @@ def import_excel():
 
 
 @bp.route("/api/search-stocks", methods=["GET"])
+@login_required
+@permission_required('backtest:view')
 def search_stocks():
     keyword = (request.args.get("q") or "").strip()
     page_size = request.args.get("page_size", default=8, type=int) or 8
@@ -354,6 +359,8 @@ def search_stocks():
 
 
 @bp.route("/api/task-results/<task_id>", methods=["GET"])
+@login_required
+@permission_required('backtest:view')
 def get_task_results_by_task_id(task_id):
     """Return paginated task result summaries for the detail page."""
     page = request.args.get("page", default=1, type=int) or 1
@@ -410,6 +417,8 @@ def get_task_results_by_task_id(task_id):
 
 
 @bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
+@login_required
+@permission_required('backtest:view')
 def get_task_result_detail(task_result_id):
     """Return the full task result payload for the result page."""
     task_result = (
@@ -446,6 +455,8 @@ def get_task_result_detail(task_result_id):
     })
 
 @bp.route("/api/task-summary/<task_id>", methods=["GET"])
+@login_required
+@permission_required('backtest:view')
 def get_task_summary(task_id):
     task = (
         Task.query
@@ -920,6 +931,8 @@ def _build_global_preview_workbook(payload):
 
 
 @bp.route("/api/global-preview/<task_id>", methods=["GET"])
+@login_required
+@permission_required('backtest:view')
 def get_global_preview(task_id):
     payload = _build_global_preview_payload(task_id)
     if payload is None:
@@ -935,6 +948,8 @@ def get_global_preview(task_id):
 
 
 @bp.route("/api/global-preview/<task_id>/export", methods=["GET"])
+@login_required
+@permission_required('backtest:view')
 def export_global_preview(task_id):
     payload = _build_global_preview_payload(task_id)
     if payload is None:

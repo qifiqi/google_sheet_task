@@ -19,3 +19,4 @@ numpy
 concurrent-log-handler
 yfinance
 openpyxl
+PyJWT>=2.0

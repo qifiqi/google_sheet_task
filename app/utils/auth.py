@@ -1,0 +1,126 @@
+"""JWT 认证与权限装饰器"""
+import jwt
+from datetime import datetime, timedelta
+from functools import wraps
+from flask import request, g, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
+from app.services.config_manager import get_config_manager
+
+
+def _get_secret():
+    cm = get_config_manager()
+    return cm.get_config('JWT_SECRET_KEY', 'change-me-in-production')
+
+
+def create_access_token(user_id, expires_hours=2):
+    payload = {
+        'user_id': user_id,
+        'type': 'access',
+        'exp': datetime.utcnow() + timedelta(hours=expires_hours),
+        'iat': datetime.utcnow(),
+    }
+    return jwt.encode(payload, _get_secret(), algorithm='HS256')
+
+
+def create_refresh_token(user_id, expires_days=7):
+    payload = {
+        'user_id': user_id,
+        'type': 'refresh',
+        'exp': datetime.utcnow() + timedelta(days=expires_days),
+        'iat': datetime.utcnow(),
+    }
+    return jwt.encode(payload, _get_secret(), algorithm='HS256')
+
+
+def decode_token(token):
+    return jwt.decode(token, _get_secret(), algorithms=['HS256'])
+
+
+def _is_auth_enabled():
+    import os
+    return os.environ.get('AUTH_ENABLED', 'true').lower() == 'true'
+
+
+def _inject_mock_user():
+    """AUTH_ENABLED=false 时注入一个拥有全部权限的 mock 用户，避免下游 g.current_user 报错"""
+    if hasattr(g, 'current_user'):
+        return
+    from app.models import Permission
+
+    class _MockUser:
+        id = 0
+        username = 'anonymous'
+        is_active = True
+        roles = []
+        _perms = None
+
+        def get_permissions(self):
+            if self._perms is None:
+                self._perms = {p.code for p in Permission.query.all()}
+            return self._perms
+
+        def to_dict(self, include_permissions=False):
+            d = {
+                'id': self.id,
+                'username': self.username,
+                'is_active': self.is_active,
+                'created_at': None,
+                'last_login': None,
+                'roles': [],
+            }
+            if include_permissions:
+                d['permissions'] = sorted(self.get_permissions())
+            return d
+
+    g.current_user = _MockUser()
+
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not _is_auth_enabled():
+            _inject_mock_user()
+            return f(*args, **kwargs)
+
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return jsonify({'code': 401, 'data': None, 'message': '未提供认证令牌'}), 401
+
+        token = auth_header[7:]
+        try:
+            payload = decode_token(token)
+            if payload.get('type') != 'access':
+                return jsonify({'code': 401, 'data': None, 'message': '令牌类型错误'}), 401
+        except jwt.ExpiredSignatureError:
+            return jsonify({'code': 401, 'data': None, 'message': '令牌已过期'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
+
+        from app.models import User
+        user = User.query.get(payload['user_id'])
+        if not user or not user.is_active:
+            return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
+
+        g.current_user = user
+        return f(*args, **kwargs)
+    return decorated
+
+
+def permission_required(*permission_codes):
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if not _is_auth_enabled():
+                return f(*args, **kwargs)
+
+            user = getattr(g, 'current_user', None)
+            if not user:
+                return jsonify({'code': 401, 'data': None, 'message': '未认证'}), 401
+
+            user_perms = user.get_permissions()
+            if not any(code in user_perms for code in permission_codes):
+                return jsonify({'code': 403, 'data': None, 'message': '权限不足'}), 403
+
+            return f(*args, **kwargs)
+        return decorated
+    return decorator

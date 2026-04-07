@@ -2,12 +2,15 @@ from flask import Blueprint, request, jsonify
 from app.services.config_manager import get_config_manager
 from app.models import SystemConfig, db
 from app.utils.logger import get_logger
+from app.utils.auth import login_required, permission_required
 
 logger = get_logger(__name__)
 
 config_api_bp = Blueprint('config_api', __name__)
 
 @config_api_bp.route('/config', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def get_config():
     """获取系统配置"""
     try:
@@ -21,6 +24,8 @@ def get_config():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/config', methods=['POST'])
+@login_required
+@permission_required('config:manage')
 def update_config():
     """更新系统配置"""
     try:
@@ -42,6 +47,8 @@ def update_config():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/config/validate', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def validate_config():
     """验证配置状态"""
     try:
@@ -70,6 +77,8 @@ def validate_config():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/system-configs', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def list_system_configs():
     """获取 system_configs 配置列表"""
     try:
@@ -83,6 +92,8 @@ def list_system_configs():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/system-configs/<string:key>', methods=['PUT'])
+@login_required
+@permission_required('config:manage')
 def update_system_config(key):
     """更新单条配置"""
     try:
@@ -114,6 +125,8 @@ def update_system_config(key):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/logs', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def get_logs():
     """获取系统日志"""
     try:
@@ -189,6 +202,8 @@ def get_logs():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/logs/latest', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def get_latest_logs():
     """获取最新的日志"""
     try:

@@ -8,8 +8,8 @@ from datetime import datetime
 from sqlalchemy import inspect, text
 from app import create_app
 from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, SystemConfig, ScheduledTask, GoogleSheetToken
-from app.config import init_config as init_config2
+from app.models import Task, TaskLog, TaskResult, SystemConfig, ScheduledTask, GoogleSheetToken, User, Role, Permission
+from app.config import init_config as init_config2, PERMISSIONS, NAV_MENU
 from app.utils.logger import initialize_logging
 app = create_app()
 
@@ -150,6 +150,58 @@ def init_task_watchdog():
     except Exception as e:
         logger.error(f"启动任务看门狗线程失败: {e}")
 
+
+def init_rbac():
+    """幂等初始化权限、默认角色和管理员用户"""
+    import json
+    from werkzeug.security import generate_password_hash
+    from app.utils.logger import get_logger
+    logger = get_logger('rbac')
+
+    # 1. 幂等插入/更新所有权限（含 route_path）
+    for group, code, name, route_path in PERMISSIONS:
+        perm = Permission.query.filter_by(code=code).first()
+        if not perm:
+            db.session.add(Permission(group=group, code=code, name=name, route_path=route_path))
+        else:
+            # 补充 route_path（老记录可能没有）
+            if perm.route_path != route_path:
+                perm.route_path = route_path
+    db.session.commit()
+
+    # 2. 确保 admin 角色存在并拥有全部权限
+    admin_role = Role.query.filter_by(code='admin').first()
+    if not admin_role:
+        admin_role = Role(name='管理员', code='admin', description='系统管理员，拥有全部权限', is_system=True)
+        db.session.add(admin_role)
+        db.session.commit()
+    admin_role.permissions = Permission.query.all()
+    db.session.commit()
+
+    # 3. 确保默认 admin 用户存在
+    if not User.query.filter_by(username='admin').first():
+        admin_user = User(
+            username='admin',
+            password_hash=generate_password_hash('admin123'),
+            is_active=True,
+        )
+        admin_user.roles = [admin_role]
+        db.session.add(admin_user)
+        db.session.commit()
+        logger.info("已创建默认管理员用户 admin / admin123")
+
+    # 4. 幂等写入导航菜单到 system_configs
+    from app.models import SystemConfig
+    nav_config = SystemConfig.query.filter_by(key='nav_menu').first()
+    if not nav_config:
+        db.session.add(SystemConfig(
+            key='nav_menu',
+            value=json.dumps(NAV_MENU, ensure_ascii=False),
+            description='前端导航菜单结构（JSON），支持 permission 字段按角色过滤',
+        ))
+        db.session.commit()
+        logger.info("已初始化导航菜单配置 nav_menu")
+
 if __name__ == '__main__':
     from app.utils.logger import get_logger
 
@@ -170,6 +222,7 @@ if __name__ == '__main__':
             reset_google_sheet_token_occupancy()
             reset_google_sheet_occupancy()
             init_config2()
+            init_rbac()
 
         # 检查并清理挂死的任务
         check_and_cleanup_dead_tasks()

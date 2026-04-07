@@ -4,12 +4,15 @@ from sqlalchemy.orm import load_only
 
 from app.models import TaskTemplate, db
 from app.utils.logger import get_logger
+from app.utils.auth import login_required, permission_required
 
 logger = get_logger(__name__)
 
 template_api_bp = Blueprint('template_api', __name__)
 
 @template_api_bp.route('/templates', methods=['GET'])
+@login_required
+@permission_required('template:view')
 def get_templates():
     """获取所有任务模板"""
     try:
@@ -36,6 +39,8 @@ def get_templates():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @template_api_bp.route('/templates', methods=['POST'])
+@login_required
+@permission_required('template:manage')
 def create_template():
     """创建新任务模板"""
     try:
@@ -78,6 +83,8 @@ def create_template():
         return jsonify({"status": "error", "message": f"创建模板失败: {str(e)}"}), 500
 
 @template_api_bp.route('/templates/<int:template_id>', methods=['GET'])
+@login_required
+@permission_required('template:view')
 def get_template(template_id):
     """获取模板详情"""
     try:
@@ -91,6 +98,8 @@ def get_template(template_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @template_api_bp.route('/templates/<int:template_id>', methods=['PUT'])
+@login_required
+@permission_required('template:manage')
 def update_template(template_id):
     """更新任务模板"""
     try:
@@ -115,6 +124,8 @@ def update_template(template_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @template_api_bp.route('/templates/<int:template_id>', methods=['DELETE'])
+@login_required
+@permission_required('template:manage')
 def delete_template(template_id):
     """删除任务模板"""
     try:
@@ -132,6 +143,8 @@ def delete_template(template_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @template_api_bp.route('/results', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_results():
     """获取任务结果列表"""
     try:
@@ -179,6 +192,8 @@ def get_results():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @template_api_bp.route('/results/<int:result_id>', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_result(result_id):
     """获取任务结果详情"""
     try:
@@ -193,6 +208,8 @@ def get_result(result_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @template_api_bp.route('/results/<int:result_id>', methods=['DELETE'])
+@login_required
+@permission_required('task:delete')
 def delete_result(result_id):
     """删除任务结果"""
     try:

@@ -25,8 +25,8 @@ from app.utils.task_error_utils import build_task_error_message, unwrap_exceptio
 class GoogleSheetService(BaseGoogleSheetService):
     """Google Sheet服务 - C5"""
 
-    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
-        super().__init__(config, task_id, event_queue=event_queue, app=app, stop_event=stop_event)
+    def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
         self.api_client = StockAPIClient()
         self.xpl = xpl_analyzer

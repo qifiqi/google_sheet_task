@@ -369,3 +369,58 @@ def init_config():
         elif not existing_configs.get(key):
             config_manager.set_config(key, config_manager.get_config(key, value), description=description)
             print(f"补充配置说明: {key}")
+
+
+# RBAC 权限定义，格式：(group, code, name, route_path)
+# route_path 仅供后台展示，标记该权限对应的前端路由入口
+# run.py 启动时幂等插入到数据库
+PERMISSIONS = [
+    ('task',         'task:view',           '查看任务/日志/结果',    '/admin/tasks'),
+    ('task',         'task:create',         '创建任务',              '/task/create'),
+    ('task',         'task:cancel',         '取消任务',              None),
+    ('task',         'task:restart',        '重启任务',              None),
+    ('task',         'task:delete',         '删除任务',              None),
+    ('template',     'template:view',       '查看模板',              '/admin/templates'),
+    ('template',     'template:manage',     '管理模板',              '/admin/templates'),
+    ('google_sheet', 'google_sheet:view',   '查看 Google Sheet',     '/admin/google-sheets'),
+    ('google_sheet', 'google_sheet:manage', '管理 Google Sheet',     '/admin/google-sheets'),
+    ('config',       'config:view',         '查看系统配置',          '/admin/config'),
+    ('config',       'config:manage',       '修改系统配置',          '/admin/config'),
+    ('scheduler',    'scheduler:view',      '查看定时任务',          '/admin/scheduler'),
+    ('scheduler',    'scheduler:manage',    '管理定时任务',          '/admin/scheduler'),
+    ('database',     'database:manage',     '数据库操作',            None),
+    ('user',         'user:view',           '查看用户列表',          '/admin/users'),
+    ('user',         'user:manage',         '管理用户/角色/权限',    '/admin/users'),
+    ('backtest',     'backtest:view',       '查看回测任务',          '/backtest/list'),
+    ('backtest',     'backtest:create',     '创建回测任务',          '/backtest/create'),
+]
+
+# 导航菜单默认结构，存入 system_configs.nav_menu
+# 每个菜单项的 permission 字段对应 PERMISSIONS 中的 code
+# 无 permission 字段表示登录即可访问
+NAV_MENU = [
+    {"key": "dashboard", "label": "仪表盘", "path": "/admin"},
+    {"key": "task", "label": "任务模块", "children": [
+        {"key": "tasks",     "label": "任务管理", "path": "/admin/tasks",     "permission": "task:view"},
+        {"key": "templates", "label": "任务模板", "path": "/admin/templates", "permission": "template:view"},
+        {"key": "results",   "label": "任务结果", "path": "/admin/results",   "permission": "task:view"},
+    ]},
+    {"key": "scheduler_group", "label": "调度模块", "children": [
+        {"key": "scheduler", "label": "定时任务", "path": "/admin/scheduler", "permission": "scheduler:view"},
+    ]},
+    {"key": "system", "label": "系统模块", "children": [
+        {"key": "config",   "label": "系统配置",          "path": "/admin/config",        "permission": "config:view"},
+        {"key": "sheets",   "label": "Google Sheet 管理", "path": "/admin/google-sheets", "permission": "google_sheet:view"},
+        {"key": "logs",     "label": "系统日志",          "path": "/admin/logs",          "permission": "task:view"},
+        {"key": "users",    "label": "用户管理",          "path": "/admin/users",         "permission": "user:view"},
+        {"key": "roles",    "label": "角色管理",          "path": "/admin/roles",         "permission": "user:view"},
+    ]},
+    {"key": "business", "label": "业务模块", "children": [
+        {"key": "c3",      "label": "Google Sheet C3", "path": "/task/list?version=c3", "permission": "task:view"},
+        {"key": "c4",      "label": "Google Sheet C4", "path": "/task/list?version=c4", "permission": "task:view"},
+        {"key": "c5",      "label": "Google Sheet C5", "path": "/task/list?version=c5", "permission": "task:view"},
+        {"key": "backtest","label": "数据回测",         "path": "/backtest/list",        "permission": "backtest:view"},
+        {"key": "xpl",     "label": "夏普率计算",       "path": "/xpl"},
+        {"key": "xpl_v1",  "label": "V1 回测数据分析",  "path": "/xpl/v1"},
+    ]},
+]

@@ -8,6 +8,7 @@ from app.services.config_manager import get_config_manager
 from app.services.scheduler_service import scheduler_service
 from app.models import Task, TaskLog, TaskResult, TaskResultReturn, ScheduledTask, db, GoogleSheetTableType
 from app.utils.logger import get_logger
+from app.utils.auth import login_required
 
 logger = get_logger(__name__)
 
@@ -238,6 +239,7 @@ def scheduler():
     return render_template('admin/scheduler.html')
 
 @admin_bp.route('/api/scheduler/status')
+@login_required
 def scheduler_status():
     """获取异步任务执行状态API"""
     try:
@@ -284,6 +286,7 @@ def scheduler_status():
 
 
 @admin_bp.route('/api/dashboard/overview')
+@login_required
 def dashboard_overview():
     """管理后台仪表盘总览数据"""
     try:
@@ -337,6 +340,7 @@ def dashboard_overview():
 
 
 @admin_bp.route('/api/tasks/<task_id>/runtime-detail')
+@login_required
 def task_runtime_detail(task_id):
     """管理后台任务运行细节"""
     try:
@@ -353,6 +357,7 @@ def task_runtime_detail(task_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @admin_bp.route('/api/scheduler/cleanup', methods=['POST'])
+@login_required
 def cleanup_completed_tasks():
     """清理已完成的异步任务记录"""
     try:

@@ -1,15 +1,17 @@
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify
 import json
-import queue
 from app.services.task_manager import task_manager
 from app.models import Task
 from app.utils.logger import get_logger
+from app.utils.auth import login_required, permission_required
 
 logger = get_logger(__name__)
 
 task_api_bp = Blueprint('task_api', __name__)
 
 @task_api_bp.route('/tasks', methods=['GET', 'POST'])
+@login_required
+@permission_required('task:view', 'task:create')
 def tasks():
     """获取任务列表 / 创建任务"""
     try:
@@ -58,6 +60,8 @@ def tasks():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/batch-create', methods=['POST'])
+@login_required
+@permission_required('task:create')
 def batch_create_tasks():
     """C31 批量创建接口"""
     try:
@@ -77,6 +81,8 @@ def batch_create_tasks():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>', methods=['GET', 'DELETE'])
+@login_required
+@permission_required('task:view', 'task:delete')
 def task_detail(task_id):
     """获取/删除任务详情"""
     try:
@@ -95,6 +101,8 @@ def task_detail(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/config', methods=['PUT'])
+@login_required
+@permission_required('task:create')
 def update_task_config(task_id):
     """更新任务配置"""
     try:
@@ -117,6 +125,8 @@ def update_task_config(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/cancel', methods=['POST'])
+@login_required
+@permission_required('task:cancel')
 def cancel_task(task_id):
     """取消任务"""
     try:
@@ -129,6 +139,8 @@ def cancel_task(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/logs', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_task_logs(task_id):
     """获取任务日志"""
     try:
@@ -139,6 +151,8 @@ def get_task_logs(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/results', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_task_results(task_id):
     """获取任务结果"""
     try:
@@ -165,6 +179,8 @@ def get_task_results(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/status-check', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def check_task_status(task_id):
     """检查任务本地状态"""
     try:
@@ -175,6 +191,8 @@ def check_task_status(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/stop-confirmation', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_task_stop_confirmation(task_id):
     """确认任务是否已经完全停止"""
     try:
@@ -208,6 +226,8 @@ def get_task_stop_confirmation(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/restart', methods=['POST'])
+@login_required
+@permission_required('task:restart')
 def restart_task(task_id):
     """重启任务"""
     try:
@@ -223,6 +243,8 @@ def restart_task(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/create-restart', methods=['POST'])
+@login_required
+@permission_required('task:restart')
 def create_restart_task_api(task_id):
     """基于原任务创建新的重启任务"""
     try:
@@ -243,53 +265,9 @@ def create_restart_task_api(task_id):
         logger.error(f"创建重启任务失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@task_api_bp.route('/tasks/<task_id>/events')
-def task_events_stream(task_id):
-    """SSE事件流，用于任务状态更新和确认请求"""
-    def event_stream():
-        if task_id not in task_manager.task_events:
-            yield f"data: {json.dumps({'type': 'error', 'data': 'Task not found'})}\n\n"
-            return
-
-        event_queue = task_manager.task_events[task_id]
-
-        try:
-            while True:
-                try:
-                    event = event_queue.get(timeout=1)
-                    yield f"data: {json.dumps(event)}\n\n"
-                except queue.Empty:
-                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-
-                if task_id not in task_manager.task_events:
-                    break
-
-        except GeneratorExit:
-            pass
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
-
-    return Response(event_stream(), mimetype='text/event-stream')
-
-@task_api_bp.route('/tasks/<task_id>/confirm', methods=['POST'])
-def confirm_task(task_id):
-    """确认任务继续执行"""
-    try:
-        data = request.get_json()
-        confirmed = data.get('confirmed', False) if data else False
-
-        if task_id in task_manager.task_events:
-            task_manager.task_events[task_id].put({
-                "type": "confirmation",
-                "data": {"confirmed": confirmed}
-            })
-            return jsonify({"status": "success", "message": "确认已发送"})
-        return jsonify({"status": "error", "message": "任务事件队列不存在"}), 400
-    except Exception as e:
-        logger.error(f"确认任务失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
 @task_api_bp.route('/tasks/<task_id>/system-logs', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_task_system_logs(task_id):
     """获取任务相关的系统日志"""
     try:

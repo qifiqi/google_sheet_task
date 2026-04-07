@@ -27,8 +27,8 @@ from app.utils.task_error_utils import build_task_error_message, unwrap_exceptio
 class BacktestTrainingService(BaseGoogleSheetService):
     """回测数据服务 - backtest_training_service.py"""
 
-    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
-        super().__init__(config, task_id, event_queue=event_queue, app=app, stop_event=stop_event)
+    def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.api_client = StockAPIClient()
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()

@@ -1,0 +1,16 @@
+import api from './index'
+
+export const login = (data) => api.post('/auth/login', data)
+export const refreshToken = (data) => api.post('/auth/refresh', data)
+export const logout = () => api.post('/auth/logout')
+export const getMe = () => api.get('/auth/me')
+export const changePassword = (data) => api.put('/auth/password', data)
+export const getUsers = (params) => api.get('/admin/users', { params })
+export const createUser = (data) => api.post('/admin/users', data)
+export const updateUser = (id, data) => api.put(`/admin/users/${id}`, data)
+export const deleteUser = (id) => api.delete(`/admin/users/${id}`)
+export const getRoles = (params) => api.get('/admin/roles', { params })
+export const createRole = (data) => api.post('/admin/roles', data)
+export const updateRole = (id, data) => api.put(`/admin/roles/${id}`, data)
+export const deleteRole = (id) => api.delete(`/admin/roles/${id}`)
+export const getPermissions = () => api.get('/admin/permissions')

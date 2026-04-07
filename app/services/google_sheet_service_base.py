@@ -27,10 +27,9 @@ def build_execute_task_alert(target, func_name, phase, exc, result):
 
 
 class BaseGoogleSheetService:
-    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
+    def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         self.config = config
         self.task_id = task_id
-        self.event_queue = event_queue
         self.app = app
         self.stop_event = stop_event
         self.task_name = ''
@@ -90,7 +89,6 @@ class BaseGoogleSheetService:
                 self.task_logger.info(prefixed_message)
 
             self._save_to_database(level, formatted_message)
-            self._push_to_frontend(level, formatted_message)
         except Exception:
             pass
 
@@ -126,20 +124,6 @@ class BaseGoogleSheetService:
             else:
                 with current_app.app_context():
                     safe_db_operation(save_log_operation)
-        except Exception:
-            pass
-
-    def _push_to_frontend(self, level: str, message: str):
-        try:
-            if self.event_queue:
-                self.event_queue.put({
-                    "type": "log_update",
-                    "data": {
-                        "level": level,
-                        "message": message,
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                })
         except Exception:
             pass
 
