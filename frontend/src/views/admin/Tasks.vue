@@ -1,5 +1,5 @@
 <template>
-  <div class="">
+  <div class="app-page admin-tasks-page">
     <div class="page-toolbar">
       <h2 style="margin:0">任务管理</h2>
       <div class="page-toolbar__actions">
@@ -43,7 +43,7 @@
         <el-table-column label="任务" min-width="160">
           <template #default="{ row }">
             <div style="font-weight:600">{{ row.name }}</div>
-            <div style="font-size:11px;color:#909399">{{ row.id?.slice(0,8) }}...</div>
+            <div class="admin-tasks-page__sub-id">{{ row.id?.slice(0,8) }}...</div>
           </template>
         </el-table-column>
         <el-table-column label="类型" width="130">
@@ -59,7 +59,7 @@
           <template #default="{ row }">
             <el-progress v-if="row.total_steps > 0" :percentage="Math.min(100, Math.round((row.current_step||0)/row.total_steps*100))"
               :format="() => `${row.current_step||0}/${row.total_steps}`" />
-            <span v-else style="color:#909399">-</span>
+            <span class="admin-tasks-page__muted">-</span>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
@@ -76,7 +76,7 @@
       </el-table>
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:8px">
-        <span style="color:#909399;font-size:13px">{{ paginationInfo }}</span>
+        <span class="admin-tasks-page__pagination">{{ paginationInfo }}</span>
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"
@@ -105,7 +105,7 @@
         </el-descriptions>
         <div style="margin-top:16px">
           <h4>任务配置</h4>
-          <pre style="background:#f5f7fa;padding:12px;border-radius:4px;overflow:auto;max-height:300px;font-size:12px">{{ JSON.stringify(detailTask.config || {}, null, 2) }}</pre>
+          <pre class="admin-tasks-page__config-pre">{{ JSON.stringify(detailTask.config || {}, null, 2) }}</pre>
         </div>
         <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
           <el-button type="primary" @click="$router.push(`/task/${detailTask.id}`); detailDrawerVisible = false">查看详情页</el-button>

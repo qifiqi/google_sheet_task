@@ -58,7 +58,6 @@ onMounted(async () => {
 .app-sidebar {
   height: 100%;
   border-right: none;
-  font-size: 18px;
   padding: 12px 10px 10px;
 }
 
@@ -68,9 +67,8 @@ onMounted(async () => {
 
 .app-sidebar :deep(.el-menu-item),
 .app-sidebar :deep(.el-sub-menu__title) {
-  height: 52px;
-  line-height: 52px;
-  font-size: 18px;
+  height: 46px;
+  line-height: 46px;
   font-weight: 600;
   border-radius: 14px;
   margin-bottom: 6px;
@@ -102,7 +100,6 @@ onMounted(async () => {
 
 @media (max-width: 767px) {
   .app-sidebar {
-    font-size: 14px;
     padding-top: 4px;
   }
 
@@ -110,7 +107,6 @@ onMounted(async () => {
   .app-sidebar :deep(.el-sub-menu__title) {
     height: 44px;
     line-height: 44px;
-    font-size: 14px;
   }
 }
 </style>

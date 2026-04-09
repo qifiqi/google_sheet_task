@@ -69,7 +69,6 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
 
 .app-header__eyebrow {
   color: var(--app-text-muted);
-  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -84,7 +83,6 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
 
 .app-header__product {
   color: var(--app-text);
-  font-size: 19px;
   font-weight: 700;
   line-height: 1;
 }
@@ -97,7 +95,6 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
   border-radius: 999px;
   background: rgba(34, 197, 94, 0.1);
   color: #15803d;
-  font-size: 14px;
   font-weight: 600;
 }
 
@@ -118,7 +115,6 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
   place-items: center;
   width: 38px;
   height: 38px;
-  font-size: 20px;
   cursor: pointer;
   border-radius: 12px;
   background: var(--app-primary-soft);
@@ -145,13 +141,8 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
     gap: 12px;
   }
 
-  .app-header__product {
-    font-size: 14px;
-  }
-
   .app-header__live {
     padding: 4px 8px;
-    font-size: 11px;
   }
 }
 </style>

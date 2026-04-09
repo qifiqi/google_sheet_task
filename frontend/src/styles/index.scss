@@ -17,19 +17,11 @@
   --app-radius-lg: 24px;
   --app-radius-md: 18px;
   --app-sidebar-bg: linear-gradient(180deg, #0f1d3f 0%, #142a57 45%, #17346f 100%);
-  --app-font-xs: 15px;
-  --app-font-sm: 16px;
-  --app-font-md: 18px;
-  --app-font-lg: 21px;
-  --app-font-xl: 28px;
-  --el-font-size-base: 19px;
-  --el-font-size-small: 17px;
-  --el-font-size-extra-small: 16px;
-  --el-font-size-medium: 20px;
-  --el-font-size-large: 26px;
-  --el-component-size: 40px;
-  --el-component-size-small: 32px;
-  --el-table-row-height: 52px;
+  --app-font-xs: 13px;
+  --app-font-sm: 15px;
+  --app-font-md: 15px;
+  --app-font-lg: 18px;
+  --app-font-xl: 24px;
   --el-color-primary: var(--app-primary);
   --el-color-primary-light-8: #c2cef5;
   --el-color-primary-light-9: #dbe4fb;
@@ -49,8 +41,8 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: 'Fira Sans', 'Segoe UI', sans-serif;
-  font-size: var(--app-font-md);
+  font-family: Helvetica Neue, Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+  font-size: 15px;
 }
 
 html {
@@ -83,12 +75,12 @@ pre,
 }
 
 h2 {
-  font-size: 30px;
+  font-size: 28px;
   letter-spacing: -0.02em;
 }
 
 h3 {
-  font-size: 22px;
+  font-size: 21px;
 }
 
 .app-page {
@@ -135,7 +127,7 @@ h3 {
 .page-title {
   margin: 0;
   color: var(--app-text);
-  font-size: clamp(2rem, 1.45rem + 1vw, 2.55rem);
+  font-size: clamp(1.9rem, 1.55rem + 0.8vw, 2.25rem);
   font-weight: 700;
 }
 
@@ -153,6 +145,49 @@ h3 {
 
 .page-toolbar__actions--tight {
   gap: 8px;
+}
+
+.app-sidebar {
+  font-size: 15px;
+}
+
+.app-sidebar .el-menu-item,
+.app-sidebar .el-sub-menu__title {
+  font-size: 15px;
+}
+
+.brand-mark,
+.brand-copy__title,
+.app-header__product {
+  font-size: 16px;
+}
+
+.brand-copy__subtitle,
+.aside-footer,
+.app-header__eyebrow,
+.app-header__live,
+.admin-tasks-page__sub-id,
+.admin-tasks-page__pagination,
+.admin-tasks-page__config-pre {
+  font-size: var(--app-font-xs);
+}
+
+.user-info,
+.hamburger {
+  font-size: 15px;
+}
+
+.admin-tasks-page__muted {
+  color: #909399;
+}
+
+.admin-tasks-page__config-pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 4px;
+  overflow: auto;
+  max-height: 300px;
+  background: #f5f7fa;
 }
 
 .inline-muted {
@@ -303,7 +338,7 @@ h3 {
 }
 
 .el-table th {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -461,11 +496,6 @@ h3 {
     --app-font-md: 16px;
     --app-font-lg: 17px;
     --app-font-xl: 22px;
-    --el-font-size-base: 16px;
-    --el-font-size-small: 14px;
-    --el-font-size-extra-small: 13px;
-    --el-font-size-medium: 17px;
-    --el-font-size-large: 20px;
   }
 
   html,
@@ -494,6 +524,19 @@ h3 {
 
   .page-description {
     font-size: 13px;
+  }
+
+  .app-sidebar,
+  .app-sidebar .el-menu-item,
+  .app-sidebar .el-sub-menu__title,
+  .app-header__product,
+  .user-info,
+  .hamburger {
+    font-size: 14px;
+  }
+
+  .app-header__live {
+    font-size: 11px;
   }
 
   .hero-panel {

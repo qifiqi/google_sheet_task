@@ -130,13 +130,11 @@ function handleCommand(command) {
   background: linear-gradient(135deg, #f59e0b 0%, #facc15 100%);
   color: #11203f;
   font-family: 'Fira Code', monospace;
-  font-size: 18px;
   font-weight: 700;
   box-shadow: 0 12px 24px rgba(245, 158, 11, 0.24);
 }
 
 .brand-copy__title {
-  font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.01em;
 }
@@ -144,7 +142,6 @@ function handleCommand(command) {
 .brand-copy__subtitle {
   margin-top: 2px;
   color: rgba(255, 255, 255, 0.64);
-  font-size: 15px;
 }
 
 .aside-footer {
@@ -156,7 +153,6 @@ function handleCommand(command) {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   color: rgba(255, 255, 255, 0.7);
-  font-size: 15px;
   background: rgba(255, 255, 255, 0.04);
 }
 
@@ -179,7 +175,6 @@ function handleCommand(command) {
 
 .user-info {
   cursor: pointer;
-  font-size: 16px;
   color: var(--app-text);
   display: flex;
   align-items: center;
