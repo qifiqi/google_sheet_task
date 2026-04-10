@@ -1779,19 +1779,33 @@
                     header.push(getMetricDisplayLabel(key));
                 });
 
+                // // 追加 xpl 相关统计字段
+                // header.push(
+                //         'start_avg_monthly_return',
+                //         'start_monthly_std_dev',
+                //         'start_annual_std_dev',
+                //         'start_xpl',
+                //         'index_avg_monthly_return',
+                //         'index_monthly_std_dev',
+                //         'index_annual_std_dev',
+                //         'index_xpl',
+                //         'task_id',
+                //         'timestamp',
+                //         'error_message'
+                // );
                 // 追加 xpl 相关统计字段
                 header.push(
-                        'start_avg_monthly_return',
-                        'start_monthly_std_dev',
-                        'start_annual_std_dev',
-                        'start_xpl',
-                        'index_avg_monthly_return',
-                        'index_monthly_std_dev',
-                        'index_annual_std_dev',
-                        'index_xpl',
-                        'task_id',
-                        'timestamp',
-                        'error_message'
+                    '起始月平均收益率',
+                    '起始月收益率标准差',
+                    '起始年化标准差',
+                    '起始XPL',
+                    '指数月平均收益率',
+                    '指数月收益率标准差',
+                    '指数年化标准差',
+                    '指数XPL',
+                    '任务ID',
+                    '时间戳',
+                    '错误信息'
                 );
                 rows.push(header);
 
