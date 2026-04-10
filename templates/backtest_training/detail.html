@@ -118,6 +118,28 @@
         background: linear-gradient(180deg, rgba(146, 64, 14, 0.82), rgba(161, 98, 7, 0.92)) !important;
         color: #fef3c7 !important;
     }
+    .summary-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 1rem 1rem 0;
+        flex-wrap: wrap;
+    }
+    .summary-config-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 0.75rem 1rem;
+    }
+    .summary-config-item {
+        padding: 0.65rem 0.75rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.85rem;
+        background: var(--bs-tertiary-bg);
+    }
+    .summary-config-item .form-check {
+        margin-bottom: 0;
+    }
 </style>
 {% endblock %}
 
@@ -241,34 +263,15 @@
                 </div>
             </div>
             <div id="c3SummaryView" class="d-none">
+                <div class="summary-toolbar">
+                    <div class="small text-body-secondary" id="c3SummaryMetricHint">默认显示当前汇总字段，可按需勾选更多数据库指标。</div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#c3MetricSelectorModal">
+                        <i class="bi bi-sliders me-1"></i> 选择数据项
+                    </button>
+                </div>
                 <div class="summary-table-wrap">
                     <table class="table table-hover align-middle mb-0 summary-table">
-                        <thead class="table-light">
-                            <tr>
-                                <th>X Multiplier</th>
-                                <th>tp1</th>
-                                <th>tp2</th>
-                                <th>nl</th>
-                                <th>if</th>
-                                <th>ywfs</th>
-                                <th>ywfb</th>
-                                <th>年份</th>
-                                <th>return%</th>
-                                <th>index%</th>
-                                <th class="summary-highlight">beats Index%</th>
-                                <th>strat max dd%</th>
-                                <th>index max dd%</th>
-                                <th class="summary-highlight">beats%</th>
-                                <th>Fee total年化</th>
-                                <th>年换手率</th>
-                                <th>指数月夏普</th>
-                                <th>策略月夏普</th>
-                                <th>日均abs(chg%)</th>
-                                <th>MAX abs(chg%)</th>
-                                <th>日均abs标准差</th>
-                                <th class="pe-4 text-end">操作</th>
-                            </tr>
-                        </thead>
+                        <thead class="table-light" id="c3SummaryTableHead"></thead>
                         <tbody id="c3SummaryTableBody">
                             <tr>
                                 <td colspan="22" class="text-center text-body-secondary py-4">正在加载参数汇总...</td>
@@ -310,6 +313,24 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="c3MetricSelectorModal" tabindex="-1" aria-labelledby="c3MetricSelectorModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title" id="c3MetricSelectorModalLabel">选择汇总表数据项</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="summary-config-grid" id="c3MetricSelectorList"></div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <button type="button" class="btn btn-outline-secondary" id="resetC3MetricSelectionBtn">恢复默认</button>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">完成</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -334,9 +355,57 @@
             { key: 'ywf2', label: '一窝蜂 bordering' }
         ]
     };
+    const C3_SUMMARY_STORAGE_KEY = 'backtest_training:c3_summary_metric_keys';
+    const C3_SUMMARY_METRIC_DEFS = [
+        { key: 'strategy_return', label: '策略收益%', format: 'percent', defaultSelected: true, signClass: true },
+        { key: 'index_return', label: '指数收益%', format: 'percent', defaultSelected: true, signClass: true },
+        { key: 'beats_index', label: '收益差%', format: 'percent', defaultSelected: true, signClass: true, highlight: true },
+        { key: 'strategy_max_drawdown', label: '策略最大回撤%', format: 'drawdown', defaultSelected: true, danger: true },
+        { key: 'index_max_drawdown', label: '指数最大回撤%', format: 'drawdown', defaultSelected: true, danger: true },
+        { key: 'drawdown_beats', label: '回撤差%', format: 'percent', defaultSelected: true, signClass: true, highlight: true },
+        { key: 'fee_pair', label: 'Fee total / annualized', format: 'feePair', defaultSelected: true },
+        { key: 'year_rate', label: '年换手率%', format: 'percent', defaultSelected: true },
+        { key: 'index_monthly_sharpe', label: '指数月夏普', format: 'number', defaultSelected: true, signClass: true },
+        { key: 'strategy_monthly_sharpe', label: '策略月夏普', format: 'number', defaultSelected: true, signClass: true },
+        { key: 'avg_abs_change', label: '日均abs(chg%)', format: 'percent', defaultSelected: true },
+        { key: 'max_abs_change', label: 'MAX abs(chg%)', format: 'percent', defaultSelected: true },
+        { key: 'avg_abs_stddev', label: '日均abs标准差', format: 'number', defaultSelected: true },
+        { key: 'strategy_annualized', label: '策略年化收益%', format: 'percent', signClass: true },
+        { key: 'index_annualized', label: '指数年化收益%', format: 'percent', signClass: true },
+        { key: 'fee_total', label: 'Fee total%', format: 'percent' },
+        { key: 'fee_annualized', label: 'Fee annualized%', format: 'percent' },
+        { key: 'index_avg_monthly_return', label: '指数平均月收益%', format: 'percent', signClass: true },
+        { key: 'strategy_avg_monthly_return', label: '策略平均月收益%', format: 'percent', signClass: true },
+        { key: 'index_monthly_return_volatility', label: '指数月波动率%', format: 'percent' },
+        { key: 'strategy_monthly_return_volatility', label: '策略月波动率%', format: 'percent' },
+        { key: 'excess_annualized_return', label: '超额年化收益%', format: 'percent', signClass: true },
+        { key: 'outperform_year', label: '跑赢年份%', format: 'percent', signClass: true },
+        { key: 'monthly_excess_return_percentage', label: '月超额胜率%', format: 'percent', signClass: true },
+        { key: 'avg_monthly_excess_return', label: '平均月超额%', format: 'percent', signClass: true },
+        { key: 'monthly_excess_volatility', label: '月超额波动率%', format: 'percent' },
+        { key: 'index_profit_annual', label: '指数盈利年份%', format: 'percent', signClass: true },
+        { key: 'strategy_profit_annual', label: '策略盈利年份%', format: 'percent', signClass: true },
+        { key: 'index_profit_monthly_percentage', label: '指数月盈利率%', format: 'percent', signClass: true },
+        { key: 'strategy_profit_monthly_percentage', label: '策略月盈利率%', format: 'percent', signClass: true },
+        { key: 'index_kama_ratio', label: '指数卡玛', format: 'number', signClass: true },
+        { key: 'strategy_kama_ratio', label: '策略卡玛', format: 'number', signClass: true },
+        { key: 'index_sotino_ratio', label: '指数所提诺', format: 'number', signClass: true },
+        { key: 'strategy_sotino_ratio', label: '策略所提诺', format: 'number', signClass: true },
+        { key: 'excess_sharp', label: '超额夏普', format: 'number', signClass: true },
+        { key: 'excess_of_promissory_note', label: '超额所提诺', format: 'number', signClass: true },
+        { key: 'excess_drawdown_winning_rate', label: '超额回撤胜率%', format: 'percent', signClass: true },
+        { key: 'index_maximum_number_of_backtest_repair_days', label: '指数最大修复天数', format: 'integer' },
+        { key: 'strategy_maximum_number_of_backtest_repair_days', label: '策略最大修复天数', format: 'integer' },
+        { key: 'excess_maximum_number_of_backtest_repair_days', label: '超额最大修复天数', format: 'integer' },
+        { key: 'date_range', label: '结果区间', format: 'text' },
+        { key: 'source_window', label: '运行窗口', format: 'text' },
+        { key: 'timestamp', label: '结果时间', format: 'datetime' }
+    ];
     let refreshInterval = null;
     let taskActionInProgress = false;
     let currentModelVersion = 'c3';
+    let c3SummaryRowsCache = [];
+    let c3SelectedMetricKeys = [];
     let taskResultPaginationState = {
         page: 1,
         per_page: TASK_RESULT_PAGE_SIZE,
@@ -431,6 +500,54 @@
         }).join('');
     }
 
+    function getDefaultC3MetricKeys() {
+        return C3_SUMMARY_METRIC_DEFS
+            .filter((item) => item.defaultSelected)
+            .map((item) => item.key);
+    }
+
+    function getValidC3MetricKeys(metricKeys) {
+        const validKeys = new Set(C3_SUMMARY_METRIC_DEFS.map((item) => item.key));
+        return (Array.isArray(metricKeys) ? metricKeys : []).filter((key) => validKeys.has(key));
+    }
+
+    function loadSavedC3MetricKeys() {
+        try {
+            const raw = window.localStorage.getItem(C3_SUMMARY_STORAGE_KEY);
+            if (!raw) {
+                return [];
+            }
+            return getValidC3MetricKeys(JSON.parse(raw));
+        } catch (error) {
+            return [];
+        }
+    }
+
+    function persistC3MetricKeys() {
+        try {
+            window.localStorage.setItem(C3_SUMMARY_STORAGE_KEY, JSON.stringify(c3SelectedMetricKeys));
+        } catch (error) {
+            // Ignore storage errors and keep the current in-memory selection.
+        }
+    }
+
+    function ensureC3MetricSelection() {
+        if (!c3SelectedMetricKeys.length) {
+            const savedKeys = loadSavedC3MetricKeys();
+            c3SelectedMetricKeys = savedKeys.length ? savedKeys : getDefaultC3MetricKeys();
+        }
+    }
+
+    function getSelectedC3MetricDefs() {
+        ensureC3MetricSelection();
+        const selectedKeys = new Set(c3SelectedMetricKeys);
+        return C3_SUMMARY_METRIC_DEFS.filter((item) => selectedKeys.has(item.key));
+    }
+
+    function getC3SummaryColumnCount() {
+        return 9 + getSelectedC3MetricDefs().length;
+    }
+
     function formatPercentValue(value, digits = 2) {
         if (value === null || value === undefined || value === '') {
             return '';
@@ -451,14 +568,14 @@
         return Number(value).toFixed(digits);
     }
 
-    function formatTurnoverValue(value) {
+    function formatIntegerValue(value) {
         if (value === null || value === undefined || value === '') {
             return '';
         }
         if (typeof value === 'string') {
             return escapeHtml(value);
         }
-        return Number(value).toFixed(2);
+        return String(Math.round(Number(value)));
     }
 
     function formatDrawdownValue(value) {
@@ -471,11 +588,66 @@
         return `${(Number(value) * 100).toFixed(2)}%`;
     }
 
+    function formatFeeValue(totalValue, annualizedValue) {
+        const totalText = formatPercentValue(totalValue);
+        const annualizedText = formatPercentValue(annualizedValue);
+
+        if (totalText && annualizedText) {
+            return `${totalText} / ${annualizedText}`;
+        }
+        return totalText || annualizedText || '';
+    }
+
+    function formatTextValue(value) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        return escapeHtml(value);
+    }
+
+    function formatDateTimeValue(value) {
+        if (!value) {
+            return '';
+        }
+        return escapeHtml(formatTime(value));
+    }
+
     function metricClass(value) {
         if (value === null || value === undefined || value === '' || typeof value === 'string') {
             return '';
         }
         return Number(value) >= 0 ? 'text-success' : 'text-danger';
+    }
+
+    function getC3MetricCellClass(metricDef, row) {
+        const classes = [];
+        if (metricDef.danger) {
+            classes.push('text-danger');
+        }
+        if (metricDef.signClass) {
+            classes.push(metricClass(row[metricDef.key]));
+        }
+        return classes.filter(Boolean).join(' ');
+    }
+
+    function formatC3MetricValue(metricDef, row) {
+        switch (metricDef.format) {
+            case 'percent':
+                return formatPercentValue(row[metricDef.key]);
+            case 'drawdown':
+                return formatDrawdownValue(row[metricDef.key]);
+            case 'number':
+                return formatNumberValue(row[metricDef.key]);
+            case 'integer':
+                return formatIntegerValue(row[metricDef.key]);
+            case 'feePair':
+                return formatFeeValue(row.fee_total, row.fee_annualized);
+            case 'datetime':
+                return formatDateTimeValue(row[metricDef.key]);
+            case 'text':
+            default:
+                return formatTextValue(row[metricDef.key]);
+        }
     }
 
     function buildSummaryGroupKey(row) {
@@ -507,18 +679,88 @@
         return groups;
     }
 
+    function renderC3SummaryHead() {
+        const thead = document.getElementById('c3SummaryTableHead');
+        if (!thead) {
+            return;
+        }
+
+        const metricHeaders = getSelectedC3MetricDefs().map((item) => {
+            const className = item.highlight ? ' class="summary-highlight"' : '';
+            return `<th${className}>${escapeHtml(item.label)}</th>`;
+        });
+
+        thead.innerHTML = `
+            <tr>
+                <th>X Multiplier</th>
+                <th>tp1</th>
+                <th>tp2</th>
+                <th>nl</th>
+                <th>if</th>
+                <th>ywfs</th>
+                <th>ywfb</th>
+                <th>年份</th>
+                ${metricHeaders.join('')}
+                <th class="pe-4 text-end">操作</th>
+            </tr>
+        `;
+    }
+
+    function updateC3MetricHint() {
+        const hint = document.getElementById('c3SummaryMetricHint');
+        if (!hint) {
+            return;
+        }
+        hint.textContent = `当前已显示 ${getSelectedC3MetricDefs().length} 个数据项，可随时切换。`;
+    }
+
+    function syncC3MetricSelector() {
+        const container = document.getElementById('c3MetricSelectorList');
+        if (!container) {
+            return;
+        }
+
+        ensureC3MetricSelection();
+        const selectedKeys = new Set(c3SelectedMetricKeys);
+        container.innerHTML = C3_SUMMARY_METRIC_DEFS.map((item) => `
+            <label class="summary-config-item">
+                <span class="form-check">
+                    <input class="form-check-input c3-metric-option" type="checkbox" value="${escapeHtml(item.key)}" ${selectedKeys.has(item.key) ? 'checked' : ''}>
+                    <span class="form-check-label">${escapeHtml(item.label)}</span>
+                </span>
+            </label>
+        `).join('');
+    }
+
+    function applyC3MetricSelection(metricKeys) {
+        c3SelectedMetricKeys = getValidC3MetricKeys(metricKeys);
+        persistC3MetricKeys();
+        syncC3MetricSelector();
+        updateC3MetricHint();
+        renderC3SummaryRows(c3SummaryRowsCache);
+    }
+
+    function resetC3MetricSelection() {
+        applyC3MetricSelection(getDefaultC3MetricKeys());
+    }
+
     function renderC3SummaryRows(rows) {
         const tbody = document.getElementById('c3SummaryTableBody');
         if (!tbody) {
             return;
         }
 
-        const groups = groupSummaryRows(rows);
+        c3SummaryRowsCache = Array.isArray(rows) ? rows : [];
+        renderC3SummaryHead();
+        updateC3MetricHint();
+
+        const groups = groupSummaryRows(c3SummaryRowsCache);
         if (!groups.length) {
-            tbody.innerHTML = '<tr><td colspan="22" class="text-center text-body-secondary py-4">暂无参数汇总数据</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="${getC3SummaryColumnCount()}" class="text-center text-body-secondary py-4">暂无参数汇总数据</td></tr>`;
             return;
         }
 
+        const selectedMetricDefs = getSelectedC3MetricDefs();
         const html = [];
         groups.forEach((group) => {
             const rowspan = group.rows.length;
@@ -537,19 +779,10 @@
                 }
 
                 html.push(`<td class="fw-semibold">${escapeHtml(row.year ?? '')}</td>`);
-                html.push(`<td class="${metricClass(row.strategy_return)}">${formatPercentValue(row.strategy_return)}</td>`);
-                html.push(`<td class="${metricClass(row.index_return)}">${formatPercentValue(row.index_return)}</td>`);
-                html.push(`<td class="${metricClass(row.beats_index)}">${formatPercentValue(row.beats_index)}</td>`);
-                html.push(`<td class="text-danger">${formatDrawdownValue(row.strategy_max_drawdown)}</td>`);
-                html.push(`<td class="text-danger">${formatDrawdownValue(row.index_max_drawdown)}</td>`);
-                html.push(`<td class="${metricClass(row.drawdown_beats)}">${formatPercentValue(row.drawdown_beats)}</td>`);
-                html.push(`<td>${formatPercentValue(row.fee_total)}</td>`);
-                html.push(`<td>${formatTurnoverValue(row.year_rate)}</td>`);
-                html.push(`<td class="${metricClass(row.index_monthly_sharpe)}">${formatNumberValue(row.index_monthly_sharpe)}</td>`);
-                html.push(`<td class="${metricClass(row.strategy_monthly_sharpe)}">${formatNumberValue(row.strategy_monthly_sharpe)}</td>`);
-                html.push('<td></td>');
-                html.push('<td></td>');
-                html.push('<td></td>');
+                selectedMetricDefs.forEach((metricDef) => {
+                    const className = getC3MetricCellClass(metricDef, row);
+                    html.push(`<td class="${className}">${formatC3MetricValue(metricDef, row)}</td>`);
+                });
                 html.push(`<td class="pe-4 text-end"><a href="${resultLink}" class="btn btn-sm btn-outline-primary">查看结果</a></td>`);
                 html.push('</tr>');
             });
@@ -582,13 +815,15 @@
             if (err || !data || data.status !== 'success') {
                 const tbody = document.getElementById('c3SummaryTableBody');
                 if (tbody) {
-                    tbody.innerHTML = '<tr><td colspan="22" class="text-center text-body-secondary py-4">参数汇总加载失败</td></tr>';
+                    renderC3SummaryHead();
+                    tbody.innerHTML = `<tr><td colspan="${getC3SummaryColumnCount()}" class="text-center text-body-secondary py-4">参数汇总加载失败</td></tr>`;
                 }
                 if (!silent) {
                     showNotification(`加载参数汇总失败：${err ? err.message : '未知错误'}`, 'error');
                 }
                 return;
             }
+            syncC3MetricSelector();
             renderC3SummaryRows(data.rows || []);
         });
     }
@@ -1000,6 +1235,10 @@
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+        ensureC3MetricSelection();
+        syncC3MetricSelector();
+        renderC3SummaryHead();
+        updateC3MetricHint();
         bindTaskResultPaginationEvents();
         refreshPageData({ silent: true });
         startAutoRefresh();
@@ -1075,6 +1314,23 @@
             resultCollapse.addEventListener('hide.bs.collapse', function() {
                 resultToggleIcon.classList.remove('bi-chevron-down');
                 resultToggleIcon.classList.add('bi-chevron-right');
+            });
+        }
+
+        const c3MetricSelectorList = document.getElementById('c3MetricSelectorList');
+        if (c3MetricSelectorList) {
+            c3MetricSelectorList.addEventListener('change', function() {
+                const checkedKeys = Array.from(
+                    c3MetricSelectorList.querySelectorAll('.c3-metric-option:checked')
+                ).map((input) => input.value);
+                applyC3MetricSelection(checkedKeys);
+            });
+        }
+
+        const resetC3MetricSelectionBtn = document.getElementById('resetC3MetricSelectionBtn');
+        if (resetC3MetricSelectionBtn) {
+            resetC3MetricSelectionBtn.addEventListener('click', function() {
+                resetC3MetricSelection();
             });
         }
     });
