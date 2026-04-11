@@ -1795,17 +1795,17 @@
                 // );
                 // 追加 xpl 相关统计字段
                 header.push(
-                    '起始月平均收益率',
-                    '起始月收益率标准差',
-                    '起始年化标准差',
-                    '起始XPL',
+                    '模型月平均收益率',
+                    '模型月收益率标准差',
+                    '模型年化标准差',
+                    '模型XPL',
                     '指数月平均收益率',
                     '指数月收益率标准差',
                     '指数年化标准差',
                     '指数XPL',
-                    '任务ID',
-                    '时间戳',
-                    '错误信息'
+                    // '任务ID',
+                    // '时间戳',
+                    // '错误信息'
                 );
                 rows.push(header);
 
@@ -1843,9 +1843,9 @@
                             '',                   // index_monthly_std_dev
                             '',                   // index_annual_std_dev
                             '',                   // index_xpl
-                            baseInfo.taskId,      // task_id
-                            baseInfo.timestamp,   // timestamp
-                            baseInfo.errorMessage // error_message
+                            // baseInfo.taskId,      // task_id
+                            // baseInfo.timestamp,   // timestamp
+                            // baseInfo.errorMessage // error_message
                         ]);
                         return;
                     }
@@ -1915,17 +1915,17 @@
                             baseInfo.b1,
                             title,
                             ...metricValues,
-                            startAvgRet,
-                            startStd,
-                            startAnnualStd,
-                            sSharpe,
-                            indexAvgRet,
-                            indexStd,
-                            indexAnnualStd,
-                            iSharpe,
-                            baseInfo.taskId,
-                            baseInfo.timestamp,
-                            baseInfo.errorMessage
+                            startAvgRet.toFixed(4),
+                            startStd.toFixed(4),
+                            startAnnualStd.toFixed(4),
+                            sSharpe.toFixed(4),
+                            indexAvgRet.toFixed(4),
+                            indexStd.toFixed(4),
+                            indexAnnualStd.toFixed(4),
+                            iSharpe.toFixed(4),
+                            // baseInfo.taskId,
+                            // baseInfo.timestamp,
+                            // baseInfo.errorMessage
                         ]);
                     });
                 });
