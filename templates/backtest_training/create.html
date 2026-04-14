@@ -307,6 +307,7 @@ const FIELD_MAP = {
 
 let spreadsheetId = '';
 let sheetTitle = '';
+let selectedWorksheetName = '';
 let currentModelVersion = 'c3';
 let currentFields = FIELD_MAP.c3;
 let importedParameterRows = [];
@@ -625,6 +626,7 @@ function renderSheetInfo(title, worksheets) {
     const modelVersion = inferModelVersion(title);
     currentModelVersion = modelVersion;
     sheetTitle = title || '';
+    selectedWorksheetName = Array.isArray(worksheets) && worksheets.length ? String(worksheets[0]).trim() : '';
     modelVersionBadge.textContent = modelVersion.toUpperCase();
     sheetTitleEl.textContent = title || '-';
     sheetNamesEl.textContent = Array.isArray(worksheets) && worksheets.length ? worksheets.join(' / ') : '-';
@@ -857,11 +859,16 @@ async function importExcelFile(file) {
         syncYearsWrapper();
         syncYearsDisplay();
         modelVersionBadge.textContent = currentModelVersion.toUpperCase();
-        sheetTitle = data.sheet_name || sheetTitle;
-        if (sheetTitle) {
+        if (data.sheet_name) {
+            selectedWorksheetName = String(data.sheet_name).trim();
+        }
+        if (sheetTitle || selectedWorksheetName) {
             sheetInfo.classList.add('is-visible');
-            sheetTitleEl.textContent = sheetTitle;
-            sheetNamesEl.textContent = data.sheet_name || sheetNamesEl.textContent || '-';
+            if (!sheetTitle && data.sheet_name) {
+                sheetTitle = String(data.sheet_name).trim();
+            }
+            sheetTitleEl.textContent = sheetTitle || '-';
+            sheetNamesEl.textContent = selectedWorksheetName || sheetNamesEl.textContent || '-';
         }
         syncTaskNameInput(true);
         resetParameterTable(importedParameterRows);
@@ -917,13 +924,17 @@ async function createTask() {
         alert('请先识别链接或导入 Excel');
         return;
     }
+    if (!selectedWorksheetName) {
+        alert('未识别到可用工作表');
+        return;
+    }
 
     setCreateButtonState(true);
     try {
         const config = {
             sheet: {
                 spreadsheet_id: spreadsheetId,
-                sheet_name: sheetTitleEl.textContent.trim() || 'Sheet1',
+                sheet_name: selectedWorksheetName,
                 title: sheetTitle
             },
             stock_code: stockCode,

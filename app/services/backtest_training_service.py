@@ -712,7 +712,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
         end_dt = datetime.now() - timedelta(days=1)
         end_date = end_dt.strftime("%Y-%m-%d")
 
-        year_count = recent_years[-1] if len(recent_years) != 0 else int(end_date[:4]) - full_years[-1]
+        if recent_years:
+            year_count = max(int(year) for year in recent_years)
+        elif full_years:
+            earliest_full_year = min(int(year) for year in full_years)
+            year_count = max(1, int(end_date[:4]) - earliest_full_year + 1)
+        else:
+            year_count = 1
         start_dt = end_dt - timedelta(days=365 * year_count)
         start_date = start_dt.strftime("%Y-%m-%d")
 

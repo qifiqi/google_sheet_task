@@ -140,6 +140,26 @@
     .summary-config-item .form-check {
         margin-bottom: 0;
     }
+    .task-config-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 0.85rem 1rem;
+    }
+    .task-config-item {
+        padding: 0.8rem 0.9rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.9rem;
+        background: var(--bs-tertiary-bg);
+    }
+    .task-config-label {
+        font-size: 0.8rem;
+        color: var(--bs-secondary-color);
+        margin-bottom: 0.3rem;
+    }
+    .task-config-value {
+        font-weight: 600;
+        word-break: break-word;
+    }
 </style>
 {% endblock %}
 
@@ -193,6 +213,29 @@
                 <button type="button" class="btn btn-outline-danger rounded-pill px-4" id="restartFromScratchBtn">
                     <i class="bi bi-bootstrap-reboot me-1"></i> 重头开始
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="card-header bg-body-tertiary border-0 p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <button
+                class="btn btn-link text-decoration-none p-0 fw-bold text-body d-flex align-items-center"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#taskConfigCollapse"
+                aria-expanded="false"
+                aria-controls="taskConfigCollapse"
+                id="taskConfigToggle"
+            >
+                <i class="bi bi-ui-checks-grid text-primary me-2"></i>
+                <span>任务运行配置</span>
+                <i class="bi bi-chevron-right ms-2" id="taskConfigToggleIcon"></i>
+            </button>
+        </div>
+        <div class="collapse" id="taskConfigCollapse">
+            <div class="card-body p-4">
+                <div class="task-config-grid" id="taskConfigGrid"></div>
             </div>
         </div>
     </div>
@@ -466,6 +509,52 @@
             return 'c5';
         }
         return 'c3';
+    }
+
+    function formatConfigDisplayValue(value) {
+        if (value === null || value === undefined || value === '') {
+            return '<span class="text-body-secondary">-</span>';
+        }
+        if (Array.isArray(value)) {
+            if (!value.length) {
+                return '<span class="text-body-secondary">-</span>';
+            }
+            return escapeHtml(value.join(', '));
+        }
+        if (typeof value === 'object') {
+            return `<code>${escapeHtml(JSON.stringify(value))}</code>`;
+        }
+        return escapeHtml(value);
+    }
+
+    function renderTaskConfig(config) {
+        const grid = document.getElementById('taskConfigGrid');
+        if (!grid) {
+            return;
+        }
+
+        const sheet = config && typeof config.sheet === 'object' ? config.sheet : {};
+        const items = [
+            { label: '股票代码', value: config.stock_code },
+            { label: '市场类型', value: config.market_type },
+            { label: 'Spreadsheet ID', value: sheet.spreadsheet_id },
+            { label: '工作表名称', value: sheet.sheet_name },
+            { label: '表格标题', value: sheet.title },
+            { label: 'Token ID', value: config.token_id },
+            { label: 'Token 名称', value: config.token_name },
+            { label: 'Token 类型', value: config.token_type },
+            { label: 'Token 任务类型', value: config.token_task_type },
+            { label: 'Token 文件', value: config.token_file },
+            { label: '近 N 年', value: config.recent_years },
+            { label: '完整年份', value: config.full_years }
+        ];
+
+        grid.innerHTML = items.map((item) => `
+            <div class="task-config-item">
+                <div class="task-config-label">${escapeHtml(item.label)}</div>
+                <div class="task-config-value">${formatConfigDisplayValue(item.value)}</div>
+            </div>
+        `).join('');
     }
 
     function renderParameterTable(config) {
@@ -1147,6 +1236,7 @@
             document.getElementById('taskCreated').innerHTML = renderValue(formatTime(task.created_at));
             document.getElementById('taskStart').innerHTML = renderValue(formatTime(task.start_time));
             document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
+            renderTaskConfig(task.config || {});
             renderParameterTable(task.config || {});
             updateTaskResultSectionMode(task.config || {});
             if (currentModelVersion === 'c3') {
@@ -1301,6 +1391,19 @@
             paramCollapse.addEventListener('hide.bs.collapse', function() {
                 paramToggleIcon.classList.remove('bi-chevron-down');
                 paramToggleIcon.classList.add('bi-chevron-right');
+            });
+        }
+
+        const configCollapse = document.getElementById('taskConfigCollapse');
+        const configToggleIcon = document.getElementById('taskConfigToggleIcon');
+        if (configCollapse && configToggleIcon) {
+            configCollapse.addEventListener('show.bs.collapse', function() {
+                configToggleIcon.classList.remove('bi-chevron-right');
+                configToggleIcon.classList.add('bi-chevron-down');
+            });
+            configCollapse.addEventListener('hide.bs.collapse', function() {
+                configToggleIcon.classList.remove('bi-chevron-down');
+                configToggleIcon.classList.add('bi-chevron-right');
             });
         }
 

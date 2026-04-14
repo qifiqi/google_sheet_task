@@ -1931,8 +1931,9 @@
                 });
                 // 在导出前对 rows 进行排序：
                 // 1) 同一 stock_code 内
-                // 2) 按 kline_range 中 "~" 后的结束年份降序
-                // 3) 再按 Return 降序
+                // 2) 按 kline_range 的结束日期、开始日期降序
+                // 3) 同一时间组内优先将 xm 为空/0 的记录置顶
+                // 4) 同一时间组内再按 ReturnBeats 降序
                 // 表头始终保持在第一行
 
                 if (rows.length > 1) {
@@ -2010,15 +2011,17 @@
 
                         const xmA = normalizeXm(a[XM_COL]);
                         const xmB = normalizeXm(b[XM_COL]);
-                        if (xmA !== xmB) {
-                            return xmA.localeCompare(xmB, 'zh-Hans-CN', { numeric: true });
+                        const isEmptyXmA = xmA === '';
+                        const isEmptyXmB = xmB === '';
+                        if (isEmptyXmA !== isEmptyXmB) {
+                            return isEmptyXmA ? -1 : 1;
                         }
 
                         if (RETURN_COL !== null) {
                             const retA = parseReturn(a[RETURN_COL]);
                             const retB = parseReturn(b[RETURN_COL]);
                             if (retA !== retB) {
-                                // Return 降序
+                                // ReturnBeats 降序
                                 return retB - retA;
                             }
                         }
