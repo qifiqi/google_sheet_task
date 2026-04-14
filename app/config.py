@@ -181,6 +181,10 @@ def init_config():
             'value': None,
             'description': 'Google Sheet 请求默认代理地址，为空表示直连。',
         },
+        'dfcf_kline_proxy_enabled': {
+            'value': False,
+            'description': '是否为东方财富 K 线接口启用 proxy_manager 代理。true 启用，false 直连。',
+        },
         'max_concurrent_tasks': {
             'value': 20,
             'description': '系统允许同时运行的任务总数上限。',

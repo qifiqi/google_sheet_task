@@ -8,6 +8,7 @@ def register_blueprints(app):
     from app.routes.template_api import template_api_bp
     from app.routes.google_sheet_api import google_sheet_api_bp
     from app.routes.database_api import database_api_bp
+    from app.routes.stock_api import stock_api_bp
     from app.routes.google_sheet import google_sheet_bp
     from app.routes.scheduler_api import scheduler_api_bp
     from app.routes.xpl import xpl_bp
@@ -24,6 +25,7 @@ def register_blueprints(app):
     app.register_blueprint(template_api_bp, url_prefix='/api')
     app.register_blueprint(google_sheet_api_bp, url_prefix='/api')
     app.register_blueprint(database_api_bp, url_prefix='/api')
+    app.register_blueprint(stock_api_bp, url_prefix='/api')
 
     app.register_blueprint(google_sheet_bp, url_prefix='/google-sheet')
     app.register_blueprint(scheduler_api_bp)

@@ -2,7 +2,6 @@
 
 import json
 import math
-import re
 from collections import OrderedDict
 from io import BytesIO
 
@@ -15,7 +14,6 @@ from sqlalchemy.orm import load_only
 from app.models import Task, TaskResult
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.xpl_service import xpl_analyzer
-from app.utils.dfcf_api import DFCJStockApi
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
 
@@ -40,11 +38,6 @@ def _sanitize_json_value(value):
     if isinstance(value, list):
         return [_sanitize_json_value(item) for item in value]
     return value
-
-
-def _strip_html_tags(value):
-    return re.sub(r"<[^>]+>", "", str(value or "")).strip()
-
 
 def _infer_backtest_model_version(config):
     if not isinstance(config, dict):
@@ -358,52 +351,6 @@ def import_excel():
             "status": "error",
             "message": f"Excel 解析失败：{str(exc)}",
         }), 500
-
-
-@bp.route("/api/search-stocks", methods=["GET"])
-def search_stocks():
-    keyword = (request.args.get("q") or "").strip()
-    page_size = request.args.get("page_size", default=8, type=int) or 8
-    page_size = max(1, min(page_size, 20))
-
-    if len(keyword) < 1:
-        return jsonify({
-            "status": "success",
-            "keyword": keyword,
-            "results": [],
-        })
-
-    raw_results = DFCJStockApi().get_search_list_by_stock_code(keyword, page_size=page_size)
-    if isinstance(raw_results, dict) and raw_results.get("error"):
-        return jsonify({
-            "status": "error",
-            "message": raw_results.get("error") or "股票搜索失败",
-        }), 502
-
-    normalized_results = []
-    for item in raw_results or []:
-        if item.get("status") not in (10, "10", None):
-            continue
-        code = _strip_html_tags(item.get("code"))
-        short_name = _strip_html_tags(item.get("shortName"))
-        security_type_name = _strip_html_tags(item.get("securityTypeName"))
-        market = item.get("market")
-        if not code:
-            continue
-        normalized_results.append({
-            "code": code,
-            "name": short_name,
-            "security_type_name": security_type_name,
-            "market": market,
-            "is_exact_match": bool(item.get("isExactMatch")),
-            "label": " · ".join(part for part in [code, short_name, security_type_name] if part),
-        })
-
-    return jsonify({
-        "status": "success",
-        "keyword": keyword,
-        "results": normalized_results,
-    })
 
 
 @bp.route("/api/task-results/<task_id>", methods=["GET"])

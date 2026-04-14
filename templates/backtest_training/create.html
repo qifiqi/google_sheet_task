@@ -1,360 +1,280 @@
 {% extends "admin/base.html" %}
 
-{% block title %}创建数据回测任务{% endblock %}
+{% block title %}创建回测训练任务{% endblock %}
 
 {% block head %}
 <style>
-    html[data-bs-theme="dark"] .create-shell h1,
-    html[data-bs-theme="dark"] .create-shell .text-body {
-        color: #e5e7eb !important;
-    }
     .create-shell {
         display: grid;
         gap: 1rem;
     }
-    .empty-hint {
-        border: 2px dashed var(--bs-border-color);
+    .create-card {
+        border: 1px solid rgba(var(--bs-primary-rgb), 0.08);
         border-radius: 1rem;
-    }
-    .parameter-table th {
-        white-space: nowrap;
-    }
-    .param-input {
-        min-width: 9rem;
-        text-align: center;
-    }
-    .section-toggle {
-        border: 0;
-        background: transparent;
-        padding: 0;
-        font: inherit;
-    }
-    .section-toggle .bi {
-        transition: transform 0.2s ease;
-    }
-    .section-toggle[aria-expanded="true"] .bi {
-        transform: rotate(180deg);
-    }
-    .config-fold-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-    }
-    .config-fold-title {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        color: var(--bs-secondary-color);
-        font-size: 0.95rem;
-    }
-    .years-switch-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.75rem;
-        margin-top: 0.75rem;
-    }
-    .years-switch-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.7rem 0.85rem;
-        border: 1px solid rgba(var(--bs-secondary-rgb), 0.18);
-        border-radius: 0.9rem;
-        background: var(--bs-tertiary-bg);
-    }
-    .years-switch-item .form-check {
-        margin-bottom: 0;
-        min-height: auto;
-    }
-    .years-switch-item .form-check-label {
-        color: var(--bs-body-color);
-    }
-    .years-switch-item .form-check-input {
-        cursor: pointer;
-    }
-    .years-options-box {
-        align-self: end;
-        padding: 0.85rem 0.9rem;
-        border: 1px solid rgba(var(--bs-primary-rgb), 0.16);
-        border-radius: 0.9rem;
-        background: rgba(var(--bs-primary-rgb), 0.04);
-    }
-    .years-layout {
-        display: grid;
-        grid-template-columns: minmax(220px, 0.95fr) minmax(0, 1.55fr);
-        gap: 1rem;
-        margin-top: 0.6rem;
-        align-items: end;
-    }
-    .years-meta {
-        display: grid;
-        gap: 0.85rem;
-    }
-    .years-summary {
-        display: grid;
-        gap: 0.45rem;
-        color: var(--bs-secondary-color);
-        font-size: 0.875rem;
-    }
-    .years-summary strong {
-        color: var(--bs-body-color);
-    }
-    .excel-import-status {
-        min-height: 1.3rem;
-    }
-    .excel-import-status.text-warning {
-        color: var(--bs-warning-text-emphasis) !important;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
     }
     .stock-search-shell {
         position: relative;
     }
     .stock-search-results {
-        position: fixed;
-        z-index: 99999;
-        max-height: 15rem;
-        min-width: 16rem;
+        position: absolute;
+        inset: calc(100% + 0.35rem) 0 auto 0;
+        z-index: 30;
+        max-height: 18rem;
         overflow-y: auto;
-        overscroll-behavior: contain;
-        padding: 0.35rem;
         border: 1px solid var(--bs-border-color);
-        border-radius: 0.85rem;
+        border-radius: 0.9rem;
         background: var(--bs-body-bg);
-        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
     }
     .stock-search-item {
         width: 100%;
         border: 0;
         background: transparent;
-        display: grid;
-        gap: 0.1rem;
-        padding: 0.55rem 0.65rem;
-        border-radius: 0.7rem;
         text-align: left;
+        padding: 0.8rem 0.95rem;
+        display: grid;
+        gap: 0.15rem;
     }
     .stock-search-item:hover,
-    .stock-search-item:focus {
+    .stock-search-item.active {
         background: rgba(var(--bs-primary-rgb), 0.08);
-        outline: none;
     }
-    .stock-search-code {
-        font-weight: 700;
-        letter-spacing: 0.02em;
+    .config-toggle {
+        border: 0;
+        background: transparent;
+        padding: 0;
+        font: inherit;
+        color: var(--bs-primary);
     }
-    .stock-search-meta {
+    .config-toggle .bi {
+        transition: transform 0.2s ease;
+    }
+    .config-toggle[aria-expanded="true"] .bi {
+        transform: rotate(180deg);
+    }
+    .config-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+    .config-box {
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.95rem;
+        background: var(--bs-tertiary-bg);
+        min-height: 100%;
+    }
+    .market-toggle-group {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        align-items: center;
+        min-height: 38px;
+    }
+    .year-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 0.75rem;
+    }
+    .year-display {
+        font-size: 0.875rem;
         color: var(--bs-secondary-color);
-        font-size: 0.84rem;
     }
-    html[data-bs-theme="dark"] .stock-search-results {
-        background: #0f172a;
-        border-color: #334155;
-        box-shadow: 0 18px 36px rgba(2, 6, 23, 0.42);
+    .sheet-info {
+        display: none;
     }
-    html[data-bs-theme="dark"] .stock-search-item:hover,
-    html[data-bs-theme="dark"] .stock-search-item:focus {
-        background: rgba(96, 165, 250, 0.18);
+    .sheet-info.is-visible {
+        display: block;
     }
-    html[data-bs-theme="dark"] .stock-search-meta {
-        color: #94a3b8;
+    .parameter-table th,
+    .parameter-table td {
+        vertical-align: middle;
+        white-space: nowrap;
     }
-    html[data-bs-theme="dark"] .years-switch-item {
-        border-color: rgba(148, 163, 184, 0.24);
-        background: #0f172a;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    .param-input {
+        min-width: 8rem;
+        text-align: center;
     }
-    html[data-bs-theme="dark"] .years-switch-item .form-check-label {
-        color: #e5e7eb;
-    }
-    html[data-bs-theme="dark"] .years-switch-item .form-check-input {
-        background-color: #334155;
-        border-color: #475569;
-    }
-    html[data-bs-theme="dark"] .years-switch-item .form-check-input:not(:checked) {
-        --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23cbd5e1'/%3e%3c/svg%3e");
-    }
-    html[data-bs-theme="dark"] .years-switch-item .form-check-input:focus {
-        border-color: rgba(96, 165, 250, 0.7);
-        box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.18);
-    }
-    html[data-bs-theme="dark"] .years-options-box {
-        border-color: rgba(96, 165, 250, 0.24);
-        background: rgba(30, 41, 59, 0.7);
-    }
-    html[data-bs-theme="dark"] .years-summary {
-        color: #94a3b8;
-    }
-    html[data-bs-theme="dark"] .years-summary strong {
-        color: #e5e7eb;
-    }
-    @media (max-width: 575.98px) {
-        .years-switch-grid {
-            grid-template-columns: 1fr;
-        }
+    .empty-hint {
+        border: 1px dashed var(--bs-border-color);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        text-align: center;
+        color: var(--bs-secondary-color);
+        background: var(--bs-tertiary-bg);
     }
     @media (max-width: 991.98px) {
-        .years-layout {
+        .config-grid {
             grid-template-columns: 1fr;
-            align-items: stretch;
-        }
-        .years-options-box {
-            align-self: stretch;
         }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="create-shell pt-2 pb-4">
-    <div class="card border-0 shadow-sm rounded-4">
-        <div class="card-header bg-body-tertiary border-0 py-3 px-4 d-flex justify-content-between align-items-start flex-wrap gap-3">
-            <div>
-                <h1 class="h4 mb-1 fw-bold text-body">创建数据回测任务</h1>
-                <div class="text-body-secondary">输入模型 URL 自动识别模型版本，快速创建参数行。</div>
-            </div>
-            <a href="{{ url_for('backtest_training.list_page') }}" class="btn btn-outline-secondary rounded-pill px-4">
-                <i class="bi bi-arrow-left"></i> 返回列表
-            </a>
+<div class="container-fluid py-4 create-shell">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h1 class="h3 mb-1">创建回测训练任务</h1>
+            <div class="text-body-secondary">识别 Google Sheet、选择股票、导入参数并创建任务。</div>
         </div>
-        <div class="card-body py-3 px-4">
+        <a href="{{ url_for('backtest_training.list_page') }}" class="btn btn-outline-secondary rounded-pill px-4">
+            返回列表
+        </a>
+    </div>
+
+    <div class="card create-card">
+        <div class="card-body p-4">
             <div class="row g-3 align-items-end">
-                <div class="col-lg-7">
-                    <label class="form-label fw-semibold">Google Sheet URL</label>
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-link-45deg"></i></span>
-                        <input type="text" class="form-control" id="modelUrl" placeholder="请粘贴完整的 Google Sheet 链接...">
-                    </div>
+                <div class="col-xl-6">
+                    <label for="modelUrl" class="form-label">Google Sheet 链接</label>
+                    <input type="text" class="form-control" id="modelUrl" placeholder="粘贴完整 Google Sheet URL">
                 </div>
-                <div class="col-lg-3">
-                    <label class="form-label fw-semibold">股票代码</label>
+                <div class="col-xl-4">
+                    <label for="stockCode" class="form-label">股票代码</label>
                     <div class="stock-search-shell">
                         <input type="text" class="form-control" id="stockCode" placeholder="如 AAPL、MSFT、平安银行" autocomplete="off">
-                        <div class="stock-search-results d-none" id="stockSearchResults"></div>
+                        <div id="stockSearchResults" class="stock-search-results d-none"></div>
                     </div>
                 </div>
-                <div class="col-lg-2 d-grid">
+                <div class="col-xl-2 d-grid">
                     <button type="button" class="btn btn-primary" id="analyzeBtn">
-                        <i class="bi bi-magic me-1"></i> 智能识别
+                        <i class="bi bi-search me-1"></i>识别链接
                     </button>
-                </div>
-            </div>
-
-            <hr class="my-3">
-
-            <div class="config-fold-header">
-                <div class="config-fold-title">
-                    <i class="bi bi-sliders2"></i>
-                    <span>任务配置与识别结果</span>
-                </div>
-                <button type="button" class="section-toggle text-primary fw-semibold text-nowrap" id="configToggleBtn" data-bs-toggle="collapse" data-bs-target="#taskConfigCollapse" aria-expanded="false" aria-controls="taskConfigCollapse">
-                    <span>展开配置</span>
-                    <i class="bi bi-chevron-down ms-1"></i>
-                </button>
-            </div>
-
-            <div class="collapse mt-3" id="taskConfigCollapse">
-                <div class="row g-3 align-items-stretch">
-                    <div class="col-lg-4">
-                        <label class="form-label fw-semibold">任务名称</label>
-                        <input type="text" class="form-control" id="taskName" placeholder="C3 将按股票代码 + 整/近 + 起止年份 + 分钟时间自动生成">
-                        <div class="form-text">C3 模式会按命名规则自动生成任务名称。</div>
-                    </div>
-                    <div class="col-lg-4">
-                        <label class="form-label fw-semibold">回测 Token</label>
-                        <select class="form-select" id="tokenId">
-                            <option value="">加载 Token 中...</option>
-                        </select>
-                        <div class="form-text">仅显示回测任务可用的 Token，默认会优先选中第一个可用项。</div>
-                    </div>
-                    <div class="col-lg-4" id="commissionConfigGroup">
-                        <label class="form-label fw-semibold">手续费</label>
-                        <input type="text" class="form-control" id="commissionInput" value="0.0350%" placeholder="如 0.0350%">
-                        <div class="form-text">单个股票任务只保留一个手续费，提交时会应用到全部参数组。</div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-semibold mb-1">回测年份选项</label>
-                        <div class="form-text mt-0">可以按近几年或整年维度筛选，默认开启最近 3 个整年。</div>
-                        <div class="years-layout">
-                            <div class="years-meta">
-                                <div class="years-summary">
-                                    <div><strong>近年：</strong><span id="recentYearsDisplay">无</span></div>
-                                    <div><strong>整年：</strong><span id="fullYearsDisplay">无</span></div>
-                                </div>
-                                <div class="years-switch-grid">
-                                    <div class="years-switch-item">
-                                        <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" role="switch" id="recentYearsCheck">
-                                            <label class="form-check-label" for="recentYearsCheck">选择近年</label>
-                                        </div>
-                                    </div>
-                                    <div class="years-switch-item">
-                                        <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" role="switch" id="fullYearsCheck" checked>
-                                            <label class="form-check-label" for="fullYearsCheck">选择整年</label>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="years-options-box d-none" id="yearsContainerWrapper">
-                                <div id="recentYearsOptions" class="mb-3 d-none">
-                                    <label class="form-label text-primary small">近年范围</label>
-                                    <div id="recentYearsCheckboxes" class="d-flex flex-wrap gap-3"></div>
-                                </div>
-                                <div id="fullYearsOptions" class="d-none">
-                                    <label class="form-label text-primary small">整年范围</label>
-                                    <div id="fullYearsCheckboxes" class="d-flex flex-wrap gap-3"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="sheetInfo" class="alert alert-primary mt-4 mb-0 d-none">
-                    <div class="d-flex align-items-center mb-2 gap-3 flex-wrap">
-                        <span class="badge bg-primary px-3 py-2 rounded-pill fs-6" id="modelVersionBadge">C3</span>
-                        <span class="fw-medium"><i class="bi bi-file-earmark-spreadsheet me-2"></i><span id="sheetTitle"></span></span>
-                        <span class="text-body-secondary">|</span>
-                        <span class="fw-medium text-body-secondary">Sheet: <span id="sheetNames"></span></span>
-                    </div>
-                    <div class="row mt-2 small d-none" id="yearsDisplay">
-                        <div class="col-md-6"><strong>近年：</strong> <span class="text-body-secondary" id="recentYearsInfoDisplay"></span></div>
-                        <div class="col-md-6"><strong>整年：</strong> <span class="text-body-secondary" id="fullYearsInfoDisplay"></span></div>
-                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="card border-0 shadow-sm rounded-4 d-none" id="paramSection">
-        <div class="card-header bg-body-tertiary border-0 pt-4 pb-3 px-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
-            <div>
-                <h5 class="mb-1 fw-bold">参数配置清单</h5>
-                <p class="text-body-secondary small mb-0">系统会根据模型版本生成表头，你也可以直接从 Excel 导入股票代码、年份和参数行。</p>
+    <div class="card create-card">
+        <div class="card-body p-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div>
+                    <div class="text-body-secondary small">任务配置</div>
+                    <div class="fw-semibold">基础信息与年份范围</div>
+                </div>
+                <button
+                    type="button"
+                    class="config-toggle"
+                    id="configToggleBtn"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#taskConfigCollapse"
+                    aria-expanded="false"
+                    aria-controls="taskConfigCollapse"
+                >
+                    展开配置 <i class="bi bi-chevron-down ms-1"></i>
+                </button>
             </div>
-            <div class="d-flex gap-2 flex-wrap">
-                <input type="file" id="excelFileInput" accept=".xlsx,.xlsm" class="d-none">
-                <button type="button" class="btn btn-outline-secondary rounded-pill" id="importExcelBtn">
-                    <i class="bi bi-file-earmark-excel me-1"></i> 从 Excel 读取参数
-                </button>
-                <button type="button" class="btn btn-outline-primary rounded-pill" id="addParamBtn">
-                    <i class="bi bi-plus-lg"></i> 添加一组
-                </button>
-                <button type="button" class="btn btn-success rounded-pill" id="createBtn">
-                    <i class="bi bi-check2-circle me-1"></i> 提交创建
-                </button>
+
+            <div class="collapse mt-3" id="taskConfigCollapse">
+                <div class="card create-card sheet-info mb-3" id="sheetInfo">
+                    <div class="card-body p-3">
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                            <span class="badge text-bg-primary" id="modelVersionBadge">C3</span>
+                            <span class="fw-semibold" id="sheetTitle">-</span>
+                        </div>
+                        <div class="text-body-secondary small" id="sheetNames">-</div>
+                    </div>
+                </div>
+
+                <div class="config-grid">
+                    <div class="config-box">
+                        <label for="taskName" class="form-label">任务名称</label>
+                        <input type="text" class="form-control" id="taskName" placeholder="默认按股票代码和表格标题生成">
+                    </div>
+                    <div class="config-box">
+                        <label for="tokenId" class="form-label">回测 Token</label>
+                        <select class="form-select" id="tokenId">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                    <div class="config-box" id="commissionConfigGroup">
+                        <label for="commissionInput" class="form-label">手续费</label>
+                        <input type="text" class="form-control" id="commissionInput" value="0.0350%" placeholder="如 0.0350%">
+                    </div>
+                    <div class="config-box">
+                        <label class="form-label d-block">市场类型</label>
+                        <div class="market-toggle-group">
+                            <div class="form-check form-check-inline mb-0">
+                                <input class="form-check-input" type="radio" name="market_type" id="market_type_cn" value="cn" checked>
+                                <label class="form-check-label" for="market_type_cn">cn</label>
+                            </div>
+                            <div class="form-check form-check-inline mb-0">
+                                <input class="form-check-input" type="radio" name="market_type" id="market_type_en" value="en">
+                                <label class="form-check-label" for="market_type_en">en</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="config-grid mt-3">
+                    <div class="config-box">
+                        <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
+                            <label class="form-label mb-0" for="recentYearsCheck">近 N 年</label>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="recentYearsCheck">
+                            </div>
+                        </div>
+                        <div id="recentYearsOptions">
+                            <div class="year-options" id="recentYearsCheckboxes"></div>
+                            <div class="year-display mt-2" id="recentYearsDisplay">未选择</div>
+                            <div class="year-display" id="recentYearsInfoDisplay">用于按最近年份回测。</div>
+                        </div>
+                    </div>
+                    <div class="config-box">
+                        <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
+                            <label class="form-label mb-0" for="fullYearsCheck">完整年份</label>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="fullYearsCheck" checked>
+                            </div>
+                        </div>
+                        <div id="fullYearsOptions" class="d-none">
+                            <div class="year-options" id="fullYearsCheckboxes"></div>
+                            <div class="year-display mt-2" id="fullYearsDisplay">未选择</div>
+                            <div class="year-display" id="fullYearsInfoDisplay">用于按完整自然年回测。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-3" id="yearsContainerWrapper">
+                    <div class="small text-body-secondary">当前年份配置</div>
+                    <div class="fw-semibold" id="yearsDisplay">近 N 年：未选择；完整年份：未选择</div>
+                </div>
             </div>
         </div>
-        <div class="card-body px-4 pb-4">
-            <div class="excel-import-status text-body-secondary small mb-3" id="excelImportStatus">
-                导入后会自动填充股票代码、年份和参数行。
+    </div>
+
+    <div class="card create-card" id="paramSection">
+        <div class="card-body p-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+                <div>
+                    <div class="fw-semibold">参数配置</div>
+                    <div class="text-body-secondary small">支持手动录入或从 Excel 导入。</div>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <input type="file" id="excelFileInput" class="d-none" accept=".xlsx,.xlsm">
+                    <button type="button" class="btn btn-outline-secondary" id="importExcelBtn">
+                        <i class="bi bi-file-earmark-excel me-1"></i>导入 Excel
+                    </button>
+                    <button type="button" class="btn btn-outline-primary" id="addParamBtn">
+                        <i class="bi bi-plus-lg me-1"></i>添加参数
+                    </button>
+                    <button type="button" class="btn btn-primary" id="createBtn">
+                        <i class="bi bi-play-circle me-1"></i>创建任务
+                    </button>
+                </div>
             </div>
-            <div id="emptyHint" class="empty-hint text-center text-body-secondary bg-body-tertiary p-5 mb-3 d-none">
-                <i class="bi bi-table fs-1 d-block mb-3"></i>
-                识别 URL 后会根据模型版本生成表头，每一行代表一组待创建的参数。
+
+            <div id="excelImportStatus" class="small mb-3"></div>
+
+            <div id="emptyHint" class="empty-hint">
+                先识别模型或直接添加参数行。
             </div>
-            <div class="table-responsive rounded-3 border">
-                <table class="table table-hover align-middle mb-0 parameter-table" id="paramTable">
-                    <thead class="table-light" id="paramTableHead"></thead>
+
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle parameter-table mb-0" id="paramTable">
+                    <thead id="paramTableHead"></thead>
                     <tbody id="paramTableBody"></tbody>
                 </table>
             </div>
@@ -367,451 +287,266 @@
 <script>
 const TASK_API_BASE = '/api/tasks';
 const BACKTEST_TASK_TYPE = 'backtest_training';
-let sheetTitle = '';
-let spreadsheetId = '';
-let currentModelVersion = 'c3';
-let currentFields = [];
-let isCreatingTask = false;
-let backtestTokens = [];
-let currentExcelImport = null;
-let importedParameterRows = [];
-
+const STOCK_SEARCH_DEBOUNCE_MS = 1000;
+const DEFAULT_C3_COMMISSION = '0.0350%';
 const FIELD_MAP = {
     c5: [
-        { key: 'xm', label: 'X Multiplier (xm)', defaultValue: '' },
-        { key: 'ml', label: 'ML (ml)', defaultValue: '' }
+        { key: 'xm', label: 'X Multiplier (xm)' },
+        { key: 'ml', label: 'ML (ml)' }
     ],
     c3: [
-        { key: 'xm', label: 'X Multiplier (xm)', defaultValue: '' },
-        { key: 'dbbh1', label: '单边保护1', defaultValue: '' },
-        { key: 'dbbh2', label: '单边保护2', defaultValue: '' },
-        { key: 'zlxc', label: '中立限仓', defaultValue: '' },
-        { key: 'zsgz', label: '指数跟踪', defaultValue: '' },
-        { key: 'ywf1', label: '一窝蜂 smoothing', defaultValue: '' },
-        { key: 'ywf2', label: '一窝蜂 bordering', defaultValue: '' }
+        { key: 'xm', label: 'X Multiplier (xm)' },
+        { key: 'dbbh1', label: '单边保护 1' },
+        { key: 'dbbh2', label: '单边保护 2' },
+        { key: 'zlxc', label: '中立限仓' },
+        { key: 'zsgz', label: '指数跟踪' },
+        { key: 'ywf1', label: '业务费 1' },
+        { key: 'ywf2', label: '业务费 2' }
     ]
 };
 
+let spreadsheetId = '';
+let sheetTitle = '';
+let currentModelVersion = 'c3';
+let currentFields = FIELD_MAP.c3;
+let importedParameterRows = [];
+let currentExcelImport = null;
+let backtestTokens = [];
+let isCreatingTask = false;
+let stockSearchTimer = null;
+let stockSearchAbortController = null;
+let lastStockSearchResults = [];
+let selectedStockSuggestion = null;
+let taskNameTouched = false;
+
 const currentYear = new Date().getFullYear();
-const recentYearsContainer = document.getElementById('recentYearsCheckboxes');
-const fullYearsContainer = document.getElementById('fullYearsCheckboxes');
-const yearsContainerWrapper = document.getElementById('yearsContainerWrapper');
-const recentYearsOptions = document.getElementById('recentYearsOptions');
-const fullYearsOptions = document.getElementById('fullYearsOptions');
-const configToggleBtn = document.getElementById('configToggleBtn');
-const taskConfigCollapse = document.getElementById('taskConfigCollapse');
-const emptyHint = document.getElementById('emptyHint');
-const paramSection = document.getElementById('paramSection');
-const analyzeBtn = document.getElementById('analyzeBtn');
-const tokenIdSelect = document.getElementById('tokenId');
-const commissionConfigGroup = document.getElementById('commissionConfigGroup');
-const commissionInput = document.getElementById('commissionInput');
-const importExcelBtn = document.getElementById('importExcelBtn');
-const excelFileInput = document.getElementById('excelFileInput');
-const excelImportStatus = document.getElementById('excelImportStatus');
+const modelUrlInput = document.getElementById('modelUrl');
 const stockCodeInput = document.getElementById('stockCode');
 const stockSearchResults = document.getElementById('stockSearchResults');
-const DEFAULT_C3_COMMISSION = '0.0350%';
-let stockSearchAbortController = null;
-let stockSearchDebounceTimer = null;
-let stockSearchPositionFrame = null;
-let lastStockSearchResults = [];
-
-for (let i = 1; i <= 7; i += 1) {
-    recentYearsContainer.insertAdjacentHTML('beforeend', `
-        <div class="form-check form-check-inline">
-            <input class="form-check-input recent-year" type="checkbox" id="recent${i}" value="${i}">
-            <label class="form-check-label" for="recent${i}">近 ${i} 年</label>
-        </div>
-    `);
-}
-
-for (let i = 0; i < 7; i += 1) {
-    const year = currentYear - i;
-    fullYearsContainer.insertAdjacentHTML('beforeend', `
-        <div class="form-check form-check-inline">
-            <input class="form-check-input full-year" type="checkbox" id="full${year}" value="${year}">
-            <label class="form-check-label" for="full${year}">${year}</label>
-        </div>
-    `);
-}
-
-function syncYearsWrapper() {
-    const showRecent = !recentYearsOptions.classList.contains('d-none');
-    const showFull = !fullYearsOptions.classList.contains('d-none');
-    yearsContainerWrapper.classList.toggle('d-none', !(showRecent || showFull));
-}
-
-function syncConfigToggleText() {
-    if (!configToggleBtn) {
-        return;
-    }
-    const expanded = configToggleBtn.getAttribute('aria-expanded') === 'true';
-    const label = configToggleBtn.querySelector('span');
-    if (label) {
-        label.textContent = expanded ? '收起配置' : '展开配置';
-    }
-}
-
-function resolveModelVersion(value) {
-    return value && FIELD_MAP[value] ? value : 'c3';
-}
-
-function setExcelImportStatus(message, tone = 'muted') {
-    if (!excelImportStatus) {
-        return;
-    }
-    excelImportStatus.classList.remove('text-body-secondary', 'text-success', 'text-warning', 'text-danger');
-    if (tone === 'success') {
-        excelImportStatus.classList.add('text-success');
-    } else if (tone === 'warning') {
-        excelImportStatus.classList.add('text-warning');
-    } else if (tone === 'danger') {
-        excelImportStatus.classList.add('text-danger');
-    } else {
-        excelImportStatus.classList.add('text-body-secondary');
-    }
-    excelImportStatus.textContent = message;
-}
-
-function setExcelImportButtonState(isLoading) {
-    if (!importExcelBtn) {
-        return;
-    }
-    importExcelBtn.disabled = isLoading;
-    importExcelBtn.innerHTML = isLoading
-        ? '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>读取中...'
-        : '<i class="bi bi-file-earmark-excel me-1"></i> 从 Excel 读取参数';
-}
-
-function renderBacktestTokenOptions(tokens) {
-    if (!tokenIdSelect) {
-        return;
-    }
-    tokenIdSelect.innerHTML = '';
-
-    if (!Array.isArray(tokens) || tokens.length === 0) {
-        tokenIdSelect.innerHTML = '<option value="">暂无可用 Token</option>';
-        return;
-    }
-
-    tokens.forEach((token, index) => {
-        const option = document.createElement('option');
-        option.value = String(token.id);
-        option.textContent = `${token.name} | 占用 ${token.current_in_use_count || 0} | 累计 ${token.task_usage_count || 0} | 上限 ${Number(token.max_usage_count || 0) > 0 ? token.max_usage_count : '无限'}`;
-        option.disabled = !token.is_available;
-        if (!option.disabled && tokenIdSelect.value === '') {
-            option.selected = index === 0;
-        }
-        tokenIdSelect.appendChild(option);
-    });
-
-    if (!Array.from(tokenIdSelect.options).some((option) => option.selected && !option.disabled)) {
-        const firstAvailable = Array.from(tokenIdSelect.options).find((option) => !option.disabled);
-        if (firstAvailable) {
-            firstAvailable.selected = true;
-        }
-    }
-}
-
-async function loadBacktestTokens() {
-    if (!tokenIdSelect) {
-        return;
-    }
-
-    try {
-        const resp = await fetch('/api/google-sheet-tokens?task_type=backtest_training');
-        const data = await resp.json();
-        if (data.status !== 'success') {
-            throw new Error(data.message || '加载 Token 失败');
-        }
-        backtestTokens = Array.isArray(data.tokens) ? data.tokens : [];
-        renderBacktestTokenOptions(backtestTokens);
-    } catch (error) {
-        tokenIdSelect.innerHTML = '<option value="">加载 Token 失败</option>';
-        console.error('加载回测 Token 失败:', error);
-    }
-}
-
-function updateStockCodeHint(message, tone = 'muted') {
-    return { message, tone };
-}
-
-function ensureStockSearchPortal() {
-    if (!stockSearchResults) {
-        return;
-    }
-    if (stockSearchResults.parentElement !== document.body) {
-        document.body.appendChild(stockSearchResults);
-    }
-    stockSearchResults.style.position = 'fixed';
-    stockSearchResults.style.zIndex = '99999';
-}
-
-function positionStockSearchResults() {
-    if (!stockCodeInput || !stockSearchResults || stockSearchResults.classList.contains('d-none')) {
-        return;
-    }
-
-    ensureStockSearchPortal();
-    const rect = stockCodeInput.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth;
-    const viewportHeight = document.documentElement.clientHeight;
-    const width = rect.width;
-    const left = Math.max(12, Math.min(rect.left, viewportWidth - width - 12));
-    const dropdownHeight = Math.min(stockSearchResults.scrollHeight || 240, 240);
-    const preferAbove = rect.bottom + 6 + dropdownHeight > viewportHeight - 12 && rect.top - dropdownHeight - 6 >= 12;
-    const top = preferAbove ? Math.max(12, rect.top - dropdownHeight - 6) : rect.bottom + 6;
-
-    stockSearchResults.style.top = `${top}px`;
-    stockSearchResults.style.left = `${left}px`;
-    stockSearchResults.style.width = `${width}px`;
-}
-
-function scheduleStockSearchResultsPosition() {
-    if (!stockSearchResults || stockSearchResults.classList.contains('d-none')) {
-        return;
-    }
-
-    if (stockSearchPositionFrame) {
-        window.cancelAnimationFrame(stockSearchPositionFrame);
-    }
-    stockSearchPositionFrame = window.requestAnimationFrame(() => {
-        stockSearchPositionFrame = null;
-        positionStockSearchResults();
-    });
-}
-
-function trackStockSearchPositionDuringTransition(duration = 300) {
-    if (!stockSearchResults || stockSearchResults.classList.contains('d-none')) {
-        return;
-    }
-
-    const endTime = window.performance.now() + duration;
-    const tick = () => {
-        if (!stockSearchResults || stockSearchResults.classList.contains('d-none')) {
-            stockSearchPositionFrame = null;
-            return;
-        }
-
-        positionStockSearchResults();
-        if (window.performance.now() < endTime) {
-            stockSearchPositionFrame = window.requestAnimationFrame(tick);
-        } else {
-            stockSearchPositionFrame = null;
-        }
-    };
-
-    if (stockSearchPositionFrame) {
-        window.cancelAnimationFrame(stockSearchPositionFrame);
-    }
-    stockSearchPositionFrame = window.requestAnimationFrame(tick);
-}
-
-function hideStockSearchResults() {
-    if (!stockSearchResults) {
-        return;
-    }
-    stockSearchResults.classList.add('d-none');
-    stockSearchResults.style.top = '';
-    stockSearchResults.style.left = '';
-    stockSearchResults.style.width = '';
-}
-
-function selectStockSuggestion(item) {
-    if (!item || !stockCodeInput) {
-        return;
-    }
-    stockCodeInput.value = item.code || '';
-    hideStockSearchResults();
-    updateStockCodeHint(`已选择 ${item.code}${item.name ? ` · ${item.name}` : ''}${item.security_type_name ? ` · ${item.security_type_name}` : ''}。`, 'success');
-}
-
-function renderStockSearchResults(results, keyword) {
-    lastStockSearchResults = Array.isArray(results) ? results : [];
-    if (!stockSearchResults) {
-        return;
-    }
-
-    if (!lastStockSearchResults.length) {
-        hideStockSearchResults();
-        if (keyword) {
-            updateStockCodeHint(`没有找到与“${keyword}”相关的股票，请检查代码或名称。`, 'warning');
-        }
-        return;
-    }
-
-    stockSearchResults.innerHTML = lastStockSearchResults.map((item, index) => `
-        <button type="button" class="stock-search-item" data-stock-index="${index}">
-            <span class="stock-search-code">${escapeHtml(item.code || '-')}</span>
-            <span class="stock-search-meta">${escapeHtml(item.name || '未命名')}${item.security_type_name ? ` · ${escapeHtml(item.security_type_name)}` : ''}</span>
-        </button>
-    `).join('');
-    ensureStockSearchPortal();
-    stockSearchResults.classList.remove('d-none');
-    scheduleStockSearchResultsPosition();
-}
-
-async function fetchStockSuggestions(keyword) {
-    const trimmedKeyword = (keyword || '').trim();
-    if (!trimmedKeyword) {
-        lastStockSearchResults = [];
-        hideStockSearchResults();
-        updateStockCodeHint('支持输入股票代码或名称，系统会自动搜索候选项。');
-        return;
-    }
-
-    if (stockSearchAbortController) {
-        stockSearchAbortController.abort();
-    }
-    stockSearchAbortController = new AbortController();
-
-    try {
-        const response = await fetch(`/backtest-training/api/search-stocks?q=${encodeURIComponent(trimmedKeyword)}`, {
-            signal: stockSearchAbortController.signal
-        });
-        const data = await response.json();
-        if (!response.ok || data.status !== 'success') {
-            throw new Error(data.message || '股票搜索失败');
-        }
-        renderStockSearchResults(data.results || [], trimmedKeyword);
-        if ((data.results || []).length) {
-            updateStockCodeHint('已找到候选股票，点击即可填充代码。');
-        }
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            return;
-        }
-        console.error('股票搜索失败:', error);
-        hideStockSearchResults();
-        updateStockCodeHint(`股票搜索失败：${error.message || '未知错误'}`, 'danger');
-    }
-}
-
-function scheduleStockSearch() {
-    if (!stockCodeInput) {
-        return;
-    }
-    const keyword = stockCodeInput.value.trim();
-    window.clearTimeout(stockSearchDebounceTimer);
-    stockSearchDebounceTimer = window.setTimeout(() => {
-        fetchStockSuggestions(keyword);
-    }, 260);
-}
-
-async function normalizeStockInputValue() {
-    if (!stockCodeInput) {
-        return;
-    }
-    const keyword = stockCodeInput.value.trim();
-    if (!keyword) {
-        hideStockSearchResults();
-        updateStockCodeHint('支持输入股票代码或名称，系统会自动搜索候选项。');
-        return;
-    }
-
-    const loweredKeyword = keyword.toLowerCase();
-    const exactLocalMatch = lastStockSearchResults.find((item) => {
-        const code = String(item.code || '').toLowerCase();
-        const name = String(item.name || '').toLowerCase();
-        return code === loweredKeyword || name === loweredKeyword;
-    });
-    if (exactLocalMatch) {
-        selectStockSuggestion(exactLocalMatch);
-        return;
-    }
-
-    await fetchStockSuggestions(keyword);
-    const exactMatch = lastStockSearchResults.find((item) => item.is_exact_match)
-        || lastStockSearchResults.find((item) => String(item.name || '').toLowerCase() === loweredKeyword);
-    if (exactMatch) {
-        selectStockSuggestion(exactMatch);
-    }
-}
-
-function syncEmptyState() {
-    const rowCount = document.querySelectorAll('#paramTableBody tr').length;
-    emptyHint.classList.toggle('d-none', rowCount !== 0);
-}
+const analyzeBtn = document.getElementById('analyzeBtn');
+const configToggleBtn = document.getElementById('configToggleBtn');
+const taskConfigCollapse = document.getElementById('taskConfigCollapse');
+const taskNameInput = document.getElementById('taskName');
+const tokenIdSelect = document.getElementById('tokenId');
+const commissionInput = document.getElementById('commissionInput');
+const commissionConfigGroup = document.getElementById('commissionConfigGroup');
+const recentYearsCheck = document.getElementById('recentYearsCheck');
+const fullYearsCheck = document.getElementById('fullYearsCheck');
+const recentYearsOptions = document.getElementById('recentYearsOptions');
+const fullYearsOptions = document.getElementById('fullYearsOptions');
+const recentYearsCheckboxes = document.getElementById('recentYearsCheckboxes');
+const fullYearsCheckboxes = document.getElementById('fullYearsCheckboxes');
+const yearsContainerWrapper = document.getElementById('yearsContainerWrapper');
+const recentYearsDisplay = document.getElementById('recentYearsDisplay');
+const fullYearsDisplay = document.getElementById('fullYearsDisplay');
+const recentYearsInfoDisplay = document.getElementById('recentYearsInfoDisplay');
+const fullYearsInfoDisplay = document.getElementById('fullYearsInfoDisplay');
+const yearsDisplay = document.getElementById('yearsDisplay');
+const sheetInfo = document.getElementById('sheetInfo');
+const modelVersionBadge = document.getElementById('modelVersionBadge');
+const sheetTitleEl = document.getElementById('sheetTitle');
+const sheetNamesEl = document.getElementById('sheetNames');
+const emptyHint = document.getElementById('emptyHint');
+const paramTableHead = document.getElementById('paramTableHead');
+const paramTableBody = document.getElementById('paramTableBody');
+const excelFileInput = document.getElementById('excelFileInput');
+const importExcelBtn = document.getElementById('importExcelBtn');
+const addParamBtn = document.getElementById('addParamBtn');
+const createBtn = document.getElementById('createBtn');
+const excelImportStatus = document.getElementById('excelImportStatus');
+const marketTypeInputs = Array.from(document.querySelectorAll('input[name="market_type"]'));
 
 function escapeHtml(value) {
     return String(value ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
+        .replace(/\"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
 
-function updateYearsDisplay() {
-    const recentChecked = Array.from(document.querySelectorAll('.recent-year:checked')).map((cb) => `近 ${cb.value} 年`);
-    const fullChecked = Array.from(document.querySelectorAll('.full-year:checked')).map((cb) => cb.value);
-
-    document.getElementById('recentYearsDisplay').textContent = recentChecked.join(', ') || '无';
-    document.getElementById('fullYearsDisplay').textContent = fullChecked.join(', ') || '无';
-    document.getElementById('recentYearsInfoDisplay').textContent = recentChecked.join(', ') || '无';
-    document.getElementById('fullYearsInfoDisplay').textContent = fullChecked.join(', ') || '无';
-    document.getElementById('yearsDisplay').classList.toggle('d-none', !(recentChecked.length || fullChecked.length));
-}
-
 function inferModelVersion(title) {
-    const upperTitle = (title || '').toUpperCase();
-    if (upperTitle.includes('C5') || upperTitle.includes('C4')) {
-        return 'c5';
-    }
-    return 'c3';
+    const normalized = String(title || '').toUpperCase();
+    return normalized.includes('C5') || normalized.includes('C4') ? 'c5' : 'c3';
 }
 
-function getC3CommissionValue() {
-    if (!commissionInput) {
-        return DEFAULT_C3_COMMISSION;
-    }
-    const value = commissionInput.value.trim();
-    return value || DEFAULT_C3_COMMISSION;
+function resolveModelVersion(version) {
+    return version === 'c5' ? 'c5' : 'c3';
 }
 
-function setC3CommissionValue(value) {
-    if (!commissionInput) {
+function extractSpreadsheetId(rawUrl) {
+    const value = String(rawUrl || '').trim();
+    if (!value) {
+        return '';
+    }
+    const match = value.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match ? match[1] : '';
+}
+
+function normalizeMarketTypeValue(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'en' ? 'en' : 'cn';
+}
+
+function resolveMarketTypeBySecurityTypeName(securityTypeName) {
+    return String(securityTypeName || '').includes('美股') ? 'en' : 'cn';
+}
+
+function getSelectedMarketType() {
+    return normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value || 'cn');
+}
+
+function setMarketTypeSelection(value) {
+    const normalized = normalizeMarketTypeValue(value);
+    const target = marketTypeInputs.find((item) => item.value === normalized);
+    if (target) {
+        target.checked = true;
+    }
+}
+
+function updateStockMeta() {
+    return;
+}
+
+function sanitizeTaskTitlePart(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/[\\/:*?"<>|]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+}
+
+function buildDefaultTaskName() {
+    const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());
+    const title = sanitizeTaskTitlePart(sheetTitle || sheetTitleEl.textContent || '');
+    return [stockCode, title].filter(Boolean).join('-');
+}
+
+function syncTaskNameInput(force = false) {
+    const nextName = buildDefaultTaskName();
+    if (!nextName) {
         return;
     }
-    const normalizedValue = String(value || '').trim();
-    commissionInput.value = normalizedValue || DEFAULT_C3_COMMISSION;
+    if (force || !taskNameTouched || !taskNameInput.value.trim()) {
+        taskNameInput.value = nextName;
+        taskNameTouched = false;
+    }
 }
 
-function syncCommissionConfigVisibility() {
-    if (!commissionConfigGroup) {
+function clearSelectedStockSuggestion() {
+    selectedStockSuggestion = null;
+    updateStockMeta();
+}
+
+function buildYearCheckboxes() {
+    [1, 2, 3, 5, 7].forEach((year, index) => {
+        recentYearsCheckboxes.insertAdjacentHTML('beforeend', `
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input recent-year" type="checkbox" id="recent_year_${year}" value="${year}" ${index < 3 ? 'checked' : ''}>
+                <label class="form-check-label" for="recent_year_${year}">近 ${year} 年</label>
+            </div>
+        `);
+    });
+
+    for (let index = 0; index < 7; index += 1) {
+        const year = currentYear - index;
+        fullYearsCheckboxes.insertAdjacentHTML('beforeend', `
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input full-year" type="checkbox" id="full_year_${year}" value="${year}" ${index < 3 ? 'checked' : ''}>
+                <label class="form-check-label" for="full_year_${year}">${year}</label>
+            </div>
+        `);
+    }
+}
+
+function ensureDefaultRecentYearsSelection() {
+    const checked = document.querySelectorAll('.recent-year:checked').length;
+    if (checked > 0) {
         return;
     }
-    const isC3Mode = resolveModelVersion(currentModelVersion) === 'c3';
-    commissionConfigGroup.classList.toggle('d-none', !isC3Mode);
-    if (isC3Mode) {
-        setC3CommissionValue(getC3CommissionValue());
+    document.querySelectorAll('.recent-year').forEach((checkbox, index) => {
+        checkbox.checked = index < 3;
+    });
+}
+
+function ensureDefaultFullYearsSelection() {
+    const checked = document.querySelectorAll('.full-year:checked').length;
+    if (checked > 0) {
+        return;
     }
+    document.querySelectorAll('.full-year').forEach((checkbox, index) => {
+        checkbox.checked = index < 3;
+    });
+}
+
+function syncYearsWrapper() {
+    const recentChecked = recentYearsCheck.checked;
+    const fullChecked = fullYearsCheck.checked;
+    recentYearsOptions.classList.toggle('d-none', !recentChecked);
+    fullYearsOptions.classList.toggle('d-none', !fullChecked);
+    yearsContainerWrapper.classList.toggle('d-none', !recentChecked && !fullChecked);
+}
+
+function getCheckedRecentYears() {
+    return Array.from(document.querySelectorAll('.recent-year:checked'))
+        .map((checkbox) => Number.parseInt(checkbox.value, 10))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+}
+
+function getCheckedFullYears() {
+    return Array.from(document.querySelectorAll('.full-year:checked'))
+        .map((checkbox) => Number.parseInt(checkbox.value, 10))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+}
+
+function syncYearsDisplay() {
+    const recentYears = recentYearsCheck.checked ? getCheckedRecentYears() : [];
+    const fullYears = fullYearsCheck.checked ? getCheckedFullYears() : [];
+
+    recentYearsDisplay.textContent = recentYears.length ? recentYears.map((year) => `近 ${year} 年`).join('、') : '未选择';
+    fullYearsDisplay.textContent = fullYears.length ? fullYears.join('、') : '未选择';
+    recentYearsInfoDisplay.textContent = recentYears.length ? `共 ${recentYears.length} 个近年窗口。` : '用于按最近年份回测。';
+    fullYearsInfoDisplay.textContent = fullYears.length ? `共 ${fullYears.length} 个完整年份。` : '用于按完整自然年回测。';
+    yearsDisplay.textContent = `近 N 年：${recentYears.length ? recentYears.join('、') : '未选择'}；完整年份：${fullYears.length ? fullYears.join('、') : '未选择'}`;
+}
+
+function updateConfigToggleText() {
+    configToggleBtn.innerHTML = `${taskConfigCollapse.classList.contains('show') ? '收起配置' : '展开配置'} <i class="bi bi-chevron-down ms-1"></i>`;
 }
 
 function updateTableHeader() {
     currentFields = FIELD_MAP[resolveModelVersion(currentModelVersion)] || FIELD_MAP.c3;
-    const head = document.getElementById('paramTableHead');
-    const headerCells = currentFields.map((field) => `<th>${field.label}</th>`).join('');
-    head.innerHTML = `<tr>${headerCells}<th>操作</th></tr>`;
+    const cells = currentFields.map((field) => `<th>${escapeHtml(field.label)}</th>`).join('');
+    paramTableHead.innerHTML = `<tr>${cells}<th class="text-center">操作</th></tr>`;
+    commissionConfigGroup.classList.toggle('d-none', resolveModelVersion(currentModelVersion) !== 'c3');
+}
+
+function syncEmptyState() {
+    const hasRows = paramTableBody.querySelectorAll('tr').length > 0;
+    emptyHint.classList.toggle('d-none', hasRows);
 }
 
 function addParameterRow(initialValues = {}) {
-    const tbody = document.getElementById('paramTableBody');
     const cells = currentFields.map((field) => {
-        const value = initialValues[field.key] ?? field.defaultValue ?? '';
-        return `<td><input type="text" class="form-control form-control-sm param-input" data-key="${field.key}" value="${value}"></td>`;
+        const value = initialValues[field.key] ?? '';
+        return `
+            <td>
+                <input type="text" class="form-control form-control-sm param-input" data-key="${field.key}" value="${escapeHtml(value)}">
+            </td>
+        `;
     }).join('');
 
-    const row = `
+    paramTableBody.insertAdjacentHTML('beforeend', `
         <tr>
             ${cells}
             <td class="text-center">
-                <button type="button" class="btn btn-outline-danger btn-sm delete-row">删除</button>
+                <button type="button" class="btn btn-sm btn-outline-danger delete-row">删除</button>
             </td>
         </tr>
-    `;
-    tbody.insertAdjacentHTML('beforeend', row);
+    `);
     syncEmptyState();
 }
 
@@ -820,22 +555,19 @@ function projectImportedRows(rows) {
         .map((row) => {
             const projected = {};
             currentFields.forEach((field) => {
-                projected[field.key] = row && row[field.key] ? String(row[field.key]).trim() : '';
+                projected[field.key] = row?.[field.key] ? String(row[field.key]).trim() : '';
             });
             return projected;
         })
-        .filter((row) => Object.values(row).some((value) => value));
+        .filter((row) => Object.values(row).some(Boolean));
 }
 
-function resetParameterTable(initialRows = []) {
-    syncCommissionConfigVisibility();
+function resetParameterTable(rows = []) {
     updateTableHeader();
-    const tbody = document.getElementById('paramTableBody');
-    tbody.innerHTML = '';
-
-    const rows = projectImportedRows(initialRows);
-    if (rows.length) {
-        rows.forEach((row) => addParameterRow(row));
+    paramTableBody.innerHTML = '';
+    const projectedRows = projectImportedRows(rows);
+    if (projectedRows.length) {
+        projectedRows.forEach((row) => addParameterRow(row));
     } else {
         addParameterRow();
     }
@@ -843,210 +575,241 @@ function resetParameterTable(initialRows = []) {
 }
 
 function collectParameterDraftRows() {
-    const rows = document.querySelectorAll('#paramTableBody tr');
-    return Array.from(rows).map((row) => currentFields.map((field) => {
-        const input = row.querySelector(`.param-input[data-key="${field.key}"]`);
-        return input ? input.value.trim() : '';
-    }));
+    return Array.from(paramTableBody.querySelectorAll('tr')).map((row) => {
+        return currentFields.map((field) => row.querySelector(`[data-key="${field.key}"]`)?.value.trim() || '');
+    });
 }
 
-function collectParameters(rows = collectParameterDraftRows()) {
-    if (resolveModelVersion(currentModelVersion) !== 'c3') {
-        return rows;
+function getCommissionValue() {
+    const value = commissionInput.value.trim();
+    return value || DEFAULT_C3_COMMISSION;
+}
+
+function collectParameters() {
+    const rows = collectParameterDraftRows().filter((row) => row.some(Boolean));
+    if (resolveModelVersion(currentModelVersion) === 'c3') {
+        const commission = getCommissionValue();
+        return rows.map((row) => [commission, ...row]);
     }
-    const commission = getC3CommissionValue();
-    return rows.map((row) => [commission, ...row]);
+    return rows;
+}
+
+function setExcelImportStatus(message, tone = 'muted') {
+    excelImportStatus.className = `small mb-3 text-${tone}`;
+    excelImportStatus.textContent = message || '';
+}
+
+function setAnalyzeButtonState(isLoading) {
+    analyzeBtn.disabled = isLoading;
+    analyzeBtn.innerHTML = isLoading
+        ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>识别中'
+        : '<i class="bi bi-search me-1"></i>识别链接';
+}
+
+function setImportButtonState(isLoading) {
+    importExcelBtn.disabled = isLoading;
+    importExcelBtn.innerHTML = isLoading
+        ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导入中'
+        : '<i class="bi bi-file-earmark-excel me-1"></i>导入 Excel';
+}
+
+function setCreateButtonState(isLoading) {
+    isCreatingTask = isLoading;
+    createBtn.disabled = isLoading;
+    createBtn.innerHTML = isLoading
+        ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>创建中'
+        : '<i class="bi bi-play-circle me-1"></i>创建任务';
+}
+
+function renderSheetInfo(title, worksheets) {
+    const modelVersion = inferModelVersion(title);
+    currentModelVersion = modelVersion;
+    sheetTitle = title || '';
+    modelVersionBadge.textContent = modelVersion.toUpperCase();
+    sheetTitleEl.textContent = title || '-';
+    sheetNamesEl.textContent = Array.isArray(worksheets) && worksheets.length ? worksheets.join(' / ') : '-';
+    sheetInfo.classList.add('is-visible');
+    importedParameterRows = [];
+    currentExcelImport = null;
+    setExcelImportStatus('');
+    syncTaskNameInput(true);
+    resetParameterTable();
+}
+
+function renderTokenOptions(tokens) {
+    tokenIdSelect.innerHTML = '';
+    if (!Array.isArray(tokens) || !tokens.length) {
+        tokenIdSelect.innerHTML = '<option value="">暂无可用 Token</option>';
+        return;
+    }
+
+    tokens.forEach((token) => {
+        const option = document.createElement('option');
+        option.value = String(token.id);
+        option.disabled = !token.is_available;
+        option.textContent = `${token.name} | 占用 ${token.current_in_use_count || 0} | 累计 ${token.task_usage_count || 0} | 上限 ${Number(token.max_usage_count || 0) > 0 ? token.max_usage_count : '无限'}`;
+        tokenIdSelect.appendChild(option);
+    });
+
+    const firstAvailable = Array.from(tokenIdSelect.options).find((option) => !option.disabled);
+    if (firstAvailable) {
+        firstAvailable.selected = true;
+    }
+}
+
+async function loadBacktestTokens() {
+    try {
+        const response = await fetch('/api/google-sheet-tokens?task_type=backtest_training');
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '加载 Token 失败');
+        }
+        backtestTokens = Array.isArray(data.tokens) ? data.tokens : [];
+        renderTokenOptions(backtestTokens);
+    } catch (error) {
+        tokenIdSelect.innerHTML = '<option value="">加载 Token 失败</option>';
+        console.error(error);
+    }
+}
+
+function hideStockSearchResults() {
+    stockSearchResults.classList.add('d-none');
+}
+
+function showStockSearchResults() {
+    stockSearchResults.classList.remove('d-none');
+}
+
+function renderStockSearchResults(results, keyword) {
+    lastStockSearchResults = Array.isArray(results) ? results : [];
+    if (!lastStockSearchResults.length) {
+        stockSearchResults.innerHTML = `
+            <div class="px-3 py-2 text-body-secondary small">
+                ${keyword ? `未找到 “${escapeHtml(keyword)}” 的匹配结果` : '请输入股票代码'}
+            </div>
+        `;
+        showStockSearchResults();
+        return;
+    }
+
+    stockSearchResults.innerHTML = lastStockSearchResults.map((item, index) => `
+        <button type="button" class="stock-search-item ${index === 0 ? 'active' : ''}" data-index="${index}">
+            <div class="fw-semibold">${escapeHtml(item.code || '')}</div>
+            <div class="small text-body-secondary">${escapeHtml(item.label || item.name || '')}</div>
+        </button>
+    `).join('');
+    showStockSearchResults();
+}
+
+function selectStockSuggestion(item) {
+    if (!item) {
+        return;
+    }
+    stockCodeInput.value = item.code || '';
+    selectedStockSuggestion = item;
+    setMarketTypeSelection(resolveMarketTypeBySecurityTypeName(item.security_type_name));
+    syncTaskNameInput(true);
+    updateStockMeta();
+    showStockSearchResults();
+}
+
+async function fetchStockSuggestions(keyword, options = {}) {
+    const trimmedKeyword = String(keyword || '').trim();
+    if (!trimmedKeyword) {
+        lastStockSearchResults = [];
+        hideStockSearchResults();
+        return [];
+    }
+
+    if (stockSearchAbortController) {
+        stockSearchAbortController.abort();
+    }
+    stockSearchAbortController = new AbortController();
+
+    try {
+        const response = await fetch(`/api/search-stocks?q=${encodeURIComponent(trimmedKeyword)}`, {
+            signal: stockSearchAbortController.signal
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '股票搜索失败');
+        }
+        renderStockSearchResults(data.results || [], trimmedKeyword);
+        if (options.keepOpen) {
+            showStockSearchResults();
+        }
+        return data.results || [];
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            return [];
+        }
+        stockSearchResults.innerHTML = `<div class="px-3 py-2 text-danger small">${escapeHtml(error.message || '股票搜索失败')}</div>`;
+        showStockSearchResults();
+        return [];
+    }
+}
+
+function scheduleStockSearch() {
+    window.clearTimeout(stockSearchTimer);
+    stockSearchTimer = window.setTimeout(() => {
+        fetchStockSuggestions(stockCodeInput.value.trim(), { keepOpen: false });
+    }, STOCK_SEARCH_DEBOUNCE_MS);
 }
 
 function padNumber(value) {
     return String(value).padStart(2, '0');
 }
 
-function getMinuteTimestamp() {
+function buildMinuteTimestamp() {
     const now = new Date();
     return `${now.getFullYear()}${padNumber(now.getMonth() + 1)}${padNumber(now.getDate())}${padNumber(now.getHours())}${padNumber(now.getMinutes())}`;
 }
 
-function getSelectedRunYearLabel() {
-    const recentYears = Array.from(document.querySelectorAll('.recent-year:checked'))
-        .map((checkbox) => Number.parseInt(checkbox.value, 10))
-        .filter((value) => Number.isFinite(value))
-        .sort((a, b) => a - b);
-
-    const fullYears = Array.from(document.querySelectorAll('.full-year:checked'))
-        .map((checkbox) => checkbox.value)
-        .filter(Boolean);
-
+function buildRunYearLabel() {
+    const recentYears = recentYearsCheck.checked ? getCheckedRecentYears() : [];
+    const fullYears = fullYearsCheck.checked ? getCheckedFullYears() : [];
     const parts = [];
 
     if (fullYears.length) {
-        const numericYears = fullYears
-            .map((value) => Number.parseInt(value, 10))
-            .filter((value) => Number.isFinite(value))
-            .sort((a, b) => a - b);
-        if (numericYears.length) {
-            parts.push(`整_${numericYears[0]}_${numericYears[numericYears.length - 1]}`);
-        }
+        parts.push(`整_${fullYears[0]}_${fullYears[fullYears.length - 1]}`);
     }
-
     if (recentYears.length) {
         const maxRecentYear = Math.max(...recentYears);
-        const startYear = currentYear - maxRecentYear;
-        parts.push(`近_${startYear}_${currentYear}`);
+        parts.push(`近_${currentYear - maxRecentYear}_${currentYear}`);
     }
-
     return parts.join('_') || '未选年份';
 }
 
 function buildC3TaskName() {
-    const stockCode = (document.getElementById('stockCode')?.value || '').trim().toUpperCase();
-    const runYearLabel = getSelectedRunYearLabel();
-    const timeLabel = getMinuteTimestamp();
-
+    const stockCode = stockCodeInput.value.trim().toUpperCase();
     if (!stockCode) {
         return '';
     }
-
-    return `C3_${stockCode}_${runYearLabel}_${timeLabel}`;
+    return `C3_${stockCode}_${buildRunYearLabel()}_${buildMinuteTimestamp()}`;
 }
 
-function refreshTaskNameByRule() {
-    const taskNameInput = document.getElementById('taskName');
-    if (!taskNameInput) {
-        return;
-    }
-
-    if (resolveModelVersion(currentModelVersion) !== 'c3') {
-        return;
-    }
-
-    const generatedName = buildC3TaskName();
-    taskNameInput.value = generatedName || '';
-}
-
-function setCreateButtonState(isLoading) {
-    const createBtn = document.getElementById('createBtn');
-    const addParamBtn = document.getElementById('addParamBtn');
-
-    isCreatingTask = isLoading;
-    createBtn.disabled = isLoading;
-    addParamBtn.disabled = isLoading;
-    createBtn.innerHTML = isLoading
-        ? '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>创建中...'
-        : '<i class="bi bi-check2-circle me-1"></i> 提交创建';
-}
-
-function setAnalyzeButtonState(isLoading) {
-    analyzeBtn.disabled = isLoading;
-    analyzeBtn.innerHTML = isLoading
-        ? '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>识别中...'
-        : '<i class="bi bi-magic me-1"></i> 智能识别';
-}
-
-function applyImportedYearSelection(recentValues, fullValues) {
-    const normalizedRecent = (Array.isArray(recentValues) ? recentValues : []).map((value) => String(value));
-    const normalizedFull = (Array.isArray(fullValues) ? fullValues : []).map((value) => String(value));
-
-    document.getElementById('recentYearsCheck').checked = normalizedRecent.length > 0;
-    recentYearsOptions.classList.toggle('d-none', normalizedRecent.length === 0);
-    document.querySelectorAll('.recent-year').forEach((checkbox) => {
-        checkbox.checked = normalizedRecent.includes(checkbox.value);
-    });
-
-    document.getElementById('fullYearsCheck').checked = normalizedFull.length > 0;
-    fullYearsOptions.classList.toggle('d-none', normalizedFull.length === 0);
-    document.querySelectorAll('.full-year').forEach((checkbox) => {
-        checkbox.checked = normalizedFull.includes(checkbox.value);
-    });
-
-    syncYearsWrapper();
-    updateYearsDisplay();
-}
-
-function applyImportedPayload(data) {
-    if (data.stock_code) {
-        document.getElementById('stockCode').value = data.stock_code;
-    }
-
-    currentExcelImport = data.excel_import || null;
-    importedParameterRows = Array.isArray(data.parameters) ? data.parameters : [];
-    const firstCommission = importedParameterRows.find((row) => row && row.commission)?.commission;
-    if (firstCommission) {
-        setC3CommissionValue(firstCommission);
-    }
-    applyImportedYearSelection(data.recent_years || [], data.full_years || []);
-
+async function analyzeSheetUrl() {
+    const url = modelUrlInput.value.trim();
+    spreadsheetId = extractSpreadsheetId(url);
     if (!spreadsheetId) {
-        currentModelVersion = resolveModelVersion(data.model_version);
-    }
-    syncCommissionConfigVisibility();
-    paramSection.classList.remove('d-none');
-    resetParameterTable(importedParameterRows);
-
-    if (taskConfigCollapse) {
-        bootstrap.Collapse.getOrCreateInstance(taskConfigCollapse, { toggle: false }).show();
-    }
-
-    const rowCount = importedParameterRows.length;
-    setExcelImportStatus(`已从 Excel 导入：股票 ${data.stock_code || '-'}，${rowCount} 组参数，近年 ${Array.isArray(data.recent_years) && data.recent_years.length ? data.recent_years.join(', ') : '无'}。`, 'success');
-}
-
-async function analyzeSpreadsheet() {
-    const url = document.getElementById('modelUrl').value.trim();
-    if (!url) {
-        alert('请输入模型 URL');
+        alert('请填写有效的 Google Sheet 链接');
         return;
     }
 
-    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    if (!match) {
-        alert('无效的 Google Sheet URL');
-        return;
-    }
-
-    spreadsheetId = match[1];
     setAnalyzeButtonState(true);
-
     try {
-        const res = await fetch('/api/google-sheet/worksheets', {
+        const response = await fetch('/api/google-sheet/worksheets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ spreadsheet_id: spreadsheetId })
         });
-        const data = await res.json();
-
+        const data = await response.json();
         if (data.status !== 'success') {
-            alert(`识别失败：${data.message || '未知错误'}`);
-            return;
+            throw new Error(data.message || '识别链接失败');
         }
-
-        const previousModelVersion = currentModelVersion;
-        sheetTitle = data.title || '';
-        currentModelVersion = inferModelVersion(sheetTitle);
-        document.getElementById('sheetTitle').textContent = sheetTitle;
-        if (resolveModelVersion(currentModelVersion) === 'c3') {
-            refreshTaskNameByRule();
-        } else {
-            document.getElementById('taskName').value = sheetTitle;
-        }
-        document.getElementById('sheetNames').textContent = (data.worksheets && data.worksheets.length > 0) ? data.worksheets[0] : '';
-        document.getElementById('modelVersionBadge').textContent = currentModelVersion.toUpperCase();
-        document.getElementById('sheetInfo').classList.remove('d-none');
-        paramSection.classList.remove('d-none');
-        syncCommissionConfigVisibility();
-
-        if (taskConfigCollapse) {
-            bootstrap.Collapse.getOrCreateInstance(taskConfigCollapse, { toggle: false }).show();
-        }
-
-        resetParameterTable(importedParameterRows);
-        if (importedParameterRows.length && previousModelVersion !== currentModelVersion) {
-            setExcelImportStatus(`当前模板按 ${currentModelVersion.toUpperCase()} 表头显示；Excel 中不匹配的字段已自动忽略。`, 'warning');
-        } else if (!importedParameterRows.length) {
-            setExcelImportStatus('导入后会自动填充股票代码、年份和参数行。');
-        }
+        renderSheetInfo(data.title || '', data.worksheets || []);
     } catch (error) {
-        alert('识别失败：网络异常或服务未响应');
+        alert(error.message || '识别链接失败');
     } finally {
         setAnalyzeButtonState(false);
     }
@@ -1059,8 +822,7 @@ async function importExcelFile(file) {
 
     const formData = new FormData();
     formData.append('file', file);
-    setExcelImportButtonState(true);
-    setExcelImportStatus(`正在读取 ${file.name} ...`);
+    setImportButtonState(true);
 
     try {
         const response = await fetch('/backtest-training/api/import-excel', {
@@ -1068,178 +830,104 @@ async function importExcelFile(file) {
             body: formData
         });
         const data = await response.json();
-        if (!response.ok || data.status !== 'success') {
-            throw new Error(data.message || 'Excel 读取失败');
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Excel 导入失败');
         }
-        applyImportedPayload(data);
+
+        currentModelVersion = inferModelVersion(data.model_version || 'c3');
+        importedParameterRows = Array.isArray(data.parameters) ? data.parameters : [];
+        currentExcelImport = data.excel_import || null;
+        spreadsheetId = spreadsheetId || extractSpreadsheetId(modelUrlInput.value.trim());
+        if (data.stock_code) {
+            stockCodeInput.value = String(data.stock_code).trim().toUpperCase();
+        }
+        if (Array.isArray(data.recent_years)) {
+            document.querySelectorAll('.recent-year').forEach((checkbox) => {
+                checkbox.checked = data.recent_years.includes(Number.parseInt(checkbox.value, 10));
+            });
+            recentYearsCheck.checked = data.recent_years.length > 0;
+        }
+        if (Array.isArray(data.full_years)) {
+            document.querySelectorAll('.full-year').forEach((checkbox) => {
+                checkbox.checked = data.full_years.includes(Number.parseInt(checkbox.value, 10));
+            });
+            fullYearsCheck.checked = data.full_years.length > 0;
+        }
+
+        syncYearsWrapper();
+        syncYearsDisplay();
+        modelVersionBadge.textContent = currentModelVersion.toUpperCase();
+        sheetTitle = data.sheet_name || sheetTitle;
+        if (sheetTitle) {
+            sheetInfo.classList.add('is-visible');
+            sheetTitleEl.textContent = sheetTitle;
+            sheetNamesEl.textContent = data.sheet_name || sheetNamesEl.textContent || '-';
+        }
+        syncTaskNameInput(true);
+        resetParameterTable(importedParameterRows);
+        setExcelImportStatus(`已导入 ${importedParameterRows.length} 组参数`, 'success');
     } catch (error) {
-        console.error('Excel 导入失败:', error);
-        setExcelImportStatus(`Excel 导入失败：${error.message || '未知错误'}`, 'danger');
-        alert(`Excel 导入失败：${error.message || '未知错误'}`);
+        setExcelImportStatus(error.message || 'Excel 导入失败', 'danger');
     } finally {
+        setImportButtonState(false);
         excelFileInput.value = '';
-        setExcelImportButtonState(false);
     }
 }
 
-document.getElementById('recentYearsCheck').addEventListener('change', (event) => {
-    const isChecked = event.target.checked;
-    recentYearsOptions.classList.toggle('d-none', !isChecked);
-    document.querySelectorAll('.recent-year').forEach((checkbox, index) => {
-        checkbox.checked = isChecked && index < 3;
-    });
-    syncYearsWrapper();
-    updateYearsDisplay();
-});
-
-document.getElementById('fullYearsCheck').addEventListener('change', (event) => {
-    const isChecked = event.target.checked;
-    fullYearsOptions.classList.toggle('d-none', !isChecked);
-    document.querySelectorAll('.full-year').forEach((checkbox, index) => {
-        checkbox.checked = isChecked && index < 3;
-    });
-    syncYearsWrapper();
-    updateYearsDisplay();
-});
-
-document.addEventListener('change', (event) => {
-    if (event.target.classList.contains('recent-year') || event.target.classList.contains('full-year')) {
-        updateYearsDisplay();
-        refreshTaskNameByRule();
-    }
-});
-
-document.getElementById('addParamBtn').addEventListener('click', () => {
-    addParameterRow();
-});
-
-document.getElementById('paramTableBody').addEventListener('click', (event) => {
-    if (event.target.classList.contains('delete-row')) {
-        event.target.closest('tr').remove();
-        syncEmptyState();
-    }
-});
-
-analyzeBtn.addEventListener('click', analyzeSpreadsheet);
-
-if (importExcelBtn && excelFileInput) {
-    importExcelBtn.addEventListener('click', () => {
-        excelFileInput.click();
-    });
-    excelFileInput.addEventListener('change', async (event) => {
-        const [file] = event.target.files || [];
-        await importExcelFile(file);
-    });
-}
-
-if (stockCodeInput) {
-    stockCodeInput.addEventListener('input', () => {
-        updateStockCodeHint('支持输入股票代码或名称，系统会自动搜索候选项。');
-        refreshTaskNameByRule();
-        scheduleStockSearch();
-    });
-    stockCodeInput.addEventListener('focus', () => {
-        if (stockCodeInput.value.trim() && lastStockSearchResults.length) {
-            ensureStockSearchPortal();
-            stockSearchResults.classList.remove('d-none');
-            scheduleStockSearchResultsPosition();
-        }
-    });
-    stockCodeInput.addEventListener('blur', () => {
-        window.setTimeout(() => {
-            normalizeStockInputValue();
-            refreshTaskNameByRule();
-            hideStockSearchResults();
-        }, 160);
-    });
-}
-
-if (stockSearchResults) {
-    stockSearchResults.addEventListener('click', (event) => {
-        const target = event.target.closest('[data-stock-index]');
-        if (!target) {
-            return;
-        }
-        const index = Number(target.getAttribute('data-stock-index'));
-        const selected = lastStockSearchResults[index];
-        if (selected) {
-            selectStockSuggestion(selected);
-        }
-    });
-}
-
-document.addEventListener('click', (event) => {
-    if (!event.target.closest('.stock-search-shell') && !event.target.closest('#stockSearchResults')) {
-        hideStockSearchResults();
-    }
-});
-
-window.addEventListener('resize', scheduleStockSearchResultsPosition);
-window.addEventListener('scroll', scheduleStockSearchResultsPosition, true);
-
-document.getElementById('createBtn').addEventListener('click', async () => {
+async function createTask() {
     if (isCreatingTask) {
         return;
     }
 
-    const resolvedTaskName = resolveModelVersion(currentModelVersion) === 'c3'
-        ? buildC3TaskName()
-        : document.getElementById('taskName').value.trim();
-    const taskName = resolvedTaskName.trim();
-    const stockCode = document.getElementById('stockCode').value.trim();
-    const sheetName = document.getElementById('sheetNames').textContent.trim();
-    const tokenId = tokenIdSelect ? tokenIdSelect.value : '';
+    const taskName = taskNameInput.value.trim() || buildDefaultTaskName();
+    const stockCode = stockCodeInput.value.trim().toUpperCase();
+    const tokenId = tokenIdSelect.value;
+    const parameters = collectParameters();
+    const recentYears = recentYearsCheck.checked ? getCheckedRecentYears() : [];
+    const fullYears = fullYearsCheck.checked ? getCheckedFullYears() : [];
 
     if (!taskName) {
-        alert('请输入任务名称');
+        alert('请填写任务名称');
         return;
     }
-
     if (!spreadsheetId) {
-        alert('请先识别 URL');
+        spreadsheetId = extractSpreadsheetId(modelUrlInput.value.trim());
+    }
+    if (!spreadsheetId) {
+        alert('请先识别有效的 Google Sheet 链接');
         return;
     }
-
     if (!stockCode) {
         alert('请输入股票代码');
         return;
     }
-
     if (stockCode.includes(',') || stockCode.includes('，')) {
-        alert('当前仅支持单个股票代码，请只输入一个股票。');
+        alert('当前仅支持单个股票代码');
         return;
     }
-
-    if (!currentFields.length) {
-        alert('请先识别 URL');
-        return;
-    }
-
     if (!tokenId) {
         alert('请选择回测 Token');
         return;
     }
-
-    const parameterDraftRows = collectParameterDraftRows().filter((row) => row.some((value) => value));
-    if (!parameterDraftRows.length) {
+    if (!parameters.length) {
         alert('请至少填写一组参数');
         return;
     }
-    const parameters = collectParameters(parameterDraftRows);
-
-    const recentYears = Array.from(document.querySelectorAll('.recent-year:checked')).map((checkbox) => parseInt(checkbox.value, 10));
-    const fullYears = Array.from(document.querySelectorAll('.full-year:checked')).map((checkbox) => parseInt(checkbox.value, 10));
+    if (!sheetTitle) {
+        alert('请先识别链接或导入 Excel');
+        return;
+    }
 
     setCreateButtonState(true);
-
     try {
         const config = {
             sheet: {
                 spreadsheet_id: spreadsheetId,
-                sheet_name: sheetName || 'Sheet1',
+                sheet_name: sheetTitleEl.textContent.trim() || 'Sheet1',
                 title: sheetTitle
             },
             stock_code: stockCode,
+            market_type: getSelectedMarketType(),
             token_type: 'file',
             token_id: Number(tokenId),
             parameters,
@@ -1250,53 +938,143 @@ document.getElementById('createBtn').addEventListener('click', async () => {
             config.excel_import = currentExcelImport;
         }
 
-        const res = await fetch(TASK_API_BASE, {
+        const response = await fetch(TASK_API_BASE, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: taskName,
-                description: `backtest training task for ${sheetName}`,
+                description: `backtest training task for ${sheetTitleEl.textContent.trim() || 'sheet'}`,
                 task_type: BACKTEST_TASK_TYPE,
                 config
             })
         });
-
-        const data = await res.json();
-        if (data.task_id) {
-            alert('任务创建成功');
-            window.location.href = '{{ url_for("backtest_training.list_page") }}';
-            return;
+        const data = await response.json();
+        if (!response.ok || !data.task_id) {
+            throw new Error(data.message || '任务创建失败');
         }
-
-        alert(`任务创建失败：${data.message || '未知错误'}`);
+        alert('任务创建成功');
+        window.location.href = '{{ url_for("backtest_training.list_page") }}';
     } catch (error) {
-        alert('任务创建失败：网络异常或服务未响应');
+        alert(error.message || '任务创建失败');
     } finally {
         setCreateButtonState(false);
     }
+}
+
+buildYearCheckboxes();
+ensureDefaultRecentYearsSelection();
+ensureDefaultFullYearsSelection();
+resetParameterTable();
+syncYearsWrapper();
+syncYearsDisplay();
+updateConfigToggleText();
+updateStockMeta();
+loadBacktestTokens();
+
+analyzeBtn.addEventListener('click', analyzeSheetUrl);
+modelUrlInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        analyzeSheetUrl();
+    }
 });
 
-syncYearsWrapper();
-syncEmptyState();
-syncCommissionConfigVisibility();
-taskConfigCollapse?.addEventListener('show.bs.collapse', () => {
-    syncConfigToggleText();
-    trackStockSearchPositionDuringTransition();
+stockCodeInput.addEventListener('input', () => {
+    clearSelectedStockSuggestion();
+    syncTaskNameInput();
+    if (!stockCodeInput.value.trim()) {
+        hideStockSearchResults();
+        return;
+    }
+    scheduleStockSearch();
 });
-taskConfigCollapse?.addEventListener('shown.bs.collapse', () => {
-    syncConfigToggleText();
-    scheduleStockSearchResultsPosition();
+
+stockCodeInput.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter') {
+        return;
+    }
+    event.preventDefault();
+    window.clearTimeout(stockSearchTimer);
+    await fetchStockSuggestions(stockCodeInput.value.trim(), { keepOpen: true });
+    showStockSearchResults();
 });
-taskConfigCollapse?.addEventListener('hide.bs.collapse', () => {
-    syncConfigToggleText();
-    trackStockSearchPositionDuringTransition();
+
+stockCodeInput.addEventListener('focus', () => {
+    if (lastStockSearchResults.length) {
+        showStockSearchResults();
+    }
 });
-taskConfigCollapse?.addEventListener('hidden.bs.collapse', () => {
-    syncConfigToggleText();
-    scheduleStockSearchResultsPosition();
+
+taskNameInput.addEventListener('input', () => {
+    taskNameTouched = Boolean(taskNameInput.value.trim());
 });
-syncConfigToggleText();
-loadBacktestTokens();
-document.getElementById('fullYearsCheck').dispatchEvent(new Event('change'));
+
+stockSearchResults.addEventListener('click', (event) => {
+    const target = event.target.closest('.stock-search-item');
+    if (!target) {
+        return;
+    }
+    const index = Number.parseInt(target.dataset.index, 10);
+    const item = lastStockSearchResults[index];
+    selectStockSuggestion(item);
+});
+
+document.addEventListener('click', (event) => {
+    if (!event.target.closest('.stock-search-shell')) {
+        hideStockSearchResults();
+    }
+});
+
+marketTypeInputs.forEach((input) => {
+    input.addEventListener('change', () => {
+        if (selectedStockSuggestion) {
+            const inferred = resolveMarketTypeBySecurityTypeName(selectedStockSuggestion.security_type_name);
+            if (normalizeMarketTypeValue(input.value) !== inferred) {
+                selectedStockSuggestion = null;
+            }
+        }
+        updateStockMeta();
+    });
+});
+
+recentYearsCheck.addEventListener('change', () => {
+    if (recentYearsCheck.checked) {
+        ensureDefaultRecentYearsSelection();
+    }
+    syncYearsWrapper();
+    syncYearsDisplay();
+});
+fullYearsCheck.addEventListener('change', () => {
+    if (fullYearsCheck.checked) {
+        ensureDefaultFullYearsSelection();
+    }
+    syncYearsWrapper();
+    syncYearsDisplay();
+});
+document.addEventListener('change', (event) => {
+    if (event.target.classList.contains('recent-year') || event.target.classList.contains('full-year')) {
+        syncYearsDisplay();
+    }
+});
+
+taskConfigCollapse.addEventListener('shown.bs.collapse', updateConfigToggleText);
+taskConfigCollapse.addEventListener('hidden.bs.collapse', updateConfigToggleText);
+
+addParamBtn.addEventListener('click', () => addParameterRow());
+paramTableBody.addEventListener('click', (event) => {
+    const deleteButton = event.target.closest('.delete-row');
+    if (!deleteButton) {
+        return;
+    }
+    deleteButton.closest('tr')?.remove();
+    syncEmptyState();
+});
+
+importExcelBtn.addEventListener('click', () => excelFileInput.click());
+excelFileInput.addEventListener('change', (event) => {
+    importExcelFile(event.target.files?.[0]);
+});
+
+createBtn.addEventListener('click', createTask);
 </script>
 {% endblock %}

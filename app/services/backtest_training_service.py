@@ -38,6 +38,15 @@ class BacktestTrainingService(BaseGoogleSheetService):
         return f"{current_app.config.get('BASE_URL')}/backtest-training/detail/{self.task_id}"
 
     @staticmethod
+    def _normalize_market_type(value):
+        normalized = str(value or '').strip().lower()
+        if normalized == 'cn':
+            return 'cn'
+        if normalized in ('en', 'us', 'usa'):
+            return 'en'
+        return 'cn'
+
+    @staticmethod
     def _sanitize_json_value(value):
         """Convert NaN/Infinity values into JSON-safe nulls before persistence."""
         if isinstance(value, float):
@@ -189,6 +198,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             recent_years = config_data.get('recent_years', [])
             parameters = config_data.get('parameters', [])
             stock_code = config_data.get('stock_code', '')
+            market_type = self._normalize_market_type(config_data.get('market_type', 'cn'))
 
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
@@ -197,7 +207,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 full_years,
                 recent_years,
                 parameters,
-                stock_code
+                stock_code,
+                market_type=market_type
             )
             precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
             total_combinations += len(combinations)
@@ -667,6 +678,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         stock_code,price_mode="sp_price",market_type="cn"
 
     ):
+        market_type = self._normalize_market_type(market_type)
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
