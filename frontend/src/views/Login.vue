@@ -1,60 +1,149 @@
 <template>
-  <div class="login-container">
-    <div class="login-grid">
-      <section class="login-hero">
-        <div class="login-hero__badge">Task Validation Platform</div>
-        <h1 class="login-hero__title">让参数校验、任务编排和运行追踪集中在一个控制台里。</h1>
-        <p class="login-hero__description">
-          面向批量任务与 Google 参数校验场景设计的运营后台。统一查看版本任务、执行进度、异常状态和系统配置，不再在多个页面之间跳转。
-        </p>
-
-        <div class="login-hero__metrics">
-          <div class="login-hero__metric">
-            <span class="login-hero__metric-value">C3 / C4 / C5</span>
-            <span class="login-hero__metric-label">多版本任务入口</span>
-          </div>
-          <div class="login-hero__metric">
-            <span class="login-hero__metric-value">30s</span>
-            <span class="login-hero__metric-label">实时刷新监控</span>
-          </div>
-          <div class="login-hero__metric">
-            <span class="login-hero__metric-value">Sheets</span>
-            <span class="login-hero__metric-label">数据通道联动</span>
-          </div>
+  <div class="login-page">
+    <header class="login-page__topbar">
+      <div class="login-page__brand">
+        <span class="login-page__brand-dot" />
+        <div>
+          <div class="login-page__brand-title">Task Validation Platform</div>
+          <div class="login-page__brand-subtitle">参数校验与任务控制台</div>
         </div>
-      </section>
+      </div>
 
-      <el-card class="login-card" shadow="never">
-        <div class="login-card__eyebrow">欢迎回来</div>
-        <h2 class="login-title">登录任务平台</h2>
-        <p class="login-subtitle">使用你的账号进入任务列表、仪表盘和系统配置中心。</p>
+      <el-switch
+        v-model="switchValue"
+        class="login-page__theme-switch"
+        :active-action-icon="Moon"
+        :inactive-action-icon="Sunny"
+        inline-prompt
+      />
+    </header>
 
-        <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="handleLogin">
-          <el-form-item prop="username" label="用户名">
-            <el-input v-model.trim="form.username" placeholder="请输入用户名" size="large" />
-          </el-form-item>
-          <el-form-item prop="password" label="密码">
-            <el-input
-              v-model="form.password"
-              type="password"
-              placeholder="请输入密码"
+    <main class="login-page__main">
+      <section class="login-page__panel">
+        <div class="login-page__intro">
+          <p class="login-page__eyebrow">Workspace Access</p>
+          <h1 class="login-page__title">{{ isSignupMode ? '注册申请' : '登录系统' }}</h1>
+          <p class="login-page__description">
+            {{ isSignupMode
+              ? '当前项目未开放公开注册，保留申请入口与表单校验。'
+              : '使用现有账号进入任务列表、回测结果和系统配置。' }}
+          </p>
+        </div>
+
+        <div class="login-page__tabs">
+          <button
+            type="button"
+            :class="['login-page__tab', { 'login-page__tab--active': !isSignupMode }]"
+            @click="setMode(false)"
+          >
+            登录
+          </button>
+          <button
+            type="button"
+            :class="['login-page__tab', { 'login-page__tab--active': isSignupMode }]"
+            @click="setMode(true)"
+          >
+            注册
+          </button>
+        </div>
+
+        <transition name="login-fade" mode="out-in">
+          <el-form
+            v-if="!isSignupMode"
+            key="login"
+            ref="loginFormRef"
+            :model="loginForm"
+            :rules="loginRules"
+            label-position="top"
+            class="login-form"
+          >
+            <el-form-item label="用户名" prop="username">
+              <el-input
+                v-model.trim="loginForm.username"
+                size="large"
+                placeholder="请输入用户名"
+                @keyup.enter="handleLogin"
+              />
+            </el-form-item>
+
+            <el-form-item label="密码" prop="password">
+              <el-input
+                v-model="loginForm.password"
+                size="large"
+                type="password"
+                placeholder="请输入密码"
+                show-password
+                @keyup.enter="handleLogin"
+              />
+            </el-form-item>
+
+            <el-button
+              type="primary"
               size="large"
-              show-password
-              @keyup.enter="handleLogin"
-            />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" size="large" class="login-submit" :loading="loading" @click="handleLogin">
-              进入控制台
+              class="login-form__submit"
+              :loading="loginLoading"
+              @click="handleLogin"
+            >
+              登录
             </el-button>
-          </el-form-item>
-        </el-form>
+          </el-form>
 
-        <div class="login-footnote">
-          建议使用桌面端获得完整的数据表格与批量操作体验。
-        </div>
-      </el-card>
-    </div>
+          <el-form
+            v-else
+            key="signup"
+            ref="signupFormRef"
+            :model="signupForm"
+            :rules="signupRules"
+            label-position="top"
+            class="login-form"
+          >
+            <el-form-item label="用户名" prop="username">
+              <el-input v-model.trim="signupForm.username" size="large" placeholder="请输入用户名" />
+            </el-form-item>
+
+            <el-form-item label="邮箱" prop="email">
+              <el-input v-model.trim="signupForm.email" size="large" placeholder="请输入邮箱" />
+            </el-form-item>
+
+            <el-form-item label="密码" prop="password">
+              <el-input
+                v-model="signupForm.password"
+                size="large"
+                type="password"
+                placeholder="请输入密码"
+                show-password
+              />
+            </el-form-item>
+
+            <el-form-item label="确认密码" prop="confirmPassword">
+              <el-input
+                v-model="signupForm.confirmPassword"
+                size="large"
+                type="password"
+                placeholder="请再次输入密码"
+                show-password
+                @keyup.enter="handleSignup"
+              />
+            </el-form-item>
+
+            <el-button
+              size="large"
+              class="login-form__submit login-form__submit--secondary"
+              :loading="signupLoading"
+              @click="handleSignup"
+            >
+              提交申请
+            </el-button>
+          </el-form>
+        </transition>
+
+        <footer class="login-page__footer">
+          <span class="login-page__hint">Element Plus 官方组件</span>
+          <span class="login-page__hint">明暗主题同步</span>
+          <span class="login-page__hint">简洁后台风格</span>
+        </footer>
+      </section>
+    </main>
   </div>
 </template>
 
@@ -62,127 +151,166 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Moon, Sunny } from '@element-plus/icons-vue'
 import { useAuth } from '@/composables/useAuth'
+import { useTheme } from '@/composables/useTheme'
 
 const router = useRouter()
 const { login } = useAuth()
-const formRef = ref()
-const loading = ref(false)
-const form = reactive({ username: '', password: '' })
-const rules = {
+const { switchValue } = useTheme()
+
+const isSignupMode = ref(false)
+const loginLoading = ref(false)
+const signupLoading = ref(false)
+const loginFormRef = ref()
+const signupFormRef = ref()
+
+const loginForm = reactive({
+  username: '',
+  password: '',
+})
+
+const signupForm = reactive({
+  username: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+})
+
+const loginRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
+const signupRules = {
+  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'change'] },
+  ],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  confirmPassword: [
+    { required: true, message: '请再次输入密码', trigger: 'blur' },
+    {
+      validator: (_, value, callback) => {
+        if (!value) callback(new Error('请再次输入密码'))
+        else if (value !== signupForm.password) callback(new Error('两次输入的密码不一致'))
+        else callback()
+      },
+      trigger: ['blur', 'change'],
+    },
+  ],
+}
+
+function setMode(value) {
+  isSignupMode.value = value
+}
+
 async function handleLogin() {
-  await formRef.value.validate()
-  loading.value = true
+  const valid = await loginFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  loginLoading.value = true
   try {
-    await login(form.username, form.password)
+    await login(loginForm.username, loginForm.password)
     router.push('/')
   } catch {
     ElMessage.error('登录失败，请检查用户名和密码')
   } finally {
-    loading.value = false
+    loginLoading.value = false
+  }
+}
+
+async function handleSignup() {
+  const valid = await signupFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  signupLoading.value = true
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    ElMessage.info('当前项目未开放公开注册，请联系管理员创建账号')
+  } finally {
+    signupLoading.value = false
   }
 }
 </script>
 
 <style scoped>
-.login-container {
+.login-page {
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 22%),
+    radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.12), transparent 22%),
+    var(--app-login-bg);
+}
+
+.login-page__topbar {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 28px;
-  background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.24), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.16), transparent 24%),
-    linear-gradient(180deg, #f7fafe 0%, #eef4fb 100%);
+  justify-content: space-between;
+  width: min(960px, 100%);
+  margin: 0 auto 32px;
 }
 
-.login-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 420px);
-  gap: 28px;
-  width: min(1120px, 100%);
-  align-items: stretch;
-}
-
-.login-hero {
-  overflow: hidden;
-  padding: 36px;
-  border-radius: 30px;
-  background:
-    radial-gradient(circle at top right, rgba(245, 158, 11, 0.24), transparent 24%),
-    linear-gradient(135deg, rgba(15, 29, 63, 0.98) 0%, rgba(22, 49, 95, 0.96) 45%, rgba(30, 64, 175, 0.92) 100%);
-  color: #fff;
-  box-shadow: 0 30px 60px rgba(15, 29, 63, 0.24);
-}
-
-.login-hero__badge {
-  display: inline-flex;
+.login-page__brand {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.84);
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  gap: 12px;
+}
+
+.login-page__brand-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb 0%, #f59e0b 100%);
+  box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.12);
+}
+
+.login-page__brand-title {
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
-.login-hero__title {
-  margin: 26px 0 14px;
-  max-width: 580px;
-  font-size: clamp(2rem, 1.45rem + 1.2vw, 3.4rem);
-  line-height: 1.06;
-  letter-spacing: -0.04em;
+.login-page__brand-subtitle {
+  color: var(--app-text-muted);
+  font-size: 13px;
 }
 
-.login-hero__description {
-  max-width: 560px;
-  margin: 0;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 16px;
+.login-page__theme-switch {
+  box-shadow: var(--app-shadow-soft);
 }
 
-.login-hero__metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 32px;
+.login-page__theme-switch :deep(.el-switch__core) {
+  --el-switch-on-color: var(--app-primary);
+  --el-switch-off-color: var(--app-surface-elevated);
+  border: 1px solid var(--app-border);
 }
 
-.login-hero__metric {
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(8px);
+.login-page__main {
+  display: flex;
+  justify-content: center;
 }
 
-.login-hero__metric-value {
-  display: block;
-  font-family: 'Fira Code', monospace;
-  font-size: 18px;
-  font-weight: 600;
+.login-page__panel {
+  width: min(460px, 100%);
+  padding: 32px;
+  border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(14px);
 }
 
-.login-hero__metric-label {
-  display: block;
-  margin-top: 8px;
-  color: rgba(255, 255, 255, 0.68);
-  font-size: 12px;
+.login-page__intro {
+  margin-bottom: 24px;
 }
 
-.login-card {
-  align-self: center;
-  width: 100%;
-}
-
-.login-card__eyebrow {
+.login-page__eyebrow {
+  margin: 0 0 8px;
   color: var(--app-text-muted);
   font-size: 12px;
   font-weight: 700;
@@ -190,60 +318,118 @@ async function handleLogin() {
   text-transform: uppercase;
 }
 
-.login-title {
-  margin: 10px 0 8px;
+.login-page__title {
+  margin: 0;
   color: var(--app-text);
-  font-size: 30px;
-  line-height: 1.1;
+  font-size: 36px;
+  line-height: 1.05;
 }
 
-.login-subtitle {
-  margin: 0 0 24px;
+.login-page__description {
+  margin: 12px 0 0;
   color: var(--app-text-soft);
+  line-height: 1.7;
 }
 
-.login-submit {
+.login-page__tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 6px;
+  margin-bottom: 24px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--app-surface-elevated) 86%, transparent);
+}
+
+.login-page__tab {
+  height: 42px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--app-text-muted);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.login-page__tab--active {
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.login-form :deep(.el-form-item) {
+  margin-bottom: 18px;
+}
+
+.login-form :deep(.el-form-item__label) {
+  color: var(--app-text);
+  font-weight: 600;
+}
+
+.login-form :deep(.el-input__wrapper) {
+  min-height: 48px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--app-surface-elevated) 88%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-border) 82%, transparent) inset;
+}
+
+.login-form__submit {
   width: 100%;
+  height: 48px;
   margin-top: 6px;
+  border-radius: 14px;
 }
 
-.login-footnote {
-  padding-top: 6px;
+.login-form__submit--secondary {
+  color: #fff;
+  border: none;
+  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+}
+
+.login-page__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.login-page__hint {
+  padding: 7px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
   color: var(--app-text-muted);
   font-size: 12px;
-  text-align: center;
+  background: color-mix(in srgb, var(--app-surface-elevated) 78%, transparent);
 }
 
-@media (max-width: 960px) {
-  .login-container {
-    padding: 18px;
-  }
+.login-fade-enter-active,
+.login-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
 
-  .login-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .login-hero {
-    padding: 24px;
-    border-radius: 24px;
-  }
-
-  .login-hero__metrics {
-    grid-template-columns: 1fr;
-  }
-
-  .login-title {
-    font-size: 26px;
-  }
+.login-fade-enter-from,
+.login-fade-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 @media (max-width: 640px) {
-  .login-container {
-    padding: 12px;
+  .login-page {
+    padding: 14px;
   }
 
-  .login-hero {
-    padding: 20px;
+  .login-page__topbar {
+    margin-bottom: 18px;
+  }
+
+  .login-page__panel {
+    padding: 22px;
+    border-radius: 22px;
+  }
+
+  .login-page__title {
+    font-size: 30px;
   }
 }
 </style>

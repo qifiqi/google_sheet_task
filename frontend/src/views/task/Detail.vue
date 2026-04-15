@@ -253,6 +253,8 @@ import {
   checkTaskStatus as apiCheckStatus
 } from '@/api/task'
 import StatusTag from '@/components/StatusTag.vue'
+import { useChartJs } from '@/composables/useChartJs'
+import { usePolling } from '@/composables/usePolling'
 import { useResponsive } from '@/composables/useResponsive'
 
 const route = useRoute()
@@ -273,7 +275,7 @@ const resultDrawerVisible = ref(false)
 const currentResult = ref(null)
 const resultChartRef = ref(null)
 let resultChart = null
-let pollTimer = null
+const { loadChartJs } = useChartJs()
 
 const taskProgressPercent = computed(() => {
   if (!task.value?.total_steps) return 0
@@ -347,8 +349,10 @@ async function loadResults() {
   try {
     const res = await getTaskResults(taskId)
     allResults.value = res.results || []
-    await nextTick()
-    renderResultChart()
+    if (activeTab.value === 'results') {
+      await nextTick()
+      await renderResultChart()
+    }
   } catch {}
 }
 
@@ -384,31 +388,10 @@ function scrollResultsToTop() {
   })
 }
 
-function ensureChartLibrary() {
-  return new Promise((resolve, reject) => {
-    if (typeof Chart !== 'undefined') {
-      resolve(Chart)
-      return
-    }
-    const existing = document.querySelector('script[data-chartjs-detail="true"]')
-    if (existing) {
-      existing.addEventListener('load', () => resolve(Chart), { once: true })
-      existing.addEventListener('error', reject, { once: true })
-      return
-    }
-    const script = document.createElement('script')
-    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'
-    script.dataset.chartjsDetail = 'true'
-    script.onload = () => resolve(Chart)
-    script.onerror = reject
-    document.head.appendChild(script)
-  })
-}
-
 async function renderResultChart() {
   if (!resultChartRef.value) return
   try {
-    const ChartLib = await ensureChartLibrary()
+    const ChartLib = await loadChartJs()
     const labels = allResults.value.map((item) => item.step_index)
     if (resultChart) resultChart.destroy()
     resultChart = new ChartLib(resultChartRef.value.getContext('2d'), {
@@ -485,19 +468,34 @@ watch(resultFilter, () => {
   resultPage.value = 1
 })
 
-onMounted(() => {
-  loadAll()
-  pollTimer = setInterval(() => {
-    if (task.value?.status === 'running' || task.value?.status === 'pending') {
-      loadTask()
-      loadLogs()
-      loadResults()
+watch(activeTab, async (tab) => {
+  if (tab === 'results' && allResults.value.length) {
+    await nextTick()
+    await renderResultChart()
+  }
+})
+
+usePolling(
+  async () => {
+    await loadTask()
+    await loadLogs()
+
+    if (activeTab.value === 'results') {
+      await loadResults()
     }
-  }, 5000)
+  },
+  {
+    interval: 5000,
+    immediate: false,
+    isActive: () => task.value?.status === 'running' || task.value?.status === 'pending',
+  }
+)
+
+onMounted(() => {
+  void loadAll()
 })
 
 onUnmounted(() => {
-  clearInterval(pollTimer)
   if (resultChart) resultChart.destroy()
 })
 </script>

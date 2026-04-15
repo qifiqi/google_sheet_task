@@ -2,13 +2,15 @@
   <el-menu
     :default-active="activeIndex"
     :collapse="collapsed"
+    :collapse-transition="false"
+    :unique-opened="true"
     background-color="transparent"
-    text-color="#c3d2f0"
-    active-text-color="#ffffff"
+    :text-color="menuTextColor"
+    :active-text-color="menuActiveTextColor"
     router
     class="app-sidebar"
   >
-    <template v-for="item in nav" :key="item.key">
+    <template v-for="item in navItems" :key="item.key">
       <el-menu-item v-if="item.path" :index="item.path">
         <span>{{ item.label }}</span>
       </el-menu-item>
@@ -30,28 +32,45 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { getNav } from '@/api/meta'
+import { useNavigation } from '@/composables/useNavigation'
+import { useTheme } from '@/composables/useTheme'
 
 defineProps({ collapsed: Boolean })
+const { navItems, ensureNavLoaded } = useNavigation()
+const { isDark } = useTheme()
+
+function normalizeIndex(index = '') {
+  return String(index).split('?')[0].split('#')[0]
+}
+
+function flattenNav(items = []) {
+  return items.flatMap((item) => [
+    item,
+    ...(Array.isArray(item.children) ? flattenNav(item.children) : []),
+  ])
+}
 
 const route = useRoute()
-const nav = ref([])
+ensureNavLoaded()
 
 const activeIndex = computed(() => {
-  const queryString = new URLSearchParams(route.query).toString()
-  return queryString ? `${route.path}?${queryString}` : route.path
+  const currentPath = normalizeIndex(route.path)
+  const matched = flattenNav(navItems.value)
+    .map((item) => item.path)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .find((path) => {
+      const normalizedPath = normalizeIndex(path)
+      return normalizedPath === currentPath || currentPath.startsWith(`${normalizedPath}/`)
+    })
+
+  return matched || currentPath
 })
 
-onMounted(async () => {
-  try {
-    const res = await getNav()
-    nav.value = res.data
-  } catch {
-    nav.value = []
-  }
-})
+const menuTextColor = computed(() => (isDark.value ? '#b8cae9' : '#c8d6ef'))
+const menuActiveTextColor = computed(() => (isDark.value ? '#f8fbff' : '#ffffff'))
 </script>
 
 <style scoped>
@@ -72,25 +91,25 @@ onMounted(async () => {
   font-weight: 600;
   border-radius: 14px;
   margin-bottom: 6px;
-  color: #c8d6ef !important;
+  color: var(--app-sidebar-text) !important;
   transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
 
 .app-sidebar :deep(.el-menu-item:hover),
 .app-sidebar :deep(.el-sub-menu__title:hover) {
-  background: rgba(255, 255, 255, 0.08) !important;
-  color: #ffffff !important;
+  background: var(--app-sidebar-hover-bg) !important;
+  color: var(--app-sidebar-active-text) !important;
   transform: translateX(2px);
 }
 
 .app-sidebar :deep(.el-menu-item.is-active) {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.28), rgba(245, 158, 11, 0.22)) !important;
-  color: #ffffff !important;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  background: var(--app-sidebar-active-bg) !important;
+  color: var(--app-sidebar-active-text) !important;
+  box-shadow: inset 0 0 0 1px var(--app-sidebar-border);
 }
 
 .app-sidebar :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
-  color: #fff !important;
+  color: var(--app-sidebar-active-text) !important;
 }
 
 .app-sidebar :deep(.el-menu) {

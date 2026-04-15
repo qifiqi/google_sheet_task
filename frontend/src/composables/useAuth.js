@@ -6,6 +6,7 @@ const REFRESH_KEY = 'refresh_token'
 
 const user = ref(null)
 const permissions = ref([])
+let fetchUserPromise = null
 
 export function useAuth() {
   const isLoggedIn = computed(() => !!localStorage.getItem(TOKEN_KEY))
@@ -24,6 +25,7 @@ export function useAuth() {
     localStorage.removeItem(REFRESH_KEY)
     user.value = null
     permissions.value = []
+    fetchUserPromise = null
   }
 
   async function refresh() {
@@ -38,13 +40,23 @@ export function useAuth() {
 
   async function fetchUser() {
     if (!localStorage.getItem(TOKEN_KEY)) return
-    try {
-      const res = await getMe()
-      user.value = res.data
-      permissions.value = res.data.permissions || []
-    } catch {
-      logout()
-    }
+    if (fetchUserPromise) return fetchUserPromise
+
+    fetchUserPromise = (async () => {
+      try {
+        const res = await getMe()
+        user.value = res.data
+        permissions.value = res.data.permissions || []
+        return res
+      } catch {
+        logout()
+        return null
+      } finally {
+        fetchUserPromise = null
+      }
+    })()
+
+    return fetchUserPromise
   }
 
   function hasPermission(code) {

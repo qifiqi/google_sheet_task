@@ -52,14 +52,14 @@
         </AppHeader>
       </el-header>
       <el-main>
-        <router-view :key="route.fullPath" />
+        <router-view />
       </el-main>
     </el-container>
   </el-container>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { useResponsive } from '@/composables/useResponsive'
@@ -68,17 +68,26 @@ import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
 
 const { isMobile, sidebarWidth, headerHeight } = useResponsive()
-const { user, fetchUser, logout } = useAuth()
+const { user, logout } = useAuth()
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
 const drawerOpen = ref(false)
 
-onMounted(async () => {
-  if (!user.value) {
-    await fetchUser()
+watch(isMobile, (mobile) => {
+  if (!mobile) {
+    drawerOpen.value = false
   }
 })
+
+watch(
+  () => route.fullPath,
+  () => {
+    if (isMobile.value) {
+      drawerOpen.value = false
+    }
+  }
+)
 
 function handleCommand(command) {
   if (command === 'logout') {
@@ -100,8 +109,8 @@ function handleCommand(command) {
   background: var(--app-sidebar-bg);
   transition: width 0.3s;
   overflow: hidden;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 12px 0 32px rgba(9, 18, 39, 0.14);
+  border-right: 1px solid var(--app-sidebar-border);
+  box-shadow: var(--app-shadow-soft);
 }
 
 .brand-shell {
@@ -111,8 +120,8 @@ function handleCommand(command) {
   padding: 18px 18px 16px;
   color: #fff;
   cursor: pointer;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0));
+  border-bottom: 1px solid var(--app-sidebar-border);
+  background: var(--app-sidebar-shell-bg);
 }
 
 .brand-shell--drawer {
@@ -150,10 +159,10 @@ function handleCommand(command) {
   gap: 8px;
   margin: auto 14px 14px;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--app-sidebar-border);
   border-radius: 14px;
   color: rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--app-sidebar-hover-bg);
 }
 
 .aside-footer__dot {
@@ -182,12 +191,12 @@ function handleCommand(command) {
   padding: 10px 14px;
   border: 1px solid var(--app-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  background: var(--app-surface-elevated);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .app-drawer :deep(.el-drawer) {
-  background: linear-gradient(180deg, #102146 0%, #183569 100%);
+  background: var(--app-sidebar-bg);
 }
 
 @keyframes sidebarPulse {

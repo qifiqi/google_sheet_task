@@ -1,5 +1,5 @@
 <template>
-  <div class=" backtest-list-page">
+  <div class="app-page backtest-list-page">
     <div class="page-toolbar">
       <div class="page-toolbar__meta">
         <div class="page-toolbar__eyebrow">Backtest Center</div>

@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-page">
+  <div class="app-page dashboard-page">
 
     <div class="metric-grid dashboard-metrics">
       <div
@@ -132,13 +132,11 @@
 
 <script setup>
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getDashboardOverview } from '@/api/admin'
 import StatusTag from '@/components/StatusTag.vue'
-import { useResponsive } from '@/composables/useResponsive'
-
-const { componentSize } = useResponsive()
+import { useChartJs } from '@/composables/useChartJs'
+import { usePolling } from '@/composables/usePolling'
 
 const loading = ref(false)
 const summary = ref({})
@@ -149,7 +147,7 @@ const trendChartRef = ref()
 const statusChartRef = ref()
 const typeChartRef = ref()
 let charts = {}
-let refreshTimer = null
+const { loadChartJs } = useChartJs()
 
 const summaryCards = [
   { key: 'total_tasks', label: '总任务数', hint: '全部历史任务规模', background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)' },
@@ -180,23 +178,22 @@ async function loadDashboard(showMessage = false) {
   }
 }
 
-function upsertChart(key, canvas, config) {
+function upsertChart(ChartLib, key, canvas, config) {
   if (charts[key]) {
     charts[key].destroy()
   }
-  if (!canvas || typeof Chart === 'undefined') {
+  if (!canvas || !ChartLib) {
     return
   }
-  charts[key] = new Chart(canvas.getContext('2d'), config)
+  charts[key] = new ChartLib(canvas.getContext('2d'), config)
 }
 
-function renderCharts(data) {
-  if (typeof Chart === 'undefined') {
-    return
-  }
+async function renderCharts(data) {
+  const ChartLib = await loadChartJs().catch(() => null)
+  if (!ChartLib) return
 
   const trend = data.daily_trend || []
-  upsertChart('trend', trendChartRef.value, {
+  upsertChart(ChartLib, 'trend', trendChartRef.value, {
     type: 'line',
     data: {
       labels: trend.map((item) => item.date),
@@ -227,7 +224,7 @@ function renderCharts(data) {
   })
 
   const statusDistribution = data.status_distribution || {}
-  upsertChart('status', statusChartRef.value, {
+  upsertChart(ChartLib, 'status', statusChartRef.value, {
     type: 'doughnut',
     data: {
       labels: Object.keys(statusDistribution),
@@ -246,7 +243,7 @@ function renderCharts(data) {
   })
 
   const taskTypeDistribution = data.task_type_distribution || {}
-  upsertChart('type', typeChartRef.value, {
+  upsertChart(ChartLib, 'type', typeChartRef.value, {
     type: 'bar',
     data: {
       labels: Object.keys(taskTypeDistribution),
@@ -267,21 +264,13 @@ function renderCharts(data) {
   })
 }
 
-onMounted(() => {
-  if (typeof Chart === 'undefined') {
-    const script = document.createElement('script')
-    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'
-    script.onload = () => loadDashboard()
-    document.head.appendChild(script)
-  } else {
-    loadDashboard()
-  }
+usePolling(() => loadDashboard(), { interval: 30000 })
 
-  refreshTimer = setInterval(loadDashboard, 30000)
+onMounted(() => {
+  void loadDashboard()
 })
 
 onUnmounted(() => {
-  clearInterval(refreshTimer)
   Object.values(charts).forEach((chart) => chart.destroy())
 })
 </script>

@@ -6,15 +6,8 @@
         <Expand v-else />
       </el-icon>
 
-      <div class="app-header__status">
-        <div class="app-header__eyebrow">Operations Console</div>
-        <div class="app-header__status-row">
-          <span class="app-header__product">Task Platform</span>
-          <span class="app-header__live">
-            <span class="app-header__live-dot"></span>
-            实时同步
-          </span>
-        </div>
+      <div class="app-header__title-wrap">
+        <span class="app-header__title">{{ currentTitle }}</span>
       </div>
     </div>
 
@@ -24,6 +17,13 @@
     </el-breadcrumb>
 
     <div class="header-right">
+      <el-switch
+        v-model="switchValue"
+        class="theme-switch"
+        :active-action-icon="Moon"
+        :inactive-action-icon="Sunny"
+        inline-prompt
+      />
       <slot name="user" />
     </div>
   </div>
@@ -32,14 +32,16 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Expand, Fold } from '@element-plus/icons-vue'
+import { Expand, Fold, Moon, Sunny } from '@element-plus/icons-vue'
 import { useResponsive } from '@/composables/useResponsive'
+import { useTheme } from '@/composables/useTheme'
 
 defineProps({ sidebarOpen: Boolean })
 defineEmits(['toggle-sidebar'])
 
 const route = useRoute()
 const { isMobile, headerHeight } = useResponsive()
+const { switchValue } = useTheme()
 const currentTitle = computed(() => route.meta.title || '任务平台')
 </script>
 
@@ -51,8 +53,8 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
   gap: 18px;
   height: v-bind('`${headerHeight}px`');
   padding: 10px 22px;
-  border-bottom: 1px solid rgba(30, 64, 175, 0.08);
-  background: rgba(255, 255, 255, 0.72);
+  border-bottom: 1px solid var(--app-header-border);
+  background: var(--app-header-bg);
   backdrop-filter: blur(20px);
 }
 
@@ -63,47 +65,19 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
   min-width: 0;
 }
 
-.app-header__status {
+.app-header__title-wrap {
   min-width: 0;
 }
 
-.app-header__eyebrow {
-  color: var(--app-text-muted);
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.app-header__status-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-}
-
-.app-header__product {
+.app-header__title {
+  display: block;
+  overflow: hidden;
   color: var(--app-text);
+  font-size: 18px;
   font-weight: 700;
   line-height: 1;
-}
-
-.app-header__live {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(34, 197, 94, 0.1);
-  color: #15803d;
-  font-weight: 600;
-}
-
-.app-header__live-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.16);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .app-header__breadcrumb {
@@ -122,7 +96,20 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
 }
 
 .header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
+}
+
+.theme-switch :deep(.el-switch__core) {
+  --el-switch-on-color: var(--app-primary);
+  --el-switch-off-color: var(--app-surface-elevated);
+  border: 1px solid var(--app-border);
+}
+
+.theme-switch :deep(.el-switch__action) {
+  color: var(--app-text);
 }
 
 @media (max-width: 1024px) {
@@ -141,8 +128,8 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
     gap: 12px;
   }
 
-  .app-header__live {
-    padding: 4px 8px;
+  .app-header__title {
+    font-size: 16px;
   }
 }
 </style>

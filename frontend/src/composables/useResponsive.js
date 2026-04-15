@@ -1,22 +1,44 @@
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref } from 'vue'
 import { breakpoints, getDeviceType, getResponsivePreset } from '@/config/responsive'
 
+const width = ref(typeof window === 'undefined' ? breakpoints.xl : window.innerWidth)
+const deviceType = ref(getDeviceType(width.value))
+const preset = ref(getResponsivePreset(width.value))
+
+let listening = false
+let rafId = 0
+
+function syncResponsiveState(nextWidth = window.innerWidth) {
+  width.value = nextWidth
+  deviceType.value = getDeviceType(nextWidth)
+  preset.value = getResponsivePreset(nextWidth)
+}
+
+function handleResize() {
+  if (rafId) {
+    cancelAnimationFrame(rafId)
+  }
+  rafId = requestAnimationFrame(() => {
+    syncResponsiveState(window.innerWidth)
+    rafId = 0
+  })
+}
+
+function ensureResponsiveListener() {
+  if (listening || typeof window === 'undefined') {
+    return
+  }
+  listening = true
+  syncResponsiveState(window.innerWidth)
+  window.addEventListener('resize', handleResize, { passive: true })
+}
+
 export function useResponsive() {
-  const width = ref(window.innerWidth)
-  const deviceType = ref(getDeviceType(window.innerWidth))
-  const preset = ref(getResponsivePreset(window.innerWidth))
+  ensureResponsiveListener()
+
   const isMobile = computed(() => deviceType.value === 'mobile')
   const isTablet = computed(() => deviceType.value === 'tablet')
   const isDesktop = computed(() => deviceType.value === 'desktop')
-
-  function update() {
-    width.value = window.innerWidth
-    deviceType.value = getDeviceType(width.value)
-    preset.value = getResponsivePreset(width.value)
-  }
-
-  onMounted(() => window.addEventListener('resize', update))
-  onUnmounted(() => window.removeEventListener('resize', update))
 
   return {
     width,

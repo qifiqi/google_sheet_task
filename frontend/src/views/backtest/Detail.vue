@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="app-page backtest-detail-page">
     <div class="page-toolbar">
       <div class="page-toolbar__meta">
