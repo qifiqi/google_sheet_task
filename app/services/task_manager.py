@@ -572,10 +572,12 @@ class TaskManager:
         
         return task.to_dict()
     
-    def get_all_tasks(self, task_type: Optional[str] = None) -> list:
+    def get_all_tasks(self, task_type: Optional[str] = None, task_types: Optional[list[str]] = None) -> list:
         """获取所有任务"""
         query = Task.query
-        if task_type:
+        if task_types:
+            query = query.filter(Task.task_type.in_(task_types))
+        elif task_type:
             query = query.filter_by(task_type=task_type)
         tasks = query.order_by(Task.created_at.desc()).all()
         return [task.to_dict() for task in tasks]
@@ -585,6 +587,7 @@ class TaskManager:
         page: int = 1,
         per_page: int = 10,
         task_type: Optional[str] = None,
+        task_types: Optional[list[str]] = None,
         status: Optional[str] = None,
         keyword: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -593,7 +596,9 @@ class TaskManager:
         per_page = max(min(per_page or 10, 100), 1)
 
         query = Task.query
-        if task_type:
+        if task_types:
+            query = query.filter(Task.task_type.in_(task_types))
+        elif task_type:
             query = query.filter(Task.task_type == task_type)
 
         if status and status != 'all':

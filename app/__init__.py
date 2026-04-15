@@ -53,6 +53,12 @@ def create_app():
 
     register_blueprints(app)
 
+    @app.context_processor
+    def inject_template_auth_context():
+        return {
+            'auth_enabled': os.environ.get('AUTH_ENABLED', 'true').lower() == 'true',
+        }
+
     app.notifier = DingTalkNotifier(
         access_token=app.config.get('DING_TALK_ACCESS_TOKEN', ''),
         secret=app.config.get('DING_TALK_SECRET', ''),

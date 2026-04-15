@@ -47,11 +47,24 @@ def get_nav():
     except (ValueError, TypeError):
         return success(data=[])
 
+    def has_nav_permission(required_permission, _item):
+        if not required_permission:
+            return True
+        if required_permission in user_perms:
+            return True
+
+        if required_permission.endswith(':view'):
+            manage_permission = f"{required_permission.split(':', 1)[0]}:manage"
+            if manage_permission in user_perms:
+                return True
+
+        return False
+
     def filter_nav(items):
         result = []
         for item in items:
             perm = item.get('permission')
-            if perm and perm not in user_perms:
+            if perm and not has_nav_permission(perm, item):
                 continue
             if 'children' in item:
                 children = filter_nav(item['children'])

@@ -2,6 +2,7 @@ from flask import Blueprint
 
 def register_blueprints(app):
     """注册所有蓝图"""
+    from app.routes.auth_pages import auth_pages_bp
     from app.routes.admin import admin_bp
     from app.routes.task_api import task_api_bp
     from app.routes.config_api import config_api_bp
@@ -16,6 +17,7 @@ def register_blueprints(app):
     from app.routes.meta_api import meta_api_bp
     from app.routes.auth_api import auth_api_bp
 
+    app.register_blueprint(auth_pages_bp)
     app.register_blueprint(xpl_bp, url_prefix='/xpl')
     app.register_blueprint(yule_bp, url_prefix='/yule')
     app.register_blueprint(admin_bp, url_prefix='/admin')

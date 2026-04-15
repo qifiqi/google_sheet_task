@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>美食随机选择器 - 今天吃什么？</title>
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='font/bootstrap-icons.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/template-auth.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -730,7 +733,13 @@
         }
     </style>
 </head>
-<body>
+<body class="template-auth-pending" data-auth-enabled="{{ 'true' if auth_enabled else 'false' }}" data-template-auth-floating-nav="true" data-template-auth-expose-helpers="false">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
     <!-- 全屏主选择区域 -->
     <div class="main-container">
         <!-- 结果展示区域 - 全屏 -->
@@ -2086,5 +2095,7 @@
             }, 3000);
         }
     </script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/template-auth.js') }}"></script>
 </body>
 </html>

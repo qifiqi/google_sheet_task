@@ -7,11 +7,9 @@
 
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='font/bootstrap-icons.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/template-auth.css') }}" rel="stylesheet">
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
 
-<!--?    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">-->
-<!--?    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">-->
-<!--?    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>-->
     <style>
         body {
             background-color: #f8f9fa;
@@ -149,7 +147,6 @@
             min-width: 0;
         }
 
-        /* 固定侧边栏：让主内容区滚动时侧边栏不跟随滚动（仅 md 及以上生效） */
         @media (min-width: 768px) {
             .sidebar {
                 position: fixed;
@@ -160,15 +157,12 @@
                 width: 25%;
                 max-width: 25%;
             }
-
-            /* md: sidebar = col-md-3 (25%) */
             .main-content {
                 margin-left: 25%;
             }
         }
 
         @media (min-width: 992px) {
-            /* lg: sidebar = col-lg-2 (16.6667%) */
             .sidebar {
                 width: 16.666667%;
                 max-width: 16.666667%;
@@ -333,10 +327,16 @@
     </style>
     {% block head %}{% endblock %}
 </head>
-<body>
+<body class="template-auth-pending" data-auth-enabled="{{ 'true' if auth_enabled else 'false' }}">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
     <div class="container-fluid">
         <div class="row">
-            <!-- 侧边栏 -->
             <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse">
                 <div class="position-sticky d-flex flex-column min-vh-100 px-3 pt-4 pb-3">
                     <div class="d-flex align-items-center gap-3 px-2 pb-3 mb-3 border-bottom">
@@ -348,218 +348,43 @@
                             <p class="mb-0 mt-1 small text-muted">Bootstrap Sidebar Style</p>
                         </div>
                     </div>
-                    <div class="nav flex-column flex-grow-1">
-                        <div>
-                            <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}" href="{{ url_for('admin.dashboard') }}">
-                                <i class="bi bi-speedometer2"></i>
-                                <span>仪表盘</span>
-                            </a>
-                        </div>
-
-                        <div class="mt-3">
-                            <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#taskGroup" aria-expanded="false">
-                                <span><i class="bi bi-list-task me-2"></i>任务模块</span>
-                                <i class="bi bi-chevron-right btn-toggle-icon"></i>
-                            </button>
-                            <div class="collapse" id="taskGroup">
-                                <ul class="btn-toggle-nav">
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'admin.tasks' %}active{% endif %}" href="{{ url_for('admin.tasks') }}">
-                                            <i class="bi bi-play-circle"></i>
-                                            <span>任务管理</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'admin.templates' %}active{% endif %}" href="{{ url_for('admin.templates') }}">
-                                            <i class="bi bi-file-earmark-text"></i>
-                                            <span>任务模板</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'admin.results' %}active{% endif %}" href="{{ url_for('admin.results') }}">
-                                            <i class="bi bi-clipboard-data"></i>
-                                            <span>任务结果</span>
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-
-                        <div class="mt-3">
-                            <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#schedulerGroup" aria-expanded="false">
-                                <span><i class="bi bi-clock me-2"></i>调度模块</span>
-                                <i class="bi bi-chevron-right btn-toggle-icon"></i>
-                            </button>
-                            <div class="collapse" id="schedulerGroup">
-                                <ul class="btn-toggle-nav">
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'admin.scheduler' %}active{% endif %}" href="{{ url_for('admin.scheduler') }}">
-                                            <i class="bi bi-calendar-event"></i>
-                                            <span>定时任务</span>
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-
-                        <div class="mt-3">
-                            <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#systemGroup" aria-expanded="false">
-                                <span><i class="bi bi-gear me-2"></i>系统模块</span>
-                                <i class="bi bi-chevron-right btn-toggle-icon"></i>
-                            </button>
-                            <div class="collapse" id="systemGroup">
-                                <ul class="btn-toggle-nav">
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'admin.config' %}active{% endif %}" href="{{ url_for('admin.config') }}">
-                                            <i class="bi bi-sliders"></i>
-                                            <span>系统配置</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'admin.google_sheets' %}active{% endif %}" href="{{ url_for('admin.google_sheets') }}">
-                                            <i class="bi bi-table"></i>
-                                            <span>Google Sheet 管理</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'admin.logs' %}active{% endif %}" href="{{ url_for('admin.logs') }}">
-                                            <i class="bi bi-journal-text"></i>
-                                            <span>系统日志</span>
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-
-                        <div class="mt-3">
-                            <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#businessGroup" aria-expanded="false">
-                                <span><i class="bi bi-briefcase me-2"></i>业务模块</span>
-                                <i class="bi bi-chevron-right btn-toggle-icon"></i>
-                            </button>
-                            <div class="collapse" id="businessGroup">
-                                <ul class="btn-toggle-nav">
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'google_sheet.index' and request.args.get('version', 'c3') == 'c3' %}active{% endif %}" href="{{ url_for('google_sheet.index',version='c3') }}">
-                                            <i class="bi bi-table"></i>
-                                            <span>Google Sheet C3</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'google_sheet.index' and request.args.get('version') == 'c4' %}active{% endif %}" href="{{ url_for('google_sheet.index', version='c4') }}">
-                                            <i class="bi bi-table"></i>
-                                            <span>Google Sheet C4</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'google_sheet.index' and request.args.get('version') == 'c5' %}active{% endif %}" href="{{ url_for('google_sheet.index', version='c5') }}">
-                                            <i class="bi bi-table"></i>
-                                            <span>Google Sheet C5</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint in ['backtest_training.list_page', 'backtest_training.create_page', 'backtest_training.parameter_create_page', 'backtest_training.detail_page', 'backtest_training.result_page'] %}active{% endif %}" href="{{ url_for('backtest_training.list_page') }}">
-                                            <i class="bi bi-graph-up"></i>
-                                            <span>数据回测</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'xpl.index' %}active{% endif %}" href="{{ url_for('xpl.index') }}">
-                                            <i class="bi bi-table"></i>
-                                            <span>夏普率计算</span>
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="nav-link {% if request.endpoint == 'xpl.index_v1' %}active{% endif %}" href="{{ url_for('xpl.index_v1') }}">
-                                            <i class="bi bi-table"></i>
-                                            <span>V1 回测数据分析</span>
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="nav flex-column flex-grow-1" id="templateSidebarMenu"></div>
                     <div class="mt-3 pt-3 border-top flex-shrink-0">
                         <div class="dropup">
                             <button class="btn btn-link dropdown-toggle d-flex align-items-center gap-2 w-100 px-0 py-1 text-start text-decoration-none text-reset border-0 shadow-none" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <div class="sidebar-user-avatar">AI</div>
+                                <div class="sidebar-user-avatar" data-template-auth-avatar>AI</div>
                                 <div class="flex-grow-1 min-w-0">
-                                    <div class="fw-semibold text-truncate">占位用户</div>
-                                    <div class="small text-muted text-truncate">Sidebar Placeholder</div>
+                                    <div class="fw-semibold text-truncate" data-template-auth-username>占位用户</div>
+                                    <div class="small text-muted text-truncate" data-template-auth-role>Sidebar Placeholder</div>
                                 </div>
                             </button>
                             <ul class="dropdown-menu w-100 shadow">
-                                <li><button type="button" class="dropdown-item" id="sidebarSettingsBtn">Settings</button></li>
                                 <li>
-                                    <button type="button" class="dropdown-item d-flex align-items-center gap-2" id="themeToggleBtn">
-                                        <i class="bi bi-circle-half" id="themeToggleIcon"></i>
-                                        <span id="themeToggleText">切换主题</span>
+                                    <button type="button" class="dropdown-item d-flex align-items-center gap-2" data-template-theme-trigger>
+                                        <i class="bi bi-circle-half" data-template-theme-icon></i>
+                                        <span data-template-theme-toggle>切换主题</span>
                                     </button>
                                 </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><button type="button" class="dropdown-item text-danger" data-template-auth-logout>退出登录</button></li>
                             </ul>
-                        </div>
-                        <div class="visually-hidden" aria-hidden="true">
-                            <small id="themeToggleHint">当前浅色模式</small>
                         </div>
                     </div>
                 </div>
             </nav>
 
-            <!-- 主内容区域 -->
-            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content">
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
                 {% block content %}{% endblock %}
             </main>
         </div>
     </div>
 
+    <script src="{{ url_for('static', filename='js/template-auth.js') }}?v=20260415_page_scope"></script>
     <script>
-        // 侧边栏折叠功能
         document.addEventListener('DOMContentLoaded', function() {
-            const themeStorageKey = 'adminTheme';
-            const sidebarGroupIds = ['taskGroup', 'schedulerGroup', 'systemGroup', 'businessGroup'];
-            const collapseElements = sidebarGroupIds
-                .map(id => document.getElementById(id))
-                .filter(Boolean);
-            const themeToggleBtn = document.getElementById('themeToggleBtn');
-            const sidebarSettingsBtn = document.getElementById('sidebarSettingsBtn');
-            const themeToggleText = document.getElementById('themeToggleText');
-            const themeToggleHint = document.getElementById('themeToggleHint');
-            const themeToggleIcon = document.getElementById('themeToggleIcon');
+            const sidebarMenu = document.getElementById('templateSidebarMenu');
 
-            const applyTheme = (theme) => {
-                const normalizedTheme = theme === 'dark' ? 'dark' : 'light';
-                document.documentElement.setAttribute('data-bs-theme', normalizedTheme);
-                localStorage.setItem(themeStorageKey, normalizedTheme);
-                if (themeToggleText) {
-                    themeToggleText.textContent = normalizedTheme === 'dark' ? '切换到浅色' : '切换到深色';
-                }
-                if (themeToggleHint) {
-                    themeToggleHint.textContent = normalizedTheme === 'dark' ? '当前深色模式' : '当前浅色模式';
-                }
-                if (themeToggleIcon) {
-                    themeToggleIcon.className = normalizedTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
-                }
-                if (themeToggleBtn) {
-                    themeToggleBtn.setAttribute('title', normalizedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式');
-                }
-            };
-
-            const savedTheme = localStorage.getItem(themeStorageKey) || document.documentElement.getAttribute('data-bs-theme') || 'light';
-            applyTheme(savedTheme);
-
-            if (themeToggleBtn) {
-                themeToggleBtn.addEventListener('click', function() {
-                    const currentTheme = document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light';
-                    applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
-                });
-            }
-
-            if (sidebarSettingsBtn) {
-                sidebarSettingsBtn.addEventListener('click', function() {
-                    showNotification('设置功能暂未开放', 'info');
-                });
-            }
-
-            const syncToggleState = (element, expanded) => {
+            function syncToggleState(element, expanded) {
                 if (!element) {
                     return;
                 }
@@ -567,23 +392,27 @@
                 if (toggle) {
                     toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
                 }
-            };
+            }
 
-            const saveCollapseState = () => {
+            function saveCollapseState() {
+                const collapseElements = sidebarMenu ? Array.from(sidebarMenu.querySelectorAll('.collapse')) : [];
                 const collapseState = {};
-                collapseElements.forEach(element => {
+                collapseElements.forEach((element) => {
                     collapseState[element.id] = element.classList.contains('show');
                 });
                 localStorage.setItem('sidebarCollapseState', JSON.stringify(collapseState));
-            };
+            }
 
-            const restoreCollapseState = () => {
+            function restoreCollapseState() {
+                const collapseElements = sidebarMenu ? Array.from(sidebarMenu.querySelectorAll('.collapse')) : [];
                 const savedState = localStorage.getItem('sidebarCollapseState');
                 if (savedState) {
                     const collapseState = JSON.parse(savedState);
-                    Object.keys(collapseState).forEach(elementId => {
+                    Object.keys(collapseState).forEach((elementId) => {
                         const element = document.getElementById(elementId);
-                        if (!element) return;
+                        if (!element) {
+                            return;
+                        }
                         if (collapseState[elementId]) {
                             element.classList.add('show');
                             syncToggleState(element, true);
@@ -595,125 +424,33 @@
                     return;
                 }
 
-                collapseElements.forEach(element => {
+                collapseElements.forEach((element) => {
                     const hasActiveLink = element.querySelector('.nav-link.active');
                     const shouldShow = Boolean(hasActiveLink);
                     element.classList.toggle('show', shouldShow);
                     syncToggleState(element, shouldShow);
                 });
-            };
+            }
 
-            collapseElements.forEach(element => {
-                element.addEventListener('shown.bs.collapse', saveCollapseState);
-                element.addEventListener('hidden.bs.collapse', saveCollapseState);
-                syncToggleState(element, element.classList.contains('show'));
+            const observer = new MutationObserver(function() {
+                const collapseElements = sidebarMenu ? Array.from(sidebarMenu.querySelectorAll('.collapse')) : [];
+                collapseElements.forEach((element) => {
+                    if (element.dataset.boundCollapseEvents === 'true') {
+                        return;
+                    }
+                    element.dataset.boundCollapseEvents = 'true';
+                    element.addEventListener('shown.bs.collapse', saveCollapseState);
+                    element.addEventListener('hidden.bs.collapse', saveCollapseState);
+                    syncToggleState(element, element.classList.contains('show'));
+                });
+                restoreCollapseState();
             });
 
-            restoreCollapseState();
+            if (sidebarMenu) {
+                observer.observe(sidebarMenu, { childList: true, subtree: true });
+            }
         });
-
-        // 通用AJAX函数
-        function ajaxRequest(url, method, data, callback) {
-            const xhr = new XMLHttpRequest();
-            xhr.open(method, url, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState !== 4) {
-                    return;
-                }
-
-                let response = null;
-                try {
-                    response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
-                } catch (e) {
-                    response = null;
-                }
-
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    callback(null, response);
-                    return;
-                }
-
-                const message = response && response.message
-                    ? response.message
-                    : `Request failed with status ${xhr.status}`;
-                callback(new Error(message), response);
-            };
-            xhr.send(data ? JSON.stringify(data) : null);
-        }
-
-        // 显示通知（统一为右下角弹窗样式）
-        function showNotification(message, type = 'info') {
-            const alertClass = type === 'error' ? 'alert-danger' : 
-                              type === 'success' ? 'alert-success' : 
-                              type === 'warning' ? 'alert-warning' : 'alert-info';
-
-            // 创建或获取右下角容器
-            let container = document.getElementById('notification-container');
-            if (!container) {
-                container = document.createElement('div');
-                container.id = 'notification-container';
-                container.style.position = 'fixed';
-                container.style.right = '20px';
-                container.style.bottom = '20px';
-                container.style.zIndex = '2000';
-                container.style.display = 'flex';
-                container.style.flexDirection = 'column';
-                container.style.alignItems = 'flex-end';
-                document.body.appendChild(container);
-            }
-
-            const alertDiv = document.createElement('div');
-            alertDiv.className = `alert ${alertClass} alert-dismissible fade show mb-2`;
-            alertDiv.style.minWidth = '260px';
-            alertDiv.style.boxShadow = '0 0.25rem 0.5rem rgba(0,0,0,0.15)';
-            alertDiv.innerHTML = `
-                ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            `;
-
-            container.appendChild(alertDiv);
-
-            // 自动消失
-            setTimeout(() => {
-                if (alertDiv.parentNode) {
-                    alertDiv.remove();
-                }
-            }, 5000);
-        }
-
-        // 格式化时间
-        function formatTime(timestamp) {
-            if (!timestamp) return '-';
-            const date = new Date(timestamp);
-            return date.toLocaleString('zh-CN');
-        }
-
-        // 获取任务状态文本
-        function getStatusText(status) {
-            switch (status) {
-                case 'pending': return '待执行';
-                case 'running': return '执行中';
-                case 'completed': return '已完成';
-                case 'cancelled': return '已取消';
-                case 'error': return '执行出错';
-                default: return status;
-            }
-        }
-
-        // 获取任务状态类
-        function getStatusClass(status) {
-            switch (status) {
-                case 'pending': return 'badge bg-secondary';
-                case 'running': return 'badge bg-warning';
-                case 'completed': return 'badge bg-success';
-                case 'cancelled': return 'badge bg-info';
-                case 'error': return 'badge bg-danger';
-                default: return 'badge bg-secondary';
-            }
-        }
     </script>
-
     {% block scripts %}{% endblock %}
 </body>
 </html>

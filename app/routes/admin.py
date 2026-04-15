@@ -2,17 +2,47 @@ import json
 from collections import Counter
 from datetime import datetime, timedelta
 
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, g
 from app.services.task_manager import task_manager
 from app.services.config_manager import get_config_manager
 from app.services.scheduler_service import scheduler_service
 from app.models import Task, TaskLog, TaskResult, TaskResultReturn, ScheduledTask, db, GoogleSheetTableType
 from app.utils.logger import get_logger
-from app.utils.auth import login_required
+from app.utils.auth import login_required, permission_required
+from app.utils.task_authorization import authorize_task_type_action
 
 logger = get_logger(__name__)
 
 admin_bp = Blueprint('admin', __name__)
+
+TASK_ACTION_LABELS = {
+    "view": "查看",
+}
+
+
+def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None):
+    action_label = TASK_ACTION_LABELS.get(action, action)
+    normalized_type = decision.get("task_type") or str(task_type or "unknown")
+    missing_permissions = decision.get("missing_permissions") or []
+    missing_text = "、".join(missing_permissions) if missing_permissions else "未知"
+    message = f"权限不足，无法{action_label}{normalized_type}任务；当前缺少: {missing_text}"
+
+    return jsonify({
+        "success": False,
+        "error": message,
+        "task_id": task_id,
+        "task_type": normalized_type,
+        "action": action,
+        "required_permissions": decision.get("required_permissions") or [],
+        "missing_permissions": missing_permissions,
+    }), 403
+
+
+def _filter_task_models_by_action(user, action: str, tasks: list[Task]):
+    return [
+        task for task in (tasks or [])
+        if authorize_task_type_action(user, action, getattr(task, "task_type", None)).get("allowed")
+    ]
 
 
 def _safe_json_loads(raw_value, default=None):
@@ -238,8 +268,19 @@ def scheduler():
     """定时任务管理页面"""
     return render_template('admin/scheduler.html')
 
+@admin_bp.route('/users')
+def users():
+    """用户管理页面"""
+    return render_template('admin/users.html')
+
+@admin_bp.route('/roles')
+def roles():
+    """角色管理页面"""
+    return render_template('admin/roles.html')
+
 @admin_bp.route('/api/scheduler/status')
 @login_required
+@permission_required('scheduler:view')
 def scheduler_status():
     """获取异步任务执行状态API"""
     try:
@@ -287,10 +328,12 @@ def scheduler_status():
 
 @admin_bp.route('/api/dashboard/overview')
 @login_required
+@permission_required('task:view')
 def dashboard_overview():
     """管理后台仪表盘总览数据"""
     try:
         tasks = Task.query.order_by(Task.created_at.desc()).all()
+        tasks = _filter_task_models_by_action(getattr(g, "current_user", None), "view", tasks)
         now = datetime.now()
         last_7_days = [(now - timedelta(days=offset)).date() for offset in range(6, -1, -1)]
         daily_map = {day.isoformat(): {'created': 0, 'completed': 0} for day in last_7_days}
@@ -341,12 +384,17 @@ def dashboard_overview():
 
 @admin_bp.route('/api/tasks/<task_id>/runtime-detail')
 @login_required
+@permission_required('task:view')
 def task_runtime_detail(task_id):
     """管理后台任务运行细节"""
     try:
         task = Task.query.get(task_id)
         if not task:
             return jsonify({'success': False, 'error': 'task not found'}), 404
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("view", task.task_type, decision, task_id=task_id)
 
         return jsonify({
             'success': True,
@@ -358,6 +406,7 @@ def task_runtime_detail(task_id):
 
 @admin_bp.route('/api/scheduler/cleanup', methods=['POST'])
 @login_required
+@permission_required('scheduler:manage')
 def cleanup_completed_tasks():
     """清理已完成的异步任务记录"""
     try:

@@ -6,7 +6,7 @@ import re
 from collections import OrderedDict
 from io import BytesIO
 
-from flask import Blueprint, current_app, jsonify, render_template, request, send_file
+from flask import Blueprint, current_app, jsonify, render_template, request, send_file, g
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -17,6 +17,7 @@ from app.services.backtest_excel_service import BacktestExcelService
 from app.services.xpl_service import xpl_analyzer
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.auth import login_required, permission_required
+from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
 
@@ -30,6 +31,52 @@ C3_PARAMETER_FIELDS = [
     ("ywf1", "一窝蜂 smoothing"),
     ("ywf2", "一窝蜂 bordering"),
 ]
+
+TASK_ACTION_LABELS = {
+    "view": "查看",
+}
+
+
+def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None, result_id: int | None = None):
+    action_label = TASK_ACTION_LABELS.get(action, action)
+    normalized_type = decision.get("task_type") or str(task_type or "unknown")
+    missing_permissions = decision.get("missing_permissions") or []
+    missing_text = "、".join(missing_permissions) if missing_permissions else "未知"
+    message = f"权限不足，无法{action_label}{normalized_type}任务；当前缺少: {missing_text}"
+
+    return jsonify({
+        "status": "error",
+        "message": message,
+        "action": action,
+        "task_type": normalized_type,
+        "task_id": task_id,
+        "result_id": result_id,
+        "required_permissions": decision.get("required_permissions") or [],
+        "missing_permissions": missing_permissions,
+    }), 403
+
+
+def _load_backtest_task_or_response(task_id: str, action: str = "view", result_id: int | None = None):
+    task = Task.query.get(task_id)
+    if not task:
+        return None, (jsonify({
+            "status": "error",
+            "message": "任务不存在",
+        }), 404)
+
+    decision = authorize_task_type_action(getattr(g, "current_user", None), action, task.task_type)
+    if not decision["allowed"]:
+        return None, _task_permission_denied(action, task.task_type, decision, task_id=task_id, result_id=result_id)
+
+    if normalize_task_type(task.task_type) != "backtest_training":
+        return None, (jsonify({
+            "status": "error",
+            "message": "当前接口仅支持回测任务",
+            "task_id": task_id,
+            "task_type": task.task_type,
+        }), 400)
+
+    return task, None
 
 
 def _sanitize_json_value(value):
@@ -276,7 +323,9 @@ def global_preview_page(task_id):
 @bp.route("/result/<int:result_id>")
 def result_page(result_id):
     task_result = TaskResult.query.get(result_id)
-    task_id = task_result.task_id if task_result else ""
+    task_id = ""
+    if task_result and task_result.task and normalize_task_type(task_result.task.task_type) == "backtest_training":
+        task_id = task_result.task_id
     return render_template("backtest_training/result.html", result_id=result_id, task_id=task_id)
 
 
@@ -363,6 +412,10 @@ def search_stocks():
 @permission_required('backtest:view')
 def get_task_results_by_task_id(task_id):
     """Return paginated task result summaries for the detail page."""
+    _, error_response = _load_backtest_task_or_response(task_id, action="view")
+    if error_response:
+        return error_response
+
     page = request.args.get("page", default=1, type=int) or 1
     per_page = request.args.get("per_page", default=10, type=int) or 10
     page = max(page, 1)
@@ -425,6 +478,7 @@ def get_task_result_detail(task_result_id):
         TaskResult.query
         .options(
             load_only(
+                TaskResult.task_id,
                 TaskResult.result
             )
         )
@@ -437,7 +491,14 @@ def get_task_result_detail(task_result_id):
             "message": "任务结果不存在",
         }), 404
 
-    result_payload = task_result.to_dict().get("result") or {}
+    _, error_response = _load_backtest_task_or_response(task_result.task_id, action="view", result_id=task_result_id)
+    if error_response:
+        return error_response
+
+    try:
+        result_payload = json.loads(task_result.result) if task_result.result else {}
+    except (TypeError, json.JSONDecodeError):
+        result_payload = {}
     val = list(result_payload.values())[0] if result_payload else {}
     calculate_metrics = val.get("calculate_metrics") if isinstance(val, dict) else {}
     sheet_result = {
@@ -458,17 +519,9 @@ def get_task_result_detail(task_result_id):
 @login_required
 @permission_required('backtest:view')
 def get_task_summary(task_id):
-    task = (
-        Task.query
-        .options(load_only(Task.id, Task.name, Task.config, Task.task_type))
-        .filter(Task.id == task_id)
-        .first()
-    )
-    if not task:
-        return jsonify({
-            "status": "error",
-            "message": "任务不存在",
-        }), 404
+    task, error_response = _load_backtest_task_or_response(task_id, action="view")
+    if error_response:
+        return error_response
 
     task_config = task.to_dict().get("config") or {}
     model_version = _infer_backtest_model_version(task_config)
@@ -688,6 +741,8 @@ def _extract_summary_rows(calculate_metrics, model_name):
 def _build_global_preview_payload(task_id):
     task = Task.query.get(task_id)
     if not task:
+        return None
+    if normalize_task_type(task.task_type) != "backtest_training":
         return None
 
     task_config = task.to_dict().get("config") or {}
@@ -934,6 +989,10 @@ def _build_global_preview_workbook(payload):
 @login_required
 @permission_required('backtest:view')
 def get_global_preview(task_id):
+    _, error_response = _load_backtest_task_or_response(task_id, action="view")
+    if error_response:
+        return error_response
+
     payload = _build_global_preview_payload(task_id)
     if payload is None:
         return jsonify({
@@ -951,6 +1010,10 @@ def get_global_preview(task_id):
 @login_required
 @permission_required('backtest:view')
 def export_global_preview(task_id):
+    _, error_response = _load_backtest_task_or_response(task_id, action="view")
+    if error_response:
+        return error_response
+
     payload = _build_global_preview_payload(task_id)
     if payload is None:
         return jsonify({
