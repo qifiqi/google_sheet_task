@@ -1,6 +1,6 @@
 # Google Sheet 参数批量校验系统
 
-一个基于 Flask 的 Google Sheet 参数批量校验系统，支持参数组合批量执行、任务管理、实时监控等功能。
+一个前后端分离（Flask + Vue 3）的任务平台，支持 Google Sheet 参数批量校验、任务调度、RBAC 权限控制与 JWT 登录鉴权。
 
 ## 功能特性
 
@@ -17,6 +17,9 @@
 - **配置管理**: 灵活的系统配置管理
 - **日志系统**: 完整的操作日志记录
 - **数据持久化**: 基于 SQLite 的数据存储
+- **登录鉴权**: 支持 JWT 登录、刷新令牌、接口鉴权
+- **权限控制**: 支持基于角色的 RBAC 权限控制
+- **单点登录**: 同账号新登录会使旧端登录状态失效
 
 ### 🎨 界面特性
 - **响应式设计**: 支持桌面和移动设备
@@ -150,10 +153,62 @@ APP_ENV=production
 DATABASE_URL=postgresql://validator_user:123456@172.18.20.17:5432/googlesheet_validator
 ```
 
+## 登录与鉴权（前后端）
+
+### 1) 鉴权开关与密钥
+
+在环境变量中配置：
+
+```bash
+AUTH_ENABLED=true
+JWT_SECRET_KEY=请替换为生产随机密钥
+```
+
+- `AUTH_ENABLED=true`：启用 JWT 认证与权限校验（生产环境必须开启）
+- `AUTH_ENABLED=false`：仅用于本地调试，会跳过认证与权限拦截
+
+### 2) 默认账号
+
+首次启动会自动初始化管理员账号：
+
+- 用户名：`admin`
+- 密码：`admin123`
+
+首次登录后请立即在「个人密码修改」或后台用户管理中修改默认密码。
+
+### 3) 前端登录流程（Vue）
+
+1. 登录页调用 `POST /api/auth/login`
+2. 保存 `access_token` 和 `refresh_token` 到 `localStorage`
+3. 请求受保护接口时自动附带 `Authorization: Bearer <access_token>`
+4. 遇到 401 自动调用 `POST /api/auth/refresh` 换新 access_token 并重试
+5. refresh 失败则清理本地 token 并跳转 `/login`
+
+### 4) 后端鉴权流程（Flask）
+
+1. `@login_required`：校验 access_token、有无过期、用户是否有效
+2. `@permission_required(...)`：按权限码校验是否允许访问资源
+3. 登录成功后会递增用户 `token_version`，并写入 access/refresh token
+4. 每次访问接口与刷新 token 都会比对 `token_version`
+5. 任意端再次登录后，旧端 token 因版本不一致会失效（单点登录）
+
+### 5) 鉴权接口
+
+- `POST /api/auth/login`：登录，返回 `access_token`、`refresh_token`、用户信息
+- `POST /api/auth/refresh`：刷新 `access_token`
+- `GET /api/auth/me`：获取当前登录用户信息
+- `POST /api/auth/logout`：退出登录（服务端会使当前 token 失效）
+- `PUT /api/auth/password`：修改密码
+
+更多细节见：
+- `docs/登录与鉴权操作指南.md`
+- `docs/前端维护文档.md`
+- `docs/后端维护文档.md`
+
 ## 使用指南
 
 ### 1. 访问管理面板
-打开浏览器访问 `http://localhost:5000/admin/` 进入管理面板。
+打开浏览器访问 `http://localhost:5000/login` 登录系统，登录后进入管理面板。
 
 ### 2. 配置 Google Sheet
 1. 在管理面板中点击"系统配置"
@@ -248,6 +303,13 @@ cp .env.example .env
 ```
 
 ## API 接口
+
+### 认证 API
+- `POST /api/auth/login` - 登录并获取 token
+- `POST /api/auth/refresh` - 刷新 access_token
+- `GET /api/auth/me` - 获取当前用户信息
+- `POST /api/auth/logout` - 退出登录
+- `PUT /api/auth/password` - 修改密码
 
 ### 任务管理 API
 - `GET /api/tasks` - 获取所有任务

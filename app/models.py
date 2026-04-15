@@ -28,6 +28,7 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False, comment='用户名')
     password_hash = db.Column(db.String(256), nullable=False, comment='密码哈希')
     is_active = db.Column(db.Boolean, default=True, comment='是否启用')
+    token_version = db.Column(db.Integer, default=0, nullable=False, comment='JWT 会话版本号')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
     last_login = db.Column(db.DateTime, comment='最后登录时间')
     roles = db.relationship('Role', secondary=user_roles, backref='users')

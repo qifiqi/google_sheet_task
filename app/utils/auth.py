@@ -12,9 +12,10 @@ def _get_secret():
     return cm.get_config('JWT_SECRET_KEY', 'change-me-in-production')
 
 
-def create_access_token(user_id, expires_hours=2):
+def create_access_token(user_id, token_version=0, expires_hours=2):
     payload = {
         'user_id': user_id,
+        'token_version': int(token_version or 0),
         'type': 'access',
         'exp': datetime.utcnow() + timedelta(hours=expires_hours),
         'iat': datetime.utcnow(),
@@ -22,9 +23,10 @@ def create_access_token(user_id, expires_hours=2):
     return jwt.encode(payload, _get_secret(), algorithm='HS256')
 
 
-def create_refresh_token(user_id, expires_days=7):
+def create_refresh_token(user_id, token_version=0, expires_days=7):
     payload = {
         'user_id': user_id,
+        'token_version': int(token_version or 0),
         'type': 'refresh',
         'exp': datetime.utcnow() + timedelta(days=expires_days),
         'iat': datetime.utcnow(),
@@ -34,6 +36,14 @@ def create_refresh_token(user_id, expires_days=7):
 
 def decode_token(token):
     return jwt.decode(token, _get_secret(), algorithms=['HS256'])
+
+
+def extract_token_version(payload):
+    version = payload.get('token_version', 0)
+    try:
+        return int(version)
+    except (TypeError, ValueError):
+        raise jwt.InvalidTokenError('invalid token version')
 
 
 def _is_auth_enabled():
@@ -91,6 +101,7 @@ def login_required(f):
             payload = decode_token(token)
             if payload.get('type') != 'access':
                 return jsonify({'code': 401, 'data': None, 'message': '令牌类型错误'}), 401
+            token_version = extract_token_version(payload)
         except jwt.ExpiredSignatureError:
             return jsonify({'code': 401, 'data': None, 'message': '令牌已过期'}), 401
         except jwt.InvalidTokenError:
@@ -100,6 +111,8 @@ def login_required(f):
         user = User.query.get(payload['user_id'])
         if not user or not user.is_active:
             return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
+        if int(user.token_version or 0) != token_version:
+            return jsonify({'code': 401, 'data': None, 'message': '登录状态已失效，请重新登录'}), 401
 
         g.current_user = user
         return f(*args, **kwargs)
@@ -118,8 +131,25 @@ def permission_required(*permission_codes):
                 return jsonify({'code': 401, 'data': None, 'message': '未认证'}), 401
 
             user_perms = user.get_permissions()
-            if not any(code in user_perms for code in permission_codes):
-                return jsonify({'code': 403, 'data': None, 'message': '权限不足'}), 403
+            required_permissions = [code for code in permission_codes if code]
+            if not any(code in user_perms for code in required_permissions):
+                missing_permissions = [code for code in required_permissions if code not in user_perms]
+                if len(required_permissions) <= 1:
+                    required_text = required_permissions[0] if required_permissions else "未配置"
+                    message = f"权限不足，需要权限: {required_text}"
+                else:
+                    required_text = " 或 ".join(required_permissions)
+                    message = f"权限不足，需要以下任一权限: {required_text}"
+                if missing_permissions:
+                    message = f"{message}；当前缺少: {'、'.join(missing_permissions)}"
+                return jsonify({
+                    'code': 403,
+                    'data': {
+                        'required_permissions': required_permissions,
+                        'missing_permissions': missing_permissions,
+                    },
+                    'message': message,
+                }), 403
 
             return f(*args, **kwargs)
         return decorated

@@ -5,7 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from app.models import User, Role, Permission, db
 from app.utils.auth import (
     create_access_token, create_refresh_token, decode_token,
-    login_required, permission_required,
+    login_required, permission_required, extract_token_version,
 )
 from app.utils.api_response import success, error
 import jwt
@@ -29,12 +29,14 @@ def login():
     if not user.is_active:
         return error('账号已被禁用')
 
+    user.token_version = int(user.token_version or 0) + 1
+    token_version = int(user.token_version or 0)
     user.last_login = datetime.utcnow()
     db.session.commit()
 
     return success(data={
-        'access_token': create_access_token(user.id),
-        'refresh_token': create_refresh_token(user.id),
+        'access_token': create_access_token(user.id, token_version=token_version),
+        'refresh_token': create_refresh_token(user.id, token_version=token_version),
         'user': user.to_dict(include_permissions=True),
     })
 
@@ -47,6 +49,7 @@ def refresh():
         payload = decode_token(token)
         if payload.get('type') != 'refresh':
             return error('令牌类型错误')
+        token_version = extract_token_version(payload)
     except jwt.ExpiredSignatureError:
         return error('刷新令牌已过期', http_status=401)
     except jwt.InvalidTokenError:
@@ -55,9 +58,11 @@ def refresh():
     user = User.query.get(payload['user_id'])
     if not user or not user.is_active:
         return error('用户不存在或已禁用', http_status=401)
+    if int(user.token_version or 0) != token_version:
+        return error('登录状态已失效，请重新登录', http_status=401)
 
     return success(data={
-        'access_token': create_access_token(user.id),
+        'access_token': create_access_token(user.id, token_version=int(user.token_version or 0)),
         'user': user.to_dict(include_permissions=True),
     })
 
@@ -73,6 +78,10 @@ def get_me():
 @auth_api_bp.route('/auth/logout', methods=['POST'])
 @login_required
 def logout():
+    from flask import g
+    user = g.current_user
+    user.token_version = int(user.token_version or 0) + 1
+    db.session.commit()
     return success(message='退出登录成功')
 
 

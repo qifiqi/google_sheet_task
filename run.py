@@ -29,6 +29,20 @@ def ensure_google_sheet_token_schema():
         db.session.commit()
 
 
+def ensure_user_token_version_schema():
+    inspector = inspect(db.engine)
+    tables = inspector.get_table_names()
+    if 'user' not in tables:
+        return
+
+    columns = {column['name'] for column in inspector.get_columns('user')}
+    if 'token_version' not in columns:
+        db.session.execute(
+            text("ALTER TABLE `user` ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
+        )
+        db.session.commit()
+
+
 def reset_google_sheet_token_occupancy():
     # current_in_use_count 表示进程内”正在占用”的资源。
     # 应用重启后原线程已经不存在，因此启动时统一清零,避免脏占用残留。
@@ -61,6 +75,7 @@ def init_db():
     """初始化数据库"""
     db.create_all()
     ensure_google_sheet_token_schema()
+    ensure_user_token_version_schema()
     print("数据库初始化完成")
 
 @app.cli.command()
@@ -201,6 +216,55 @@ def init_rbac():
         ))
         db.session.commit()
         logger.info("已初始化导航菜单配置 nav_menu")
+    else:
+        try:
+            nav_data = json.loads(nav_config.value or "[]")
+        except (ValueError, TypeError):
+            nav_data = []
+
+        permission_map = {
+            '/admin': 'page:admin:dashboard',
+            '/admin/': 'page:admin:dashboard',
+            '/admin/tasks': 'page:admin:tasks',
+            '/admin/templates': 'page:admin:templates',
+            '/admin/results': 'page:admin:results',
+            '/admin/scheduler': 'page:admin:scheduler',
+            '/admin/config': 'page:admin:config',
+            '/admin/google-sheets': 'page:admin:google_sheets',
+            '/admin/logs': 'page:admin:logs',
+            '/admin/users': 'page:admin:users',
+            '/admin/roles': 'page:admin:roles',
+            '/task/list?version=c3': 'page:google_sheet:c3',
+            '/task/list?version=c4': 'page:google_sheet:c4',
+            '/task/list?version=c5': 'page:google_sheet:c5',
+            '/google-sheet/?version=c3': 'page:google_sheet:c3',
+            '/google-sheet/?version=c4': 'page:google_sheet:c4',
+            '/google-sheet/?version=c5': 'page:google_sheet:c5',
+            '/google-sheet/?version=c31': 'page:google_sheet:c3',
+            '/backtest/list': 'page:backtest:list',
+            '/backtest-training/list': 'page:backtest:list',
+            '/backtest/create': 'page:backtest:create',
+            '/backtest-training/create': 'page:backtest:create',
+        }
+
+        def migrate_nav_permissions(items):
+            changed = False
+            for item in items or []:
+                item_path = item.get('path')
+                expected_permission = permission_map.get(item_path)
+                if expected_permission and item.get('permission') != expected_permission:
+                    item['permission'] = expected_permission
+                    changed = True
+
+                children = item.get('children')
+                if isinstance(children, list) and migrate_nav_permissions(children):
+                    changed = True
+            return changed
+
+        if migrate_nav_permissions(nav_data):
+            nav_config.value = json.dumps(nav_data, ensure_ascii=False)
+            db.session.commit()
+            logger.info("已更新导航菜单中的页面权限映射")
 
 if __name__ == '__main__':
     from app.utils.logger import get_logger
@@ -219,6 +283,7 @@ if __name__ == '__main__':
         with app.app_context():
             db.create_all()
             ensure_google_sheet_token_schema()
+            ensure_user_token_version_schema()
             reset_google_sheet_token_occupancy()
             reset_google_sheet_occupancy()
             init_config2()
