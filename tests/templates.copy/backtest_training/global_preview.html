@@ -1,0 +1,286 @@
+{% extends "admin/base.html" %}
+
+{% block title %}全局预览页{% endblock %}
+
+{% block head %}
+<style>
+    .preview-layout {
+        display: grid;
+        gap: 1.25rem;
+    }
+    .preview-summary {
+        display: grid;
+        gap: 0.9rem;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+    .preview-summary .card {
+        border: 0;
+        border-radius: 1rem;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+    .preview-table-wrap {
+        overflow: auto;
+        border-radius: 1rem;
+        border: 1px solid var(--bs-border-color);
+        background: var(--bs-body-bg);
+    }
+    .preview-table {
+        min-width: 960px;
+        margin-bottom: 0;
+    }
+    .preview-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--bs-tertiary-bg);
+        vertical-align: middle;
+        white-space: normal;
+    }
+    .preview-table .sticky-col {
+        position: sticky;
+        z-index: 1;
+        background: var(--bs-body-bg);
+    }
+    .preview-table .sticky-col-1 {
+        left: 0;
+        min-width: 120px;
+        background: #f7e1a1;
+    }
+    .preview-table .sticky-col-2 {
+        left: 120px;
+        min-width: 180px;
+    }
+    .preview-table .sticky-col-3 {
+        left: 300px;
+        min-width: 140px;
+    }
+    .preview-table thead .sticky-col {
+        z-index: 3;
+        background: var(--bs-tertiary-bg);
+    }
+    .preview-table thead .sticky-col-1 {
+        background: #f7e1a1;
+    }
+    .group-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+    .group-meta .badge {
+        padding: 0.55rem 0.8rem;
+        font-size: 0.82rem;
+    }
+    .table-col-head {
+        min-width: 180px;
+    }
+    .empty-state {
+        padding: 4rem 1rem;
+        text-align: center;
+        color: var(--bs-secondary-color);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="preview-layout">
+        <div class="card border-0 shadow-sm rounded-4">
+            <div class="card-body p-4 d-flex justify-content-between align-items-start flex-wrap gap-3">
+                <div>
+                    <div class="text-body-secondary small mb-2">任务详情扩展视图</div>
+                    <h3 class="mb-1 fw-bold">全局预览页</h3>
+                    <div class="text-body-secondary" id="taskTitleText">加载中...</div>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="/backtest-training/api/global-preview/{{ task_id }}/export" class="btn btn-outline-success rounded-pill px-4">
+                        <i class="bi bi-file-earmark-excel"></i> 导出 XLSX
+                    </a>
+                    <a href="/backtest-training/detail/{{ task_id }}" class="btn btn-outline-secondary rounded-pill px-4">
+                        <i class="bi bi-arrow-left"></i> 返回详情
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="preview-summary" id="summaryCards">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-body-secondary small">任务 ID</div>
+                    <div class="fw-semibold" id="summaryTaskId">{{ task_id }}</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-body-secondary small">结果总数</div>
+                    <div class="fw-semibold" id="summaryTotal">-</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-body-secondary small">成功结果</div>
+                    <div class="fw-semibold text-success" id="summarySuccess">-</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-body-secondary small">年份分组</div>
+                    <div class="fw-semibold" id="summaryGroups">-</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm rounded-4">
+            <div class="card-body p-4">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label for="groupSelect" class="form-label text-body-secondary small">年份分组</label>
+                        <select class="form-select" id="groupSelect"></select>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="group-meta" id="groupMeta"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm rounded-4">
+            <div class="card-body p-0">
+                <div class="preview-table-wrap" id="previewContainer">
+                    <div class="empty-state">正在加载全局预览数据...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const TASK_ID = {{ task_id|tojson }};
+    let previewPayload = null;
+    let activeGroupKey = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadGlobalPreview();
+        document.getElementById('groupSelect')?.addEventListener('change', (event) => {
+            activeGroupKey = event.target.value;
+            renderActiveGroup();
+        });
+    });
+
+    async function loadGlobalPreview() {
+        const container = document.getElementById('previewContainer');
+        try {
+            const response = await fetch(`/backtest-training/api/global-preview/${encodeURIComponent(TASK_ID)}`);
+            const data = await response.json();
+            if (!response.ok || data.status !== 'success') {
+                throw new Error(data.message || '加载失败');
+            }
+            previewPayload = data;
+            activeGroupKey = data.groups && data.groups.length ? data.groups[0].group_key : '';
+            renderSummary();
+            renderGroupOptions();
+            renderActiveGroup();
+        } catch (error) {
+            container.innerHTML = `<div class="empty-state text-danger">${escapeHtml(error.message || '加载失败')}</div>`;
+        }
+    }
+
+    function renderSummary() {
+        const task = previewPayload.task || {};
+        const summary = previewPayload.summary || {};
+        document.getElementById('taskTitleText').textContent = task.name || TASK_ID;
+        document.getElementById('summaryTaskId').textContent = task.id || TASK_ID;
+        document.getElementById('summaryTotal').textContent = summary.total_results ?? 0;
+        document.getElementById('summarySuccess').textContent = summary.success_results ?? 0;
+        document.getElementById('summaryGroups').textContent = summary.group_count ?? 0;
+    }
+
+    function renderGroupOptions() {
+        const select = document.getElementById('groupSelect');
+        const groups = Array.isArray(previewPayload.groups) ? previewPayload.groups : [];
+        if (!groups.length) {
+            select.innerHTML = '<option value="">暂无分组</option>';
+            select.disabled = true;
+            return;
+        }
+
+        select.disabled = false;
+        select.innerHTML = groups.map((group) => `
+            <option value="${escapeHtml(group.group_key)}" ${group.group_key === activeGroupKey ? 'selected' : ''}>
+                ${escapeHtml(group.group_label)} (${group.column_count} 组参数)
+            </option>
+        `).join('');
+    }
+
+    function renderActiveGroup() {
+        const container = document.getElementById('previewContainer');
+        const meta = document.getElementById('groupMeta');
+        const groups = Array.isArray(previewPayload?.groups) ? previewPayload.groups : [];
+        const group = groups.find((item) => item.group_key === activeGroupKey);
+
+        if (!group) {
+            meta.innerHTML = '';
+            container.innerHTML = '<div class="empty-state">当前没有可展示的分组数据</div>';
+            return;
+        }
+
+        meta.innerHTML = `
+            <span class="badge text-bg-primary">${escapeHtml(group.group_label)}</span>
+            <span class="badge text-bg-light">区间：${escapeHtml(group.period || '-')}</span>
+            <span class="badge text-bg-light">参数列数：${escapeHtml(group.column_count || 0)}</span>
+            <span class="badge text-bg-light">失败结果：${escapeHtml(group.failed_results || 0)}</span>
+        `;
+
+        if (!Array.isArray(group.rows) || !group.rows.length || !Array.isArray(group.columns) || !group.columns.length) {
+            container.innerHTML = '<div class="empty-state">该分组下没有成功结果</div>';
+            return;
+        }
+
+        const headColumns = group.columns.map((column) => `
+            <th class="table-col-head">
+                <div class="fw-semibold">${escapeHtml(column.header || `结果 ${column.result_id}`)}</div>
+                <div class="small text-body-secondary mt-1">结果 ID: ${escapeHtml(column.result_id)}</div>
+            </th>
+        `).join('');
+
+        const bodyRows = group.rows.map((row) => {
+            const valueColumns = group.columns.map((column) => `
+                <td>${escapeHtml(row.values?.[column.column_key] || '-')}</td>
+            `).join('');
+
+            return `
+                <tr>
+                    <td class="sticky-col sticky-col-1 fw-semibold">${escapeHtml(row.category || '-')}</td>
+                    <td class="sticky-col sticky-col-2">${escapeHtml(row.metric || '-')}</td>
+                    <td class="sticky-col sticky-col-3 text-body-secondary">${escapeHtml(row.index_value || '-')}</td>
+                    ${valueColumns}
+                </tr>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <table class="table table-bordered align-middle preview-table">
+                <thead>
+                    <tr>
+                        <th class="sticky-col sticky-col-1">指标类型</th>
+                        <th class="sticky-col sticky-col-2">指标</th>
+                        <th class="sticky-col sticky-col-3">指数</th>
+                        ${headColumns}
+                    </tr>
+                </thead>
+                <tbody>${bodyRows}</tbody>
+            </table>
+        `;
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+</script>
+{% endblock %}

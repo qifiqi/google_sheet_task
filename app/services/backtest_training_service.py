@@ -474,6 +474,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     A_num = column_A_length
                     self._log_info(f'{self.google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
                     self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
+                    self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+                    if not self._interruptible_sleep(20):
+                        raise RuntimeError("task cancelled")
 
                     # 准备要更新的单元格
                     for i in range(_kline_len):
@@ -596,7 +599,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     except Exception as e:
                         self._log_info(f"获取结果位置 {output_column_index}2:{output_column_start}{len(kline) + 1} 时出错：{str(e)}")
                         self._log_info(f"_result：{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
-                        break
+                        continue
 
                     _return_date = []
                     for i in range(len(kline)):
@@ -613,6 +616,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 else:
                     self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
                     self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
+                    
             self._log_warning("执行超时，未在规定时间内完成")
             return False, {}
 
