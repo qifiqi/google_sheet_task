@@ -117,7 +117,14 @@ class TaskManager:
         return normalized
     
     @transaction_required
-    def create_task(self, name: str, description: str, task_type: str, config: Dict[str, Any]) -> str:
+    def create_task(
+        self,
+        name: str,
+        description: str,
+        task_type: str,
+        config: Dict[str, Any],
+        created_by_user_id: Optional[int] = None,
+    ) -> str:
         """创建新任务"""
         task_id = str(uuid.uuid4())
         config = self._normalize_task_config_for_type(task_type, config)
@@ -135,7 +142,8 @@ class TaskManager:
             description=description,
             task_type=task_type,
             config=config_str,
-            status='pending'
+            status='pending',
+            created_by_user_id=created_by_user_id,
         )
 
         if isinstance(config, dict):
@@ -148,9 +156,22 @@ class TaskManager:
         logger.info(f"创建任务: {task_id} - {name}")
         return task_id
 
-    def create_and_start_task(self, name: str, description: str, task_type: str, config: Dict[str, Any]):
+    def create_and_start_task(
+        self,
+        name: str,
+        description: str,
+        task_type: str,
+        config: Dict[str, Any],
+        created_by_user_id: Optional[int] = None,
+    ):
         """创建并启动任务，供路由层直接调用。"""
-        task_id = self.create_task(name, description, task_type, config)
+        task_id = self.create_task(
+            name,
+            description,
+            task_type,
+            config,
+            created_by_user_id=created_by_user_id,
+        )
         if self.start_task(task_id):
             return {"status": "success", "task_id": task_id, "message": "任务创建并启动成功"}, 200
         return {
@@ -159,7 +180,7 @@ class TaskManager:
             "message": self.get_start_error(task_id)
         }, 400
 
-    def batch_create_and_start_task(self, data: Dict[str, Any]):
+    def batch_create_and_start_task(self, data: Dict[str, Any], created_by_user_id: Optional[int] = None):
         """C31 批量拆分为多个 C3 任务并尝试启动。"""
         if not isinstance(data, dict):
             raise ValueError("批量任务请求体必须是 JSON 对象")
@@ -285,7 +306,13 @@ class TaskManager:
 
                     combo_count = reduce(operator.mul, [len(p) for p in child_parameters], 1)
                     _description = description or '批量执行 {} 个参数组合'.format(combo_count)
-                    task_id = self.create_task(task_name, _description, child_task_type, child_config)
+                    task_id = self.create_task(
+                        task_name,
+                        _description,
+                        child_task_type,
+                        child_config,
+                        created_by_user_id=created_by_user_id,
+                    )
                     created_task_ids.append(task_id)
 
                     started = self.start_task(task_id)
@@ -858,7 +885,8 @@ class TaskManager:
                 description=f"{original_task.description}基于任务 {original_task_id} 重启",
                 task_type=original_task.task_type,
                 config=json.dumps(original_config),
-                status='pending'
+                status='pending',
+                created_by_user_id=original_task.created_by_user_id,
             )
             
             db.session.add(new_task)

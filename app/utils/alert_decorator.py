@@ -75,12 +75,12 @@ def send_failure_alert(
         return False
 
     try:
-        payload = notifier.error_google_task_templates(
-            _resolve_task_label(target),
-            message,
-            _resolve_task_url(target),
+        result = notifier.send_task_notification(
+            getattr(target, "task_id", ""),
+            notify_type="error",
+            summary=message,
+            detail_url=_resolve_task_url(target),
         )
-        result = notifier.send_message(payload)
         ok = isinstance(result, dict) and result.get("errcode") in (None, 0) and "error" not in result
 
         if ok:

@@ -11,6 +11,20 @@ from app.utils.api_response import success, error
 import jwt
 
 auth_api_bp = Blueprint('auth_api', __name__)
+DEV_ROLE_CODES = {'developer'}
+
+
+def _is_dev_role(role):
+    return str(getattr(role, 'code', '') or '').strip().lower() in DEV_ROLE_CODES
+
+
+def _can_alert_oncall(role_ids=None, user=None):
+    if role_ids is not None:
+        if not role_ids:
+            return False
+        roles = Role.query.filter(Role.id.in_(role_ids)).all()
+        return any(_is_dev_role(role) for role in roles)
+    return any(_is_dev_role(role) for role in (user.roles if user else []))
 
 
 # ==================== Auth ====================
@@ -123,6 +137,7 @@ def create_user():
     data = request.get_json() or {}
     username = data.get('username', '').strip()
     password = data.get('password', '')
+    mobile = (data.get('mobile') or '').strip() or None
     role_ids = data.get('role_ids', [])
 
     if not username or not password:
@@ -133,7 +148,9 @@ def create_user():
     user = User(
         username=username,
         password_hash=generate_password_hash(password),
+        mobile=mobile,
         is_active=data.get('is_active', True),
+        is_alert_oncall=bool(data.get('is_alert_oncall', False)) and _can_alert_oncall(role_ids=role_ids),
     )
     if role_ids:
         user.roles = Role.query.filter(Role.id.in_(role_ids)).all()
@@ -151,12 +168,16 @@ def update_user(user_id):
         return error('用户不存在', http_status=404)
 
     data = request.get_json() or {}
+    if 'mobile' in data:
+        user.mobile = (data.get('mobile') or '').strip() or None
     if 'is_active' in data:
         user.is_active = data['is_active']
     if 'password' in data and data['password']:
         user.password_hash = generate_password_hash(data['password'])
     if 'role_ids' in data:
         user.roles = Role.query.filter(Role.id.in_(data['role_ids'])).all()
+    if 'is_alert_oncall' in data or 'role_ids' in data:
+        user.is_alert_oncall = bool(data.get('is_alert_oncall', user.is_alert_oncall)) and _can_alert_oncall(user=user)
     db.session.commit()
     return success(data=user.to_dict(), message='用户更新成功')
 

@@ -27,7 +27,9 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True, comment='用户ID')
     username = db.Column(db.String(80), unique=True, nullable=False, comment='用户名')
     password_hash = db.Column(db.String(256), nullable=False, comment='密码哈希')
+    mobile = db.Column(db.String(32), comment='手机号')
     is_active = db.Column(db.Boolean, default=True, comment='是否启用')
+    is_alert_oncall = db.Column(db.Boolean, default=False, nullable=False, comment='是否参与告警值班')
     token_version = db.Column(db.Integer, default=0, nullable=False, comment='JWT 会话版本号')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
     last_login = db.Column(db.DateTime, comment='最后登录时间')
@@ -44,7 +46,9 @@ class User(db.Model):
         d = {
             'id': self.id,
             'username': self.username,
+            'mobile': self.mobile,
             'is_active': self.is_active,
+            'is_alert_oncall': self.is_alert_oncall,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None,
             'roles': [r.to_dict() for r in self.roles],
@@ -163,6 +167,7 @@ class Task(db.Model):
     status = db.Column(db.String(20), default="pending", index=True, comment="任务状态")
     task_type = db.Column(db.String(50), default="google_sheet", index=True, comment="任务类型")
     config = db.Column(db.Text, comment="任务配置JSON")
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True, comment="创建人用户ID")
     start_time = db.Column(db.DateTime, comment="开始时间")
     end_time = db.Column(db.DateTime, comment="结束时间")
     current_step = db.Column(db.Integer, default=0, comment="当前步骤")
@@ -179,6 +184,7 @@ class Task(db.Model):
         lazy="dynamic",
         cascade="all, delete-orphan",
     )
+    created_by = db.relationship("User", foreign_keys=[created_by_user_id])
 
     def to_dict(self):
         return {
@@ -188,6 +194,7 @@ class Task(db.Model):
             "status": self.status,
             "task_type": self.task_type,
             "config": json.loads(self.config) if self.config else {},
+            "created_by_user_id": self.created_by_user_id,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "current_step": self.current_step,

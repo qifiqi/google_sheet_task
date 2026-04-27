@@ -61,20 +61,22 @@ class BaseGoogleSheetService:
         return f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
 
     def error_dd(self, error_msg):
-        error_msg = self.app.notifier.error_google_task_templates(
-            f"{self.task_id} -- {self._task_display_name()}",
-            error_msg,
-            self._task_detail_url(),
+        result = self.app.notifier.send_task_notification(
+            self.task_id,
+            notify_type="error",
+            summary=error_msg,
+            detail_url=self._task_detail_url(),
         )
-        self.app.notifier.send_message(error_msg)
+        return result
 
     def task_ok_to_dd(self, result):
-        error_msg = self.app.notifier.google_task_ok_templates(
-            f"{self.task_id} -- {self._task_display_name()}",
-            result,
-            self._task_detail_url(),
+        payload_result = self.app.notifier.send_task_notification(
+            self.task_id,
+            notify_type="success",
+            summary=result,
+            detail_url=self._task_detail_url(),
         )
-        self.app.notifier.send_message(error_msg)
+        return payload_result
 
     def _log(self, level: str, message: str, log_type: str = 'general', **kwargs):
         try:

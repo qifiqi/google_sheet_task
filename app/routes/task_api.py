@@ -127,10 +127,17 @@ def tasks():
             name = data.get('name', '未命名任务')
             description = data.get('description', '')
             task_type = data.get('task_type', 'google_sheet')
-            decision = authorize_task_type_action(getattr(g, "current_user", None), "create", task_type)
+            current_user = getattr(g, "current_user", None)
+            decision = authorize_task_type_action(current_user, "create", task_type)
             if not decision["allowed"]:
                 return _task_permission_denied("create", task_type, decision)
-            response, status_code = task_manager.create_and_start_task(name, description, task_type, config)
+            response, status_code = task_manager.create_and_start_task(
+                name,
+                description,
+                task_type,
+                config,
+                created_by_user_id=getattr(current_user, "id", None),
+            )
             return jsonify(response), status_code
 
         return jsonify({"status": "error", "message": "任务配置为空"}), 400
@@ -155,7 +162,10 @@ def batch_create_tasks():
         data = request.get_json() or {}
         logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
 
-        response, status_code = task_manager.batch_create_and_start_task(data)
+        response, status_code = task_manager.batch_create_and_start_task(
+            data,
+            created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
+        )
         if status_code == 200:
             response["debug_message"] = "已调用原有 C3 创建流程；当前仍为占位版批量接口"
         return jsonify(response), status_code
