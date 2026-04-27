@@ -6,11 +6,14 @@ import hashlib
 import base64
 import urllib.parse
 
-from app.utils.logger import get_logger
+# from app.utils.logger import get_logger
 
 
-logger = get_logger(__name__)
+# logger = get_logger(__name__)
+import logging
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class DingTalkNotifier:
     """
@@ -190,6 +193,15 @@ if __name__ == '__main__':
 
 
     # 发送消息
-    result = notifier.send_message(notifier.error_templates())
+    result = notifier.send_message({
+        "msgtype": "text", 
+        "text": {
+            "content": "任务完成测试 这是一条文本消息内容"
+        },
+        "at": {
+            "atMobiles": ["13823582442"] 
+        }
+        }
+        )
     print(result)
 

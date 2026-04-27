@@ -486,6 +486,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     self._log_info(f'{self.google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
                     self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
 
+                    self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+                    if not self._interruptible_sleep(20):
+                        raise RuntimeError("task cancelled")
+
                     # 准备要更新的单元格
                     for i in range(_kline_len):
                         item = {}
@@ -607,7 +611,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     except Exception as e:
                         self._log_info(f"获取结果位置 {output_column_index}2:{output_column_start}{len(kline) + 1} 时出错：{str(e)}")
                         self._log_info(f"_result：{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
-                        break
+                        continue
 
                     _return_date = []
                     for i in range(len(kline)):
@@ -742,6 +746,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
+        
+        if end_dt.weekday() >= 5:
+            end_date = data_end_date
 
         # 检查用户设定的区间是否在数据范围内
         if start_date < data_start_date or end_date > data_end_date:
@@ -749,7 +756,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
         if len(klines) < 100:
-            raise Exception(f"股票{stock_code} 数据量不足,k线数据量小于100条，无法在模型正确产生数据，或者联系开发")
+            raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于100条，无法在模型正确产生数据，或者联系开发")
 
         all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
         data = []

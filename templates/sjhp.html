@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>拉完了peace - 世界和平</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: #050510;
+            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            overflow: hidden;
+            cursor: default;
+        }
+
+        /* ========== 背景粒子动画 ========== */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .particle {
+            position: absolute;
+            border-radius: 50%;
+            animation: float linear infinite;
+            opacity: 0;
+        }
+
+        @keyframes float {
+            0% {
+                transform: translateY(100vh) scale(0) rotate(0deg);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(-100px) scale(1.5) rotate(720deg);
+                opacity: 0;
+            }
+        }
+
+        /* ========== 光晕背景 ========== */
+        .glow-bg {
+            position: fixed;
+            width: 800px;
+            height: 800px;
+            border-radius: 50%;
+            filter: blur(150px);
+            opacity: 0.3;
+            animation: glowPulse 4s ease-in-out infinite, glowRotate 20s linear infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .glow-bg-1 {
+            background: radial-gradient(circle, #ff006e, transparent 70%);
+            top: -300px;
+            left: -200px;
+            animation-delay: 0s;
+        }
+
+        .glow-bg-2 {
+            background: radial-gradient(circle, #3a86ff, transparent 70%);
+            bottom: -300px;
+            right: -200px;
+            animation-delay: -2s;
+        }
+
+        .glow-bg-3 {
+            background: radial-gradient(circle, #8338ec, transparent 70%);
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            height: 600px;
+            animation-delay: -4s;
+        }
+
+        @keyframes glowPulse {
+            0%, 100% {
+                opacity: 0.2;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            50% {
+                opacity: 0.5;
+                transform: translate(-50%, -50%) scale(1.3);
+            }
+        }
+
+        @keyframes glowRotate {
+            0% {
+                transform: translate(-50%, -50%) rotate(0deg);
+            }
+            100% {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
+        }
+
+        /* ========== 主标题容器 ========== */
+        .title-wrapper {
+            position: relative;
+            z-index: 10;
+            perspective: 1000px;
+        }
+
+        /* ========== 核心 h1 样式 ========== */
+        h1 {
+            font-size: 300px;
+            font-weight: 900;
+            text-align: center;
+            margin-bottom: 40px;
+            /* 彩色渐变背景 */
+            background: linear-gradient(
+                90deg,
+                #ff0000, #ff6600, #ffcc00, #66ff00,
+                #00ccff, #3300ff, #9900ff, #ff0099,
+                #ff0000
+            );
+            background-size: 800% 100%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            /* 滚动动画 */
+            animation: rainbowScroll 2s linear infinite;
+            /* 发光 */
+            filter: drop-shadow(0 0 40px rgba(255, 100, 200, 0.6))
+                    drop-shadow(0 0 80px rgba(100, 100, 255, 0.4));
+            /* 文字描边 */
+            -webkit-text-stroke: 2px rgba(255, 255, 255, 0.1);
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            /* 3D 悬浮动画 */
+            animation: rainbowScroll 2s linear infinite, float3D 3s ease-in-out infinite;
+        }
+
+        /* ========== 标题3D浮动 ========== */
+        @keyframes float3D {
+            0%, 100% {
+                transform: translateY(0) rotateX(0deg) rotateY(0deg);
+            }
+            25% {
+                transform: translateY(-10px) rotateX(2deg) rotateY(-2deg);
+            }
+            75% {
+                transform: translateY(10px) rotateX(-2deg) rotateY(2deg);
+            }
+        }
+
+        /* ========== 标题悬停放大 ========== */
+        h1:hover {
+            transform: scale(1.1);
+            filter: drop-shadow(0 0 60px rgba(255, 150, 200, 0.8))
+                    drop-shadow(0 0 120px rgba(150, 100, 255, 0.6));
+            animation: rainbowScroll 0.5s linear infinite, float3D 3s ease-in-out infinite;
+        }
+
+        @keyframes rainbowScroll {
+            0% {
+                background-position: 0% 50%;
+            }
+            100% {
+                background-position: 800% 50%;
+            }
+        }
+
+        /* ========== 标题周围光点环绕 ========== */
+        .orbiting-dots {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        .orbit-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            animation: orbitRotate linear infinite;
+        }
+
+        .orbit-ring-1 {
+            width: 700px;
+            height: 200px;
+            margin-top: -100px;
+            margin-left: -350px;
+            animation-duration: 8s;
+        }
+
+        .orbit-ring-2 {
+            width: 750px;
+            height: 250px;
+            margin-top: -125px;
+            margin-left: -375px;
+            animation-duration: 12s;
+            animation-direction: reverse;
+        }
+
+        .orbit-dot {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 0 10px #fff, 0 0 20px #ff00cc, 0 0 40px #ff00cc;
+            top: -4px;
+            left: 50%;
+        }
+
+        @keyframes orbitRotate {
+            0% {
+                transform: translate(-50%, -50%) rotate(0deg);
+            }
+            100% {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
+        }
+
+        /* ========== 文字落下光点 ========== */
+        .sparkles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .sparkle {
+            position: absolute;
+            width: 3px;
+            height: 3px;
+            background: #fff;
+            border-radius: 50%;
+            animation: sparkleFall linear infinite;
+            opacity: 0;
+        }
+
+        @keyframes sparkleFall {
+            0% {
+                transform: translateY(0) translateX(0);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(300px) translateX(100px);
+                opacity: 0;
+            }
+        }
+
+        /* ========== 品牌信息 ========== */
+        .brand {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            color: #888;
+            font-size: 16px;
+            letter-spacing: 2px;
+            line-height: 1.8;
+            opacity: 0.8;
+            transition: all 0.3s ease;
+            animation: brandSlideUp 1s ease-out 0.5s both;
+        }
+
+        @keyframes brandSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 0.8;
+                transform: translateY(0);
+            }
+        }
+
+        .brand:hover {
+            opacity: 1;
+        }
+
+        .brand .brand-name {
+            color: #fff;
+            font-weight: 700;
+            font-size: 18px;
+            background: linear-gradient(90deg, #ff8800, #ff0088);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: brandPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes brandPulse {
+            0%, 100% {
+                opacity: 0.7;
+            }
+            50% {
+                opacity: 1;
+            }
+        }
+
+        .brand .registered {
+            display: inline-block;
+            font-size: 12px;
+            vertical-align: super;
+            margin-left: 2px;
+            color: #aaa;
+        }
+
+        .brand .divider {
+            color: #555;
+            margin: 0 12px;
+        }
+
+        /* ========== 鼠标追踪光效 ========== */
+        .cursor-glow {
+            position: fixed;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 100, 200, 0.15), transparent 70%);
+            pointer-events: none;
+            z-index: 1;
+            transform: translate(-50%, -50%);
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <!-- 背景光晕 -->
+    <div class="glow-bg glow-bg-1"></div>
+    <div class="glow-bg glow-bg-2"></div>
+    <div class="glow-bg glow-bg-3"></div>
+
+    <!-- 粒子系统 -->
+    <div class="particles" id="particles"></div>
+
+    <!-- 鼠标追踪光效 -->
+    <div class="cursor-glow" id="cursorGlow" style="display: none;"></div>
+
+    <!-- 主标题 -->
+    <div class="title-wrapper">
+        <div class="orbit-ring orbit-ring-1">
+            <div class="orbit-dot"></div>
+        </div>
+        <div class="orbit-ring orbit-ring-2">
+            <div class="orbit-dot"></div>
+        </div>
+        <div class="orbiting-dots" id="sparklesContainer"></div>
+        <h1>世界和平</h1>
+    </div>
+
+    <!-- 品牌信息 -->
+    <div class="brand">
+        <span class="brand-name">拉完了peace</span><span class="registered">®</span>
+        <span class="divider">|</span>
+        商标注册号：88888888
+        <span class="divider">|</span>
+        版权所有 © 2026 拉完了peace
+    </div>
+
+    <script>
+        // ========== 背景粒子 ==========
+        function createParticles() {
+            const container = document.getElementById('particles');
+            const colors = ['#ff006e', '#3a86ff', '#8338ec', '#ffbe0b', '#06d6a0', '#ff6b6b'];
+            
+            for (let i = 0; i < 50; i++) {
+                const particle = document.createElement('div');
+                particle.classList.add('particle');
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.width = (Math.random() * 4 + 2) + 'px';
+                particle.style.height = particle.style.width;
+                particle.style.background = colors[Math.floor(Math.random() * colors.length)];
+                particle.style.animationDuration = (Math.random() * 10 + 10) + 's';
+                particle.style.animationDelay = (Math.random() * 10) + 's';
+                particle.style.boxShadow = '0 0 ' + (Math.random() * 10 + 5) + 'px ' + particle.style.background;
+                container.appendChild(particle);
+            }
+        }
+
+        // ========== 标题周围火花粒子 ==========
+        function createSparkles() {
+            const container = document.getElementById('sparklesContainer');
+            const colors = ['#ff006e', '#3a86ff', '#8338ec', '#ffbe0b', '#06d6a0', '#fff'];
+            
+            setInterval(() => {
+                const sparkle = document.createElement('div');
+                sparkle.classList.add('sparkle');
+                sparkle.style.left = Math.random() * 100 + '%';
+                sparkle.style.top = Math.random() * 50 + '%';
+                sparkle.style.background = colors[Math.floor(Math.random() * colors.length)];
+                sparkle.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                sparkle.style.boxShadow = '0 0 6px ' + sparkle.style.background;
+                container.appendChild(sparkle);
+                
+                setTimeout(() => {
+                    sparkle.remove();
+                }, 4000);
+            }, 150);
+        }
+
+        // ========== 鼠标追踪光效 ==========
+        document.addEventListener('mousemove', (e) => {
+            const glow = document.getElementById('cursorGlow');
+            glow.style.display = 'block';
+            glow.style.left = e.clientX + 'px';
+            glow.style.top = e.clientY + 'px';
+        });
+
+        document.addEventListener('mouseleave', () => {
+            document.getElementById('cursorGlow').style.display = 'none';
+        });
+
+        // ========== 标题点击波纹特效 ==========
+        document.querySelector('h1').addEventListener('click', function(e) {
+            const h1 = this;
+            const rect = h1.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            
+            // 创建波纹
+            for (let i = 0; i < 8; i++) {
+                const ripple = document.createElement('div');
+                ripple.style.cssText = `
+                    position: fixed;
+                    width: 20px;
+                    height: 20px;
+                    border: 2px solid rgba(255, 255, 255, 0.8);
+                    border-radius: 50%;
+                    pointer-events: none;
+                    z-index: 100;
+                    left: ${centerX - 10}px;
+                    top: ${centerY - 10}px;
+                    animation: rippleOut 1s ease-out forwards;
+                    animation-delay: ${i * 0.05}s;
+                `;
+                document.body.appendChild(ripple);
+                
+                setTimeout(() => ripple.remove(), 1500);
+            }
+        });
+
+        // 波纹动画样式
+        const rippleStyle = document.createElement('style');
+        rippleStyle.textContent = `
+            @keyframes rippleOut {
+                0% {
+                    transform: scale(1);
+                    opacity: 1;
+                }
+                100% {
+                    transform: scale(30);
+                    opacity: 0;
+                }
+            }
+        `;
+        document.head.appendChild(rippleStyle);
+
+        // ========== 初始化 ==========
+        createParticles();
+        createSparkles();
+    </script>
+</body>
+</html>

@@ -69,6 +69,18 @@ def init_config():
     init_config2()
     print("默认配置初始化完成")
 
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for
+@app.route('/sjhp')
+def sjhp():
+    return render_template('sjhp.html')
+@app.route('/2')
+def index2():
+    return render_template('index2.html')
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
 def check_and_cleanup_dead_tasks():
     """启动时检查并清理挂死的任务"""
     from app.services.task_manager import task_manager

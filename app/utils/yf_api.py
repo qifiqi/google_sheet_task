@@ -133,7 +133,7 @@ class YFApi:
 
 if __name__ == '__main__':
     api = YFApi()
-    df = api.get_kline_data(stock_code=["^TNX"],period='10y')
+    df = api.get_kline_data(stock_code=["MCHP"],period='10y')
     print(df)
     # tickers = df.columns.get_level_values('Ticker').unique()
     # print(tickers)
