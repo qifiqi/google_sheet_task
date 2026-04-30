@@ -103,7 +103,7 @@ def execute_task(task_id, instance_id):
 
     with app.app_context():
         try:
-            task = ScheduledTask.query.get(task_id)
+            task = db.session.get(ScheduledTask, task_id)
             if not task:
                 logger.error(f"任务 {task_id} 不存在")
                 return False
@@ -136,7 +136,7 @@ def execute_task(task_id, instance_id):
             logger.error(f"[Worker] 执行任务异常: {e}")
             # 释放锁
             try:
-                task = ScheduledTask.query.get(task_id)
+                task = db.session.get(ScheduledTask, task_id)
                 if task and task.running_instance_id == instance_id:
                     task.is_running = False
                     task.running_instance_id = None
@@ -156,4 +156,3 @@ if __name__ == '__main__':
 
     success = execute_task(task_id, instance_id)
     sys.exit(0 if success else 1)
-

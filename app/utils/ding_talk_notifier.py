@@ -38,6 +38,14 @@ class DingTalkNotifier:
         mobile = str(value or '').strip()
         return mobile or None
 
+    def _mask_mobile(self, mobile):
+        raw = self._normalize_mobile(mobile)
+        if not raw:
+            return None
+        if len(raw) <= 7:
+            return raw
+        return f"{raw[:3]}****{raw[-4:]}"
+
     def _task_detail_url(self, task_id, detail_url=None):
         if detail_url:
             return detail_url
@@ -123,6 +131,14 @@ class DingTalkNotifier:
             "at": {"isAtAll": False},
         }
         mobiles = self._collect_at_mobiles(task, notify_type)
+        logger.info(
+            "准备发送钉钉通知: task_id=%s notify_type=%s creator=%s creator_mobile=%s at_mobiles=%s",
+            task_id or 'unknown',
+            notify_type,
+            task.created_by.username if task and task.created_by else None,
+            self._mask_mobile(task.created_by.mobile if task and task.created_by else None),
+            [self._mask_mobile(mobile) for mobile in mobiles],
+        )
         if mobiles:
             payload["at"]["atMobiles"] = mobiles
         return self.send_message(payload)

@@ -40,7 +40,7 @@ class BaseGoogleSheetService:
         if self.stop_event and self.stop_event.is_set():
             return True
         try:
-            task = Task.query.get(self.task_id)
+            task = db.session.get(Task, self.task_id)
             return bool(task and task.status == 'cancelled')
         except Exception:
             return False

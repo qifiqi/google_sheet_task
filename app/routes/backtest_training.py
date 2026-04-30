@@ -12,6 +12,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import load_only
 
+from app.extensions import db
 from app.models import Task, TaskResult
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.xpl_service import xpl_analyzer
@@ -57,7 +58,7 @@ def _task_permission_denied(action: str, task_type: str | None, decision: dict, 
 
 
 def _load_backtest_task_or_response(task_id: str, action: str = "view", result_id: int | None = None):
-    task = Task.query.get(task_id)
+    task = db.session.get(Task, task_id)
     if not task:
         return None, (jsonify({
             "status": "error",
@@ -739,7 +740,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
 
 
 def _build_global_preview_payload(task_id):
-    task = Task.query.get(task_id)
+    task = db.session.get(Task, task_id)
     if not task:
         return None
     if normalize_task_type(task.task_type) != "backtest_training":

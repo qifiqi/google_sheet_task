@@ -203,7 +203,7 @@ def _sync_nav_permissions(item, permission_map):
 
 
 def check_and_cleanup_dead_tasks(app):
-    from app.services.task_manager import task_manager
+    from app.services.task import task_manager
 
     logger = get_logger('startup')
     with app.app_context():
@@ -216,7 +216,7 @@ def check_and_cleanup_dead_tasks(app):
                 task.status = 'pending'
                 task.error_message = None
                 task.end_time = None
-                task_manager._add_task_log(
+                task_manager.add_task_log(
                     task.id,
                     'info',
                     f"应用重启时检测到任务中断，已重置为待启动状态: {status_check.get('restart_reason')}",

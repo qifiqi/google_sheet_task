@@ -10,6 +10,7 @@ except ImportError:
 
 from app.extensions import db, migrate
 from app.routes import register_blueprints
+from app.utils.auth import validate_auth_runtime_settings
 from app.utils.ding_talk_notifier import DingTalkNotifier
 
 
@@ -28,6 +29,7 @@ def load_app_environment():
 
 def create_app():
     load_app_environment()
+    validate_auth_runtime_settings()
 
     from app.config import get_config_class
 

@@ -1,15 +1,58 @@
 """JWT 认证与权限装饰器"""
-import jwt
+import os
 from datetime import datetime, timedelta
 from functools import wraps
+
+import jwt
 from flask import request, g, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
+
 from app.services.config_manager import get_config_manager
+
+DEFAULT_JWT_SECRET = 'change-me-in-production'
+SAFE_AUTH_DISABLED_ENVS = {'development'}
 
 
 def _get_secret():
     cm = get_config_manager()
-    return cm.get_config('JWT_SECRET_KEY', 'change-me-in-production')
+    return cm.get_config('JWT_SECRET_KEY', DEFAULT_JWT_SECRET)
+
+
+def is_auth_enabled() -> bool:
+    return os.environ.get('AUTH_ENABLED', 'true').lower() == 'true'
+
+
+def get_app_env() -> str:
+    return os.environ.get('APP_ENV', 'development').strip().lower() or 'development'
+
+
+def validate_auth_runtime_settings(
+    secret: str | None = None,
+    auth_enabled: bool | None = None,
+    app_env: str | None = None,
+) -> None:
+    """Fail fast on unsafe auth settings outside development.
+
+    This validation only uses startup-time configuration (environment variables),
+    so it can run before Flask extensions and database-backed config are ready.
+    """
+    resolved_env = (app_env or get_app_env()).strip().lower() or 'development'
+    resolved_secret = secret if secret is not None else os.environ.get('JWT_SECRET_KEY')
+    resolved_auth_enabled = auth_enabled
+    if resolved_auth_enabled is None:
+        resolved_auth_enabled = is_auth_enabled()
+
+    if resolved_env not in SAFE_AUTH_DISABLED_ENVS and resolved_secret == DEFAULT_JWT_SECRET:
+        raise RuntimeError(
+            'JWT_SECRET_KEY must be configured outside development; '
+            'refusing to use the default insecure secret.'
+        )
+
+    if resolved_env not in SAFE_AUTH_DISABLED_ENVS and not resolved_auth_enabled:
+        raise RuntimeError(
+            'AUTH_ENABLED=false is only allowed in development; '
+            'refusing to start with authentication disabled.'
+        )
 
 
 def create_access_token(user_id, token_version=0, expires_hours=2):
@@ -44,11 +87,6 @@ def extract_token_version(payload):
         return int(version)
     except (TypeError, ValueError):
         raise jwt.InvalidTokenError('invalid token version')
-
-
-def _is_auth_enabled():
-    import os
-    return os.environ.get('AUTH_ENABLED', 'true').lower() == 'true'
 
 
 def _inject_mock_user():
@@ -88,7 +126,7 @@ def _inject_mock_user():
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not _is_auth_enabled():
+        if not is_auth_enabled():
             _inject_mock_user()
             return f(*args, **kwargs)
 
@@ -123,7 +161,7 @@ def permission_required(*permission_codes):
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            if not _is_auth_enabled():
+            if not is_auth_enabled():
                 return f(*args, **kwargs)
 
             user = getattr(g, 'current_user', None)

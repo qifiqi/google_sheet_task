@@ -47,7 +47,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
-                task = Task.query.get(self.task_id)
+                task = db.session.get(Task, self.task_id)
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -144,7 +144,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = Task.query.get(self.task_id)
+                task = db.session.get(Task, self.task_id)
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -392,7 +392,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     # 检查是否是任务被取消
                     task.error = e
                     try:
-                        task_check = Task.query.get(self.task_id)
+                        task_check = db.session.get(Task, self.task_id)
                         if task_check and task_check.status == 'cancelled':
                             self._log_info(f'第 {i + 1} 个参数组合执行中断（任务被取消）: {str(e)}')
                             break  # 退出循环
@@ -411,7 +411,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task_check = Task.query.get(self.task_id)
+                task_check = db.session.get(Task, self.task_id)
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'

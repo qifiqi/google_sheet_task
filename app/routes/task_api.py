@@ -1,14 +1,22 @@
-from flask import Blueprint, request, jsonify, g
 import json
-from app.services.task_manager import task_manager
+
+from flask import Blueprint, g, jsonify, request
+
+from app.extensions import db
 from app.models import Task
-from app.utils.logger import get_logger
+from app.services.task import TaskRuntimeViewService, task_manager
 from app.utils.auth import login_required, permission_required
-from app.utils.task_authorization import authorize_task_type_action, filter_task_dicts_by_action, filter_task_types_by_action
+from app.utils.logger import get_logger
+from app.utils.task_authorization import (
+    authorize_task_type_action,
+    filter_task_dicts_by_action,
+    filter_task_types_by_action,
+)
 
 logger = get_logger(__name__)
 
 task_api_bp = Blueprint('task_api', __name__)
+runtime_view_service = TaskRuntimeViewService(task_manager)
 
 TASK_ACTION_LABELS = {
     "view": "查看",
@@ -38,7 +46,7 @@ def _task_permission_denied(action: str, task_type: str | None, decision: dict, 
 
 
 def _get_task_or_404(task_id: str):
-    task = Task.query.get(task_id)
+    task = db.session.get(Task, task_id)
     if not task:
         return None, jsonify({"status": "error", "message": "任务不存在"}), 404
     return task, None, None
@@ -342,34 +350,28 @@ def check_task_status(task_id):
 def get_task_stop_confirmation(task_id):
     """确认任务是否已经完全停止"""
     try:
-        import time
-        task = Task.query.get(task_id)
-        if not task:
-            return jsonify({"status": "error", "message": "任务不存在"}), 404
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
 
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task.task_type)
+        decision = authorize_task_type_action(
+            getattr(g, "current_user", None),
+            "view",
+            task_obj.task_type,
+        )
         if not decision["allowed"]:
-            return _task_permission_denied("view", task.task_type, decision, task_id=task_id)
+            return _task_permission_denied(
+                "view",
+                task_obj.task_type,
+                decision,
+                task_id=task_id,
+            )
 
-        status_check = task_manager.check_local_task_status(task_id)
-        thread = task_manager.running_tasks.get(task_id)
-        stop_event = task_manager.task_stop_events.get(task_id)
-        thread_alive = bool(thread and thread.is_alive())
-        stop_requested = bool(stop_event and stop_event.is_set())
-        stop_confirmed = (task.status != 'running') and (not thread_alive)
+        stop_confirmation = runtime_view_service.build_stop_confirmation(task_id)
 
         return jsonify({
             "status": "success",
-            "task_id": task_id,
-            "db_status": task.status,
-            "thread_alive": thread_alive,
-            "memory_running": status_check.get("memory_running", thread_alive),
-            "stop_requested": stop_requested,
-            "stop_confirmed": stop_confirmed,
-            "current_step": task.current_step,
-            "total_steps": task.total_steps,
-            "status_check": status_check,
-            "checked_at": time.time(),
+            **stop_confirmation,
         })
     except Exception as e:
         logger.error(f"获取任务停止确认失败: {str(e)}")
