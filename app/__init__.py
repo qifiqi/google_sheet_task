@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 
 from flask import Flask
@@ -46,6 +47,14 @@ def create_app():
         static_folder=str(static_dir),
     )
     app.config.from_object(config_class)
+
+    # 默认关闭 sqlalchemy.engine 的 SQL 语句日志，避免运行期日志被大量 SQL 输出淹没。
+    # 如需排查数据库问题，可通过 SQLALCHEMY_ENGINE_LOG_ENABLED=true 临时打开。
+    sqlalchemy_engine_logger = logging.getLogger("sqlalchemy.engine")
+    sqlalchemy_engine_logger.disabled = not app.config.get(
+        "SQLALCHEMY_ENGINE_LOG_ENABLED",
+        False,
+    )
 
     db.init_app(app)
     migrate.init_app(app, db)

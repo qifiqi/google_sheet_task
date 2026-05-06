@@ -8,6 +8,7 @@ import urllib.parse
 import requests
 from flask import current_app, has_app_context
 
+from app.extensions import db
 from app.models import Task, User
 from app.utils.logger import get_logger
 
@@ -19,6 +20,10 @@ class DingTalkNotifier:
     """钉钉机器人通知器。"""
 
     DEV_ROLE_CODES = {"developer"}
+    NOTIFY_KEYWORDS = {
+        "error": "告警",
+        "success": "任务完成",
+    }
 
     def __init__(self, access_token, secret):
         self.access_token = access_token
@@ -51,10 +56,64 @@ class DingTalkNotifier:
             return detail_url
         if not has_app_context():
             return ''
-        base_url = (current_app.config.get('BASE_URL') or '').rstrip('/')
+        base_url = self._get_external_base_url()
         if not base_url or not task_id:
             return ''
         return f"{base_url}/google-sheet/detail?task_id={task_id}"
+
+    def _get_external_base_url(self):
+        """获取钉钉等外部通知场景使用的对外访问基地址。"""
+        if not has_app_context():
+            return ''
+
+        config_value = (
+            current_app.config.get('DING_TALK_DETAIL_BASE_URL')
+            or current_app.config.get('PUBLIC_BASE_URL')
+            or current_app.config.get('BASE_URL')
+            or ''
+        )
+        return str(config_value).strip().rstrip('/')
+
+    def _build_markdown_text(
+        self,
+        keyword,
+        fields,
+        summary=None,
+        detail_url=None,
+        at_mobiles=None,
+    ):
+        """构建更易读且支持 @ 的钉钉 markdown 正文。"""
+        lines = [f"### {keyword}", ""]
+        for label, value in fields:
+            normalized_value = str(value or "").strip() or "-"
+            lines.append(f"- **{label}**：{normalized_value}")
+
+        summary_text = str(summary or "").strip()
+        if summary_text:
+            lines.extend([
+                "",
+                "> 摘要",
+                f"> {summary_text}",
+            ])
+
+        if detail_url:
+            lines.extend([
+                "",
+                f"[查看详情]({detail_url})",
+            ])
+
+        mobile_mentions = [
+            f"@{str(mobile or '').strip()}"
+            for mobile in (at_mobiles or [])
+            if str(mobile or '').strip()
+        ]
+        if mobile_mentions:
+            lines.extend([
+                "",
+                " ".join(mobile_mentions),
+            ])
+
+        return "\n".join(lines)
 
     def _collect_oncall_developer_mobiles(self):
         mobiles = set()
@@ -81,25 +140,27 @@ class DingTalkNotifier:
 
     def send_task_notification(self, task_id, notify_type='error', summary=None, detail_url=None):
         task_id = str(task_id or '').strip()
-        task = Task.query.get(task_id) if task_id else None
-        title = '任务执行失败' if notify_type == 'error' else '任务执行完成'
+        task = db.session.get(Task, task_id) if task_id else None
+        keyword = self.NOTIFY_KEYWORDS.get(notify_type, "通知")
+        title = f"{keyword} - 任务执行失败" if notify_type == 'error' else f"{keyword} - 任务执行完成"
         target_url = self._task_detail_url(task_id, detail_url)
 
         if not task:
             fallback_summary = str(summary or '任务通知').strip()
             payload = {
-                "msgtype": "actionCard",
-                "actionCard": {
+                "msgtype": "markdown",
+                "markdown": {
                     "title": title,
-                    "text": "\n".join([
-                        f"任务状态：{title}",
-                        f"任务ID：{task_id or '未知'}",
-                        f"通知时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                        f"摘要：{fallback_summary}",
-                    ]),
-                    "btnOrientation": "0",
-                    "singleTitle": "查看详情",
-                    "singleURL": target_url,
+                    "text": self._build_markdown_text(
+                        keyword,
+                        [
+                            ("任务状态", title),
+                            ("任务ID", task_id or "未知"),
+                            ("通知时间", datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                        ],
+                        summary=fallback_summary,
+                        detail_url=target_url,
+                    ),
                 },
                 "at": {"isAtAll": False},
             }
@@ -111,26 +172,28 @@ class DingTalkNotifier:
 
         status_label = '执行成功' if notify_type == 'success' else '执行失败'
         creator_name = task.created_by.username if task.created_by else '系统/未知'
+        mobiles = self._collect_at_mobiles(task, notify_type)
         payload = {
-            "msgtype": "actionCard",
-            "actionCard": {
+            "msgtype": "markdown",
+            "markdown": {
                 "title": title,
-                "text": "\n".join([
-                    f"任务状态：{status_label}",
-                    f"任务名称：{task.name}",
-                    f"任务ID：{task.id}",
-                    f"任务类型：{task.task_type}",
-                    f"创建人：{creator_name}",
-                    f"通知时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                    f"摘要：{summary_text}",
-                ]),
-                "btnOrientation": "0",
-                "singleTitle": "查看详情",
-                "singleURL": target_url,
+                "text": self._build_markdown_text(
+                    keyword,
+                    [
+                        ("任务状态", status_label),
+                        ("任务名称", task.name),
+                        ("任务ID", task.id),
+                        ("任务类型", task.task_type),
+                        ("创建人", creator_name),
+                        ("通知时间", datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                    ],
+                    summary=summary_text,
+                    detail_url=target_url,
+                    at_mobiles=mobiles,
+                ),
             },
             "at": {"isAtAll": False},
         }
-        mobiles = self._collect_at_mobiles(task, notify_type)
         logger.info(
             "准备发送钉钉通知: task_id=%s notify_type=%s creator=%s creator_mobile=%s at_mobiles=%s",
             task_id or 'unknown',

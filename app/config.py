@@ -90,9 +90,12 @@ class BaseConfig:
     SECRET_KEY = ''
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = False
+    SQLALCHEMY_ENGINE_LOG_ENABLED = False
 
     DING_TALK_ACCESS_TOKEN = ''
     DING_TALK_SECRET = ''
+    DING_TALK_DETAIL_BASE_URL = ''
+    PUBLIC_BASE_URL = ''
 
     BASE_URL = 'http://localhost:5000'
     TASK_TIMEOUT = 3600
@@ -104,9 +107,25 @@ class BaseConfig:
     @classmethod
     def init_app(cls):
         cls.SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
-        cls.SQLALCHEMY_ECHO = _get_bool('SQLALCHEMY_ECHO', False)
+        # 通过参数统一控制 SQLAlchemy SQL 输出。
+        # 默认关闭，避免运行期被 SQL 日志刷屏；排查数据库问题时可显式设为 true。
+        requested_sqlalchemy_echo = _get_bool('SQLALCHEMY_ECHO', False)
+        cls.SQLALCHEMY_ENGINE_LOG_ENABLED = _get_bool(
+            'SQLALCHEMY_ENGINE_LOG_ENABLED',
+            False,
+        )
+        # 只要未显式开启 SQLAlchemy 引擎日志，就强制关闭 echo。
+        # 这样即使环境里残留了 SQLALCHEMY_ECHO=True，重启后也不会继续刷 SQL。
+        cls.SQLALCHEMY_ECHO = (
+            requested_sqlalchemy_echo and cls.SQLALCHEMY_ENGINE_LOG_ENABLED
+        )
         cls.DING_TALK_ACCESS_TOKEN = os.environ.get('DING_TALK_ACCESS_TOKEN', '')
         cls.DING_TALK_SECRET = os.environ.get('DING_TALK_SECRET', '')
+        cls.DING_TALK_DETAIL_BASE_URL = os.environ.get(
+            'DING_TALK_DETAIL_BASE_URL',
+            '',
+        )
+        cls.PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
         cls.BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
         cls.TASK_TIMEOUT = _get_int('TASK_TIMEOUT', 3600)
         cls.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')

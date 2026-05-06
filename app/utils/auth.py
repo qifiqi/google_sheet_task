@@ -7,9 +7,11 @@ import jwt
 from flask import request, g, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
+from app.extensions import db
 from app.services.config_manager import get_config_manager
 
-DEFAULT_JWT_SECRET = 'change-me-in-production'
+# 开发环境默认 secret 也保持 32+ 字节，避免 JWT 库抛出弱密钥长度告警。
+DEFAULT_JWT_SECRET = 'change-me-in-production-secure-key'
 SAFE_AUTH_DISABLED_ENVS = {'development'}
 
 
@@ -42,7 +44,10 @@ def validate_auth_runtime_settings(
     if resolved_auth_enabled is None:
         resolved_auth_enabled = is_auth_enabled()
 
-    if resolved_env not in SAFE_AUTH_DISABLED_ENVS and resolved_secret == DEFAULT_JWT_SECRET:
+    if (
+        resolved_env not in SAFE_AUTH_DISABLED_ENVS
+        and resolved_secret == DEFAULT_JWT_SECRET
+    ):
         raise RuntimeError(
             'JWT_SECRET_KEY must be configured outside development; '
             'refusing to use the default insecure secret.'
@@ -146,7 +151,7 @@ def login_required(f):
             return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
 
         from app.models import User
-        user = User.query.get(payload['user_id'])
+        user = db.session.get(User, payload['user_id'])
         if not user or not user.is_active:
             return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
         if int(user.token_version or 0) != token_version:

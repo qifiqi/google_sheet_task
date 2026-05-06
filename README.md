@@ -136,11 +136,18 @@ MAX_CONCURRENT_TASKS=5
 TASK_TIMEOUT=3600
 LOG_LEVEL=INFO
 BASE_URL=http://localhost:5000
+PUBLIC_BASE_URL=
+DING_TALK_DETAIL_BASE_URL=
 SQLALCHEMY_ECHO=False
 FLASK_DEBUG=False
 DING_TALK_ACCESS_TOKEN=
 DING_TALK_SECRET=
 ```
+
+- `BASE_URL`：系统默认访问地址，未单独配置外链时会作为回退值使用。
+- `PUBLIC_BASE_URL`：系统对外访问地址，适合统一配置为浏览器真实访问域名或 IP。
+- `DING_TALK_DETAIL_BASE_URL`：钉钉详情跳转专用地址，优先级高于 `PUBLIC_BASE_URL` 和 `BASE_URL`。
+- 如果你平时通过 `127.0.0.1`、局域网 IP 或域名访问系统，不要让钉钉继续使用默认 `http://localhost:5000`，否则前端 `localStorage` 登录态会因为 origin 不一致而失效。
 
 开发环境 `.env.development`：
 ```bash
