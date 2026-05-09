@@ -1,10 +1,15 @@
-from datetime import datetime
-from typing import Any, Dict
+import json
+import math
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 
 from flask import current_app
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.models import Task, TaskLog, db
+from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation
+from app.utils.db_stock_api import StockAPIClient
 from app.utils.logger import get_logger
 
 
@@ -35,6 +40,45 @@ class BaseGoogleSheetService:
         self.task_name = ''
         self.task = None
         self.task_logger = get_logger(f"{self.__module__}.{task_id}")
+        self.api_client = StockAPIClient()
+
+    @classmethod
+    def _sanitize_json_value(cls, value: Any):
+        """Recursively convert values into strict JSON-safe Python objects."""
+        if isinstance(value, dict):
+            return {
+                key: cls._sanitize_json_value(item)
+                for key, item in value.items()
+            }
+
+        if isinstance(value, (list, tuple, set)):
+            return [cls._sanitize_json_value(item) for item in value]
+
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
+
+        if value is None or isinstance(value, (str, int, bool)):
+            return value
+
+        tolist_method = getattr(value, "tolist", None)
+        if callable(tolist_method):
+            try:
+                return cls._sanitize_json_value(tolist_method())
+            except Exception:
+                pass
+
+        item_method = getattr(value, "item", None)
+        if callable(item_method):
+            try:
+                return cls._sanitize_json_value(item_method())
+            except Exception:
+                pass
+
+        return value
+
 
     def _is_cancel_requested(self) -> bool:
         if self.stop_event and self.stop_event.is_set():
@@ -149,3 +193,197 @@ class BaseGoogleSheetService:
 
     def _log_api_error(self, action: str, error: str):
         self._log('error', '', 'api_error', action=action, error=error)
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        reraise=True,
+    )
+    def send_stock_param_result_data(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            result = self.api_client.add_or_modify_stock_param_result(payload) or {}
+            return result
+        except Exception as err:
+            self._log_api_error("发送StockParamResult数据", str(err))
+            raise
+
+    def _build_stock_param_result_base_payload(
+        self,
+        task_name: str,
+        task_index: int,
+        config_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        stock_code = (
+            config_data.get("stock_code")
+            or str(task_name or "").split("-", 1)[0].strip()
+            or ""
+        )
+
+        return {
+            "task_id": self.task_id,
+            "stock_code": stock_code,
+            "multiplier": 0,
+            "danbian": 0,
+            "xiancang": 0,
+            "zhishu": 0,
+            "smoothing": 0,
+            "bordering": 0,
+            "ml": str(config_data.get("ml") or ""),
+            "task_index": task_index,
+            "kline_range": json.dumps(config_data.get("kline",[]),ensure_ascii=False),
+            "return_rate": 0,
+            "annualized_rate": 0,
+            "maxdd": 0,
+            "index_rate": 0,
+            "index_annualized_rate": 0,
+            "max_index_dd": 0,
+            "fee_total": 0,
+            "fee_annualized": 0,
+            "year_rate": 0,
+            "turnover_rate": 0,
+            "return_beats": 0,
+            "dd_beats": 0,
+            "max_1y_beats": 0,
+            "min_1y_beats": 0,
+            "max_theoretical_leverage": 0,
+            "avg_theoretical_leverage": 0,
+            "unit_theoretical_leverage_return": 0,
+            "max_actual_leverage": 0,
+            "avg_actual_leverage": 0,
+            "unit_actual_leverage_return": 0,
+            "start_monthly_std_dev": 0,
+            "index_monthly_std_dev": 0,
+            "index_annualized_return": 0,
+            "start_annualized_return": 0,
+            "index_profit_annual": 0,
+            "start_profit_annual": 0,
+            "index_profit_monthly_percentage": 0,
+            "start_profit_monthly_percentage": 0,
+            "index_avg_monthly_return_common": 0,
+            "start_avg_monthly_return_common": 0,
+            "index_monthly_return_volatility": 0,
+            "start_monthly_return_volatility": 0,
+            "annualized_return_diff": 0,
+            "outperform_year": 0,
+            "monthly_excess_return_percentage_last_return": 0,
+            "avg_monthly_excess_returns": 0,
+            "monthly_excess_volatility": 0,
+            "max_drawdown": 0,
+            "excess_drawdown_winning_rate": 0,
+            "start_drawdown": 0,
+            "start_maximum_number_of_backtest_repair_days": 0,
+            "excess_maximum_number_of_backtest_repair_days": 0,
+            "index_sharpe_ratio": 0,
+            "start_sharpe_ratio": 0,
+            "index_kama_ratio": 0,
+            "start_kama_ratio": 0,
+            "index_sotino_ratio": 0,
+            "start_sotino_ratio": 0,
+            "excess_sharp": 0,
+            "excess_of_promissory_note": 0,
+        }
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        reraise=True,
+    )
+    def get_single_stock_template_param(self, stock_no: str) -> Optional[Dict[str, Any]]:
+        """获取单个股票模板参数。"""
+        try:
+            result = self.api_client.get_single_stock_template_param(stock_no)
+            return result
+        except Exception as err:
+            self._log_api_error("获取股票模板参数", str(err))
+            raise
+
+    def _init_google_sheet(self, config_data: Dict[str, Any]):
+        """初始化 Google Sheet 连接，兼容单表、多表和嵌套 sheet 配置。"""
+        try:
+            self._log_info("开始初始化Google Sheet连接")
+
+            token_file = config_data.get('token_file', 'data/token.json')
+            proxy_url = config_data.get('proxy_url')
+
+            if 'sheets' in config_data:
+                sheets = config_data.get('sheets') or []
+                if not sheets:
+                    error_msg = "缺少spreadsheet_id配置"
+                    self._log_error(error_msg)
+                    raise ValueError(error_msg)
+
+                self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
+                if proxy_url:
+                    self._log_info(f"使用代理: {proxy_url}")
+
+                connected_sheets = []
+                for sheet in sheets:
+                    spreadsheet_id = sheet.get('spreadsheet_id')
+                    sheet_name = sheet.get('sheet_name', 'data')
+                    google_sheet = GoogleSheet(
+                        spreadsheet_id,
+                        sheet_name,
+                        token_file,
+                        proxy_url,
+                        task_id=self.task_id,
+                    )
+                    if not google_sheet.worksheet:
+                        raise Exception("请先选择工作表")
+                    connected_sheets.append(google_sheet)
+                    self._log_info(f"已连接工作表: {sheet}")
+
+                self.google_sheets = connected_sheets
+                self._log_info("Google Sheet连接初始化成功")
+                return
+
+            spreadsheet_id = config_data.get('spreadsheet_id')
+            sheet_name = config_data.get('sheet_name', 'data')
+            if isinstance(config_data.get('sheet'), dict):
+                sheet = config_data['sheet']
+                spreadsheet_id = sheet.get('spreadsheet_id', spreadsheet_id)
+                sheet_name = sheet.get('sheet_name', sheet_name)
+
+            if not spreadsheet_id:
+                error_msg = "缺少spreadsheet_id配置"
+                self._log_error(error_msg)
+                raise ValueError(error_msg)
+
+            self._log_info(
+                f"连接参数 - Spreadsheet ID: {spreadsheet_id}, Sheet: {sheet_name}, Token: {token_file}"
+            )
+            if proxy_url:
+                self._log_info(f"使用代理: {proxy_url}")
+
+            self.google_sheet = GoogleSheet(
+                spreadsheet_id,
+                sheet_name,
+                token_file,
+                proxy_url,
+                task_id=self.task_id,
+            )
+            if not self.google_sheet.worksheet:
+                raise Exception("请先选择工作表")
+
+            self._log_info("Google Sheet连接初始化成功")
+        except Exception as err:
+            error_msg = f"初始化Google Sheet连接失败: {err}"
+            self._log_error(error_msg)
+            raise
+
+    @staticmethod
+    def get_worksheets(
+        spreadsheet_id: str,
+        token_file: str = "data/token.json",
+        proxy_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """获取指定电子表格的标题和工作表列表。"""
+        try:
+            with GoogleSheet(spreadsheet_id, None, token_file, proxy_url) as google_sheet:
+                worksheets = google_sheet.get_all_worksheets()
+                if not worksheets:
+                    raise ValueError("未找到任何工作表")
+
+                title = google_sheet.sheet.title if google_sheet.sheet else ""
+                return {"title": title, "worksheets": worksheets}
+        except Exception as err:
+            logger.error("获取工作表列表失败: %s", err)
+            raise

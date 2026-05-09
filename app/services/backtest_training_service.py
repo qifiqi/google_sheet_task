@@ -1,9 +1,8 @@
 import json
-import math
 import time
 import traceback
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from flask import current_app
 from sqlalchemy import text
@@ -13,10 +12,8 @@ from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, TaskResult, db, TaskResultReturn
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
-from app.services.google_sheet_client import GoogleSheet
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
-from app.utils.db_stock_api import StockAPIClient
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
@@ -29,24 +26,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
-        self.api_client = StockAPIClient()
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
 
     def _task_detail_url(self) -> str:
         return f"{current_app.config.get('BASE_URL')}/backtest-training/detail/{self.task_id}"
-
-    @staticmethod
-    def _sanitize_json_value(value):
-        """Convert NaN/Infinity values into JSON-safe nulls before persistence."""
-        if isinstance(value, float):
-            return value if math.isfinite(value) else None
-        if isinstance(value, dict):
-            return {key: BacktestTrainingService._sanitize_json_value(val) for key, val in value.items()}
-        if isinstance(value, list):
-            return [BacktestTrainingService._sanitize_json_value(item) for item in value]
-        return value
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -328,113 +313,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
         wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
         reraise=True  # 重试耗尽后重新抛出原始异常
     )
-    def send_stock_template_param_data(self, payload: Dict, log) -> int:
-        """
-        发送股票模板参数数据
-
-        Args:
-            payload: 参数数据字典
-
-        Returns:
-            返回的ID或0
-        """
-        try:
-            self._log_api("发送股票模板参数数据", f"payload: {payload}")
-            result = self.api_client.insert_stock_template_param(payload)
-            self._log_api("发送股票模板参数数据成功", f"ID: {result}")
-            return result
-        except Exception as e:
-            self._log_api_error("发送股票模板参数数据", str(e))
-            log('error', f"发送股票模板参数数据失败: {str(e)}")
-            raise
-
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True  # 重试耗尽后重新抛出原始异常
-    )
-    def get_single_stock_template_param(self, stock_no: str) -> Optional[Dict]:
-        """
-        获取单个股票模板参数
-        
-        Args:
-            stock_no: 股票编号
-            
-        Returns:
-            股票参数字典或None
-        """
-        try:
-            self._log_api("获取股票模板参数", f"stock_no: {stock_no}")
-            result = self.api_client.get_single_stock_template_param(stock_no)
-            self._log_api("获取股票模板参数成功", f"返回结果: {type(result)}")
-            return result
-        except Exception as e:
-            self._log_api_error("获取股票模板参数", str(e))
-            raise
-
-    def _init_google_sheet(self, config_data: Dict[str, Any]):
-        """初始化Google Sheet连接"""
-        try:
-            self._log_info("开始初始化Google Sheet连接")
-            spreadsheet_id = config_data.get('spreadsheet_id')
-            sheet_name = config_data.get('sheet_name', 'data')
-            token_file = config_data.get('token_file', 'data/token.json')
-            proxy_url = config_data.get('proxy_url', None)
-
-            if 'sheet' in config_data:
-                sheet = config_data['sheet']
-                spreadsheet_id = sheet.get('spreadsheet_id')
-                sheet_name = sheet.get('sheet_name', 'data')
-
-            if not spreadsheet_id:
-                error_msg = "缺少spreadsheet_id配置"
-                self._log_error(error_msg)
-                raise ValueError(error_msg)
-
-            self._log_info(f"连接参数 - Spreadsheet ID: {spreadsheet_id}, Sheet: {sheet_name}, Token: {token_file}")
-            if proxy_url:
-                self._log_info(f"使用代理: {proxy_url}")
-
-            self.google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
-            if not self.google_sheet.worksheet:
-                raise Exception("请先选择工作表")
-
-            self._log_info("Google Sheet连接初始化成功")
-        except Exception as e:
-            error_msg = f"初始化Google Sheet连接失败: {str(e)}"
-            self._log_error(error_msg)
-            raise
-
-    def get_worksheets(self,spreadsheet_id: str, token_file: str = "data/token.json", proxy_url: str = None) -> Dict[
-        str, Any]:
-        """
-        获取指定电子表格的基础信息
-
-        Args:
-            spreadsheet_id: 电子表格ID
-            token_file: 认证文件路径
-            proxy_url: 代理URL
-
-        Returns:
-            {
-                "title": 表格标题（spreadsheet 的名称）, 
-                "worksheets": 工作表名称列表
-            }
-        """
-        try:
-            # 使用上下文管理器确保连接被正确关闭
-            with GoogleSheet(spreadsheet_id, None, token_file, proxy_url) as google_sheet:
-                # 获取所有工作表名称
-                worksheets = google_sheet.get_all_worksheets()
-                if not worksheets:
-                    raise ValueError("未找到任何工作表")
-
-                title = google_sheet.sheet.title if google_sheet.sheet else ""
-                return {"title": title, "worksheets": worksheets}
-        except Exception as e:
-            self._log_error(f"获取工作表列表失败: {str(e)}")
-            raise
-
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次
         wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...

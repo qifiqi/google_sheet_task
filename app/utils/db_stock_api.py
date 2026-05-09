@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class StockAPIClient:
     """股票API客户端"""
 
-    def __init__(self, base_url: str = "http://sxapi.stplan.cn/api/Stock", timeout: int = 30):
+    def __init__(self, base_url: str = "http://stockapi.stplan.cn", timeout: int = 30):
         """
         初始化API客户端
 
@@ -85,7 +85,7 @@ class StockAPIClient:
         Returns:
             股票参数字典或None
         """
-        endpoint = "GetSingleStockTemplateParam"
+        endpoint = "api/Stock/GetSingleStockTemplateParam"
         data = {"stock_no": stock_no}
 
         response = self._make_request('POST', endpoint, data=data)
@@ -112,7 +112,7 @@ class StockAPIClient:
         Returns:
             返回的ID或0
         """
-        endpoint = "InsertStockTemplateParam"
+        endpoint = "api/Stock/InsertStockTemplateParam"
 
         response = self._make_request('POST', endpoint, data=param_data)
 
@@ -135,7 +135,7 @@ class StockAPIClient:
         Returns:
             是否更新成功
         """
-        endpoint = f"UpdateStockTemplateParam/{param_id}"
+        endpoint = f"api/Stock/UpdateStockTemplateParam/{param_id}"
 
         response = self._make_request('PUT', endpoint, data=param_data)
 
@@ -156,7 +156,7 @@ class StockAPIClient:
         Returns:
             是否删除成功
         """
-        endpoint = f"DeleteStockTemplateParam/{param_id}"
+        endpoint = f"api/Stock/DeleteStockTemplateParam/{param_id}"
 
         response = self._make_request('DELETE', endpoint)
 
@@ -179,7 +179,7 @@ class StockAPIClient:
         Returns:
             参数列表或None
         """
-        endpoint = "GetStockTemplateParams"
+        endpoint = "api/Stock/GetStockTemplateParams"
         params = {
             "limit": limit,
             "offset": offset
@@ -196,6 +196,40 @@ class StockAPIClient:
         else:
             logger.error("获取参数列表失败")
             return None
+
+    def add_or_modify_stock_param_result(self, result_data: Dict) -> Optional[Dict]:
+        """
+        调用 StockParamResult/AddOrModify 接口。
+
+        Args:
+            result_data: 请求体数据
+
+        Returns:
+            接口返回结果字典或带 raw_response 的字典
+        """
+        url = f"{self.base_url}/api/StockParamResult/AddOrModify"
+        headers = {
+            "accept": "text/plain",
+            "Content-Type": "application/json-patch+json",
+            "User-Agent": "Python Stock Parameter Validator/1.0",
+        }
+
+        response = self.session.post(
+            url,
+            headers=headers,
+            json=result_data,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+
+        if response.status_code == 200:
+            try:
+                result = response.json()
+            except json.JSONDecodeError:
+                result = {"raw_response": response.text}
+            return result
+
+        raise requests.HTTPError(f"请求失败，状态码: {response.status_code}, 响应: {response.text}")
 
     def health_check(self) -> bool:
         """

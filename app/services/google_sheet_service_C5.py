@@ -1,7 +1,7 @@
 import json
 import time
 import traceback
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from flask import current_app
 from sqlalchemy import text
@@ -14,7 +14,6 @@ from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
-from app.utils.db_stock_api import StockAPIClient
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
@@ -28,10 +27,26 @@ class GoogleSheetService(BaseGoogleSheetService):
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
-        self.api_client = StockAPIClient()
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
+
+    @staticmethod
+    def _to_decimal_ratio(value: Any) -> float:
+        """Convert percentage-like values into decimal ratios for outbound payloads."""
+        if value in (None, ""):
+            return 0
+
+        raw_value = value
+        if isinstance(value, str):
+            raw_value = value.strip().replace("%", "").replace(",", "")
+            if raw_value == "":
+                return 0
+
+        try:
+            return float(raw_value) / 100
+        except (TypeError, ValueError):
+            return 0
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -149,6 +164,89 @@ class GoogleSheetService(BaseGoogleSheetService):
             except Exception:
                 pass
 
+    def _build_stock_param_result_payload(
+        self,
+        task_name: str,
+        task_index: int,
+        combination: Dict[str, Any],
+        result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        payload = self._build_stock_param_result_base_payload(
+            task_name,
+            task_index,
+            {
+                "stock_code": combination.get("stock_code"),
+                "ml": combination.get("B1"),
+                "kline_range": json.dumps(combination['kline']),
+            },
+        )
+        analyze_result = result.pop('flat_result')
+        result = result[next(iter(result.keys()))]
+
+        payload.update({
+            "multiplier": combination.get("A1", 0),
+            "ml": combination.get("B1"),
+            "return_rate": self._to_decimal_ratio(result.get("D2", 0)),
+            "annualized_rate": self._to_decimal_ratio(result.get("D3", 0)),
+            "maxdd": self._to_decimal_ratio(result.get("D4", 0)),
+            "index_rate": self._to_decimal_ratio(result.get("D5", 0)),
+            "index_annualized_rate": self._to_decimal_ratio(result.get("D6", 0)),
+            "max_index_dd": self._to_decimal_ratio(result.get("D7", 0)),
+            "fee_total": self._to_decimal_ratio(result.get("D8", 0)),
+            "fee_annualized": self._to_decimal_ratio(result.get("D9", 0)),
+            "turnover_rate": result.get("D10", 0),
+            "return_beats": self._to_decimal_ratio(result.get("D11", 0)),
+            "dd_beats": self._to_decimal_ratio(result.get("D12", 0)),
+            "max_1y_beats": self._to_decimal_ratio(result.get("D13", 0)),
+            "min_1y_beats": self._to_decimal_ratio(result.get("D14", 0)),
+            "max_theoretical_leverage": result.get("D15", 0),
+            "avg_theoretical_leverage": result.get("D16", 0),
+            "unit_theoretical_leverage_return": self._to_decimal_ratio(result.get("D17", 0)),
+            "max_actual_leverage": result.get("D18", 0),
+            "avg_actual_leverage": result.get("D19", 0),
+            "unit_actual_leverage_return": self._to_decimal_ratio(result.get("D20", 0)),
+            "start_monthly_std_dev": analyze_result.get("start_monthly_std_dev", 0),
+            "index_monthly_std_dev": analyze_result.get("index_monthly_std_dev", 0),
+            "index_annualized_return": analyze_result.get("index_annualized_return", 0),
+            "start_annualized_return": analyze_result.get("start_annualized_return", 0),
+            "index_profit_annual": analyze_result.get("index_profit_annual", 0),
+            "start_profit_annual": analyze_result.get("start_profit_annual", 0),
+            "index_profit_monthly_percentage": analyze_result.get("index_profit_monthly_percentage", 0),
+            "start_profit_monthly_percentage": analyze_result.get("start_profit_monthly_percentage", 0),
+            "index_avg_monthly_return_common": analyze_result.get("index_avg_monthly_return_common", 0),
+            "start_avg_monthly_return_common": analyze_result.get("start_avg_monthly_return_common", 0),
+            "index_monthly_return_volatility": analyze_result.get("index_monthly_return_volatility", 0),
+            "start_monthly_return_volatility": analyze_result.get("start_monthly_return_volatility", 0),
+            "annualized_return_diff": analyze_result.get("annualized_return_diff", 0),
+            "outperform_year": analyze_result.get("outperform_year", 0),
+            "monthly_excess_return_percentage_last_return": analyze_result.get(
+                "monthly_excess_return_percentage_last_return",
+                0,
+            ),
+            "avg_monthly_excess_returns": analyze_result.get("avg_monthly_excess_returns", 0),
+            "monthly_excess_volatility": analyze_result.get("monthly_excess_volatility", 0),
+            "max_drawdown": analyze_result.get("max_drawdown", 0),
+            "excess_drawdown_winning_rate": analyze_result.get("excess_drawdown_winning_rate", 0),
+            "start_drawdown": analyze_result.get("start_drawdown", 0),
+            "start_maximum_number_of_backtest_repair_days": analyze_result.get(
+                "start_maximum_number_of_backtest_repair_days",
+                0,
+            ),
+            "excess_maximum_number_of_backtest_repair_days": analyze_result.get(
+                "excess_maximum_number_of_backtest_repair_days",
+                0,
+            ),
+            "index_sharpe_ratio": analyze_result.get("index_sharpe_ratio", 0),
+            "start_sharpe_ratio": analyze_result.get("start_sharpe_ratio", 0),
+            "index_kama_ratio": analyze_result.get("index_kama_ratio", 0),
+            "start_kama_ratio": analyze_result.get("start_kama_ratio", 0),
+            "index_sotino_ratio": analyze_result.get("index_sotino_ratio", 0),
+            "start_sotino_ratio": analyze_result.get("start_sotino_ratio", 0),
+            "excess_sharp": analyze_result.get("excess_sharp", 0),
+            "excess_of_promissory_note": analyze_result.get("excess_of_promissory_note", 0),
+        })
+        return payload
+
     def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""
         success_count = 0
@@ -256,12 +354,22 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         cache_parameters['combination'] = combination
                         kline = KLINE_DATA_MAP.get(combination['Kline_key'], None)
+                        combination['kline'] = [kline[0],kline[-1]]
+
+                        self.send_stock_param_result_data(
+                            self._build_stock_param_result_payload(
+                                name,
+                                current_step - 1,
+                                combination,
+                                result,
+                            )
+                        )
                         # 保存结果到数据库
                         self._save_task_result(current_step - 1, {
                             **combination,
                             'stock_code':combination['stock_code'],
-                            'kline':[kline[0],kline[-1]],
                         }, result, success)
+
 
                     except checkForErrors as e:
                         self._log_error(str(e))
@@ -308,111 +416,6 @@ class GoogleSheetService(BaseGoogleSheetService):
         wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
         reraise=True  # 重试耗尽后重新抛出原始异常
     )
-    def send_stock_template_param_data(self, payload: Dict, log) -> int:
-        """
-        发送股票模板参数数据
-
-        Args:
-            payload: 参数数据字典
-
-        Returns:
-            返回的ID或0
-        """
-        try:
-            self._log_api("发送股票模板参数数据", f"payload: {payload}")
-            result = self.api_client.insert_stock_template_param(payload)
-            self._log_api("发送股票模板参数数据成功", f"ID: {result}")
-            return result
-        except Exception as e:
-            self._log_api_error("发送股票模板参数数据", str(e))
-            log('error', f"发送股票模板参数数据失败: {str(e)}")
-            raise
-
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True  # 重试耗尽后重新抛出原始异常
-    )
-    def get_single_stock_template_param(self, stock_no: str) -> Optional[Dict]:
-        """
-        获取单个股票模板参数
-        
-        Args:
-            stock_no: 股票编号
-            
-        Returns:
-            股票参数字典或None
-        """
-        try:
-            self._log_api("获取股票模板参数", f"stock_no: {stock_no}")
-            result = self.api_client.get_single_stock_template_param(stock_no)
-            self._log_api("获取股票模板参数成功", f"返回结果: {type(result)}")
-            return result
-        except Exception as e:
-            self._log_api_error("获取股票模板参数", str(e))
-            raise
-
-    def _init_google_sheet(self, config_data: Dict[str, Any]):
-        """初始化Google Sheet连接"""
-        try:
-            self._log_info("开始初始化Google Sheet连接")
-
-            sheets = config_data.get('sheets')
-
-            token_file = config_data.get('token_file', 'data/token.json')
-            proxy_url = config_data.get('proxy_url', None)
-
-            if not sheets:
-                error_msg = "缺少spreadsheet_id配置"
-                self._log_error(error_msg)
-                raise ValueError(error_msg)
-            self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
-            if proxy_url:
-                self._log_info(f"使用代理: {proxy_url}")
-            for sheet in sheets:
-                spreadsheet_id = sheet.get('spreadsheet_id')
-                sheet_name = sheet.get('sheet_name', 'data')
-                google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
-                if not google_sheet.worksheet:
-                    raise Exception("请先选择工作表")
-                self.google_sheets.append(google_sheet)
-                self._log_info(f"已连接工作表: {sheet}")
-
-        except Exception as e:
-            error_msg = f"初始化Google Sheet连接失败: {str(e)}"
-            self._log_error(error_msg)
-            raise
-
-    def get_worksheets(self,spreadsheet_id: str, token_file: str = "data/token.json", proxy_url: str = None) -> Dict[
-        str, Any]:
-        """
-        获取指定电子表格的基础信息
-
-        Args:
-            spreadsheet_id: 电子表格ID
-            token_file: 认证文件路径
-            proxy_url: 代理URL
-
-        Returns:
-            {
-                "title": 表格标题（spreadsheet 的名称）, 
-                "worksheets": 工作表名称列表
-            }
-        """
-        try:
-            # 使用上下文管理器确保连接被正确关闭
-            with GoogleSheet(spreadsheet_id, None, token_file, proxy_url) as google_sheet:
-                # 获取所有工作表名称
-                worksheets = google_sheet.get_all_worksheets()
-                if not worksheets:
-                    raise ValueError("未找到任何工作表")
-
-                title = google_sheet.sheet.title if google_sheet.sheet else ""
-                return {"title": title, "worksheets": worksheets}
-        except Exception as e:
-            self._log_error(f"获取工作表列表失败: {str(e)}")
-            raise
-
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次
         wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
@@ -605,6 +608,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         _index_return_date = []
                         _start_return_date = []
+                        _return_data = []
                         _index_start_return_date = []
                         for i in range(len(kline)):
                             _index_return_date.append({
@@ -615,19 +619,20 @@ class GoogleSheetService(BaseGoogleSheetService):
                                 'stock_date': kline[i].get('stock_date'),
                                 'stock_val': _start_return[f"{c5_output_column_l}{i + 2}"]
                             })
-                            # _index_start_return_date.append({
-                            #     'stock_date': kline[i].get('stock_date'),
-                            #     'index_return': _index_return[f"{c5_output_column_j}{i + 2}"],
-                            #     'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
-                            # })
+                            _return_data.append({
+                                'date': kline[i].get('stock_date'),
+                                'index_return': _index_return[f"{c5_output_column_j}{i + 2}"],
+                                'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
+                            })
 
                         _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
                         _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
+                        flat_result, analyze_result = self.xpl.get_return_analysis_v1(_return_data)
                         _result['index_return_xpl'] = _index_return_xpl
                         _result['start_return_xpl'] = _start_return_xpl
-                        # _result['_index_start_return_date'] = _index_start_return_date
-
+                        _result['analyze_result'] = analyze_result
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
+                        results[f"flat_result"] = flat_result
                         all_num += 1
                     else:
                         self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
@@ -656,23 +661,16 @@ class GoogleSheetService(BaseGoogleSheetService):
 
         def save_result_operation():
             _index_start_return_date = None
+            safe_parameters = self._sanitize_json_value(parameters)
+            safe_result = self._sanitize_json_value(result)
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
-                parameters=json.dumps(parameters),
-                result=json.dumps(result),
+                parameters=json.dumps(safe_parameters, allow_nan=False),
+                result=json.dumps(safe_result, allow_nan=False),
                 success=success
             )
             db.session.add(task_result)
-            if _index_start_return_date:
-                for i in _index_start_return_date:
-                    task_result_return = TaskResultReturn(
-                        task_id=self.task_id,
-                        stock_date=i['stock_date'],
-                        index_return=i['index_return'],
-                        start_return=i['start_return']
-                    )
-                    db.session.add(task_result_return)
             db.session.commit()
 
         try:

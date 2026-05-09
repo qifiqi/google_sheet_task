@@ -1,18 +1,14 @@
 import json
 import math
 import re
-import os
-import tempfile
-import uuid
 from datetime import datetime
 from io import BytesIO
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 import numpy as np
 import pandas as pd
 
 from app.services.config_manager import get_config_manager
-
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.logger import get_logger
 
@@ -577,7 +573,7 @@ class XPLAnalyzer:
         index_monthly_returns_rate = index_monthly_returns_rate.copy()
         start_monthly_returns_rate = start_monthly_returns_rate.copy()
         index_monthly_returns_rate = index_monthly_returns_rate.rename(
-            columns={'monthly_return': 'index_monthly_return', 'year': "index_year","date":"index_date"})
+            columns={'monthly_return': 'index_monthly_return', 'year': "index_year", "date": "index_date"})
         start_monthly_returns_rate = start_monthly_returns_rate.rename(
             columns={'monthly_return': 'start_monthly_return'})
 
@@ -664,7 +660,7 @@ class XPLAnalyzer:
         # d_max = data_df['previous_max'].max()
         # return data_df[data_df['previous_max'] == d_max]['previous_max'].count()
 
-    def exceeding_maximum_number_of_backtest_repair_days(self, index_data,start_data):
+    def exceeding_maximum_number_of_backtest_repair_days(self, index_data, start_data):
         """
             # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
         """
@@ -676,7 +672,6 @@ class XPLAnalyzer:
         # return start_index_data
 
         return start_data - index_data
-
 
     def get_xpl(self, data: List[Dict[str, Any]], date='date', val='daily_return'):
         if not data:
@@ -889,7 +884,7 @@ class XPLAnalyzer:
         try:
             # from app.services.da import data
             # parsed_data = self._parse_input_data(data)
-            _data,_data_result,sheet_df = self.get_google_sheet_data(spreadsheet_id, google_sheet_name)
+            _data, _data_result, sheet_df = self.get_google_sheet_data(spreadsheet_id, google_sheet_name)
             # 计算指标
             metrics = self._calculate_metrics_v1(_data)
 
@@ -912,7 +907,8 @@ class XPLAnalyzer:
         """初始化Google Sheet连接"""
         try:
             config_data = get_config_manager().get_all_configs()
-            token_file = config_data.get('token_file', r'D:\Users\Administrator\Desktop\谷歌参数批量校验\data\token.json')
+            token_file = config_data.get('token_file',
+                                         r'D:\Users\Administrator\Desktop\谷歌参数批量校验\data\token.json')
             proxy_url = config_data.get('proxy_url', None)
 
             google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url)
@@ -947,7 +943,8 @@ class XPLAnalyzer:
 
         return parsed_dates
 
-    def get_google_sheet_data(self, spreadsheet_id: str, google_sheet_name: str)-> tuple[Any, dict[Any, Any], pd.DataFrame] | None:
+    def get_google_sheet_data(self, spreadsheet_id: str, google_sheet_name: str) -> tuple[Any, dict[
+        Any, Any], pd.DataFrame] | None:
         google_sheet = self._init_google_sheet(spreadsheet_id, google_sheet_name)
         title = google_sheet.title.upper()
 
@@ -955,38 +952,12 @@ class XPLAnalyzer:
             last_now_num = google_sheet.get_last_row("A")
             if last_now_num < 10:
                 last_now_num = 30
-            sheet_data = google_sheet.get_range_2d(f'A2:N{last_now_num}','UNFORMATTED_VALUE')
-            sheet_df = pd.DataFrame(sheet_data,columns=[
-                'date','values_B','result_key_C','result_values_D','year_start_E',
-                'year_beats_F','model_date_G','model_values_H','net_value_I','index_return',"index_DD_K",
-                "start_return","index_beats_M","start_DD_N"])
+            sheet_data = google_sheet.get_range_2d(f'A2:N{last_now_num}', 'UNFORMATTED_VALUE')
+            sheet_df = pd.DataFrame(sheet_data, columns=[
+                'date', 'values_B', 'result_key_C', 'result_values_D', 'year_start_E',
+                'year_beats_F', 'model_date_G', 'model_values_H', 'net_value_I', 'index_return', "index_DD_K",
+                "start_return", "index_beats_M", "start_DD_N"])
 
-            # Excel/Google Sheets 的基准日期是 1899-12-30
-            sheet_df["date"] = self._parse_google_sheet_dates(sheet_df["date"])
-
-            _data = sheet_df[['date','index_return','start_return']]
-
-            _data = _data.to_dict(orient='records')
-
-            _data_result = {}
-
-            for item in sheet_df[['result_key_C','result_values_D']].to_dict(orient='records'):
-                if item['result_key_C'] in ['','year#']:
-                    continue
-
-                _data_result[item['result_key_C']] = item['result_values_D']
-
-            return _data,_data_result,sheet_df
-
-        elif 'C4' in title:
-            last_now_num = google_sheet.get_last_row("A")
-            if last_now_num < 10:
-                last_now_num = 30
-            sheet_data = google_sheet.get_range_2d(f'A2:N{last_now_num}','UNFORMATTED_VALUE')
-            sheet_df = pd.DataFrame(sheet_data,columns=[
-                'date','values_B','result_key_C','result_values_D','year_start_E',
-                'year_beats_F','model_date_G','model_values_H','net_value_I','index_return',"index_DD_K",
-                "start_return","index_beats_M","start_DD_N"])
             # Excel/Google Sheets 的基准日期是 1899-12-30
             sheet_df["date"] = self._parse_google_sheet_dates(sheet_df["date"])
 
@@ -997,7 +968,33 @@ class XPLAnalyzer:
             _data_result = {}
 
             for item in sheet_df[['result_key_C', 'result_values_D']].to_dict(orient='records'):
-                if item['result_key_C'] in ['','year#']:
+                if item['result_key_C'] in ['', 'year#']:
+                    continue
+
+                _data_result[item['result_key_C']] = item['result_values_D']
+
+            return _data, _data_result, sheet_df
+
+        elif 'C4' in title:
+            last_now_num = google_sheet.get_last_row("A")
+            if last_now_num < 10:
+                last_now_num = 30
+            sheet_data = google_sheet.get_range_2d(f'A2:N{last_now_num}', 'UNFORMATTED_VALUE')
+            sheet_df = pd.DataFrame(sheet_data, columns=[
+                'date', 'values_B', 'result_key_C', 'result_values_D', 'year_start_E',
+                'year_beats_F', 'model_date_G', 'model_values_H', 'net_value_I', 'index_return', "index_DD_K",
+                "start_return", "index_beats_M", "start_DD_N"])
+            # Excel/Google Sheets 的基准日期是 1899-12-30
+            sheet_df["date"] = self._parse_google_sheet_dates(sheet_df["date"])
+
+            _data = sheet_df[['date', 'index_return', 'start_return']]
+
+            _data = _data.to_dict(orient='records')
+
+            _data_result = {}
+
+            for item in sheet_df[['result_key_C', 'result_values_D']].to_dict(orient='records'):
+                if item['result_key_C'] in ['', 'year#']:
                     continue
 
                 _data_result[item['result_key_C']] = item['result_values_D']
@@ -1009,28 +1006,201 @@ class XPLAnalyzer:
             last_now_num = google_sheet.get_last_row("D")
             if last_now_num < 10:
                 last_now_num = 30
-            sheet_data = google_sheet.get_range_2d(f'A2:Q{last_now_num}','UNFORMATTED_VALUE')
+            sheet_data = google_sheet.get_range_2d(f'A2:Q{last_now_num}', 'UNFORMATTED_VALUE')
             sheet_df = pd.DataFrame(sheet_data, columns=[
                 'Parameter_A', 'Value_A', '_C', 'date', 'data_E',
-                '_F', '_G', 'Parameter_H', 'Value_I', 'net_value_J', "index_return",'index_DD_K','_M',"_N",
+                '_F', '_G', 'Parameter_H', 'Value_I', 'net_value_J', "index_return", 'index_DD_K', '_M', "_N",
                 "start_return", "_P", "start_DD_Q"])
 
             # Excel/Google Sheets 的基准日期是 1899-12-30
             sheet_df["date"] = self._parse_google_sheet_dates(sheet_df["date"])
 
-            _data = sheet_df[['date','index_return','start_return']].to_dict(orient='records')
+            _data = sheet_df[['date', 'index_return', 'start_return']].to_dict(orient='records')
             _data_result = {}
             _subset_df = sheet_df.iloc[14:23]  # 第15行到第23行
 
-            for item in _subset_df[['Parameter_H','Value_I']].to_dict(orient='records'):
+            for item in _subset_df[['Parameter_H', 'Value_I']].to_dict(orient='records'):
                 if item['Parameter_H'] == '':
                     continue
                 _data_result[item['Parameter_H']] = item['Value_I']
 
-            return _data,_data_result,sheet_df
+            return _data, _data_result, sheet_df
 
-    def get_calculate_metrics_v1(self,data):
-        return self._calculate_metrics_v1(data)
+    def get_return_analysis_v1(self, data: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        基于与 get_calculate_metrics_v1 相同的 return 列表结构，
+        返回扁平化结构结果。
+
+        入参示例:
+        [
+            {
+                "date": "2026-01-02",
+                "index_return": 0.0123,
+                "start_return": 0.0156,
+            }
+        ]
+        """
+        if not data:
+            return {}, {}
+
+        analyze_result = self._calculate_metrics_v1(data)
+        if not analyze_result:
+            return {}, {}
+
+        result = {
+            "index_annualized_return": 0,
+            "start_annualized_return": 0,
+            "index_profit_annual": 0,
+            "start_profit_annual": 0,
+            "index_profit_monthly_percentage": 0,
+            "start_profit_monthly_percentage": 0,
+            "index_avg_monthly_return": 0,
+            "start_avg_monthly_return": 0,
+            "index_avg_monthly_return_common": 0,
+            "start_avg_monthly_return_common": 0,
+            "index_monthly_std_dev": 0,
+            "start_monthly_std_dev": 0,
+            "index_annual_std_dev": 0,
+            "start_annual_std_dev": 0,
+            "index_monthly_return_volatility": 0,
+            "start_monthly_return_volatility": 0,
+            "annualized_return_diff": 0,
+            "outperform_year": 0,
+            "monthly_excess_return_percentage_last_return": 0,
+            "avg_monthly_excess_returns": 0,
+            "monthly_excess_volatility": 0,
+            "max_drawdown": 0,
+            "excess_drawdown_winning_rate": 0,
+            "start_drawdown": 0,
+            "start_maximum_number_of_backtest_repair_days": 0,
+            "excess_maximum_number_of_backtest_repair_days": 0,
+            "index_sharpe_ratio": 0,
+            "start_sharpe_ratio": 0,
+            "index_kama_ratio": 0,
+            "start_kama_ratio": 0,
+            "index_sotino_ratio": 0,
+            "start_sotino_ratio": 0,
+            "excess_sharp": 0,
+            "excess_of_promissory_note": 0,
+        }
+
+        def pick_all(items, key="year", value="all"):
+            if not isinstance(items, list):
+                return {}
+            for item in items:
+                if isinstance(item, dict) and item.get(key) == value:
+                    return item
+            return {}
+
+        def safe_value(value):
+            if value is None:
+                return 0
+            if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                return 0
+            return value
+
+        excess_returns = analyze_result.get("excess_returns") or []
+        excess_return_all = pick_all(excess_returns)
+        result["index_annualized_return"] = safe_value(excess_return_all.get("index_annualized_return"))
+        result["start_annualized_return"] = safe_value(excess_return_all.get("start_annualized_return"))
+        result["annualized_return_diff"] = safe_value(excess_return_all.get("annualized_return_diff"))
+
+        result["index_profit_annual"] = safe_value(analyze_result.get("index_profit_annual"))
+        result["start_profit_annual"] = safe_value(analyze_result.get("start_profit_annual"))
+        result["outperform_year"] = safe_value(analyze_result.get("outperform_year"))
+        result["monthly_excess_volatility"] = safe_value(analyze_result.get("monthly_excess_volatility"))
+        result["excess_drawdown_winning_rate"] = safe_value(analyze_result.get("excess_drawdown_winning_rate"))
+        result["start_maximum_number_of_backtest_repair_days"] = safe_value(
+            analyze_result.get("start_maximum_number_of_backtest_repair_days")
+        )
+        result["excess_maximum_number_of_backtest_repair_days"] = safe_value(
+            analyze_result.get("excess_maximum_number_of_backtest_repair_days")
+        )
+        result["excess_sharp"] = safe_value(analyze_result.get("excess_sharp"))
+        result["excess_of_promissory_note"] = safe_value(analyze_result.get("excess_of_promissory_note"))
+
+        index_profit_monthly_all = pick_all(analyze_result.get("index_profit_monthly"))
+        start_profit_monthly_all = pick_all(analyze_result.get("start_profit_monthly"))
+        result["index_profit_monthly_percentage"] = safe_value(
+            index_profit_monthly_all.get("profit_monthly_percentage")
+        )
+        result["start_profit_monthly_percentage"] = safe_value(
+            start_profit_monthly_all.get("profit_monthly_percentage")
+        )
+
+        monthly_excess_return_percentage_all = pick_all(analyze_result.get("monthly_excess_return_percentage"))
+        result["monthly_excess_return_percentage_last_return"] = safe_value(
+            monthly_excess_return_percentage_all.get("excess_return")
+        )
+
+        index_sharpe_ratios_all = (analyze_result.get("index_sharpe_ratios") or {}).get("all") or {}
+        start_sharpe_ratios_all = (analyze_result.get("start_sharpe_ratios") or {}).get("all") or {}
+        result["index_avg_monthly_return"] = safe_value(index_sharpe_ratios_all.get("avg_monthly_return"))
+        result["start_avg_monthly_return"] = safe_value(start_sharpe_ratios_all.get("avg_monthly_return"))
+        result["index_avg_monthly_return_common"] = result["index_avg_monthly_return"]
+        result["start_avg_monthly_return_common"] = result["start_avg_monthly_return"]
+        result["index_monthly_std_dev"] = safe_value(index_sharpe_ratios_all.get("monthly_std_dev"))
+        result["start_monthly_std_dev"] = safe_value(start_sharpe_ratios_all.get("monthly_std_dev"))
+        result["index_annual_std_dev"] = safe_value(index_sharpe_ratios_all.get("annual_std_dev"))
+        result["start_annual_std_dev"] = safe_value(start_sharpe_ratios_all.get("annual_std_dev"))
+        result["index_monthly_return_volatility"] = safe_value(analyze_result.get("index_monthly_return_volatility"))
+        result["start_monthly_return_volatility"] = safe_value(analyze_result.get("start_monthly_return_volatility"))
+        result["index_sharpe_ratio"] = safe_value(index_sharpe_ratios_all.get("sharpe_ratio"))
+        result["start_sharpe_ratio"] = safe_value(start_sharpe_ratios_all.get("sharpe_ratio"))
+
+        monthly_excess_returns = analyze_result.get("monthly_excess_returns") or []
+        if monthly_excess_returns:
+            avg_monthly_excess_returns = sum(
+                safe_value(item.get("monthly_excess_return_diff"))
+                for item in monthly_excess_returns
+                if isinstance(item, dict)
+            ) / len(monthly_excess_returns)
+            result["avg_monthly_excess_returns"] = safe_value(avg_monthly_excess_returns)
+
+        index_maximum_drawdown = analyze_result.get("index_maximum_drawdown") or {}
+        start_maximum_drawdown = analyze_result.get("start_maximum_drawdown") or {}
+        year_excess_returns = [
+            int(item["year"])
+            for item in excess_returns
+            if isinstance(item, dict)
+               and item.get("year") != "all"
+               and safe_value(item.get("annualized_return_diff")) > 0
+        ]
+        index_year_maximum_drawdown = {
+            item["year"]: item
+            for item in index_maximum_drawdown.get("year_maximum_drawdown", [])
+            if isinstance(item, dict) and item.get("year") in year_excess_returns
+        }
+        start_year_maximum_drawdown = {
+            item["year"]: item
+            for item in start_maximum_drawdown.get("year_maximum_drawdown", [])
+            if isinstance(item, dict) and item.get("year") in year_excess_returns
+        }
+        max_drawdown_list = []
+        for year, index_item in index_year_maximum_drawdown.items():
+            start_item = start_year_maximum_drawdown.get(year)
+            if not start_item:
+                continue
+            max_drawdown_list.append(
+                safe_value(start_item.get("drawdown")) - safe_value(index_item.get("drawdown"))
+            )
+        if max_drawdown_list:
+            result["max_drawdown"] = safe_value(max(max_drawdown_list))
+
+        total_maximum_drawdown = start_maximum_drawdown.get("total_maximum_drawdown") or {}
+        result["start_drawdown"] = safe_value(total_maximum_drawdown.get("drawdown"))
+
+        index_kama_ratio_all = pick_all(analyze_result.get("index_kama_ratio"))
+        start_kama_ratio_all = pick_all(analyze_result.get("start_kama_ratio"))
+        result["index_kama_ratio"] = safe_value(index_kama_ratio_all.get("kama_ratio"))
+        result["start_kama_ratio"] = safe_value(start_kama_ratio_all.get("kama_ratio"))
+
+        index_sotino_ratio_all = pick_all(analyze_result.get("index_sotino_ratio"))
+        start_sotino_ratio_all = pick_all(analyze_result.get("start_sotino_ratio"))
+        result["index_sotino_ratio"] = safe_value(index_sotino_ratio_all.get("sotino_ratio"))
+        result["start_sotino_ratio"] = safe_value(start_sotino_ratio_all.get("sotino_ratio"))
+
+        return result, analyze_result
 
     def _calculate_metrics_v1(self, data) -> Dict[str, Any]:
         """
@@ -1120,7 +1290,7 @@ class XPLAnalyzer:
             monthly_excess_returns = self.calculate_monthly_excess_return(index_monthly_returns_rate,
                                                                           start_monthly_returns_rate)
             monthly_excess_returns_dict = monthly_excess_returns[
-                ['year_month', 'date', 'monthly_excess_return_diff', 'start_monthly_return', 'index_monthly_return',]
+                ['year_month', 'date', 'monthly_excess_return_diff', 'start_monthly_return', 'index_monthly_return', ]
             ].to_dict(orient='records')
             # 月超额收益百分比
             monthly_excess_return_percentage = self.calculate_monthly_excess_return_percentage(monthly_excess_returns)
@@ -1134,17 +1304,21 @@ class XPLAnalyzer:
             # 超额夏普= 月超额收益（均值） * 12 / (月超额收益率标准差 * 根号12)
             monthly_excess_return_diff_mean = monthly_excess_returns['monthly_excess_return_diff'].mean()
             monthly_excess_return_standard_deviation = monthly_excess_returns['monthly_excess_return_diff'].std()
-            excess_sharp = (monthly_excess_return_diff_mean * 12) / (monthly_excess_return_standard_deviation * np.sqrt(12))
+            excess_sharp = (monthly_excess_return_diff_mean * 12) / (
+                    monthly_excess_return_standard_deviation * np.sqrt(12))
 
             # 超额所提诺 = 月超额收益（均值） * 12 / (下行月超额收益率标准差 * 根号12)
-            excess_of_promissory_note = ((monthly_excess_return_diff_mean * 12) /
-                                         (monthly_excess_returns[monthly_excess_returns['monthly_excess_return_diff'] <= 0]['monthly_excess_return_diff'].std() * np.sqrt(12)))
-
+            excess_of_promissory_note = (
+                    (monthly_excess_return_diff_mean * 12) /
+                    (
+                            monthly_excess_returns[monthly_excess_returns['monthly_excess_return_diff'] <= 0][
+                                'monthly_excess_return_diff'].std() * np.sqrt(12)
+                    )
+            )
 
             # 最大回测修复天数 = （出现净值最多次数的天数）（每年）(index，start)
             index_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(index_df)
             start_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(start_df)
-
 
             # 超额最大回测修复天数 = start - index
             data_df_2 = pd.DataFrame()
@@ -1180,15 +1354,18 @@ class XPLAnalyzer:
 
                 "excess_returns": excess_returns,  # 年超额收益
                 "outperform_year": outperform_year,  # 跑赢年份
-                "monthly_excess_returns": monthly_excess_returns_dict, # 月超额收益
+                "monthly_excess_returns": monthly_excess_returns_dict,  # 月超额收益
                 "monthly_excess_return_percentage": monthly_excess_return_percentage,  # 月超额收益百分比
                 "monthly_excess_volatility": monthly_excess_volatility,  # 月超额波动率
                 "excess_drawdown_winning_rate": excess_drawdown_winning_rate,  # 超额回撤胜率
                 "excess_sharp": excess_sharp,  # 超额夏普
-                "excess_of_promissory_note": excess_of_promissory_note, # 超额所提诺
-                "index_maximum_number_of_backtest_repair_days": index_maximum_number_of_backtest_repair_days, # 最大回测修复天数 index
-                "start_maximum_number_of_backtest_repair_days": start_maximum_number_of_backtest_repair_days, # 最大回测修复天数 start
-                "excess_maximum_number_of_backtest_repair_days": excess_maximum_number_of_backtest_repair_days, # 超额最大回测修复天数
+                "excess_of_promissory_note": excess_of_promissory_note,  # 超额所提诺
+                "index_maximum_number_of_backtest_repair_days": index_maximum_number_of_backtest_repair_days,
+                # 最大回测修复天数 index
+                "start_maximum_number_of_backtest_repair_days": start_maximum_number_of_backtest_repair_days,
+                # 最大回测修复天数 start
+                "excess_maximum_number_of_backtest_repair_days": excess_maximum_number_of_backtest_repair_days,
+                # 超额最大回测修复天数
             }
 
             # 打印调试信息
@@ -1220,10 +1397,9 @@ class XPLAnalyzer:
             logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
             return {}
 
-
-    def format_export_file_data(self,data):
+    def format_export_file_data(self, data):
         analyze_result = data.get('analyze_result')
-        filename_title = data.get('filename_title',"").upper()
+        filename_title = data.get('filename_title', "").upper()
 
         model_name = ''
         if "C5" in filename_title:
@@ -1260,8 +1436,6 @@ class XPLAnalyzer:
         start_profit_monthly_all = [i for i in start_profit_monthly if i['year'] == 'all'][0]
         start_profit_monthly_percentage = start_profit_monthly_all.get('profit_monthly_percentage')
 
-
-
         index_sharpe_ratios_all = analyze_result.get('index_sharpe_ratios').get('all')
         start_sharpe_ratios_all = analyze_result.get('start_sharpe_ratios').get('all')
         # 平均月收益率
@@ -1276,21 +1450,25 @@ class XPLAnalyzer:
         outperform_year = analyze_result.get('outperform_year')
         # 月超额收益胜率
         monthly_excess_return_percentage = analyze_result.get('monthly_excess_return_percentage')
-        monthly_excess_return_percentage_last  = [i for i in monthly_excess_return_percentage if i['year'] == 'all'][0]
+        monthly_excess_return_percentage_last = [i for i in monthly_excess_return_percentage if i['year'] == 'all'][0]
         monthly_excess_return_percentage_last_return = monthly_excess_return_percentage_last.get('excess_return')
         # 平均月超额
         monthly_excess_returns = analyze_result.get('monthly_excess_returns')
-        avg_monthly_excess_returns = sum(i['monthly_excess_return_diff'] for i in monthly_excess_returns) / len(monthly_excess_returns)
+        avg_monthly_excess_returns = sum(i['monthly_excess_return_diff'] for i in monthly_excess_returns) / len(
+            monthly_excess_returns)
         # 月超额波动率
         monthly_excess_volatility = analyze_result.get('monthly_excess_volatility')
         # 年最大超额回撤
         index_maximum_drawdown = analyze_result.get('index_maximum_drawdown')
         start_maximum_drawdown = analyze_result.get('start_maximum_drawdown')
-        year_excess_returns = [int(i['year']) for i in excess_returns if i['annualized_return_diff'] > 0 and i['year'] != 'all']
-        index_year_maximum_drawdown = {i['year']:i for i in index_maximum_drawdown['year_maximum_drawdown'] if i['year'] in year_excess_returns}
-        start_year_maximum_drawdown = {i['year']:i for i in start_maximum_drawdown['year_maximum_drawdown'] if i['year'] in year_excess_returns}
+        year_excess_returns = [int(i['year']) for i in excess_returns if
+                               i['annualized_return_diff'] > 0 and i['year'] != 'all']
+        index_year_maximum_drawdown = {i['year']: i for i in index_maximum_drawdown['year_maximum_drawdown'] if
+                                       i['year'] in year_excess_returns}
+        start_year_maximum_drawdown = {i['year']: i for i in start_maximum_drawdown['year_maximum_drawdown'] if
+                                       i['year'] in year_excess_returns}
         max_drawdown_list = []
-        for k,v in index_year_maximum_drawdown.items():
+        for k, v in index_year_maximum_drawdown.items():
             index_drawdown = v['drawdown']
             start_drawdown = start_year_maximum_drawdown.get(k).get('drawdown')
             max_drawdown_list.append(
@@ -1328,19 +1506,22 @@ class XPLAnalyzer:
 
         excess_sharp = analyze_result.get('excess_sharp')
         excess_of_promissory_note = analyze_result.get('excess_of_promissory_note')
-        start_maximum_number_of_backtest_repair_days = analyze_result.get('start_maximum_number_of_backtest_repair_days')
-        excess_maximum_number_of_backtest_repair_days = analyze_result.get('excess_maximum_number_of_backtest_repair_days')
-
+        start_maximum_number_of_backtest_repair_days = analyze_result.get(
+            'start_maximum_number_of_backtest_repair_days')
+        excess_maximum_number_of_backtest_repair_days = analyze_result.get(
+            'excess_maximum_number_of_backtest_repair_days')
 
         data_1_2d = [
             ["标的", "", "", ""],
             ["回测区间", f"{start_date}-{end_date}", "", ""],
             ["指标类型", "指标", "指数", model_name],
-            ["绝对收益", "年化收益",  f"{index_annualized_return:.2%}", f"{start_annualized_return:.2%}"],
+            ["绝对收益", "年化收益", f"{index_annualized_return:.2%}", f"{start_annualized_return:.2%}"],
             ["绝对收益", "盈利年份百分比", f"{index_profit_annual:.2%}", f"{start_profit_annual:.2%}"],
-            ["绝对收益", "月盈利百分比", f"{index_profit_monthly_percentage:.2%}", f"{start_profit_monthly_percentage:.2%}"],
+            ["绝对收益", "月盈利百分比", f"{index_profit_monthly_percentage:.2%}",
+             f"{start_profit_monthly_percentage:.2%}"],
             ["绝对收益", "平均月收益率", f"{index_avg_monthly_return:.2%}", f"{start_avg_monthly_return:.2%}"],
-            ["绝对收益", "月收益率波动率", f"{index_monthly_return_volatility:.2%}", f"{start_monthly_return_volatility:.2%}"],
+            ["绝对收益", "月收益率波动率", f"{index_monthly_return_volatility:.2%}",
+             f"{start_monthly_return_volatility:.2%}"],
             ["相对收益", "年化超额收益", "", f"{annualized_return_diff:.2%}"],  # 注意：第二列是空
             ["相对收益", "跑赢年份(百分比）", "", f"{outperform_year:.2%}"],
             ["相对收益", "月超额收益胜率", "", f"{monthly_excess_return_percentage_last_return:.2%}"],
@@ -1374,7 +1555,6 @@ class XPLAnalyzer:
             data_2_2d[3].append(f"{excess_return['start_annualized_return']:.2%}")
             data_2_2d[4].append(f"{excess_return['annualized_return_diff']:.2%}")
 
-
         data_3_2d = [
             ["回撤明细"],
             ["年份"],
@@ -1383,28 +1563,28 @@ class XPLAnalyzer:
             ["超额回撤"],
         ]
         index_year_maximum_drawdown = index_maximum_drawdown['year_maximum_drawdown']
-        for index_drawdown,start_drawdown in zip(index_year_maximum_drawdown, start_maximum_drawdown['year_maximum_drawdown']):
+        for index_drawdown, start_drawdown in zip(index_year_maximum_drawdown,
+                                                  start_maximum_drawdown['year_maximum_drawdown']):
             data_3_2d[0].append("")
             data_3_2d[1].append(str(index_drawdown['year']))
             data_3_2d[2].append(f"-{index_drawdown['drawdown']:.2%}")
             data_3_2d[3].append(f"-{start_drawdown['drawdown']:.2%}")
-            excessive_backtesting = f"{start_drawdown['drawdown']-index_drawdown['drawdown']:.2%}"
-            excessive_backtesting = excessive_backtesting.replace('-', '') if '-' in excessive_backtesting else '-' + excessive_backtesting
+            excessive_backtesting = f"{start_drawdown['drawdown'] - index_drawdown['drawdown']:.2%}"
+            excessive_backtesting = excessive_backtesting.replace('-',
+                                                                  '') if '-' in excessive_backtesting else '-' + excessive_backtesting
             data_3_2d[4].append(excessive_backtesting)
 
-
         data_4_2d = [
-            ['',"策略收益率","月超额"]
+            ['', "策略收益率", "月超额"]
         ]
         for monthly_excess in monthly_excess_returns:
             data_4_2d.append(
                 [
                     monthly_excess['date'],
-                 f"{monthly_excess['start_monthly_return']:.2%}",
-                 f"{monthly_excess['monthly_excess_return_diff']:.2%}"
+                    f"{monthly_excess['start_monthly_return']:.2%}",
+                    f"{monthly_excess['monthly_excess_return_diff']:.2%}"
                 ]
             )
-
 
         target_df = pd.DataFrame('', index=range(200), columns=range(20))
 
@@ -1421,7 +1601,6 @@ class XPLAnalyzer:
 
         return target_df
 
-
     def export_file(self, data):
         if not data:
             raise ValueError("data不能为空")
@@ -1430,14 +1609,12 @@ class XPLAnalyzer:
         csv_buffer = BytesIO()
 
         # 将DataFrame写入CSV（注意编码）
-        file_data.to_csv(csv_buffer, index=False, header=False,encoding='utf-8')
+        file_data.to_csv(csv_buffer, index=False, header=False, encoding='utf-8')
 
         # 重置指针到文件开头
         csv_buffer.seek(0)
 
-
-        return csv_buffer,'text/csv'
-
+        return csv_buffer, 'text/csv'
 
 
 # 创建全局实例
@@ -1446,6 +1623,7 @@ xpl_analyzer = XPLAnalyzer()
 if __name__ == "__main__":
     xpl_analyzer = XPLAnalyzer()
     from d import data
+
     parsed_data = xpl_analyzer._parse_input_data(data)
 
     print(xpl_analyzer._calculate_metrics_v1(parsed_data))
