@@ -213,8 +213,9 @@ class BaseGoogleSheetService:
         config_data: Dict[str, Any],
     ) -> Dict[str, Any]:
         stock_code = (
-            config_data.get("stock_code")
-            or str(task_name or "").split("-", 1)[0].strip()
+            config_data.get("stock_code",None)
+            or str(task_name or "").strip()
+            # or str(task_name or "").split("-", 1)[0].strip()
             or ""
         )
 
