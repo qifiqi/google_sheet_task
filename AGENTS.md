@@ -71,6 +71,14 @@ pytest
 pytest tests/test_specific.py::test_name
 ```
 
+注意：
+
+- 当前仓库里的测试并不全是“开箱即跑”的纯单元测试
+- `tests/test/google_sheet_test.py`、`tests/test/token_test.py` 这类文件依赖本地 token 文件或外部环境，`pytest` 全量收集失败时不要第一时间误判为本次代码改动引入
+- 更适合作为当前主分支结构回归入口的是：
+  - `tests/test/test_p0_p1_refactor.py`
+  - 以及与本次改动直接相关的定向测试
+
 ## 真实入口与启动流程
 
 ### 应用工厂
@@ -88,19 +96,29 @@ pytest tests/test_specific.py::test_name
 
 `run.py`
 
-`run.py` 不是一个薄壳，它包含了多个启动期动作：
+`run.py` 不是一个薄壳，但启动期修复逻辑现在已经明显下沉到：
+
+- `app/startup.py`
+
+`run.py` 仍然负责串起这些启动动作，核心包括：
 
 - 初始化日志
 - `db.create_all()`
 - `ensure_google_sheet_token_schema()`
+- `ensure_user_schema()`
+- `ensure_task_schema()`
 - `reset_google_sheet_token_occupancy()`
 - `reset_google_sheet_occupancy()`
 - `init_config2()`
+- `init_rbac()`
 - `check_and_cleanup_dead_tasks()`
 - `init_scheduler()`
 - `init_task_watchdog()`
 
-任何影响任务状态、token 占用或看门狗行为的修改，都要同时评估 `run.py` 的启动期修复流程。
+任何影响任务状态、token 占用、RBAC、用户字段、看门狗行为的修改，都要同时评估：
+
+- `run.py`
+- `app/startup.py`
 
 ## 路由与前端页面
 
@@ -139,11 +157,14 @@ pytest tests/test_specific.py::test_name
 
 ## 任务系统核心
 
-### 任务主控
+### 任务主控门面
 
-`app/services/task_manager.py`
+当前真实入口已经不是旧的 `app/services/task_manager.py`，而是：
 
-这是最关键的服务之一。
+- `app/services/task/facade.py`
+- `app/services/task/__init__.py`
+
+对外仍然使用 `TaskManager` / `task_manager`，但内部已经拆成多个 mixin 文件。
 
 负责：
 
@@ -154,22 +175,33 @@ pytest tests/test_specific.py::test_name
 - 本地线程状态检查
 - Token 和 Google Sheet 占用管理
 
-重点数据结构：
+门面内部重点运行态数据结构仍然包括：
 
 - `running_tasks`: `task_id -> thread`
-- `task_events`: `task_id -> queue.Queue`
 - `task_stop_events`: `task_id -> threading.Event`
+- `start_errors`
 - `task_token_occupancy`
 
 修改任务执行相关逻辑时，必须同时检查：
 
-- `start_task()`
-- `_execute_google_sheet_task()`
-- `_execute_google_sheet_C4_task()`
-- `_execute_google_sheet_C5_task()`
-- `_execute_backtest_training_task()`
-- `restart_task()`
-- `batch_create_and_start_task()`
+- `app/services/task/runtime.py`
+  - `start_task()`
+  - `_execute_google_sheet_task()`
+  - `_execute_google_sheet_c4_task()`
+  - `_execute_google_sheet_c5_task()`
+  - `_execute_backtest_training_task()`
+- `app/services/task/creation.py`
+  - `create_task()`
+  - `batch_create_and_start_task()`
+- `app/services/task/restart.py`
+  - `cancel_task()`
+  - `restart_task()`
+- `app/services/task/occupancy.py`
+
+额外说明：
+
+- `tests/legacy_services/task_manager.py` 只是兼容层，不是生产实现
+- 如果文档、脚本或测试还引用旧 `app/services/task_manager.py`，要优先确认是否只是历史残留表述
 
 ### C31 特殊逻辑
 
@@ -209,6 +241,21 @@ pytest tests/test_specific.py::test_name
 - 网络重试耗尽后向任务层暴露“可自动重启”的错误类型
 
 如果任务因为网络问题失效，优先改这里，而不是在上层大量加散乱 `try/except`。
+
+### 东方财富 / 股票检索链路
+
+近期和回测任务直接相关的网络入口还包括：
+
+- `app/utils/dfcf_api.py`
+- `app/utils/proxy_manager.py`
+
+当前实现特征：
+
+- 股票搜索优先走 codetable，失败后回退 suggest
+- K 线请求是否启用代理由配置项 `dfcf_kline_proxy_enabled` 控制
+- 回测训练任务会把 `market_type` 规范化为 `cn` / `en`
+
+如果是“股票搜索不到 / K线拉取失败 / 美股与A股市场代码错传”这一类问题，优先检查这里，再看上层页面和 service。
 
 ### 业务服务
 
@@ -372,6 +419,9 @@ raise
 - C31 子任务会在 `task_manager.py` 中透传 `market_type` 与 `end_date`
 - `google_sheet_service.py` 的 `cell_kline_data()` 会优先使用 `config.end_date`，未传时走默认逻辑
 - 网络异常任务会带 `[NETWORK_RETRYABLE]` 前缀，供看门狗识别
+- `TaskManager` 生产实现已经迁移到 `app/services/task/facade.py` + `app/services/task/*`
+- backtest 搜索接口位于 `app/routes/backtest_training.py` 的 `search_stocks()`
+- 东方财富 K 线代理开关来自 `SystemConfig.dfcf_kline_proxy_enabled`
 
 ## 不要做的事
 
@@ -381,4 +431,6 @@ raise
 - 不要把所有失败任务都交给看门狗自动重启
 - 不要用 `raise e`
 - 不要默认相信 PowerShell 读中文文件不会乱码
+- 不要继续把旧 `app/services/task_manager.py` 当成真实生产入口
+- 不要把代理账号、密码、token 等敏感信息继续硬编码扩散到仓库里
 
