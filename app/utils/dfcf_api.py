@@ -6,7 +6,10 @@ import string
 import time
 from datetime import datetime
 from urllib.parse import quote  # 添加这行导入
+
+from app.services.config_manager import get_config_manager
 from app.utils.logger import get_logger
+from app.utils.proxy_manager import get_smart_proxy_manager
 
 import requests
 from curl_cffi import requests as c_requests
@@ -78,6 +81,7 @@ class DFCJStockApi:
         self.session.verify = requests.utils.DEFAULT_CA_BUNDLE_PATH
 
         self.logger = get_logger(self.__class__.__name__)
+        self.proxy_manager = get_smart_proxy_manager(self.logger)
 
     def _get_random_browser_fingerprint(self):
         """获取随机Chrome浏览器指纹（用于TLS指纹伪装）"""
@@ -140,6 +144,10 @@ class DFCJStockApi:
         
         return headers
 
+    def _should_use_proxy_for_kline(self) -> bool:
+        config_manager = get_config_manager()
+        return bool(config_manager.get_config('dfcf_kline_proxy_enabled', False))
+
 
     @retry(
         stop=stop_after_attempt(5),  # 最多尝试5次
@@ -147,36 +155,23 @@ class DFCJStockApi:
         retry=retry_if_exception_type((Exception,)),
         reraise=True
     )
-    def __get(self,*args, **kwargs):
-        # # 每次请求随机更换浏览器指纹（更难以识别）
-        # if random.random() < 0.3:  # 30% 概率更换指纹
-        #     self.browser_fingerprint = self._get_random_browser_fingerprint()
-        #     # 重新创建session以应用新的指纹
-        #     old_proxies = getattr(self.session, 'proxies', {})
-        #     self.session = requests.Session(impersonate=self.browser_fingerprint)
-        #     if old_proxies:
-        #         self.session.proxies.update(old_proxies)
-        # username = "B_58204_hk___90_{random}".replace("{random}", ''.join(random.choices(string.ascii_lowercase + string.digits, k=11)))
-        # # 设置代理
-        # proxies = {
-        #     "http": f"http://{username}:ipwebgz@gate2.ipweb.cc:7778",
-        #     "https": f"http://{username}:ipwebgz@gate2.ipweb.cc:7778"
-        # }
-        # 如果未传递headers，则使用随机headers
-        if 'headers' not in kwargs:
-            # 更新session的headers为随机值
-            self.session.headers.update(self._generate_random_headers())
+    def __get(self, *args, **kwargs):
+        use_proxy = bool(kwargs.pop("use_proxy", False))
+        headers = kwargs.pop("headers", None)
+        if headers is None:
+            headers = self._generate_random_headers()
 
-        if config['is_proxy']:
-            proxy = get_proxy()
-            self.logger.info(proxy)
-            response = self.session.get(*args, **kwargs,proxies=proxy)
+        if use_proxy:
+            proxy = self.proxy_manager.get_best_proxy()
+            self.logger.info("DFCF K线请求启用代理: %s", proxy)
+            response = self.session.get(
+                *args,
+                **kwargs,
+                headers=headers,
+                proxies=proxy,
+            )
         else:
-            response = self.session.get(*args, **kwargs)
-        # gate2.ipweb.cc
-        # 7778
-        # B_58204_hk___90_95f186fa599
-        # ipwebgz
+            response = self.session.get(*args, **kwargs, headers=headers)
         response.raise_for_status()
         return response
 
@@ -203,7 +198,11 @@ class DFCJStockApi:
                 return []
 
             self.logger.debug(f"请求东方财富K线接口: {url}")
-            response = self.__get(url, timeout=10)
+            response = self.__get(
+                url,
+                timeout=10,
+                use_proxy=self._should_use_proxy_for_kline(),
+            )
             if response.status_code != 200:
                 self.logger.error(f"请求失败: {response.status_code}")
                 return []
@@ -312,80 +311,163 @@ class DFCJStockApi:
 
     def get_search_list_by_stock_code(self, stock, page_size=20):
         """
-        通过股票代码或名称搜索股票信息，返回所有搜索结果
+        通过股票代码或名称搜索股票信息，返回所有搜索结果。
 
-        Args:
-            stock (str): 股票代码或名称，如 "TSM" 或 "台积电"
-            page_size (int): 返回结果数量，默认20条
-
-        Returns:
-            list: 搜索结果列表，如果出错则返回包含error的字典
+        优先走 codetable，新接口失败时回退到 suggest。
         """
-        # 生成随机headers，包含动态Referer
-        referer = f"https://so.eastmoney.com/web/s?keyword={quote(stock)}"
-        headers = self._generate_random_headers(referer=referer)
-        param = json.dumps({
-            "uid": "",
-            "keyword": stock,
-            "type": [
-                "codetable"
-            ],
-            "client": "web",
-            "clientVersion": "curr",
-            "clientType": "web",
-            "param": {
-                "codetable": {
-                    "pageSize": page_size,
-                    "pageIndex": 1,
-                    "postTag": "",
-                    "preTag": "",
-                }
-            }
-        }, ensure_ascii=False)
+        normalized_page_size = max(1, min(int(page_size or 20), 20))
 
-        def generate_jquery_callback():
-            random_digits = ''.join([str(random.randint(0, 9)) for _ in range(16)])
-            timestamp = str(int(time.time() * 1000))
-            callback_name = f"jQuery{random_digits}_{timestamp}"
-            return callback_name
+        rows = self._search_codetable(stock, normalized_page_size)
+        if isinstance(rows, list) and rows:
+            return rows
 
+        fallback_rows = self._search_suggest(stock, normalized_page_size)
+        if isinstance(fallback_rows, list):
+            return fallback_rows
+        return fallback_rows
+
+    def _search_codetable(self, stock, page_size):
         try:
-            url = "https://search-api-web.eastmoney.com/search/jsonp"
+            url = "https://search-codetable.eastmoney.com/codetable/search/web"
             params = {
-                'cb': generate_jquery_callback(),
-                "param": param,
-                "_": str(int(time.time() * 1000))
+                "client": "web",
+                "clientType": "webSuggest",
+                "clientVersion": "lastest",
+                "cb": f"jQuery{random.randint(10**15, 10**16 - 1)}_{int(time.time() * 1000)}",
+                "keyword": stock,
+                "pageIndex": 1,
+                "pageSize": page_size,
+                "securityFilter": "",
+                "_": str(int(time.time() * 1000)),
             }
-            self.logger.debug(f"请求东方财富搜索接口（列表）: {url} params={params}")
-            response = self.__get(url, headers=headers, params=params)
+            headers = self._generate_random_headers(
+                referer=f"https://so.eastmoney.com/web/s?keyword={quote(stock)}"
+            )
+            self.logger.debug(
+                "请求东方财富搜索接口（codetable）: %s params=%s",
+                url,
+                params,
+            )
+            response = self.__get(url, headers=headers, params=params, timeout=10)
             json_str = response.text
-            self.logger.debug(f"接口url:{response.url}\n 搜索接口返回数据: {json_str}")
-            # 检查响应是否包含有效的JSONP格式
-            if '(' in json_str and ')' in json_str:
-                json_str = json_str[json_str.find('(') + 1:json_str.rfind(')')]
-                json_data = json.loads(json_str)
+            if "(" in json_str and ")" in json_str:
+                json_str = json_str[json_str.find("(") + 1:json_str.rfind(")")]
+            json_data = json.loads(json_str)
+            self.logger.debug(
+                "接口url:%s\n 搜索接口返回数据: %s",
+                response.url,
+                json_data,
+            )
 
-                # 检查返回的数据结构是否符合预期
-                if "result" in json_data and "codetable" in json_data["result"]:
-                    codetable = json_data["result"]["codetable"]
-                    if codetable and len(codetable) > 0:
-                        return codetable  # 返回所有结果
-                    else:
-                        self.logger.warning("搜索接口返回空结果")
-                        return []
-                else:
-                    self.logger.error("搜索接口返回数据格式不正确")
-                    return {"error": "数据格式错误"}
-            else:
-                self.logger.error("搜索接口返回非JSONP格式数据")
-                return {"error": "响应格式错误"}
+            rows = json_data.get("result") or []
+            if not isinstance(rows, list):
+                self.logger.error("搜索接口返回数据格式不正确: %s", json_data)
+                return {"error": "数据格式错误"}
 
-        except json.JSONDecodeError as je:
-            self.logger.exception("搜索接口返回数据无法解析为JSON")
-            return {"error": f"JSON解析失败: {str(je)}"}
-        except Exception as e:
-            self.logger.exception("搜索接口调用失败")
-            return {"error": f"未知错误: {str(e)}"}
+            normalized_rows = []
+            keyword_upper = str(stock or "").strip().upper()
+            for item in rows[:page_size]:
+                code = str(item.get("code") or "").strip().upper()
+                if not code:
+                    continue
+
+                market_value = item.get("market")
+                market = "" if market_value is None else str(market_value).strip()
+                normalized_rows.append({
+                    "source": "codetable",
+                    "code": code,
+                    "shortName": str(item.get("shortName") or "").strip(),
+                    "securityTypeName": str(item.get("securityTypeName") or "").strip(),
+                    "market": market,
+                    "status": item.get("status", 10),
+                    "isExactMatch": code == keyword_upper,
+                    "innerCode": str(item.get("innerCode") or "").strip(),
+                    "pinyin": str(item.get("pinyin") or "").strip(),
+                    "securityType": item.get("securityType"),
+                    "smallType": item.get("smallType"),
+                    "flag": item.get("flag"),
+                    "extSmallType": item.get("extSmallType"),
+                })
+
+            return normalized_rows
+        except json.JSONDecodeError as exc:
+            self.logger.warning("codetable 搜索 JSON 解析失败: %s", exc)
+            return []
+        except Exception as exc:
+            self.logger.warning("codetable 搜索失败: %s", exc)
+            return []
+
+    def _search_suggest(self, stock, page_size):
+        try:
+            url = "https://searchapi.eastmoney.com/api/suggest/get"
+            params = {
+                "input": stock,
+                "type": 14,
+                "count": page_size,
+            }
+            headers = self._generate_random_headers(
+                referer=f"https://so.eastmoney.com/web/s?keyword={quote(stock)}"
+            )
+            self.logger.debug(
+                "请求东方财富搜索接口（suggest）: %s params=%s",
+                url,
+                params,
+            )
+            response = self.__get(url, headers=headers, params=params, timeout=10)
+            json_data = response.json()
+            self.logger.debug(
+                "接口url:%s\n suggest 搜索接口返回数据: %s",
+                response.url,
+                json_data,
+            )
+
+            quotation_table = json_data.get("QuotationCodeTable") or {}
+            rows = quotation_table.get("Data") or []
+            if not isinstance(rows, list):
+                self.logger.error("suggest 搜索接口返回数据格式不正确: %s", json_data)
+                return {"error": "数据格式错误"}
+
+            normalized_rows = []
+            keyword_upper = str(stock or "").strip().upper()
+            for item in rows[:page_size]:
+                code = str(item.get("Code") or "").strip().upper()
+                if not code:
+                    continue
+
+                quote_id = str(item.get("QuoteID") or "").strip()
+                market = (
+                    quote_id.split(".", 1)[0]
+                    if "." in quote_id
+                    else str(item.get("MktNum") or item.get("MarketType") or "").strip()
+                )
+                normalized_rows.append({
+                    "source": "suggest",
+                    "code": code,
+                    "shortName": str(item.get("Name") or "").strip(),
+                    "securityTypeName": str(item.get("SecurityTypeName") or "").strip(),
+                    "market": market,
+                    "status": 10,
+                    "isExactMatch": code == keyword_upper,
+                    "innerCode": str(item.get("InnerCode") or "").strip(),
+                    "pinyin": str(item.get("PinYin") or "").strip(),
+                    "securityType": item.get("SecurityType"),
+                    "smallType": item.get("TypeUS"),
+                    "flag": None,
+                    "extSmallType": None,
+                    "quoteId": quote_id,
+                    "marketType": item.get("MarketType"),
+                    "unifiedCode": str(item.get("UnifiedCode") or "").strip(),
+                    "jys": str(item.get("JYS") or "").strip(),
+                    "classify": str(item.get("Classify") or "").strip(),
+                })
+
+            return normalized_rows
+        except json.JSONDecodeError as exc:
+            self.logger.exception("suggest 搜索接口返回数据无法解析为JSON")
+            return {"error": f"JSON解析失败: {str(exc)}"}
+        except Exception as exc:
+            self.logger.exception("suggest 搜索接口调用失败")
+            return {"error": f"未知错误: {str(exc)}"}
 
 
 if __name__ == '__main__':

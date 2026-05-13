@@ -33,6 +33,15 @@ class BacktestTrainingService(BaseGoogleSheetService):
     def _task_detail_url(self) -> str:
         return f"{current_app.config.get('BASE_URL')}/backtest-training/detail/{self.task_id}"
 
+    @staticmethod
+    def _normalize_market_type(value):
+        normalized = str(value or '').strip().lower()
+        if normalized == 'cn':
+            return 'cn'
+        if normalized in ('en', 'us', 'usa'):
+            return 'en'
+        return 'cn'
+
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
         message_builder=build_execute_task_alert,
@@ -174,6 +183,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
             recent_years = config_data.get('recent_years', [])
             parameters = config_data.get('parameters', [])
             stock_code = config_data.get('stock_code', '')
+            market_type = self._normalize_market_type(
+                config_data.get('market_type', 'cn')
+            )
 
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
@@ -182,7 +194,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 full_years,
                 recent_years,
                 parameters,
-                stock_code
+                stock_code,
+                market_type=market_type,
             )
             precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
             total_combinations += len(combinations)
@@ -549,6 +562,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         stock_code,price_mode="sp_price",market_type="cn"
 
     ):
+        market_type = self._normalize_market_type(market_type)
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -582,7 +596,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
         end_dt = datetime.now() - timedelta(days=1)
         end_date = end_dt.strftime("%Y-%m-%d")
 
-        year_count = recent_years[-1] if len(recent_years) != 0 else int(end_date[:4]) - full_years[-1]
+        if recent_years:
+            year_count = max(int(year) for year in recent_years)
+        elif full_years:
+            earliest_full_year = min(int(year) for year in full_years)
+            year_count = max(1, int(end_date[:4]) - earliest_full_year + 1)
+        else:
+            year_count = 1
         start_dt = end_dt - timedelta(days=365 * year_count)
         start_date = start_dt.strftime("%Y-%m-%d")
 
@@ -606,6 +626,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
+
+        if end_dt.weekday() >= 5:
+            end_date = data_end_date
 
         # 检查用户设定的区间是否在数据范围内
         if start_date < data_start_date or end_date > data_end_date:
