@@ -16,6 +16,6 @@ if __name__ == '__main__':
     try:
         bootstrap_app(app)
         debug_mode = os.getenv('FLASK_DEBUG', 'true').lower() in ('true', '1', 'yes', 'on')
-        app.run(debug=debug_mode, host='0.0.0.0', port=5000)
+        app.run(debug=debug_mode, host='0.0.0.0', port=os.getenv('PORT', 5000))
     except Exception as exc:
         logger.error(f'启动失败: {exc}', exc_info=True)
