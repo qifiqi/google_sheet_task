@@ -270,21 +270,24 @@ class XPLAnalyzer:
                 if previous_month_data is None:
                     # 如果是第一个月，使用当月第一个数据点作为基准
                     # If it's the first month, use the first data point of the month as base
-                    comparison_point = month_df.iloc[0]
+                    # comparison_point = month_df.iloc[0]
+                    # comparison_point = comparison_point['net_value']
+                    comparison_point = 1
                 else:
                     # 否则使用上个月最后一个数据点作为基准
                     # Otherwise, use the last data point of the previous month as base
                     comparison_point = previous_month_data.iloc[-1]
+                    comparison_point = comparison_point['net_value']
 
                 # 计算月度收益率：(月末净值 / 基准日净值 - 1)
                 # Calculate monthly return: (end of month value / base day value - 1)
-                monthly_return = (current_month_end['net_value'] / comparison_point['net_value'] - 1)
+                monthly_return = (current_month_end['net_value'] / comparison_point - 1)
 
                 # 记录月度数据
                 # Record monthly data
                 monthly_data.append({
                     'year_month': month,  # 年月 Year and month
-                    'monthly_return': monthly_return,  # 月收益率 Monthly return
+                    'monthly_return': round(monthly_return,4),  # 月收益率 Monthly return
                     'year': current_month_end['year'],  # 年份 Year
                     'date': current_month_end['date']  # 日期 Date
                 })
@@ -463,16 +466,21 @@ class XPLAnalyzer:
     def calculate_sotino_ratio(self, monthly_data: pd.DataFrame):
         """
             所提诺比例
-            月均年化收益率/下行标准差	下行边准差	所有月低于0的收益率的标准差*√12
-                                    月均年化收益率	月均收益率*12（所有月）
+            月均年化收益率/下行标准差	
+                # 下行边准差	所有月低于0的收益率的标准差*√12
+                下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
+               月均年化收益率	月均收益率*12（所有月）
         """
         sotino_ratios = []
         # 计算月度收益率数据
-        monthly_data_df = monthly_data
+        monthly_data_df = monthly_data.copy()
         monthly_groups = monthly_data_df.groupby('year')
         for year, year_df in monthly_groups:
             average_monthly_annualized_return = year_df['monthly_return'].mean() * 12
-            monthly_return_0 = year_df[year_df['monthly_return'] < 0]['monthly_return']
+            # monthly_return_0 = year_df[year_df['monthly_return'] < 0]['monthly_return']
+            monthly_return_0 = year_df['monthly_return'].mask(
+                year_df['monthly_return'] > 0, 0
+            )
 
             downside_standard_deviation = 0
             sotino_ratio = 0
@@ -489,8 +497,12 @@ class XPLAnalyzer:
             })
 
         average_monthly_annualized_return = monthly_data_df['monthly_return'].mean() * 12
-        downside_standard_deviation = monthly_data_df[monthly_data_df['monthly_return'] < 0][
-                                          'monthly_return'].std() * np.sqrt(12)
+        # downside_standard_deviation = monthly_data_df[monthly_data_df['monthly_return'] < 0][
+        #                                   'monthly_return'].std() * np.sqrt(12)
+        downside_standard_deviation_monthly_return = monthly_data_df['monthly_return'].mask(
+            monthly_data_df['monthly_return'] > 0, 0
+        )
+        downside_standard_deviation = downside_standard_deviation_monthly_return.std() * np.sqrt(12)
         sotino_ratio = average_monthly_annualized_return / downside_standard_deviation
         sotino_ratios.append({
             "year": "all",
@@ -579,9 +591,11 @@ class XPLAnalyzer:
 
         excess_return = pd.merge(index_monthly_returns_rate, start_monthly_returns_rate, on='year_month')
 
-        excess_return['monthly_excess_return_diff'] = (
-                excess_return['start_monthly_return'] -
-                excess_return['index_monthly_return']
+        excess_return['monthly_excess_return_diff'] = round(
+            (
+                    excess_return['start_monthly_return'] -
+                    excess_return['index_monthly_return']
+            ),4
         )
         excess_return['date'] = excess_return['date'].dt.strftime("%Y/%m/%d")
         excess_return['index_date'] = excess_return['index_date'].dt.strftime("%Y/%m/%d")
@@ -1307,14 +1321,13 @@ class XPLAnalyzer:
             excess_sharp = (monthly_excess_return_diff_mean * 12) / (
                     monthly_excess_return_standard_deviation * np.sqrt(12))
 
-            # 超额所提诺 = 月超额收益（均值） * 12 / (下行月超额收益率标准差 * 根号12)
-            excess_of_promissory_note = (
-                    (monthly_excess_return_diff_mean * 12) /
-                    (
-                            monthly_excess_returns[monthly_excess_returns['monthly_excess_return_diff'] <= 0][
-                                'monthly_excess_return_diff'].std() * np.sqrt(12)
-                    )
+            # 超额所提诺 = 月超额收益（均值） * 12 / (下行月超额收益率标准差 * 根号12) (老版本移除)
+            # 超额所提诺 = 月超额收益（均值） * 12 / (月超额收益率标准差 * 根号12)(大于0的设置0)
+            monthly_excess_returns_diff = monthly_excess_returns['monthly_excess_return_diff'].mask(
+                monthly_excess_returns['monthly_excess_return_diff'] > 0, 0
             )
+            excess_of_promissory_note = (monthly_excess_return_diff_mean * 12) / (monthly_excess_returns_diff.std() * np.sqrt(12))
+
 
             # 最大回测修复天数 = （出现净值最多次数的天数）（每年）(index，start)
             index_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(index_df)
@@ -1626,7 +1639,7 @@ if __name__ == "__main__":
 
     parsed_data = xpl_analyzer._parse_input_data(data)
 
-    print(xpl_analyzer._calculate_metrics_v1(parsed_data))
+    print(json.dumps(xpl_analyzer._calculate_metrics_v1(parsed_data),ensure_ascii=False))
     # xpl_analyzer._calculate_metrics(parsed_data)
     # xpl_analyzer.analyze_v1('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
     # xpl_analyzer.get_google_sheet_data('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
