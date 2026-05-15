@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AETHER QUANT | 捕捉混沌中的秩序</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;600&family=JetBrains+Mono&display=swap');
+        
+        body {
+            background-color: #050505;
+            color: white;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .gradient-bg {
+            background: radial-gradient(circle at 50% 50%, #1a1a2e 0%, #050505 100%);
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        .panel {
+            height: 100vh;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding: 0 10%;
+        }
+
+        .data-stream {
+            font-family: 'JetBrains Mono', monospace;
+            opacity: 0.1;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="gradient-bg"></div>
+
+    <nav class="fixed top-0 w-full p-8 flex justify-between items-center z-50">
+        <div class="text-xl font-bold tracking-tighter">AETHER<span class="text-cyan-400">QUANT</span></div>
+        <div class="space-x-8 text-sm uppercase tracking-widest opacity-70">
+            <a href="#" class="hover:text-cyan-400 transition">策略</a>
+            <a href="#" class="hover:text-cyan-400 transition">技术</a>
+            <a href="#" class="hover:text-cyan-400 transition">关于</a>
+        </div>
+    </nav>
+
+    <section class="panel" id="hero">
+        <div class="text-center">
+            <h1 class="text-6xl md:text-8xl font-light mb-6 tracking-tight">捕捉<span class="font-semibold italic">混沌</span>中的秩序</h1>
+            <p class="text-cyan-400 text-lg tracking-[0.5em] uppercase opacity-0" id="hero-sub">Decoding the market noise</p>
+        </div>
+        <div class="absolute bottom-10 animate-bounce opacity-30">SCROLL TO EXPLORE</div>
+    </section>
+
+    <section class="panel" id="stats">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-20 w-full">
+            <div>
+                <h2 class="text-4xl font-light mb-8">极速，<br><span class="text-cyan-400">毫秒必争</span></h2>
+                <p class="text-gray-400 leading-relaxed max-w-md">我们在全球核心交易所建立极低延迟节点，利用自研引擎在微秒级时间内完成海量数据清洗与决策反馈。</p>
+            </div>
+            <div class="flex flex-col justify-center space-y-12">
+                <div class="stat-item">
+                    <div class="text-6xl font-mono text-cyan-400" data-target="2">0</div>
+                    <div class="text-xs uppercase tracking-widest opacity-50">核心执行延迟 (ms)</div>
+                </div>
+                <div class="stat-item">
+                    <div class="text-6xl font-mono text-purple-500" data-target="10">0</div>
+                    <div class="text-xs uppercase tracking-widest opacity-50">日处理数据量 (TB)</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel" id="visual">
+        <div class="relative w-full h-64 flex items-center justify-center">
+            <div id="orb" class="w-64 h-64 rounded-full bg-gradient-to-tr from-cyan-500 to-purple-600 blur-3xl opacity-20 absolute"></div>
+            <h2 class="text-5xl md:text-7xl font-bold z-10 text-center">非线性逻辑<br>构建绝对收益</h2>
+        </div>
+    </section>
+
+    <section class="panel bg-white text-black">
+        <div class="text-center">
+            <h2 class="text-4xl mb-8">准备好进入量化前沿了吗？</h2>
+            <button class="px-10 py-4 border border-black hover:bg-black hover:text-white transition-all duration-500 uppercase tracking-widest text-sm">加入我们</button>
+            <div class="mt-20 text-xs opacity-40">© 2026 AETHER QUANTITATIVE RESEARCH. ALL RIGHTS RESERVED.</div>
+        </div>
+    </section>
+
+    <script>
+        gsap.registerPlugin(ScrollTrigger);
+
+        // 1. Hero 动画
+        gsap.to("#hero-sub", { opacity: 1, y: -20, duration: 1.5, delay: 0.5 });
+
+        // 2. 滚动背景颜色变化
+        gsap.to(".gradient-bg", {
+            scrollTrigger: {
+                trigger: "#stats",
+                start: "top center",
+                end: "bottom center",
+                scrub: 1
+            },
+            background: "radial-gradient(circle at 80% 20%, #0d2b2d 0%, #050505 100%)"
+        });
+
+        // 3. 数字滚动动画
+        const stats = document.querySelectorAll(".stat-item div:first-child");
+        stats.forEach(stat => {
+            const target = stat.getAttribute("data-target");
+            gsap.to(stat, {
+                scrollTrigger: {
+                    trigger: stat,
+                    start: "top 80%",
+                },
+                innerText: target,
+                duration: 2,
+                snap: { innerText: 1 }
+            });
+        });
+
+        // 4. 光球跟随滚动缩放
+        gsap.to("#orb", {
+            scrollTrigger: {
+                trigger: "#visual",
+                start: "top bottom",
+                end: "bottom top",
+                scrub: true
+            },
+            scale: 3,
+            opacity: 0.6,
+            rotate: 180
+        });
+
+        // 5. 页面平滑过渡（无缝入场）
+        const sections = document.querySelectorAll(".panel");
+        sections.forEach((section) => {
+            gsap.from(section, {
+                scrollTrigger: {
+                    trigger: section,
+                    start: "top 90%",
+                    toggleActions: "play none none reverse"
+                },
+                opacity: 0,
+                y: 50,
+                duration: 1,
+                ease: "power3.out"
+            });
+        });
+    </script>
+</body>
+</html>

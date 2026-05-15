@@ -150,6 +150,10 @@ config/config.json
 *.tmp
 *.temp
 
+# Node.js dependencies
+node_modules/
+**/node_modules/
+
 # Docker
 docker-compose.override.yml
 test

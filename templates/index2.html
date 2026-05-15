@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0, shrink-to-fit=no, viewport-fit=cover">
+  <title>量澜资本 | 行云流水的量化未来</title>
+  <!-- 引入 Swiper 样式 (用于核心滑动) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: #0a0c0f;
+      overflow: hidden; /* 由 swiper 控制滚动 */
+      height: 100vh;
+      width: 100vw;
+      color: #fff;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* 主容器：垂直全屏滑动 */
+    .swiper {
+      width: 100%;
+      height: 100vh;
+      background: #0a0c0f;
+    }
+
+    .swiper-slide {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      background: #0a0c0f;
+      transition: background 0.5s ease;
+    }
+
+    /* 动态背景层：图片与光影流动 */
+    .slide-bg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      will-change: transform, opacity;
+      transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 1.2s cubic-bezier(0.19, 1, 0.22, 1);
+    }
+
+    /* 为每一页设置不同的背景图片 (抽象量化、数据流动、科技感) */
+    .slide-1 .slide-bg {
+      background-image: url('https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2832&auto=format&fit=crop');
+      /* 抽象科技线条 */
+    }
+    .slide-2 .slide-bg {
+      background-image: url('https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=2940&auto=format&fit=crop');
+      /* 数据流动波浪 */
+    }
+    .slide-3 .slide-bg {
+      background-image: url('https://images.unsplash.com/photo-1504384308090-c894fdcc538d?q=80&w=2940&auto=format&fit=crop');
+      /* 现代建筑与结构 */
+    }
+    .slide-4 .slide-bg {
+      background-image: url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2864&auto=format&fit=crop');
+      /* 抽象流动色彩 */
+    }
+    .slide-5 .slide-bg {
+      background-image: url('https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=2874&auto=format&fit=crop');
+      /* 深邃星空与极光 */
+    }
+
+    /* 叠加渐变遮罩，保证文字可读性，同时制造深邃感 */
+    .slide-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, rgba(10, 12, 15, 0.7) 0%, rgba(12, 20, 30, 0.6) 50%, rgba(5, 8, 12, 0.8) 100%);
+      z-index: 2;
+    }
+
+    /* 内容层，位于遮罩上方 */
+    .slide-content {
+      position: relative;
+      z-index: 10;
+      max-width: 1200px;
+      width: 90%;
+      margin: 0 auto;
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      height: 100%;
+      padding: 2rem 0;
+    }
+
+    /* 行云流水的文字动画 */
+    .content-block {
+      opacity: 0;
+      transform: translateY(30px);
+      transition: opacity 0.9s cubic-bezier(0.23, 1, 0.32, 1), transform 0.9s cubic-bezier(0.23, 1, 0.32, 1);
+      will-change: transform, opacity;
+    }
+
+    .swiper-slide-active .content-block {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* 标题样式 */
+    .main-title {
+      font-size: clamp(3rem, 8vw, 5.5rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      margin-bottom: 1.5rem;
+      background: linear-gradient(to right, #ffffff, #b0e0ff, #a0c8ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: 0 0 30px rgba(0,160,255,0.3);
+    }
+
+    .sub-title {
+      font-size: 1.5rem;
+      font-weight: 400;
+      color: rgba(220, 235, 255, 0.9);
+      margin-bottom: 2rem;
+      max-width: 600px;
+      border-left: 4px solid #3b82f6;
+      padding-left: 1.5rem;
+      backdrop-filter: blur(5px);
+    }
+
+    .description {
+      font-size: 1.1rem;
+      line-height: 1.8;
+      color: rgba(200, 215, 235, 0.85);
+      max-width: 550px;
+      margin-bottom: 2.5rem;
+      font-weight: 300;
+      letter-spacing: 0.3px;
+    }
+
+    /* 指标卡片 / 行云流水的网格 */
+    .metrics-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    .metric-item {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 24px;
+      padding: 1.5rem 2rem;
+      min-width: 140px;
+      transition: all 0.4s ease;
+    }
+
+    .metric-value {
+      font-size: 2.8rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #fff, #9cc9ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .metric-label {
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #a0bcd8;
+    }
+
+    /* 右侧流动图片展示 (针对slide2/3等) 灵活性 */
+    .flex-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .image-preview {
+      width: 280px;
+      height: 280px;
+      border-radius: 32px;
+      object-fit: cover;
+      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6);
+      transition: transform 0.6s ease, box-shadow 0.6s ease;
+      border: 1px solid rgba(255,255,255,0.2);
+      backdrop-filter: blur(5px);
+    }
+
+    .swiper-slide-active .image-preview {
+      transform: scale(1.02) rotate(0.5deg);
+      box-shadow: 0 30px 60px -15px rgba(0,160,255,0.4);
+    }
+
+    /* 导航提示 */
+    .scroll-indicator {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: rgba(255,255,255,0.6);
+      font-size: 0.8rem;
+      letter-spacing: 2px;
+      animation: float 2.5s infinite;
+    }
+
+    @keyframes float {
+      0% { transform: translateX(-50%) translateY(0); opacity: 0.6; }
+      50% { transform: translateX(-50%) translateY(8px); opacity: 1; }
+      100% { transform: translateX(-50%) translateY(0); opacity: 0.6; }
+    }
+
+    /* 响应式调整 */
+    @media (max-width: 768px) {
+      .flex-row {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .image-preview {
+        width: 200px;
+        height: 200px;
+        margin-top: 1rem;
+      }
+      .metrics-grid {
+        gap: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="swiper">
+    <div class="swiper-wrapper">
+      
+      <!-- 幻灯片 1：首页 · 行云流水开场 -->
+      <div class="swiper-slide slide-1">
+        <div class="slide-bg"></div>
+        <div class="slide-overlay"></div>
+        <div class="slide-content">
+          <div class="content-block">
+            <h1 class="main-title">量澜资本</h1>
+            <p class="sub-title">算法驱动 · 行云流水的量化未来</p>
+            <p class="description">我们以数学之美重构市场韵律，在数据洪流中捕捉每一丝波动。无缝衔接的智能决策，让资产如行云般舒展。</p>
+            <div class="metrics-grid">
+              <div class="metric-item"><div class="metric-value">99.7%</div><div class="metric-label">系统稳定性</div></div>
+              <div class="metric-item"><div class="metric-value">12+</div><div class="metric-label">国家市场覆盖</div></div>
+              <div class="metric-item"><div class="metric-value">α</div><div class="metric-label">持续超额收益</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="scroll-indicator">⌘ 向下滑动探索 ⌘</div>
+      </div>
+
+      <!-- 幻灯片 2：策略引擎 · 图片流动展示 -->
+      <div class="swiper-slide slide-2">
+        <div class="slide-bg"></div>
+        <div class="slide-overlay"></div>
+        <div class="slide-content">
+          <div class="content-block flex-row">
+            <div style="flex:1;">
+              <h2 style="font-size: 3rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">策略引擎</h2>
+              <p class="description">多因子融合、深度学习与高频套利，如同流水般无缝切换。我们的模型每秒分析百万级数据点。</p>
+              <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                <span style="background: rgba(255,255,255,0.1); padding: 0.5rem 1.2rem; border-radius: 20px;">统计套利</span>
+                <span style="background: rgba(255,255,255,0.1); padding: 0.5rem 1.2rem; border-radius: 20px;">CTA策略</span>
+                <span style="background: rgba(255,255,255,0.1); padding: 0.5rem 1.2rem; border-radius: 20px;">市场中立</span>
+              </div>
+            </div>
+            <img src="https://images.unsplash.com/photo-1555949963-aa79dcee981c?q=80&w=2940&auto=format&fit=crop" alt="数据流" class="image-preview" style="width: 260px; height: 260px; object-fit: cover;">
+          </div>
+        </div>
+      </div>
+
+      <!-- 幻灯片 3：技术架构 · 另一组图片流动 -->
+      <div class="swiper-slide slide-3">
+        <div class="slide-bg"></div>
+        <div class="slide-overlay"></div>
+        <div class="slide-content">
+          <div class="content-block flex-row" style="flex-direction: row-reverse;">
+            <div style="flex:1;">
+              <h2 style="font-size: 3rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">极速架构</h2>
+              <p class="description">基于FPGA与超低延迟网络，交易执行如丝般顺滑。全球节点协同，让您的指令先人一步。</p>
+              <div class="metrics-grid" style="margin-top: 1.5rem;">
+                <div class="metric-item"><div class="metric-value">0.02ms</div><div class="metric-label">订单延迟</div></div>
+                <div class="metric-item"><div class="metric-value">99.99%</div><div class="metric-label">可用性</div></div>
+              </div>
+            </div>
+            <img src="https://images.unsplash.com/photo-1518432031352-d6fc5c10da5a?q=80&w=2940&auto=format&fit=crop" alt="电路科技" class="image-preview" style="width: 260px; height: 260px; object-fit: cover;">
+          </div>
+        </div>
+      </div>
+
+      <!-- 幻灯片 4：风控体系 · 行云流水的安全感 -->
+      <div class="swiper-slide slide-4">
+        <div class="slide-bg"></div>
+        <div class="slide-overlay"></div>
+        <div class="slide-content">
+          <div class="content-block">
+            <h2 style="font-size: 3rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">智能风控</h2>
+            <p class="description">动态风险预算与实时压力测试，像水流绕过礁石，在波动中守护资产稳健。全天候毫秒级监控。</p>
+            <div style="display: flex; gap: 2rem; margin-top: 2.5rem; align-items: center;">
+              <div style="width: 120px; height: 120px; border-radius: 50%; background: conic-gradient(#3b82f6 0deg 320deg, #1e293b 320deg 360deg); display: flex; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(10px);">
+                <span style="font-size: 2rem; font-weight: bold;">A+</span>
+                <span style="font-size: 0.8rem;">风险评级</span>
+              </div>
+              <p style="color: #b0d0ff; max-width: 300px;">最大回撤控制 < 8% · 动态对冲比率实时调整</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 幻灯片 5：关于我们 / 联系 · 行云汇聚 -->
+      <div class="swiper-slide slide-5">
+        <div class="slide-bg"></div>
+        <div class="slide-overlay"></div>
+        <div class="slide-content">
+          <div class="content-block">
+            <h2 style="font-size: 3.5rem; font-weight: 600; margin-bottom: 1rem; color: #fff;">行云汇聚</h2>
+            <p class="description">我们相信量化与直觉的融合。联系我们的团队，开启一段流畅的投资旅程。</p>
+            <div style="margin-top: 2rem; display: flex; flex-wrap: wrap; gap: 1.5rem;">
+              <div style="background: rgba(255,255,255,0.08); backdrop-filter: blur(10px); padding: 1rem 2rem; border-radius: 40px;">contact@lianglan.capital</div>
+              <div style="background: rgba(255,255,255,0.08); backdrop-filter: blur(10px); padding: 1rem 2rem; border-radius: 40px;">上海 · 纽约 · 伦敦</div>
+            </div>
+            <p style="margin-top: 2rem; color: #8899aa; font-size: 0.9rem;">© 2025 量澜资本 · 行云流水的量化艺术</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- 如果需要分页器或滚动条可以添加，但为了极简风格，仅依靠滑动 -->
+  </div>
+
+  <!-- Swiper JS 库 -->
+  <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+  <script>
+    (function() {
+      // 初始化垂直全屏滑动，实现行云流水的无缝切换
+      const swiper = new Swiper('.swiper', {
+        direction: 'vertical',       // 垂直滑动，符合上下滚动
+        slidesPerView: 1,
+        spaceBetween: 0,
+        mousewheel: {
+          forceToAxis: true,
+          sensitivity: 0.8,
+          releaseOnEdges: false,
+        },
+        keyboard: {
+          enabled: true,
+          onlyInViewport: true,
+        },
+        touchRatio: 0.8,
+        resistance: true,
+        resistanceRatio: 0.6,
+        speed: 900,                  // 流畅过渡速度
+        effect: 'slide',            // 保留滑动效果，但通过CSS动画增强
+        grabCursor: true,
+        watchSlidesProgress: true,
+        preventInteractionOnTransition: false,
+        on: {
+          init: function() {
+            // 初始激活状态已经通过CSS处理
+          },
+          slideChangeTransitionStart: function() {
+            // 可以在切换开始时做些事情，但主要依靠CSS类
+          },
+        },
+      });
+
+      // 添加一些视差效果：监听滑动进度，微调背景位置 (行云流水感)
+      swiper.on('progress', function(s) {
+        const slides = document.querySelectorAll('.swiper-slide');
+        slides.forEach((slide, index) => {
+          const bg = slide.querySelector('.slide-bg');
+          if (!bg) return;
+          // 根据当前进度计算微小的位移，产生流动感
+          const progress = s.progress; // -0.x 到 1.x 等
+          // 简单处理：基于slide索引与progress偏移
+          const offset = (progress + index) * 8; // 微小移动
+          bg.style.transform = `translateY(${offset}px) scale(1.02)`;
+        });
+      });
+
+      // 重置transform在过渡结束后保持顺滑
+      swiper.on('touchEnd', function() {
+        // 无需额外操作
+      });
+
+      // 针对移动端优化，防止误触
+      console.log('行云流水 · 量化主页已启动');
+    })();
+  </script>
+</body>
+</html>
