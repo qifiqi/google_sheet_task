@@ -33,6 +33,7 @@ class TaskManager(
         self.task_stop_events: dict[str, threading.Event] = {}
         self.start_errors: dict[str, str] = {}
         self.task_token_occupancy: dict[str, int] = {}
+        self.backtest_sheet_start_lock = threading.RLock()
 
     def get_runtime_snapshot(self) -> dict[str, Any]:
         """返回当前门面维护的核心运行态快照。"""

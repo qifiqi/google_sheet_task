@@ -1216,6 +1216,9 @@ class XPLAnalyzer:
 
         return result, analyze_result
 
+    def get_calculate_metrics_v1(self,data):
+        return self._calculate_metrics_v1(data)
+
     def _calculate_metrics_v1(self, data) -> Dict[str, Any]:
         """
         计算各项指标

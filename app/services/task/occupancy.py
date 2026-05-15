@@ -19,6 +19,43 @@ logger = get_logger(__name__)
 class TaskOccupancyMixin:
     """统一管理 token 与 Google Sheet 占用。"""
 
+    def _collect_google_sheet_ids(
+        self,
+        config: dict[str, Any] | None,
+    ) -> list[int]:
+        """从任务配置中收集 registry 内的 Google Sheet ID。"""
+        if not isinstance(config, dict):
+            return []
+
+        sheet_ids: list[int] = []
+
+        def add_sheet_reference(sheet_config: dict[str, Any] | None) -> None:
+            if not isinstance(sheet_config, dict):
+                return
+
+            sheet_id = sheet_config.get("google_sheet_id")
+            if sheet_id:
+                sheet_ids.append(int(sheet_id))
+                return
+
+            spreadsheet_id = sheet_config.get("spreadsheet_id")
+            if spreadsheet_id:
+                matched_sheet = GoogleSheet.query.filter_by(
+                    spreadsheet_id=str(spreadsheet_id)
+                ).first()
+                if matched_sheet:
+                    sheet_ids.append(int(matched_sheet.id))
+
+        add_sheet_reference(config)
+        add_sheet_reference(config.get("sheet"))
+
+        sheets = config.get("sheets")
+        if isinstance(sheets, list):
+            for item in sheets:
+                add_sheet_reference(item)
+
+        return sorted(set(sheet_ids))
+
     def release_task_token_occupancy(self, task_id: str) -> None:
         """释放任务对应的 token 运行占用。"""
         token_id = self.task_token_occupancy.pop(task_id, None)
@@ -41,41 +78,30 @@ class TaskOccupancyMixin:
         config: dict[str, Any] | None,
     ) -> None:
         """根据任务配置建立 Google Sheet 占用。"""
-        if not isinstance(config, dict):
-            return
-
-        sheet_ids: list[int] = []
-        direct_sheet_id = config.get("google_sheet_id")
-        if direct_sheet_id:
-            sheet_ids.append(int(direct_sheet_id))
-
-        spreadsheet_id = config.get("spreadsheet_id")
-        if spreadsheet_id:
-            matched_sheet = GoogleSheet.query.filter_by(
-                spreadsheet_id=str(spreadsheet_id)
-            ).first()
-            if matched_sheet:
-                sheet_ids.append(int(matched_sheet.id))
-
-        sheets = config.get("sheets")
-        if isinstance(sheets, list):
-            for item in sheets:
-                if not isinstance(item, dict):
-                    continue
-                item_sheet_id = item.get("google_sheet_id")
-                if item_sheet_id:
-                    sheet_ids.append(int(item_sheet_id))
-                    continue
-                item_spreadsheet_id = item.get("spreadsheet_id")
-                if item_spreadsheet_id:
-                    matched_sheet = GoogleSheet.query.filter_by(
-                        spreadsheet_id=str(item_spreadsheet_id)
-                    ).first()
-                    if matched_sheet:
-                        sheet_ids.append(int(matched_sheet.id))
-
-        for sheet_id in sorted(set(sheet_ids)):
+        for sheet_id in self._collect_google_sheet_ids(config):
             get_google_sheet_registry_service().acquire_for_task(sheet_id, task_id)
+
+    def validate_google_sheet_available_for_task(
+        self,
+        config: dict[str, Any] | None,
+        task_id: str | None = None,
+        allow_in_use: bool = False,
+    ) -> None:
+        """在创建或启动任务前校验 Google Sheet 是否可占用。"""
+        for sheet_id in self._collect_google_sheet_ids(config):
+            sheet = GoogleSheet.query.get(sheet_id)
+            if not sheet:
+                raise ValueError("所选 Google Sheet 不存在")
+            if not sheet.is_active:
+                raise ValueError("所选 Google Sheet 未启用")
+            if (
+                not allow_in_use
+                and
+                sheet.is_in_use
+                and sheet.current_task_id
+                and sheet.current_task_id != task_id
+            ):
+                raise ValueError("该 Google Sheet 已被其他任务使用")
 
     def release_google_sheet_occupancy(self, task_id: str) -> None:
         """释放任务关联的 Google Sheet 占用。"""

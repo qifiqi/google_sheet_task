@@ -1,9 +1,11 @@
 import json
+from io import BytesIO
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, g, jsonify, request, send_file
 
 from app.extensions import db
 from app.models import Task
+from app.services.export_file_service import build_task_export
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.utils.auth import login_required, permission_required
 from app.utils.logger import get_logger
@@ -324,6 +326,40 @@ def get_task_results(task_id):
         logger.error(f"获取任务结果失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@task_api_bp.route('/tasks/<task_id>/export', methods=['GET'])
+@login_required
+@permission_required('task:view')
+def export_task_results(task_id):
+    """导出任务结果。"""
+    try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
+
+        results = task_manager.get_task_results(task_id)
+        export_file = build_task_export(task_obj, results)
+        buffer = BytesIO()
+        export_file.workbook.save(buffer)
+        buffer.seek(0)
+
+        return send_file(
+            buffer,
+            mimetype=export_file.mimetype,
+            as_attachment=True,
+            download_name=export_file.filename,
+        )
+    except ValueError as e:
+        logger.warning(f"导出任务结果校验失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        logger.error(f"导出任务结果失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @task_api_bp.route('/tasks/<task_id>/status-check', methods=['GET'])
 @login_required
 @permission_required('task:view')
@@ -424,11 +460,13 @@ def create_restart_task_api(task_id):
                 "new_task_id": new_task_id,
                 "message": "重启任务创建并启动成功"
             })
+        start_error = task_manager.get_start_error(new_task_id)
         return jsonify({
-            "status": "success",
+            "status": "error",
             "new_task_id": new_task_id,
-            "message": "重启任务创建成功，但启动失败"
-        })
+            "message": f"重启任务创建成功，但启动失败: {start_error}",
+            "start_error": start_error,
+        }), 400
     except Exception as e:
         logger.error(f"创建重启任务失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500

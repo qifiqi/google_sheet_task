@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 
 import pytest
 
 from app.extensions import db
-from app.models import Task, TaskLog
+from app.models import GoogleSheet, Task, TaskLog
 from app.services.task import (
     TaskDashboardQueryService,
     TaskManager,
@@ -164,6 +165,266 @@ def test_finalize_task_execution_prefers_cancelled_state(app_factory):
         refreshed = db.session.get(Task, task.id)
         assert refreshed.status == "cancelled"
         assert any("cancelled" in message for message in messages)
+
+
+def test_backtest_nested_sheet_config_acquires_google_sheet_occupancy(app_factory):
+    with app_factory.app_context():
+        sheet = GoogleSheet(
+            name="backtest-sheet",
+            spreadsheet_id="spreadsheet-backtest-1",
+            table_type="c3",
+            is_active=True,
+        )
+        db.session.add(sheet)
+        db.session.commit()
+
+        manager = TaskManager()
+        manager.ensure_google_sheet_occupancy(
+            "task-backtest",
+            {"sheet": {"spreadsheet_id": "spreadsheet-backtest-1"}},
+        )
+
+        refreshed = db.session.get(GoogleSheet, sheet.id)
+        assert refreshed.is_in_use is True
+        assert refreshed.current_task_id == "task-backtest"
+
+
+def test_create_backtest_task_allows_busy_sheet_to_queue(app_factory):
+    with app_factory.app_context():
+        db.session.add(
+            GoogleSheet(
+                name="busy-backtest-sheet",
+                spreadsheet_id="spreadsheet-busy",
+                table_type="c3",
+                is_active=True,
+                is_in_use=True,
+                current_task_id="other-task",
+            )
+        )
+        db.session.commit()
+
+        manager = TaskManager()
+
+        task_id = manager.create_task(
+            name="backtest",
+            description="",
+            task_type="backtest_training",
+            config={"sheet": {"spreadsheet_id": "spreadsheet-busy"}},
+        )
+
+        task = db.session.get(Task, task_id)
+        assert task is not None
+        assert task.status == "pending"
+
+
+def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
+    with app_factory.app_context():
+        running_task = Task(
+            id="running-backtest",
+            name="running-backtest",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-queue"}}),
+            status="running",
+            start_time=datetime.now(),
+        )
+        db.session.add(running_task)
+        db.session.commit()
+
+        manager = TaskManager()
+        response, status_code = manager.create_and_start_task(
+            name="queued-backtest",
+            description="",
+            task_type="backtest_training",
+            config={"sheet": {"spreadsheet_id": "spreadsheet-queue"}},
+        )
+
+        queued_task = db.session.get(Task, response["task_id"])
+        assert status_code == 200
+        assert response["status"] == "success"
+        assert response["queued"] is True
+        assert queued_task.status == "pending"
+        assert "已有回测任务正在运行" in response["message"]
+
+
+def test_backtest_start_task_blocks_same_sheet_running_task_created_within_one_day(app_factory):
+    with app_factory.app_context():
+        spreadsheet_id = "spreadsheet-one-day-running"
+        running_task = Task(
+            id="running-backtest-day",
+            name="running-backtest-day",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="running",
+            created_at=datetime.now() - timedelta(minutes=1),
+            start_time=datetime.now() - timedelta(minutes=1),
+        )
+        queued_task = Task(
+            id="queued-backtest-day",
+            name="queued-backtest-day",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="pending",
+            created_at=datetime.now(),
+        )
+        db.session.add_all([running_task, queued_task])
+        db.session.commit()
+        queued_task_id = queued_task.id
+
+        manager = TaskManager()
+        started = manager.start_task(queued_task_id)
+
+        refreshed = db.session.get(Task, queued_task_id)
+        assert started is False
+        assert refreshed.status == "pending"
+        assert "已有回测任务正在运行" in manager.get_start_error(queued_task_id)
+
+
+def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_factory):
+    with app_factory.app_context():
+        spreadsheet_id = "spreadsheet-pre-mark-running"
+        first_task = Task(
+            id="first-backtest-pre-mark",
+            name="first-backtest-pre-mark",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="pending",
+            created_at=datetime.now() - timedelta(minutes=1),
+        )
+        second_task = Task(
+            id="second-backtest-pre-mark",
+            name="second-backtest-pre-mark",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="pending",
+            created_at=datetime.now(),
+        )
+        db.session.add_all([first_task, second_task])
+        db.session.commit()
+        first_task_id = first_task.id
+        second_task_id = second_task.id
+
+        class _NoopThread:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                return None
+
+            def is_alive(self):
+                return True
+
+        monkeypatch.setattr("app.services.task.runtime.threading.Thread", _NoopThread)
+
+        manager = TaskManager()
+        assert manager.start_task(first_task_id) is True
+
+        refreshed_first = db.session.get(Task, first_task_id)
+        assert refreshed_first.status == "running"
+
+        assert manager.start_task(second_task_id) is False
+        refreshed_second = db.session.get(Task, second_task_id)
+        assert refreshed_second.status == "pending"
+        assert "已有回测任务正在运行" in manager.get_start_error(second_task_id)
+
+
+def test_restart_task_returns_concrete_start_error(monkeypatch, app_factory):
+    with app_factory.app_context():
+        task = Task(
+            id="restart-start-error",
+            name="restart-start-error",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-restart-error"}}),
+            status="error",
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.commit()
+        task_id = task.id
+
+        manager = TaskManager()
+        manager.start_errors[task_id] = "同一个 Google Sheet 已有回测任务正在运行，当前任务保持待执行: running-task"
+        monkeypatch.setattr(manager, "start_task", lambda task_id: False)
+
+        result = manager.restart_task(task_id)
+
+        assert result["status"] == "error"
+        assert "同一个 Google Sheet 已有回测任务正在运行" in result["message"]
+        assert result["start_error"] == manager.get_start_error(task_id)
+
+
+def test_backtest_finish_starts_next_pending_same_sheet(app_factory):
+    with app_factory.app_context():
+        finished_task = Task(
+            id="finished-backtest",
+            name="finished-backtest",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-next"}}),
+            status="completed",
+            end_time=datetime.now(),
+        )
+        next_task = Task(
+            id="next-backtest",
+            name="next-backtest",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-next"}}),
+            status="pending",
+            created_at=datetime.now() - timedelta(minutes=5),
+        )
+        other_task = Task(
+            id="other-backtest",
+            name="other-backtest",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-other"}}),
+            status="pending",
+            created_at=datetime.now() - timedelta(minutes=10),
+        )
+        db.session.add_all([finished_task, next_task, other_task])
+        db.session.commit()
+
+        started_task_ids = []
+        manager = TaskManager()
+        manager.start_task = lambda task_id: started_task_ids.append(task_id) or True
+        manager.add_task_log = lambda *args, **kwargs: None
+
+        manager._start_next_pending_backtest_task(finished_task.id, app_factory)
+
+        assert started_task_ids == ["next-backtest"]
+
+
+def test_create_and_start_releases_sheet_when_start_fails(app_factory):
+    with app_factory.app_context():
+        sheet = GoogleSheet(
+            name="release-on-fail",
+            spreadsheet_id="spreadsheet-release",
+            table_type="c3",
+            is_active=True,
+        )
+        db.session.add(sheet)
+        db.session.commit()
+        sheet_id = sheet.id
+
+        manager = TaskManager()
+        response, status_code = manager.create_and_start_task(
+            name="unsupported",
+            description="",
+            task_type="unsupported_task",
+            config={"spreadsheet_id": "spreadsheet-release"},
+        )
+
+        refreshed = db.session.get(GoogleSheet, sheet_id)
+        assert status_code == 400
+        assert response["status"] == "error"
+        assert refreshed.is_in_use is False
+        assert refreshed.current_task_id is None
 
 
 def test_dashboard_overview_filters_unauthorized_task_types(app_factory):

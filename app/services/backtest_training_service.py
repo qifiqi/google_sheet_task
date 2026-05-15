@@ -324,11 +324,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次
         wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True  # 重试耗尽后重新抛出原始异常
-    )
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
         reraise=True,  # 重试耗尽后重新抛出原始异常
         retry=retry_if_result(lambda result: result[0] is False)
     )
@@ -344,6 +339,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
             results = {}
             cell_updates = {}
             parameter = combination['parameter']
+            parameter[0] = str(parameter[0]).replace('"', '').replace("'","")
+            parameter[1] = str(parameter[1]).replace('"', '').replace("'","")
             if len(parameter) == 2:
                 c5_parameter_1 = f"xm:{parameter[0]}"
                 c5_parameter_2 = f"ml:{parameter[1]}"

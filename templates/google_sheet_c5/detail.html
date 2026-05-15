@@ -177,7 +177,7 @@
                         <i class="bi bi-arrow-clockwise"></i> 刷新
                     </button>
                     <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV()">
-                        <i class="bi bi-file-earmark-spreadsheet"></i> 导出 CSV
+                        <i class="bi bi-file-earmark-spreadsheet"></i> 导出 Excel
                     </button>
                     <div class="btn-group" role="group">
                         <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
@@ -1746,332 +1746,109 @@
             showNotification('结果列表已刷新', 'info');
         }
 
-        // 导出当前筛选条件下的所有结果为 CSV（按参数组合展开每个模型为一行）
-        function exportResultsToCSV() {
-            // 为了导出完整结果，这里单独请求一次不分页的结果集
-            ajaxRequest(`/api/tasks/${currentTaskId}/results`, 'GET', null, function (err, data) {
-                if (err || !data || !Array.isArray(data.results) || data.results.length === 0) {
-                    showNotification('暂无可导出的结果', 'warning');
-                    return;
-                }
-
-                const exportGroupedResults = groupResults(data.results);
-
-                const rows = [];
-
-                // 使用字段映射表中的 D2-D20 作为指标列，按统一排序
-                const metricKeys = sortMetricKeys(Object.keys(metricDisplayNameMap));
-                const exportMetricKeys = ['D11', 'D12', ...metricKeys.filter(key => key !== 'D11' && key !== 'D12')];
-
-                // 表头：尽量与前端展示列对应，并附加部分补充信息
-                const header = [
-                    'step_index',
-                    'success',
-                    'stock_code',
-                    'kline_range',
-                    'xm',
-                    'ml',
-                    'model_title'
-                ];
-
-                // D2-D20：使用映射表中的显示名
-                exportMetricKeys.forEach(key => {
-                    header.push(getMetricDisplayLabel(key));
-                });
-
-                // 追加 xpl 相关统计字段
-                header.push(
-                        'start_avg_monthly_return',
-                        'start_monthly_std_dev',
-                        'start_annual_std_dev',
-                        'start_xpl',
-                        'index_avg_monthly_return',
-                        'index_monthly_std_dev',
-                        'index_annual_std_dev',
-                        'index_xpl',
-                        'task_id',
-                        'timestamp',
-                        'error_message'
-                );
-                rows.push(header);
-
-                exportGroupedResults.forEach(group => {
-                    const baseInfo = {
-                        stepIndex: group.stepIndex != null ? group.stepIndex : '',
-                        success: group.success ? 'success' : 'failed',
-                        stockCode: group.stockCode != null ? group.stockCode : '',
-                        klineRange: group.klineRange != null ? group.klineRange : '',
-                        a1: group.a1 != null ? group.a1 : '',
-                        b1: group.b1 != null ? group.b1 : '',
-                        rowId: group.rowId != null ? group.rowId : '',
-                        taskId: group.taskId != null ? group.taskId : '',
-                        timestamp: group.timestamp != null ? formatTime(group.timestamp) : '',
-                        errorMessage: group.errorMessage != null ? group.errorMessage : ''
-                    };
-
-                    const models = Array.isArray(group.models) ? group.models : [];
-                    if (models.length === 0) {
-                        const emptyMetrics = exportMetricKeys.map(() => '');
-                        rows.push([
-                            baseInfo.stepIndex,   // step_index
-                            baseInfo.success,     // success
-                            baseInfo.stockCode,   // stock_code
-                            baseInfo.klineRange,  // kline_range
-                            baseInfo.a1,          // xm
-                            baseInfo.b1,          // ml
-                            '',                   // model_title
-                            ...emptyMetrics,      // D2-D20 指标列
-                            '',                   // start_avg_monthly_return
-                            '',                   // start_monthly_std_dev
-                            '',                   // start_annual_std_dev
-                            '',                   // start_xpl
-                            '',                   // index_avg_monthly_return
-                            '',                   // index_monthly_std_dev
-                            '',                   // index_annual_std_dev
-                            '',                   // index_xpl
-                            baseInfo.taskId,      // task_id
-                            baseInfo.timestamp,   // timestamp
-                            baseInfo.errorMessage // error_message
-                        ]);
-                        return;
-                    }
-
-                    models.forEach(model => {
-                        const iSharpe = model.indexSharpe != null ? model.indexSharpe : '';
-                        const sSharpe = model.startSharpe != null ? model.startSharpe : '';
-
-                        // 从 rawMetrics 中读取 start/index 的 xpl 统计字段
-                        const metrics = model.rawMetrics || {};
-                        const startXpl = metrics.start_return_xpl || {};
-                        const indexXpl = metrics.index_return_xpl || {};
-
-                        const startAvgRet = startXpl.avg_monthly_return != null ? startXpl.avg_monthly_return : '';
-                        const startStd = startXpl.monthly_std_dev != null ? startXpl.monthly_std_dev : '';
-                        const startAnnualStd = startXpl.annual_std_dev != null ? startXpl.annual_std_dev : '';
-
-                        const indexAvgRet = indexXpl.avg_monthly_return != null ? indexXpl.avg_monthly_return : '';
-                        const indexStd = indexXpl.monthly_std_dev != null ? indexXpl.monthly_std_dev : '';
-                        const indexAnnualStd = indexXpl.annual_std_dev != null ? indexXpl.annual_std_dev : '';
-
-                        const title = model.modelTitle && model.modelTitle.length > 0
-                                ? model.modelTitle
-                                : (model.modelKey || '');
-
-                        const toNumber = (value) => {
-                            const num = parseFloat(String(value != null ? value : '').replace('%', '').trim());
-                            return Number.isNaN(num) ? null : num;
-                        };
-
-                        const formatPercentDiff = (value) => {
-                            if (value == null || Number.isNaN(value)) {
-                                return '';
-                            }
-                            return `${value.toFixed(2)}%`;
-                        };
-
-                        const returnBeats = (() => {
-                            const ret = toNumber(metrics.D2);
-                            const indexRet = toNumber(metrics.D5);
-                            return ret != null && indexRet != null
-                                ? formatPercentDiff(ret - indexRet)
-                                : '';
-                        })();
-
-                        const ddBeats = (() => {
-                            const maxDd = toNumber(metrics.D4);
-                            const indexMaxDd = toNumber(metrics.D7);
-                            return maxDd != null && indexMaxDd != null
-                                ? formatPercentDiff(maxDd - indexMaxDd)
-                                : '';
-                        })();
-
-                        // 导出指标列：D11/D12 按指定公式输出，其余仍按原字段顺序取值
-                        const metricValues = exportMetricKeys.map(key => {
-                            if (key === 'D11') return returnBeats;
-                            if (key === 'D12') return ddBeats;
-                            return metrics[key] != null ? metrics[key] : '';
-                        });
-
-                        rows.push([
-                            baseInfo.stepIndex,
-                            baseInfo.success,
-                            baseInfo.stockCode,
-                            baseInfo.klineRange,
-                            baseInfo.a1,
-                            baseInfo.b1,
-                            title,
-                            ...metricValues,
-                            startAvgRet,
-                            startStd,
-                            startAnnualStd,
-                            sSharpe,
-                            indexAvgRet,
-                            indexStd,
-                            indexAnnualStd,
-                            iSharpe,
-                            baseInfo.taskId,
-                            baseInfo.timestamp,
-                            baseInfo.errorMessage
-                        ]);
-                    });
-                });
-                // 在导出前对 rows 进行排序：
-                // 1) 同一 stock_code 内
-                // 2) 按 kline_range 中 "~" 后的结束年份降序
-                // 3) 再按 Return 降序
-                // 表头始终保持在第一行
-
-                if (rows.length > 1) {
-                    const headerRow = rows[0];
-                    const dataRows = rows.slice(1);
-
-                    // stock_code 与 kline_range 的固定列索引
-                    // 固定列索引
-                    const STOCK_CODE_COL = 2; // stock_code
-                    const KLINE_RANGE_COL = 3; // kline_range
-                    const XM_COL = 4; // xm
-
-                    // 找到 Return 在导出字段中的列索引（D2 -> Return）
-                    // 找到 ReturnBeats 在导出字段中的列索引（D11 -> ReturnBeats）
-                    const returnMetricIndex = exportMetricKeys.indexOf('D11');
-                    let RETURN_COL = null;
-                    if (returnMetricIndex !== -1) {
-                        // 前面 7 列是固定列，从第 8 列开始是指标列
-                        RETURN_COL = 7 + returnMetricIndex;
-                    }
-
-                    const parseEndDate = (range) => {
-                        if (!range) return -Infinity;
-                        const str = String(range);
-                        const parts = str.split('~');
-                        if (parts.length < 2) return -Infinity;
-                        const endPart = parts[1].trim();
-                        const timestamp = Date.parse(endPart);
-                        return Number.isNaN(timestamp) ? -Infinity : timestamp;
-                    };
-
-                    const parseStartDate = (range) => {
-                        if (!range) return -Infinity;
-                        const str = String(range);
-                        const parts = str.split('~');
-                        if (parts.length < 1) return -Infinity;
-                        const startPart = parts[0].trim();
-                        const timestamp = Date.parse(startPart);
-                        return Number.isNaN(timestamp) ? -Infinity : timestamp;
-                    };
-
-                    const normalizeXm = (val) => {
-                        if (val == null) return '';
-                        const str = String(val).trim();
-                        if (!str || str === '0') return '';
-                        return str;
-                    };
-
-                    const parseReturn = (val) => {
-                        if (val == null || RETURN_COL === null) return -Infinity;
-                        const num = parseFloat(String(val).replace('%', '').trim());
-                        return Number.isNaN(num) ? -Infinity : num;
-                    };
-
-                    dataRows.sort((a, b) => {
-                        const stockA = (a[STOCK_CODE_COL] || '').toString();
-                        const stockB = (b[STOCK_CODE_COL] || '').toString();
-                        if (stockA !== stockB) {
-                            // stock_code 降序
-                            return stockB.localeCompare(stockA);
-                        }
-
-                        const endDateA = parseEndDate(a[KLINE_RANGE_COL]);
-                        const endDateB = parseEndDate(b[KLINE_RANGE_COL]);
-                        if (endDateA !== endDateB) {
-                            // 结束年份降序
-                            return endDateB - endDateA;
-                        }
-
-                        const startDateA = parseStartDate(a[KLINE_RANGE_COL]);
-                        const startDateB = parseStartDate(b[KLINE_RANGE_COL]);
-                        if (startDateA !== startDateB) {
-                            return startDateB - startDateA;
-                        }
-
-                        const xmA = normalizeXm(a[XM_COL]);
-                        const xmB = normalizeXm(b[XM_COL]);
-                        if (xmA !== xmB) {
-                            return xmA.localeCompare(xmB, 'zh-Hans-CN', { numeric: true });
-                        }
-
-                        if (RETURN_COL !== null) {
-                            const retA = parseReturn(a[RETURN_COL]);
-                            const retB = parseReturn(b[RETURN_COL]);
-                            if (retA !== retB) {
-                                // Return 降序
-                                return retB - retA;
-                            }
-                        }
-
-                        return 0;
-                    });
-
-                    rows.length = 0;
-                    rows.push(headerRow, ...dataRows);
-                }
-
-                const csvContent = convertRowsToCSV(rows);
-                if (!csvContent) {
-                    showNotification('生成 CSV 内容失败', 'error');
-                    return;
-                }
-
-                const blob = new Blob([csvContent], {type: 'text/csv;charset=utf-8;'});
-                const url = URL.createObjectURL(blob);
-
-                const a = document.createElement('a');
-                a.href = url;
-                let task_name = currentTaskData.name || ''
-                let filename = null
-                if (task_name !== '') {
-                    filename = `${task_name}.csv`;
-                    // filename = `C5_results_${task_name}.csv`;
-                } else {
-                    const now = new Date();
-                    const pad = n => String(n).padStart(2, '0');
-                    filename = `c4_results_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
-
-                }
-
-
-                a.download = filename;
-
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                showNotification('CSV 导出已开始下载', 'success');
-            });
-        }
-
-        // 将二维数组转换为 CSV 文本
-        function convertRowsToCSV(rows) {
-            if (!Array.isArray(rows) || rows.length === 0) {
-                return '';
+        // 导出所有结果为 Excel：通过 fetch 走统一认证封装，确保携带 Authorization。
+        async function exportResultsToCSV() {
+            if (!currentTaskId) {
+                showNotification('任务ID为空，无法导出', 'error');
+                return;
             }
 
-            const escapeCell = (value) => {
-                if (value == null) {
-                    return '';
+            try {
+                const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
+                const saveTarget = await prepareExcelSaveTarget(defaultFilename);
+                const response = await fetch(`/api/tasks/${encodeURIComponent(currentTaskId)}/export`);
+                if (!response.ok) {
+                    const text = await response.text();
+                    let message = `导出失败，状态码 ${response.status}`;
+                    try {
+                        const payload = JSON.parse(text);
+                        message = payload.message || message;
+                    } catch (_error) {
+                        if (text) message = text;
+                    }
+                    showNotification(message, 'error');
+                    return;
                 }
-                let str = String(value);
-                if (str.includes('"')) {
-                    str = str.replace(/"/g, '""');
-                }
-                if (str.search(/[",\n\r]/) !== -1) {
-                    str = '"' + str + '"';
-                }
-                return str;
-            };
 
-            return rows.map(row => (Array.isArray(row) ? row.map(escapeCell).join(',') : '')).join('\r\n');
+                const blob = await response.blob();
+                await saveExcelBlob(blob, saveTarget, getExportFilenameFromResponse(response) || defaultFilename);
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    showNotification('已取消保存操作', 'info');
+                    return;
+                }
+                showNotification(`导出失败: ${error.message || error}`, 'error');
+            }
+        }
+
+        async function prepareExcelSaveTarget(defaultFilename) {
+            if (window.showSaveFilePicker && window.isSecureContext) {
+                try {
+                    const fileHandle = await window.showSaveFilePicker({
+                        suggestedName: defaultFilename,
+                        types: [{
+                            description: 'Excel 工作簿',
+                            accept: {
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
+                            }
+                        }]
+                    });
+                    return {type: 'fileHandle', fileHandle};
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        throw error;
+                    }
+                    console.warn('文件保存窗口不可用，回退到浏览器下载:', error);
+                }
+            }
+
+            const userFilename = prompt('请输入导出的 Excel 文件名:', defaultFilename);
+            if (userFilename === null) {
+                const abortError = new Error('用户取消了保存操作');
+                abortError.name = 'AbortError';
+                throw abortError;
+            }
+
+            return {type: 'download', filename: ensureExcelExtension(userFilename.trim() || defaultFilename)};
+        }
+
+        async function saveExcelBlob(blob, saveTarget, fallbackFilename) {
+            if (saveTarget?.type === 'fileHandle') {
+                const writable = await saveTarget.fileHandle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                showNotification('Excel 文件已保存', 'success');
+                return;
+            }
+
+            downloadBlob(blob, saveTarget?.filename || ensureExcelExtension(fallbackFilename));
+            showNotification('Excel 导出已开始下载', 'success');
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function ensureExcelExtension(filename) {
+            const safeName = String(filename || 'export.xlsx').trim() || 'export.xlsx';
+            return safeName.toLowerCase().endsWith('.xlsx') ? safeName : `${safeName}.xlsx`;
+        }
+
+        function getExportFilenameFromResponse(response) {
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            if (utf8Match) {
+                return decodeURIComponent(utf8Match[1]);
+            }
+            const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+            return asciiMatch ? asciiMatch[1] : '';
         }
 
         // 更新结果统计

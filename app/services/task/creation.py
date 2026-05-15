@@ -68,6 +68,11 @@ class TaskCreationMixin:
 
         if isinstance(config, dict):
             config = get_google_sheet_token_service().prepare_task_config(config)
+            self.validate_google_sheet_available_for_task(
+                config,
+                task_id,
+                allow_in_use=(task_type == "backtest_training"),
+            )
 
         config_str = json.dumps(config) if isinstance(config, dict) else str(config)
         safe_create(
@@ -81,7 +86,7 @@ class TaskCreationMixin:
             created_by_user_id=created_by_user_id,
         )
 
-        if isinstance(config, dict):
+        if isinstance(config, dict) and task_type != "backtest_training":
             self.ensure_google_sheet_occupancy(task_id, config)
 
         task_logger = get_task_logger(task_id, f"{__name__}.create")
@@ -116,10 +121,19 @@ class TaskCreationMixin:
                 "task_id": task_id,
                 "message": "任务创建并启动成功",
             }, 200
+        start_error = self.get_start_error(task_id)
+        if task_type == "backtest_training" and "已有回测任务正在运行" in start_error:
+            return {
+                "status": "success",
+                "task_id": task_id,
+                "message": start_error,
+                "queued": True,
+            }, 200
+        self.release_google_sheet_occupancy(task_id)
         return {
             "status": "error",
             "task_id": task_id,
-            "message": self.get_start_error(task_id),
+            "message": start_error,
         }, 400
 
     def batch_create_and_start_task(
@@ -444,7 +458,7 @@ class TaskCreationMixin:
             db.session.add(new_task)
             db.session.commit()
 
-            if isinstance(original_config, dict):
+            if isinstance(original_config, dict) and original_task.task_type != "backtest_training":
                 self.ensure_google_sheet_occupancy(new_task_id, original_config)
 
             logger.info("创建重启任务: %s (基于 %s)", new_task_id, original_task_id)

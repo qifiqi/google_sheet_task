@@ -57,14 +57,16 @@ class TaskRestartMixin:
                 return {"status": "error", "message": "任务不存在"}
 
             original_status = task.status
+            current_step = task.current_step
+            original_start_time = task.start_time
             status_check = self.check_local_task_status(task_id)
-            if task.status == "running":
+            if original_status == "running":
                 if not status_check.get("can_restart", False):
                     return {"status": "error", "message": "任务正在运行中，无法重启"}
-            elif task.status not in ["pending", "completed", "error", "cancelled"]:
+            elif original_status not in ["pending", "completed", "error", "cancelled"]:
                 return {
                     "status": "error",
-                    "message": f"任务状态 '{task.status}' 不允许重启",
+                    "message": f"任务状态 '{original_status}' 不允许重启",
                 }
 
             if task_id in self.running_tasks:
@@ -87,13 +89,13 @@ class TaskRestartMixin:
             self.task_stop_events.pop(task_id, None)
             start_time = None
             if resume_from_checkpoint:
-                restart_step = task.current_step
+                restart_step = current_step
                 self.add_task_log(
                     task_id,
                     "info",
                     f"从断点重启任务，从第 {restart_step} 步继续",
                 )
-                start_time = task.start_time
+                start_time = original_start_time
             else:
                 restart_step = 0
                 task.current_step = 0
@@ -107,17 +109,24 @@ class TaskRestartMixin:
                     "重新开始任务，从第 1 步开始（已清空历史结果）",
                 )
 
-            safe_update(
-                task,
-                commit=True,
-                status="pending",
-                error_message=None,
-                start_time=start_time,
-                end_time=None,
-            )
+            task = db.session.get(Task, task_id)
+            if not task:
+                return {"status": "error", "message": "任务不存在"}
+            task.status = "pending"
+            task.error_message = None
+            task.start_time = start_time
+            task.end_time = None
+            db.session.commit()
+
             success = self.start_task(task_id)
             if not success:
-                return {"status": "error", "message": "任务重启失败"}
+                start_error = self.get_start_error(task_id)
+                return {
+                    "status": "error",
+                    "message": f"任务重启失败: {start_error}",
+                    "start_error": start_error,
+                    "task_id": task_id,
+                }
 
             restart_reason = status_check.get("restart_reason")
             if not restart_reason:
