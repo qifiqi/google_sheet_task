@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.extensions import db
-from app.models import GoogleSheet, Task, TaskLog
+from app.models import GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
+from app.services.backtest_training_service import BacktestTrainingService
 from app.services.task import (
     TaskDashboardQueryService,
     TaskManager,
@@ -356,6 +357,113 @@ def test_restart_task_returns_concrete_start_error(monkeypatch, app_factory):
         assert result["status"] == "error"
         assert "同一个 Google Sheet 已有回测任务正在运行" in result["message"]
         assert result["start_error"] == manager.get_start_error(task_id)
+
+
+def test_backtest_checkpoint_resume_skips_saved_result_steps(app_factory):
+    with app_factory.app_context():
+        task = Task(
+            id="backtest-resume-skip-saved",
+            name="backtest-resume-skip-saved",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-resume"}}),
+            status="cancelled",
+            current_step=2,
+            total_steps=4,
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.add_all([
+            TaskResult(
+                task_id=task.id,
+                step_index=0,
+                parameters="{}",
+                result="{}",
+                success=True,
+            ),
+            TaskResult(
+                task_id=task.id,
+                step_index=1,
+                parameters="{}",
+                result="{}",
+                success=True,
+            ),
+        ])
+        db.session.commit()
+
+        service = BacktestTrainingService({}, task.id, app=app_factory)
+
+        assert service._resolve_resume_start_index(task) == 2
+
+
+def test_backtest_checkpoint_resume_retries_step_without_saved_result(app_factory):
+    with app_factory.app_context():
+        task = Task(
+            id="backtest-resume-retry-missing-result",
+            name="backtest-resume-retry-missing-result",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-resume-gap"}}),
+            status="error",
+            current_step=3,
+            total_steps=4,
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.add(TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters="{}",
+            result="{}",
+            success=True,
+        ))
+        db.session.commit()
+
+        service = BacktestTrainingService({}, task.id, app=app_factory)
+
+        assert service._resolve_resume_start_index(task) == 1
+
+
+def test_restart_task_from_scratch_clears_backtest_returns(monkeypatch, app_factory):
+    with app_factory.app_context():
+        task = Task(
+            id="backtest-restart-clears-returns",
+            name="backtest-restart-clears-returns",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": "spreadsheet-clear-returns"}}),
+            status="error",
+            current_step=3,
+            total_steps=5,
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.add(TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters="{}",
+            result="{}",
+            success=True,
+        ))
+        db.session.add(TaskResultReturn(
+            task_id=task.id,
+            stock_date="2026-01-01",
+            index_return=0.01,
+            start_return=0.02,
+        ))
+        db.session.commit()
+
+        manager = TaskManager()
+        monkeypatch.setattr(manager, "start_task", lambda task_id: True)
+
+        result = manager.restart_task(task.id, resume_from_checkpoint=False)
+
+        refreshed = db.session.get(Task, task.id)
+        assert result["status"] == "success"
+        assert result["restart_from_step"] == 0
+        assert refreshed.current_step == 0
+        assert TaskResult.query.filter_by(task_id=task.id).count() == 0
+        assert TaskResultReturn.query.filter_by(task_id=task.id).count() == 0
 
 
 def test_backtest_finish_starts_next_pending_same_sheet(app_factory):

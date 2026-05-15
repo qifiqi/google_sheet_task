@@ -172,6 +172,27 @@ class BacktestTrainingService(BaseGoogleSheetService):
             last_row = "D"
         return input_column_d, input_column_v, output_range_1, output_range_2, output_column_index, output_column_start, parameter_positions, check_positions,last_row
 
+    def _resolve_resume_start_index(self, task):
+        """Return the zero-based combination index to run next on checkpoint resume."""
+        checkpoint_index = task.current_step - 1 if task.current_step >= 1 else 0
+        if checkpoint_index < 0:
+            checkpoint_index = 0
+
+        saved_step_indexes = {
+            row.step_index
+            for row in TaskResult.query.with_entities(TaskResult.step_index)
+            .filter_by(task_id=self.task_id)
+            .all()
+            if row.step_index is not None and row.step_index >= 0
+        }
+        if not saved_step_indexes:
+            return checkpoint_index
+
+        next_missing_index = 0
+        while next_missing_index in saved_step_indexes:
+            next_missing_index += 1
+
+        return next_missing_index
 
     def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""
@@ -207,9 +228,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             self._log_info(f'将执行 {total_combinations} 个参数组合')
 
             # 检查是否从断点恢复（按组合级别）
-            start_index = task.current_step - 1 if task.current_step >= 1 else 0
-            if start_index < 0:
-                start_index = 0
+            start_index = self._resolve_resume_start_index(task)
             self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
 
             # 重置成功/失败计数器；如需精确恢复已完成组合数，可在外部通过历史结果统计
