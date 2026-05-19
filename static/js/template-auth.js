@@ -29,6 +29,7 @@
         { test: /^\/admin\/?$/, permissions: ["page:admin:dashboard"] },
         { test: /^\/admin\/tasks\/?$/, permissions: ["page:admin:tasks"] },
         { test: /^\/admin\/config\/?$/, permissions: ["page:admin:config"] },
+        { test: /^\/admin\/navigation\/?$/, permissions: ["page:admin:navigation"] },
         { test: /^\/admin\/logs\/?$/, permissions: ["page:admin:logs"] },
         { test: /^\/admin\/templates\/?$/, permissions: ["page:admin:templates"] },
         { test: /^\/admin\/results\/?$/, permissions: ["page:admin:results"] },

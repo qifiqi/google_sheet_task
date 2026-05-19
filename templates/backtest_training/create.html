@@ -96,6 +96,17 @@
         min-width: 8rem;
         text-align: center;
     }
+    .paste-parse-panel {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.95rem;
+        background: var(--bs-tertiary-bg);
+        padding: 1rem;
+    }
+    .paste-parse-input {
+        min-height: 7rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 0.875rem;
+    }
     .empty-hint {
         border: 1px dashed var(--bs-border-color);
         border-radius: 1rem;
@@ -181,7 +192,7 @@
                 <div class="config-grid">
                     <div class="config-box">
                         <label for="taskName" class="form-label">任务名称</label>
-                        <input type="text" class="form-control" id="taskName" placeholder="默认按股票代码和表格标题生成">
+                        <input type="text" class="form-control" id="taskName" placeholder="自动生成，例如 C3-NVDA">
                     </div>
                     <div class="config-box">
                         <label for="tokenId" class="form-label">回测 Token</label>
@@ -257,6 +268,9 @@
                     <button type="button" class="btn btn-outline-secondary" id="importExcelBtn">
                         <i class="bi bi-file-earmark-excel me-1"></i>导入 Excel
                     </button>
+                    <button type="button" class="btn btn-outline-secondary" id="togglePasteParseBtn" aria-expanded="false" aria-controls="pasteParsePanel">
+                        <i class="bi bi-clipboard2-plus me-1"></i>粘贴解析
+                    </button>
                     <button type="button" class="btn btn-outline-primary" id="addParamBtn">
                         <i class="bi bi-plus-lg me-1"></i>添加参数
                     </button>
@@ -267,6 +281,27 @@
             </div>
 
             <div id="excelImportStatus" class="small mb-3"></div>
+
+            <div class="paste-parse-panel d-none mb-3" id="pasteParsePanel">
+                <label for="pasteParseInput" class="form-label">粘贴参数</label>
+                <textarea
+                    class="form-control paste-parse-input"
+                    id="pasteParseInput"
+                    placeholder="从 Excel 复制多行参数后粘贴到这里，系统会按当前表头从左到右填入"
+                ></textarea>
+                <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                    <button type="button" class="btn btn-primary btn-sm" id="parseReplaceBtn">
+                        <i class="bi bi-arrow-down-square me-1"></i>解析并替换
+                    </button>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="parseAppendBtn">
+                        <i class="bi bi-plus-square me-1"></i>解析并追加
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="clearPasteParseBtn">
+                        <i class="bi bi-x-lg me-1"></i>清空
+                    </button>
+                    <span class="small text-body-secondary" id="pasteParseStatus"></span>
+                </div>
+            </div>
 
             <div id="emptyHint" class="empty-hint">
                 先识别模型或直接添加参数行。
@@ -352,6 +387,13 @@ const paramTableHead = document.getElementById('paramTableHead');
 const paramTableBody = document.getElementById('paramTableBody');
 const excelFileInput = document.getElementById('excelFileInput');
 const importExcelBtn = document.getElementById('importExcelBtn');
+const togglePasteParseBtn = document.getElementById('togglePasteParseBtn');
+const pasteParsePanel = document.getElementById('pasteParsePanel');
+const pasteParseInput = document.getElementById('pasteParseInput');
+const parseReplaceBtn = document.getElementById('parseReplaceBtn');
+const parseAppendBtn = document.getElementById('parseAppendBtn');
+const clearPasteParseBtn = document.getElementById('clearPasteParseBtn');
+const pasteParseStatus = document.getElementById('pasteParseStatus');
 const addParamBtn = document.getElementById('addParamBtn');
 const createBtn = document.getElementById('createBtn');
 const excelImportStatus = document.getElementById('excelImportStatus');
@@ -420,8 +462,8 @@ function sanitizeTaskTitlePart(value) {
 
 function buildDefaultTaskName() {
     const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());
-    const title = sanitizeTaskTitlePart(sheetTitle || sheetTitleEl.textContent || '');
-    return [stockCode, title].filter(Boolean).join('-');
+    const modelVersion = resolveModelVersion(currentModelVersion).toUpperCase();
+    return stockCode ? `${modelVersion}-${stockCode}` : '';
 }
 
 function syncTaskNameInput(force = false) {
@@ -530,6 +572,11 @@ function syncEmptyState() {
     emptyHint.classList.toggle('d-none', hasRows);
 }
 
+function setPasteParseStatus(message, tone = 'muted') {
+    pasteParseStatus.className = `small text-${tone}`;
+    pasteParseStatus.textContent = message || '';
+}
+
 function addParameterRow(initialValues = {}) {
     const cells = currentFields.map((field) => {
         const value = initialValues[field.key] ?? '';
@@ -563,6 +610,114 @@ function projectImportedRows(rows) {
         .filter((row) => Object.values(row).some(Boolean));
 }
 
+function splitPastedParameterLine(line) {
+    const value = String(line || '').trim();
+    if (!value) {
+        return [];
+    }
+    if (value.includes('\t')) {
+        return value.split('\t');
+    }
+    if (value.includes(',')) {
+        return value.split(',');
+    }
+    if (value.includes('，')) {
+        return value.split('，');
+    }
+    return value.split(/\s+/);
+}
+
+function normalizePastedCell(value) {
+    return String(value ?? '')
+        .replace(/\r/g, '')
+        .trim();
+}
+
+function normalizeHeaderToken(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_()（）:：/-]+/g, '');
+}
+
+function isCommissionCell(value) {
+    const normalized = normalizePastedCell(value).toLowerCase();
+    if (!normalized) {
+        return false;
+    }
+    return normalized.includes('%') || normalized === 'commission' || normalized === '手续费';
+}
+
+function isPastedHeaderRow(cells) {
+    const headerTokens = new Set([
+        'commission',
+        '手续费',
+        'xm',
+        'xmultiplier',
+        'ml',
+        'dbbh1',
+        'dbbh2',
+        'zlxc',
+        'zsgz',
+        'ywf1',
+        'ywf2',
+        '单边保护1',
+        '单边保护2',
+        '中立限仓',
+        '指数跟踪'
+    ]);
+    return cells.some((cell) => headerTokens.has(normalizeHeaderToken(cell)));
+}
+
+function parsePastedParameterRows(rawText) {
+    const rows = String(rawText || '')
+        .split(/\n+/)
+        .map((line) => splitPastedParameterLine(line).map(normalizePastedCell))
+        .filter((cells) => cells.some((cell) => cell !== ''));
+
+    if (!rows.length) {
+        return [];
+    }
+
+    const dataRows = isPastedHeaderRow(rows[0]) ? rows.slice(1) : rows;
+    const c3Mode = resolveModelVersion(currentModelVersion) === 'c3';
+    const expectedColumnCount = currentFields.length;
+    const firstDataRow = dataRows[0] || [];
+    const hasLeadingCommission = c3Mode
+        && firstDataRow.length > expectedColumnCount
+        && (isCommissionCell(firstDataRow[0]) || firstDataRow.length === expectedColumnCount + 1);
+
+    if (hasLeadingCommission && firstDataRow[0]) {
+        commissionInput.value = firstDataRow[0];
+    }
+
+    return dataRows
+        .map((cells) => {
+            const sourceCells = hasLeadingCommission ? cells.slice(1) : cells;
+            const projected = {};
+            currentFields.forEach((field, index) => {
+                projected[field.key] = sourceCells[index] || '';
+            });
+            return projected;
+        })
+        .filter((row) => Object.values(row).some(Boolean));
+}
+
+function applyPastedParameters(mode = 'replace') {
+    const rows = parsePastedParameterRows(pasteParseInput.value);
+    if (!rows.length) {
+        setPasteParseStatus('没有解析到有效参数', 'danger');
+        return;
+    }
+
+    if (mode === 'replace' || !hasParameterDraftValues()) {
+        paramTableBody.innerHTML = '';
+    }
+    rows.forEach((row) => addParameterRow(row));
+    syncEmptyState();
+    setPasteParseStatus(`已${mode === 'replace' ? '替换为' : '追加'} ${rows.length} 行参数`, 'success');
+}
+
 function resetParameterTable(rows = []) {
     updateTableHeader();
     paramTableBody.innerHTML = '';
@@ -579,6 +734,10 @@ function collectParameterDraftRows() {
     return Array.from(paramTableBody.querySelectorAll('tr')).map((row) => {
         return currentFields.map((field) => row.querySelector(`[data-key="${field.key}"]`)?.value.trim() || '');
     });
+}
+
+function hasParameterDraftValues() {
+    return collectParameterDraftRows().some((row) => row.some(Boolean));
 }
 
 function getCommissionValue() {
@@ -783,11 +942,7 @@ function buildRunYearLabel() {
 }
 
 function buildC3TaskName() {
-    const stockCode = stockCodeInput.value.trim().toUpperCase();
-    if (!stockCode) {
-        return '';
-    }
-    return `C3_${stockCode}_${buildRunYearLabel()}_${buildMinuteTimestamp()}`;
+    return buildDefaultTaskName();
 }
 
 async function analyzeSheetUrl() {
@@ -886,7 +1041,7 @@ async function createTask() {
         return;
     }
 
-    const taskName = taskNameInput.value.trim() || buildDefaultTaskName();
+    const taskName = buildDefaultTaskName();
     const stockCode = stockCodeInput.value.trim().toUpperCase();
     const tokenId = tokenIdSelect.value;
     const parameters = collectParameters();
@@ -1070,6 +1225,22 @@ document.addEventListener('change', (event) => {
 
 taskConfigCollapse.addEventListener('shown.bs.collapse', updateConfigToggleText);
 taskConfigCollapse.addEventListener('hidden.bs.collapse', updateConfigToggleText);
+
+togglePasteParseBtn.addEventListener('click', () => {
+    const shouldShow = pasteParsePanel.classList.contains('d-none');
+    pasteParsePanel.classList.toggle('d-none', !shouldShow);
+    togglePasteParseBtn.setAttribute('aria-expanded', shouldShow ? 'true' : 'false');
+    if (shouldShow) {
+        pasteParseInput.focus();
+    }
+});
+parseReplaceBtn.addEventListener('click', () => applyPastedParameters('replace'));
+parseAppendBtn.addEventListener('click', () => applyPastedParameters('append'));
+clearPasteParseBtn.addEventListener('click', () => {
+    pasteParseInput.value = '';
+    setPasteParseStatus('');
+    pasteParseInput.focus();
+});
 
 addParamBtn.addEventListener('click', () => addParameterRow());
 paramTableBody.addEventListener('click', (event) => {

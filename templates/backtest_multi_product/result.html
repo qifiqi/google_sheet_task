@@ -48,7 +48,7 @@
             <div class="d-flex align-items-center gap-2 flex-wrap">
                 <button class="btn btn-outline-primary" id="btn-reload-result" type="button">
                     <i class="bi bi-arrow-clockwise me-1"></i>刷新</button>
-                <a class="btn btn-outline-secondary" href="/backtest-training/detail/{{ task_id }}" id="backToDetailLink">
+                <a class="btn btn-outline-secondary" href="/backtest-multi-product/detail/{{ task_id }}" id="backToDetailLink">
                     <i class="bi bi-arrow-left"></i> 返回</a>
             </div>
         </div>
@@ -628,7 +628,7 @@
             }
         });
         const query = detailParams.toString();
-        return `/backtest-training/detail/${encodeURIComponent(state.taskId)}${query ? `?${query}` : ''}`;
+        return `/backtest-multi-product/detail/${encodeURIComponent(state.taskId)}${query ? `?${query}` : ''}`;
     }
 
     async function copyRawJson() {
@@ -721,7 +721,7 @@
         abortController = new AbortController();
 
         try {
-            const resp = await fetch(`/backtest-training/api/task-result/${encodeURIComponent(state.resultId)}`, {
+            const resp = await fetch(`/backtest-multi-product/api/task-result/${encodeURIComponent(state.resultId)}`, {
                 method: 'GET',
                 signal: abortController.signal
             });

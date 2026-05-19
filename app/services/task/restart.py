@@ -113,6 +113,25 @@ class TaskRestartMixin:
             task = db.session.get(Task, task_id)
             if not task:
                 return {"status": "error", "message": "任务不存在"}
+            if task.task_type in ("backtest_training", "backtest_multi_product"):
+                config_data = self._get_task_config_dict(task)
+                spreadsheet_ids = self._extract_backtest_spreadsheet_ids(config_data)
+                running_backtest = self._find_running_backtest_task_for_spreadsheets(
+                    spreadsheet_ids,
+                    exclude_task_id=task_id,
+                )
+                if running_backtest:
+                    message = (
+                        "同一个 Google Sheet 已有回测任务正在运行，"
+                        f"当前任务保持待执行: {running_backtest.id}"
+                    )
+                    self.start_errors[task_id] = message
+                    return {
+                        "status": "error",
+                        "message": f"任务重启失败: {message}",
+                        "start_error": message,
+                        "task_id": task_id,
+                    }
             task.status = "pending"
             task.error_message = None
             task.start_time = start_time

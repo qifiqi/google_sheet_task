@@ -1,7 +1,7 @@
 """元数据 API — 为前端提供版本、枚举、导航等静态配置"""
-import json
 from flask import Blueprint
-from app.models import GoogleSheetTableType, GoogleSheetTokenTaskType, SystemConfig
+from app.models import GoogleSheetTableType, GoogleSheetTokenTaskType, NavigationMenuItem
+from app.navigation import build_navigation_tree
 from app.utils.api_response import success
 from app.utils.auth import login_required
 
@@ -17,6 +17,7 @@ def get_versions():
         {"value": "c5", "label": "C5", "create_url": "/google-sheet/create?version=c5"},
         {"value": "c31", "label": "C31 批量", "create_url": "/google-sheet/create?version=c31"},
         {"value": "backtest_training", "label": "回测训练", "create_url": "/backtest-training/create"},
+        {"value": "backtest_multi_product", "label": "多品数据回测", "create_url": "/backtest-multi-product/create"},
     ]
     return success(data=versions)
 
@@ -33,19 +34,18 @@ def get_enums():
 @meta_api_bp.route('/meta/nav', methods=['GET'])
 @login_required
 def get_nav():
-    """返回当前用户有权访问的导航菜单，从 system_configs.nav_menu 读取并按权限过滤"""
+    """返回当前用户有权访问的导航菜单，从独立导航菜单表读取并按权限过滤"""
     from flask import g
 
     user_perms = g.current_user.get_permissions()
-
-    config = SystemConfig.query.filter_by(key='nav_menu').first()
-    if not config or not config.value:
-        return success(data=[])
-
-    try:
-        all_nav = json.loads(config.value)
-    except (ValueError, TypeError):
-        return success(data=[])
+    rows = (
+        NavigationMenuItem.query
+        .filter_by(is_visible=True)
+        .order_by(NavigationMenuItem.sort_order.asc(), NavigationMenuItem.id.asc())
+        .all()
+    )
+    rows = sorted(rows, key=lambda item: (item.parent_key or "", item.sort_order, item.id))
+    all_nav = build_navigation_tree(rows)
 
     def has_nav_permission(required_permission, _item):
         if not required_permission:

@@ -611,7 +611,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
         end_dt = datetime.now() - timedelta(days=1)
         end_date = end_dt.strftime("%Y-%m-%d")
-
+        earliest_full_year = None
         if recent_years:
             year_count = max(int(year) for year in recent_years)
         elif full_years:
@@ -648,8 +648,11 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
         # 检查用户设定的区间是否在数据范围内
         if start_date < data_start_date or end_date > data_end_date:
-            raise Exception(
-                f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
+            if full_years and int(data_start_date[:4]) in full_years:
+                pass
+            else:
+                raise Exception(
+                    f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
         if len(klines) < 100:
             raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于100条，无法在模型正确产生数据，或者联系开发")

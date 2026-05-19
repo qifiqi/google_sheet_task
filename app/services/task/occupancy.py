@@ -54,6 +54,14 @@ class TaskOccupancyMixin:
             for item in sheets:
                 add_sheet_reference(item)
 
+        products = config.get("products")
+        if isinstance(products, list):
+            for product in products:
+                if not isinstance(product, dict):
+                    continue
+                add_sheet_reference(product)
+                add_sheet_reference(product.get("sheet"))
+
         return sorted(set(sheet_ids))
 
     def release_task_token_occupancy(self, task_id: str) -> None:

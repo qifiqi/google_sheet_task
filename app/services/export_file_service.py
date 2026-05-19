@@ -356,17 +356,13 @@ def to_number(value: Any) -> float | None:
 
 
 def sort_c5_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]:
-    """排序规则沿用原前端导出：股票降序、K线结束/开始时间降序、xm 升序、ReturnBeats 降序。"""
-
-    return_beats_col = C5_EXPORT_COLUMNS.index("ReturnBeats")
+    """按股票和 K 线区间稳定排列，sheet 内排序在分组后单独处理。"""
 
     def compare(left: C5ExportRecord, right: C5ExportRecord) -> int:
         comparisons = [
             compare_desc(left.group.stock_code, right.group.stock_code),
             compare_desc(parse_range_end(left.group.kline_range), parse_range_end(right.group.kline_range)),
             compare_desc(parse_range_start(left.group.kline_range), parse_range_start(right.group.kline_range)),
-            compare_asc(natural_sort_key(normalize_xm(left.group.xm)), natural_sort_key(normalize_xm(right.group.xm))),
-            compare_desc(parse_percent(left.row[return_beats_col]), parse_percent(right.row[return_beats_col])),
         ]
         return next((value for value in comparisons if value), 0)
 
@@ -389,11 +385,29 @@ def build_c5_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
 
 
 def group_c5_records_by_kline_range(records: list[C5ExportRecord]) -> "OrderedDict[str, list[list[Any]]]":
-    grouped_rows = OrderedDict()
+    grouped_records = OrderedDict()
     for record in records:
         key = str(record.group.kline_range or "无K线区间")
-        grouped_rows.setdefault(key, []).append(record.row)
-    return grouped_rows
+        grouped_records.setdefault(key, []).append(record)
+    return OrderedDict(
+        (key, [record.row for record in sort_c5_sheet_records(group_records)])
+        for key, group_records in grouped_records.items()
+    )
+
+
+def sort_c5_sheet_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]:
+    """每个分组 sheet 内：xm 为空的置顶；两段都按 ReturnBeats 降序。"""
+
+    return_beats_col = C5_EXPORT_COLUMNS.index("ReturnBeats")
+
+    def compare(left: C5ExportRecord, right: C5ExportRecord) -> int:
+        comparisons = [
+            compare_asc(is_non_empty_xm(left.group.xm), is_non_empty_xm(right.group.xm)),
+            compare_desc(parse_percent(left.row[return_beats_col]), parse_percent(right.row[return_beats_col])),
+        ]
+        return next((value for value in comparisons if value), 0)
+
+    return sorted(records, key=cmp_to_key(compare))
 
 
 def kline_range_from_params(params: dict[str, Any]) -> str:
@@ -618,8 +632,8 @@ def normalize_xm(value: Any) -> str:
     return "" if not text or text == "0" else text
 
 
-def natural_sort_key(value: Any) -> list[Any]:
-    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", str(value))]
+def is_non_empty_xm(value: Any) -> bool:
+    return bool(normalize_xm(value))
 
 
 def compare_desc(left: Any, right: Any) -> int:

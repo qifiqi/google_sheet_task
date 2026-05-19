@@ -65,6 +65,11 @@ def config():
     """配置管理页面"""
     return render_template('admin/config.html')
 
+@admin_bp.route('/navigation')
+def navigation():
+    """路由表管理页面"""
+    return render_template('admin/navigation.html')
+
 @admin_bp.route('/logs')
 def logs():
     """日志管理页面"""

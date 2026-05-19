@@ -132,6 +132,8 @@ class TaskQueryService:
                 "pages": pagination.pages,
                 "has_prev": pagination.has_prev,
                 "has_next": pagination.has_next,
+                "prev_num": pagination.prev_num,
+                "next_num": pagination.next_num,
             },
             "statistics": {
                 "total_tasks": total,

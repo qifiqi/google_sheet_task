@@ -412,6 +412,8 @@ PERMISSIONS = [
     ('google_sheet', 'google_sheet:c5',     '访问 Google Sheet C5',  '/task/list?version=c5'),
     ('config',       'config:view',         '查看系统配置',          '/admin/config'),
     ('config',       'config:manage',       '修改系统配置',          '/admin/config'),
+    ('navigation',   'navigation:view',     '查看路由表',            '/admin/navigation'),
+    ('navigation',   'navigation:manage',   '管理路由表',            '/admin/navigation'),
     ('scheduler',    'scheduler:view',      '查看定时任务',          '/admin/scheduler'),
     ('scheduler',    'scheduler:manage',    '管理定时任务',          '/admin/scheduler'),
     ('database',     'database:manage',     '数据库操作',            None),
@@ -425,6 +427,7 @@ PERMISSIONS = [
     ('page',         'page:admin:results',      '访问任务结果页面',       '/admin/results'),
     ('page',         'page:admin:scheduler',    '访问定时任务页面',       '/admin/scheduler'),
     ('page',         'page:admin:config',       '访问系统配置页面',       '/admin/config'),
+    ('page',         'page:admin:navigation',   '访问路由表页面',         '/admin/navigation'),
     ('page',         'page:admin:google_sheets','访问 Google Sheet 管理页面', '/admin/google-sheets'),
     ('page',         'page:admin:logs',         '访问系统日志页面',       '/admin/logs'),
     ('page',         'page:admin:users',        '访问用户管理页面',       '/admin/users'),
@@ -434,34 +437,7 @@ PERMISSIONS = [
     ('page',         'page:google_sheet:c5',    '访问 Google Sheet C5 页面', '/google-sheet/?version=c5'),
     ('page',         'page:backtest:list',      '访问回测列表页面',       '/backtest-training/list'),
     ('page',         'page:backtest:create',    '访问回测创建页面',       '/backtest-training/create'),
+    ('page',         'page:backtest_multi_product:list',   '访问多品数据回测列表页面',   '/backtest-multi-product/list'),
+    ('page',         'page:backtest_multi_product:create', '访问多品数据回测创建页面',   '/backtest-multi-product/create'),
 ]
 
-# 导航菜单默认结构，存入 system_configs.nav_menu
-# 每个菜单项的 permission 字段对应 PERMISSIONS 中的 code
-# 无 permission 字段表示登录即可访问
-NAV_MENU = [
-    {"key": "dashboard", "label": "仪表盘", "path": "/admin", "permission": "page:admin:dashboard"},
-    {"key": "task", "label": "任务模块", "children": [
-        {"key": "tasks",     "label": "任务管理", "path": "/admin/tasks",     "permission": "page:admin:tasks"},
-        {"key": "templates", "label": "任务模板", "path": "/admin/templates", "permission": "page:admin:templates"},
-        {"key": "results",   "label": "任务结果", "path": "/admin/results",   "permission": "page:admin:results"},
-    ]},
-    {"key": "scheduler_group", "label": "调度模块", "children": [
-        {"key": "scheduler", "label": "定时任务", "path": "/admin/scheduler", "permission": "page:admin:scheduler"},
-    ]},
-    {"key": "system", "label": "系统模块", "children": [
-        {"key": "config",   "label": "系统配置",          "path": "/admin/config",        "permission": "page:admin:config"},
-        {"key": "sheets",   "label": "Google Sheet 管理", "path": "/admin/google-sheets", "permission": "page:admin:google_sheets"},
-        {"key": "logs",     "label": "系统日志",          "path": "/admin/logs",          "permission": "page:admin:logs"},
-        {"key": "users",    "label": "用户管理",          "path": "/admin/users",         "permission": "page:admin:users"},
-        {"key": "roles",    "label": "角色管理",          "path": "/admin/roles",         "permission": "page:admin:roles"},
-    ]},
-    {"key": "business", "label": "业务模块", "children": [
-        {"key": "c3",      "label": "Google Sheet C3", "path": "/task/list?version=c3", "permission": "page:google_sheet:c3"},
-        {"key": "c4",      "label": "Google Sheet C4", "path": "/task/list?version=c4", "permission": "page:google_sheet:c4"},
-        {"key": "c5",      "label": "Google Sheet C5", "path": "/task/list?version=c5", "permission": "page:google_sheet:c5"},
-        {"key": "backtest","label": "数据回测",         "path": "/backtest/list",        "permission": "page:backtest:list"},
-        {"key": "xpl",     "label": "夏普率计算",       "path": "/xpl"},
-        {"key": "xpl_v1",  "label": "V1 回测数据分析",  "path": "/xpl/v1"},
-    ]},
-]

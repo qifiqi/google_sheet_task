@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="420" viewBox="0 0 1180 420" role="img" aria-labelledby="title desc">
+  <title id="title">多品全局预览比例区方案二</title>
+  <desc id="desc">分区卡片布局，顶部显示方案和状态，下面产品比例卡片自适应换行。</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+  <rect width="1180" height="420" fill="#f6f8fb"/>
+  <text x="40" y="42" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="22" font-weight="700">方案二：分区卡片</text>
+  <text x="40" y="72" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">适合 2-N 个产品；比例卡片自动换行，信息层次更清楚。</text>
+
+  <rect x="40" y="104" width="1100" height="244" rx="18" fill="#ffffff" filter="url(#shadow)"/>
+  <g transform="translate(64 128)">
+    <rect width="1052" height="58" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="18" y="24" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">参数方案</text>
+    <text x="18" y="45" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700">参数方案 1（2 个产品结果）</text>
+    <text x="556" y="35" fill="#047857" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="700">比例合计 100%</text>
+    <text x="676" y="35" fill="#b45309" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">当前预览未保存</text>
+    <rect x="904" y="10" width="128" height="38" rx="19" fill="#0d6efd"/>
+    <text x="936" y="35" fill="#ffffff" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14" font-weight="700">计算预览</text>
+  </g>
+
+  <g transform="translate(64 208)">
+    <rect width="240" height="86" rx="14" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="18" y="28" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">纳斯达克100ETF-Invesco</text>
+    <rect x="18" y="42" width="170" height="30" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="32" y="63" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">30</text>
+    <rect x="188" y="42" width="34" height="30" rx="8" fill="#e9eef6" stroke="#cbd5e1"/>
+    <text x="200" y="63" fill="#334155" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">%</text>
+  </g>
+  <g transform="translate(324 208)">
+    <rect width="240" height="86" rx="14" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="18" y="28" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">谷歌-A</text>
+    <rect x="18" y="42" width="170" height="30" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="32" y="63" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">70</text>
+    <rect x="188" y="42" width="34" height="30" rx="8" fill="#e9eef6" stroke="#cbd5e1"/>
+    <text x="200" y="63" fill="#334155" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">%</text>
+  </g>
+  <g transform="translate(584 208)">
+    <rect width="240" height="86" rx="14" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="6 5"/>
+    <text x="18" y="48" fill="#94a3b8" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">产品 3...</text>
+  </g>
+  <g transform="translate(844 208)">
+    <rect width="240" height="86" rx="14" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="6 5"/>
+    <text x="18" y="48" fill="#94a3b8" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">产品 N 自动换行</text>
+  </g>
+
+  <text x="64" y="384" fill="#334155" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">优点：状态、方案、动作收在一行；产品卡片网格自适应，N 个产品也直观。</text>
+  <text x="64" y="408" fill="#334155" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">注意：产品较多时区域高度会增加，表格首屏露出会减少。</text>
+</svg>

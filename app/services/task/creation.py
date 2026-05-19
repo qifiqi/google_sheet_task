@@ -32,7 +32,7 @@ class TaskCreationMixin:
         normalized = dict(config)
         if task_type in ("google_sheet", "google_sheet_C4", "google_sheet_C5"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
-        elif task_type == "backtest_training":
+        elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
             )
@@ -42,7 +42,14 @@ class TaskCreationMixin:
             normalized.pop("spreadsheet_id", None)
             normalized.pop("sheet_name", None)
 
-        if task_type == "backtest_training" and not normalized.get("token_id"):
+        if task_type == "backtest_multi_product":
+            from app.services.backtest_multi_product_service import (
+                normalize_multi_product_config,
+            )
+
+            normalized = normalize_multi_product_config(normalized)
+
+        if task_type in ("backtest_training", "backtest_multi_product") and not normalized.get("token_id"):
             token_id = (
                 self._get_config("backtest_training_token_id")
                 or self._get_config("backtest_token_id")
@@ -71,7 +78,7 @@ class TaskCreationMixin:
             self.validate_google_sheet_available_for_task(
                 config,
                 task_id,
-                allow_in_use=(task_type == "backtest_training"),
+                allow_in_use=(task_type in ("backtest_training", "backtest_multi_product")),
             )
 
         config_str = json.dumps(config) if isinstance(config, dict) else str(config)
@@ -86,7 +93,7 @@ class TaskCreationMixin:
             created_by_user_id=created_by_user_id,
         )
 
-        if isinstance(config, dict) and task_type != "backtest_training":
+        if isinstance(config, dict) and task_type not in ("backtest_training", "backtest_multi_product"):
             self.ensure_google_sheet_occupancy(task_id, config)
 
         task_logger = get_task_logger(task_id, f"{__name__}.create")
@@ -122,7 +129,7 @@ class TaskCreationMixin:
                 "message": "任务创建并启动成功",
             }, 200
         start_error = self.get_start_error(task_id)
-        if task_type == "backtest_training" and "已有回测任务正在运行" in start_error:
+        if task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
             return {
                 "status": "success",
                 "task_id": task_id,
@@ -378,6 +385,7 @@ class TaskCreationMixin:
         new_config: dict[str, Any],
         update_name: str = None,
         update_description: str = None,
+        update_status: str = None,
     ) -> dict[str, Any]:
         """更新任务配置。"""
         try:
@@ -388,11 +396,19 @@ class TaskCreationMixin:
             if task.status == "running":
                 return {
                     "status": "error",
-                    "message": "正在运行的任务无法直接修改配置，请先停止任务",
+                    "message": "正在运行的任务无法直接修改，请先停止任务",
                 }
 
             if not isinstance(new_config, dict):
                 return {"status": "error", "message": "配置格式不正确"}
+
+            allowed_statuses = {"pending", "completed", "cancelled", "error"}
+            next_status = (update_status or "").strip()
+            if next_status:
+                if next_status == "running":
+                    return {"status": "error", "message": "不能手动将任务状态改为运行中，请使用重启任务"}
+                if next_status not in allowed_statuses:
+                    return {"status": "error", "message": f"不支持的任务状态: {next_status}"}
 
             new_config = self._normalize_task_config_for_type(task.task_type, new_config)
             old_config = json.loads(task.config) if task.config else {}
@@ -410,17 +426,32 @@ class TaskCreationMixin:
             task.config = json.dumps(new_config)
             if update_name:
                 task.name = update_name
-            if update_description:
+            if update_description is not None:
                 task.description = update_description
+            old_status = task.status
+            if next_status and next_status != task.status:
+                task.status = next_status
+                if next_status == "pending":
+                    task.start_time = None
+                    task.end_time = None
+                    task.error_message = None
+                elif next_status in {"completed", "cancelled"}:
+                    task.end_time = task.end_time or datetime.now()
+                    if next_status == "completed":
+                        task.error_message = None
             db.session.commit()
 
             task_logger = get_task_logger(task_id, f"{__name__}.update_config")
+            if next_status and next_status != old_status:
+                status_message = f"任务状态已由 {old_status} 修改为 {next_status}"
+                task_logger.info(status_message)
+                self.add_task_log(task_id, "warning", status_message)
             task_logger.info("任务配置已更新")
             self.add_task_log(task_id, "info", "任务配置已更新")
             logger.info("任务配置更新成功: %s", task_id)
             return {
                 "status": "success",
-                "message": "任务配置更新成功",
+                "message": "任务更新成功",
                 "task": task.to_dict(),
             }
         except Exception as exc:
@@ -458,7 +489,7 @@ class TaskCreationMixin:
             db.session.add(new_task)
             db.session.commit()
 
-            if isinstance(original_config, dict) and original_task.task_type != "backtest_training":
+            if isinstance(original_config, dict) and original_task.task_type not in ("backtest_training", "backtest_multi_product"):
                 self.ensure_google_sheet_occupancy(new_task_id, original_config)
 
             logger.info("创建重启任务: %s (基于 %s)", new_task_id, original_task_id)

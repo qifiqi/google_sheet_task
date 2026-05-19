@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
+from hashlib import sha256
+from pathlib import Path
 from typing import Any
 
-from flask import current_app
+from flask import current_app, has_app_context
 
 from app.extensions import db
 from app.models import Task
+from app.services.backtest_multi_product_service import BacktestMultiProductService
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_service import GoogleSheetService
@@ -42,6 +45,33 @@ class TaskRuntimeMixin:
 
         return str(config.get("spreadsheet_id") or "").strip()
 
+    def _extract_backtest_spreadsheet_ids(self, config: dict[str, Any] | None) -> list[str]:
+        """Extract all spreadsheet IDs touched by a backtest task."""
+        if not isinstance(config, dict):
+            return []
+
+        spreadsheet_ids = []
+        single_id = self._extract_backtest_spreadsheet_id(config)
+        if single_id:
+            spreadsheet_ids.append(single_id)
+
+        products = config.get("products")
+        if isinstance(products, list):
+            for product in products:
+                if not isinstance(product, dict):
+                    continue
+                sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
+                spreadsheet_id = str(
+                    sheet.get("spreadsheet_id") or product.get("spreadsheet_id") or ""
+                ).strip()
+                if spreadsheet_id:
+                    spreadsheet_ids.append(spreadsheet_id)
+
+        return sorted(set(spreadsheet_ids))
+
+    def _is_backtest_task_type(self, task_type: str | None) -> bool:
+        return task_type in {"backtest_training", "backtest_multi_product"}
+
     def _get_task_config_dict(self, task: Task | None) -> dict[str, Any]:
         if not task:
             return {}
@@ -62,13 +92,11 @@ class TaskRuntimeMixin:
         if not spreadsheet_id:
             return None
 
-        since = datetime.now() - timedelta(days=1)
         running_tasks = (
             Task.query.populate_existing()
             .filter(
-                Task.task_type == "backtest_training",
+                Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
                 Task.status == "running",
-                Task.created_at >= since,
             )
             .all()
         )
@@ -76,54 +104,176 @@ class TaskRuntimeMixin:
             if exclude_task_id and task.id == exclude_task_id:
                 continue
             config = self._get_task_config_dict(task)
-            if self._extract_backtest_spreadsheet_id(config) == spreadsheet_id:
+            if spreadsheet_id in self._extract_backtest_spreadsheet_ids(config):
                 return task
         return None
 
-    def _start_next_pending_backtest_task(self, finished_task_id: str, app) -> None:
-        """Start the oldest pending backtest task that uses the finished task's sheet."""
-        finished_task = db.session.get(Task, finished_task_id)
-        finished_config = self._get_task_config_dict(finished_task)
-        spreadsheet_id = self._extract_backtest_spreadsheet_id(finished_config)
+    def _find_running_backtest_task_for_spreadsheets(
+        self,
+        spreadsheet_ids: list[str],
+        *,
+        exclude_task_id: str | None = None,
+    ) -> Task | None:
+        for spreadsheet_id in spreadsheet_ids:
+            running_task = self._find_running_backtest_task_for_spreadsheet(
+                spreadsheet_id,
+                exclude_task_id=exclude_task_id,
+            )
+            if running_task:
+                return running_task
+        return None
+
+    def _get_backtest_sheet_lock_dir(self) -> Path:
+        if has_app_context():
+            data_dir = Path(current_app.config.get("DATA_DIR") or "data")
+        else:
+            data_dir = Path("data")
+        lock_dir = data_dir / "backtest_sheet_locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        return lock_dir
+
+    def _get_backtest_sheet_lock_path(self, spreadsheet_id: str) -> Path:
+        digest = sha256(spreadsheet_id.encode("utf-8")).hexdigest()
+        lock_dir = self._get_backtest_sheet_lock_dir()
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        return lock_dir / f"{digest}.lock"
+
+    def _write_backtest_sheet_lock(
+        self,
+        lock_path: Path,
+        *,
+        task_id: str,
+        spreadsheet_id: str,
+    ) -> None:
+        payload = {
+            "task_id": task_id,
+            "spreadsheet_id": spreadsheet_id,
+            "started_at": datetime.now().isoformat(),
+        }
+        with lock_path.open("x", encoding="utf-8") as lock_file:
+            json.dump(payload, lock_file, ensure_ascii=False)
+
+    def _read_backtest_sheet_lock_task_id(self, lock_path: Path) -> str | None:
+        try:
+            with lock_path.open("r", encoding="utf-8") as lock_file:
+                payload = json.load(lock_file)
+            task_id = str(payload.get("task_id") or "").strip()
+            return task_id or None
+        except (OSError, json.JSONDecodeError, TypeError):
+            return None
+
+    def _acquire_backtest_sheet_run_lock(
+        self,
+        spreadsheet_id: str,
+        task_id: str,
+    ) -> tuple[bool, str | None]:
+        """Create a per-sheet backtest lock file atomically."""
         if not spreadsheet_id:
-            return
+            return True, None
 
-        if self._find_running_backtest_task_for_spreadsheet(
-            spreadsheet_id,
-            exclude_task_id=finished_task_id,
-        ):
-            return
-
-        pending_tasks = Task.query.filter(
-            Task.task_type == "backtest_training",
-            Task.status == "pending",
-            Task.id != finished_task_id,
-        ).order_by(Task.created_at.asc(), Task.id.asc()).all()
-        for pending_task in pending_tasks:
-            pending_config = self._get_task_config_dict(pending_task)
-            if self._extract_backtest_spreadsheet_id(pending_config) != spreadsheet_id:
-                continue
-
-            logger.info(
-                "回测任务 %s 结束，启动同 sheet 的下一个待执行任务: %s",
-                finished_task_id,
-                pending_task.id,
+        lock_path = self._get_backtest_sheet_lock_path(spreadsheet_id)
+        try:
+            self._write_backtest_sheet_lock(
+                lock_path,
+                task_id=task_id,
+                spreadsheet_id=spreadsheet_id,
             )
-            self.add_task_log(
-                pending_task.id,
-                "info",
-                f"同一 Sheet 上一个回测任务 {finished_task_id} 已结束，开始自动执行",
-                app,
+            return True, None
+        except FileExistsError:
+            return False, self._read_backtest_sheet_lock_task_id(lock_path)
+
+    def _acquire_backtest_sheet_run_locks(
+        self,
+        spreadsheet_ids: list[str],
+        task_id: str,
+    ) -> tuple[bool, str | None, list[str]]:
+        acquired = []
+        for spreadsheet_id in spreadsheet_ids:
+            lock_acquired, locked_task_id = self._acquire_backtest_sheet_run_lock(
+                spreadsheet_id,
+                task_id,
             )
-            self.start_task(pending_task.id)
-            return
+            if not lock_acquired:
+                for acquired_spreadsheet_id in acquired:
+                    self._release_backtest_sheet_run_reservation(
+                        acquired_spreadsheet_id,
+                        task_id,
+                    )
+                return False, locked_task_id, acquired
+            acquired.append(spreadsheet_id)
+        return True, None, acquired
 
     def _release_backtest_sheet_run_reservation(
         self,
         spreadsheet_id: str | None,
         task_id: str,
     ) -> None:
-        return
+        if not spreadsheet_id:
+            return
+
+        lock_path = self._get_backtest_sheet_lock_path(spreadsheet_id)
+        locked_task_id = self._read_backtest_sheet_lock_task_id(lock_path)
+        if locked_task_id and locked_task_id != task_id:
+            logger.warning(
+                "跳过释放回测 Sheet 文件锁: sheet=%s, task_id=%s, locked_task_id=%s",
+                spreadsheet_id,
+                task_id,
+                locked_task_id,
+            )
+            return
+
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            logger.warning(
+                "释放回测 Sheet 文件锁失败: sheet=%s, task_id=%s, err=%s",
+                spreadsheet_id,
+                task_id,
+                exc,
+            )
+
+    def _start_next_pending_backtest_task(self, finished_task_id: str, app) -> None:
+        """Start the oldest pending backtest task that uses the finished task's sheet."""
+        finished_task = db.session.get(Task, finished_task_id)
+        finished_config = self._get_task_config_dict(finished_task)
+        spreadsheet_ids = self._extract_backtest_spreadsheet_ids(finished_config)
+        if not spreadsheet_ids:
+            return
+
+        if self._find_running_backtest_task_for_spreadsheets(
+            spreadsheet_ids,
+            exclude_task_id=finished_task_id,
+        ):
+            return
+
+        pending_tasks = Task.query.filter(
+            Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
+            Task.status == "pending",
+            Task.id != finished_task_id,
+        ).order_by(Task.created_at.asc(), Task.id.asc()).all()
+        for pending_task in pending_tasks:
+            pending_config = self._get_task_config_dict(pending_task)
+            pending_spreadsheet_ids = self._extract_backtest_spreadsheet_ids(pending_config)
+            if not set(spreadsheet_ids).intersection(pending_spreadsheet_ids):
+                continue
+
+            pending_task_id = pending_task.id
+            transition_message = (
+                f"回测任务 {finished_task_id} 结束，启动同 sheet 的下一个待执行任务: "
+                f"{pending_task_id}"
+            )
+            logger.info(transition_message)
+            self.add_task_log(finished_task_id, "info", transition_message, app)
+            self.add_task_log(
+                pending_task_id,
+                "info",
+                transition_message,
+                app,
+            )
+            self.start_task(pending_task_id)
+            return
 
     def _get_config(self, key: str, default: Any = None) -> Any:
         """动态获取配置，确保运行期修改能实时生效。"""
@@ -223,7 +373,7 @@ class TaskRuntimeMixin:
         """启动任务线程。"""
         self.start_errors.pop(task_id, None)
         acquired_token_id = None
-        reserved_backtest_spreadsheet_id = None
+        reserved_backtest_spreadsheet_ids: list[str] = []
 
         thread = self.running_tasks.get(task_id)
         if thread and thread.is_alive():
@@ -254,11 +404,11 @@ class TaskRuntimeMixin:
             return False
 
         config_data = self._get_task_config_dict(task)
-        if task.task_type == "backtest_training":
+        if self._is_backtest_task_type(task.task_type):
             with self.backtest_sheet_start_lock:
-                spreadsheet_id = self._extract_backtest_spreadsheet_id(config_data)
-                running_backtest = self._find_running_backtest_task_for_spreadsheet(
-                    spreadsheet_id,
+                spreadsheet_ids = self._extract_backtest_spreadsheet_ids(config_data)
+                running_backtest = self._find_running_backtest_task_for_spreadsheets(
+                    spreadsheet_ids,
                     exclude_task_id=task_id,
                 )
                 if running_backtest:
@@ -284,11 +434,11 @@ class TaskRuntimeMixin:
 
         backtest_marked_running = False
         try:
-            if task.task_type == "backtest_training":
+            if self._is_backtest_task_type(task.task_type):
                 with self.backtest_sheet_start_lock:
-                    spreadsheet_id = self._extract_backtest_spreadsheet_id(config_data)
-                    running_backtest = self._find_running_backtest_task_for_spreadsheet(
-                        spreadsheet_id,
+                    spreadsheet_ids = self._extract_backtest_spreadsheet_ids(config_data)
+                    running_backtest = self._find_running_backtest_task_for_spreadsheets(
+                        spreadsheet_ids,
                         exclude_task_id=task_id,
                     )
                     if running_backtest:
@@ -300,6 +450,21 @@ class TaskRuntimeMixin:
                         task_logger.info(error_msg)
                         self.add_task_log(task_id, "info", error_msg)
                         return False
+
+                    lock_acquired, locked_task_id, acquired_ids = self._acquire_backtest_sheet_run_locks(
+                        spreadsheet_ids,
+                        task_id,
+                    )
+                    if not lock_acquired:
+                        error_msg = (
+                            "同一个 Google Sheet 已有回测任务正在运行，"
+                            f"当前任务保持待执行: {locked_task_id or 'unknown'}"
+                        )
+                        self.start_errors[task_id] = error_msg
+                        task_logger.info(error_msg)
+                        self.add_task_log(task_id, "info", error_msg)
+                        return False
+                    reserved_backtest_spreadsheet_ids = acquired_ids
 
                     self.ensure_google_sheet_occupancy(task_id, config_data)
                     rows = (
@@ -315,9 +480,13 @@ class TaskRuntimeMixin:
                         self.start_errors[task_id] = error_msg
                         task_logger.warning(error_msg)
                         self.release_google_sheet_occupancy(task_id)
+                        for spreadsheet_id in reserved_backtest_spreadsheet_ids:
+                            self._release_backtest_sheet_run_reservation(
+                                spreadsheet_id,
+                                task_id,
+                            )
                         return False
                     backtest_marked_running = True
-                    reserved_backtest_spreadsheet_id = spreadsheet_id
             else:
                 self.ensure_google_sheet_occupancy(task_id, config_data)
 
@@ -332,10 +501,8 @@ class TaskRuntimeMixin:
             error_msg = str(exc)
             self.start_errors[task_id] = error_msg
             self.release_google_sheet_occupancy(task_id)
-            self._release_backtest_sheet_run_reservation(
-                reserved_backtest_spreadsheet_id,
-                task_id,
-            )
+            for spreadsheet_id in reserved_backtest_spreadsheet_ids:
+                self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
             if backtest_marked_running:
                 Task.query.filter(Task.id == task_id, Task.status == "running").update(
                     {"status": "pending", "start_time": None},
@@ -378,6 +545,13 @@ class TaskRuntimeMixin:
                 name=task_id,
             )
             task_logger.info("创建回测数据训练任务执行线程")
+        elif task.task_type == "backtest_multi_product":
+            new_thread = threading.Thread(
+                target=self._execute_backtest_multi_product_task,
+                args=(task_id, app),
+                name=task_id,
+            )
+            task_logger.info("创建多品数据回测任务执行线程")
         else:
             error_msg = f"不支持的任务类型: {task.task_type}"
             self.start_errors[task_id] = error_msg
@@ -396,11 +570,9 @@ class TaskRuntimeMixin:
             self.task_stop_events.pop(task_id, None)
             self.release_task_token_occupancy(task_id)
             self.release_google_sheet_occupancy(task_id)
-            self._release_backtest_sheet_run_reservation(
-                reserved_backtest_spreadsheet_id,
-                task_id,
-            )
-            if task.task_type == "backtest_training":
+            for spreadsheet_id in reserved_backtest_spreadsheet_ids:
+                self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
+            if self._is_backtest_task_type(task.task_type):
                 Task.query.filter(Task.id == task_id, Task.status == "running").update(
                     {"status": "pending", "start_time": None},
                     synchronize_session=False,
@@ -509,23 +681,27 @@ class TaskRuntimeMixin:
                 app,
             )
         finally:
+            should_start_next_backtest = False
             with app.app_context():
                 finished_task = db.session.get(Task, task_id)
                 finished_config = self._get_task_config_dict(finished_task)
-                finished_spreadsheet_id = self._extract_backtest_spreadsheet_id(
+                finished_spreadsheet_ids = self._extract_backtest_spreadsheet_ids(
                     finished_config
                 )
                 self.release_task_token_occupancy(task_id)
                 self.release_google_sheet_occupancy(task_id)
-                if service_class is BacktestTrainingService:
-                    if finished_spreadsheet_id:
+                if service_class in (BacktestTrainingService, BacktestMultiProductService):
+                    for finished_spreadsheet_id in finished_spreadsheet_ids:
                         self._release_backtest_sheet_run_reservation(
                             finished_spreadsheet_id,
                             task_id,
                         )
+                    should_start_next_backtest = True
+            self._cleanup_runtime_state(task_id, task_logger=task_logger)
+            if should_start_next_backtest:
+                with app.app_context():
                     with self.backtest_sheet_start_lock:
                         self._start_next_pending_backtest_task(task_id, app)
-            self._cleanup_runtime_state(task_id, task_logger=task_logger)
             task_logger.info("任务执行器退出")
 
     def _execute_google_sheet_task(self, task_id: str, app) -> None:
@@ -570,4 +746,15 @@ class TaskRuntimeMixin:
             service_class=BacktestTrainingService,
             business_message="开始执行回测训练任务业务逻辑",
             failure_label="执行回测训练任务失败",
+        )
+
+    def _execute_backtest_multi_product_task(self, task_id: str, app) -> None:
+        self._execute_service_task(
+            task_id,
+            app,
+            logger_name=f"{__name__}.backtest_multi_product.{task_id}",
+            start_message="开始执行多品数据回测任务",
+            service_class=BacktestMultiProductService,
+            business_message="开始执行多品数据回测任务业务逻辑",
+            failure_label="执行多品数据回测任务失败",
         )

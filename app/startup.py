@@ -4,10 +4,11 @@ import os
 from sqlalchemy import inspect, text
 from werkzeug.security import generate_password_hash
 
-from app.config import NAV_MENU, PERMISSIONS, init_config
+from app.config import PERMISSIONS, init_config
 from app.extensions import db
 from app.models import (
     GoogleSheetToken,
+    NavigationMenuItem,
     Permission,
     Role,
     ScheduledTask,
@@ -17,6 +18,7 @@ from app.models import (
     TaskResult,
     User,
 )
+from app.navigation import DEFAULT_NAVIGATION_MENU, flatten_navigation_items
 from app.utils.logger import get_logger, initialize_logging
 
 
@@ -60,6 +62,72 @@ def ensure_task_schema():
             db.session.commit()
 
 
+def ensure_scheduled_task_schema():
+    inspector = inspect(db.engine)
+    if 'scheduled_tasks' not in inspector.get_table_names():
+        return
+
+    columns = {column['name'] for column in inspector.get_columns('scheduled_tasks')}
+    changed = False
+    if 'is_running' not in columns:
+        db.session.execute(
+            text('ALTER TABLE scheduled_tasks ADD COLUMN is_running BOOLEAN NOT NULL DEFAULT FALSE')
+        )
+        changed = True
+    if 'running_instance_id' not in columns:
+        db.session.execute(text('ALTER TABLE scheduled_tasks ADD COLUMN running_instance_id VARCHAR(100)'))
+        changed = True
+    if changed:
+        db.session.commit()
+
+    indexes = inspector.get_indexes('scheduled_tasks')
+    has_is_running_index = any(
+        index.get('column_names') == ['is_running']
+        for index in indexes
+    )
+    if not has_is_running_index:
+        db.session.execute(text('CREATE INDEX ix_scheduled_tasks_is_running ON scheduled_tasks (is_running)'))
+        db.session.commit()
+
+
+def ensure_navigation_menu_schema():
+    inspector = inspect(db.engine)
+    if 'navigation_menu_items' not in inspector.get_table_names():
+        NavigationMenuItem.__table__.create(db.engine)
+        return
+
+    columns = {column['name'] for column in inspector.get_columns('navigation_menu_items')}
+    column_definitions = {
+        'key': 'VARCHAR(100) NOT NULL',
+        'label': 'VARCHAR(100) NOT NULL DEFAULT \'\'',
+        'path': 'VARCHAR(255)',
+        'permission': 'VARCHAR(100)',
+        'parent_key': 'VARCHAR(100)',
+        'sort_order': 'INTEGER NOT NULL DEFAULT 0',
+        'is_visible': 'BOOLEAN NOT NULL DEFAULT 1',
+        'created_at': 'DATETIME',
+        'updated_at': 'DATETIME',
+    }
+    changed = False
+    for column_name, definition in column_definitions.items():
+        if column_name not in columns:
+            db.session.execute(text(f'ALTER TABLE navigation_menu_items ADD COLUMN {column_name} {definition}'))
+            changed = True
+    if changed:
+        db.session.commit()
+
+    indexes = {index['name'] for index in inspector.get_indexes('navigation_menu_items')}
+    if 'idx_navigation_menu_parent_sort' not in indexes:
+        db.session.execute(
+            text('CREATE INDEX idx_navigation_menu_parent_sort ON navigation_menu_items (parent_key, sort_order)')
+        )
+    if 'ix_navigation_menu_items_parent_key' not in indexes:
+        db.session.execute(text('CREATE INDEX ix_navigation_menu_items_parent_key ON navigation_menu_items (parent_key)'))
+    if 'ix_navigation_menu_items_is_visible' not in indexes:
+        db.session.execute(text('CREATE INDEX ix_navigation_menu_items_is_visible ON navigation_menu_items (is_visible)'))
+    db.session.commit()
+
+
 def reset_google_sheet_token_occupancy():
     if GoogleSheetToken.query.filter(GoogleSheetToken.current_in_use_count != 0).count() > 0:
         GoogleSheetToken.query.update({'current_in_use_count': 0}, synchronize_session=False)
@@ -95,6 +163,8 @@ def register_cli(app):
         ensure_google_sheet_token_schema()
         ensure_user_schema()
         ensure_task_schema()
+        ensure_scheduled_task_schema()
+        ensure_navigation_menu_schema()
         print('数据库初始化完成')
 
     @app.cli.command()
@@ -143,22 +213,96 @@ def init_rbac():
         db.session.commit()
         logger.info('已创建默认管理员用户 admin / admin123')
 
+def init_navigation_menu():
+    logger = get_logger('navigation')
     nav_config = SystemConfig.query.filter_by(key='nav_menu').first()
-    if not nav_config:
-        db.session.add(SystemConfig(
-            key='nav_menu',
-            value=json.dumps(NAV_MENU, ensure_ascii=False),
-            description='前端导航菜单结构(JSON)，支持 permission 字段按角色过滤',
-        ))
+    has_existing_items = NavigationMenuItem.query.count() > 0
+    source_menu = DEFAULT_NAVIGATION_MENU
+    should_seed_missing = not has_existing_items
+
+    if nav_config and nav_config.value:
+        try:
+            nav_data = json.loads(nav_config.value)
+            if isinstance(nav_data, list) and nav_data:
+                source_menu = nav_data
+                should_seed_missing = True
+        except (TypeError, ValueError):
+            logger.warning('旧 system_configs.nav_menu 解析失败，将使用默认导航菜单初始化')
+
+    default_rows = flatten_navigation_items(source_menu)
+    permission_map = _build_nav_permission_map()
+    existing = {item.key: item for item in NavigationMenuItem.query.all()}
+
+    if has_existing_items and not should_seed_missing:
+        _normalize_existing_navigation_menu()
+        _seed_missing_default_navigation_items(default_rows, permission_map, existing)
+        if nav_config:
+            db.session.delete(nav_config)
         db.session.commit()
         return
 
-    try:
-        nav_data = json.loads(nav_config.value or '[]')
-    except (TypeError, ValueError):
-        nav_data = []
+    for row in default_rows:
+        key = row.get('key')
+        if not key:
+            continue
 
-    permission_map = {
+        path = _normalize_nav_path(row.get('path'))
+        expected_permission = permission_map.get(path) or row.get('permission')
+        item = existing.get(key)
+        if not item:
+            db.session.add(NavigationMenuItem(
+                key=key,
+                label=_normalize_nav_label(key, row.get('label') or key),
+                path=path,
+                permission=expected_permission,
+                parent_key=row.get('parent_key'),
+                sort_order=row.get('sort_order') or 0,
+                is_visible=True,
+            ))
+            continue
+
+        if nav_config:
+            item.label = _normalize_nav_label(key, row.get('label') or item.label)
+            item.path = path
+            item.permission = expected_permission
+            item.parent_key = row.get('parent_key')
+            item.sort_order = row.get('sort_order') or 0
+
+    if nav_config:
+        db.session.delete(nav_config)
+
+    db.session.commit()
+
+
+def _seed_missing_default_navigation_items(default_rows, permission_map, existing):
+    for row in default_rows:
+        key = row.get('key')
+        if not key or key in existing:
+            continue
+        path = _normalize_nav_path(row.get('path'))
+        db.session.add(NavigationMenuItem(
+            key=key,
+            label=_normalize_nav_label(key, row.get('label') or key),
+            path=path,
+            permission=permission_map.get(path) or row.get('permission'),
+            parent_key=row.get('parent_key'),
+            sort_order=row.get('sort_order') or 0,
+            is_visible=True,
+        ))
+
+
+def _normalize_existing_navigation_menu():
+    permission_map = _build_nav_permission_map()
+    for item in NavigationMenuItem.query.all():
+        item.path = _normalize_nav_path(item.path)
+        item.label = _normalize_nav_label(item.key, item.label)
+        expected_permission = permission_map.get(item.path)
+        if expected_permission:
+            item.permission = expected_permission
+
+
+def _build_nav_permission_map():
+    return {
         '/admin': 'page:admin:dashboard',
         '/admin/': 'page:admin:dashboard',
         '/admin/tasks': 'page:admin:tasks',
@@ -166,6 +310,7 @@ def init_rbac():
         '/admin/results': 'page:admin:results',
         '/admin/scheduler': 'page:admin:scheduler',
         '/admin/config': 'page:admin:config',
+        '/admin/navigation': 'page:admin:navigation',
         '/admin/google-sheets': 'page:admin:google_sheets',
         '/admin/logs': 'page:admin:logs',
         '/admin/users': 'page:admin:users',
@@ -181,25 +326,27 @@ def init_rbac():
         '/backtest-training/list': 'page:backtest:list',
         '/backtest/create': 'page:backtest:create',
         '/backtest-training/create': 'page:backtest:create',
+        '/backtest-multi-product/list': 'page:backtest_multi_product:list',
+        '/backtest-multi-product/create': 'page:backtest_multi_product:create',
     }
 
-    changed = False
-    for item in nav_data:
-        changed = _sync_nav_permissions(item, permission_map) or changed
-    if changed:
-        nav_config.value = json.dumps(nav_data, ensure_ascii=False)
-        db.session.commit()
+
+def _normalize_nav_path(path):
+    legacy_path_map = {
+        '/task/list?version=c3': '/google-sheet/?version=c3',
+        '/task/list?version=c4': '/google-sheet/?version=c4',
+        '/task/list?version=c5': '/google-sheet/?version=c5',
+        '/task/create': '/google-sheet/create',
+        '/backtest/list': '/backtest-training/list',
+        '/backtest/create': '/backtest-training/create',
+    }
+    return legacy_path_map.get(path, path)
 
 
-def _sync_nav_permissions(item, permission_map):
-    changed = False
-    expected = permission_map.get(item.get('path'))
-    if expected and item.get('permission') != expected:
-        item['permission'] = expected
-        changed = True
-    for child in item.get('children') or []:
-        changed = _sync_nav_permissions(child, permission_map) or changed
-    return changed
+def _normalize_nav_label(key, label):
+    if key == 'backtest' and label == '数据回测':
+        return '单品数据回测'
+    return label
 
 
 def check_and_cleanup_dead_tasks(app):
@@ -259,10 +406,13 @@ def bootstrap_app(app):
         ensure_google_sheet_token_schema()
         ensure_user_schema()
         ensure_task_schema()
+        ensure_scheduled_task_schema()
+        ensure_navigation_menu_schema()
         reset_google_sheet_token_occupancy()
         reset_google_sheet_occupancy()
         init_config()
         init_rbac()
+        init_navigation_menu()
     check_and_cleanup_dead_tasks(app)
     init_scheduler(app)
     init_task_watchdog(app)

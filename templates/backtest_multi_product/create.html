@@ -1,0 +1,489 @@
+{% extends "admin/base.html" %}
+
+{% block title %}创建多品数据回测{% endblock %}
+
+{% block head %}
+<style>
+    .multi-create-shell { display: grid; gap: 1rem; }
+    .tool-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+    }
+    .product-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-body-bg);
+        overflow: visible;
+    }
+    .stock-search-shell { position: relative; }
+    .stock-search-results {
+        position: absolute;
+        inset: calc(100% + 0.35rem) 0 auto 0;
+        z-index: 30;
+        max-height: 15rem;
+        overflow-y: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+    }
+    .stock-search-item {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        text-align: left;
+        padding: 0.7rem 0.85rem;
+    }
+    .stock-search-item:hover { background: rgba(var(--bs-primary-rgb), 0.08); }
+    .param-table input { min-width: 7rem; }
+    .ratio-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 999px;
+        padding: 0.45rem 0.75rem;
+        background: var(--bs-tertiary-bg);
+    }
+    @media (max-width: 991.98px) {
+        .product-card .row > * { min-width: 100%; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 multi-create-shell">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h1 class="h3 mb-1">创建多品数据回测</h1>
+            <div class="text-body-secondary">每个产品独立 Sheet，参数按行号对齐，比例合计必须为 100%。</div>
+        </div>
+        <a href="{{ url_for('backtest_multi_product.list_page') }}" class="btn btn-outline-secondary rounded-pill px-4">返回列表</a>
+    </div>
+
+    <div class="card tool-card">
+        <div class="card-body p-4">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label" for="taskName">任务名称</label>
+                    <input class="form-control" id="taskName" placeholder="如 多品组合回测-0518">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label" for="startDate">K线开始日期</label>
+                    <input class="form-control" id="startDate" type="date">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label" for="endDate">K线结束日期</label>
+                    <input class="form-control" id="endDate" type="date">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" for="tokenId">回测 Token</label>
+                    <select class="form-select" id="tokenId"><option value="">加载中...</option></select>
+                </div>
+                <div class="col-md-2">
+                    <div class="ratio-pill w-100 justify-content-center">
+                        <span class="text-body-secondary">比例合计</span>
+                        <strong id="ratioTotal">0%</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <button class="btn btn-outline-primary" id="addProductBtn" type="button">
+                    <i class="bi bi-plus-lg me-1"></i>添加产品
+                </button>
+                <button class="btn btn-primary" id="createBtn" type="button">
+                    <i class="bi bi-play-circle me-1"></i>创建任务
+                </button>
+                <span class="small align-self-center" id="createStatus"></span>
+            </div>
+        </div>
+    </div>
+
+    <div id="productsContainer" class="d-grid gap-3"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TASK_API_BASE = '/api/tasks';
+const TASK_TYPE = 'backtest_multi_product';
+const DEFAULT_C3_COMMISSION = '0.0350%';
+const FIELD_MAP = {
+    c3: [
+        { key: 'commission', label: 'Commission' },
+        { key: 'xm', label: 'X Multiplier' },
+        { key: 'dbbh1', label: '单边保护1' },
+        { key: 'dbbh2', label: '单边保护2' },
+        { key: 'zlxc', label: '中立限仓' },
+        { key: 'zsgz', label: '指数跟踪' },
+        { key: 'ywf1', label: '一窝蜂 S' },
+        { key: 'ywf2', label: '一窝蜂 B' }
+    ],
+    c5: [
+        { key: 'xm', label: 'X Multiplier' },
+        { key: 'ml', label: 'ML' }
+    ]
+};
+
+let productSeq = 0;
+let stockTimers = {};
+let stockAbortControllers = {};
+
+const productsContainer = document.getElementById('productsContainer');
+const tokenIdSelect = document.getElementById('tokenId');
+const ratioTotal = document.getElementById('ratioTotal');
+const createStatus = document.getElementById('createStatus');
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function extractSpreadsheetId(rawUrl) {
+    const match = String(rawUrl || '').trim().match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match ? match[1] : '';
+}
+
+function inferModelVersion(title) {
+    const normalized = String(title || '').toUpperCase();
+    return normalized.includes('C5') || normalized.includes('C4') ? 'c5' : 'c3';
+}
+
+function resolveMarketTypeBySecurityTypeName(securityTypeName) {
+    return String(securityTypeName || '').includes('美股') ? 'en' : 'cn';
+}
+
+function getProductCards() {
+    return Array.from(productsContainer.querySelectorAll('.product-card'));
+}
+
+function updateRatioTotal() {
+    const total = getProductCards().reduce((sum, card) => {
+        const value = Number(card.querySelector('.ratio-input')?.value || 0);
+        return sum + (Number.isFinite(value) ? value : 0);
+    }, 0);
+    ratioTotal.textContent = `${Number(total.toFixed(4))}%`;
+    ratioTotal.className = Math.abs(total - 100) < 0.0001 ? 'text-success' : 'text-danger';
+}
+
+function buildParameterHead(version) {
+    const fields = FIELD_MAP[version] || FIELD_MAP.c3;
+    return `<tr>${fields.map((field) => `<th>${escapeHtml(field.label)}</th>`).join('')}<th class="text-end">操作</th></tr>`;
+}
+
+function addParameterRow(card, values = []) {
+    const version = card.dataset.modelVersion || 'c3';
+    const fields = FIELD_MAP[version] || FIELD_MAP.c3;
+    const tbody = card.querySelector('.param-body');
+    const row = document.createElement('tr');
+    row.innerHTML = `${fields.map((field, index) => `
+        <td><input class="form-control form-control-sm param-input" data-key="${field.key}" value="${escapeHtml(values[index] ?? (field.key === 'commission' ? DEFAULT_C3_COMMISSION : ''))}"></td>
+    `).join('')}<td class="text-end"><button class="btn btn-sm btn-outline-danger delete-param" type="button"><i class="bi bi-trash"></i></button></td>`;
+    tbody.appendChild(row);
+}
+
+function resetParameterTable(card, version) {
+    card.dataset.modelVersion = version;
+    card.querySelector('.model-badge').textContent = version.toUpperCase();
+    card.querySelector('.param-head').innerHTML = buildParameterHead(version);
+    card.querySelector('.param-body').innerHTML = '';
+    addParameterRow(card);
+}
+
+function addProduct(defaults = {}) {
+    productSeq += 1;
+    const productId = `product-${productSeq}`;
+    const card = document.createElement('div');
+    card.className = 'product-card';
+    card.dataset.productId = productId;
+    card.dataset.modelVersion = 'c3';
+    card.innerHTML = `
+        <div class="p-3 border-bottom bg-body-tertiary d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge text-bg-primary rounded-pill model-badge">C3</span>
+                <strong class="product-title">产品 ${productSeq}</strong>
+            </div>
+            <button class="btn btn-sm btn-outline-danger delete-product" type="button"><i class="bi bi-trash"></i></button>
+        </div>
+        <div class="p-3 d-grid gap-3">
+            <div class="row g-3 align-items-end">
+                <div class="col-xl-3">
+                    <label class="form-label">产品名称</label>
+                    <input class="form-control product-name" value="${escapeHtml(defaults.product_name || `产品 ${productSeq}`)}">
+                </div>
+                <div class="col-xl-2">
+                    <label class="form-label">股票代码</label>
+                    <div class="stock-search-shell">
+                        <input class="form-control stock-code" autocomplete="off" value="${escapeHtml(defaults.stock_code || '')}">
+                        <div class="stock-search-results d-none"></div>
+                    </div>
+                </div>
+                <div class="col-xl-2">
+                    <label class="form-label">市场</label>
+                    <select class="form-select market-type">
+                        <option value="cn">cn</option>
+                        <option value="en">en</option>
+                    </select>
+                </div>
+                <div class="col-xl-2">
+                    <label class="form-label">比例 %</label>
+                    <input class="form-control ratio-input" type="number" min="0" max="100" step="0.0001" value="${escapeHtml(defaults.ratio ?? '')}">
+                </div>
+                <div class="col-xl-3">
+                    <label class="form-label">Google Sheet 链接</label>
+                    <div class="input-group">
+                        <input class="form-control sheet-url" value="${escapeHtml(defaults.sheet_url || '')}">
+                        <button class="btn btn-outline-primary analyze-sheet" type="button">识别</button>
+                    </div>
+                </div>
+            </div>
+            <div class="small text-body-secondary sheet-info">尚未识别 Sheet</div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-secondary btn-sm add-param" type="button"><i class="bi bi-plus-lg me-1"></i>添加参数行</button>
+                <button class="btn btn-outline-secondary btn-sm paste-param" type="button"><i class="bi bi-clipboard2-plus me-1"></i>粘贴追加</button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle param-table mb-0">
+                    <thead class="table-light param-head"></thead>
+                    <tbody class="param-body"></tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    productsContainer.appendChild(card);
+    resetParameterTable(card, 'c3');
+    card.querySelector('.market-type').value = defaults.market_type || 'cn';
+    card.querySelector('.ratio-input').addEventListener('input', updateRatioTotal);
+    card.querySelector('.product-name').addEventListener('input', () => {
+        card.querySelector('.product-title').textContent = card.querySelector('.product-name').value.trim() || '产品';
+    });
+    updateRatioTotal();
+}
+
+async function analyzeSheet(card) {
+    const urlInput = card.querySelector('.sheet-url');
+    const spreadsheetId = extractSpreadsheetId(urlInput.value);
+    if (!spreadsheetId) {
+        alert('请填写有效的 Google Sheet 链接');
+        return;
+    }
+    const button = card.querySelector('.analyze-sheet');
+    button.disabled = true;
+    button.textContent = '识别中';
+    try {
+        const response = await fetch('/api/google-sheet/worksheets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ spreadsheet_id: spreadsheetId })
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '识别失败');
+        }
+        const sheetName = Array.isArray(data.worksheets) && data.worksheets.length ? data.worksheets[0] : 'data';
+        const title = data.title || '';
+        card.dataset.spreadsheetId = spreadsheetId;
+        card.dataset.sheetName = sheetName;
+        card.dataset.sheetTitle = title;
+        resetParameterTable(card, inferModelVersion(title));
+        card.querySelector('.sheet-info').textContent = `${title || spreadsheetId} / ${sheetName}`;
+    } catch (error) {
+        alert(error.message || '识别失败');
+    } finally {
+        button.disabled = false;
+        button.textContent = '识别';
+    }
+}
+
+async function fetchStockSuggestions(card, keyword) {
+    const productId = card.dataset.productId;
+    const resultsEl = card.querySelector('.stock-search-results');
+    if (!keyword.trim()) {
+        resultsEl.classList.add('d-none');
+        return;
+    }
+    if (stockAbortControllers[productId]) {
+        stockAbortControllers[productId].abort();
+    }
+    stockAbortControllers[productId] = new AbortController();
+    try {
+        const response = await fetch(`/backtest-multi-product/api/search-stocks?q=${encodeURIComponent(keyword.trim())}`, {
+            signal: stockAbortControllers[productId].signal
+        });
+        const data = await response.json();
+        const results = Array.isArray(data.results) ? data.results : [];
+        resultsEl.innerHTML = results.length ? results.map((item) => `
+            <button class="stock-search-item" type="button" data-code="${escapeHtml(item.code)}" data-market="${escapeHtml(resolveMarketTypeBySecurityTypeName(item.security_type_name))}" data-name="${escapeHtml(item.name || item.code)}">
+                <div class="fw-semibold">${escapeHtml(item.code)}</div>
+                <div class="small text-body-secondary">${escapeHtml(item.label || '')}</div>
+            </button>
+        `).join('') : '<div class="px-3 py-2 small text-body-secondary">暂无匹配结果</div>';
+        resultsEl.classList.remove('d-none');
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            resultsEl.innerHTML = `<div class="px-3 py-2 small text-danger">${escapeHtml(error.message || '搜索失败')}</div>`;
+            resultsEl.classList.remove('d-none');
+        }
+    }
+}
+
+function collectParameterRows(card) {
+    return Array.from(card.querySelectorAll('.param-body tr'))
+        .map((row) => Array.from(row.querySelectorAll('.param-input')).map((input) => input.value.trim()))
+        .filter((row) => row.some(Boolean));
+}
+
+function collectProducts() {
+    return getProductCards().map((card, index) => ({
+        product_index: index,
+        product_name: card.querySelector('.product-name').value.trim() || `产品 ${index + 1}`,
+        stock_code: card.querySelector('.stock-code').value.trim().toUpperCase(),
+        market_type: card.querySelector('.market-type').value,
+        ratio: card.querySelector('.ratio-input').value.trim(),
+        sheet: {
+            spreadsheet_id: card.dataset.spreadsheetId || extractSpreadsheetId(card.querySelector('.sheet-url').value),
+            sheet_name: card.dataset.sheetName || 'data',
+            title: card.dataset.sheetTitle || ''
+        },
+        parameters: collectParameterRows(card)
+    }));
+}
+
+function validatePayload(products) {
+    if (products.length < 2) {
+        throw new Error('至少需要 2 个产品');
+    }
+    const total = products.reduce((sum, product) => sum + Number(product.ratio || 0), 0);
+    if (Math.abs(total - 100) > 0.0001) {
+        throw new Error(`产品比例合计必须为 100%，当前为 ${Number(total.toFixed(4))}%`);
+    }
+    const expectedRows = products[0].parameters.length;
+    products.forEach((product, index) => {
+        if (!product.stock_code) throw new Error(`产品 ${index + 1} 缺少股票代码`);
+        if (!product.sheet.spreadsheet_id) throw new Error(`产品 ${index + 1} 缺少 Google Sheet`);
+        if (!product.parameters.length) throw new Error(`产品 ${index + 1} 缺少参数`);
+        if (product.parameters.length !== expectedRows) throw new Error('所有产品参数行数必须一致');
+    });
+}
+
+async function loadBacktestTokens() {
+    try {
+        const response = await fetch('/api/google-sheet-tokens?task_type=backtest_training');
+        const data = await response.json();
+        const tokens = Array.isArray(data.tokens) ? data.tokens : [];
+        tokenIdSelect.innerHTML = tokens.length ? tokens.map((token) => `
+            <option value="${escapeHtml(token.id)}" ${token.is_available ? '' : 'disabled'}>
+                ${escapeHtml(token.name)} | 占用 ${escapeHtml(token.current_in_use_count || 0)}
+            </option>
+        `).join('') : '<option value="">暂无可用 Token</option>';
+    } catch (error) {
+        tokenIdSelect.innerHTML = '<option value="">加载 Token 失败</option>';
+    }
+}
+
+async function createTask() {
+    createStatus.className = 'small text-body-secondary align-self-center';
+    createStatus.textContent = '';
+    try {
+        const products = collectProducts();
+        validatePayload(products);
+        const taskName = document.getElementById('taskName').value.trim() || `多品数据回测-${new Date().toISOString().slice(0, 10)}`;
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        if (!startDate || !endDate) throw new Error('请选择 K 线数据时间范围');
+        if (!tokenIdSelect.value) throw new Error('请选择回测 Token');
+        const response = await fetch(TASK_API_BASE, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: taskName,
+                description: 'multi product backtest task',
+                task_type: TASK_TYPE,
+                config: {
+                    start_date: startDate,
+                    end_date: endDate,
+                    token_type: 'file',
+                    token_id: Number(tokenIdSelect.value),
+                    products
+                }
+            })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.task_id) {
+            throw new Error(data.message || '任务创建失败');
+        }
+        window.location.href = '{{ url_for("backtest_multi_product.list_page") }}';
+    } catch (error) {
+        createStatus.className = 'small text-danger align-self-center';
+        createStatus.textContent = error.message || '任务创建失败';
+    }
+}
+
+productsContainer.addEventListener('click', (event) => {
+    const card = event.target.closest('.product-card');
+    if (!card) return;
+    if (event.target.closest('.delete-product')) {
+        card.remove();
+        updateRatioTotal();
+        return;
+    }
+    if (event.target.closest('.analyze-sheet')) {
+        analyzeSheet(card);
+        return;
+    }
+    if (event.target.closest('.add-param')) {
+        addParameterRow(card);
+        return;
+    }
+    if (event.target.closest('.delete-param')) {
+        event.target.closest('tr')?.remove();
+        return;
+    }
+    if (event.target.closest('.paste-param')) {
+        const raw = prompt('粘贴从 Excel 复制的参数行，多行会追加。');
+        if (!raw) return;
+        raw.split(/\r?\n/).map((line) => line.split(/\t|,/).map((item) => item.trim())).filter((row) => row.some(Boolean)).forEach((row) => addParameterRow(card, row));
+        return;
+    }
+    const stockItem = event.target.closest('.stock-search-item');
+    if (stockItem) {
+        card.querySelector('.stock-code').value = stockItem.dataset.code || '';
+        card.querySelector('.product-name').value = stockItem.dataset.name || stockItem.dataset.code || '';
+        card.querySelector('.product-title').textContent = card.querySelector('.product-name').value;
+        card.querySelector('.market-type').value = stockItem.dataset.market || 'cn';
+        card.querySelector('.stock-search-results').classList.add('d-none');
+    }
+});
+
+productsContainer.addEventListener('input', (event) => {
+    const stockInput = event.target.closest('.stock-code');
+    if (!stockInput) return;
+    const card = event.target.closest('.product-card');
+    window.clearTimeout(stockTimers[card.dataset.productId]);
+    stockTimers[card.dataset.productId] = window.setTimeout(() => fetchStockSuggestions(card, stockInput.value), 600);
+});
+
+document.addEventListener('click', (event) => {
+    if (!event.target.closest('.stock-search-shell')) {
+        document.querySelectorAll('.stock-search-results').forEach((el) => el.classList.add('d-none'));
+    }
+});
+
+document.getElementById('addProductBtn').addEventListener('click', () => addProduct());
+document.getElementById('createBtn').addEventListener('click', createTask);
+
+const today = new Date();
+const prior = new Date();
+prior.setFullYear(today.getFullYear() - 3);
+document.getElementById('endDate').value = today.toISOString().slice(0, 10);
+document.getElementById('startDate').value = prior.toISOString().slice(0, 10);
+addProduct({ ratio: 50 });
+addProduct({ ratio: 50 });
+loadBacktestTokens();
+</script>
+{% endblock %}

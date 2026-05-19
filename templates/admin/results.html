@@ -1,5 +1,33 @@
 {% extends "admin/base.html" %}
 
+{% block head %}
+<style>
+    .json-viewer {
+        max-height: 28rem;
+        overflow: auto;
+        font-size: 0.875rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    .result-meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+    .result-meta-item {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        background: var(--bs-tertiary-bg);
+    }
+    @media (max-width: 767.98px) {
+        .result-meta-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid">
     <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
@@ -55,24 +83,64 @@
 
 <!-- 查看结果详情模态框 -->
 <div class="modal fade" id="viewResultModal" tabindex="-1" aria-labelledby="viewResultModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="viewResultModalLabel">结果详情</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div class="mb-3">
-                    <h6>参数信息</h6>
-                    <pre id="resultParameters" class="bg-body-tertiary p-3 rounded"></pre>
+                <div class="result-meta-grid mb-3">
+                    <div class="result-meta-item">
+                        <div class="small text-muted">结果 ID</div>
+                        <div class="fw-semibold" id="resultDetailId">-</div>
+                    </div>
+                    <div class="result-meta-item">
+                        <div class="small text-muted">任务 ID</div>
+                        <div class="fw-semibold text-break" id="resultDetailTaskId">-</div>
+                    </div>
+                    <div class="result-meta-item">
+                        <div class="small text-muted">步骤索引</div>
+                        <div class="fw-semibold" id="resultDetailStep">-</div>
+                    </div>
+                    <div class="result-meta-item">
+                        <div class="small text-muted">状态 / 时间</div>
+                        <div class="fw-semibold" id="resultDetailStatus">-</div>
+                    </div>
                 </div>
-                <div class="mb-3">
-                    <h6>执行结果</h6>
-                    <pre id="resultData" class="bg-body-tertiary p-3 rounded"></pre>
+
+                <ul class="nav nav-tabs" id="resultJsonTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="result-params-tab" data-bs-toggle="tab" data-bs-target="#result-params-pane" type="button" role="tab">
+                            参数 JSON
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="result-data-tab" data-bs-toggle="tab" data-bs-target="#result-data-pane" type="button" role="tab">
+                            结果 JSON
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="result-error-tab" data-bs-toggle="tab" data-bs-target="#result-error-pane" type="button" role="tab">
+                            错误信息
+                        </button>
+                    </li>
+                </ul>
+                <div class="tab-content border border-top-0 rounded-bottom p-3">
+                    <div class="tab-pane fade show active" id="result-params-pane" role="tabpanel" tabindex="0">
+                        <pre id="resultParameters" class="json-viewer bg-body-tertiary p-3 rounded mb-0"></pre>
+                    </div>
+                    <div class="tab-pane fade" id="result-data-pane" role="tabpanel" tabindex="0">
+                        <pre id="resultData" class="json-viewer bg-body-tertiary p-3 rounded mb-0"></pre>
+                    </div>
+                    <div class="tab-pane fade" id="result-error-pane" role="tabpanel" tabindex="0">
+                        <pre id="errorMessage" class="json-viewer bg-body-tertiary p-3 rounded text-danger mb-0"></pre>
+                    </div>
                 </div>
-                <div class="mb-3 d-none" id="errorMessageContainer">
-                    <h6>错误信息</h6>
-                    <pre id="errorMessage" class="bg-body-tertiary p-3 rounded text-danger"></pre>
+                <div class="d-flex justify-content-end mt-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copyCurrentResultJson()">
+                        <i class="bi bi-clipboard"></i> 复制当前 JSON
+                    </button>
                 </div>
             </div>
             <div class="modal-footer">
@@ -89,6 +157,7 @@
 let currentPage = 1;
 let pageSize = 20;
 let currentTaskId = '';
+let currentResultPayload = null;
 
 // 显示错误提示
 function showError(message) {
@@ -125,6 +194,7 @@ function showLoading(show = true) {
 
 // 加载结果列表
 function loadResults(page = 1) {
+    currentPage = page;
     showLoading(true);
     const url = new URL('/api/results', window.location.origin);
     url.searchParams.append('page', page);
@@ -153,7 +223,7 @@ function loadResults(page = 1) {
                     <td>${new Date(result.timestamp).toLocaleString()}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary" onclick="viewResult(${result.id})">
-                            <i class="bi bi-eye"></i> 查看
+                            <i class="bi bi-eye"></i> 查看 JSON
                         </button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deleteResult(${result.id})">
                             <i class="bi bi-trash"></i>
@@ -243,21 +313,35 @@ function viewResult(id) {
     fetch(`/api/results/${id}`)
         .then(response => response.json())
         .then(result => {
+            currentResultPayload = result;
+            document.getElementById('resultDetailId').textContent = result.id ?? '-';
+            document.getElementById('resultDetailTaskId').textContent = result.task_id ?? '-';
+            document.getElementById('resultDetailStep').textContent = result.step_index ?? '-';
+            document.getElementById('resultDetailStatus').innerHTML = `
+                <span class="badge ${result.success ? 'bg-success' : 'bg-danger'}">${result.success ? '成功' : '失败'}</span>
+                <span class="ms-2">${result.timestamp ? new Date(result.timestamp).toLocaleString() : '-'}</span>
+            `;
             document.getElementById('resultParameters').textContent = JSON.stringify(result.parameters, null, 2);
             document.getElementById('resultData').textContent = JSON.stringify(result.result, null, 2);
-            
-            const errorContainer = document.getElementById('errorMessageContainer');
-            const errorMessage = document.getElementById('errorMessage');
-            if (result.error_message) {
-                errorMessage.textContent = result.error_message;
-                errorContainer.classList.remove('d-none');
-            } else {
-                errorContainer.classList.add('d-none');
+            document.getElementById('errorMessage').textContent = result.error_message || '无错误信息';
+
+            const firstTab = document.getElementById('result-params-tab');
+            if (firstTab) {
+                bootstrap.Tab.getOrCreateInstance(firstTab).show();
             }
-            
-            $('#viewResultModal').modal('show');
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('viewResultModal')).show();
         })
         .catch(error => console.error('Error:', error));
+}
+
+function copyCurrentResultJson() {
+    if (!currentResultPayload) {
+        return;
+    }
+
+    const activePane = document.querySelector('#viewResultModal .tab-pane.active pre');
+    const text = activePane ? activePane.textContent : JSON.stringify(currentResultPayload, null, 2);
+    navigator.clipboard.writeText(text).catch(error => console.error('复制失败:', error));
 }
 
 // 删除结果

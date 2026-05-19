@@ -283,7 +283,120 @@ def test_backtest_start_task_blocks_same_sheet_running_task_created_within_one_d
         assert "已有回测任务正在运行" in manager.get_start_error(queued_task_id)
 
 
-def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_factory):
+def test_backtest_start_task_blocks_same_sheet_running_task_older_than_one_day(app_factory):
+    with app_factory.app_context():
+        spreadsheet_id = "spreadsheet-old-running"
+        running_task = Task(
+            id="running-backtest-old",
+            name="running-backtest-old",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="running",
+            created_at=datetime.now() - timedelta(days=2),
+            start_time=datetime.now() - timedelta(days=2),
+        )
+        queued_task = Task(
+            id="queued-backtest-old",
+            name="queued-backtest-old",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="pending",
+            created_at=datetime.now(),
+        )
+        db.session.add_all([running_task, queued_task])
+        db.session.commit()
+        queued_task_id = queued_task.id
+
+        manager = TaskManager()
+        started = manager.start_task(queued_task_id)
+
+        refreshed = db.session.get(Task, queued_task_id)
+        assert started is False
+        assert refreshed.status == "pending"
+        assert "已有回测任务正在运行" in manager.get_start_error(queued_task_id)
+
+
+def test_backtest_start_task_blocks_existing_sheet_lock(monkeypatch, app_factory, tmp_path):
+    with app_factory.app_context():
+        spreadsheet_id = "spreadsheet-file-lock"
+        task = Task(
+            id="queued-backtest-file-lock",
+            name="queued-backtest-file-lock",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="pending",
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.commit()
+        task_id = task.id
+
+        manager = TaskManager()
+        lock_dir = tmp_path / "backtest_sheet_locks"
+        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
+        lock_path = manager._get_backtest_sheet_lock_path(spreadsheet_id)
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(
+            json.dumps({"task_id": "locked-backtest", "spreadsheet_id": spreadsheet_id}),
+            encoding="utf-8",
+        )
+
+        started = manager.start_task(task_id)
+
+        refreshed = db.session.get(Task, task_id)
+        assert started is False
+        assert refreshed.status == "pending"
+        assert "已有回测任务正在运行" in manager.get_start_error(task_id)
+        assert "locked-backtest" in manager.get_start_error(task_id)
+
+
+def test_backtest_start_task_releases_sheet_lock_when_thread_start_fails(
+    monkeypatch,
+    app_factory,
+    tmp_path,
+):
+    with app_factory.app_context():
+        spreadsheet_id = "spreadsheet-thread-fail-lock"
+        task = Task(
+            id="backtest-thread-fail-lock",
+            name="backtest-thread-fail-lock",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="pending",
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.commit()
+        task_id = task.id
+
+        class _FailThread:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                raise RuntimeError("thread failed")
+
+            def is_alive(self):
+                return False
+
+        manager = TaskManager()
+        lock_dir = tmp_path / "backtest_sheet_locks"
+        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
+        monkeypatch.setattr("app.services.task.runtime.threading.Thread", _FailThread)
+
+        started = manager.start_task(task_id)
+
+        refreshed = db.session.get(Task, task_id)
+        assert started is False
+        assert refreshed.status == "pending"
+        assert not manager._get_backtest_sheet_lock_path(spreadsheet_id).exists()
+
+
+def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_factory, tmp_path):
     with app_factory.app_context():
         spreadsheet_id = "spreadsheet-pre-mark-running"
         first_task = Task(
@@ -319,9 +432,11 @@ def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_f
             def is_alive(self):
                 return True
 
+        lock_dir = tmp_path / "backtest_sheet_locks"
         monkeypatch.setattr("app.services.task.runtime.threading.Thread", _NoopThread)
 
         manager = TaskManager()
+        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
         assert manager.start_task(first_task_id) is True
 
         refreshed_first = db.session.get(Task, first_task_id)
@@ -357,6 +472,124 @@ def test_restart_task_returns_concrete_start_error(monkeypatch, app_factory):
         assert result["status"] == "error"
         assert "同一个 Google Sheet 已有回测任务正在运行" in result["message"]
         assert result["start_error"] == manager.get_start_error(task_id)
+
+
+def test_running_backtest_checkpoint_restart_queues_when_lock_exists(
+    monkeypatch,
+    app_factory,
+    tmp_path,
+):
+    with app_factory.app_context():
+        spreadsheet_id = "spreadsheet-running-restart"
+        task = Task(
+            id="running-backtest-restart-blocked",
+            name="running-backtest-restart-blocked",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="running",
+            created_at=datetime.now(),
+            start_time=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.commit()
+        task_id = task.id
+
+        manager = TaskManager()
+        lock_dir = tmp_path / "backtest_sheet_locks"
+        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
+        lock_path = manager._get_backtest_sheet_lock_path(spreadsheet_id)
+        lock_path.write_text(
+            json.dumps({"task_id": task_id, "spreadsheet_id": spreadsheet_id}),
+            encoding="utf-8",
+        )
+
+        result = manager.restart_task(task_id, resume_from_checkpoint=True)
+
+        refreshed = db.session.get(Task, task_id)
+        assert result["status"] == "error"
+        assert "已有回测任务正在运行" in result["message"]
+        assert refreshed.status == "pending"
+
+
+def test_backtest_checkpoint_restart_blocks_other_running_same_sheet(monkeypatch, app_factory):
+    with app_factory.app_context():
+        spreadsheet_id = "spreadsheet-restart-same-sheet"
+        running_task = Task(
+            id="running-backtest-restart-conflict",
+            name="running-backtest-restart-conflict",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="running",
+            created_at=datetime.now(),
+            start_time=datetime.now(),
+        )
+        restart_task = Task(
+            id="cancelled-backtest-restart-conflict",
+            name="cancelled-backtest-restart-conflict",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="cancelled",
+            created_at=datetime.now(),
+        )
+        db.session.add_all([running_task, restart_task])
+        db.session.commit()
+        restart_task_id = restart_task.id
+
+        manager = TaskManager()
+        monkeypatch.setattr(
+            manager,
+            "start_task",
+            lambda task_id: pytest.fail("start_task should not be called"),
+        )
+
+        result = manager.restart_task(restart_task_id, resume_from_checkpoint=True)
+
+        refreshed = db.session.get(Task, restart_task_id)
+        assert result["status"] == "error"
+        assert "已有回测任务正在运行" in result["message"]
+        assert refreshed.status == "cancelled"
+
+
+def test_backtest_restart_stays_pending_when_sheet_lock_exists(
+    monkeypatch,
+    app_factory,
+    tmp_path,
+):
+    with app_factory.app_context():
+        spreadsheet_id = "spreadsheet-restart-file-lock"
+        task = Task(
+            id="backtest-restart-file-lock",
+            name="backtest-restart-file-lock",
+            description="",
+            task_type="backtest_training",
+            config=json.dumps({"sheet": {"spreadsheet_id": spreadsheet_id}}),
+            status="error",
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.commit()
+        task_id = task.id
+
+        manager = TaskManager()
+        lock_dir = tmp_path / "backtest_sheet_locks"
+        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
+        lock_path = manager._get_backtest_sheet_lock_path(spreadsheet_id)
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(
+            json.dumps({"task_id": "running-from-lock", "spreadsheet_id": spreadsheet_id}),
+            encoding="utf-8",
+        )
+
+        result = manager.restart_task(task_id, resume_from_checkpoint=True)
+
+        refreshed = db.session.get(Task, task_id)
+        assert result["status"] == "error"
+        assert "已有回测任务正在运行" in result["message"]
+        assert refreshed.status == "pending"
+        assert "running-from-lock" in manager.get_start_error(task_id)
 
 
 def test_backtest_checkpoint_resume_skips_saved_result_steps(app_factory):
@@ -452,22 +685,24 @@ def test_restart_task_from_scratch_clears_backtest_returns(monkeypatch, app_fact
             start_return=0.02,
         ))
         db.session.commit()
+        task_id = task.id
 
         manager = TaskManager()
         monkeypatch.setattr(manager, "start_task", lambda task_id: True)
 
-        result = manager.restart_task(task.id, resume_from_checkpoint=False)
+        result = manager.restart_task(task_id, resume_from_checkpoint=False)
 
-        refreshed = db.session.get(Task, task.id)
+        refreshed = db.session.get(Task, task_id)
         assert result["status"] == "success"
         assert result["restart_from_step"] == 0
         assert refreshed.current_step == 0
-        assert TaskResult.query.filter_by(task_id=task.id).count() == 0
-        assert TaskResultReturn.query.filter_by(task_id=task.id).count() == 0
+        assert TaskResult.query.filter_by(task_id=task_id).count() == 0
+        assert TaskResultReturn.query.filter_by(task_id=task_id).count() == 0
 
 
-def test_backtest_finish_starts_next_pending_same_sheet(app_factory):
+def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory, tmp_path):
     with app_factory.app_context():
+        lock_dir = tmp_path / "backtest_sheet_locks"
         finished_task = Task(
             id="finished-backtest",
             name="finished-backtest",
@@ -497,15 +732,46 @@ def test_backtest_finish_starts_next_pending_same_sheet(app_factory):
         )
         db.session.add_all([finished_task, next_task, other_task])
         db.session.commit()
+        finished_task_id = finished_task.id
+        next_task_id = next_task.id
 
         started_task_ids = []
         manager = TaskManager()
-        manager.start_task = lambda task_id: started_task_ids.append(task_id) or True
-        manager.add_task_log = lambda *args, **kwargs: None
+        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
 
-        manager._start_next_pending_backtest_task(finished_task.id, app_factory)
+        original_start_task = manager.start_task
 
+        def _start_task(task_id):
+            started_task_ids.append(task_id)
+            return original_start_task(task_id)
+
+        class _NoopThread:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                return None
+
+            def is_alive(self):
+                return True
+
+        monkeypatch.setattr("app.services.task.runtime.threading.Thread", _NoopThread)
+        manager.start_task = _start_task
+
+        manager._start_next_pending_backtest_task(finished_task_id, app_factory)
+
+        refreshed_next = db.session.get(Task, next_task_id)
+        transition_message = (
+            "回测任务 finished-backtest 结束，启动同 sheet 的下一个待执行任务: "
+            "next-backtest"
+        )
+        finished_logs = [log.message for log in TaskLog.query.filter_by(task_id=finished_task_id).all()]
+        next_logs = [log.message for log in TaskLog.query.filter_by(task_id=next_task_id).all()]
         assert started_task_ids == ["next-backtest"]
+        assert refreshed_next.status == "running"
+        assert manager._get_backtest_sheet_lock_path("spreadsheet-next").exists()
+        assert transition_message in finished_logs
+        assert transition_message in next_logs
 
 
 def test_create_and_start_releases_sheet_when_start_fails(app_factory):

@@ -370,6 +370,44 @@ class SystemConfig(db.Model):
         }
 
 
+class NavigationMenuItem(db.Model):
+    """侧边栏导航菜单项"""
+
+    __tablename__ = "navigation_menu_items"
+    __table_args__ = (
+        db.Index("idx_navigation_menu_parent_sort", "parent_key", "sort_order"),
+        {"comment": "侧边栏导航菜单表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="菜单ID")
+    key = db.Column(db.String(100), unique=True, nullable=False, comment="菜单唯一键")
+    label = db.Column(db.String(100), nullable=False, comment="菜单名称")
+    path = db.Column(db.String(255), comment="前端路由路径")
+    permission = db.Column(db.String(100), comment="访问该菜单所需权限编码")
+    parent_key = db.Column(db.String(100), index=True, comment="父级菜单key，空表示顶级")
+    sort_order = db.Column(db.Integer, default=0, nullable=False, comment="排序值")
+    is_visible = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否显示")
+    created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+
+    def to_dict(self, include_children=False):
+        data = {
+            "id": self.id,
+            "key": self.key,
+            "label": self.label,
+            "path": self.path,
+            "permission": self.permission,
+            "parent_key": self.parent_key,
+            "sort_order": self.sort_order,
+            "is_visible": self.is_visible,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_children:
+            data["children"] = []
+        return data
+
+
 class GoogleSheetToken(db.Model):
     """Google Sheet token pool model."""
 

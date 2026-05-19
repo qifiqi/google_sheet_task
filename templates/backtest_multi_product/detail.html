@@ -176,7 +176,7 @@
                 </div>
             </div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
-                <a href="/backtest-training/list" class="btn btn-outline-secondary rounded-pill px-4" id="backToListLink">
+                <a href="/backtest-multi-product/list" class="btn btn-outline-secondary rounded-pill px-4" id="backToListLink">
                     <i class="bi bi-arrow-left"></i> 返回列表
                 </a>
             </div>
@@ -201,7 +201,7 @@
                 </div>
             </div>
             <div class="d-flex flex-wrap gap-2 mt-4">
-                <a href="/backtest-training/global-preview/{{ task_id }}" class="btn btn-outline-success rounded-pill px-4" id="globalPreviewLink">
+                <a href="/backtest-multi-product/global-preview/{{ task_id }}" class="btn btn-outline-success rounded-pill px-4" id="globalPreviewLink">
                     <i class="bi bi-layout-text-window-reverse me-1"></i> 全局预览页
                 </a>
                 <button type="button" class="btn btn-warning rounded-pill px-4" id="stopTaskBtn" disabled>
@@ -382,8 +382,8 @@
     const currentTaskId = {{ task_id|tojson }};
     const AUTO_REFRESH_INTERVAL = 60 * 1000;
     const TASK_RESULT_PAGE_SIZE = 10;
-    const LIST_PAGINATION_STORAGE_KEY = 'backtest_training:list_pagination';
-    const RESULT_PAGINATION_STORAGE_KEY = `backtest_training:task_results:${currentTaskId}:pagination`;
+    const LIST_PAGINATION_STORAGE_KEY = 'backtest_multi_product:list_pagination';
+    const RESULT_PAGINATION_STORAGE_KEY = `backtest_multi_product:task_results:${currentTaskId}:pagination`;
     const FIELD_MAP = {
         c5: [
             { key: 'xm', label: 'X Multiplier (xm)' },
@@ -400,7 +400,7 @@
             { key: 'ywf2', label: '一窝蜂 bordering' }
         ]
     };
-    const C3_SUMMARY_STORAGE_KEY = 'backtest_training:c3_summary_metric_keys';
+    const C3_SUMMARY_STORAGE_KEY = 'backtest_multi_product:c3_summary_metric_keys';
     const C3_SUMMARY_METRIC_DEFS = [
         { key: 'strategy_return', label: '策略收益%', format: 'percent', defaultSelected: true, signClass: true },
         { key: 'index_return', label: '指数收益%', format: 'percent', defaultSelected: true, signClass: true },
@@ -491,7 +491,7 @@
 
     function buildListHref() {
         const listState = getListPaginationFromNavigation();
-        return `/backtest-training/list?page=${encodeURIComponent(listState.page)}&per_page=${encodeURIComponent(listState.per_page)}`;
+        return `/backtest-multi-product/list?page=${encodeURIComponent(listState.page)}&per_page=${encodeURIComponent(listState.per_page)}`;
     }
 
     function getInitialResultPaginationState() {
@@ -529,7 +529,7 @@
             result_page: String(taskResultPaginationState.page || 1),
             result_per_page: String(taskResultPaginationState.per_page || TASK_RESULT_PAGE_SIZE)
         });
-        return `/backtest-training/result/${encodeURIComponent(resultId)}?${params.toString()}`;
+        return `/backtest-multi-product/result/${encodeURIComponent(resultId)}?${params.toString()}`;
     }
 
     function buildGlobalPreviewHref() {
@@ -540,7 +540,7 @@
             result_page: String(taskResultPaginationState.page || 1),
             result_per_page: String(taskResultPaginationState.per_page || TASK_RESULT_PAGE_SIZE)
         });
-        return `/backtest-training/global-preview/${encodeURIComponent(currentTaskId)}?${params.toString()}`;
+        return `/backtest-multi-product/global-preview/${encodeURIComponent(currentTaskId)}?${params.toString()}`;
     }
 
     function escapeHtml(value) {
@@ -596,13 +596,8 @@
         return escapeHtml(value);
     }
 
-    function inferModelVersion(config) {
-        const title = config && config.sheet && config.sheet.title ? String(config.sheet.title) : '';
-        const upperTitle = title.toUpperCase();
-        if (upperTitle.includes('C5') || upperTitle.includes('C4')) {
-            return 'c5';
-        }
-        return 'c3';
+    function inferModelVersion(_config) {
+        return 'multi';
     }
 
     function formatConfigDisplayValue(value) {
@@ -627,20 +622,16 @@
             return;
         }
 
-        const sheet = config && typeof config.sheet === 'object' ? config.sheet : {};
+        const products = Array.isArray(config.products) ? config.products : [];
         const items = [
-            { label: '股票代码', value: config.stock_code },
-            { label: '市场类型', value: config.market_type },
-            { label: 'Spreadsheet ID', value: sheet.spreadsheet_id },
-            { label: '工作表名称', value: sheet.sheet_name },
-            { label: '表格标题', value: sheet.title },
+            { label: 'K线开始日期', value: config.start_date },
+            { label: 'K线结束日期', value: config.end_date },
+            { label: '产品数量', value: products.length },
             { label: 'Token ID', value: config.token_id },
             { label: 'Token 名称', value: config.token_name },
             { label: 'Token 类型', value: config.token_type },
             { label: 'Token 任务类型', value: config.token_task_type },
             { label: 'Token 文件', value: config.token_file },
-            { label: '近 N 年', value: config.recent_years },
-            { label: '完整年份', value: config.full_years }
         ];
 
         grid.innerHTML = items.map((item) => `
@@ -657,29 +648,36 @@
         tableHead.innerHTML = '';
         tableBody.innerHTML = '';
 
-        const parameters = Array.isArray(config.parameters) ? config.parameters : [];
+        const products = Array.isArray(config.products) ? config.products : [];
 
-        if (!parameters.length) {
-            tableHead.innerHTML = '<tr><th class="ps-4">参数组</th><th>参数值</th></tr>';
-            tableBody.innerHTML = '<tr><td colspan="2" class="text-center text-body-secondary py-4">暂无参数配置</td></tr>';
+        if (!products.length) {
+            tableHead.innerHTML = '<tr><th class="ps-4">产品</th><th>参数值</th></tr>';
+            tableBody.innerHTML = '<tr><td colspan="2" class="text-center text-body-secondary py-4">暂无产品配置</td></tr>';
             return;
         }
 
-        const maxColumns = parameters.reduce((max, group) => Math.max(max, Array.isArray(group) ? group.length : 0), 0);
-        const fieldLabels = (FIELD_MAP[inferModelVersion(config)] || []).map((field) => field.label);
-        const headCells = ['<th class="ps-4">参数组</th>'];
-        for (let i = 0; i < maxColumns; i += 1) {
-            headCells.push(`<th>${escapeHtml(fieldLabels[i] || `参数 ${i + 1}`)}</th>`);
-        }
-        tableHead.innerHTML = `<tr>${headCells.join('')}</tr>`;
+        tableHead.innerHTML = `
+            <tr>
+                <th class="ps-4">产品</th>
+                <th>股票/市场</th>
+                <th>比例</th>
+                <th>Sheet</th>
+                <th>参数行数</th>
+            </tr>
+        `;
 
-        tableBody.innerHTML = parameters.map((group, index) => {
-            const rowValues = Array.isArray(group) ? group : [];
-            const cells = [`<td class="ps-4 fw-semibold">第 ${index + 1} 组</td>`];
-            for (let i = 0; i < maxColumns; i += 1) {
-                cells.push(`<td>${renderValue(rowValues[i])}</td>`);
-            }
-            return `<tr>${cells.join('')}</tr>`;
+        tableBody.innerHTML = products.map((product, index) => {
+            const sheet = product.sheet || {};
+            const parameters = Array.isArray(product.parameters) ? product.parameters : [];
+            return `
+                <tr>
+                    <td class="ps-4 fw-semibold">${escapeHtml(product.product_name || product.name || `产品 ${index + 1}`)}</td>
+                    <td>${escapeHtml(product.stock_code || '-')} / ${escapeHtml(product.market_type || '-')}</td>
+                    <td>${escapeHtml(product.ratio || '-')}%</td>
+                    <td>${escapeHtml(sheet.title || sheet.sheet_name || sheet.spreadsheet_id || '-')}</td>
+                    <td>${parameters.length}</td>
+                </tr>
+            `;
         }).join('');
     }
 
@@ -980,21 +978,14 @@
         const c3View = document.getElementById('c3SummaryView');
         const c5View = document.getElementById('c5TaskResultView');
 
-        if (currentModelVersion === 'c3') {
-            if (title) title.textContent = '参数汇总表';
-            if (c3View) c3View.classList.remove('d-none');
-            if (c5View) c5View.classList.add('d-none');
-            return;
-        }
-
-        if (title) title.textContent = '回测生成结果';
+        if (title) title.textContent = '多品回测生成结果';
         if (c3View) c3View.classList.add('d-none');
         if (c5View) c5View.classList.remove('d-none');
     }
 
     function loadC3Summary(options = {}) {
         const { silent = false } = options;
-        ajaxRequest(`/backtest-training/api/task-summary/${encodeURIComponent(currentTaskId)}`, 'GET', null, function(err, data) {
+        ajaxRequest(`/backtest-multi-product/api/task-summary/${encodeURIComponent(currentTaskId)}`, 'GET', null, function(err, data) {
             if (err || !data || data.status !== 'success') {
                 const tbody = document.getElementById('c3SummaryTableBody');
                 if (tbody) {
@@ -1059,27 +1050,40 @@
             }
 
             const stockCode = parameters.stock_code;
-            const year = parameters.year;
             const kline = Array.isArray(parameters.kline) ? parameters.kline : [];
             const parameterValues = Array.isArray(parameters.parameter) ? parameters.parameter : [];
             const primaryChips = [];
 
+            if (parameters.product_name) {
+                primaryChips.push(`<span class="result-param-chip"><strong>产品</strong><span>${escapeHtml(String(parameters.product_name))}</span></span>`);
+            }
             if (stockCode) {
                 primaryChips.push(`<span class="result-param-chip"><strong>股票</strong><span>${escapeHtml(String(stockCode))}</span></span>`);
             }
-            if (year !== undefined && year !== null && year !== '') {
-                primaryChips.push(`<span class="result-param-chip"><strong>年份</strong><span>${escapeHtml(String(year))}</span></span>`);
-            }
-            if (parameters.Kline_key !== undefined && parameters.Kline_key !== null && parameters.Kline_key !== '') {
-                primaryChips.push(`<span class="result-param-chip"><strong>K 线键</strong><span>${escapeHtml(String(parameters.Kline_key))}</span></span>`);
+            if (parameters.ratio !== undefined && parameters.ratio !== null && parameters.ratio !== '') {
+                primaryChips.push(`<span class="result-param-chip"><strong>比例</strong><span>${escapeHtml(String(parameters.ratio))}%</span></span>`);
             }
             if (kline.length) {
                 const firstDate = kline[0] && kline[0].stock_date ? String(kline[0].stock_date) : '-';
                 const lastDate = kline[kline.length - 1] && kline[kline.length - 1].stock_date ? String(kline[kline.length - 1].stock_date) : '-';
-                primaryChips.push(`<span class="result-param-chip"><strong>K 线</strong><span>${escapeHtml(`${kline.length} 条，${firstDate} ~ ${lastDate}`)}</span></span>`);
+                primaryChips.push(`<span class="result-param-chip"><strong>K 线范围</strong><span>${escapeHtml(`${firstDate} ~ ${lastDate}`)}</span></span>`);
             }
 
-            const extraEntries = entries.filter(([key]) => !['stock_code', 'year', 'Kline_key', 'kline', 'parameter'].includes(key));
+            const hiddenKeys = [
+                'stock_code',
+                'year',
+                'Kline_key',
+                'kline',
+                'parameter',
+                'product_name',
+                'parameter_group_index',
+                'product_index',
+                'ratio',
+                'sheet',
+                'start_date',
+                'end_date'
+            ];
+            const extraEntries = entries.filter(([key]) => !hiddenKeys.includes(key));
             const extraChips = extraEntries.map(([key, value]) => {
                 const display = stringifyCompact(value);
                 const safeDisplay = display.length > 36 ? `${display.slice(0, 36)}...` : display;
@@ -1331,11 +1335,7 @@
             renderTaskConfig(task.config || {});
             renderParameterTable(task.config || {});
             updateTaskResultSectionMode(task.config || {});
-            if (currentModelVersion === 'c3') {
-                loadC3Summary({ silent });
-            } else {
-                loadTaskResults({ silent });
-            }
+            loadTaskResults({ silent });
         });
     }
 
@@ -1345,7 +1345,7 @@
             page = taskResultPaginationState.page,
             perPage = taskResultPaginationState.per_page || TASK_RESULT_PAGE_SIZE
         } = options;
-        const resultUrl = `/backtest-training/api/task-results/${encodeURIComponent(currentTaskId)}?page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(perPage)}`;
+        const resultUrl = `/backtest-multi-product/api/task-results/${encodeURIComponent(currentTaskId)}?page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(perPage)}`;
         ajaxRequest(resultUrl, 'GET', null, function(err, data) {
             if (err || !data || data.status !== 'success') {
                 if (!silent) {

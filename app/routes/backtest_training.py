@@ -4,6 +4,7 @@ import json
 import math
 import re
 from collections import OrderedDict
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 
 from flask import Blueprint, current_app, jsonify, render_template, request, send_file, g
@@ -36,6 +37,28 @@ C3_PARAMETER_FIELDS = [
 TASK_ACTION_LABELS = {
     "view": "查看",
 }
+
+SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
+
+
+def _normalize_scientific_text(text: str) -> str:
+    if not SCIENTIFIC_NOTATION_RE.fullmatch(text):
+        return text
+
+    try:
+        number = Decimal(text)
+    except InvalidOperation:
+        return text
+
+    if not number.is_finite():
+        return text
+
+    normalized = format(number.normalize(), "f")
+    if "." in normalized:
+        normalized = normalized.rstrip("0").rstrip(".")
+    if normalized in {"-0", "+0"}:
+        return "0"
+    return normalized
 
 
 def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None, result_id: int | None = None):
@@ -733,7 +756,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
             return ""
         while text.startswith("--"):
             text = text[1:]
-        return text
+        return _normalize_scientific_text(text)
 
     def _fmt_percent(value):
         if value is None or not math.isfinite(value):

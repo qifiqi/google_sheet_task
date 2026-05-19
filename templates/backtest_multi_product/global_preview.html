@@ -1,0 +1,571 @@
+{% extends "admin/base.html" %}
+
+{% block title %}多品全局预览{% endblock %}
+
+{% block head %}
+<style>
+    .preview-layout { display: grid; gap: 1rem; }
+    .header-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        background: var(--bs-body-bg);
+        border-radius: 0.875rem;
+        padding: 0.6rem 1.25rem;
+    }
+    .header-toolbar-left {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+    }
+    .summary-panel {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-body-bg);
+    }
+    .summary-toggle {
+        list-style: none;
+        padding: 0.85rem 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--bs-body-color);
+        cursor: pointer;
+    }
+    .summary-toggle::-webkit-details-marker { display: none; }
+    .summary-toggle:focus { outline: none; }
+    .summary-toggle:focus-visible {
+        box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.16);
+        border-radius: 0.75rem;
+    }
+    .summary-panel[open] .summary-toggle-icon { transform: rotate(180deg); }
+    .summary-toggle-icon { transition: transform 0.15s ease; }
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+        padding: 0 1rem 1rem;
+    }
+    .summary-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-tertiary-bg);
+        padding: 1rem;
+    }
+    .summary-card-label {
+        font-size: 0.78rem;
+        color: var(--bs-secondary-color);
+        margin-bottom: 0.2rem;
+    }
+    .summary-card-value {
+        font-weight: 700;
+        word-break: break-word;
+    }
+    .ratio-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .ratio-formula-hint {
+        flex: 1;
+        min-width: 280px;
+        background: #fff7ed;
+        border: 1px solid #fed7aa;
+        border-radius: 0.75rem;
+        padding: 0.6rem 1rem;
+        font-size: 0.82rem;
+    }
+    .ratio-formula-hint .hint-title {
+        color: #9a3412;
+        font-weight: 700;
+    }
+    .ratio-formula-hint .hint-desc {
+        color: var(--bs-body-color);
+    }
+    .ratio-formula-hint .hint-note {
+        color: var(--bs-secondary-color);
+        font-size: 0.76rem;
+    }
+    .ratio-total-badge {
+        font-weight: 700;
+        font-size: 0.88rem;
+        white-space: nowrap;
+    }
+    .ratio-total-badge.is-valid { color: #047857; }
+    .ratio-total-badge.is-invalid { color: #dc3545; }
+    .ratio-list-wrap {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-tertiary-bg);
+        max-height: 320px;
+        overflow-y: auto;
+    }
+    .ratio-list-table {
+        width: 100%;
+        margin-bottom: 0;
+        border-collapse: collapse;
+    }
+    .ratio-list-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #eef4fb;
+        padding: 0.6rem 1rem;
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--bs-secondary-color);
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .ratio-list-table tbody td {
+        padding: 0.55rem 1rem;
+        border-bottom: 1px solid var(--bs-border-color);
+        vertical-align: middle;
+    }
+    .ratio-list-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+    .ratio-list-table .ratio-input-cell {
+        display: flex;
+        align-items: center;
+        gap: 0;
+    }
+    .ratio-list-table .ratio-input-cell input {
+        width: 120px;
+        border-radius: 0.5rem 0 0 0.5rem;
+    }
+    .ratio-list-table .ratio-input-cell .input-group-text {
+        border-radius: 0 0.5rem 0.5rem 0;
+    }
+    .ratio-status-text {
+        font-size: 0.82rem;
+        color: #047857;
+        font-weight: 500;
+    }
+    .preview-table-wrap {
+        overflow: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-body-bg);
+    }
+    .preview-table {
+        min-width: 1100px;
+        margin-bottom: 0;
+    }
+    .preview-table th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--bs-tertiary-bg);
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    .preview-table .sticky-col {
+        position: sticky;
+        z-index: 1;
+        background: var(--bs-body-bg);
+    }
+    .preview-table .sticky-col-1 { left: 0; min-width: 120px; background: #f7e1a1; }
+    .preview-table .sticky-col-2 { left: 120px; min-width: 180px; }
+    .preview-table thead .sticky-col { z-index: 3; background: var(--bs-tertiary-bg); }
+    .empty-state { padding: 4rem 1rem; text-align: center; color: var(--bs-secondary-color); }
+    @media (max-width: 991.98px) {
+        .ratio-toolbar {
+            flex-direction: column;
+            align-items: stretch;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 preview-layout">
+    <div class="header-toolbar shadow-sm">
+        <div class="header-toolbar-left">
+            <div class="text-body-secondary small">多品数据回测</div>
+            <div class="fw-bold" id="taskTitleText">加载中...</div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-primary rounded-pill px-3 btn-sm" id="saveRatiosBtn" type="button">
+                <i class="bi bi-save me-1"></i>保存比例
+            </button>
+            <button class="btn btn-outline-success rounded-pill px-3 btn-sm" id="exportBtn" type="button">
+                <i class="bi bi-file-earmark-excel me-1"></i>导出 XLSX
+            </button>
+            <a href="/backtest-multi-product/detail/{{ task_id }}" class="btn btn-outline-secondary rounded-pill px-3 btn-sm" id="backToDetailLink">
+                <i class="bi bi-arrow-left me-1"></i>返回详情
+            </a>
+        </div>
+    </div>
+
+    <details class="summary-panel shadow-sm">
+        <summary class="summary-toggle">
+            <span class="fw-semibold">任务概要</span>
+            <span class="text-body-secondary small">点击展开 4 项信息 <i class="bi bi-chevron-down ms-1 summary-toggle-icon"></i></span>
+        </summary>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="summary-card-label">任务 ID</div>
+                <div class="summary-card-value" id="summaryTaskId">{{ task_id }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-card-label">产品数</div>
+                <div class="summary-card-value" id="summaryProducts">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-card-label">参数方案</div>
+                <div class="summary-card-value" id="summaryGroups">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-card-label">成功结果</div>
+                <div class="summary-card-value text-success" id="summarySuccess">-</div>
+            </div>
+        </div>
+    </details>
+
+    <details class="summary-panel shadow-sm" id="ratioPanel">
+        <summary class="summary-toggle">
+            <span class="fw-semibold">比例设置</span>
+            <span class="text-body-secondary small">
+                <span id="ratioTotalBadge" class="ratio-total-badge">合计 -</span>
+                <i class="bi bi-chevron-down ms-1 summary-toggle-icon"></i>
+            </span>
+        </summary>
+        <div class="px-3 pb-3">
+            <div class="ratio-toolbar mb-2">
+                <div>
+                    <select class="form-select" id="groupSelect" style="min-width: 220px;"></select>
+                </div>
+                <div class="ratio-formula-hint">
+                    <span class="hint-title">比例计算：</span>
+                    <span class="hint-desc">每个产品的指数/结果值 × 比例 ÷ 100 后求和</span>
+                    <br><span class="hint-note">不可解析或缺失显示 "-"；修改比例后先计算预览，再保存比例。</span>
+                </div>
+                <button class="btn btn-primary rounded-pill px-4" id="calculateRatiosBtn" type="button">
+                    <i class="bi bi-calculator me-1"></i>计算预览
+                </button>
+            </div>
+            <div class="ratio-list-wrap" id="ratioListWrap">
+                <table class="ratio-list-table">
+                    <thead>
+                        <tr>
+                            <th>产品</th>
+                            <th>比例</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ratioListBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </details>
+
+    <div class="preview-table-wrap" id="previewContainer">
+        <div class="empty-state">正在加载多品全局预览数据...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TASK_ID = {{ task_id|tojson }};
+let previewPayload = null;
+let activeGroupKey = null;
+let hasUnsavedRatioPreview = false;
+let ratioInputsDirty = false;
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderSummary() {
+    const task = previewPayload.task || {};
+    const summary = previewPayload.summary || {};
+    document.getElementById('taskTitleText').textContent = `全局预览 · ${task.name || TASK_ID} · ${task.start_date || '-'} ~ ${task.end_date || '-'}`;
+    document.getElementById('summaryTaskId').textContent = task.id || TASK_ID;
+    document.getElementById('summaryProducts').textContent = summary.product_count ?? 0;
+    document.getElementById('summaryGroups').textContent = summary.group_count ?? 0;
+    document.getElementById('summarySuccess').textContent = summary.success_results ?? 0;
+}
+
+function renderGroupOptions() {
+    const select = document.getElementById('groupSelect');
+    const groups = Array.isArray(previewPayload.groups) ? previewPayload.groups : [];
+    if (!groups.length) {
+        select.innerHTML = '<option value="">暂无参数方案</option>';
+        select.disabled = true;
+        return;
+    }
+    select.disabled = false;
+    select.innerHTML = groups.map((group) => `
+        <option value="${escapeHtml(group.group_key)}" ${group.group_key === activeGroupKey ? 'selected' : ''}>
+            ${escapeHtml(group.group_label)} (${escapeHtml(group.result_count || 0)} 个产品结果)
+        </option>
+    `).join('');
+}
+
+function ratioTotal() {
+    return Array.from(document.querySelectorAll('.ratio-input')).reduce((sum, input) => {
+        const value = Number(input.value || 0);
+        return sum + (Number.isFinite(value) ? value : 0);
+    }, 0);
+}
+
+function updateRatioStatus() {
+    const total = ratioTotal();
+    const badge = document.getElementById('ratioTotalBadge');
+    const suffix = ratioInputsDirty ? '（需计算预览）' : (hasUnsavedRatioPreview ? '（未保存）' : '');
+    badge.textContent = `合计 ${Number(total.toFixed(4))}%${suffix}`;
+    badge.className = Math.abs(total - 100) < 0.0001 ? 'ratio-total-badge is-valid' : 'ratio-total-badge is-invalid';
+}
+
+function renderRatios() {
+    const products = Array.isArray(previewPayload.products) ? previewPayload.products : [];
+    document.getElementById('ratioListBody').innerHTML = products.map((product, index) => `
+        <tr>
+            <td>${escapeHtml(product.product_name || product.stock_code || `产品 ${index + 1}`)}</td>
+            <td>
+                <div class="ratio-input-cell">
+                    <input class="form-control form-control-sm ratio-input" type="number" min="0" max="100" step="0.0001" data-index="${index}" value="${escapeHtml(product.ratio || 0)}">
+                    <span class="input-group-text">%</span>
+                </div>
+            </td>
+            <td><span class="ratio-status-text">参与计算</span></td>
+        </tr>
+    `).join('');
+    updateRatioStatus();
+}
+
+function parsePreviewNumber(value) {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+    }
+    const raw = String(value).trim().replace(/,/g, '').replace(/\$/g, '');
+    if (!raw || raw === '-') {
+        return null;
+    }
+    const parsed = raw.endsWith('%')
+        ? Number(raw.slice(0, -1)) / 100
+        : Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatPreviewValue(value, valueType) {
+    const number = parsePreviewNumber(value);
+    if (number === null) {
+        return value === null || value === undefined || value === '' ? '-' : String(value);
+    }
+    if (valueType === 'percent') {
+        return `${(number * 100).toFixed(2)}%`;
+    }
+    return number.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function weightedPreviewValue(values, ratios, valueType) {
+    let total = 0;
+    for (let index = 0; index < values.length; index += 1) {
+        const number = parsePreviewNumber(values[index]);
+        const ratio = Number(ratios[index]);
+        if (number === null || !Number.isFinite(ratio)) {
+            return '-';
+        }
+        total += number * ratio / 100;
+    }
+    return formatPreviewValue(total, valueType);
+}
+
+function collectRatioValues() {
+    return Array.from(document.querySelectorAll('.ratio-input')).map((input) => Number(input.value || 0));
+}
+
+function applyRatioPreview() {
+    const ratios = collectRatioValues();
+    const total = ratios.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
+    if (Math.abs(total - 100) > 0.0001) {
+        alert(`产品比例合计必须为 100%，当前为 ${Number(total.toFixed(4))}%`);
+        return;
+    }
+    if (!previewPayload) {
+        return;
+    }
+
+    const products = Array.isArray(previewPayload.products) ? previewPayload.products : [];
+    products.forEach((product, index) => {
+        product.ratio = String(Number(ratios[index].toFixed(4)));
+    });
+
+    (previewPayload.groups || []).forEach((group) => {
+        (group.rows || []).forEach((row) => {
+            const productValues = row.product_values || [];
+            row.weighted_index_value = weightedPreviewValue(
+                productValues.map((item) => item.raw_index_value),
+                ratios,
+                row.value_type
+            );
+            row.weighted_result_value = weightedPreviewValue(
+                productValues.map((item) => item.raw_result_value),
+                ratios,
+                row.value_type
+            );
+        });
+    });
+
+    hasUnsavedRatioPreview = true;
+    ratioInputsDirty = false;
+    renderRatios();
+    renderActiveGroup();
+}
+
+function renderActiveGroup() {
+    const container = document.getElementById('previewContainer');
+    const groups = Array.isArray(previewPayload?.groups) ? previewPayload.groups : [];
+    const products = Array.isArray(previewPayload?.products) ? previewPayload.products : [];
+    const group = groups.find((item) => item.group_key === activeGroupKey);
+    if (!group) {
+        container.innerHTML = '<div class="empty-state">当前没有可展示的参数方案</div>';
+        return;
+    }
+    if (!Array.isArray(group.rows) || !group.rows.length) {
+        container.innerHTML = '<div class="empty-state">该参数方案下没有成功结果</div>';
+        return;
+    }
+    const productHeads = products.map((product) => {
+        const name = product.product_name || product.stock_code || '产品';
+        return `
+            <th>${escapeHtml(name)}-指数<br><span class="small text-body-secondary">${escapeHtml(product.ratio)}%</span></th>
+            <th>${escapeHtml(name)}-结果<br><span class="small text-body-secondary">${escapeHtml(product.stock_code || '')}</span></th>
+        `;
+    }).join('');
+    const body = group.rows.map((row) => {
+        const values = (row.product_values || []).map((item) => `
+            <td>${escapeHtml(item.index_value || '-')}</td>
+            <td>${escapeHtml(item.result_value || '-')}</td>
+        `).join('');
+        return `
+            <tr>
+                <td class="sticky-col sticky-col-1 fw-semibold">${escapeHtml(row.category || '-')}</td>
+                <td class="sticky-col sticky-col-2">${escapeHtml(row.metric || '-')}</td>
+                ${values}
+                <td class="fw-semibold">${escapeHtml(row.weighted_index_value || '-')}</td>
+                <td class="fw-semibold">${escapeHtml(row.weighted_result_value || '-')}</td>
+            </tr>
+        `;
+    }).join('');
+    container.innerHTML = `
+        <table class="table table-bordered align-middle preview-table">
+            <thead>
+                <tr>
+                    <th class="sticky-col sticky-col-1">指标类型</th>
+                    <th class="sticky-col sticky-col-2">指标</th>
+                    ${productHeads}
+                    <th>比例计算-指数</th>
+                    <th>比例计算-结果</th>
+                </tr>
+            </thead>
+            <tbody>${body}</tbody>
+        </table>
+    `;
+}
+
+async function loadGlobalPreview() {
+    const container = document.getElementById('previewContainer');
+    try {
+        const response = await fetch(`/backtest-multi-product/api/global-preview/${encodeURIComponent(TASK_ID)}`);
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || '加载失败');
+        }
+        previewPayload = data;
+        hasUnsavedRatioPreview = false;
+        ratioInputsDirty = false;
+        activeGroupKey = data.groups && data.groups.length ? data.groups[0].group_key : '';
+        renderSummary();
+        renderGroupOptions();
+        renderRatios();
+        renderActiveGroup();
+    } catch (error) {
+        container.innerHTML = `<div class="empty-state text-danger">${escapeHtml(error.message || '加载失败')}</div>`;
+    }
+}
+
+async function saveRatios() {
+    if (ratioInputsDirty) {
+        alert('比例已修改，请先点击“计算预览”确认结果，再保存比例。');
+        return;
+    }
+    const total = ratioTotal();
+    if (Math.abs(total - 100) > 0.0001) {
+        alert(`产品比例合计必须为 100%，当前为 ${Number(total.toFixed(4))}%`);
+        return;
+    }
+    const ratios = Array.from(document.querySelectorAll('.ratio-input')).map((input) => ({
+        product_index: Number(input.dataset.index),
+        ratio: input.value
+    }));
+    const button = document.getElementById('saveRatiosBtn');
+    button.disabled = true;
+    try {
+        const response = await fetch(`/backtest-multi-product/api/global-preview/${encodeURIComponent(TASK_ID)}/ratios`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ratios })
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || '保存失败');
+        }
+        previewPayload = data;
+        hasUnsavedRatioPreview = false;
+        ratioInputsDirty = false;
+        renderSummary();
+        renderGroupOptions();
+        renderRatios();
+        renderActiveGroup();
+    } catch (error) {
+        alert(error.message || '保存失败');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function exportPreview() {
+    const response = await fetch(`/backtest-multi-product/api/global-preview/${encodeURIComponent(TASK_ID)}/export`);
+    if (!response.ok) {
+        alert('导出失败');
+        return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${TASK_ID}_multi_product_preview.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
+document.getElementById('groupSelect').addEventListener('change', (event) => {
+    activeGroupKey = event.target.value;
+    renderActiveGroup();
+});
+document.getElementById('ratioListBody').addEventListener('input', () => {
+    ratioInputsDirty = true;
+    updateRatioStatus();
+});
+document.getElementById('calculateRatiosBtn').addEventListener('click', applyRatioPreview);
+document.getElementById('saveRatiosBtn').addEventListener('click', saveRatios);
+document.getElementById('exportBtn').addEventListener('click', exportPreview);
+loadGlobalPreview();
+</script>
+{% endblock %}

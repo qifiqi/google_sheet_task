@@ -197,7 +197,7 @@
                 <span class="badge text-bg-secondary rounded-pill px-3 py-2 fw-normal">
                     最后刷新：<span class="ms-1" id="lastUpdated">-</span>
                 </span>
-                <a href="{{ url_for('backtest_training.create_page') }}" class="btn btn-primary rounded-pill px-4">
+                <a href="{{ url_for('backtest_multi_product.create_page') }}" class="btn btn-primary rounded-pill px-4">
                     <i class="bi bi-plus-lg me-1"></i> 创建新任务
                 </a>
             </div>
@@ -239,9 +239,9 @@
 {% block scripts %}
 <script>
 const TASK_API_BASE = '/api/tasks';
-const BACKTEST_TASK_TYPE = 'backtest_training';
+const BACKTEST_TASK_TYPE = 'backtest_multi_product';
 const DEFAULT_PAGE_SIZE = 20;
-const LIST_PAGINATION_STORAGE_KEY = 'backtest_training:list_pagination';
+const LIST_PAGINATION_STORAGE_KEY = 'backtest_multi_product:list_pagination';
 let paginationState = {
     page: 1,
     per_page: DEFAULT_PAGE_SIZE,
@@ -294,7 +294,7 @@ function buildDetailHref(taskId) {
         list_page: String(paginationState.page || 1),
         list_per_page: String(paginationState.per_page || DEFAULT_PAGE_SIZE)
     });
-    return `/backtest-training/detail/${encodeURIComponent(taskId)}?${params.toString()}`;
+    return `/backtest-multi-product/detail/${encodeURIComponent(taskId)}?${params.toString()}`;
 }
 
 function formatTime(value) {
@@ -367,41 +367,19 @@ function renderStatus(status) {
 }
 
 function inferModelVersion(task) {
-    if (task.model_version) {
-        return String(task.model_version).toUpperCase();
-    }
-
-    const config = task.config || {};
-    const sheet = config.sheet || {};
-    const title = String(sheet.title || config.title || '').toUpperCase();
-    if (title.includes('C5')) {
-        return 'C5';
-    }
-    if (title.includes('C4')) {
-        return 'C4';
-    }
-
-    const parameters = Array.isArray(config.parameters) ? config.parameters : [];
-    const firstRow = Array.isArray(parameters[0]) ? parameters[0] : [];
-    if (firstRow.length === 2) {
-        return 'C5';
-    }
-    if (firstRow.length >= 7) {
-        return 'C3';
-    }
-    return '-';
+    const products = Array.isArray(task.config?.products) ? task.config.products : [];
+    return `多品 x ${products.length || '-'}`;
 }
 
 function renderTaskCell(task) {
     const shortId = String(task.id || '').slice(0, 8);
     const taskName = task.name || '未命名任务';
-    const sheetName = task.config && task.config.sheet && task.config.sheet.sheet_name
-        ? task.config.sheet.sheet_name
-        : '-';
+    const products = Array.isArray(task.config?.products) ? task.config.products : [];
+    const productNames = products.map((item) => item.product_name || item.stock_code).filter(Boolean).join(' / ') || '-';
 
     return `
         <div class="fw-semibold" title="${escapeHtml(task.id || '')}">${escapeHtml(taskName)}</div>
-        <div class="task-meta text-body-secondary">ID: ${escapeHtml(shortId)} · Sheet: ${escapeHtml(sheetName)}</div>
+        <div class="task-meta text-body-secondary">ID: ${escapeHtml(shortId)} · 产品: ${escapeHtml(productNames)}</div>
     `;
 }
 

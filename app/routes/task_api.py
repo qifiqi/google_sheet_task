@@ -92,6 +92,8 @@ def tasks():
                             "pages": 0,
                             "has_prev": False,
                             "has_next": False,
+                            "prev_num": None,
+                            "next_num": None,
                         },
                         "statistics": {
                             "total_tasks": 0,
@@ -238,7 +240,13 @@ def update_task_config(task_id):
         if not config:
             return jsonify({"status": "error", "message": "配置信息不能为空"}), 400
 
-        result = task_manager.update_task_config(task_id, config, data.get('name'), data.get('description'))
+        result = task_manager.update_task_config(
+            task_id,
+            config,
+            data.get('name'),
+            data.get('description'),
+            data.get('status'),
+        )
 
         if result["status"] == "success":
             return jsonify(result)
@@ -461,6 +469,13 @@ def create_restart_task_api(task_id):
                 "message": "重启任务创建并启动成功"
             })
         start_error = task_manager.get_start_error(new_task_id)
+        if task_obj.task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
+            return jsonify({
+                "status": "success",
+                "new_task_id": new_task_id,
+                "message": start_error,
+                "queued": True,
+            })
         return jsonify({
             "status": "error",
             "new_task_id": new_task_id,
