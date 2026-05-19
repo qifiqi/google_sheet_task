@@ -1,14 +1,10 @@
 <template>
   <div class="app-page templates-page">
-    <div class="page-toolbar">
-      <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">管理后台</div>
-        <h2 class="page-title">模板管理</h2>
-      </div>
-      <div class="page-toolbar__actions">
+    <PageToolbar eyebrow="管理后台" title="模板管理">
+      <template #actions>
         <el-button type="primary" @click="openCreate">新建模板</el-button>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
     <div v-loading="loading">
       <el-row :gutter="16">
@@ -74,11 +70,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, MoreFilled } from '@element-plus/icons-vue'
+import PageToolbar from '@/components/PageToolbar.vue'
 import { getTemplates, createTemplate, getTemplate, updateTemplate, deleteTemplate } from '@/api/template'
 import { useResponsive } from '@/composables/useResponsive'
+import { usePolling } from '@/composables/usePolling'
 
 const { isMobile } = useResponsive()
 const templates = ref([])
@@ -205,7 +203,7 @@ function useTemplate(tpl) {
   window.location.href = `/task/create?version=${version}&template_id=${tpl.id}`
 }
 
-onMounted(loadTemplates)
+usePolling(loadTemplates, { interval: 60000 })
 </script>
 
 <style scoped>

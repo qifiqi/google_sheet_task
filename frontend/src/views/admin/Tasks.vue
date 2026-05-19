@@ -1,93 +1,60 @@
 <template>
   <div class="app-page admin-tasks-page">
-    <div class="page-toolbar">
-      <h2 style="margin:0">任务管理</h2>
-      <div class="page-toolbar__actions">
+    <PageToolbar eyebrow="管理后台" title="任务管理">
+      <template #actions>
         <el-button type="primary" :size="componentSize" @click="openCreate">创建任务</el-button>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
-    <!-- 筛选 -->
-    <el-card shadow="never" style="margin-bottom:16px">
-      <el-row :gutter="12" align="bottom">
-        <el-col :xs="24" :sm="6" :md="4">
-          <el-select v-model="filters.status" placeholder="状态" clearable style="width:100%" @change="doFilter">
-            <el-option value="pending" label="待执行" />
-            <el-option value="running" label="运行中" />
-            <el-option value="completed" label="已完成" />
-            <el-option value="cancelled" label="已取消" />
-            <el-option value="error" label="错误" />
-          </el-select>
-        </el-col>
-        <el-col :xs="24" :sm="6" :md="4">
-          <el-select v-model="filters.task_type" placeholder="类型" clearable style="width:100%" @change="doFilter">
-            <el-option value="google_sheet" label="Google Sheet" />
-            <el-option value="google_sheet_C4" label="Google Sheet C4" />
-            <el-option value="google_sheet_C5" label="Google Sheet C5" />
-          </el-select>
-        </el-col>
-        <el-col :xs="24" :sm="8" :md="6">
-          <el-input v-model="filters.keyword" placeholder="任务名称 / ID" clearable @keyup.enter="doFilter" @clear="doFilter" />
-        </el-col>
-        <el-col :xs="12" :sm="4" :md="2">
-          <el-button @click="clearFilters">清空</el-button>
-        </el-col>
-        <el-col :xs="12" :sm="4" :md="2">
-          <el-button @click="loadTasks">刷新</el-button>
-        </el-col>
-      </el-row>
-    </el-card>
+    <FilterToolbar
+      :filters="filterConfig"
+      v-model="filters"
+      @search="doFilter"
+      @clear="clearFilters"
+    />
 
-    <el-card shadow="never">
-      <el-table :data="tasks" v-loading="loading" stripe>
-        <el-table-column label="任务" min-width="160">
-          <template #default="{ row }">
-            <div style="font-weight:600">{{ row.name }}</div>
-            <div class="admin-tasks-page__sub-id">{{ row.id?.slice(0,8) }}...</div>
-          </template>
-        </el-table-column>
-        <el-table-column label="类型" width="130">
-          <template #default="{ row }"><el-tag size="small" type="info">{{ row.task_type }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }"><StatusTag :status="row.status" /></template>
-        </el-table-column>
-        <el-table-column label="参数组" width="70">
-          <template #default="{ row }">{{ row.config?.parameters?.length ?? 0 }}</template>
-        </el-table-column>
-        <el-table-column label="进度" min-width="140">
-          <template #default="{ row }">
-            <el-progress v-if="row.total_steps > 0" :percentage="Math.min(100, Math.round((row.current_step||0)/row.total_steps*100))"
-              :format="() => `${row.current_step||0}/${row.total_steps}`" />
-            <span class="admin-tasks-page__muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
-        <el-table-column prop="start_time" label="开始时间" width="160" show-overflow-tooltip />
-        <el-table-column prop="end_time" label="结束时间" width="160" show-overflow-tooltip />
-        <el-table-column label="操作" width="180">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="$router.push(`/task/${row.id}`)">详情</el-button>
-            <el-button link type="info" @click="showDetail(row.id)">摘要</el-button>
-            <el-button v-if="row.status === 'running'" link type="warning" @click="handleCancel(row.id)">停止</el-button>
-            <el-button link type="danger" @click="handleDelete(row.id)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:8px">
-        <span class="admin-tasks-page__pagination">{{ paginationInfo }}</span>
-        <el-pagination
-          v-model:current-page="page"
-          v-model:page-size="pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="sizes, prev, pager, next"
-          @current-change="loadTasks"
-          @size-change="() => { page = 1; loadTasks() }"
-        />
-      </div>
-    </el-card>
+    <DataTableCard
+      title="任务列表"
+      :loading="loading"
+      :data="tasks"
+      :total="total"
+      v-model:page="page"
+      v-model:page-size="pageSize"
+      :pageSizes="[10, 20, 50, 100]"
+      @page-change="loadTasks"
+    >
+      <el-table-column label="任务" min-width="160">
+        <template #default="{ row }">
+          <div style="font-weight:600">{{ row.name }}</div>
+          <div class="admin-tasks-page__sub-id">{{ row.id?.slice(0,8) }}...</div>
+        </template>
+      </el-table-column>
+      <el-table-column label="类型" width="130">
+        <template #default="{ row }"><el-tag size="small" type="info">{{ row.task_type }}</el-tag></template>
+      </el-table-column>
+      <el-table-column label="状态" width="90">
+        <template #default="{ row }"><StatusTag :status="row.status" /></template>
+      </el-table-column>
+      <el-table-column label="参数组" width="70">
+        <template #default="{ row }">{{ row.config?.parameters?.length ?? 0 }}</template>
+      </el-table-column>
+      <el-table-column label="进度" min-width="140">
+        <template #default="{ row }">
+          <TaskProgressCell :current-step="row.current_step || 0" :total-steps="row.total_steps || 0" />
+        </template>
+      </el-table-column>
+      <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
+      <el-table-column prop="start_time" label="开始时间" width="160" show-overflow-tooltip />
+      <el-table-column prop="end_time" label="结束时间" width="160" show-overflow-tooltip />
+      <el-table-column label="操作" width="180">
+        <template #default="{ row }">
+          <el-button link type="primary" @click="$router.push(`/task/${row.id}`)">详情</el-button>
+          <el-button link type="info" @click="showDetail(row.id)">摘要</el-button>
+          <el-button v-if="row.status === 'running'" link type="warning" @click="handleCancel(row.id)">停止</el-button>
+          <el-button link type="danger" @click="handleDelete(row.id)">删除</el-button>
+        </template>
+      </el-table-column>
+    </DataTableCard>
 
     <!-- 任务摘要抽屉 -->
     <el-drawer v-model="detailDrawerVisible" title="任务摘要" :size="drawerSize">
@@ -105,7 +72,7 @@
         </el-descriptions>
         <div style="margin-top:16px">
           <h4>任务配置</h4>
-          <pre class="admin-tasks-page__config-pre">{{ JSON.stringify(detailTask.config || {}, null, 2) }}</pre>
+          <CodeBlock :content="detailTask.config || {}" />
         </div>
         <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
           <el-button type="primary" @click="$router.push(`/task/${detailTask.id}`); detailDrawerVisible = false">查看详情页</el-button>
@@ -149,12 +116,18 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTasks, getTask, createTask, cancelTask, deleteTask, restartTask } from '@/api/task'
 import { getTaskRuntimeDetail } from '@/api/admin'
 import StatusTag from '@/components/StatusTag.vue'
+import PageToolbar from '@/components/PageToolbar.vue'
+import FilterToolbar from '@/components/FilterToolbar.vue'
+import DataTableCard from '@/components/DataTableCard.vue'
+import TaskProgressCell from '@/components/TaskProgressCell.vue'
+import CodeBlock from '@/components/CodeBlock.vue'
 import { useResponsive } from '@/composables/useResponsive'
+import { usePolling } from '@/composables/usePolling'
 
 const { isMobile, componentSize, drawerSize, dialogWidth, formLabelPosition, formLabelWidth } = useResponsive()
 const tasks = ref([])
@@ -162,29 +135,54 @@ const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
-const filters = reactive({ status: '', task_type: '', keyword: '' })
+const filters = ref({ status: '', task_type: '', keyword: '' })
 const detailDrawerVisible = ref(false)
 const detailTask = ref(null)
 const detailLoading = ref(false)
 const createDialogVisible = ref(false)
 const creating = ref(false)
 const createForm = reactive({ name: '', task_type: 'google_sheet', description: '', config: '' })
-let refreshTimer = null
 
-const paginationInfo = computed(() => {
-  if (!total.value) return '暂无数据'
-  const start = (page.value - 1) * pageSize.value + 1
-  const end = Math.min(page.value * pageSize.value, total.value)
-  return `显示第 ${start}-${end} 条，共 ${total.value} 条`
-})
+const filterConfig = [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '状态',
+    span: { xs: 24, sm: 6, md: 4 },
+    options: [
+      { value: 'pending', label: '待执行' },
+      { value: 'running', label: '运行中' },
+      { value: 'completed', label: '已完成' },
+      { value: 'cancelled', label: '已取消' },
+      { value: 'error', label: '错误' },
+    ],
+  },
+  {
+    key: 'task_type',
+    type: 'select',
+    placeholder: '类型',
+    span: { xs: 24, sm: 6, md: 4 },
+    options: [
+      { value: 'google_sheet', label: 'Google Sheet' },
+      { value: 'google_sheet_C4', label: 'Google Sheet C4' },
+      { value: 'google_sheet_C5', label: 'Google Sheet C5' },
+    ],
+  },
+  {
+    key: 'keyword',
+    type: 'input',
+    placeholder: '任务名称 / ID',
+    span: { xs: 24, sm: 8, md: 6 },
+  },
+]
 
 async function loadTasks() {
   loading.value = true
   try {
     const params = { page: page.value, per_page: pageSize.value }
-    if (filters.status) params.status = filters.status
-    if (filters.task_type) params.task_type = filters.task_type
-    if (filters.keyword) params.keyword = filters.keyword
+    if (filters.value.status) params.status = filters.value.status
+    if (filters.value.task_type) params.task_type = filters.value.task_type
+    if (filters.value.keyword) params.keyword = filters.value.keyword
     const res = await getTasks(params)
     tasks.value = res.tasks || []
     total.value = res.pagination?.total || 0
@@ -192,7 +190,9 @@ async function loadTasks() {
 }
 
 function doFilter() { page.value = 1; loadTasks() }
-function clearFilters() { filters.status = ''; filters.task_type = ''; filters.keyword = ''; doFilter() }
+function clearFilters() { filters.value = { status: '', task_type: '', keyword: '' }; doFilter() }
+
+usePolling(loadTasks, { interval: 30000, immediate: true })
 
 async function showDetail(id) {
   detailDrawerVisible.value = true
@@ -245,10 +245,4 @@ async function handleCreate() {
   } catch { ElMessage.error('任务创建失败') }
   finally { creating.value = false }
 }
-
-onMounted(() => {
-  loadTasks()
-  refreshTimer = setInterval(loadTasks, 30000)
-})
-onUnmounted(() => clearInterval(refreshTimer))
 </script>

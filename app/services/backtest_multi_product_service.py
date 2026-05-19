@@ -211,6 +211,14 @@ def _weighted_display(values: list[Any], ratios: list[Any], value_type: str) -> 
     return _fmt_value(float(weighted), value_type)
 
 
+def _weighted_single_display(value: Any, ratio: Any, value_type: str) -> str:
+    number = _safe_number(value)
+    if number is None:
+        return "-"
+    weighted = Decimal(str(number)) * parse_ratio(ratio) / RATIO_TOTAL
+    return _fmt_value(float(weighted), value_type)
+
+
 def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
     excess_all = _all_entry(calculate_metrics.get("excess_returns"))
     index_profit_monthly_all = _all_entry(calculate_metrics.get("index_profit_monthly"))
@@ -534,6 +542,11 @@ def build_multi_product_global_preview_payload(task_id: str) -> dict[str, Any] |
                     "product_index": product_index,
                     "index_value": _fmt_value(index_value, value_type) if index_key else "-",
                     "result_value": _fmt_value(result_value, value_type),
+                    "weighted_result_value": _weighted_single_display(
+                        result_value,
+                        product.get("ratio"),
+                        value_type,
+                    ),
                     "raw_index_value": index_value,
                     "raw_result_value": result_value,
                 })

@@ -34,6 +34,12 @@ const routes = [
       { path: 'backtest/:id',               name: 'BacktestDetail',        component: () => import('@/views/backtest/Detail.vue'),        meta: { title: '回测详情',   permission: 'backtest:view' } },
       { path: 'backtest/:id/global-preview',name: 'BacktestGlobalPreview', component: () => import('@/views/backtest/GlobalPreview.vue'), meta: { title: '全局预览',   permission: 'backtest:view' } },
       { path: 'backtest/:id/result',        name: 'BacktestResult',        component: () => import('@/views/backtest/Result.vue'),        meta: { title: '回测结果',   permission: 'backtest:view' } },
+      // Backtest Multi-Product
+      { path: 'backtest-multi/list',              name: 'BacktestMultiList',          component: () => import('@/views/backtest-multi/List.vue'),          meta: { title: '多产品回测列表',   permission: 'backtest:view' } },
+      { path: 'backtest-multi/create',            name: 'BacktestMultiCreate',        component: () => import('@/views/backtest-multi/Create.vue'),        meta: { title: '创建多产品回测',   permission: 'backtest:create' } },
+      { path: 'backtest-multi/:id',               name: 'BacktestMultiDetail',        component: () => import('@/views/backtest-multi/Detail.vue'),        meta: { title: '多产品回测详情',   permission: 'backtest:view' } },
+      { path: 'backtest-multi/:id/result',        name: 'BacktestMultiResult',        component: () => import('@/views/backtest-multi/Result.vue'),        meta: { title: '多产品回测结果',   permission: 'backtest:view' } },
+      { path: 'backtest-multi/:id/global-preview',name: 'BacktestMultiGlobalPreview', component: () => import('@/views/backtest-multi/GlobalPreview.vue'), meta: { title: '多产品全局预览',   permission: 'backtest:view' } },
       // XPL — 无权限限制，登录即可访问
       { path: 'xpl',    name: 'XplIndex', component: () => import('@/views/xpl/Index.vue'), meta: { title: '数据分析' } },
       { path: 'xpl/v1', name: 'XplV1',   component: () => import('@/views/xpl/V1.vue'),    meta: { title: 'V1 分析' } },
@@ -48,6 +54,7 @@ const routes = [
       { path: 'admin/scheduler',      name: 'AdminScheduler',  component: () => import('@/views/admin/Scheduler.vue'),    meta: { title: '定时任务',          permission: 'scheduler:view' } },
       { path: 'admin/users',          name: 'AdminUsers',      component: () => import('@/views/admin/Users.vue'),        meta: { title: '用户管理',          permission: 'user:view' } },
       { path: 'admin/roles',          name: 'AdminRoles',      component: () => import('@/views/admin/Roles.vue'),        meta: { title: '角色管理',          permission: 'user:view' } },
+      { path: 'admin/navigation',    name: 'AdminNavigation', component: () => import('@/views/admin/Navigation.vue'),   meta: { title: '导航管理',          permission: 'navigation:view' } },
     ],
   },
 ]

@@ -1,5 +1,5 @@
 <template>
-  <div class="task-create-page">
+  <div class="app-page task-create-page">
     <div class="page-toolbar">
       <div class="page-toolbar__meta">
         <div class="page-toolbar__eyebrow">Task Builder</div>

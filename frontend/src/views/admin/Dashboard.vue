@@ -1,18 +1,13 @@
 <template>
   <div class="app-page dashboard-page">
 
-    <div class="metric-grid dashboard-metrics">
-      <div
-        v-for="card in summaryCards"
-        :key="card.key"
-        class="dashboard-metrics__item metric-card"
-        :style="{ background: card.background }"
-      >
-        <div class="metric-card__label">{{ card.label }}</div>
-        <div class="metric-card__value">{{ summary[card.key] ?? 0 }}</div>
-        <div class="metric-card__hint">{{ card.hint }}</div>
-      </div>
-    </div>
+    <StatCardGrid
+      :cards="summaryCards"
+      :data="summary"
+      :columns="{ xs: 12, sm: 4, md: 4 }"
+      variant="gradient"
+      class="dashboard-metrics"
+    />
 
     <el-row :gutter="16" class="dashboard-section">
       <el-col :xs="24" :md="16" style="margin-bottom: 12px">
@@ -111,12 +106,7 @@
         </el-table-column>
         <el-table-column label="进度" min-width="150">
           <template #default="{ row }">
-            <el-progress
-              v-if="row.total_steps > 0"
-              :percentage="row.progress_percentage || 0"
-              :format="() => `${row.current_step || 0}/${row.total_steps || 0}`"
-            />
-            <span v-else class="inline-muted">-</span>
+            <TaskProgressCell :current-step="row.current_step || 0" :total-steps="row.total_steps || 0" />
           </template>
         </el-table-column>
         <el-table-column label="耗时" width="90">
@@ -135,6 +125,8 @@ import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getDashboardOverview } from '@/api/admin'
 import StatusTag from '@/components/StatusTag.vue'
+import StatCardGrid from '@/components/StatCardGrid.vue'
+import TaskProgressCell from '@/components/TaskProgressCell.vue'
 import { useChartJs } from '@/composables/useChartJs'
 import { usePolling } from '@/composables/usePolling'
 

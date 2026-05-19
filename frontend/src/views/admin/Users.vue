@@ -1,16 +1,16 @@
 <template>
   <div class="app-page users-page">
-    <div class="page-toolbar">
-      <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">管理后台</div>
-        <h2 class="page-title">用户管理</h2>
-      </div>
-      <div class="page-toolbar__actions">
+    <PageToolbar eyebrow="管理后台" title="用户管理">
+      <template #actions>
         <el-button type="primary" @click="openDialog()" v-permission="'user:manage'">新增用户</el-button>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
-    <el-table :data="users" v-loading="loading" stripe>
+    <DataTableCard
+      :data="users"
+      :loading="loading"
+      :show-pagination="false"
+    >
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="username" label="用户名" />
       <el-table-column prop="mobile" label="手机号" min-width="140" />
@@ -50,7 +50,7 @@
           </el-popconfirm>
         </template>
       </el-table-column>
-    </el-table>
+    </DataTableCard>
 
     <el-dialog v-model="dialogVisible" :title="editingUser ? '编辑用户' : '新增用户'" width="480px">
       <el-form :model="form" label-width="80px">
@@ -84,9 +84,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive, computed } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { getUsers, createUser, updateUser, deleteUser, getRoles } from '@/api/auth'
 import { ElMessage } from 'element-plus'
+import { usePolling } from '@/composables/usePolling'
+import PageToolbar from '@/components/PageToolbar.vue'
+import DataTableCard from '@/components/DataTableCard.vue'
 
 const DEV_ROLE_CODES = ['developer']
 const users = ref([])
@@ -185,7 +188,7 @@ async function handleDelete(id) {
   loadData()
 }
 
-onMounted(loadData)
+usePolling(loadData, { interval: 30000 })
 </script>
 
 <style scoped>

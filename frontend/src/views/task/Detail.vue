@@ -1,12 +1,11 @@
 <template>
   <div class="app-page task-detail-page">
-    <div class="page-toolbar">
-      <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">Task Monitor</div>
-        <h2 class="page-title">任务详情</h2>
-        <p class="page-description">查看任务状态、执行日志、结果趋势和当前配置，支持停止与重启任务。</p>
-      </div>
-      <div class="page-toolbar__actions">
+    <PageToolbar
+      eyebrow="Task Monitor"
+      title="任务详情"
+      description="查看任务状态、执行日志、结果趋势和当前配置，支持停止与重启任务。"
+    >
+      <template #actions>
         <el-button @click="checkStatus">检查状态</el-button>
         <el-button v-if="task?.status === 'running'" type="warning" @click="handleCancel">停止任务</el-button>
         <el-dropdown v-if="task && task.status !== 'running'" @command="handleRestart">
@@ -23,8 +22,8 @@
           </template>
         </el-dropdown>
         <el-button class="page-back-button" @click="$router.back()">返回</el-button>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
     <div v-loading="loading">
       <el-row v-if="task" :gutter="16" class="task-detail-page__metrics">
@@ -42,12 +41,7 @@
                 <StatusTag :status="task.status" />
               </el-descriptions-item>
               <el-descriptions-item label="进度">
-                <el-progress
-                  v-if="task.total_steps > 0"
-                  :percentage="taskProgressPercent"
-                  :format="() => `${task.current_step || 0}/${task.total_steps}`"
-                />
-                <span v-else>-</span>
+                <TaskProgressCell :current-step="task.current_step || 0" :total-steps="task.total_steps || 0" />
               </el-descriptions-item>
             </el-descriptions>
           </el-card>
@@ -100,12 +94,7 @@
       <el-card v-if="task" shadow="never" class="page-section">
         <el-tabs v-model="activeTab">
           <el-tab-pane label="任务日志" name="logs">
-            <div class="task-detail-page__log-panel">
-              <div v-if="!logs.length" class="panel-note panel-note--center task-detail-page__log-empty">暂无日志</div>
-              <div v-for="(log, i) in logs" :key="i" :class="['log-line', `log-${log.level}`]">
-                [{{ log.timestamp }}] [{{ (log.level || 'info').toUpperCase() }}] {{ log.message }}
-              </div>
-            </div>
+            <LogViewer :logs="logs" height="500px" />
           </el-tab-pane>
 
           <el-tab-pane label="执行结果" name="results">
@@ -213,7 +202,7 @@
 
             <div class="sub-card">
               <div class="task-detail-page__chart-title">完整配置</div>
-              <pre class="code-block task-detail-page__config-code">{{ JSON.stringify(task.config || {}, null, 2) }}</pre>
+              <CodeBlock :content="task.config || {}" />
             </div>
           </el-tab-pane>
         </el-tabs>
@@ -224,15 +213,15 @@
       <div v-if="currentResult" class="task-detail-page__drawer-body">
         <div class="task-detail-page__drawer-section">
           <div class="task-detail-page__chart-title">参数信息</div>
-          <pre class="code-block task-detail-page__drawer-code">{{ JSON.stringify(currentResult.parameters, null, 2) }}</pre>
+          <CodeBlock :content="currentResult.parameters" />
         </div>
         <div class="task-detail-page__drawer-section">
           <div class="task-detail-page__chart-title">执行结果</div>
-          <pre class="code-block task-detail-page__drawer-code">{{ JSON.stringify(currentResult.result, null, 2) }}</pre>
+          <CodeBlock :content="currentResult.result" />
         </div>
         <div v-if="currentResult.error_message" class="task-detail-page__drawer-section">
           <div class="task-detail-page__chart-title">错误信息</div>
-          <pre class="task-detail-page__error-block">{{ currentResult.error_message }}</pre>
+          <CodeBlock :content="currentResult.error_message" variant="danger" />
         </div>
       </div>
     </el-drawer>
@@ -253,6 +242,10 @@ import {
   checkTaskStatus as apiCheckStatus
 } from '@/api/task'
 import StatusTag from '@/components/StatusTag.vue'
+import PageToolbar from '@/components/PageToolbar.vue'
+import TaskProgressCell from '@/components/TaskProgressCell.vue'
+import LogViewer from '@/components/LogViewer.vue'
+import CodeBlock from '@/components/CodeBlock.vue'
 import { useChartJs } from '@/composables/useChartJs'
 import { usePolling } from '@/composables/usePolling'
 import { useResponsive } from '@/composables/useResponsive'

@@ -147,29 +147,78 @@
     .preview-table-wrap {
         overflow: auto;
         border: 1px solid var(--bs-border-color);
-        border-radius: 0.75rem;
+        border-radius: 0.35rem;
         background: var(--bs-body-bg);
     }
     .preview-table {
         min-width: 1100px;
         margin-bottom: 0;
+        font-size: 0.88rem;
     }
-    .preview-table th {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        background: var(--bs-tertiary-bg);
+    .preview-table th,
+    .preview-table td {
+        text-align: center;
         vertical-align: middle;
         white-space: nowrap;
+        padding: 0.35rem 0.5rem;
     }
+    .preview-table th {
+        background: #f7e1a1;
+        color: #000;
+        font-weight: 700;
+    }
+    .preview-table .product-title-row td { background: #f7e1a1; font-weight: 700; }
+    .preview-table .column-title-row th { background: #f7e1a1; }
     .preview-table .sticky-col {
         position: sticky;
         z-index: 1;
         background: var(--bs-body-bg);
     }
-    .preview-table .sticky-col-1 { left: 0; min-width: 120px; background: #f7e1a1; }
-    .preview-table .sticky-col-2 { left: 120px; min-width: 180px; }
-    .preview-table thead .sticky-col { z-index: 3; background: var(--bs-tertiary-bg); }
+    .preview-table .sticky-col-1 { left: 0; min-width: 108px; background: #f7e1a1; }
+    .preview-table .sticky-col-2 { left: 108px; min-width: 150px; background: #fff; }
+    .preview-table .column-title-row th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+    .preview-table thead .sticky-col,
+    .preview-table .column-title-row .sticky-col { z-index: 3; }
+    .preview-table thead .sticky-col-1,
+    .preview-table .column-title-row .sticky-col-1 { background: #f7e1a1; }
+    html[data-bs-theme="dark"] .header-toolbar,
+    html[data-bs-theme="dark"] .summary-panel,
+    html[data-bs-theme="dark"] .preview-table-wrap {
+        background: #182132;
+    }
+    html[data-bs-theme="dark"] .summary-card,
+    html[data-bs-theme="dark"] .ratio-list-wrap {
+        background: #111827;
+        border-color: #334155;
+    }
+    html[data-bs-theme="dark"] .ratio-formula-hint {
+        background: #3f341b;
+        border-color: #7c4a03;
+    }
+    html[data-bs-theme="dark"] .ratio-formula-hint .hint-title {
+        color: #fbbf24;
+    }
+    html[data-bs-theme="dark"] .ratio-list-table thead th {
+        background: #1f2937;
+    }
+    html[data-bs-theme="dark"] .preview-table th,
+    html[data-bs-theme="dark"] .preview-table .product-title-row td,
+    html[data-bs-theme="dark"] .preview-table .column-title-row th,
+    html[data-bs-theme="dark"] .preview-table .sticky-col-1,
+    html[data-bs-theme="dark"] .preview-table thead .sticky-col-1,
+    html[data-bs-theme="dark"] .preview-table .column-title-row .sticky-col-1 {
+        background: #3f341b;
+        color: #fde68a;
+    }
+    html[data-bs-theme="dark"] .preview-table .sticky-col,
+    html[data-bs-theme="dark"] .preview-table .sticky-col-2 {
+        background: #182132;
+        color: #e5e7eb;
+    }
     .empty-state { padding: 4rem 1rem; text-align: center; color: var(--bs-secondary-color); }
     @media (max-width: 991.98px) {
         .ratio-toolbar {
@@ -384,6 +433,23 @@ function weightedPreviewValue(values, ratios, valueType) {
     return formatPreviewValue(total, valueType);
 }
 
+function weightedSinglePreviewValue(value, ratio, valueType) {
+    const number = parsePreviewNumber(value);
+    const numericRatio = Number(ratio);
+    if (number === null || !Number.isFinite(numericRatio)) {
+        return '-';
+    }
+    return formatPreviewValue(number * numericRatio / 100, valueType);
+}
+
+function formatRatioHeader(value) {
+    const text = String(value == null ? '' : value).trim();
+    if (!text) {
+        return '-';
+    }
+    return text.endsWith('%') ? text : `${text}%`;
+}
+
 function collectRatioValues() {
     return Array.from(document.querySelectorAll('.ratio-input')).map((input) => Number(input.value || 0));
 }
@@ -407,6 +473,13 @@ function applyRatioPreview() {
     (previewPayload.groups || []).forEach((group) => {
         (group.rows || []).forEach((row) => {
             const productValues = row.product_values || [];
+            productValues.forEach((item, index) => {
+                item.weighted_result_value = weightedSinglePreviewValue(
+                    item.raw_result_value,
+                    ratios[index],
+                    row.value_type
+                );
+            });
             row.weighted_index_value = weightedPreviewValue(
                 productValues.map((item) => item.raw_index_value),
                 ratios,
@@ -442,14 +515,19 @@ function renderActiveGroup() {
     const productHeads = products.map((product) => {
         const name = product.product_name || product.stock_code || '产品';
         return `
-            <th>${escapeHtml(name)}-指数<br><span class="small text-body-secondary">${escapeHtml(product.ratio)}%</span></th>
-            <th>${escapeHtml(name)}-结果<br><span class="small text-body-secondary">${escapeHtml(product.stock_code || '')}</span></th>
+            <td colspan="3">${escapeHtml(name)}</td>
         `;
     }).join('');
+    const columnHeads = products.map((product) => `
+        <th>指数</th>
+        <th>模型结果</th>
+        <th>模型结果（${escapeHtml(formatRatioHeader(product.ratio || 0))}）</th>
+    `).join('');
     const body = group.rows.map((row) => {
         const values = (row.product_values || []).map((item) => `
             <td>${escapeHtml(item.index_value || '-')}</td>
             <td>${escapeHtml(item.result_value || '-')}</td>
+            <td>${escapeHtml(item.weighted_result_value || '-')}</td>
         `).join('');
         return `
             <tr>
@@ -464,10 +542,16 @@ function renderActiveGroup() {
     container.innerHTML = `
         <table class="table table-bordered align-middle preview-table">
             <thead>
-                <tr>
+                <tr class="product-title-row">
+                    <td></td>
+                    <td></td>
+                    ${productHeads}
+                    <td colspan="2"></td>
+                </tr>
+                <tr class="column-title-row">
                     <th class="sticky-col sticky-col-1">指标类型</th>
                     <th class="sticky-col sticky-col-2">指标</th>
-                    ${productHeads}
+                    ${columnHeads}
                     <th>比例计算-指数</th>
                     <th>比例计算-结果</th>
                 </tr>

@@ -76,6 +76,7 @@
     .preview-table {
         min-width: 960px;
         margin-bottom: 0;
+        font-size: 0.88rem;
     }
     .preview-table thead th {
         position: sticky;
@@ -92,15 +93,15 @@
     }
     .preview-table .sticky-col-1 {
         left: 0;
-        min-width: 120px;
+        min-width: 108px;
         background: #f7e1a1;
     }
     .preview-table .sticky-col-2 {
-        left: 120px;
-        min-width: 180px;
+        left: 108px;
+        min-width: 150px;
     }
     .preview-table .sticky-col-3 {
-        left: 300px;
+        left: 258px;
         min-width: 140px;
     }
     .preview-table thead .sticky-col {
@@ -109,6 +110,28 @@
     }
     .preview-table thead .sticky-col-1 {
         background: #f7e1a1;
+    }
+    html[data-bs-theme="dark"] .header-toolbar,
+    html[data-bs-theme="dark"] .summary-panel,
+    html[data-bs-theme="dark"] .preview-table-wrap {
+        background: #182132;
+    }
+    html[data-bs-theme="dark"] .summary-card {
+        background: #111827;
+        border-color: #334155;
+    }
+    html[data-bs-theme="dark"] .preview-table .sticky-col {
+        background: #182132;
+    }
+    html[data-bs-theme="dark"] .preview-table .sticky-col-1,
+    html[data-bs-theme="dark"] .preview-table thead .sticky-col-1 {
+        background: #3f341b;
+        color: #fde68a;
+    }
+    html[data-bs-theme="dark"] .preview-table thead th,
+    html[data-bs-theme="dark"] .preview-table thead .sticky-col {
+        background: #1f2937;
+        color: #e5e7eb;
     }
     .group-meta {
         display: flex;

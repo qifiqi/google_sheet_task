@@ -1,16 +1,16 @@
 <template>
   <div class="app-page">
-    <div class="page-toolbar">
-      <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">管理后台</div>
-        <h2 class="page-title">角色管理</h2>
-      </div>
-      <div class="page-toolbar__actions">
+    <PageToolbar eyebrow="管理后台" title="角色管理">
+      <template #actions>
         <el-button type="primary" @click="openDialog()" v-permission="'user:manage'">新增角色</el-button>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
-    <el-table :data="roles" v-loading="loading" stripe>
+    <DataTableCard
+      :data="roles"
+      :loading="loading"
+      :show-pagination="false"
+    >
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="角色名称" />
       <el-table-column prop="code" label="编码" />
@@ -30,7 +30,7 @@
           </el-popconfirm>
         </template>
       </el-table-column>
-    </el-table>
+    </DataTableCard>
 
     <el-dialog v-model="dialogVisible" :title="editingRole ? '编辑角色' : '新增角色'" width="520px">
       <el-form :model="form" label-width="80px">
@@ -77,9 +77,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { ref, reactive } from 'vue'
 import { getRoles, createRole, updateRole, deleteRole, getPermissions } from '@/api/auth'
 import { ElMessage } from 'element-plus'
+import { usePolling } from '@/composables/usePolling'
+import PageToolbar from '@/components/PageToolbar.vue'
+import DataTableCard from '@/components/DataTableCard.vue'
 
 const roles = ref([])
 const groupedPermissions = ref({})
@@ -133,5 +136,5 @@ async function handleDelete(id) {
   loadData()
 }
 
-onMounted(loadData)
+usePolling(loadData, { interval: 30000 })
 </script>

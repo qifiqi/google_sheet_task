@@ -2,9 +2,9 @@
   <el-container class="app-layout">
     <el-aside v-if="!isMobile" :width="collapsed ? '64px' : `${sidebarWidth}px`" class="app-aside">
       <div class="brand-shell" @click="collapsed = !collapsed">
-        <div class="brand-mark">TP</div>
+        <div class="brand-mark">JP</div>
         <div v-show="!collapsed" class="brand-copy">
-          <div class="brand-copy__title">Task Platform</div>
+          <div class="brand-copy__title">Jaspil</div>
           <div class="brand-copy__subtitle">参数校验与任务编排</div>
         </div>
       </div>
@@ -24,9 +24,9 @@
       :with-header="false"
     >
       <div class="brand-shell brand-shell--drawer">
-        <div class="brand-mark">TP</div>
+        <div class="brand-mark">JP</div>
         <div class="brand-copy">
-          <div class="brand-copy__title">Task Platform</div>
+          <div class="brand-copy__title">Jaspil</div>
           <div class="brand-copy__subtitle">参数校验与任务编排</div>
         </div>
       </div>

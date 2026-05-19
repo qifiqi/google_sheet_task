@@ -590,6 +590,44 @@ h3 {
   background: var(--app-surface);
 }
 
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.control-row--stretch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  > :first-child {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.info-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(30, 64, 175, 0.04);
+  border: 1px solid rgba(30, 64, 175, 0.1);
+  font-size: var(--app-font-sm);
+  color: var(--app-text);
+}
+
+.action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 768px) {
   :root {
     --app-font-xs: 13px;

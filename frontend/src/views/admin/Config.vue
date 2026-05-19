@@ -1,27 +1,13 @@
 <template>
   <div class="">
-    <div class="page-toolbar">
-      <h2 style="margin: 0">系统配置</h2>
-      <div class="page-toolbar__actions">
+    <PageToolbar title="系统配置">
+      <template #actions>
         <el-button :size="componentSize" @click="loadAll">刷新</el-button>
         <el-button type="info" :size="componentSize" @click="handleValidate">校验配置</el-button>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
-    <el-row :gutter="12" style="margin-bottom: 16px">
-      <el-col
-        v-for="card in tokenSummaryCards"
-        :key="card.key"
-        :xs="12"
-        :sm="6"
-        style="margin-bottom: 12px"
-      >
-        <el-card shadow="never">
-          <div class="inline-muted">{{ card.label }}</div>
-          <div class="config-metric">{{ tokenSummary[card.key] ?? 0 }}</div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <StatCardGrid :cards="tokenSummaryCards" :data="tokenSummary" />
 
     <div class="page-stack">
       <el-card shadow="never">
@@ -201,11 +187,14 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import PageToolbar from '@/components/PageToolbar.vue'
+import StatCardGrid from '@/components/StatCardGrid.vue'
 import { getSystemConfigs, updateSystemConfig, validateConfig } from '@/api/config'
 import { deleteToken, getToken, getTokens, importToken, updateToken } from '@/api/googleSheet'
 import { useResponsive } from '@/composables/useResponsive'
+import { usePolling } from '@/composables/usePolling'
 
 const { componentSize, dialogWidth, formLabelWidth } = useResponsive()
 
@@ -387,7 +376,7 @@ async function handleDeleteToken() {
   }
 }
 
-onMounted(loadAll)
+usePolling(loadAll, { interval: 60000 })
 </script>
 
 <style scoped>
@@ -397,12 +386,6 @@ onMounted(loadAll)
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-}
-
-.config-metric {
-  font-size: 22px;
-  font-weight: 600;
-  margin-top: 4px;
 }
 
 .config-actions {

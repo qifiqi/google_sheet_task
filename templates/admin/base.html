@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}任务管理系统{% endblock %}</title>
+    <title>{% block title %}Jaspil 任务管理系统{% endblock %}</title>
 
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='font/bootstrap-icons.css') }}" rel="stylesheet">
@@ -11,6 +11,31 @@
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
 
     <style>
+        :root {
+            --bs-secondary-color: rgba(33, 37, 41, 0.75);
+            --bs-tertiary-bg: #f8f9fa;
+            --bs-emphasis-color: #000;
+        }
+        html[data-bs-theme="dark"] {
+            --bs-body-color: #e5e7eb;
+            --bs-body-bg: #111827;
+            --bs-border-color: #334155;
+            --bs-secondary-color: #94a3b8;
+            --bs-tertiary-bg: #1f2937;
+            --bs-emphasis-color: #f8fafc;
+        }
+        .text-body {
+            color: var(--bs-body-color) !important;
+        }
+        .text-body-secondary {
+            color: var(--bs-secondary-color) !important;
+        }
+        .bg-body {
+            background-color: var(--bs-body-bg) !important;
+        }
+        .bg-body-tertiary {
+            background-color: var(--bs-tertiary-bg) !important;
+        }
         body {
             background-color: #f8f9fa;
         }
@@ -344,8 +369,8 @@
                             <i class="bi bi-grid-1x2-fill"></i>
                         </div>
                         <div>
-                            <p class="mb-0 fw-bold text-body">任务管理系统</p>
-                            <p class="mb-0 mt-1 small text-muted">Bootstrap Sidebar Style</p>
+                            <p class="mb-0 fw-bold text-body">Jaspil 任务平台</p>
+                            <p class="mb-0 mt-1 small text-muted">Operations Platform</p>
                         </div>
                     </div>
                     <div class="nav flex-column flex-grow-1" id="templateSidebarMenu"></div>
@@ -355,7 +380,7 @@
                                 <div class="sidebar-user-avatar" data-template-auth-avatar>AI</div>
                                 <div class="flex-grow-1 min-w-0">
                                     <div class="fw-semibold text-truncate" data-template-auth-username>占位用户</div>
-                                    <div class="small text-muted text-truncate" data-template-auth-role>Sidebar Placeholder</div>
+                                    <div class="small text-muted text-truncate" data-template-auth-role>Jaspil 用户</div>
                                 </div>
                             </button>
                             <ul class="dropdown-menu w-100 shadow">

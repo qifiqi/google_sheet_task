@@ -1,11 +1,7 @@
 <template>
   <div class="app-page admin-results-page">
-    <div class="page-toolbar">
-      <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">管理后台</div>
-        <h2 class="page-title">结果查询</h2>
-      </div>
-      <div class="page-toolbar__actions">
+    <PageToolbar eyebrow="管理后台" title="结果查询">
+      <template #actions>
         <el-input
           v-model="taskIdFilter"
           placeholder="输入任务 ID 筛选"
@@ -18,10 +14,20 @@
             <el-button @click="doFilter">搜索</el-button>
           </template>
         </el-input>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
-    <el-table :data="results" v-loading="loading" stripe>
+    <DataTableCard
+      :data="results"
+      :loading="loading"
+      :total="total"
+      :page="page"
+      :page-size="pageSize"
+      :page-sizes="[10, 20, 50, 100]"
+      @update:page="page = $event"
+      @update:page-size="pageSize = $event"
+      @page-change="loadResults"
+    >
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="task_id" label="任务 ID" min-width="200" show-overflow-tooltip />
       <el-table-column prop="step_index" label="步骤索引" width="90" />
@@ -37,19 +43,7 @@
           <el-button link type="danger" @click="handleDelete(row.id)">删除</el-button>
         </template>
       </el-table-column>
-    </el-table>
-
-    <div class="results-pagination">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
-        :total="total"
-        :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next"
-        @current-change="loadResults"
-        @size-change="() => { page = 1; loadResults() }"
-      />
-    </div>
+    </DataTableCard>
 
     <el-drawer v-model="drawerVisible" title="结果详情" :size="isMobile ? '100%' : '600px'">
       <div v-if="currentResult" class="result-drawer">
@@ -76,6 +70,8 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getResults, getResult, deleteResult } from '@/api/template'
 import { useResponsive } from '@/composables/useResponsive'
+import PageToolbar from '@/components/PageToolbar.vue'
+import DataTableCard from '@/components/DataTableCard.vue'
 
 const route = useRoute()
 const { isMobile } = useResponsive()
@@ -134,12 +130,6 @@ onMounted(() => {
   width: 280px;
 }
 
-.results-pagination {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-
 .result-drawer {
   display: grid;
   gap: 18px;
@@ -161,10 +151,6 @@ onMounted(() => {
 @media (max-width: 767px) {
   .results-filter-input {
     width: 100%;
-  }
-
-  .results-pagination {
-    justify-content: center;
   }
 }
 </style>

@@ -5,6 +5,7 @@ import pytest
 
 from app.extensions import db
 from app.models import Task, TaskResult
+from app.routes.backtest_multi_product import _build_global_preview_workbook
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     build_multi_product_global_preview_payload,
@@ -129,5 +130,24 @@ def test_build_multi_product_global_preview_payload_weights_values(app_factory):
         assert payload["summary"]["product_count"] == 2
         row = payload["groups"][0]["rows"][0]
         assert row["metric"] == "年化收益"
+        assert row["product_values"][0]["weighted_result_value"] == "5.00%"
+        assert row["product_values"][1]["weighted_result_value"] == "30.00%"
         assert row["weighted_index_value"] == "17.50%"
         assert row["weighted_result_value"] == "35.00%"
+
+        workbook = _build_global_preview_workbook(payload)
+        sheet = workbook.active
+        assert sheet["A1"].value == ""
+        assert sheet["B1"].value == ""
+        assert sheet["C1"].value == "产品1"
+        assert sheet["F1"].value == "产品2"
+        assert sheet["E2"].value == "模型结果（25%）"
+        assert sheet["H2"].value == "模型结果（75%）"
+        assert sheet["E3"].value == "5.00%"
+        assert sheet["H3"].value == "30.00%"
+        assert sheet["I2"].value == "比例计算-指数"
+        assert sheet["J2"].value == "比例计算-结果"
+        assert sheet["C1"].fill.fgColor.rgb == "00FCECC5"
+        assert sheet["F1"].fill.fgColor.rgb == "00FCECC5"
+        assert sheet["A2"].fill.fgColor.rgb == "00F7E1A1"
+        assert sheet["A3"].fill.fgColor.rgb == "00F7E1A1"

@@ -318,6 +318,9 @@ def _build_nav_permission_map():
         '/task/list?version=c3': 'page:google_sheet:c3',
         '/task/list?version=c4': 'page:google_sheet:c4',
         '/task/list?version=c5': 'page:google_sheet:c5',
+        '/task/create/c3': 'page:google_sheet:c3',
+        '/task/create/c4': 'page:google_sheet:c4',
+        '/task/create/c5': 'page:google_sheet:c5',
         '/google-sheet/?version=c3': 'page:google_sheet:c3',
         '/google-sheet/?version=c4': 'page:google_sheet:c4',
         '/google-sheet/?version=c5': 'page:google_sheet:c5',
@@ -326,6 +329,8 @@ def _build_nav_permission_map():
         '/backtest-training/list': 'page:backtest:list',
         '/backtest/create': 'page:backtest:create',
         '/backtest-training/create': 'page:backtest:create',
+        '/backtest-multi/list': 'page:backtest_multi_product:list',
+        '/backtest-multi/create': 'page:backtest_multi_product:create',
         '/backtest-multi-product/list': 'page:backtest_multi_product:list',
         '/backtest-multi-product/create': 'page:backtest_multi_product:create',
     }
@@ -337,8 +342,13 @@ def _normalize_nav_path(path):
         '/task/list?version=c4': '/google-sheet/?version=c4',
         '/task/list?version=c5': '/google-sheet/?version=c5',
         '/task/create': '/google-sheet/create',
+        '/task/create/c3': '/google-sheet/?version=c3',
+        '/task/create/c4': '/google-sheet/?version=c4',
+        '/task/create/c5': '/google-sheet/?version=c5',
         '/backtest/list': '/backtest-training/list',
         '/backtest/create': '/backtest-training/create',
+        '/backtest-multi/list': '/backtest-multi-product/list',
+        '/backtest-multi/create': '/backtest-multi-product/create',
     }
     return legacy_path_map.get(path, path)
 

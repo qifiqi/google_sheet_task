@@ -22,6 +22,7 @@ from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
+legacy_bp = Blueprint("backtest_training_legacy", __name__, url_prefix="/backtest")
 
 C3_PARAMETER_FIELDS = [
     ("commission", "Commission"),
@@ -459,6 +460,13 @@ def result_page(result_id):
     if task_result and task_result.task and normalize_task_type(task_result.task.task_type) == "backtest_training":
         task_id = task_result.task_id
     return render_template("backtest_training/result.html", result_id=result_id, task_id=task_id)
+
+
+legacy_bp.add_url_rule("/create", view_func=create_page)
+legacy_bp.add_url_rule("/list", view_func=list_page)
+legacy_bp.add_url_rule("/detail/<task_id>", view_func=detail_page)
+legacy_bp.add_url_rule("/global-preview/<task_id>", view_func=global_preview_page)
+legacy_bp.add_url_rule("/result/<int:result_id>", view_func=result_page)
 
 
 @bp.route("/api/import-excel", methods=["POST"])

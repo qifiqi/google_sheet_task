@@ -1,12 +1,12 @@
 <template>
-  <div class="app-page backtest-list-page">
+  <div class="app-page backtest-multi-list-page">
     <PageToolbar
-      eyebrow="Backtest Center"
-      title="数据回测中心"
-      description="集中查看回测任务状态、运行情况和入口操作，快速进入详情或创建新任务。"
+      eyebrow="Multi-Product Backtest"
+      title="多产品回测中心"
+      description="集中查看多产品回测任务状态、运行情况和入口操作，快速进入详情或创建新任务。"
     >
       <template #actions>
-        <el-button type="primary" @click="$router.push('/backtest/create')">创建新任务</el-button>
+        <el-button type="primary" @click="$router.push('/backtest-multi/create')">创建新任务</el-button>
       </template>
     </PageToolbar>
 
@@ -31,7 +31,7 @@
     >
       <el-table-column label="任务名称" min-width="200">
         <template #default="{ row }">
-          <el-link type="primary" @click="$router.push(`/backtest/${row.id}`)">{{ row.name }}</el-link>
+          <el-link type="primary" @click="$router.push(`/backtest-multi/${row.id}`)">{{ row.name }}</el-link>
           <div class="inline-muted font-mono">{{ row.id?.slice(0, 8) }}...</div>
         </template>
       </el-table-column>
@@ -48,7 +48,7 @@
       <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
       <el-table-column label="操作" width="80">
         <template #default="{ row }">
-          <el-button link type="primary" @click="$router.push(`/backtest/${row.id}`)">详情</el-button>
+          <el-button link type="primary" @click="$router.push(`/backtest-multi/${row.id}`)">详情</el-button>
         </template>
       </el-table-column>
     </DataTableCard>
@@ -95,7 +95,7 @@ const filterDefs = [
 async function loadTasks() {
   loading.value = true
   try {
-    const params = { page: page.value, per_page: pageSize.value, task_type: 'backtest_training' }
+    const params = { page: page.value, per_page: pageSize.value, task_type: 'backtest_multi_product' }
     if (filters.status) params.status = filters.status
     if (filters.keyword) params.keyword = filters.keyword
 
@@ -106,9 +106,9 @@ async function loadTasks() {
     const currentTasks = res.tasks || []
     stats.value = {
       total: res.pagination?.total || 0,
-      running: currentTasks.filter((task) => task.status === 'running' || task.status === 'pending').length,
-      completed: currentTasks.filter((task) => task.status === 'completed').length,
-      failed: currentTasks.filter((task) => task.status === 'error').length
+      running: currentTasks.filter((t) => t.status === 'running' || t.status === 'pending').length,
+      completed: currentTasks.filter((t) => t.status === 'completed').length,
+      failed: currentTasks.filter((t) => t.status === 'error').length
     }
   } finally {
     loading.value = false

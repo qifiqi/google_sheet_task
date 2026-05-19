@@ -1,23 +1,12 @@
 <template>
   <div class="app-page scheduler-page">
-    <div class="page-toolbar">
-      <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">管理后台</div>
-        <h2 class="page-title">定时任务管理</h2>
-      </div>
-      <div class="page-toolbar__actions">
+    <PageToolbar eyebrow="管理后台" title="定时任务管理">
+      <template #actions>
         <el-button type="primary" @click="openCreate">添加定时任务</el-button>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
-    <el-row :gutter="12" class="scheduler-stats">
-      <el-col v-for="c in statCards" :key="c.key" :xs="12" :sm="6" class="scheduler-stats__col">
-        <el-card shadow="never" class="scheduler-stat-card" :class="`scheduler-stat-card--${c.key}`">
-          <div class="scheduler-stat-card__label">{{ c.label }}</div>
-          <div class="scheduler-stat-card__value">{{ stats[c.key] ?? 0 }}</div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <StatCardGrid :cards="statCards" :data="stats" variant="gradient" />
 
     <el-card shadow="never">
       <template #header>定时任务列表</template>
@@ -110,10 +99,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getSchedulerStats, getScheduledTasks, createScheduledTask, updateScheduledTask, deleteScheduledTask, toggleScheduledTask, runScheduledTask } from '@/api/scheduler'
 import { useResponsive } from '@/composables/useResponsive'
+import PageToolbar from '@/components/PageToolbar.vue'
+import StatCardGrid from '@/components/StatCardGrid.vue'
+import { usePolling } from '@/composables/usePolling'
 
 const { isMobile } = useResponsive()
 const tasks = ref([])
@@ -122,13 +114,12 @@ const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref(null)
-let refreshTimer = null
 
 const statCards = [
-  { key: 'total_tasks', label: '总任务数', color: '#409eff' },
-  { key: 'active_tasks', label: '活跃任务', color: '#67c23a' },
-  { key: 'inactive_tasks', label: '暂停任务', color: '#e6a23c' },
-  { key: 'scheduler_running', label: '调度器状态', color: '#17a2b8' },
+  { key: 'total_tasks', label: '总任务数', background: '#409eff' },
+  { key: 'active_tasks', label: '活跃任务', background: '#67c23a' },
+  { key: 'inactive_tasks', label: '暂停任务', background: '#e6a23c' },
+  { key: 'scheduler_running', label: '调度器状态', background: '#17a2b8' },
 ]
 
 const form = reactive({ name: '', description: '', cron_expression: '', task_type: 'cleanup', task_function: 'cleanup_old_logs', task_params: '', is_active: true })
@@ -216,52 +207,5 @@ async function handleDelete(id) {
   loadAll()
 }
 
-onMounted(() => {
-  loadAll()
-  refreshTimer = setInterval(loadAll, 30000)
-})
-
-onUnmounted(() => clearInterval(refreshTimer))
+usePolling(loadAll, { interval: 30000 })
 </script>
-
-<style scoped>
-.scheduler-stats {
-  margin-bottom: 16px;
-}
-
-.scheduler-stats__col {
-  margin-bottom: 12px;
-}
-
-.scheduler-stat-card {
-  border: none;
-}
-
-.scheduler-stat-card--total_tasks {
-  background: #409eff;
-}
-
-.scheduler-stat-card--active_tasks {
-  background: #67c23a;
-}
-
-.scheduler-stat-card--inactive_tasks {
-  background: #e6a23c;
-}
-
-.scheduler-stat-card--scheduler_running {
-  background: #17a2b8;
-}
-
-.scheduler-stat-card__label {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: var(--app-font-xs);
-}
-
-.scheduler-stat-card__value {
-  margin-top: 6px;
-  color: #fff;
-  font-size: 24px;
-  font-weight: 700;
-}
-</style>

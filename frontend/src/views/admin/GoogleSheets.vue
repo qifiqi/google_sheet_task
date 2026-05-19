@@ -1,44 +1,23 @@
 <template>
   <div class="app-page google-sheets-page">
-    <div class="page-toolbar">
-      <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">管理后台</div>
-        <h2 class="page-title">Google Sheet 管理</h2>
-      </div>
-      <div class="page-toolbar__actions">
+    <PageToolbar eyebrow="管理后台" title="Google Sheet 管理">
+      <template #actions>
         <el-button type="primary" @click="openCreate">新增表格</el-button>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
-    <el-card shadow="never" class="section-card">
-      <el-row :gutter="12" align="bottom">
-        <el-col :xs="24" :sm="8" :md="5">
-          <el-input v-model="filters.keyword" placeholder="名称 / Spreadsheet ID" clearable @input="applyFilter" />
-        </el-col>
-        <el-col :xs="12" :sm="4" :md="3">
-          <el-select v-model="filters.active" placeholder="状态" clearable class="full-width" @change="applyFilter">
-            <el-option value="1" label="启用" />
-            <el-option value="0" label="停用" />
-          </el-select>
-        </el-col>
-        <el-col :xs="12" :sm="4" :md="3">
-          <el-select v-model="filters.tableType" placeholder="表格类型" clearable class="full-width" @change="applyFilter">
-            <el-option v-for="opt in tableTypeOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
-          </el-select>
-        </el-col>
-        <el-col :xs="12" :sm="4" :md="3">
-          <el-select v-model="filters.usage" placeholder="占用情况" clearable class="full-width" @change="applyFilter">
-            <el-option value="1" label="使用中" />
-            <el-option value="0" label="空闲" />
-          </el-select>
-        </el-col>
-        <el-col :xs="12" :sm="4" :md="2">
-          <el-button @click="loadSheets">刷新</el-button>
-        </el-col>
-      </el-row>
-    </el-card>
+    <FilterToolbar
+      v-model="filters"
+      :filters="filterConfig"
+      @search="loadSheets"
+      @clear="clearFilters"
+    />
 
-    <el-table :data="filteredSheets" v-loading="loading" stripe>
+    <DataTableCard
+      :data="filteredSheets"
+      :loading="loading"
+      :show-pagination="false"
+    >
       <el-table-column prop="name" label="名称" min-width="120" />
       <el-table-column label="Spreadsheet ID" min-width="200">
         <template #default="{ row }">
@@ -72,7 +51,7 @@
           <el-button link type="danger" :disabled="row.is_in_use" @click="handleDelete(row.id)">删除</el-button>
         </template>
       </el-table-column>
-    </el-table>
+    </DataTableCard>
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑表格' : '新增表格'" width="480px" :fullscreen="isMobile">
       <el-form :model="form" label-width="110px">
@@ -104,11 +83,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getGoogleSheets, createGoogleSheet, updateGoogleSheet, deleteGoogleSheet } from '@/api/googleSheet'
 import { getEnums } from '@/api/meta'
 import { useResponsive } from '@/composables/useResponsive'
+import { usePolling } from '@/composables/usePolling'
+import PageToolbar from '@/components/PageToolbar.vue'
+import FilterToolbar from '@/components/FilterToolbar.vue'
+import DataTableCard from '@/components/DataTableCard.vue'
 
 const { isMobile } = useResponsive()
 const sheets = ref([])
@@ -119,6 +102,13 @@ const editingId = ref(null)
 const tableTypeOptions = ref([])
 const filters = reactive({ keyword: '', active: '', tableType: '', usage: '' })
 const form = reactive({ name: '', spreadsheet_id: '', table_type: '', remark: '', is_active: true })
+
+const filterConfig = computed(() => [
+  { key: 'keyword', type: 'input', placeholder: '名称 / Spreadsheet ID', span: { xs: 24, sm: 8, md: 5 } },
+  { key: 'active', type: 'select', placeholder: '状态', options: [{ value: '1', label: '启用' }, { value: '0', label: '停用' }], span: { xs: 12, sm: 4, md: 3 } },
+  { key: 'tableType', type: 'select', placeholder: '表格类型', options: tableTypeOptions.value.map(o => ({ value: o.value, label: o.label })), span: { xs: 12, sm: 4, md: 3 } },
+  { key: 'usage', type: 'select', placeholder: '占用情况', options: [{ value: '1', label: '使用中' }, { value: '0', label: '空闲' }], span: { xs: 12, sm: 4, md: 3 } },
+])
 
 const filteredSheets = computed(() => {
   return sheets.value.filter(item => {
@@ -131,7 +121,12 @@ const filteredSheets = computed(() => {
   })
 })
 
-function applyFilter() {}
+function clearFilters() {
+  filters.keyword = ''
+  filters.active = ''
+  filters.tableType = ''
+  filters.usage = ''
+}
 
 function extractSpreadsheetId(input) {
   if (!input) return ''
@@ -215,7 +210,7 @@ async function handleDelete(id) {
   loadSheets()
 }
 
-onMounted(loadSheets)
+usePolling(loadSheets, { interval: 30000 })
 </script>
 
 <style scoped>

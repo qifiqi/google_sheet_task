@@ -27,6 +27,7 @@ from app.utils.task_authorization import authorize_task_type_action, normalize_t
 
 
 bp = Blueprint("backtest_multi_product", __name__, url_prefix="/backtest-multi-product")
+legacy_bp = Blueprint("backtest_multi_product_legacy", __name__, url_prefix="/backtest-multi")
 
 TASK_ACTION_LABELS = {
     "view": "查看",
@@ -93,6 +94,13 @@ def _parse_json(raw, default):
         return default
 
 
+def _format_ratio_header(value):
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return "-"
+    return text if text.endswith("%") else f"{text}%"
+
+
 @bp.route("/create")
 def create_page():
     return render_template("backtest_multi_product/create.html")
@@ -120,6 +128,13 @@ def result_page(result_id):
     if task_result and task_result.task and normalize_task_type(task_result.task.task_type) == BACKTEST_MULTI_PRODUCT_TASK_TYPE:
         task_id = task_result.task_id
     return render_template("backtest_multi_product/result.html", result_id=result_id, task_id=task_id)
+
+
+legacy_bp.add_url_rule("/create", view_func=create_page)
+legacy_bp.add_url_rule("/list", view_func=list_page)
+legacy_bp.add_url_rule("/detail/<task_id>", view_func=detail_page)
+legacy_bp.add_url_rule("/global-preview/<task_id>", view_func=global_preview_page)
+legacy_bp.add_url_rule("/result/<int:result_id>", view_func=result_page)
 
 
 @bp.route("/api/import-excel", methods=["POST"])
@@ -301,25 +316,39 @@ def _build_global_preview_workbook(payload: dict[str, object]):
     sheet.title = "多品全局预览"
     header_fill = PatternFill("solid", fgColor="F7E1A1")
     sub_header_fill = PatternFill("solid", fgColor="FCECC5")
+    first_col_fill = PatternFill("solid", fgColor="F7E1A1")
     thin_side = Side(style="thin", color="D0D0D0")
     thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
     center = Alignment(horizontal="center", vertical="center")
     header_font = Font(name="Microsoft YaHei", size=11, bold=True)
     body_font = Font(name="Microsoft YaHei", size=10)
 
-    task = payload.get("task") or {}
     products = payload.get("products") or []
-    sheet.append([task.get("name") or task.get("id") or "多品数据回测"])
-    sheet.append(["区间", f"{task.get('start_date') or ''} ~ {task.get('end_date') or ''}"])
-    sheet.append([])
+    total_columns = max(4, 2 + len(products) * 3 + 2)
+    last_column = get_column_letter(total_columns)
 
     for group in payload.get("groups") or []:
-        sheet.append([group.get("group_label") or "参数方案"])
+        group_header = ["", ""]
+        for product in products:
+            group_header.extend([product.get("product_name") or product.get("stock_code") or "产品", "", ""])
+        group_header.extend(["", ""])
+        sheet.append(group_header[:total_columns])
+        group_title_row = sheet.max_row
+
+        current_column = 3
+        for _product in products:
+            sheet.merge_cells(
+                start_row=group_title_row,
+                start_column=current_column,
+                end_row=group_title_row,
+                end_column=current_column + 2,
+            )
+            current_column += 3
+
         header = ["指标类型", "指标"]
         for product in products:
-            name = product.get("product_name") or product.get("stock_code") or "产品"
             ratio = product.get("ratio")
-            header.extend([f"{name}-指数({ratio}%)", f"{name}-结果({ratio}%)"])
+            header.extend(["指数", "模型结果", f"模型结果（{_format_ratio_header(ratio)}）"])
         header.extend(["比例计算-指数", "比例计算-结果"])
         sheet.append(header)
         for row in group.get("rows") or []:
@@ -328,25 +357,42 @@ def _build_global_preview_workbook(payload: dict[str, object]):
                 values.extend([
                     product_value.get("index_value") or "-",
                     product_value.get("result_value") or "-",
+                    product_value.get("weighted_result_value") or "-",
                 ])
             values.extend([
                 row.get("weighted_index_value") or "-",
                 row.get("weighted_result_value") or "-",
             ])
             sheet.append(values)
-        sheet.append([])
+        sheet.append([""] * total_columns)
 
     for row in sheet.iter_rows():
         for cell in row:
             cell.alignment = center
             cell.border = thin_border
             cell.font = body_font
-            if cell.row in {1, 2} or cell.value in {"指标类型", "指标"}:
+            if cell.row == 1:
+                cell.fill = sub_header_fill
                 cell.font = header_font
-                cell.fill = header_fill if cell.row == 1 else sub_header_fill
-    for column_index in range(1, sheet.max_column + 1):
+            if cell.value in {
+                "指标类型",
+                "指标",
+                "指数",
+                "模型结果",
+                "比例计算-指数",
+                "比例计算-结果",
+            } or str(cell.value or "").startswith("模型结果（"):
+                cell.font = header_font
+                cell.fill = sub_header_fill
+            if cell.column == 1:
+                cell.fill = first_col_fill
+                if cell.row <= 2:
+                    cell.font = header_font
+    for column_index in range(1, total_columns + 1):
         sheet.column_dimensions[get_column_letter(column_index)].width = 18 if column_index > 2 else 16
-    sheet.freeze_panes = "A5"
+    sheet.freeze_panes = "A3"
+    if sheet.max_row >= 2:
+        sheet.auto_filter.ref = f"A2:{last_column}{sheet.max_row}"
     return workbook
 
 
