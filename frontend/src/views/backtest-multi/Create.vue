@@ -105,7 +105,7 @@
         </el-col>
         <el-col :xs="24" :sm="6">
           <el-form-item label="比例 (%)">
-            <el-input-number v-model="product.ratio" :min="0" :max="100" :step="5" />
+            <el-input-number v-model="product.ratio" :min="0" :step="5" />
           </el-form-item>
         </el-col>
       </el-row>
@@ -159,18 +159,15 @@
         <el-tag
           v-for="(product, pIndex) in products"
           :key="pIndex"
-          :type="ratioTotal === 100 ? 'success' : 'warning'"
+          type="info"
           size="large"
           class="backtest-multi-create-page__ratio-pill"
         >
           产品{{ pIndex + 1 }}: {{ product.stock_code || '未设置' }} — {{ product.ratio }}%
         </el-tag>
-        <el-tag :type="ratioTotal === 100 ? 'success' : 'danger'" size="large">
+        <el-tag type="success" size="large">
           合计: {{ ratioTotal }}%
         </el-tag>
-      </div>
-      <div v-if="ratioTotal !== 100" class="backtest-multi-create-page__ratio-warn">
-        比例总和必须为 100%，当前为 {{ ratioTotal }}%
       </div>
     </el-card>
   </div>
@@ -298,10 +295,6 @@ async function handleImportExcel(file) {
 }
 
 async function submit() {
-  if (ratioTotal.value !== 100) {
-    ElMessage.error('产品比例总和必须为 100%')
-    return
-  }
   const hasEmpty = products.value.some((p) => !p.stock_code.trim())
   if (hasEmpty) {
     ElMessage.error('请为每个产品设置股票代码')

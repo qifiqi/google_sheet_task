@@ -255,6 +255,9 @@
                 <span>任务输入参数</span>
                 <i class="bi bi-chevron-down ms-2" id="taskParamToggleIcon"></i>
             </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="copyTaskParamsBtn">
+                <i class="bi bi-copy me-1"></i>复制参数
+            </button>
         </div>
         <div class="collapse show" id="taskParamCollapse">
             <div class="table-responsive">
@@ -384,6 +387,7 @@
     const TASK_RESULT_PAGE_SIZE = 10;
     const LIST_PAGINATION_STORAGE_KEY = 'backtest_training:list_pagination';
     const RESULT_PAGINATION_STORAGE_KEY = `backtest_training:task_results:${currentTaskId}:pagination`;
+    let currentTaskConfig = {};
     const FIELD_MAP = {
         c5: [
             { key: 'xm', label: 'X Multiplier (xm)' },
@@ -619,6 +623,46 @@
             return `<code>${escapeHtml(JSON.stringify(value))}</code>`;
         }
         return escapeHtml(value);
+    }
+
+    async function writeClipboardText(text) {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return;
+        }
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand('copy');
+        textarea.remove();
+        if (!ok) {
+            throw new Error('复制失败，请检查浏览器剪切板权限');
+        }
+    }
+
+    function taskParametersToClipboard(config) {
+        const rows = Array.isArray(config.parameters) ? config.parameters : [];
+        return rows
+            .filter((row) => Array.isArray(row) && row.some((value) => String(value ?? '').trim()))
+            .map((row) => row.join('\t'))
+            .join('\n');
+    }
+
+    async function copyTaskParameters() {
+        try {
+            const text = taskParametersToClipboard(currentTaskConfig);
+            if (!text) {
+                throw new Error('当前任务没有可复制的参数');
+            }
+            await writeClipboardText(text);
+            showNotification('参数已复制，可直接粘贴到单产品回测创建页', 'success');
+        } catch (error) {
+            showNotification(error.message || '复制参数失败', 'error');
+        }
     }
 
     function renderTaskConfig(config) {
@@ -1322,15 +1366,16 @@
             }
 
             const task = data.task;
+            currentTaskConfig = task.config || {};
             document.getElementById('taskNameText').textContent = task.name || '任务详情';
             document.getElementById('taskStatus').innerHTML = formatStatus(task.status);
             document.getElementById('taskCreated').innerHTML = renderValue(formatTime(task.created_at));
             document.getElementById('taskStart').innerHTML = renderValue(formatTime(task.start_time));
             document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
             updateStopTaskButton(task.status);
-            renderTaskConfig(task.config || {});
-            renderParameterTable(task.config || {});
-            updateTaskResultSectionMode(task.config || {});
+            renderTaskConfig(currentTaskConfig);
+            renderParameterTable(currentTaskConfig);
+            updateTaskResultSectionMode(currentTaskConfig);
             if (currentModelVersion === 'c3') {
                 loadC3Summary({ silent });
             } else {
@@ -1470,6 +1515,11 @@
                     showNotification(`重头开始失败：${err ? err.message : '未知错误'}`, 'error');
                 });
             });
+        }
+
+        const copyTaskParamsBtn = document.getElementById('copyTaskParamsBtn');
+        if (copyTaskParamsBtn) {
+            copyTaskParamsBtn.addEventListener('click', copyTaskParameters);
         }
 
         const logCollapse = document.getElementById('taskLogCollapse');

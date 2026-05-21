@@ -1,6 +1,12 @@
 """元数据 API — 为前端提供版本、枚举、导航等静态配置"""
 from flask import Blueprint
-from app.models import GoogleSheetTableType, GoogleSheetTokenTaskType, NavigationMenuItem
+from app.models import (
+    GoogleSheetTableType,
+    GoogleSheetTokenTaskType,
+    NavigationMenuItem,
+    TaskStatus,
+    TaskType,
+)
 from app.navigation import build_navigation_tree
 from app.utils.api_response import success
 from app.utils.auth import login_required
@@ -28,6 +34,9 @@ def get_enums():
     return success(data={
         "google_sheet_table_types": GoogleSheetTableType.choices(),
         "google_sheet_token_task_types": GoogleSheetTokenTaskType.choices(),
+        "task_statuses": TaskStatus.choices(),
+        "task_status_editable": TaskStatus.editable_choices(),
+        "task_types": TaskType.choices(),
     })
 
 

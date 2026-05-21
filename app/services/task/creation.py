@@ -12,7 +12,7 @@ from itertools import product
 from typing import Any, Optional
 
 from app.extensions import db
-from app.models import GoogleSheetTokenTaskType, Task
+from app.models import GoogleSheetTokenTaskType, Task, TaskStatus
 from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
@@ -402,10 +402,12 @@ class TaskCreationMixin:
             if not isinstance(new_config, dict):
                 return {"status": "error", "message": "配置格式不正确"}
 
-            allowed_statuses = {"pending", "completed", "cancelled", "error"}
+            allowed_statuses = {
+                option["value"] for option in TaskStatus.editable_choices()
+            }
             next_status = (update_status or "").strip()
             if next_status:
-                if next_status == "running":
+                if next_status == TaskStatus.RUNNING.value:
                     return {"status": "error", "message": "不能手动将任务状态改为运行中，请使用重启任务"}
                 if next_status not in allowed_statuses:
                     return {"status": "error", "message": f"不支持的任务状态: {next_status}"}
@@ -431,13 +433,13 @@ class TaskCreationMixin:
             old_status = task.status
             if next_status and next_status != task.status:
                 task.status = next_status
-                if next_status == "pending":
+                if next_status == TaskStatus.PENDING.value:
                     task.start_time = None
                     task.end_time = None
                     task.error_message = None
-                elif next_status in {"completed", "cancelled"}:
+                elif next_status in {TaskStatus.COMPLETED.value, TaskStatus.CANCELLED.value}:
                     task.end_time = task.end_time or datetime.now()
-                    if next_status == "completed":
+                    if next_status == TaskStatus.COMPLETED.value:
                         task.error_message = None
             db.session.commit()
 

@@ -37,6 +37,32 @@
     }
     .stock-search-item:hover { background: rgba(var(--bs-primary-rgb), 0.08); }
     .param-table input { min-width: 7rem; }
+    .param-toolbar { align-items: center; }
+    .param-help-button {
+        width: 2rem;
+        height: 2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border-radius: 999px;
+    }
+    .param-help-popover { max-width: 24rem; }
+    .param-help-content {
+        display: grid;
+        gap: 0.55rem;
+        font-size: 0.82rem;
+        line-height: 1.45;
+    }
+    .param-help-content strong { color: var(--bs-emphasis-color); }
+    .param-help-content code {
+        color: var(--bs-body-color);
+        background: var(--bs-tertiary-bg);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.35rem;
+        padding: 0.05rem 0.28rem;
+        white-space: nowrap;
+    }
     .ratio-pill {
         display: inline-flex;
         align-items: center;
@@ -48,6 +74,7 @@
     }
     @media (max-width: 991.98px) {
         .product-card .row > * { min-width: 100%; }
+        .param-action-status { width: 100%; }
     }
 </style>
 {% endblock %}
@@ -57,7 +84,7 @@
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
         <div>
             <h1 class="h3 mb-1">创建多品数据回测</h1>
-            <div class="text-body-secondary">每个产品独立 Sheet，参数按行号对齐，比例合计必须为 100%。</div>
+            <div class="text-body-secondary">每个产品独立 Sheet，参数按行号对齐，比例按百分数参与加权计算。</div>
         </div>
         <a href="{{ url_for('backtest_multi_product.list_page') }}" class="btn btn-outline-secondary rounded-pill px-4">返回列表</a>
     </div>
@@ -109,6 +136,13 @@
 const TASK_API_BASE = '/api/tasks';
 const TASK_TYPE = 'backtest_multi_product';
 const DEFAULT_C3_COMMISSION = '0.0350%';
+const PARAMETER_HELP_HTML = `
+    <div class="param-help-content">
+        <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统自动补默认手续费；每行 7 列时第 1 列按手续费处理。</div>
+        <div><strong>C3 复制</strong>：复制当前表格为 Tab 分隔行，包含 <code>Commission</code> 和后续参数列，可直接贴到其他产品或 Excel。</div>
+        <div><strong>C5 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
+    </div>
+`;
 const FIELD_MAP = {
     c3: [
         { key: 'commission', label: 'Commission' },
@@ -129,6 +163,8 @@ const FIELD_MAP = {
 let productSeq = 0;
 let stockTimers = {};
 let stockAbortControllers = {};
+let sheetTimers = {};
+let sheetAbortControllers = {};
 
 const productsContainer = document.getElementById('productsContainer');
 const tokenIdSelect = document.getElementById('tokenId');
@@ -168,7 +204,7 @@ function updateRatioTotal() {
         return sum + (Number.isFinite(value) ? value : 0);
     }, 0);
     ratioTotal.textContent = `${Number(total.toFixed(4))}%`;
-    ratioTotal.className = Math.abs(total - 100) < 0.0001 ? 'text-success' : 'text-danger';
+    ratioTotal.className = 'text-body';
 }
 
 function buildParameterHead(version) {
@@ -185,6 +221,23 @@ function addParameterRow(card, values = []) {
         <td><input class="form-control form-control-sm param-input" data-key="${field.key}" value="${escapeHtml(values[index] ?? (field.key === 'commission' ? DEFAULT_C3_COMMISSION : ''))}"></td>
     `).join('')}<td class="text-end"><button class="btn btn-sm btn-outline-danger delete-param" type="button"><i class="bi bi-trash"></i></button></td>`;
     tbody.appendChild(row);
+}
+
+function initParameterHelpPopover(card) {
+    const helpButton = card.querySelector('.param-help-button');
+    if (!helpButton || !window.bootstrap?.Popover) {
+        return;
+    }
+    helpButton.setAttribute('data-bs-content', PARAMETER_HELP_HTML);
+    new bootstrap.Popover(helpButton, {
+        container: 'body',
+        customClass: 'param-help-popover',
+        html: true,
+        placement: 'top',
+        sanitize: false,
+        title: '粘贴与复制说明',
+        trigger: 'focus'
+    });
 }
 
 function resetParameterTable(card, version) {
@@ -232,20 +285,22 @@ function addProduct(defaults = {}) {
                 </div>
                 <div class="col-xl-2">
                     <label class="form-label">比例 %</label>
-                    <input class="form-control ratio-input" type="number" min="0" max="100" step="0.0001" value="${escapeHtml(defaults.ratio ?? '')}">
+                    <input class="form-control ratio-input" type="number" min="0" step="0.0001" value="${escapeHtml(defaults.ratio ?? '')}">
                 </div>
                 <div class="col-xl-3">
                     <label class="form-label">Google Sheet 链接</label>
-                    <div class="input-group">
-                        <input class="form-control sheet-url" value="${escapeHtml(defaults.sheet_url || '')}">
-                        <button class="btn btn-outline-primary analyze-sheet" type="button">识别</button>
-                    </div>
+                    <input class="form-control sheet-url" value="${escapeHtml(defaults.sheet_url || '')}" placeholder="粘贴 Google Sheet 链接后自动识别">
                 </div>
             </div>
             <div class="small text-body-secondary sheet-info">尚未识别 Sheet</div>
-            <div class="d-flex flex-wrap gap-2">
+            <div class="d-flex flex-wrap gap-2 param-toolbar">
                 <button class="btn btn-outline-secondary btn-sm add-param" type="button"><i class="bi bi-plus-lg me-1"></i>添加参数行</button>
                 <button class="btn btn-outline-secondary btn-sm paste-param" type="button"><i class="bi bi-clipboard2-plus me-1"></i>粘贴追加</button>
+                <button class="btn btn-outline-secondary btn-sm copy-param" type="button"><i class="bi bi-copy me-1"></i>复制参数</button>
+                <button class="btn btn-outline-secondary btn-sm param-help-button" type="button" aria-label="查看粘贴与复制说明">
+                    <i class="bi bi-exclamation-circle"></i>
+                </button>
+                <span class="small text-body-secondary align-self-center param-action-status"></span>
             </div>
             <div class="table-responsive">
                 <table class="table table-bordered align-middle param-table mb-0">
@@ -257,29 +312,81 @@ function addProduct(defaults = {}) {
     `;
     productsContainer.appendChild(card);
     resetParameterTable(card, 'c3');
+    initParameterHelpPopover(card);
     card.querySelector('.market-type').value = defaults.market_type || 'cn';
     card.querySelector('.ratio-input').addEventListener('input', updateRatioTotal);
     card.querySelector('.product-name').addEventListener('input', () => {
         card.querySelector('.product-title').textContent = card.querySelector('.product-name').value.trim() || '产品';
     });
+    if (defaults.sheet_url) {
+        scheduleSheetAnalyze(card, { immediate: true });
+    }
     updateRatioTotal();
 }
 
-async function analyzeSheet(card) {
+function setSheetInfo(card, message, className = 'small text-body-secondary sheet-info') {
+    const info = card.querySelector('.sheet-info');
+    info.className = className;
+    info.textContent = message;
+}
+
+function setParamActionStatus(card, message, className = 'small text-body-secondary align-self-center param-action-status') {
+    const status = card.querySelector('.param-action-status');
+    status.className = className;
+    status.textContent = message;
+}
+
+function clearSheetMeta(card) {
+    delete card.dataset.spreadsheetId;
+    delete card.dataset.sheetName;
+    delete card.dataset.sheetTitle;
+    delete card.dataset.lastAnalyzedSpreadsheetId;
+    delete card.dataset.pendingSpreadsheetId;
+    card.dataset.sheetStatus = 'idle';
+}
+
+function scheduleSheetAnalyze(card, options = {}) {
+    const spreadsheetId = extractSpreadsheetId(card.querySelector('.sheet-url')?.value);
+    if (card.dataset.lastAnalyzedSpreadsheetId && card.dataset.lastAnalyzedSpreadsheetId !== spreadsheetId) {
+        clearSheetMeta(card);
+        setSheetInfo(card, spreadsheetId ? '等待自动识别 Sheet...' : '尚未识别 Sheet');
+    }
+    const productId = card.dataset.productId;
+    window.clearTimeout(sheetTimers[productId]);
+    const delay = options.immediate ? 0 : 500;
+    sheetTimers[productId] = window.setTimeout(() => analyzeSheet(card, { silent: true }), delay);
+}
+
+async function analyzeSheet(card, options = {}) {
     const urlInput = card.querySelector('.sheet-url');
     const spreadsheetId = extractSpreadsheetId(urlInput.value);
     if (!spreadsheetId) {
-        alert('请填写有效的 Google Sheet 链接');
+        clearSheetMeta(card);
+        if (urlInput.value.trim()) {
+            setSheetInfo(card, '未识别到有效的 Google Sheet 链接', 'small text-danger sheet-info');
+        } else {
+            setSheetInfo(card, '尚未识别 Sheet');
+        }
         return;
     }
-    const button = card.querySelector('.analyze-sheet');
-    button.disabled = true;
-    button.textContent = '识别中';
+    if (card.dataset.sheetStatus === 'success' && card.dataset.lastAnalyzedSpreadsheetId === spreadsheetId) {
+        return;
+    }
+
+    const productId = card.dataset.productId;
+    if (sheetAbortControllers[productId]) {
+        sheetAbortControllers[productId].abort();
+    }
+    sheetAbortControllers[productId] = new AbortController();
+    card.dataset.sheetStatus = 'loading';
+    card.dataset.pendingSpreadsheetId = spreadsheetId;
+    setSheetInfo(card, '正在自动识别 Sheet...', 'small text-primary sheet-info');
     try {
         const response = await fetch('/api/google-sheet/worksheets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ spreadsheet_id: spreadsheetId })
+            body: JSON.stringify({ spreadsheet_id: spreadsheetId }),
+            signal: sheetAbortControllers[productId].signal
         });
         const data = await response.json();
         if (data.status !== 'success') {
@@ -290,13 +397,28 @@ async function analyzeSheet(card) {
         card.dataset.spreadsheetId = spreadsheetId;
         card.dataset.sheetName = sheetName;
         card.dataset.sheetTitle = title;
-        resetParameterTable(card, inferModelVersion(title));
-        card.querySelector('.sheet-info').textContent = `${title || spreadsheetId} / ${sheetName}`;
+        card.dataset.lastAnalyzedSpreadsheetId = spreadsheetId;
+        card.dataset.sheetStatus = 'success';
+        delete card.dataset.pendingSpreadsheetId;
+        const nextVersion = inferModelVersion(title);
+        if (card.dataset.modelVersion !== nextVersion) {
+            resetParameterTable(card, nextVersion);
+        }
+        setSheetInfo(card, `${title || spreadsheetId} / ${sheetName}`, 'small text-success sheet-info');
     } catch (error) {
-        alert(error.message || '识别失败');
+        if (error.name === 'AbortError') {
+            return;
+        }
+        clearSheetMeta(card);
+        setSheetInfo(card, error.message || '识别失败', 'small text-danger sheet-info');
+        if (!options.silent) {
+            alert(error.message || '识别失败');
+        }
     } finally {
-        button.disabled = false;
-        button.textContent = '识别';
+        if (card.dataset.sheetStatus === 'loading' && card.dataset.pendingSpreadsheetId === spreadsheetId) {
+            card.dataset.sheetStatus = 'idle';
+            delete card.dataset.pendingSpreadsheetId;
+        }
     }
 }
 
@@ -338,6 +460,104 @@ function collectParameterRows(card) {
         .filter((row) => row.some(Boolean));
 }
 
+function parseParameterClipboard(raw) {
+    return String(raw || '')
+        .split(/\r?\n/)
+        .map((line) => line.split(/\t|,/).map((item) => item.trim()))
+        .filter((row) => row.some(Boolean));
+}
+
+function normalizePastedParameterRow(card, row) {
+    const version = card.dataset.modelVersion || 'c3';
+    const values = row.map((item) => String(item ?? '').trim());
+    if (version !== 'c3') {
+        return values;
+    }
+    if (values.length === 6) {
+        return [DEFAULT_C3_COMMISSION, ...values];
+    }
+    if (values.length === 7) {
+        return values;
+    }
+    return values;
+}
+
+function parameterRowsToClipboard(card) {
+    return collectParameterRows(card)
+        .map((row) => row.join('\t'))
+        .join('\n');
+}
+
+async function readClipboardText() {
+    if (navigator.clipboard?.readText) {
+        return navigator.clipboard.readText();
+    }
+    throw new Error('当前浏览器不支持直接读取剪切板，请使用 HTTPS 或授予剪切板权限');
+}
+
+async function writeClipboardText(text) {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    textarea.remove();
+    if (!ok) {
+        throw new Error('复制失败，请检查浏览器剪切板权限');
+    }
+}
+
+function setButtonBusy(button, text) {
+    if (!button) return () => {};
+    const originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = text;
+    return () => {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    };
+}
+
+async function pasteParametersFromClipboard(card, button) {
+    const restore = setButtonBusy(button, '<span class="spinner-border spinner-border-sm me-1"></span>读取中');
+    try {
+        const raw = await readClipboardText();
+        const rows = parseParameterClipboard(raw);
+        if (!rows.length) {
+            throw new Error('剪切板中没有可追加的参数行');
+        }
+        rows.forEach((row) => addParameterRow(card, normalizePastedParameterRow(card, row)));
+        setParamActionStatus(card, `已追加 ${rows.length} 行参数`, 'small text-success align-self-center param-action-status');
+    } catch (error) {
+        alert(error.message || '读取剪切板失败');
+    } finally {
+        restore();
+    }
+}
+
+async function copyParametersToClipboard(card, button) {
+    const restore = setButtonBusy(button, '<span class="spinner-border spinner-border-sm me-1"></span>复制中');
+    try {
+        const text = parameterRowsToClipboard(card);
+        if (!text) {
+            throw new Error('当前产品没有可复制的参数');
+        }
+        await writeClipboardText(text);
+        setParamActionStatus(card, '参数已复制，可直接粘贴到其他产品或 Excel', 'small text-success align-self-center param-action-status');
+    } catch (error) {
+        alert(error.message || '复制失败');
+    } finally {
+        restore();
+    }
+}
+
 function collectProducts() {
     return getProductCards().map((card, index) => ({
         product_index: index,
@@ -346,7 +566,7 @@ function collectProducts() {
         market_type: card.querySelector('.market-type').value,
         ratio: card.querySelector('.ratio-input').value.trim(),
         sheet: {
-            spreadsheet_id: card.dataset.spreadsheetId || extractSpreadsheetId(card.querySelector('.sheet-url').value),
+            spreadsheet_id: card.dataset.sheetStatus === 'success' ? card.dataset.spreadsheetId : '',
             sheet_name: card.dataset.sheetName || 'data',
             title: card.dataset.sheetTitle || ''
         },
@@ -358,14 +578,13 @@ function validatePayload(products) {
     if (products.length < 2) {
         throw new Error('至少需要 2 个产品');
     }
-    const total = products.reduce((sum, product) => sum + Number(product.ratio || 0), 0);
-    if (Math.abs(total - 100) > 0.0001) {
-        throw new Error(`产品比例合计必须为 100%，当前为 ${Number(total.toFixed(4))}%`);
-    }
     const expectedRows = products[0].parameters.length;
     products.forEach((product, index) => {
         if (!product.stock_code) throw new Error(`产品 ${index + 1} 缺少股票代码`);
         if (!product.sheet.spreadsheet_id) throw new Error(`产品 ${index + 1} 缺少 Google Sheet`);
+        const card = getProductCards()[index];
+        if (card?.dataset.sheetStatus === 'loading') throw new Error(`产品 ${index + 1} 的 Google Sheet 正在识别，请稍后`);
+        if (card?.dataset.sheetStatus !== 'success') throw new Error(`产品 ${index + 1} 的 Google Sheet 尚未自动识别成功`);
         if (!product.parameters.length) throw new Error(`产品 ${index + 1} 缺少参数`);
         if (product.parameters.length !== expectedRows) throw new Error('所有产品参数行数必须一致');
     });
@@ -432,10 +651,6 @@ productsContainer.addEventListener('click', (event) => {
         updateRatioTotal();
         return;
     }
-    if (event.target.closest('.analyze-sheet')) {
-        analyzeSheet(card);
-        return;
-    }
     if (event.target.closest('.add-param')) {
         addParameterRow(card);
         return;
@@ -444,10 +659,14 @@ productsContainer.addEventListener('click', (event) => {
         event.target.closest('tr')?.remove();
         return;
     }
-    if (event.target.closest('.paste-param')) {
-        const raw = prompt('粘贴从 Excel 复制的参数行，多行会追加。');
-        if (!raw) return;
-        raw.split(/\r?\n/).map((line) => line.split(/\t|,/).map((item) => item.trim())).filter((row) => row.some(Boolean)).forEach((row) => addParameterRow(card, row));
+    const pasteButton = event.target.closest('.paste-param');
+    if (pasteButton) {
+        pasteParametersFromClipboard(card, pasteButton);
+        return;
+    }
+    const copyButton = event.target.closest('.copy-param');
+    if (copyButton) {
+        copyParametersToClipboard(card, copyButton);
         return;
     }
     const stockItem = event.target.closest('.stock-search-item');
@@ -461,11 +680,24 @@ productsContainer.addEventListener('click', (event) => {
 });
 
 productsContainer.addEventListener('input', (event) => {
+    const sheetInput = event.target.closest('.sheet-url');
+    if (sheetInput) {
+        const card = event.target.closest('.product-card');
+        scheduleSheetAnalyze(card);
+        return;
+    }
     const stockInput = event.target.closest('.stock-code');
     if (!stockInput) return;
     const card = event.target.closest('.product-card');
     window.clearTimeout(stockTimers[card.dataset.productId]);
     stockTimers[card.dataset.productId] = window.setTimeout(() => fetchStockSuggestions(card, stockInput.value), 600);
+});
+
+productsContainer.addEventListener('paste', (event) => {
+    const sheetInput = event.target.closest('.sheet-url');
+    if (!sheetInput) return;
+    const card = event.target.closest('.product-card');
+    window.setTimeout(() => scheduleSheetAnalyze(card, { immediate: true }), 0);
 });
 
 document.addEventListener('click', (event) => {
@@ -477,11 +709,19 @@ document.addEventListener('click', (event) => {
 document.getElementById('addProductBtn').addEventListener('click', () => addProduct());
 document.getElementById('createBtn').addEventListener('click', createTask);
 
-const today = new Date();
-const prior = new Date();
-prior.setFullYear(today.getFullYear() - 3);
-document.getElementById('endDate').value = today.toISOString().slice(0, 10);
-document.getElementById('startDate').value = prior.toISOString().slice(0, 10);
+function formatDateInput(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+const defaultEndDate = new Date();
+defaultEndDate.setDate(defaultEndDate.getDate() - 1);
+const defaultStartDate = new Date(defaultEndDate);
+defaultStartDate.setFullYear(defaultEndDate.getFullYear() - 3);
+document.getElementById('endDate').value = formatDateInput(defaultEndDate);
+document.getElementById('startDate').value = formatDateInput(defaultStartDate);
 addProduct({ ratio: 50 });
 addProduct({ ratio: 50 });
 loadBacktestTokens();

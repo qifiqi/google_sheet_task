@@ -151,6 +151,77 @@ class GoogleSheetTokenTaskType(str, Enum):
         ]
 
 
+class TaskStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    ERROR = "error"
+
+    @classmethod
+    def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        raw = (value or "").strip().lower()
+        valid_values = {item.value for item in cls}
+        if raw in valid_values:
+            return raw
+        return default
+
+    @classmethod
+    def choices(cls):
+        labels = {
+            cls.PENDING: "待执行",
+            cls.RUNNING: "运行中",
+            cls.COMPLETED: "已完成",
+            cls.CANCELLED: "已取消",
+            cls.ERROR: "错误",
+        }
+        return [{"value": item.value, "label": labels[item]} for item in cls]
+
+    @classmethod
+    def editable_choices(cls):
+        return [
+            item for item in cls.choices()
+            if item["value"] in {cls.PENDING.value, cls.COMPLETED.value, cls.CANCELLED.value, cls.ERROR.value}
+        ]
+
+
+class TaskType(str, Enum):
+    GOOGLE_SHEET = "google_sheet"
+    GOOGLE_SHEET_C4 = "google_sheet_C4"
+    GOOGLE_SHEET_C5 = "google_sheet_C5"
+    BACKTEST_TRAINING = "backtest_training"
+    BACKTEST_MULTI_PRODUCT = "backtest_multi_product"
+
+    @classmethod
+    def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        raw = (value or "").strip()
+        normalized = raw.lower()
+        aliases = {
+            "google_sheet": cls.GOOGLE_SHEET.value,
+            "google_sheet_c3": cls.GOOGLE_SHEET.value,
+            "google_sheet_c31": cls.GOOGLE_SHEET.value,
+            "google_sheet_c4": cls.GOOGLE_SHEET_C4.value,
+            "google_sheet_c5": cls.GOOGLE_SHEET_C5.value,
+            "backtest": cls.BACKTEST_TRAINING.value,
+            "backtest_training": cls.BACKTEST_TRAINING.value,
+            "backtest_multi": cls.BACKTEST_MULTI_PRODUCT.value,
+            "multi_product_backtest": cls.BACKTEST_MULTI_PRODUCT.value,
+            "backtest_multi_product": cls.BACKTEST_MULTI_PRODUCT.value,
+        }
+        return aliases.get(normalized, default)
+
+    @classmethod
+    def choices(cls):
+        labels = {
+            cls.GOOGLE_SHEET: "Google Sheet C3",
+            cls.GOOGLE_SHEET_C4: "Google Sheet C4",
+            cls.GOOGLE_SHEET_C5: "Google Sheet C5",
+            cls.BACKTEST_TRAINING: "单品回测",
+            cls.BACKTEST_MULTI_PRODUCT: "多品回测",
+        }
+        return [{"value": item.value, "label": labels[item]} for item in cls]
+
+
 class Task(db.Model):
     """任务模型"""
 

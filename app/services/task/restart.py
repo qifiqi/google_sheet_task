@@ -126,11 +126,19 @@ class TaskRestartMixin:
                         f"当前任务保持待执行: {running_backtest.id}"
                     )
                     self.start_errors[task_id] = message
+                    task.status = "pending"
+                    task.error_message = None
+                    task.start_time = start_time
+                    task.end_time = None
+                    db.session.commit()
+                    self.add_task_log(task_id, "info", message)
                     return {
-                        "status": "error",
-                        "message": f"任务重启失败: {message}",
+                        "status": "success",
+                        "message": message,
                         "start_error": message,
                         "task_id": task_id,
+                        "queued": True,
+                        "restart_from_step": restart_step,
                     }
             task.status = "pending"
             task.error_message = None

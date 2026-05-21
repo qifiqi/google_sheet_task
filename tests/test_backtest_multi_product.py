@@ -4,13 +4,18 @@ from datetime import datetime
 import pytest
 
 from app.extensions import db
-from app.models import Task, TaskResult
-from app.routes.backtest_multi_product import _build_global_preview_workbook
+from app.models import Task, TaskResult, TaskResultReturn
+from app.routes.backtest_multi_product import (
+    _build_excel_download_name,
+    _build_global_preview_workbook,
+)
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+    BacktestMultiProductService,
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
 )
+from app.services.task.facade import TaskManager
 
 
 def _base_product(index, ratio="50"):
@@ -32,15 +37,16 @@ def _base_product(index, ratio="50"):
     }
 
 
-def test_normalize_multi_product_config_validates_ratio_total():
+def test_normalize_multi_product_config_allows_ratio_total_not_equal_100():
     config = {
         "start_date": "2024-01-01",
         "end_date": "2024-12-31",
         "products": [_base_product(0, "60"), _base_product(1, "30")],
     }
 
-    with pytest.raises(ValueError, match="比例合计必须为 100"):
-        normalize_multi_product_config(config)
+    normalized = normalize_multi_product_config(config)
+
+    assert [product["ratio"] for product in normalized["products"]] == ["60", "30"]
 
 
 def test_normalize_multi_product_config_validates_parameter_alignment():
@@ -55,6 +61,150 @@ def test_normalize_multi_product_config_validates_parameter_alignment():
 
     with pytest.raises(ValueError, match="参数行数必须一致"):
         normalize_multi_product_config(config)
+
+
+def test_build_excel_download_name_uses_task_name_only():
+    assert _build_excel_download_name("test-2", "task-id") == "test-2.xlsx"
+    assert _build_excel_download_name("任务:多品/回测", "task-id") == "任务_多品_回测.xlsx"
+
+
+def test_multi_product_kline_source_requires_same_stock_and_signature():
+    service = BacktestMultiProductService({}, "task-id")
+    kline = [
+        {"stock_date": "2024-01-01", "stock_val": 1},
+        {"stock_date": "2024-01-02", "stock_val": 2},
+        {"stock_date": "2024-01-03", "stock_val": 3},
+    ]
+    signature = service._build_kline_signature(kline)
+    current = {
+        "Kline_key": "2024-01-01~2024-01-03",
+        "stock_code": "QQQ",
+        "kline_signature": signature,
+    }
+
+    assert service._is_same_kline_source(current, dict(current))
+    assert not service._is_same_kline_source(current, {**current, "stock_code": "GOOGL"})
+    assert not service._is_same_kline_source(
+        current,
+        {**current, "kline_signature": {**signature, "last": {"stock_date": "2024-01-03", "stock_val": 9}}},
+    )
+
+
+def _make_backtest_task(task_id, *, status, spreadsheet_id, current_step=2):
+    return Task(
+        id=task_id,
+        name=task_id,
+        task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+        status=status,
+        current_step=current_step,
+        config=json.dumps({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "products": [_base_product(0, "50") | {
+                "sheet": {
+                    "spreadsheet_id": spreadsheet_id,
+                    "sheet_name": "data",
+                    "title": "C3 model",
+                },
+            }, _base_product(1, "50") | {
+                "sheet": {
+                    "spreadsheet_id": "other-sheet",
+                    "sheet_name": "data",
+                    "title": "C3 model",
+                },
+            }],
+        }, ensure_ascii=False),
+        created_at=datetime.now(),
+    )
+
+
+def test_restart_checkpoint_queues_pending_without_clearing_results(app_factory):
+    app = app_factory
+    with app.app_context():
+        running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
+        target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
+        db.session.add_all([running, target])
+        db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
+        db.session.commit()
+
+        manager = TaskManager()
+        target_id = target.id
+        result = manager.restart_task(target_id, resume_from_checkpoint=True)
+        target = db.session.get(Task, target_id)
+
+        assert result["status"] == "success"
+        assert result["queued"] is True
+        assert target.status == "pending"
+        assert target.current_step == 3
+        assert TaskResult.query.filter_by(task_id=target.id).count() == 1
+
+
+def test_restart_from_scratch_queues_pending_and_clears_results(app_factory):
+    app = app_factory
+    with app.app_context():
+        running = _make_backtest_task("running-task", status="running", spreadsheet_id="shared-sheet")
+        target = _make_backtest_task("target-task", status="error", spreadsheet_id="shared-sheet", current_step=3)
+        db.session.add_all([running, target])
+        db.session.add(TaskResult(task_id=target.id, step_index=0, parameters="{}", result="{}", success=True))
+        db.session.add(TaskResultReturn(task_id=target.id, stock_date="2024-01-01", index_return=1, start_return=1))
+        db.session.commit()
+
+        manager = TaskManager()
+        target_id = target.id
+        result = manager.restart_task(target_id, resume_from_checkpoint=False)
+        target = db.session.get(Task, target_id)
+
+        assert result["status"] == "success"
+        assert result["queued"] is True
+        assert target.status == "pending"
+        assert target.current_step == 0
+        assert TaskResult.query.filter_by(task_id=target.id).count() == 0
+        assert TaskResultReturn.query.filter_by(task_id=target.id).count() == 0
+
+
+def test_multi_product_execution_runs_all_parameters_per_product_first(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "products": [_base_product(0, "50"), _base_product(1, "50")],
+        })
+        task = Task(
+            id="execution-order-task",
+            name="execution-order-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="running",
+            config=json.dumps(config, ensure_ascii=False),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        task = db.session.get(Task, "execution-order-task")
+        service = BacktestMultiProductService({}, task.id)
+        call_order = []
+        monkeypatch.setattr(service, "_resolve_resume_start_index", lambda _task: 0)
+        monkeypatch.setattr(service, "_init_google_sheet", lambda _config: None)
+        monkeypatch.setattr(service, "_build_product_kline", lambda product, _config: {
+            "kline_key": "2024-01-01~2024-12-31",
+            "kline": [
+                {"stock_date": "2024-01-01", "stock_val": 1},
+                {"stock_date": "2024-12-31", "stock_val": 2},
+            ],
+            "kline_signature": {"stock_code": product["stock_code"]},
+            "column_A_length": 22,
+        })
+
+        def fake_execute(_column_a_length, combination, cache_parameters, _config_data, _kline_data_map):
+            call_order.append((combination["product_index"], combination["parameter_group_index"]))
+            cache_parameters["combination"] = combination
+            return True, {}
+
+        monkeypatch.setattr(service, "_execute_parameter_combination", fake_execute)
+
+        assert service._execute_products(task, config) == "completed"
+        assert call_order == [(0, 0), (0, 1), (1, 0), (1, 1)]
 
 
 def _task_result_payload(index_return, start_return):

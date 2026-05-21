@@ -81,20 +81,18 @@
                 <label for="status-filter" class="form-label">状态</label>
                 <select class="form-select" id="status-filter" onchange="filterTasks()">
                     <option value="">全部</option>
-                    <option value="pending">待执行</option>
-                    <option value="running">运行中</option>
-                    <option value="completed">已完成</option>
-                    <option value="cancelled">已取消</option>
-                    <option value="error">错误</option>
+                    {% for option in task_status_options %}
+                    <option value="{{ option.value }}">{{ option.label }}</option>
+                    {% endfor %}
                 </select>
             </div>
             <div class="col-md-3">
                 <label for="type-filter" class="form-label">类型</label>
                 <select class="form-select" id="type-filter" onchange="filterTasks()">
                     <option value="">全部</option>
-                    <option value="google_sheet">Google Sheet</option>
-                    <option value="google_sheet_C4">Google Sheet C4</option>
-                    <option value="google_sheet_C5">Google Sheet C5</option>
+                    {% for option in task_type_options %}
+                    <option value="{{ option.value }}">{{ option.label }}</option>
+                    {% endfor %}
                 </select>
             </div>
             <div class="col-md-4">
@@ -170,9 +168,9 @@
                         <div class="col-md-6">
                             <label for="task-type" class="form-label">任务类型</label>
                             <select class="form-select" id="task-type" required>
-                                <option value="google_sheet">Google Sheet</option>
-                                <option value="google_sheet_C4">Google Sheet C4</option>
-                                <option value="google_sheet_C5">Google Sheet C5</option>
+                                {% for option in task_type_options %}
+                                <option value="{{ option.value }}">{{ option.label }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         <div class="col-12">
@@ -326,10 +324,9 @@
                         <div class="col-md-6">
                             <label for="edit-task-status" class="form-label">任务状态</label>
                             <select class="form-select" id="edit-task-status">
-                                <option value="pending">待执行</option>
-                                <option value="completed">已完成</option>
-                                <option value="cancelled">已取消</option>
-                                <option value="error">错误</option>
+                                {% for option in task_status_editable_options %}
+                                <option value="{{ option.value }}">{{ option.label }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         <div class="col-12">
@@ -364,7 +361,87 @@
     let currentPage = 1;
     let itemsPerPage = 10;
     let currentTaskId = null;
+    let currentTaskType = null;
     let searchDebounceTimer = null;
+
+    function getTaskVersionFromType(taskType) {
+        const normalizedType = String(taskType || '').toLowerCase();
+        if (normalizedType === 'google_sheet_c5') {
+            return 'c5';
+        }
+        if (normalizedType === 'google_sheet_c4') {
+            return 'c4';
+        }
+        if (normalizedType === 'google_sheet') {
+            return 'c3';
+        }
+        return '';
+    }
+
+    function normalizeTaskType(taskType) {
+        const normalizedType = String(taskType || '').trim().toLowerCase();
+        if (['google_sheet', 'google_sheet_c3', 'google_sheet_c31'].includes(normalizedType)) {
+            return 'google_sheet';
+        }
+        if (normalizedType === 'google_sheet_c4') {
+            return 'google_sheet_c4';
+        }
+        if (normalizedType === 'google_sheet_c5') {
+            return 'google_sheet_c5';
+        }
+        if (['backtest_training', 'backtest'].includes(normalizedType)) {
+            return 'backtest_training';
+        }
+        if (['backtest_multi_product', 'multi_product_backtest', 'backtest_multi'].includes(normalizedType)) {
+            return 'backtest_multi_product';
+        }
+        return normalizedType;
+    }
+
+    function isGoogleSheetTask(taskType) {
+        return ['google_sheet', 'google_sheet_c4', 'google_sheet_c5'].includes(normalizeTaskType(taskType));
+    }
+
+    function buildGoogleSheetUrl(path, taskId, taskType) {
+        const params = new URLSearchParams();
+        const taskVersion = getTaskVersionFromType(taskType || currentTaskType);
+
+        if (path === '/google-sheet/detail') {
+            params.set('task_id', taskId || currentTaskId);
+        } else if (path === '/google-sheet/create') {
+            params.set('restart_task_id', taskId || currentTaskId);
+        }
+
+        if (taskVersion) {
+            params.set('version', taskVersion);
+        }
+
+        return `${path}?${params.toString()}`;
+    }
+
+    function buildTaskDetailUrl(taskId, taskType) {
+        const normalizedType = normalizeTaskType(taskType || currentTaskType);
+
+        if (normalizedType === 'backtest_training') {
+            return `/backtest-training/detail/${encodeURIComponent(taskId || currentTaskId)}`;
+        }
+        if (normalizedType === 'backtest_multi_product') {
+            return `/backtest-multi-product/detail/${encodeURIComponent(taskId || currentTaskId)}`;
+        }
+        return buildGoogleSheetUrl('/google-sheet/detail', taskId, taskType);
+    }
+
+    function buildTaskCreateUrl(taskId, taskType) {
+        const normalizedType = normalizeTaskType(taskType || currentTaskType);
+
+        if (normalizedType === 'backtest_training') {
+            return '/backtest-training/create';
+        }
+        if (normalizedType === 'backtest_multi_product') {
+            return '/backtest-multi-product/create';
+        }
+        return buildGoogleSheetUrl('/google-sheet/create', taskId, taskType);
+    }
 
     document.addEventListener('DOMContentLoaded', function() {
         loadTasks();
@@ -593,6 +670,7 @@
 
     function showTaskDetail(taskId) {
         currentTaskId = taskId;
+        currentTaskType = findCurrentTask(taskId)?.task_type || null;
         ajaxRequest(`/admin/api/tasks/${taskId}/runtime-detail`, 'GET', null, function(err, data) {
             if (err || !data || !data.success) {
                 showNotification('获取任务详情失败', 'error');
@@ -600,6 +678,7 @@
             }
 
             const task = data.task;
+            currentTaskType = task.task_type || null;
             document.getElementById('detail-task-id').textContent = task.id;
             document.getElementById('detail-task-name').textContent = task.name;
             document.getElementById('detail-task-type').textContent = task.task_type;
@@ -775,14 +854,32 @@
 
     function viewTaskDetail() {
         if (currentTaskId) {
-            window.location.href = `/google-sheet/detail?task_id=${currentTaskId}`;
+            window.location.href = buildTaskDetailUrl(currentTaskId, currentTaskType);
         }
     }
 
     function createRestartTask() {
-        if (currentTaskId) {
-            window.location.href = `/google-sheet/create?restart_task_id=${encodeURIComponent(currentTaskId)}`;
+        if (!currentTaskId) {
+            return;
         }
+
+        if (isGoogleSheetTask(currentTaskType)) {
+            window.location.href = buildTaskCreateUrl(currentTaskId, currentTaskType);
+            return;
+        }
+
+        ajaxRequest(`/api/tasks/${currentTaskId}/create-restart`, 'POST', {}, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                showNotification(data.message || '新重启任务创建成功', 'success');
+                const nextTaskType = data.task_type || currentTaskType;
+                const nextTaskId = data.new_task_id || currentTaskId;
+                window.location.href = buildTaskDetailUrl(nextTaskId, nextTaskType);
+                return;
+            }
+
+            const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');
+            showNotification(`创建重启任务失败: ${errorMessage}`, 'error');
+        });
     }
 </script>
 {% endblock %}

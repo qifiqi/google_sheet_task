@@ -107,6 +107,13 @@
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
         font-size: 0.875rem;
     }
+    .param-help-popover { max-width: 24rem; }
+    .param-help-content {
+        display: grid;
+        gap: 0.55rem;
+        font-size: 0.875rem;
+        line-height: 1.55;
+    }
     .empty-hint {
         border: 1px dashed var(--bs-border-color);
         border-radius: 1rem;
@@ -268,8 +275,14 @@
                     <button type="button" class="btn btn-outline-secondary" id="importExcelBtn">
                         <i class="bi bi-file-earmark-excel me-1"></i>导入 Excel
                     </button>
-                    <button type="button" class="btn btn-outline-secondary" id="togglePasteParseBtn" aria-expanded="false" aria-controls="pasteParsePanel">
-                        <i class="bi bi-clipboard2-plus me-1"></i>粘贴解析
+                    <button type="button" class="btn btn-outline-secondary" id="paramHelpBtn" aria-label="查看粘贴与复制说明">
+                        <i class="bi bi-exclamation-circle"></i>
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="pasteClipboardBtn">
+                        <i class="bi bi-clipboard2-plus me-1"></i>粘贴追加
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="copyParamBtn">
+                        <i class="bi bi-copy me-1"></i>复制参数
                     </button>
                     <button type="button" class="btn btn-outline-primary" id="addParamBtn">
                         <i class="bi bi-plus-lg me-1"></i>添加参数
@@ -281,27 +294,6 @@
             </div>
 
             <div id="excelImportStatus" class="small mb-3"></div>
-
-            <div class="paste-parse-panel d-none mb-3" id="pasteParsePanel">
-                <label for="pasteParseInput" class="form-label">粘贴参数</label>
-                <textarea
-                    class="form-control paste-parse-input"
-                    id="pasteParseInput"
-                    placeholder="从 Excel 复制多行参数后粘贴到这里，系统会按当前表头从左到右填入"
-                ></textarea>
-                <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
-                    <button type="button" class="btn btn-primary btn-sm" id="parseReplaceBtn">
-                        <i class="bi bi-arrow-down-square me-1"></i>解析并替换
-                    </button>
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="parseAppendBtn">
-                        <i class="bi bi-plus-square me-1"></i>解析并追加
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="clearPasteParseBtn">
-                        <i class="bi bi-x-lg me-1"></i>清空
-                    </button>
-                    <span class="small text-body-secondary" id="pasteParseStatus"></span>
-                </div>
-            </div>
 
             <div id="emptyHint" class="empty-hint">
                 先识别模型或直接添加参数行。
@@ -356,6 +348,13 @@ let selectedStockSuggestion = null;
 let taskNameTouched = false;
 
 const currentYear = new Date().getFullYear();
+const PARAMETER_HELP_HTML = `
+    <div class="param-help-content">
+        <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统自动补默认手续费；每行 7 列时第 1 列按手续费处理。</div>
+        <div><strong>C3 复制</strong>：复制当前表格为 Tab 分隔行，包含 <code>Commission</code> 和后续参数列，可直接贴到其他任务或 Excel。</div>
+        <div><strong>C5 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
+    </div>
+`;
 const modelUrlInput = document.getElementById('modelUrl');
 const stockCodeInput = document.getElementById('stockCode');
 const stockSearchResults = document.getElementById('stockSearchResults');
@@ -387,13 +386,9 @@ const paramTableHead = document.getElementById('paramTableHead');
 const paramTableBody = document.getElementById('paramTableBody');
 const excelFileInput = document.getElementById('excelFileInput');
 const importExcelBtn = document.getElementById('importExcelBtn');
-const togglePasteParseBtn = document.getElementById('togglePasteParseBtn');
-const pasteParsePanel = document.getElementById('pasteParsePanel');
-const pasteParseInput = document.getElementById('pasteParseInput');
-const parseReplaceBtn = document.getElementById('parseReplaceBtn');
-const parseAppendBtn = document.getElementById('parseAppendBtn');
-const clearPasteParseBtn = document.getElementById('clearPasteParseBtn');
-const pasteParseStatus = document.getElementById('pasteParseStatus');
+const paramHelpBtn = document.getElementById('paramHelpBtn');
+const pasteClipboardBtn = document.getElementById('pasteClipboardBtn');
+const copyParamBtn = document.getElementById('copyParamBtn');
 const addParamBtn = document.getElementById('addParamBtn');
 const createBtn = document.getElementById('createBtn');
 const excelImportStatus = document.getElementById('excelImportStatus');
@@ -572,11 +567,6 @@ function syncEmptyState() {
     emptyHint.classList.toggle('d-none', hasRows);
 }
 
-function setPasteParseStatus(message, tone = 'muted') {
-    pasteParseStatus.className = `small text-${tone}`;
-    pasteParseStatus.textContent = message || '';
-}
-
 function addParameterRow(initialValues = {}) {
     const cells = currentFields.map((field) => {
         const value = initialValues[field.key] ?? '';
@@ -703,21 +693,6 @@ function parsePastedParameterRows(rawText) {
         .filter((row) => Object.values(row).some(Boolean));
 }
 
-function applyPastedParameters(mode = 'replace') {
-    const rows = parsePastedParameterRows(pasteParseInput.value);
-    if (!rows.length) {
-        setPasteParseStatus('没有解析到有效参数', 'danger');
-        return;
-    }
-
-    if (mode === 'replace' || !hasParameterDraftValues()) {
-        paramTableBody.innerHTML = '';
-    }
-    rows.forEach((row) => addParameterRow(row));
-    syncEmptyState();
-    setPasteParseStatus(`已${mode === 'replace' ? '替换为' : '追加'} ${rows.length} 行参数`, 'success');
-}
-
 function resetParameterTable(rows = []) {
     updateTableHeader();
     paramTableBody.innerHTML = '';
@@ -752,6 +727,68 @@ function collectParameters() {
         return rows.map((row) => [commission, ...row]);
     }
     return rows;
+}
+
+async function readClipboardText() {
+    if (navigator.clipboard?.readText) {
+        return navigator.clipboard.readText();
+    }
+    throw new Error('当前浏览器不支持直接读取剪切板，请使用 HTTPS 或授予剪切板权限');
+}
+
+async function writeClipboardText(text) {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    textarea.remove();
+    if (!ok) {
+        throw new Error('复制失败，请检查浏览器剪切板权限');
+    }
+}
+
+function parameterRowsToClipboard() {
+    return collectParameters()
+        .filter((row) => Array.isArray(row) && row.some((value) => String(value ?? '').trim()))
+        .map((row) => row.join('\t'))
+        .join('\n');
+}
+
+async function pasteParametersFromClipboard() {
+    try {
+        const raw = await readClipboardText();
+        const rows = parsePastedParameterRows(raw);
+        if (!rows.length) {
+            setExcelImportStatus('剪切板中没有解析到有效参数', 'danger');
+            return;
+        }
+        rows.forEach((row) => addParameterRow(row));
+        syncEmptyState();
+        setExcelImportStatus(`已追加 ${rows.length} 行参数`, 'success');
+    } catch (error) {
+        alert(error.message || '读取剪切板失败');
+    }
+}
+
+async function copyParametersToClipboard() {
+    try {
+        const text = parameterRowsToClipboard();
+        if (!text) {
+            throw new Error('当前没有可复制的参数');
+        }
+        await writeClipboardText(text);
+        setExcelImportStatus('参数已复制，可直接粘贴到其他单产品回测或 Excel', 'success');
+    } catch (error) {
+        alert(error.message || '复制失败');
+    }
 }
 
 function setExcelImportStatus(message, tone = 'muted') {
@@ -1226,21 +1263,21 @@ document.addEventListener('change', (event) => {
 taskConfigCollapse.addEventListener('shown.bs.collapse', updateConfigToggleText);
 taskConfigCollapse.addEventListener('hidden.bs.collapse', updateConfigToggleText);
 
-togglePasteParseBtn.addEventListener('click', () => {
-    const shouldShow = pasteParsePanel.classList.contains('d-none');
-    pasteParsePanel.classList.toggle('d-none', !shouldShow);
-    togglePasteParseBtn.setAttribute('aria-expanded', shouldShow ? 'true' : 'false');
-    if (shouldShow) {
-        pasteParseInput.focus();
-    }
-});
-parseReplaceBtn.addEventListener('click', () => applyPastedParameters('replace'));
-parseAppendBtn.addEventListener('click', () => applyPastedParameters('append'));
-clearPasteParseBtn.addEventListener('click', () => {
-    pasteParseInput.value = '';
-    setPasteParseStatus('');
-    pasteParseInput.focus();
-});
+if (paramHelpBtn && window.bootstrap?.Popover) {
+    paramHelpBtn.setAttribute('data-bs-content', PARAMETER_HELP_HTML);
+    new bootstrap.Popover(paramHelpBtn, {
+        container: 'body',
+        customClass: 'param-help-popover',
+        html: true,
+        placement: 'top',
+        sanitize: false,
+        title: '粘贴与复制说明',
+        trigger: 'focus'
+    });
+}
+
+pasteClipboardBtn.addEventListener('click', pasteParametersFromClipboard);
+copyParamBtn.addEventListener('click', copyParametersToClipboard);
 
 addParamBtn.addEventListener('click', () => addParameterRow());
 paramTableBody.addEventListener('click', (event) => {

@@ -210,7 +210,7 @@
 <script>
     // 全局变量
     const localUrlObj = new URL( window.location.href);
-    let version = localUrlObj.searchParams.get('version');
+    let version = localUrlObj.searchParams.get('version') || 'c3';
     let upper_version = version.toUpperCase()
     let allTasks = [];
     let filteredTasks = [];
@@ -219,6 +219,25 @@
     let currentFilter = 'all';
     let task_type = upper_version === "C3" ? "google_sheet" : `google_sheet_${upper_version}`;
     console.log(task_type)
+
+    function getTaskVersion(task) {
+        const normalizedType = String(task && task.task_type ? task.task_type : '').toLowerCase();
+        if (normalizedType === 'google_sheet_c5') {
+            return 'c5';
+        }
+        if (normalizedType === 'google_sheet_c4') {
+            return 'c4';
+        }
+        if (normalizedType === 'google_sheet') {
+            return 'c3';
+        }
+        return version || 'c3';
+    }
+
+    function buildTaskDetailUrl(task) {
+        const taskVersion = getTaskVersion(task);
+        return `/google-sheet/detail?task_id=${encodeURIComponent(task.id)}&version=${encodeURIComponent(taskVersion)}`;
+    }
     // 页面加载完成后启动任务列表轮询
     document.addEventListener('DOMContentLoaded', function() {
         // 恢复用户偏好设置
@@ -363,7 +382,7 @@
                 <td>${formatTime(task.end_time)}</td>
                 <td>
                     <div class="btn-group" role="group">
-                        <a href="/google-sheet/detail?task_id=${task.id}&version=${version}" class="btn btn-sm btn-info">
+                        <a href="${buildTaskDetailUrl(task)}" class="btn btn-sm btn-info">
                             <i class="bi bi-eye"></i> 查看
                         </a>
                         ${task.status === 'running' ? `

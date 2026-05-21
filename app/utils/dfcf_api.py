@@ -6,11 +6,13 @@ import time
 from urllib.parse import quote
 
 import requests
+from requests.exceptions import RequestException
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.services.config_manager import get_config_manager
 from app.utils.logger import get_logger
-from app.utils.proxy_manager import get_smart_proxy_manager
+from app.utils.proxy_manager import SmartProxyManager, get_smart_proxy_manager
+from app.utils.task_error_utils import is_retryable_network_error
 
 os.environ["REQUESTS_CA_BUNDLE"] = requests.utils.DEFAULT_CA_BUNDLE_PATH
 
@@ -26,10 +28,27 @@ class DFCJStockApi:
         self.ut_fixed = None
         self.logger = get_logger(self.__class__.__name__)
         self.proxy_manager = get_smart_proxy_manager(self.logger)
+        self._reset_session()
+
+    def _reset_session(self):
+        if getattr(self, "session", None) is not None:
+            try:
+                self.session.close()
+            except Exception:
+                pass
         self.session = requests.Session()
         self.session.trust_env = False
         self.session.verify = requests.utils.DEFAULT_CA_BUNDLE_PATH
         self.session.headers.update(self._generate_headers())
+
+    def _refresh_proxy_after_failure(self, exc):
+        self._reset_session()
+        self.proxy_manager.invalidate_proxy()
+        try:
+            self.proxy_manager.get_best_proxy(force_refresh=True)
+        except Exception as refresh_exc:
+            self.logger.warning("DFCF代理刷新失败: %s", refresh_exc)
+        self.logger.warning("DFCF代理请求失败，已重建会话并尝试刷新代理: %s", exc)
 
     def _generate_headers(self, referer=None):
         headers = {
@@ -66,12 +85,23 @@ class DFCJStockApi:
         if headers is None:
             headers = self._generate_headers()
 
-        if use_proxy:
-            proxy = self.proxy_manager.get_best_proxy()
-            self.logger.info(f"DFCF K线请求启用代理: {proxy}")
-            response = self.session.get(*args, **kwargs, headers=headers, proxies=proxy)
-        else:
-            response = self.session.get(*args, **kwargs, headers=headers)
+        try:
+            if use_proxy:
+                proxy = self.proxy_manager.get_best_proxy()
+                self.logger.info(
+                    "DFCF K线请求启用代理: %s",
+                    SmartProxyManager._redact_proxy(proxy),
+                )
+                response = self.session.get(*args, **kwargs, headers=headers, proxies=proxy)
+            else:
+                response = self.session.get(*args, **kwargs, headers=headers)
+        except RequestException as exc:
+            if use_proxy:
+                self._refresh_proxy_after_failure(exc)
+            else:
+                self._reset_session()
+                self.logger.warning("DFCF请求失败，已重建会话: %s", exc)
+            raise
 
         response.raise_for_status()
         return response
@@ -224,6 +254,8 @@ class DFCJStockApi:
             self.logger.warning(f"codetable 搜索 JSON 解析失败: {je}")
             return []
         except Exception as e:
+            if is_retryable_network_error(e):
+                raise
             self.logger.warning(f"codetable 搜索失败: {e}")
             return []
 
@@ -283,6 +315,8 @@ class DFCJStockApi:
             self.logger.exception("suggest 搜索接口返回数据无法解析为JSON")
             return {"error": f"JSON解析失败: {str(je)}"}
         except Exception as e:
+            if is_retryable_network_error(e):
+                raise
             self.logger.exception("suggest 搜索接口调用失败")
             return {"error": f"未知错误: {str(e)}"}
 

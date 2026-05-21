@@ -23,7 +23,7 @@ from app.utils.task_error_utils import build_task_error_message, unwrap_exceptio
 
 
 BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
-RATIO_TOTAL = Decimal("100")
+RATIO_BASE = Decimal("100")
 
 SUMMARY_ROW_DEFS = [
     ("绝对收益", "年化收益", "index_annualized_return", "start_annualized_return", "percent"),
@@ -74,12 +74,6 @@ def normalize_ratio_display(value: Any) -> str:
     normalized = ratio.quantize(Decimal("0.0001")).normalize()
     text = format(normalized, "f")
     return text.rstrip("0").rstrip(".") if "." in text else text
-
-
-def validate_ratio_total(products: list[dict[str, Any]]) -> None:
-    total = sum((parse_ratio(product.get("ratio")) for product in products), Decimal("0"))
-    if total.quantize(Decimal("0.0001")) != RATIO_TOTAL:
-        raise ValueError(f"产品比例合计必须为 100%，当前为 {total}%")
 
 
 def _normalize_sheet(product: dict[str, Any]) -> dict[str, str]:
@@ -143,7 +137,6 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "parameters": parameters,
         })
 
-    validate_ratio_total(normalized_products)
     return {
         **config,
         "start_date": start_date,
@@ -207,7 +200,7 @@ def _weighted_display(values: list[Any], ratios: list[Any], value_type: str) -> 
         number = _safe_number(value)
         if number is None:
             return "-"
-        weighted += Decimal(str(number)) * parse_ratio(ratio) / RATIO_TOTAL
+        weighted += Decimal(str(number)) * parse_ratio(ratio) / RATIO_BASE
     return _fmt_value(float(weighted), value_type)
 
 
@@ -215,7 +208,7 @@ def _weighted_single_display(value: Any, ratio: Any, value_type: str) -> str:
     number = _safe_number(value)
     if number is None:
         return "-"
-    weighted = Decimal(str(number)) * parse_ratio(ratio) / RATIO_TOTAL
+    weighted = Decimal(str(number)) * parse_ratio(ratio) / RATIO_BASE
     return _fmt_value(float(weighted), value_type)
 
 
@@ -282,6 +275,25 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
 class BacktestMultiProductService(BacktestTrainingService):
     """Multi-product backtest service with independent product sheets."""
 
+    @staticmethod
+    def _build_kline_signature(kline: list[dict[str, Any]]) -> dict[str, Any]:
+        if not kline:
+            return {}
+        middle_index = len(kline) // 2
+        return {
+            "length": len(kline),
+            "first": kline[0],
+            "middle": kline[middle_index],
+            "last": kline[-1],
+        }
+
+    @staticmethod
+    def _build_sheet_cache_key(product: dict[str, Any]) -> str:
+        sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
+        spreadsheet_id = str(sheet.get("spreadsheet_id") or "").strip()
+        sheet_name = str(sheet.get("sheet_name") or "").strip()
+        return f"{spreadsheet_id}::{sheet_name}"
+
     def _task_detail_url(self) -> str:
         return f"{current_app.config.get('BASE_URL')}/backtest-multi-product/detail/{self.task_id}"
 
@@ -325,14 +337,14 @@ class BacktestMultiProductService(BacktestTrainingService):
         self._log_info(f"将执行 {parameter_count} 个参数方案、{len(products)} 个产品，共 {total_steps} 步")
 
         start_index = self._resolve_resume_start_index(task)
-        cache_by_product: dict[int, dict[str, Any]] = {}
+        sheet_kline_cache: dict[str, dict[str, Any]] = {}
         kline_cache: dict[int, dict[str, Any]] = {}
         success_count = start_index
         failed_count = 0
         processed_index = 0
 
-        for group_index in range(parameter_count):
-            for product in products:
+        for product in products:
+            for group_index in range(parameter_count):
                 if self._is_cancel_requested():
                     return "cancelled"
                 if processed_index < start_index:
@@ -349,6 +361,7 @@ class BacktestMultiProductService(BacktestTrainingService):
 
                 current_step = processed_index + 1
                 product_index = int(product["product_index"])
+                sheet_cache_key = self._build_sheet_cache_key(product)
                 parameter = product["parameters"][group_index]
                 product_config = self._build_product_config(config_data, product)
                 self._init_google_sheet(product_config)
@@ -362,6 +375,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     "stock_code": product["stock_code"],
                     "year": kline_info["kline_key"],
                     "Kline_key": kline_info["kline_key"],
+                    "kline_signature": kline_info["kline_signature"],
                     "product_index": product_index,
                     "product_name": product["product_name"],
                     "ratio": product["ratio"],
@@ -379,7 +393,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     success, result_payload = self._execute_parameter_combination(
                         kline_info["column_A_length"],
                         combination,
-                        cache_by_product.setdefault(product_index, {"combination": {}}),
+                        sheet_kline_cache.setdefault(sheet_cache_key, {"combination": {}}),
                         product_config,
                         {kline_info["kline_key"]: kline_info["kline"]},
                     )
@@ -396,10 +410,11 @@ class BacktestMultiProductService(BacktestTrainingService):
                         "end_date": config_data["end_date"],
                         "sheet": product["sheet"],
                     }, result_payload, True)
-                    cache_by_product[product_index]["combination"] = combination
+                    sheet_kline_cache[sheet_cache_key]["combination"] = combination
                     success_count += 1
                     self._log_info(f"第 {current_step} 步执行成功")
-                except Exception:
+                except Exception as exc:
+                    self._raise_retryable_network_error(exc, f"第 {current_step} 步网络请求失败")
                     failed_count += 1
                     self._log_error(f"第 {current_step} 步执行出错: {traceback.format_exc()}")
                     return "error"
@@ -432,8 +447,37 @@ class BacktestMultiProductService(BacktestTrainingService):
         return {
             "kline_key": kline_key,
             "kline": kline,
+            "kline_signature": self._build_kline_signature(kline),
             "column_A_length": len(kline) + 20,
         }
+
+    def _is_same_kline_source(self, combination: dict[str, Any], cached_combination: dict[str, Any]) -> bool:
+        if combination.get("Kline_key") != cached_combination.get("Kline_key"):
+            return False
+        if combination.get("stock_code") != cached_combination.get("stock_code"):
+            return False
+        if combination.get("kline_signature") != cached_combination.get("kline_signature"):
+            return False
+        return True
+
+    def _execute_parameter_combination(
+        self,
+        column_A_length,
+        combination,
+        cache_parameters,
+        config_data: dict[str, Any],
+        KLINE_DATA_MAP,
+    ) -> tuple[bool, dict[str, Any]]:
+        cached_combination = cache_parameters.get("combination") or {}
+        if cached_combination and not self._is_same_kline_source(combination, cached_combination):
+            cache_parameters["combination"] = {}
+        return super()._execute_parameter_combination(
+            column_A_length,
+            combination,
+            cache_parameters,
+            config_data,
+            KLINE_DATA_MAP,
+        )
 
     def _get_kline_by_date_range(
         self,
@@ -452,11 +496,8 @@ class BacktestMultiProductService(BacktestTrainingService):
         limit = max(300, year_count * (250 if market_type == "cn" else 252) + 120)
 
         if market_type == "cn":
-            stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_code, 10)
-            if not stock_config:
-                raise ValueError(f"未找到股票 {stock_code}")
-            market = stock_config[0]["market"]
-            klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit)
+            resolved_code, market = self._resolve_cn_stock_quote(stock_code)
+            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit)
         else:
             klines = self.YF_api.get_kline_data(stock_code, "10y")
 

@@ -19,7 +19,6 @@ from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
-    validate_ratio_total,
 )
 from app.utils.auth import login_required, permission_required
 from app.utils.dfcf_api import DFCJStockApi
@@ -99,6 +98,12 @@ def _format_ratio_header(value):
     if not text:
         return "-"
     return text if text.endswith("%") else f"{text}%"
+
+
+def _build_excel_download_name(task_name, fallback_id: str) -> str:
+    safe_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(task_name or "").strip())
+    safe_name = safe_name.rstrip(" .")
+    return f"{safe_name or fallback_id}.xlsx"
 
 
 @bp.route("/create")
@@ -299,7 +304,6 @@ def update_ratios(task_id):
     for product, ratio in zip(products, ratios):
         product["ratio"] = str(ratio.get("ratio") if isinstance(ratio, dict) else ratio).strip()
     try:
-        validate_ratio_total(products)
         config = normalize_multi_product_config({**config, "products": products})
     except ValueError as exc:
         return jsonify({"status": "error", "message": str(exc)}), 400
@@ -412,10 +416,9 @@ def export_global_preview(task_id):
     workbook.save(buffer)
     buffer.seek(0)
     task_name = (payload.get("task") or {}).get("name") or task_id
-    safe_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(task_name)).strip() or task_id
     return send_file(
         buffer,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=f"{safe_name}_multi_product_preview.xlsx",
+        download_name=_build_excel_download_name(task_name, task_id),
     )

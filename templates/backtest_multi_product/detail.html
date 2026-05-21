@@ -160,6 +160,33 @@
         font-weight: 600;
         word-break: break-word;
     }
+    .param-detail-table-wrap {
+        max-height: min(62vh, 560px);
+        overflow: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.85rem;
+    }
+    .param-detail-table {
+        min-width: 720px;
+        margin-bottom: 0;
+    }
+    .param-detail-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--bs-tertiary-bg);
+        white-space: nowrap;
+    }
+    .param-detail-table td {
+        white-space: nowrap;
+        font-size: 0.9rem;
+    }
+    .param-detail-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 0.85rem;
+    }
 </style>
 {% endblock %}
 
@@ -254,6 +281,9 @@
                 <i class="bi bi-sliders text-success me-2"></i>
                 <span>任务输入参数</span>
                 <i class="bi bi-chevron-down ms-2" id="taskParamToggleIcon"></i>
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="copyTaskParamsBtn">
+                <i class="bi bi-copy me-1"></i>复制全部参数
             </button>
         </div>
         <div class="collapse show" id="taskParamCollapse">
@@ -374,6 +404,23 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="productParameterModal" tabindex="-1" aria-labelledby="productParameterModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="productParameterModalLabel">产品参数详情</h5>
+                    <div class="small text-body-secondary" id="productParameterModalSubtitle"></div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body" id="productParameterModalBody">
+                <div class="text-center text-body-secondary py-4">暂无参数</div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -384,6 +431,7 @@
     const TASK_RESULT_PAGE_SIZE = 10;
     const LIST_PAGINATION_STORAGE_KEY = 'backtest_multi_product:list_pagination';
     const RESULT_PAGINATION_STORAGE_KEY = `backtest_multi_product:task_results:${currentTaskId}:pagination`;
+    let currentTaskConfig = {};
     const FIELD_MAP = {
         c5: [
             { key: 'xm', label: 'X Multiplier (xm)' },
@@ -600,6 +648,17 @@
         return 'multi';
     }
 
+    function inferProductModelVersion(product) {
+        const sheet = product?.sheet || {};
+        const title = String(sheet.title || sheet.sheet_name || '').toUpperCase();
+        return title.includes('C5') || title.includes('C4') ? 'c5' : 'c3';
+    }
+
+    function getProductParameterFields(product) {
+        const version = inferProductModelVersion(product);
+        return FIELD_MAP[version] || FIELD_MAP.c3;
+    }
+
     function formatConfigDisplayValue(value) {
         if (value === null || value === undefined || value === '') {
             return '<span class="text-body-secondary">-</span>';
@@ -663,6 +722,7 @@
                 <th>比例</th>
                 <th>Sheet</th>
                 <th>参数行数</th>
+                <th class="pe-4 text-end">详情</th>
             </tr>
         `;
 
@@ -676,9 +736,117 @@
                     <td>${escapeHtml(product.ratio || '-')}%</td>
                     <td>${escapeHtml(sheet.title || sheet.sheet_name || sheet.spreadsheet_id || '-')}</td>
                     <td>${parameters.length}</td>
+                    <td class="pe-4 text-end">
+                        <button type="button" class="btn btn-outline-primary btn-sm view-product-params" data-product-index="${index}" title="查看具体参数">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                    </td>
                 </tr>
             `;
         }).join('');
+    }
+
+    function renderProductParameterModal(productIndex) {
+        const products = Array.isArray(currentTaskConfig.products) ? currentTaskConfig.products : [];
+        const product = products[productIndex];
+        if (!product) {
+            return;
+        }
+        const parameters = Array.isArray(product.parameters) ? product.parameters : [];
+        const fields = getProductParameterFields(product);
+        const productName = product.product_name || product.name || `产品 ${productIndex + 1}`;
+        const sheet = product.sheet || {};
+        document.getElementById('productParameterModalLabel').textContent = `${productName} 参数详情`;
+        document.getElementById('productParameterModalSubtitle').textContent = [
+            product.stock_code ? `股票：${product.stock_code}` : '',
+            product.market_type ? `市场：${product.market_type}` : '',
+            sheet.title || sheet.sheet_name ? `Sheet：${sheet.title || sheet.sheet_name}` : '',
+            `参数行数：${parameters.length}`
+        ].filter(Boolean).join(' · ');
+
+        const body = document.getElementById('productParameterModalBody');
+        if (!parameters.length) {
+            body.innerHTML = '<div class="text-center text-body-secondary py-4">暂无参数</div>';
+            return;
+        }
+
+        const header = fields.map((field) => `<th>${escapeHtml(field.label)}</th>`).join('');
+        const rows = parameters.map((row, rowIndex) => {
+            const values = Array.isArray(row) ? row : [];
+            return `
+                <tr>
+                    <td class="text-body-secondary">${rowIndex + 1}</td>
+                    ${fields.map((field, index) => `<td>${escapeHtml(values[index] ?? '')}</td>`).join('')}
+                </tr>
+            `;
+        }).join('');
+        body.innerHTML = `
+            <div class="param-detail-meta">
+                <span class="badge rounded-pill text-bg-light border">模型 ${escapeHtml(inferProductModelVersion(product).toUpperCase())}</span>
+                <span class="badge rounded-pill text-bg-light border">${escapeHtml(product.stock_code || '-')}</span>
+                <span class="badge rounded-pill text-bg-light border">${escapeHtml(String(product.ratio ?? '-'))}%</span>
+            </div>
+            <div class="param-detail-table-wrap">
+                <table class="table table-hover align-middle param-detail-table">
+                    <thead class="table-light">
+                        <tr><th>#</th>${header}</tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function openProductParameterModal(productIndex) {
+        renderProductParameterModal(productIndex);
+        const modalEl = document.getElementById('productParameterModal');
+        if (modalEl && window.bootstrap?.Modal) {
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        }
+    }
+
+    async function writeClipboardText(text) {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return;
+        }
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand('copy');
+        textarea.remove();
+        if (!ok) {
+            throw new Error('复制失败，请检查浏览器剪切板权限');
+        }
+    }
+
+    function allProductParametersToClipboard(config) {
+        const products = Array.isArray(config.products) ? config.products : [];
+        return products.map((product, index) => {
+            const productName = product.product_name || product.name || `产品 ${index + 1}`;
+            const rows = (Array.isArray(product.parameters) ? product.parameters : [])
+                .filter((row) => Array.isArray(row) && row.some((value) => String(value ?? '').trim()))
+                .map((row) => row.join('\t'))
+                .join('\n');
+            return rows ? `# ${productName}\n${rows}` : '';
+        }).filter(Boolean).join('\n\n');
+    }
+
+    async function copyAllTaskParameters() {
+        try {
+            const text = allProductParametersToClipboard(currentTaskConfig);
+            if (!text) {
+                throw new Error('当前任务没有可复制的参数');
+            }
+            await writeClipboardText(text);
+            showNotification('全部产品参数已复制', 'success');
+        } catch (error) {
+            showNotification(error.message || '复制参数失败', 'error');
+        }
     }
 
     function getDefaultC3MetricKeys() {
@@ -1326,15 +1494,16 @@
             }
 
             const task = data.task;
+            currentTaskConfig = task.config || {};
             document.getElementById('taskNameText').textContent = task.name || '任务详情';
             document.getElementById('taskStatus').innerHTML = formatStatus(task.status);
             document.getElementById('taskCreated').innerHTML = renderValue(formatTime(task.created_at));
             document.getElementById('taskStart').innerHTML = renderValue(formatTime(task.start_time));
             document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
             updateStopTaskButton(task.status);
-            renderTaskConfig(task.config || {});
-            renderParameterTable(task.config || {});
-            updateTaskResultSectionMode(task.config || {});
+            renderTaskConfig(currentTaskConfig);
+            renderParameterTable(currentTaskConfig);
+            updateTaskResultSectionMode(currentTaskConfig);
             loadTaskResults({ silent });
         });
     }
@@ -1470,6 +1639,22 @@
                     showNotification(`重头开始失败：${err ? err.message : '未知错误'}`, 'error');
                 });
             });
+        }
+
+        const taskParamBody = document.getElementById('taskParamBody');
+        if (taskParamBody) {
+            taskParamBody.addEventListener('click', function(event) {
+                const button = event.target.closest('.view-product-params');
+                if (!button) {
+                    return;
+                }
+                openProductParameterModal(Number(button.dataset.productIndex || 0));
+            });
+        }
+
+        const copyTaskParamsBtn = document.getElementById('copyTaskParamsBtn');
+        if (copyTaskParamsBtn) {
+            copyTaskParamsBtn.addEventListener('click', copyAllTaskParameters);
         }
 
         const logCollapse = document.getElementById('taskLogCollapse');

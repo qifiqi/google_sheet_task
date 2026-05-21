@@ -25,6 +25,19 @@ class SmartProxyManager:
         }
         self.cert_path = self._get_persistent_cert_path()
 
+    @staticmethod
+    def _redact_proxy(proxy: dict[str, str] | dict[Any, Any]):
+        redacted = {}
+        for key, value in proxy.items():
+            proxy_url = str(value)
+            if "@" in proxy_url:
+                scheme, rest = proxy_url.split("://", 1) if "://" in proxy_url else ("", proxy_url)
+                _, host = rest.rsplit("@", 1)
+                redacted[key] = f"{scheme}://***:***@{host}" if scheme else f"***:***@{host}"
+            else:
+                redacted[key] = proxy_url
+        return redacted
+
     def _get_persistent_cert_path(self):
         user_cert_dir = os.path.join(
             os.path.expanduser("~"),
@@ -70,7 +83,13 @@ class SmartProxyManager:
             self.proxy_size = 0
             self.proxy_time = time.time()
             if self.logger:
-                self.logger.info("更新代理: %s", self.proxy)
+                self.logger.info("更新代理: %s", self._redact_proxy(self.proxy))
+
+    def invalidate_proxy(self):
+        with self.lock:
+            self.proxy = {}
+            self.proxy_size = 0
+            self.proxy_time = 0
 
     def get_best_proxy(
         self,
@@ -88,7 +107,7 @@ class SmartProxyManager:
                 self.proxy_time = time.time()
                 self.proxy_size = 0
                 if self.logger:
-                    self.logger.info("获取新代理: %s", self.proxy)
+                    self.logger.info("获取新代理: %s", self._redact_proxy(self.proxy))
                 return self.proxy
 
             self.proxy_size += 1

@@ -77,10 +77,10 @@
         <div class="backtest-multi-preview-page__ratio-row">
           <div v-for="(ratio, rIndex) in ratios" :key="rIndex" class="backtest-multi-preview-page__ratio-item">
             <span class="backtest-multi-preview-page__ratio-label">{{ ratio.label }}</span>
-            <el-input-number v-model="ratio.value" :min="0" :max="100" :step="5" size="small" />
+            <el-input-number v-model="ratio.value" :min="0" :step="5" size="small" />
             <span class="panel-note">%</span>
           </div>
-          <el-tag :type="ratioTotal === 100 ? 'success' : 'danger'" size="large">
+          <el-tag type="success" size="large">
             合计: {{ ratioTotal }}%
           </el-tag>
         </div>
@@ -149,6 +149,14 @@ const ratios = ref([])
 const activeGroup = computed(() => groups.value.find((g) => g.group_key === activeGroupKey.value) || null)
 const ratioTotal = computed(() => ratios.value.reduce((sum, r) => sum + (r.value || 0), 0))
 
+function buildExcelDownloadName() {
+  const safeName = String(taskName.value || taskId)
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/[ .]+$/g, '')
+  return `${safeName || taskId}.xlsx`
+}
+
 function onGroupChange() {}
 
 async function loadData() {
@@ -173,10 +181,6 @@ async function loadData() {
 }
 
 async function saveRatios() {
-  if (ratioTotal.value !== 100) {
-    ElMessage.error('比例总和必须为 100%')
-    return
-  }
   savingRatios.value = true
   try {
     const data = ratios.value.map((r) => ({ label: r.label, value: r.value }))
@@ -196,7 +200,7 @@ async function exportXlsx() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `multi_product_preview_${taskId}.xlsx`
+    link.download = buildExcelDownloadName()
     link.click()
     URL.revokeObjectURL(url)
   } catch {

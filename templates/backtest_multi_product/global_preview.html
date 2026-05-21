@@ -151,6 +151,7 @@
         background: var(--bs-body-bg);
     }
     .preview-table {
+        --preview-product-header-height: 34px;
         min-width: 1100px;
         margin-bottom: 0;
         font-size: 0.88rem;
@@ -167,22 +168,30 @@
         color: #000;
         font-weight: 700;
     }
-    .preview-table .product-title-row td { background: #f7e1a1; font-weight: 700; }
+    .preview-table .product-title-row td {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        height: var(--preview-product-header-height);
+        background: #f7e1a1;
+        font-weight: 700;
+    }
     .preview-table .column-title-row th { background: #f7e1a1; }
     .preview-table .sticky-col {
         position: sticky;
-        z-index: 1;
+        z-index: 2;
         background: var(--bs-body-bg);
     }
     .preview-table .sticky-col-1 { left: 0; min-width: 108px; background: #f7e1a1; }
     .preview-table .sticky-col-2 { left: 108px; min-width: 150px; background: #fff; }
     .preview-table .column-title-row th {
         position: sticky;
-        top: 0;
-        z-index: 2;
+        top: var(--preview-product-header-height);
+        z-index: 3;
     }
     .preview-table thead .sticky-col,
-    .preview-table .column-title-row .sticky-col { z-index: 3; }
+    .preview-table .column-title-row .sticky-col { z-index: 5; }
+    .preview-table .product-title-row .sticky-col { z-index: 6; }
     .preview-table thead .sticky-col-1,
     .preview-table .column-title-row .sticky-col-1 { background: #f7e1a1; }
     html[data-bs-theme="dark"] .header-toolbar,
@@ -334,6 +343,12 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function buildExcelDownloadName() {
+    const taskName = String(previewPayload?.task?.name || TASK_ID).trim();
+    const safeName = taskName.replace(/[\\/:*?"<>|]/g, '_').replace(/[ .]+$/g, '');
+    return `${safeName || TASK_ID}.xlsx`;
+}
+
 function renderSummary() {
     const task = previewPayload.task || {};
     const summary = previewPayload.summary || {};
@@ -372,7 +387,7 @@ function updateRatioStatus() {
     const badge = document.getElementById('ratioTotalBadge');
     const suffix = ratioInputsDirty ? '（需计算预览）' : (hasUnsavedRatioPreview ? '（未保存）' : '');
     badge.textContent = `合计 ${Number(total.toFixed(4))}%${suffix}`;
-    badge.className = Math.abs(total - 100) < 0.0001 ? 'ratio-total-badge is-valid' : 'ratio-total-badge is-invalid';
+    badge.className = 'ratio-total-badge is-valid';
 }
 
 function renderRatios() {
@@ -382,7 +397,7 @@ function renderRatios() {
             <td>${escapeHtml(product.product_name || product.stock_code || `产品 ${index + 1}`)}</td>
             <td>
                 <div class="ratio-input-cell">
-                    <input class="form-control form-control-sm ratio-input" type="number" min="0" max="100" step="0.0001" data-index="${index}" value="${escapeHtml(product.ratio || 0)}">
+                    <input class="form-control form-control-sm ratio-input" type="number" min="0" step="0.0001" data-index="${index}" value="${escapeHtml(product.ratio || 0)}">
                     <span class="input-group-text">%</span>
                 </div>
             </td>
@@ -456,9 +471,8 @@ function collectRatioValues() {
 
 function applyRatioPreview() {
     const ratios = collectRatioValues();
-    const total = ratios.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
-    if (Math.abs(total - 100) > 0.0001) {
-        alert(`产品比例合计必须为 100%，当前为 ${Number(total.toFixed(4))}%`);
+    if (ratios.some((value) => !Number.isFinite(value) || value < 0)) {
+        alert('产品比例必须是大于等于 0 的数字');
         return;
     }
     if (!previewPayload) {
@@ -543,8 +557,8 @@ function renderActiveGroup() {
         <table class="table table-bordered align-middle preview-table">
             <thead>
                 <tr class="product-title-row">
-                    <td></td>
-                    <td></td>
+                    <td class="sticky-col sticky-col-1"></td>
+                    <td class="sticky-col sticky-col-2"></td>
                     ${productHeads}
                     <td colspan="2"></td>
                 </tr>
@@ -587,15 +601,17 @@ async function saveRatios() {
         alert('比例已修改，请先点击“计算预览”确认结果，再保存比例。');
         return;
     }
-    const total = ratioTotal();
-    if (Math.abs(total - 100) > 0.0001) {
-        alert(`产品比例合计必须为 100%，当前为 ${Number(total.toFixed(4))}%`);
-        return;
-    }
     const ratios = Array.from(document.querySelectorAll('.ratio-input')).map((input) => ({
         product_index: Number(input.dataset.index),
         ratio: input.value
     }));
+    if (ratios.some((item) => {
+        const value = Number(item.ratio);
+        return !Number.isFinite(value) || value < 0;
+    })) {
+        alert('产品比例必须是大于等于 0 的数字');
+        return;
+    }
     const button = document.getElementById('saveRatiosBtn');
     button.disabled = true;
     try {
@@ -632,7 +648,7 @@ async function exportPreview() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${TASK_ID}_multi_product_preview.xlsx`;
+    link.download = buildExcelDownloadName();
     document.body.appendChild(link);
     link.click();
     link.remove();

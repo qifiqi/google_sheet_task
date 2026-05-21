@@ -3,7 +3,7 @@ from flask import Blueprint, g, jsonify, render_template, request
 from app.extensions import db
 from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
-from app.models import Task, GoogleSheetTableType
+from app.models import Task, GoogleSheetTableType, TaskStatus, TaskType
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action
@@ -58,7 +58,12 @@ def dashboard():
 @admin_bp.route('/tasks')
 def tasks():
     """任务管理页面"""
-    return render_template('admin/tasks.html')
+    return render_template(
+        'admin/tasks.html',
+        task_status_options=TaskStatus.choices(),
+        task_status_editable_options=TaskStatus.editable_choices(),
+        task_type_options=TaskType.choices(),
+    )
 
 @admin_bp.route('/config')
 def config():

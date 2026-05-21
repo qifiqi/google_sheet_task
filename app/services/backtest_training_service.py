@@ -18,7 +18,12 @@ from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.utils.task_error_utils import (
+    RetryableNetworkTaskError,
+    build_task_error_message,
+    is_retryable_network_error,
+    unwrap_exception,
+)
 
 
 class BacktestTrainingService(BaseGoogleSheetService):
@@ -41,6 +46,35 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if normalized in ('en', 'us', 'usa'):
             return 'en'
         return 'cn'
+
+    def _resolve_cn_stock_quote(self, stock_code):
+        stock_query = str(stock_code or '').strip()
+        stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_query, 10)
+        if isinstance(stock_config, dict):
+            raise ValueError(f"股票{stock_query}搜索失败: {stock_config.get('error') or stock_config}")
+        if not stock_config:
+            raise ValueError(f"未找到股票 {stock_query}")
+
+        query_upper = stock_query.upper()
+        selected = next(
+            (
+                item for item in stock_config
+                if str(item.get('code') or '').strip().upper() == query_upper
+            ),
+            stock_config[0],
+        )
+        resolved_code = str(selected.get('code') or '').strip().upper()
+        market = str(selected.get('market') or '').strip()
+        if not resolved_code or not market:
+            raise ValueError(f"股票{stock_query}搜索结果缺少 code 或 market: {selected}")
+        if resolved_code != stock_query:
+            self._log_info(f"股票 {stock_query} 已解析为代码 {resolved_code}, market={market}")
+        return resolved_code, market
+
+    def _raise_retryable_network_error(self, exc, context):
+        if is_retryable_network_error(exc):
+            root = unwrap_exception(exc) or exc
+            raise RetryableNetworkTaskError(f"{context}: {root}") from exc
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -305,6 +339,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                         task.error = e
                         return success_count, failed_count, 'error'
                     except Exception as e:
+                        self._raise_retryable_network_error(e, f"第 {current_step} 个参数组合网络请求失败")
                         failed_count += 1
                         # 检查是否是任务被取消
                         task.error = e
@@ -326,6 +361,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             return success_count, failed_count, 'completed'
 
         except Exception as e:
+            self._raise_retryable_network_error(e, "批量数据处理网络请求失败")
             # 检查是否是任务被取消导致的异常
             task.error = e
             try:
@@ -627,15 +663,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         limit = max(300, year_count * trading_days_per_year + 80)
 
         if market_type == 'cn':
-            stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_code, 10)
-            # stock_config = [i for i in stock_config if i['securityTypeName'] == '美股']
-
-            # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-            if stock_config:
-                stock_config = stock_config[0]
-            market = stock_config['market']
-
-            klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit)
+            resolved_code, market = self._resolve_cn_stock_quote(stock_code)
+            stock_code = resolved_code
+            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit)
         else:
             klines = self.YF_api.get_kline_data(stock_code, '10y')
 
@@ -649,6 +679,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
         # 检查用户设定的区间是否在数据范围内
         if start_date < data_start_date or end_date > data_end_date:
             if full_years and int(data_start_date[:4]) in full_years:
+                pass
+            elif int(full_years[0]) > int(data_start_date[:4]):
                 pass
             else:
                 raise Exception(
