@@ -193,6 +193,19 @@ class BaseGoogleSheetService:
 
     def _log_api_error(self, action: str, error: str):
         self._log('error', '', 'api_error', action=action, error=error)
+
+    def _refresh_model_summary_index(self):
+        try:
+            from app.services.model_summary_service import model_summary_service
+
+            summary = model_summary_service.upsert_task(self.task_id)
+            self._log_info(
+                f"更新汇总索引完成：处理 {summary.get('processed', 0)} 条结果，"
+                f"候选 {summary.get('candidate_records', 0)} 条"
+            )
+        except Exception as err:
+            self._log_warning(f"更新汇总索引失败: {err}")
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),

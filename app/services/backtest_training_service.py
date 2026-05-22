@@ -183,6 +183,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     return 'error'
 
                 # 推送任务完成通知
+                self._refresh_model_summary_index()
                 self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
                 # 推送任务完成信息
                 completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'
@@ -723,6 +724,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if effective_end_date > data_end_date:
             raise ValueError(f"股票{stock_code} 指定 end_date {effective_end_date} 超出K线数据范围，最新日期为 {data_end_date}")
 
+        if recent_years and start_date < data_start_date:
+            self._log_info(
+                f"股票{stock_code} 近年区间起点 {start_date} 早于K线首日 {data_start_date}，"
+                f"将从K线首日开始执行"
+            )
+            start_date = data_start_date
+
         # 检查用户设定的区间是否在数据范围内
         if start_date < data_start_date or effective_end_date > data_end_date:
             if full_years and int(data_start_date[:4]) in full_years:
@@ -746,8 +754,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 _end_data = effective_end_date
                 _start_data = f"{int(effective_end_date[:4]) - year}{effective_end_date[4:]}"
-                kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
                 Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
+                if _start_data < data_start_date:
+                    _start_data = data_start_date
+                kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
                 self._require_kline_data(stock_code, Kline_key, kline)
                 for item in parameters:
                     d = {"parameter": item, 'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}

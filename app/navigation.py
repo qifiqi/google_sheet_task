@@ -7,6 +7,7 @@ DEFAULT_NAVIGATION_MENU = [
         {"key": "tasks", "label": "任务管理", "path": "/admin/tasks", "permission": "page:admin:tasks"},
         {"key": "templates", "label": "任务模板", "path": "/admin/templates", "permission": "page:admin:templates"},
         {"key": "results", "label": "任务结果", "path": "/admin/results", "permission": "page:admin:results"},
+        {"key": "model_summary", "label": "单模型汇总", "path": "/admin/model-summary", "permission": "page:admin:model_summary"},
     ]},
     {"key": "scheduler_group", "label": "调度模块", "children": [
         {"key": "scheduler", "label": "定时任务", "path": "/admin/scheduler", "permission": "page:admin:scheduler"},

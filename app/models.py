@@ -5,6 +5,16 @@ import json
 from app.extensions import db
 
 
+def _json_object_or_empty(raw):
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 # ==================== RBAC ====================
 
 role_permissions = db.Table('role_permissions',
@@ -191,6 +201,7 @@ class TaskType(str, Enum):
     GOOGLE_SHEET_C5 = "google_sheet_C5"
     BACKTEST_TRAINING = "backtest_training"
     BACKTEST_MULTI_PRODUCT = "backtest_multi_product"
+    MODEL_SUMMARY_REBUILD = "model_summary_rebuild"
 
     @classmethod
     def normalize(cls, value: str | None, default: str | None = None) -> str | None:
@@ -207,19 +218,26 @@ class TaskType(str, Enum):
             "backtest_multi": cls.BACKTEST_MULTI_PRODUCT.value,
             "multi_product_backtest": cls.BACKTEST_MULTI_PRODUCT.value,
             "backtest_multi_product": cls.BACKTEST_MULTI_PRODUCT.value,
+            "model_summary_rebuild": cls.MODEL_SUMMARY_REBUILD.value,
         }
         return aliases.get(normalized, default)
 
     @classmethod
-    def choices(cls):
+    def choices(cls, include_system=False):
         labels = {
             cls.GOOGLE_SHEET: "Google Sheet C3",
             cls.GOOGLE_SHEET_C4: "Google Sheet C4",
             cls.GOOGLE_SHEET_C5: "Google Sheet C5",
             cls.BACKTEST_TRAINING: "单品回测",
             cls.BACKTEST_MULTI_PRODUCT: "多品回测",
+            cls.MODEL_SUMMARY_REBUILD: "汇总索引重建",
         }
-        return [{"value": item.value, "label": labels[item]} for item in cls]
+        system_types = {cls.MODEL_SUMMARY_REBUILD}
+        return [
+            {"value": item.value, "label": labels[item]}
+            for item in cls
+            if include_system or item not in system_types
+        ]
 
 
 class Task(db.Model):
@@ -391,6 +409,76 @@ class TaskResultReturn(db.Model):
             "stock_date": self.stock_date,
             "index_return": self.index_return,
             "start_return": self.start_return,
+        }
+
+
+class TaskResultSummaryIndex(db.Model):
+    """任务结果汇总查询索引表。"""
+
+    __tablename__ = "task_result_summary_index"
+    __table_args__ = (
+        db.UniqueConstraint("task_result_id", "model_key", name="uk_result_summary_result_model"),
+        db.Index("idx_result_summary_type_stock_best", "task_type", "stock_code", "is_best"),
+        db.Index("idx_result_summary_task_best", "task_id", "is_best"),
+        db.Index("idx_result_summary_best_metric", "best_metric_value"),
+        db.Index("idx_result_summary_created_at", "created_at"),
+        {"comment": "任务结果汇总查询索引表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    task_id = db.Column(
+        db.String(36),
+        db.ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联任务ID",
+    )
+    task_result_id = db.Column(
+        db.Integer,
+        db.ForeignKey("task_results.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联任务结果ID",
+    )
+    task_type = db.Column(db.String(50), nullable=False, index=True, comment="任务类型")
+    task_name = db.Column(db.String(255), comment="任务名称")
+    stock_code = db.Column(db.String(64), index=True, comment="股票代码/产品代码")
+    model_key = db.Column(db.String(255), nullable=False, default="default", comment="模型键")
+    model_name = db.Column(db.String(255), comment="模型名称")
+    year_label = db.Column(db.String(64), index=True, comment="年份或区间标签")
+    kline_range = db.Column(db.String(128), comment="K线区间")
+    parameter_summary = db.Column(db.Text, comment="参数摘要")
+    best_metric_name = db.Column(db.String(100), comment="最优指标名称")
+    best_metric_value = db.Column(db.Float, index=True, comment="最优指标值")
+    metrics_json = db.Column(db.Text, comment="汇总指标JSON")
+    is_best = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否当前分组最优")
+    result_timestamp = db.Column(db.DateTime, index=True, comment="原始结果时间")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
+
+    task = db.relationship("Task", backref=db.backref("summary_indexes", lazy="dynamic"))
+    task_result = db.relationship("TaskResult", backref=db.backref("summary_indexes", lazy="dynamic"))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "task_result_id": self.task_result_id,
+            "task_type": self.task_type,
+            "task_name": self.task_name,
+            "stock_code": self.stock_code,
+            "model_key": self.model_key,
+            "model_name": self.model_name,
+            "year_label": self.year_label,
+            "kline_range": self.kline_range,
+            "parameter_summary": _json_object_or_empty(self.parameter_summary),
+            "best_metric_name": self.best_metric_name,
+            "best_metric_value": self.best_metric_value,
+            "metrics": _json_object_or_empty(self.metrics_json),
+            "is_best": self.is_best,
+            "result_timestamp": self.result_timestamp.isoformat() if self.result_timestamp else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 

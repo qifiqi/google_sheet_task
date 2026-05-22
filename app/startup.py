@@ -16,6 +16,7 @@ from app.models import (
     Task,
     TaskLog,
     TaskResult,
+    TaskResultSummaryIndex,
     User,
 )
 from app.navigation import DEFAULT_NAVIGATION_MENU, flatten_navigation_items
@@ -87,7 +88,13 @@ def ensure_scheduled_task_schema():
     )
     if not has_is_running_index:
         db.session.execute(text('CREATE INDEX ix_scheduled_tasks_is_running ON scheduled_tasks (is_running)'))
-        db.session.commit()
+    db.session.commit()
+
+
+def ensure_task_result_summary_index_schema():
+    inspector = inspect(db.engine)
+    if 'task_result_summary_index' not in inspector.get_table_names():
+        TaskResultSummaryIndex.__table__.create(db.engine)
 
 
 def ensure_navigation_menu_schema():
@@ -164,6 +171,7 @@ def register_cli(app):
         ensure_user_schema()
         ensure_task_schema()
         ensure_scheduled_task_schema()
+        ensure_task_result_summary_index_schema()
         ensure_navigation_menu_schema()
         print('数据库初始化完成')
 
@@ -308,6 +316,7 @@ def _build_nav_permission_map():
         '/admin/tasks': 'page:admin:tasks',
         '/admin/templates': 'page:admin:templates',
         '/admin/results': 'page:admin:results',
+        '/admin/model-summary': 'page:admin:model_summary',
         '/admin/scheduler': 'page:admin:scheduler',
         '/admin/config': 'page:admin:config',
         '/admin/navigation': 'page:admin:navigation',
@@ -417,6 +426,7 @@ def bootstrap_app(app):
         ensure_user_schema()
         ensure_task_schema()
         ensure_scheduled_task_schema()
+        ensure_task_result_summary_index_schema()
         ensure_navigation_menu_schema()
         reset_google_sheet_token_occupancy()
         reset_google_sheet_occupancy()

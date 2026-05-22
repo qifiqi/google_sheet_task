@@ -1,6 +1,7 @@
-from flask import Blueprint, g, jsonify, render_template, request
+from flask import Blueprint, current_app, g, jsonify, render_template, request
 
 from app.extensions import db
+from app.services.model_summary_service import model_summary_service
 from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.models import Task, GoogleSheetTableType, TaskStatus, TaskType
@@ -63,6 +64,7 @@ def tasks():
         task_status_options=TaskStatus.choices(),
         task_status_editable_options=TaskStatus.editable_choices(),
         task_type_options=TaskType.choices(),
+        task_type_filter_options=TaskType.choices(include_system=True),
     )
 
 @admin_bp.route('/config')
@@ -89,6 +91,11 @@ def templates():
 def results():
     """任务结果管理页面"""
     return render_template('admin/results.html')
+
+@admin_bp.route('/model-summary')
+def model_summary():
+    """单模型汇总数据看板"""
+    return render_template('admin/model_summary.html')
 
 @admin_bp.route('/google-sheets')
 def google_sheets():
@@ -171,6 +178,53 @@ def dashboard_overview():
     except Exception as e:
         logger.error(f"获取仪表盘数据失败: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/api/model-summary')
+@login_required
+@permission_required('task:view')
+def model_summary_api():
+    """单模型汇总数据查询。"""
+    try:
+        payload = model_summary_service.query(getattr(g, "current_user", None), request.args.to_dict())
+        return jsonify(payload)
+    except Exception as e:
+        logger.error(f"获取单模型汇总失败: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@admin_bp.route('/api/model-summary/rebuild', methods=['POST'])
+@login_required
+@permission_required('database:model_summary', 'database:manage')
+def rebuild_model_summary_api():
+    """重建单模型汇总索引。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        job = model_summary_service.start_rebuild_job(
+            current_app._get_current_object(),
+            task_type=data.get('task_type') or None,
+            task_id=data.get('task_id') or None,
+            batch_size=int(data.get('batch_size') or 20),
+            reset=bool(data.get('reset', False)),
+            created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
+        )
+        return jsonify({'status': 'success', 'job': job})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"重建单模型汇总索引失败: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@admin_bp.route('/api/model-summary/rebuild/status')
+@login_required
+@permission_required('database:model_summary', 'database:manage')
+def model_summary_rebuild_status_api():
+    """查询单模型汇总索引后台重建状态。"""
+    job_id = request.args.get('job_id')
+    job = model_summary_service.get_rebuild_job(job_id) if job_id else model_summary_service.latest_rebuild_job()
+    if not job:
+        return jsonify({'status': 'success', 'job': None})
+    return jsonify({'status': 'success', 'job': job})
 
 
 @admin_bp.route('/api/tasks/<task_id>/runtime-detail')

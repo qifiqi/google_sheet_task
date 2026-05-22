@@ -423,6 +423,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     if stock_param is not None and stock_param != "error":
                         final_status = 'completed' if success_count > 0 else 'error'
                         if final_status == 'completed':
+                            self._refresh_model_summary_index()
                             # 推送成功完成通知
                             self.task_ok_to_dd(f'任务成功完成！成功执行: {success_count}, 失败: {failed_count}')
                         return final_status
@@ -432,6 +433,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     return 'error'
                 
                 # 推送任务完成通知
+                self._refresh_model_summary_index()
                 self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
                 # 推送任务完成信息
                 completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'

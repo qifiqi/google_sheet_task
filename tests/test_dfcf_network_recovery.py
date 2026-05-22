@@ -131,6 +131,34 @@ def test_backtest_recent_years_use_configured_end_date(monkeypatch):
     assert kline_map["2024-2019"][-1]["stock_date"] == "2024-04-23"
 
 
+def test_backtest_recent_years_allow_short_listing_history(monkeypatch):
+    service = BacktestTrainingService({}, "task-id")
+    monkeypatch.setattr(backtest_training_service, "datetime", _FixedDatetime)
+    monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
+    monkeypatch.setattr(
+        service.dfcf_api,
+        "get_stock_kline_data",
+        lambda _stock_code, _market, _limit: _kline_rows("2022-01-19", "2026-05-21"),
+    )
+
+    combinations, _column_a_length, kline_map = service._get_all_parameters(
+        [],
+        [5],
+        [["param-a", "param-b"]],
+        "CEG",
+        end_date="2026-05-15",
+    )
+
+    assert combinations == [{
+        "parameter": ["param-a", "param-b"],
+        "stock_code": "CEG",
+        "year": "2026-2021",
+        "Kline_key": "2026-2021",
+    }]
+    assert kline_map["2026-2021"][0]["stock_date"] == "2022-01-19"
+    assert kline_map["2026-2021"][-1]["stock_date"] == "2026-05-15"
+
+
 def test_backtest_include_full_year_range_replaces_individual_full_years(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
     monkeypatch.setattr(backtest_training_service, "datetime", _FixedDatetime)

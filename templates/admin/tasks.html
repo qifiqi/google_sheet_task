@@ -90,7 +90,7 @@
                 <label for="type-filter" class="form-label">类型</label>
                 <select class="form-select" id="type-filter" onchange="filterTasks()">
                     <option value="">全部</option>
-                    {% for option in task_type_options %}
+                    {% for option in task_type_filter_options %}
                     <option value="{{ option.value }}">{{ option.label }}</option>
                     {% endfor %}
                 </select>

@@ -15,6 +15,7 @@ KNOWN_SCOPED_TASK_TYPES = {
     "google_sheet_c5",
     "backtest_training",
     "backtest_multi_product",
+    "model_summary_rebuild",
 }
 
 
@@ -30,6 +31,8 @@ def normalize_task_type(task_type: str | None) -> str:
         return "backtest_training"
     if raw in {"backtest_multi_product", "multi_product_backtest", "backtest_multi"}:
         return "backtest_multi_product"
+    if raw in {"model_summary_rebuild"}:
+        return "model_summary_rebuild"
     return raw
 
 
@@ -52,6 +55,8 @@ def _scope_permissions_for(task_type: str | None, action: str) -> Set[str]:
         if action == "view":
             return {"backtest:view", "backtest:create"}
         return {"backtest:create"}
+    if normalized_type == "model_summary_rebuild":
+        return {"database:model_summary", "database:manage"}
 
     return set()
 

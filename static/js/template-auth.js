@@ -33,6 +33,7 @@
         { test: /^\/admin\/logs\/?$/, permissions: ["page:admin:logs"] },
         { test: /^\/admin\/templates\/?$/, permissions: ["page:admin:templates"] },
         { test: /^\/admin\/results\/?$/, permissions: ["page:admin:results"] },
+        { test: /^\/admin\/model-summary\/?$/, permissions: ["page:admin:model_summary"] },
         { test: /^\/admin\/google-sheets\/?$/, permissions: ["page:admin:google_sheets"] },
         { test: /^\/admin\/scheduler\/?$/, permissions: ["page:admin:scheduler"] },
         { test: /^\/admin\/users\/?$/, permissions: ["page:admin:users"] },

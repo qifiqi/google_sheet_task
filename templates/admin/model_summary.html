@@ -1,0 +1,608 @@
+{% extends "admin/base.html" %}
+
+{% block title %}单模型汇总数据看板{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div>
+        <h1 class="h3 mb-1">单模型汇总数据看板</h1>
+        <div class="text-muted">按历史任务结果汇总 C3、C5、回测最优参数结果</div>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" id="refreshBtn">
+            <i class="bi bi-arrow-clockwise"></i>
+            刷新
+        </button>
+        <button class="btn btn-primary" id="rebuildBtn">
+            <i class="bi bi-database-fill-gear"></i>
+            重建索引
+        </button>
+    </div>
+</div>
+
+<div class="card mb-3 collapsible-panel">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">查询条件</div>
+        <button class="btn btn-outline-secondary btn-sm collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#filterPanel" aria-expanded="true" aria-controls="filterPanel">
+            <i class="bi bi-chevron-up"></i>
+            <span>收起</span>
+        </button>
+    </div>
+    <div class="collapse show" id="filterPanel">
+        <div class="card-body">
+            <form class="row g-3 align-items-end" id="filterForm">
+                <div class="col-12 col-md-2">
+                    <label class="form-label">任务类型</label>
+                    <select class="form-select" id="taskType">
+                        <option value="">全部</option>
+                        <option value="google_sheet">C3</option>
+                        <option value="google_sheet_C4">C4</option>
+                        <option value="google_sheet_C5">C5</option>
+                        <option value="backtest_training">回测</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-2">
+                    <label class="form-label">股票代码</label>
+                    <input type="text" class="form-control" id="stockCode" placeholder="如 600519">
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label">任务 ID</label>
+                    <input type="text" class="form-control" id="taskId" placeholder="精确任务 ID">
+                </div>
+                <div class="col-12 col-md-2">
+                    <label class="form-label">结果 ID</label>
+                    <input type="number" class="form-control" id="resultId" placeholder="结果 ID">
+                </div>
+                <div class="col-12 col-md-2">
+                    <label class="form-label">汇总方式</label>
+                    <select class="form-select" id="summaryType">
+                        <option value="task">任务汇总</option>
+                        <option value="stock">股票汇总</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-2">
+                    <label class="form-label">数据范围</label>
+                    <select class="form-select" id="bestOnly">
+                        <option value="true">仅最优</option>
+                        <option value="false">全部结果</option>
+                    </select>
+                    <div class="form-text">全部结果必须输入单个股票代码</div>
+                </div>
+                <div class="col-12 col-md-2 d-grid">
+                    <button type="submit" class="btn btn-dark">查询</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3 collapsible-panel">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">页面信息</div>
+        <button class="btn btn-outline-secondary btn-sm collapse-toggle collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#summaryPanel" aria-expanded="false" aria-controls="summaryPanel">
+            <i class="bi bi-chevron-down"></i>
+            <span>展开</span>
+        </button>
+    </div>
+    <div class="collapse" id="summaryPanel">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-6 col-lg-3">
+                    <div class="summary-tile h-100">
+                        <div class="text-muted small">当前页</div>
+                        <div class="h4 mb-0" id="pageCount">-</div>
+                    </div>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <div class="summary-tile h-100">
+                        <div class="text-muted small">总记录</div>
+                        <div class="h4 mb-0" id="totalCount">-</div>
+                    </div>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <div class="summary-tile h-100">
+                        <div class="text-muted small">分页大小</div>
+                        <select class="form-select form-select-sm mt-2" id="pageSize">
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <div class="summary-tile h-100">
+                        <div class="text-muted small">状态</div>
+                        <div class="fw-semibold mt-2" id="statusText">等待查询</div>
+                        <div class="small mt-1" id="rebuildTaskLink"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive model-summary-table-wrap">
+            <table class="table table-hover table-bordered align-middle mb-0 model-summary-table">
+                <thead class="table-light" id="summaryHead"></thead>
+                <tbody id="summaryBody"></tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="small text-muted" id="paginationText">-</div>
+        <div class="btn-group">
+            <button class="btn btn-outline-secondary btn-sm" id="prevPage">上一页</button>
+            <button class="btn btn-outline-secondary btn-sm" id="nextPage">下一页</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .collapsible-panel .card-header {
+        background: var(--bs-tertiary-bg);
+    }
+    .collapse-toggle {
+        min-width: 76px;
+    }
+    .summary-tile {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        padding: 1rem;
+        background: var(--bs-body-bg);
+    }
+    .model-summary-table-wrap {
+        max-height: calc(100vh - 330px);
+        min-height: 360px;
+    }
+    .model-summary-table {
+        min-width: 1580px;
+        font-size: 0.82rem;
+    }
+    .model-summary-table th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        white-space: nowrap;
+    }
+    .model-summary-table td {
+        white-space: nowrap;
+    }
+    .model-summary-table .sticky-col {
+        position: sticky;
+        z-index: 1;
+        background: var(--bs-body-bg);
+    }
+    .model-summary-table thead .sticky-col {
+        z-index: 3;
+        background: var(--bs-tertiary-bg);
+    }
+    .model-summary-table .sticky-col-1 {
+        left: 0;
+        min-width: 120px;
+    }
+    .task-link {
+        color: var(--bs-primary);
+        font-weight: 700;
+        text-decoration: none;
+        display: inline-block;
+        max-width: 260px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: middle;
+    }
+    .task-link:hover {
+        color: var(--bs-primary-text-emphasis);
+        text-decoration: underline;
+    }
+    .time-stack {
+        display: grid;
+        gap: 0.15rem;
+        line-height: 1.2;
+    }
+    .time-stack .date {
+        font-weight: 650;
+        color: var(--bs-body-color);
+    }
+    .time-stack .time {
+        color: var(--bs-secondary-color);
+        font-variant-numeric: tabular-nums;
+    }
+    .param-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        min-width: 240px;
+        max-width: 420px;
+        white-space: normal;
+    }
+    .param-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        max-width: 100%;
+        padding: 0.18rem 0.45rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.35rem;
+        background: var(--bs-tertiary-bg);
+        line-height: 1.2;
+    }
+    .param-tag .key {
+        color: var(--bs-secondary-color);
+    }
+    .param-tag .value {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 160px;
+    }
+    .metric-positive {
+        color: #198754;
+        font-weight: 700;
+    }
+    .metric-negative {
+        color: #dc3545;
+        font-weight: 700;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const state = {
+        page: 1,
+        perPage: 50,
+        columns: [],
+        total: 0,
+        pages: 0,
+        rebuildJobId: "",
+        rebuildTimer: null,
+    };
+
+    const leadingColumns = [
+        ["stock_code", "产品/股票"],
+        ["task_name", "任务名"],
+        ["best_metric_value", "return beats"],
+        ["result_timestamp", "结果时间"],
+    ];
+
+    const trailingColumns = [
+        ["task_type", "类型"],
+        ["task_result_id", "结果 ID"],
+        ["year_label", "年份/区间"],
+    ];
+
+    function getToken() {
+        return localStorage.getItem("access_token") || "";
+    }
+
+    function formatMetric(value) {
+        if (value === null || value === undefined || value === "") return "-";
+        const number = Number(value);
+        if (!Number.isFinite(number)) return String(value);
+        if (Math.abs(number) <= 10) return `${(number * 100).toFixed(2)}%`;
+        return number.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+    }
+
+    function metricClass(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number) || number === 0) return "";
+        return number > 0 ? "metric-positive" : "metric-negative";
+    }
+
+    function taskTypeLabel(value) {
+        return {
+            google_sheet: "C3",
+            google_sheet_C4: "C4",
+            google_sheet_C5: "C5",
+            backtest_training: "回测",
+        }[value] || value || "-";
+    }
+
+    function normalizeTaskType(value) {
+        return String(value || "").trim().toLowerCase();
+    }
+
+    function getTaskVersionFromType(taskType) {
+        const normalized = normalizeTaskType(taskType);
+        if (normalized === "google_sheet_c4") return "c4";
+        if (normalized === "google_sheet_c5") return "c5";
+        return "";
+    }
+
+    function buildTaskDetailUrl(item) {
+        const taskId = item?.task_id || "";
+        if (!taskId) return "";
+        const normalized = normalizeTaskType(item.task_type);
+        if (normalized === "backtest_training") {
+            return `/backtest-training/detail/${encodeURIComponent(taskId)}`;
+        }
+        const params = new URLSearchParams({ task_id: taskId });
+        const taskVersion = getTaskVersionFromType(item.task_type);
+        if (taskVersion) params.set("version", taskVersion);
+        return `/google-sheet/detail?${params.toString()}`;
+    }
+
+    function renderTaskName(item) {
+        const label = item.task_name || item.task_id || "-";
+        const href = buildTaskDetailUrl(item);
+        const title = item.task_id ? `${label} (${item.task_id})` : label;
+        if (!href) return `<span title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
+        return `<a class="task-link" href="${href}" title="${escapeHtml(title)}">${escapeHtml(label)}</a>`;
+    }
+
+    function formatDateTime(value) {
+        if (!value) return "-";
+        const text = String(value).replace("T", " ");
+        const [date = "", timeWithZone = ""] = text.split(" ");
+        const time = timeWithZone.replace(/\.\d+$/, "").slice(0, 8);
+        if (!date && !time) return escapeHtml(value);
+        return `
+            <span class="time-stack" title="${escapeHtml(text)}">
+                <span class="date">${escapeHtml(date || "-")}</span>
+                <span class="time">${escapeHtml(time || "-")}</span>
+            </span>
+        `;
+    }
+
+    function formatParameterValue(value) {
+        if (Array.isArray(value)) return value.join(", ");
+        if (value && typeof value === "object") return JSON.stringify(value);
+        return String(value ?? "");
+    }
+
+    function renderParameterTags(parameterSummary) {
+        if (!parameterSummary || typeof parameterSummary !== "object" || Array.isArray(parameterSummary)) {
+            return `<span class="text-muted">-</span>`;
+        }
+        const entries = Object.entries(parameterSummary).filter(([, value]) => value !== null && value !== undefined && value !== "");
+        if (!entries.length) return `<span class="text-muted">-</span>`;
+        return `<div class="param-tags">${entries.map(([key, value]) => {
+            const displayValue = formatParameterValue(value);
+            return `
+                <span class="param-tag" title="${escapeHtml(key)}: ${escapeHtml(displayValue)}">
+                    <span class="key">${escapeHtml(key)}</span>
+                    <span class="value">${escapeHtml(displayValue)}</span>
+                </span>
+            `;
+        }).join("")}</div>`;
+    }
+
+    function collectParams() {
+        const params = new URLSearchParams({
+            page: String(state.page),
+            per_page: String(state.perPage),
+            summary_type: document.getElementById("summaryType").value,
+            best_only: document.getElementById("bestOnly").value,
+        });
+        const fields = [
+            ["task_type", "taskType"],
+            ["stock_code", "stockCode"],
+            ["task_id", "taskId"],
+            ["result_id", "resultId"],
+        ];
+        fields.forEach(([key, id]) => {
+            const value = document.getElementById(id).value.trim();
+            if (value) params.set(key, value);
+        });
+        return params;
+    }
+
+    function renderHead() {
+        const fixedHead = leadingColumns.map(([key, label], index) => {
+            const sticky = index === 0 ? ` sticky-col sticky-col-${index + 1}` : "";
+            return `<th class="${sticky}">${label}</th>`;
+        }).join("");
+        const metricHead = state.columns.map((column) => `<th>${column.label}</th>`).join("");
+        const trailingHead = trailingColumns.map(([, label]) => `<th>${label}</th>`).join("");
+        document.getElementById("summaryHead").innerHTML = `<tr>${fixedHead}<th>参数</th>${metricHead}${trailingHead}</tr>`;
+    }
+
+    function renderBody(items) {
+        const body = document.getElementById("summaryBody");
+        if (!items.length) {
+            body.innerHTML = `<tr><td colspan="${leadingColumns.length + state.columns.length + trailingColumns.length + 1}" class="text-center text-muted py-5">暂无汇总数据，请先重建索引或调整筛选条件</td></tr>`;
+            return;
+        }
+        body.innerHTML = items.map((item) => {
+            const renderTextValue = (value) => value === null || value === undefined || value === "" ? "-" : escapeHtml(value);
+            const leadingCells = leadingColumns.map(([key], index) => {
+                const sticky = index === 0 ? ` sticky-col sticky-col-${index + 1}` : "";
+                let value = item[key];
+                if (key === "task_type") value = taskTypeLabel(value);
+                if (key === "best_metric_value") value = formatMetric(value);
+                if (key === "task_name") value = renderTaskName(item);
+                if (key === "result_timestamp") value = formatDateTime(value);
+                if (key === "task_result_id") value = `<a href="/admin/results?task_id=${encodeURIComponent(item.task_id || "")}">${value || "-"}</a>`;
+                const klass = key === "best_metric_value" ? metricClass(item.best_metric_value) : "";
+                const html = ["task_name", "result_timestamp", "task_result_id"].includes(key) ? (value || "-") : renderTextValue(value);
+                return `<td class="${sticky} ${klass}">${html}</td>`;
+            }).join("");
+            const parameter = renderParameterTags(item.parameter_summary);
+            const metrics = state.columns.map((column) => {
+                const value = item.metrics ? item.metrics[column.key] : null;
+                return `<td class="${metricClass(value)}">${escapeHtml(formatMetric(value))}</td>`;
+            }).join("");
+            const trailingCells = trailingColumns.map(([key]) => {
+                let value = item[key];
+                if (key === "task_type") value = taskTypeLabel(value);
+                if (key === "task_result_id") value = `<a href="/admin/results?task_id=${encodeURIComponent(item.task_id || "")}">${value || "-"}</a>`;
+                const html = key === "task_result_id" ? (value || "-") : renderTextValue(value);
+                return `<td>${html}</td>`;
+            }).join("");
+            return `<tr>${leadingCells}<td>${parameter}</td>${metrics}${trailingCells}</tr>`;
+        }).join("");
+    }
+
+    function renderPagination() {
+        document.getElementById("pageCount").textContent = `${state.page} / ${state.pages || 1}`;
+        document.getElementById("totalCount").textContent = String(state.total);
+        document.getElementById("paginationText").textContent = `第 ${state.page} 页，共 ${state.pages || 1} 页`;
+        document.getElementById("prevPage").disabled = state.page <= 1;
+        document.getElementById("nextPage").disabled = state.page >= state.pages;
+    }
+
+    async function loadSummary() {
+        const bestOnly = document.getElementById("bestOnly").value;
+        const stockCode = document.getElementById("stockCode").value.trim();
+        if (bestOnly === "false" && !stockCode) {
+            throw new Error("查询全部结果时必须输入单个股票代码");
+        }
+        document.getElementById("statusText").textContent = "加载中...";
+        const response = await fetch(`/admin/api/model-summary?${collectParams().toString()}`, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        const data = await response.json();
+        if (data.status !== "success") {
+            throw new Error(data.message || "加载失败");
+        }
+        state.columns = data.columns || [];
+        state.total = data.pagination?.total || 0;
+        state.pages = data.pagination?.pages || 0;
+        renderHead();
+        renderBody(data.items || []);
+        renderPagination();
+        document.getElementById("statusText").textContent = "已加载";
+    }
+
+    async function rebuildSummary() {
+        const confirmed = confirm("重建索引会在后台扫描历史 task_results，数据量较大时会慢慢跑。是否继续？");
+        if (!confirmed) return;
+        document.getElementById("statusText").textContent = "正在启动后台重建...";
+        const payload = {
+            task_type: document.getElementById("taskType").value || undefined,
+            task_id: document.getElementById("taskId").value.trim() || undefined,
+            batch_size: 20,
+            reset: true,
+        };
+        const response = await fetch("/admin/api/model-summary/rebuild", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${getToken()}`,
+            },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (data.status !== "success") {
+            throw new Error(data.message || "重建失败");
+        }
+        state.rebuildJobId = data.job?.job_id || "";
+        renderRebuildTaskLink(data.job);
+        document.getElementById("statusText").textContent = `重建任务已创建 ${state.rebuildJobId.slice(0, 8)}`;
+        pollRebuildStatus();
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function renderRebuildTaskLink(job) {
+        const taskId = job?.task_id || job?.job_id || "";
+        const target = document.getElementById("rebuildTaskLink");
+        if (!taskId) {
+            target.innerHTML = "";
+            return;
+        }
+        target.innerHTML = `<a href="/admin/tasks?keyword=${encodeURIComponent(taskId)}">查看重建任务日志</a>`;
+    }
+
+    async function pollRebuildStatus() {
+        if (state.rebuildTimer) {
+            clearTimeout(state.rebuildTimer);
+        }
+        if (!state.rebuildJobId) return;
+        const params = new URLSearchParams({ job_id: state.rebuildJobId });
+        const response = await fetch(`/admin/api/model-summary/rebuild/status?${params.toString()}`, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        const data = await response.json();
+        const job = data.job;
+        if (!job) {
+            document.getElementById("statusText").textContent = "暂无重建任务";
+            renderRebuildTaskLink(null);
+            return;
+        }
+        renderRebuildTaskLink(job);
+        if (job.status === "completed") {
+            const result = job.result || {};
+            document.getElementById("statusText").textContent = `重建完成：处理 ${result.processed_tasks || 0} 个任务、${result.processed || 0} 条结果，保留 ${result.indexed || 0} 条，去重 ${result.deduped || 0} 条`;
+            state.page = 1;
+            await loadSummary();
+            return;
+        }
+        if (job.status === "error") {
+            document.getElementById("statusText").textContent = job.error || "重建失败";
+            return;
+        }
+        const task = job.task || {};
+        const current = task.current_step || 0;
+        const total = task.total_steps || 0;
+        document.getElementById("statusText").textContent = total ? `后台重建中 ${current}/${total}` : `后台重建中 ${state.rebuildJobId.slice(0, 8)}`;
+        state.rebuildTimer = setTimeout(() => {
+            pollRebuildStatus().catch((error) => {
+                document.getElementById("statusText").textContent = error.message;
+            });
+        }, 3000);
+    }
+
+    document.getElementById("filterForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        state.page = 1;
+        loadSummary().catch((error) => {
+            document.getElementById("statusText").textContent = error.message;
+        });
+    });
+    document.getElementById("refreshBtn").addEventListener("click", () => loadSummary());
+    document.getElementById("rebuildBtn").addEventListener("click", () => rebuildSummary().catch((error) => {
+        document.getElementById("statusText").textContent = error.message;
+        alert(error.message || "重建失败");
+    }));
+    document.getElementById("pageSize").addEventListener("change", (event) => {
+        state.perPage = Number(event.target.value);
+        state.page = 1;
+        loadSummary();
+    });
+    document.getElementById("prevPage").addEventListener("click", () => {
+        if (state.page > 1) {
+            state.page -= 1;
+            loadSummary();
+        }
+    });
+    document.getElementById("nextPage").addEventListener("click", () => {
+        if (state.page < state.pages) {
+            state.page += 1;
+            loadSummary();
+        }
+    });
+    document.querySelectorAll(".collapsible-panel .collapse").forEach((panel) => {
+        const button = document.querySelector(`[data-bs-target="#${panel.id}"]`);
+        if (!button) return;
+        const icon = button.querySelector("i");
+        const label = button.querySelector("span");
+        const setToggleState = (expanded) => {
+            button.setAttribute("aria-expanded", expanded ? "true" : "false");
+            button.classList.toggle("collapsed", !expanded);
+            if (icon) {
+                icon.classList.toggle("bi-chevron-up", expanded);
+                icon.classList.toggle("bi-chevron-down", !expanded);
+            }
+            if (label) label.textContent = expanded ? "收起" : "展开";
+        };
+        setToggleState(panel.classList.contains("show"));
+        panel.addEventListener("shown.bs.collapse", () => setToggleState(true));
+        panel.addEventListener("hidden.bs.collapse", () => setToggleState(false));
+    });
+
+    renderHead();
+    loadSummary().catch((error) => {
+        document.getElementById("statusText").textContent = error.message;
+    });
+</script>
+{% endblock %}

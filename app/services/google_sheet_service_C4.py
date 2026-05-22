@@ -111,6 +111,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     return 'error'
 
                 # 推送任务完成通知
+                self._refresh_model_summary_index()
                 self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
                 # 推送任务完成信息
                 completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'

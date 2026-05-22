@@ -41,6 +41,31 @@ TASK_ACTION_LABELS = {
 
 SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
 
+SUMMARY_METRIC_CELL_MAP = {
+    "C3": {
+        "index_return": "I18",
+        "return": "I15",
+        "index_max_drawdown": "I20",
+        "max_drawdown": "I17",
+    },
+    "C5": {
+        "index_return": "D5",
+        "return": "D2",
+        "index_max_drawdown": "D7",
+        "max_drawdown": "D4",
+    },
+}
+SUMMARY_METRIC_CELL_MAP["C4"] = SUMMARY_METRIC_CELL_MAP["C5"]
+
+SUMMARY_ROW_LABELS = [
+    ("index_return", "指数回报"),
+    ("return", "模型回报"),
+    ("excess_return", "超额回报"),
+    ("index_max_drawdown", "指数回撤"),
+    ("max_drawdown", "模型回撤"),
+    ("excess_drawdown", "超额回撤"),
+]
+
 
 def _normalize_scientific_text(text: str) -> str:
     if not SCIENTIFIC_NOTATION_RE.fullmatch(text):
@@ -741,6 +766,68 @@ def _detect_model_name(task_name, parameters):
     return "C3"
 
 
+def _extract_raw_sheet_metrics(result_core):
+    if not isinstance(result_core, dict):
+        return {}
+    return {
+        str(key): value
+        for key, value in result_core.items()
+        if key != "calculate_metrics"
+    }
+
+
+def _normalize_summary_numeric_value(value):
+    parsed = _parse_percent_like_value(value)
+    if isinstance(parsed, (int, float)):
+        return parsed if math.isfinite(parsed) else None
+    return None
+
+
+def _format_summary_value(value):
+    parsed = _parse_percent_like_value(value)
+    if isinstance(parsed, (int, float)):
+        if not math.isfinite(parsed):
+            return ""
+        return f"{parsed:.2%}"
+    if parsed is None:
+        return ""
+    return _normalize_scientific_text(str(parsed).strip())
+
+
+def _get_summary_raw_metric(column, metric_key):
+    model_name = str(column.get("model_name") or "C3").upper()
+    cell_map = SUMMARY_METRIC_CELL_MAP.get(model_name, SUMMARY_METRIC_CELL_MAP["C3"])
+    cell_key = cell_map.get(metric_key)
+    raw_metrics = column.get("raw_metrics") or {}
+    return raw_metrics.get(cell_key) if cell_key else None
+
+
+def _get_summary_derived_value(column, metric_key):
+    if metric_key == "excess_return":
+        left = _normalize_summary_numeric_value(
+            _get_summary_raw_metric(column, "return")
+        )
+        right = _normalize_summary_numeric_value(
+            _get_summary_raw_metric(column, "index_return")
+        )
+        if left is None or right is None:
+            return ""
+        return f"{left - right:.2%}"
+
+    if metric_key == "excess_drawdown":
+        left = _normalize_summary_numeric_value(
+            _get_summary_raw_metric(column, "max_drawdown")
+        )
+        right = _normalize_summary_numeric_value(
+            _get_summary_raw_metric(column, "index_max_drawdown")
+        )
+        if left is None or right is None:
+            return ""
+        return f"{left - right:.2%}"
+
+    return _format_summary_value(_get_summary_raw_metric(column, metric_key))
+
+
 def _extract_summary_rows(calculate_metrics, model_name):
     if not isinstance(calculate_metrics, dict) or not calculate_metrics:
         return "", []
@@ -937,6 +1024,7 @@ def _build_global_preview_payload(task_id):
         })
 
         column_key = f"result_{task_result.id}"
+        result_core = _extract_result_core(task_result) if task_result.success else {}
         group["columns"].append({
             "column_key": column_key,
             "result_id": task_result.id,
@@ -946,6 +1034,7 @@ def _build_global_preview_payload(task_id):
             "success": bool(task_result.success),
             "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
             "parameter_values": parameters.get("parameter") if isinstance(parameters.get("parameter"), list) else [],
+            "raw_metrics": _extract_raw_sheet_metrics(result_core),
         })
 
         if not task_result.success:
@@ -953,7 +1042,6 @@ def _build_global_preview_payload(task_id):
             group["failed_results"] += 1
             continue
 
-        result_core = _extract_result_core(task_result)
         calculate_metrics = result_core.get("calculate_metrics") if isinstance(result_core, dict) else {}
         period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
         if not summary_rows:
@@ -1029,6 +1117,73 @@ def _sanitize_excel_sheet_name(name, fallback):
     return cleaned
 
 
+def _append_global_summary_sheet(workbook, payload, styles):
+    groups = payload.get("groups") or []
+    sheet = workbook.create_sheet("汇总", 0)
+    if not groups:
+        sheet.append(["暂无可导出的分组数据"])
+        return sheet
+
+    max_columns = 2
+    header_columns = []
+    for group in groups:
+        columns = group.get("columns") or []
+        if len(columns) > len(header_columns):
+            header_columns = columns
+        max_columns = max(max_columns, 2 + len(columns))
+
+    header = ["周期", "名称"]
+    for column in header_columns:
+        header.append(column.get("header") or f"结果 {column.get('result_id')}")
+    while len(header) < max_columns:
+        header.append("")
+    sheet.append(header)
+
+    for group in groups:
+        start_row = sheet.max_row + 1
+        columns = group.get("columns") or []
+        for metric_key, label in SUMMARY_ROW_LABELS:
+            values = [group.get("year") or group.get("group_label") or "", label]
+            for column in columns:
+                values.append(_get_summary_derived_value(column, metric_key))
+            while len(values) < max_columns:
+                values.append("")
+            sheet.append(values)
+
+        end_row = sheet.max_row
+        if end_row > start_row:
+            sheet.merge_cells(
+                start_row=start_row,
+                start_column=1,
+                end_row=end_row,
+                end_column=1,
+            )
+    sheet.freeze_panes = "C2"
+    sheet.column_dimensions["A"].width = 14
+    sheet.column_dimensions["B"].width = 28
+    for column_index in range(3, max_columns + 1):
+        sheet.column_dimensions[get_column_letter(column_index)].width = 18
+
+    sheet.row_dimensions[1].height = 24
+    for row_index in range(2, sheet.max_row + 1):
+        sheet.row_dimensions[row_index].height = 22
+
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.alignment = styles["center_alignment"]
+            cell.border = styles["thin_border"]
+            cell.font = styles["body_font"]
+            if cell.row == 1:
+                cell.fill = styles["header_fill"]
+                cell.font = styles["header_font"]
+            elif cell.column == 1:
+                cell.font = styles["header_font"]
+            elif cell.column == 2:
+                cell.fill = styles["first_col_fill"]
+
+    return sheet
+
+
 def _build_global_preview_workbook(payload):
     workbook = Workbook()
     default_sheet = workbook.active
@@ -1042,12 +1197,24 @@ def _build_global_preview_workbook(payload):
     center_alignment = Alignment(horizontal="center", vertical="center")
     thin_side = Side(style="thin", color="D0D0D0")
     thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+    styles = {
+        "header_fill": header_fill,
+        "sub_header_fill": sub_header_fill,
+        "first_col_fill": first_col_fill,
+        "title_font": title_font,
+        "header_font": header_font,
+        "body_font": body_font,
+        "center_alignment": center_alignment,
+        "thin_border": thin_border,
+    }
 
     groups = payload.get("groups") or []
     if not groups:
         sheet = workbook.create_sheet("全局预览")
         sheet.append(["暂无可导出的分组数据"])
         return workbook
+
+    _append_global_summary_sheet(workbook, payload, styles)
 
     used_sheet_names = set()
     for index, group in enumerate(groups, start=1):
