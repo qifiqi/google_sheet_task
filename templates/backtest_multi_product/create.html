@@ -488,11 +488,87 @@ function parameterRowsToClipboard(card) {
         .join('\n');
 }
 
-async function readClipboardText() {
-    if (navigator.clipboard?.readText) {
-        return navigator.clipboard.readText();
+async function queryClipboardReadPermission() {
+    if (!navigator.permissions?.query) {
+        return '';
     }
-    throw new Error('当前浏览器不支持直接读取剪切板，请使用 HTTPS 或授予剪切板权限');
+    try {
+        const status = await navigator.permissions.query({ name: 'clipboard-read' });
+        return status.state || '';
+    } catch (error) {
+        return '';
+    }
+}
+
+function requestManualClipboardText(message) {
+    return new Promise((resolve) => {
+        if (!window.bootstrap?.Modal) {
+            resolve(window.prompt(`${message}\n请粘贴参数内容：`, '') || '');
+            return;
+        }
+
+        const modalEl = document.createElement('div');
+        modalEl.className = 'modal fade';
+        modalEl.tabIndex = -1;
+        modalEl.setAttribute('aria-hidden', 'true');
+        modalEl.innerHTML = `
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">粘贴参数</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning py-2 small"></div>
+                        <textarea class="form-control paste-parse-input" rows="8" placeholder="在这里粘贴从 Excel 或其他任务复制的参数"></textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="button" class="btn btn-primary confirm-manual-paste">追加参数</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalEl);
+        modalEl.querySelector('.alert').textContent = message;
+        const textarea = modalEl.querySelector('textarea');
+        const modal = new bootstrap.Modal(modalEl, { backdrop: 'static' });
+        let resolved = false;
+
+        modalEl.addEventListener('shown.bs.modal', () => textarea.focus(), { once: true });
+        modalEl.addEventListener('hidden.bs.modal', () => {
+            modal.dispose();
+            modalEl.remove();
+            if (!resolved) {
+                resolve('');
+            }
+        }, { once: true });
+        modalEl.querySelector('.confirm-manual-paste').addEventListener('click', () => {
+            resolved = true;
+            const value = textarea.value;
+            modal.hide();
+            resolve(value);
+        });
+        modal.show();
+    });
+}
+
+async function readClipboardText() {
+    const canUseClipboardApi = window.isSecureContext && navigator.clipboard?.readText;
+    if (!canUseClipboardApi) {
+        return requestManualClipboardText('当前页面不是 HTTPS，浏览器无法授予剪切板读取权限。请在下方粘贴参数后继续。');
+    }
+
+    const permissionState = await queryClipboardReadPermission();
+    if (permissionState === 'denied') {
+        return requestManualClipboardText('浏览器已拒绝剪切板读取权限。请在下方粘贴参数后继续。');
+    }
+
+    try {
+        return await navigator.clipboard.readText();
+    } catch (error) {
+        return requestManualClipboardText('未完成剪切板权限授权，或浏览器暂时无法读取剪切板。请在下方粘贴参数后继续。');
+    }
 }
 
 async function writeClipboardText(text) {

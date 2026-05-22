@@ -71,6 +71,35 @@ class BacktestTrainingService(BaseGoogleSheetService):
             self._log_info(f"股票 {stock_query} 已解析为代码 {resolved_code}, market={market}")
         return resolved_code, market
 
+    @staticmethod
+    def _normalize_year_values(values, field_name):
+        normalized = []
+        for value in values or []:
+            if value is None or str(value).strip() == "":
+                continue
+            try:
+                normalized.append(int(value))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field_name} 包含无效年份值: {value}") from exc
+        return normalized
+
+    @staticmethod
+    def _require_kline_data(stock_code, kline_key, kline):
+        if not kline:
+            raise ValueError(f"股票{stock_code} 的K线区间 {kline_key} 没有可用数据，请检查年份或日期范围")
+        return kline
+
+    @staticmethod
+    def _parse_optional_end_date(value):
+        if value in (None, ""):
+            return None
+        normalized = str(value).strip()
+        try:
+            datetime.strptime(normalized, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError(f"end_date 格式无效，应为 YYYY-MM-DD: {value}") from exc
+        return normalized
+
     def _raise_retryable_network_error(self, exc, context):
         if is_retryable_network_error(exc):
             root = unwrap_exception(exc) or exc
@@ -241,6 +270,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
             market_type = self._normalize_market_type(
                 config_data.get('market_type', 'cn')
             )
+            include_full_year_range = bool(config_data.get('include_full_year_range'))
+            end_date = config_data.get('end_date')
 
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
@@ -251,6 +282,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 parameters,
                 stock_code,
                 market_type=market_type,
+                include_full_year_range=include_full_year_range,
+                end_date=end_date,
             )
             precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
             total_combinations += len(combinations)
@@ -394,6 +427,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
             results = {}
             cell_updates = {}
             parameter = combination['parameter']
+            Kline_key = combination['Kline_key']
+            kline = self._require_kline_data(
+                combination.get('stock_code', ''),
+                Kline_key,
+                KLINE_DATA_MAP.get(Kline_key),
+            )
             parameter[0] = str(parameter[0]).replace('"', '').replace("'","")
             parameter[1] = str(parameter[1]).replace('"', '').replace("'","")
             if len(parameter) == 2:
@@ -406,10 +445,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     cell_updates[parameter_positions[i]] = param
 
             def set_googl_val(initial_result_sleep=None):
-                Kline_key = combination['Kline_key']
                 _combination = cache_parameters['combination']
                 cache_Kline_key = _combination.get('Kline_key',"")
-                kline = KLINE_DATA_MAP.get(Kline_key,None)
                 _kline_len = len(kline)
 
                 if Kline_key != cache_Kline_key or initial_result_sleep is not None:
@@ -448,8 +485,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 self.google_sheet.update_jumped_cells(cell_updates)
 
             set_googl_val()
-            Kline_key = combination['Kline_key']
-            kline = KLINE_DATA_MAP.get(Kline_key, None)
 
             merged_return_range_a1 = f"{output_column_index}2:{output_column_start}{len(kline) + 1}"
             sleep_num = 5
@@ -611,10 +646,18 @@ class BacktestTrainingService(BaseGoogleSheetService):
         full_years,
         recent_years,
         parameters,
-        stock_code,price_mode="sp_price",market_type="cn"
+        stock_code,price_mode="sp_price",market_type="cn",
+        include_full_year_range=False,
+        end_date=None,
 
     ):
         market_type = self._normalize_market_type(market_type)
+        full_years = self._normalize_year_values(full_years, "full_years")
+        recent_years = self._normalize_year_values(recent_years, "recent_years")
+        end_date = self._parse_optional_end_date(end_date)
+        include_full_year_range = bool(include_full_year_range)
+        if include_full_year_range and not full_years:
+            raise ValueError("include_full_year_range=true 时必须传入 full_years")
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -646,16 +689,15 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
 
         end_dt = datetime.now() - timedelta(days=1)
-        end_date = end_dt.strftime("%Y-%m-%d")
-        earliest_full_year = None
+        effective_end_date = end_date or end_dt.strftime("%Y-%m-%d")
+        year_count = 1
         if recent_years:
-            year_count = max(int(year) for year in recent_years)
-        elif full_years:
+            year_count = max(year_count, max(int(year) for year in recent_years))
+        if full_years:
             earliest_full_year = min(int(year) for year in full_years)
-            year_count = max(1, int(end_date[:4]) - earliest_full_year + 1)
-        else:
-            year_count = 1
-        start_dt = end_dt - timedelta(days=365 * year_count)
+            year_count = max(year_count, int(effective_end_date[:4]) - earliest_full_year + 1)
+        effective_end_dt = datetime.strptime(effective_end_date, "%Y-%m-%d")
+        start_dt = effective_end_dt - timedelta(days=365 * year_count)
         start_date = start_dt.strftime("%Y-%m-%d")
 
         # A股按交易日粗略估算每年约 250 个交易日，美股按约 252 个交易日，额外留一点缓冲。
@@ -669,27 +711,32 @@ class BacktestTrainingService(BaseGoogleSheetService):
         else:
             klines = self.YF_api.get_kline_data(stock_code, '10y')
 
+        if not klines:
+            raise ValueError(f"股票{stock_code} 没有获取到K线数据")
+
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
 
-        if end_dt.weekday() >= 5:
-            end_date = data_end_date
+        if not end_date and end_dt.weekday() >= 5:
+            effective_end_date = data_end_date
+        if effective_end_date > data_end_date:
+            raise ValueError(f"股票{stock_code} 指定 end_date {effective_end_date} 超出K线数据范围，最新日期为 {data_end_date}")
 
         # 检查用户设定的区间是否在数据范围内
-        if start_date < data_start_date or end_date > data_end_date:
+        if start_date < data_start_date or effective_end_date > data_end_date:
             if full_years and int(data_start_date[:4]) in full_years:
                 pass
-            elif int(full_years[0]) > int(data_start_date[:4]):
+            elif full_years and int(full_years[0]) > int(data_start_date[:4]):
                 pass
             else:
                 raise Exception(
-                    f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
+                    f"股票{stock_code} 设定区间 [{start_date}, {effective_end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
         if len(klines) < 100:
             raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于100条，无法在模型正确产生数据，或者联系开发")
 
-        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
+        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=effective_end_date)
         data = []
 
         KLINE_DATA_MAP = {}
@@ -697,28 +744,47 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if recent_years:
             for year in recent_years:
 
-                _end_data = end_date
-                _start_data = f"{int(end_date[:4]) - year}{end_date[4:]}"
+                _end_data = effective_end_date
+                _start_data = f"{int(effective_end_date[:4]) - year}{effective_end_date[4:]}"
                 kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
                 Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
+                self._require_kline_data(stock_code, Kline_key, kline)
                 for item in parameters:
                     d = {"parameter": item, 'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
-                    if kline:
-                        if Kline_key not in KLINE_DATA_MAP:
-                            KLINE_DATA_MAP[Kline_key] = kline
+                    if Kline_key not in KLINE_DATA_MAP:
+                        KLINE_DATA_MAP[Kline_key] = kline
                     data.append(d)
 
-        if full_years:
-            _all_kline = [k for k in klines if start_date <= k['stock_date'] <= end_date]
+        if include_full_year_range:
+            range_start_year = min(full_years)
+            range_end_year = max(full_years)
+            range_start_prefix = f"{range_start_year}-"
+            range_kline = [
+                k for k in klines
+                if k['stock_date'].startswith(range_start_prefix)
+                and k['stock_date'] <= effective_end_date
+            ]
+            self._require_kline_data(stock_code, range_start_year, range_kline)
+            range_start_date = range_kline[0]['stock_date']
+            kline = _get_kline(klines, _start_date_1=range_start_date, _end_date_1=effective_end_date)
+            Kline_key = f'{range_start_year}-{range_end_year}'
+            self._require_kline_data(stock_code, Kline_key, kline)
+            for item in parameters:
+                d = {"parameter": item,  'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
+                if Kline_key not in KLINE_DATA_MAP:
+                    KLINE_DATA_MAP[Kline_key] = kline
+                data.append(d)
+        elif full_years:
+            _all_kline = [k for k in klines if start_date <= k['stock_date'] <= effective_end_date]
             for year in full_years:
                 kline = _get_kline(_all_kline, _year=year)
                 Kline_key = year
+                self._require_kline_data(stock_code, Kline_key, kline)
 
                 for item in parameters:
                     d = {"parameter": item,  'stock_code': stock_code, 'year': year,'Kline_key':Kline_key}
-                    if kline:
-                        if Kline_key not in KLINE_DATA_MAP:
-                            KLINE_DATA_MAP[Kline_key] = kline
+                    if Kline_key not in KLINE_DATA_MAP:
+                        KLINE_DATA_MAP[Kline_key] = kline
 
                     data.append(d)
 
