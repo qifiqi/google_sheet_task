@@ -160,65 +160,75 @@ class GoogleSheetService(BaseGoogleSheetService):
                 "kline_range": combination.get("year", ""),
             },
         )
+        model_result = result
+        if isinstance(result, dict):
+            first_value = next(iter(result.values()), None)
+            if isinstance(first_value, dict):
+                model_result = first_value
+        analyze_result = (
+            model_result.get("flat_result")
+            if isinstance(model_result.get("flat_result"), dict)
+            else model_result
+        )
         payload.update({
-            "return_rate": result.get("D2", 0),
-            "annualized_rate": result.get("D3", 0),
-            "maxdd": result.get("D4", 0),
-            "index_rate": result.get("D5", 0),
-            "index_annualized_rate": result.get("D6", 0),
-            "max_index_dd": result.get("D7", 0),
-            "fee_total": result.get("D8", 0),
-            "fee_annualized": result.get("D9", 0),
-            "turnover_rate": result.get("D10", 0),
-            "return_beats": result.get("D11", 0),
-            "dd_beats": result.get("D12", 0),
-            "max_1y_beats": result.get("D13", 0),
-            "min_1y_beats": result.get("D14", 0),
-            "max_theoretical_leverage": result.get("D15", 0),
-            "avg_theoretical_leverage": result.get("D16", 0),
-            "unit_theoretical_leverage_return": result.get("D17", 0),
-            "max_actual_leverage": result.get("D18", 0),
-            "avg_actual_leverage": result.get("D19", 0),
-            "unit_actual_leverage_return": result.get("D20", 0),
-            "start_monthly_std_dev": result.get("start_monthly_std_dev", 0),
-            "index_monthly_std_dev": result.get("index_monthly_std_dev", 0),
-            "index_annualized_return": result.get("index_annualized_return", 0),
-            "start_annualized_return": result.get("start_annualized_return", 0),
-            "index_profit_annual": result.get("index_profit_annual", 0),
-            "start_profit_annual": result.get("start_profit_annual", 0),
-            "index_profit_monthly_percentage": result.get("index_profit_monthly_percentage", 0),
-            "start_profit_monthly_percentage": result.get("start_profit_monthly_percentage", 0),
-            "index_avg_monthly_return_common": result.get("index_avg_monthly_return_common", 0),
-            "start_avg_monthly_return_common": result.get("start_avg_monthly_return_common", 0),
-            "index_monthly_return_volatility": result.get("index_monthly_return_volatility", 0),
-            "start_monthly_return_volatility": result.get("start_monthly_return_volatility", 0),
-            "annualized_return_diff": result.get("annualized_return_diff", 0),
-            "outperform_year": result.get("outperform_year", 0),
-            "monthly_excess_return_percentage_last_return": result.get(
+            "return_rate": model_result.get("D2", 0),
+            "annualized_rate": model_result.get("D3", 0),
+            "maxdd": model_result.get("D4", 0),
+            "index_rate": model_result.get("D5", 0),
+            "index_annualized_rate": model_result.get("D6", 0),
+            "max_index_dd": model_result.get("D7", 0),
+            "fee_total": model_result.get("D8", 0),
+            "fee_annualized": model_result.get("D9", 0),
+            "turnover_rate": model_result.get("D10", 0),
+            "return_beats": model_result.get("D11", 0),
+            "dd_beats": model_result.get("D12", 0),
+            "max_1y_beats": model_result.get("D13", 0),
+            "min_1y_beats": model_result.get("D14", 0),
+            "max_theoretical_leverage": model_result.get("D15", 0),
+            "avg_theoretical_leverage": model_result.get("D16", 0),
+            "unit_theoretical_leverage_return": model_result.get("D17", 0),
+            "max_actual_leverage": model_result.get("D18", 0),
+            "avg_actual_leverage": model_result.get("D19", 0),
+            "unit_actual_leverage_return": model_result.get("D20", 0),
+            "start_monthly_std_dev": analyze_result.get("start_monthly_std_dev", 0),
+            "index_monthly_std_dev": analyze_result.get("index_monthly_std_dev", 0),
+            "index_annualized_return": analyze_result.get("index_annualized_return", 0),
+            "start_annualized_return": analyze_result.get("start_annualized_return", 0),
+            "index_profit_annual": analyze_result.get("index_profit_annual", 0),
+            "start_profit_annual": analyze_result.get("start_profit_annual", 0),
+            "index_profit_monthly_percentage": analyze_result.get("index_profit_monthly_percentage", 0),
+            "start_profit_monthly_percentage": analyze_result.get("start_profit_monthly_percentage", 0),
+            "index_avg_monthly_return_common": analyze_result.get("index_avg_monthly_return_common", 0),
+            "start_avg_monthly_return_common": analyze_result.get("start_avg_monthly_return_common", 0),
+            "index_monthly_return_volatility": analyze_result.get("index_monthly_return_volatility", 0),
+            "start_monthly_return_volatility": analyze_result.get("start_monthly_return_volatility", 0),
+            "annualized_return_diff": analyze_result.get("annualized_return_diff", 0),
+            "outperform_year": analyze_result.get("outperform_year", 0),
+            "monthly_excess_return_percentage_last_return": analyze_result.get(
                 "monthly_excess_return_percentage_last_return",
                 0,
             ),
-            "avg_monthly_excess_returns": result.get("avg_monthly_excess_returns", 0),
-            "monthly_excess_volatility": result.get("monthly_excess_volatility", 0),
-            "max_drawdown": result.get("max_drawdown", 0),
-            "excess_drawdown_winning_rate": result.get("excess_drawdown_winning_rate", 0),
-            "start_drawdown": result.get("start_drawdown", 0),
-            "start_maximum_number_of_backtest_repair_days": result.get(
+            "avg_monthly_excess_returns": analyze_result.get("avg_monthly_excess_returns", 0),
+            "monthly_excess_volatility": analyze_result.get("monthly_excess_volatility", 0),
+            "max_drawdown": analyze_result.get("max_drawdown", 0),
+            "excess_drawdown_winning_rate": analyze_result.get("excess_drawdown_winning_rate", 0),
+            "start_drawdown": analyze_result.get("start_drawdown", 0),
+            "start_maximum_number_of_backtest_repair_days": analyze_result.get(
                 "start_maximum_number_of_backtest_repair_days",
                 0,
             ),
-            "excess_maximum_number_of_backtest_repair_days": result.get(
+            "excess_maximum_number_of_backtest_repair_days": analyze_result.get(
                 "excess_maximum_number_of_backtest_repair_days",
                 0,
             ),
-            "index_sharpe_ratio": result.get("index_sharpe_ratio", 0),
-            "start_sharpe_ratio": result.get("start_sharpe_ratio", 0),
-            "index_kama_ratio": result.get("index_kama_ratio", 0),
-            "start_kama_ratio": result.get("start_kama_ratio", 0),
-            "index_sotino_ratio": result.get("index_sotino_ratio", 0),
-            "start_sotino_ratio": result.get("start_sotino_ratio", 0),
-            "excess_sharp": result.get("excess_sharp", 0),
-            "excess_of_promissory_note": result.get("excess_of_promissory_note", 0),
+            "index_sharpe_ratio": analyze_result.get("index_sharpe_ratio", 0),
+            "start_sharpe_ratio": analyze_result.get("start_sharpe_ratio", 0),
+            "index_kama_ratio": analyze_result.get("index_kama_ratio", 0),
+            "start_kama_ratio": analyze_result.get("start_kama_ratio", 0),
+            "index_sotino_ratio": analyze_result.get("index_sotino_ratio", 0),
+            "start_sotino_ratio": analyze_result.get("start_sotino_ratio", 0),
+            "excess_sharp": analyze_result.get("excess_sharp", 0),
+            "excess_of_promissory_note": analyze_result.get("excess_of_promissory_note", 0),
         })
         return payload
 
@@ -532,28 +542,28 @@ class GoogleSheetService(BaseGoogleSheetService):
                         _start_return_date = []
                         _return_data = []
                         for i in range(len(kline)):
-                            _index_return_date.append({
-                                'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _index_return[f"{c4_output_column_j}{i + 2}"]
-                            })
-                            _start_return_date.append({
-                                'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _start_return[f"{c4_output_column_l}{i + 2}"]
-                            })
+                            # _index_return_date.append({
+                            #     'stock_date': kline[i].get('stock_date'),
+                            #     'stock_val': _index_return[f"{c4_output_column_j}{i + 2}"]
+                            # })
+                            # _start_return_date.append({
+                            #     'stock_date': kline[i].get('stock_date'),
+                            #     'stock_val': _start_return[f"{c4_output_column_l}{i + 2}"]
+                            # })
                             _return_data.append({
                                 'date': kline[i].get('stock_date'),
                                 'index_return': _index_return[f"{c4_output_column_j}{i + 2}"],
                                 'start_return': _start_return[f"{c4_output_column_l}{i + 2}"],
                             })
 
-                        _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
-                        _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
+                        # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
+                        # _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
                         flat_result, analyze_result = self.xpl.get_return_analysis_v1(_return_data)
                         _result.update(_result_yearly)
-                        _result['index_return_xpl'] = _index_return_xpl
-                        _result['start_return_xpl'] = _start_return_xpl
+                        # _result['index_return_xpl'] = _index_return_xpl
+                        # _result['start_return_xpl'] = _start_return_xpl
                         _result['analyze_result'] = analyze_result
-                        _result.update(flat_result)
+                        _result['flat_result'] = flat_result
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
                     else:

@@ -181,8 +181,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                 "kline_range": json.dumps(combination['kline']),
             },
         )
-        analyze_result = result.pop('flat_result')
-        result = result[next(iter(result.keys()))]
+        first_value = next(iter(result.values()), None) if isinstance(result, dict) else None
+        if isinstance(first_value, dict):
+            result = first_value
+        analyze_result = result.get('flat_result') if isinstance(result.get('flat_result'), dict) else result
 
         payload.update({
             "multiplier": combination.get("A1", 0),
@@ -607,28 +609,30 @@ class GoogleSheetService(BaseGoogleSheetService):
                         _return_data = []
                         _index_start_return_date = []
                         for i in range(len(kline)):
-                            _index_return_date.append({
-                                'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _index_return[f"{c5_output_column_j}{i + 2}"]
-                            })
-                            _start_return_date.append({
-                                'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _start_return[f"{c5_output_column_l}{i + 2}"]
-                            })
+                            # _index_return_date.append({
+                            #     'stock_date': kline[i].get('stock_date'),
+                            #     'stock_val': _index_return[f"{c5_output_column_j}{i + 2}"]
+                            # })
+                            # _start_return_date.append({
+                            #     'stock_date': kline[i].get('stock_date'),
+                            #     'stock_val': _start_return[f"{c5_output_column_l}{i + 2}"]
+                            # })
                             _return_data.append({
                                 'date': kline[i].get('stock_date'),
                                 'index_return': _index_return[f"{c5_output_column_j}{i + 2}"],
                                 'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
                             })
 
-                        _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
-                        _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
+                        # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
+                        # _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
                         flat_result, analyze_result = self.xpl.get_return_analysis_v1(_return_data)
-                        _result['index_return_xpl'] = _index_return_xpl
-                        _result['start_return_xpl'] = _start_return_xpl
+                        # _result['index_return_xpl'] = _index_return_xpl
+                        # _result['start_return_xpl'] = _start_return_xpl
                         _result['analyze_result'] = analyze_result
+                        _result[f"flat_result"] = flat_result
+
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
-                        results[f"flat_result"] = flat_result
+                        # results[f"flat_result"] = flat_result
                         all_num += 1
                     else:
                         self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")

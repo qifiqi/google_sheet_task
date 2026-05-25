@@ -15,6 +15,15 @@ def _json_object_or_empty(raw):
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _normalize_summary_metrics(metrics):
+    if not isinstance(metrics, dict):
+        return {}
+    normalized = dict(metrics)
+    if "start_sharpe_ratio" not in normalized and "sharpe_ratio" in normalized:
+        normalized["start_sharpe_ratio"] = normalized["sharpe_ratio"]
+    return normalized
+
+
 # ==================== RBAC ====================
 
 role_permissions = db.Table('role_permissions',
@@ -474,7 +483,7 @@ class TaskResultSummaryIndex(db.Model):
             "parameter_summary": _json_object_or_empty(self.parameter_summary),
             "best_metric_name": self.best_metric_name,
             "best_metric_value": self.best_metric_value,
-            "metrics": _json_object_or_empty(self.metrics_json),
+            "metrics": _normalize_summary_metrics(_json_object_or_empty(self.metrics_json)),
             "is_best": self.is_best,
             "result_timestamp": self.result_timestamp.isoformat() if self.result_timestamp else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,

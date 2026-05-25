@@ -106,6 +106,36 @@ def test_extract_c3_includes_saved_return_analysis_metrics():
     assert rows[0].metrics["excess_of_promissory_note"] == 0.77
 
 
+def test_extract_c3_includes_nested_flat_result_metrics():
+    task = _task(name="600519")
+    result = _result(
+        result={
+            "I15": "1%",
+            "I18": "0%",
+            "analyze_result": {"monthly_excess_returns": []},
+            "flat_result": {
+                "annualized_return_diff": "4%",
+                "monthly_excess_return_percentage_last_return": "55%",
+                "excess_sharp": "0.88",
+                "start_profit_annual": "70%",
+                "index_profit_annual": "50%",
+                "start_maximum_number_of_backtest_repair_days": "33",
+                "excess_of_promissory_note": "0.77",
+            },
+        },
+    )
+
+    rows = extract_summary_records(task, result)
+
+    assert rows[0].metrics["annualized_return_diff"] == 0.04
+    assert rows[0].metrics["monthly_excess_return_percentage"] == 0.55
+    assert rows[0].metrics["excess_sharp"] == 0.88
+    assert rows[0].metrics["start_profit_annual"] == 0.7
+    assert rows[0].metrics["index_profit_annual"] == 0.5
+    assert rows[0].metrics["start_maximum_number_of_backtest_repair_days"] == 33
+    assert rows[0].metrics["excess_of_promissory_note"] == 0.77
+
+
 def test_extract_c5_uses_returnbeats_with_fallback():
     task = _task(task_type="google_sheet_C5", name="普通 C5 任务")
     result = _result(
@@ -126,6 +156,89 @@ def test_extract_c5_uses_returnbeats_with_fallback():
     assert rows[0].stock_code == "AAPL"
     assert rows[0].best_metric_name == "ReturnBeats"
     assert round(rows[0].best_metric_value, 4) == 0.12
+    assert rows[0].metrics["start_sharpe_ratio"] == 2.1
+
+
+def test_extract_c5_maps_nested_xpl_sharpe_ratios_to_summary_metrics():
+    task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
+    result = _result(
+        parameters={"stock_code": "600776", "A1": "1.8", "B1": "4", "year": "2026-2023"},
+        result={
+            "sheet__C5.v20260105-回测-hlg-001": {
+                "D2": "22.93%",
+                "D5": "21.31%",
+                "D11": "0.47%",
+                "index_return_xpl": {
+                    "sharpe_ratio": "0.4041930158167997",
+                    "avg_monthly_return": "0.00693797342048926",
+                },
+                "start_return_xpl": {
+                    "sharpe_ratio": "0.5363163004510634",
+                    "avg_monthly_return": "0.006440432118344072",
+                },
+            }
+        },
+    )
+
+    rows = extract_summary_records(task, result)
+
+    assert len(rows) == 1
+    assert rows[0].metrics["start_sharpe_ratio"] == pytest.approx(0.5363163004510634)
+    assert rows[0].metrics["index_sharpe_ratio"] == pytest.approx(0.4041930158167997)
+
+
+def test_extract_c4_reads_nested_flat_result_metrics():
+    task = _task(task_type="google_sheet_C4", name="C4-600776-东方通信")
+    result = _result(
+        parameters={"stock_code": "600776", "year": "2026-2023"},
+        result={
+            "sheet__C4.v20260105-回测-hlg-001": {
+                "D2": "22.93%",
+                "D5": "21.31%",
+                "D11": "0.47%",
+                "analyze_result": {"monthly_excess_returns": []},
+                "flat_result": {
+                    "annualized_return_diff": "4%",
+                    "start_sharpe_ratio": "0.5363163004510634",
+                    "index_sharpe_ratio": "0.4041930158167997",
+                    "excess_sharp": "0.88",
+                },
+            }
+        },
+    )
+
+    rows = extract_summary_records(task, result)
+
+    assert len(rows) == 1
+    assert rows[0].model_name == "C4"
+    assert rows[0].metrics["annualized_return_diff"] == pytest.approx(0.04)
+    assert rows[0].metrics["start_sharpe_ratio"] == pytest.approx(0.5363163004510634)
+    assert rows[0].metrics["index_sharpe_ratio"] == pytest.approx(0.4041930158167997)
+    assert rows[0].metrics["excess_sharp"] == pytest.approx(0.88)
+
+
+def test_extract_c5_keeps_flat_result_sharpe_without_xpl_payload():
+    task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
+    result = _result(
+        parameters={"stock_code": "600776", "A1": "1.8", "B1": "4", "year": "2026-2023"},
+        result={
+            "sheet__C5.v20260105-回测-hlg-001": {
+                "D2": "22.93%",
+                "D5": "21.31%",
+                "D11": "0.47%",
+                "flat_result": {
+                    "start_sharpe_ratio": "0.5363163004510634",
+                    "index_sharpe_ratio": "0.4041930158167997",
+                },
+            }
+        },
+    )
+
+    rows = extract_summary_records(task, result)
+
+    assert len(rows) == 1
+    assert rows[0].metrics["start_sharpe_ratio"] == pytest.approx(0.5363163004510634)
+    assert rows[0].metrics["index_sharpe_ratio"] == pytest.approx(0.4041930158167997)
 
 
 def test_extract_c5_displays_versioned_model_key_as_c5():
@@ -519,6 +632,37 @@ def test_query_tolerates_legacy_truncated_metrics_json(app_factory):
         assert payload["pagination"]["total"] == 1
         assert payload["items"][0]["parameter_summary"] == {}
         assert payload["items"][0]["metrics"] == {}
+
+
+def test_query_normalizes_legacy_c5_plain_sharpe_metric(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c5", task_type="google_sheet_C5", name="C5-600776-东方通信"))
+        db.session.add(
+            TaskResultSummaryIndex(
+                task_id="task-c5",
+                task_result_id=100,
+                task_type="google_sheet_C5",
+                task_name="C5-600776-东方通信",
+                stock_code="600776",
+                model_key="sheet__C5.v20260105",
+                model_name="C5",
+                best_metric_name="ReturnBeats",
+                best_metric_value=0.12,
+                metrics_json='{"sharpe_ratio": 2.1, "index_sharpe_ratio": 0.9}',
+                is_best=True,
+            )
+        )
+        db.session.commit()
+
+        payload = model_summary_service.query(
+            _User(),
+            {"task_type": "google_sheet_C5", "summary_type": "task", "page": 1, "per_page": 10},
+        )
+
+        assert payload["columns"][0]["format"] == "percent"
+        assert payload["items"][0]["metrics"]["start_sharpe_ratio"] == 2.1
+        assert payload["items"][0]["metrics"]["index_sharpe_ratio"] == 0.9
 
 
 def test_start_rebuild_job_completes_in_background(app_factory):

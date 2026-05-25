@@ -301,9 +301,23 @@ def _seed_missing_default_navigation_items(default_rows, permission_map, existin
 
 def _normalize_existing_navigation_menu():
     permission_map = _build_nav_permission_map()
+    default_rows = {
+        row.get('key'): row
+        for row in flatten_navigation_items(DEFAULT_NAVIGATION_MENU)
+        if row.get('key')
+    }
     for item in NavigationMenuItem.query.all():
         item.path = _normalize_nav_path(item.path)
-        item.label = _normalize_nav_label(item.key, item.label)
+        default_row = default_rows.get(item.key)
+        item.label = _normalize_nav_label(
+            item.key,
+            default_row.get('label') if default_row else item.label,
+        )
+        if default_row:
+            item.parent_key = default_row.get('parent_key')
+            item.sort_order = default_row.get('sort_order') or 0
+            if default_row.get('path'):
+                item.path = _normalize_nav_path(default_row.get('path'))
         expected_permission = permission_map.get(item.path)
         if expected_permission:
             item.permission = expected_permission

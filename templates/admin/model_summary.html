@@ -277,11 +277,12 @@
         return localStorage.getItem("access_token") || "";
     }
 
-    function formatMetric(value) {
+    function formatMetric(value, format) {
         if (value === null || value === undefined || value === "") return "-";
         const number = Number(value);
         if (!Number.isFinite(number)) return String(value);
-        if (Math.abs(number) <= 10) return `${(number * 100).toFixed(2)}%`;
+        if (format === "percent") return `${(number * 100).toFixed(2)}%`;
+        if (format === "integer") return String(Math.round(number));
         return number.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
     }
 
@@ -411,7 +412,7 @@
                 const sticky = index === 0 ? ` sticky-col sticky-col-${index + 1}` : "";
                 let value = item[key];
                 if (key === "task_type") value = taskTypeLabel(value);
-                if (key === "best_metric_value") value = formatMetric(value);
+                if (key === "best_metric_value") value = formatMetric(value, "percent");
                 if (key === "task_name") value = renderTaskName(item);
                 if (key === "result_timestamp") value = formatDateTime(value);
                 if (key === "task_result_id") value = `<a href="/admin/results?task_id=${encodeURIComponent(item.task_id || "")}">${value || "-"}</a>`;
@@ -422,7 +423,7 @@
             const parameter = renderParameterTags(item.parameter_summary);
             const metrics = state.columns.map((column) => {
                 const value = item.metrics ? item.metrics[column.key] : null;
-                return `<td class="${metricClass(value)}">${escapeHtml(formatMetric(value))}</td>`;
+                return `<td class="${metricClass(value)}">${escapeHtml(formatMetric(value, column.format))}</td>`;
             }).join("");
             const trailingCells = trailingColumns.map(([key]) => {
                 let value = item[key];

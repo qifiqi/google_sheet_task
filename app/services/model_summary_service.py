@@ -30,45 +30,45 @@ FINISHED_TASK_STATUSES = ("completed", "cancelled", "error")
 SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
 
 SUMMARY_COLUMNS = [
-    {"key": "return_rate", "label": "Return%"},
-    {"key": "annualized_rate", "label": "Annualized"},
-    {"key": "max_drawdown", "label": "Max DD%"},
-    {"key": "index_return", "label": "Index Return"},
-    {"key": "index_annualized_rate", "label": "Annualized"},
-    {"key": "index_max_drawdown", "label": "Index max dd"},
+    {"key": "return_rate", "label": "Return%", "format": "percent"},
+    {"key": "annualized_rate", "label": "Annualized", "format": "percent"},
+    {"key": "max_drawdown", "label": "Max DD%", "format": "percent"},
+    {"key": "index_return", "label": "Index Return", "format": "percent"},
+    {"key": "index_annualized_rate", "label": "Annualized", "format": "percent"},
+    {"key": "index_max_drawdown", "label": "Index max dd", "format": "percent"},
 ]
 
 RETURN_ANALYSIS_COLUMNS = [
-    {"key": "start_monthly_std_dev", "label": "模型月标准差"},
-    {"key": "index_monthly_std_dev", "label": "指数月标准差"},
-    {"key": "start_annualized_return", "label": "模型年化收益"},
-    {"key": "index_annualized_return", "label": "指数年化收益"},
-    {"key": "start_profit_annual", "label": "模型盈利年份百分比"},
-    {"key": "index_profit_annual", "label": "指数盈利年份百分比"},
-    {"key": "start_profit_monthly_percentage", "label": "模型月盈利百分比"},
-    {"key": "index_profit_monthly_percentage", "label": "指数月盈利百分比"},
-    {"key": "start_avg_monthly_return_common", "label": "模型平均月收益率"},
-    {"key": "index_avg_monthly_return_common", "label": "指数平均月收益率"},
-    {"key": "start_monthly_return_volatility", "label": "模型月收益率波动率"},
-    {"key": "index_monthly_return_volatility", "label": "指数月收益率波动率"},
-    {"key": "annualized_return_diff", "label": "年化超额收益"},
-    {"key": "outperform_year", "label": "跑赢年份占比"},
-    {"key": "monthly_excess_return_percentage", "label": "月超额胜率"},
-    {"key": "avg_monthly_excess_returns", "label": "平均月超额"},
-    {"key": "monthly_excess_volatility", "label": "月超额波动率"},
-    {"key": "max_drawdown_analysis", "label": "年最大超额回撤"},
-    {"key": "excess_drawdown_winning_rate", "label": "超额回撤胜率"},
-    {"key": "start_drawdown", "label": "年最大回撤"},
-    {"key": "start_maximum_number_of_backtest_repair_days", "label": "最大修复天数"},
-    {"key": "excess_maximum_number_of_backtest_repair_days", "label": "超额最大修复天数"},
-    {"key": "start_sharpe_ratio", "label": "模型夏普"},
-    {"key": "index_sharpe_ratio", "label": "指数夏普"},
-    {"key": "start_kama_ratio", "label": "模型卡玛比率"},
-    {"key": "index_kama_ratio", "label": "指数卡玛比率"},
-    {"key": "start_sotino_ratio", "label": "模型所提诺比率"},
-    {"key": "index_sotino_ratio", "label": "指数所提诺比率"},
-    {"key": "excess_sharp", "label": "超额夏普"},
-    {"key": "excess_of_promissory_note", "label": "超额所提诺比率"},
+    {"key": "start_monthly_std_dev", "label": "模型月标准差", "format": "number"},
+    {"key": "index_monthly_std_dev", "label": "指数月标准差", "format": "number"},
+    {"key": "start_annualized_return", "label": "模型年化收益", "format": "percent"},
+    {"key": "index_annualized_return", "label": "指数年化收益", "format": "percent"},
+    {"key": "start_profit_annual", "label": "模型盈利年份百分比", "format": "percent"},
+    {"key": "index_profit_annual", "label": "指数盈利年份百分比", "format": "percent"},
+    {"key": "start_profit_monthly_percentage", "label": "模型月盈利百分比", "format": "percent"},
+    {"key": "index_profit_monthly_percentage", "label": "指数月盈利百分比", "format": "percent"},
+    {"key": "start_avg_monthly_return_common", "label": "模型平均月收益率", "format": "percent"},
+    {"key": "index_avg_monthly_return_common", "label": "指数平均月收益率", "format": "percent"},
+    {"key": "start_monthly_return_volatility", "label": "模型月收益率波动率", "format": "number"},
+    {"key": "index_monthly_return_volatility", "label": "指数月收益率波动率", "format": "number"},
+    {"key": "annualized_return_diff", "label": "年化超额收益", "format": "percent"},
+    {"key": "outperform_year", "label": "跑赢年份占比", "format": "percent"},
+    {"key": "monthly_excess_return_percentage", "label": "月超额胜率", "format": "percent"},
+    {"key": "avg_monthly_excess_returns", "label": "平均月超额", "format": "percent"},
+    {"key": "monthly_excess_volatility", "label": "月超额波动率", "format": "number"},
+    {"key": "max_drawdown_analysis", "label": "年最大超额回撤", "format": "percent"},
+    {"key": "excess_drawdown_winning_rate", "label": "超额回撤胜率", "format": "percent"},
+    {"key": "start_drawdown", "label": "年最大回撤", "format": "percent"},
+    {"key": "start_maximum_number_of_backtest_repair_days", "label": "最大修复天数", "format": "integer"},
+    {"key": "excess_maximum_number_of_backtest_repair_days", "label": "超额最大修复天数", "format": "integer"},
+    {"key": "start_sharpe_ratio", "label": "模型夏普", "format": "number"},
+    {"key": "index_sharpe_ratio", "label": "指数夏普", "format": "number"},
+    {"key": "start_kama_ratio", "label": "模型卡玛比率", "format": "number"},
+    {"key": "index_kama_ratio", "label": "指数卡玛比率", "format": "number"},
+    {"key": "start_sotino_ratio", "label": "模型所提诺比率", "format": "number"},
+    {"key": "index_sotino_ratio", "label": "指数所提诺比率", "format": "number"},
+    {"key": "excess_sharp", "label": "超额夏普", "format": "number"},
+    {"key": "excess_of_promissory_note", "label": "超额所提诺比率", "format": "number"},
 ]
 
 SUMMARY_COLUMNS = [*SUMMARY_COLUMNS, *RETURN_ANALYSIS_COLUMNS]
@@ -353,6 +353,10 @@ def _extract_candidate_records(task: Task, result: TaskResult) -> list[SummaryRe
 
 
 def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float]:
+    flat_result = payload.get("flat_result")
+    if isinstance(flat_result, dict):
+        payload = {**payload, **flat_result}
+
     field_map = {
         "start_monthly_std_dev": "start_monthly_std_dev",
         "index_monthly_std_dev": "index_monthly_std_dev",
@@ -391,6 +395,14 @@ def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float
         if value is not None:
             metrics[output_key] = value
     return metrics
+
+
+def _first_safe_number(*values: Any) -> float | None:
+    for value in values:
+        number = _safe_number(value)
+        if number is not None:
+            return number
+    return None
 
 
 def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
@@ -451,12 +463,18 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
             key: _safe_number(raw_metrics.get(cell))
             for key, cell in C4_C5_METRIC_CELLS.items()
         }
-        metrics.update({
-            "return_beats": return_beats,
-            "sharpe_ratio": _safe_number(start_xpl.get("sharpe_ratio")),
-            "index_sharpe_ratio": _safe_number(index_xpl.get("sharpe_ratio")),
-        })
+        metrics.update({"return_beats": return_beats})
         metrics.update(_extract_return_analysis_metrics(raw_metrics))
+        metrics.update({
+            "start_sharpe_ratio": _first_safe_number(
+                start_xpl.get("sharpe_ratio"),
+                metrics.get("start_sharpe_ratio"),
+            ),
+            "index_sharpe_ratio": _first_safe_number(
+                index_xpl.get("sharpe_ratio"),
+                metrics.get("index_sharpe_ratio"),
+            ),
+        })
         records.append(
             SummaryRecord(
                 task_id=task.id,

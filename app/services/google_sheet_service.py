@@ -151,9 +151,9 @@ class GoogleSheetService(BaseGoogleSheetService):
         for position in result_positions:
             final_results[position] = self._normalize_result_value(position, result_values.get(position, ""))
 
-        analysis_result = self._attach_return_analysis(config_data)
-        if analysis_result:
-            final_results.update(analysis_result)
+        analysis_payload = self._attach_return_analysis(config_data)
+        if analysis_payload:
+            final_results.update(analysis_payload)
 
         is_valid, error_msg = validate_google_sheet_result(final_results)
         if not is_valid:
@@ -249,8 +249,11 @@ class GoogleSheetService(BaseGoogleSheetService):
             if not return_data or not self.xpl:
                 return {}
 
-            flat_result, _ = self.xpl.get_return_analysis_v1(return_data)
-            return flat_result
+            flat_result, analyze_result = self.xpl.get_return_analysis_v1(return_data)
+            return {
+                "analyze_result": analyze_result,
+                "flat_result": flat_result,
+            }
         except checkForErrors:
             raise
         except Exception as err:
@@ -265,6 +268,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
         payload = self._build_stock_param_result_base_payload(task_name, task_index, config_data)
+        return_analysis = result.get("flat_result") if isinstance(result.get("flat_result"), dict) else result
         payload.update({
             "multiplier": result.get("B6", 0),
             "danbian": result.get("B7", 0),
@@ -292,45 +296,45 @@ class GoogleSheetService(BaseGoogleSheetService):
             "max_actual_leverage": result.get("max_actual_leverage", 0),
             "avg_actual_leverage": result.get("avg_actual_leverage", 0),
             "unit_actual_leverage_return": result.get("unit_actual_leverage_return", 0),
-            "start_monthly_std_dev": result.get("start_monthly_std_dev", 0),
-            "index_monthly_std_dev": result.get("index_monthly_std_dev", 0),
-            "index_annualized_return": result.get("index_annualized_return", 0),
-            "start_annualized_return": result.get("start_annualized_return", 0),
-            "index_profit_annual": result.get("index_profit_annual", 0),
-            "start_profit_annual": result.get("start_profit_annual", 0),
-            "index_profit_monthly_percentage": result.get("index_profit_monthly_percentage", 0),
-            "start_profit_monthly_percentage": result.get("start_profit_monthly_percentage", 0),
-            "index_avg_monthly_return_common": result.get("index_avg_monthly_return_common", 0),
-            "start_avg_monthly_return_common": result.get("start_avg_monthly_return_common", 0),
-            "index_monthly_return_volatility": result.get("index_monthly_return_volatility", 0),
-            "start_monthly_return_volatility": result.get("start_monthly_return_volatility", 0),
-            "annualized_return_diff": result.get("annualized_return_diff", 0),
-            "outperform_year": result.get("outperform_year", 0),
-            "monthly_excess_return_percentage_last_return": result.get(
+            "start_monthly_std_dev": return_analysis.get("start_monthly_std_dev", 0),
+            "index_monthly_std_dev": return_analysis.get("index_monthly_std_dev", 0),
+            "index_annualized_return": return_analysis.get("index_annualized_return", 0),
+            "start_annualized_return": return_analysis.get("start_annualized_return", 0),
+            "index_profit_annual": return_analysis.get("index_profit_annual", 0),
+            "start_profit_annual": return_analysis.get("start_profit_annual", 0),
+            "index_profit_monthly_percentage": return_analysis.get("index_profit_monthly_percentage", 0),
+            "start_profit_monthly_percentage": return_analysis.get("start_profit_monthly_percentage", 0),
+            "index_avg_monthly_return_common": return_analysis.get("index_avg_monthly_return_common", 0),
+            "start_avg_monthly_return_common": return_analysis.get("start_avg_monthly_return_common", 0),
+            "index_monthly_return_volatility": return_analysis.get("index_monthly_return_volatility", 0),
+            "start_monthly_return_volatility": return_analysis.get("start_monthly_return_volatility", 0),
+            "annualized_return_diff": return_analysis.get("annualized_return_diff", 0),
+            "outperform_year": return_analysis.get("outperform_year", 0),
+            "monthly_excess_return_percentage_last_return": return_analysis.get(
                 "monthly_excess_return_percentage_last_return",
                 0,
             ),
-            "avg_monthly_excess_returns": result.get("avg_monthly_excess_returns", 0),
-            "monthly_excess_volatility": result.get("monthly_excess_volatility", 0),
-            "max_drawdown": result.get("max_drawdown", 0),
-            "excess_drawdown_winning_rate": result.get("excess_drawdown_winning_rate", 0),
-            "start_drawdown": result.get("start_drawdown", 0),
-            "start_maximum_number_of_backtest_repair_days": result.get(
+            "avg_monthly_excess_returns": return_analysis.get("avg_monthly_excess_returns", 0),
+            "monthly_excess_volatility": return_analysis.get("monthly_excess_volatility", 0),
+            "max_drawdown": return_analysis.get("max_drawdown", 0),
+            "excess_drawdown_winning_rate": return_analysis.get("excess_drawdown_winning_rate", 0),
+            "start_drawdown": return_analysis.get("start_drawdown", 0),
+            "start_maximum_number_of_backtest_repair_days": return_analysis.get(
                 "start_maximum_number_of_backtest_repair_days",
                 0,
             ),
-            "excess_maximum_number_of_backtest_repair_days": result.get(
+            "excess_maximum_number_of_backtest_repair_days": return_analysis.get(
                 "excess_maximum_number_of_backtest_repair_days",
                 0,
             ),
-            "index_sharpe_ratio": result.get("index_sharpe_ratio", 0),
-            "start_sharpe_ratio": result.get("start_sharpe_ratio", 0),
-            "index_kama_ratio": result.get("index_kama_ratio", 0),
-            "start_kama_ratio": result.get("start_kama_ratio", 0),
-            "index_sotino_ratio": result.get("index_sotino_ratio", 0),
-            "start_sotino_ratio": result.get("start_sotino_ratio", 0),
-            "excess_sharp": result.get("excess_sharp", 0),
-            "excess_of_promissory_note": result.get("excess_of_promissory_note", 0),
+            "index_sharpe_ratio": return_analysis.get("index_sharpe_ratio", 0),
+            "start_sharpe_ratio": return_analysis.get("start_sharpe_ratio", 0),
+            "index_kama_ratio": return_analysis.get("index_kama_ratio", 0),
+            "start_kama_ratio": return_analysis.get("start_kama_ratio", 0),
+            "index_sotino_ratio": return_analysis.get("index_sotino_ratio", 0),
+            "start_sotino_ratio": return_analysis.get("start_sotino_ratio", 0),
+            "excess_sharp": return_analysis.get("excess_sharp", 0),
+            "excess_of_promissory_note": return_analysis.get("excess_of_promissory_note", 0),
         })
         return payload
 
