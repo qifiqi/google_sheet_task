@@ -233,6 +233,13 @@
                         </select>
                     </div>
                     <div class="config-box">
+                        <label for="priceModeInput" class="form-label">价格模式</label>
+                        <select class="form-select" id="priceModeInput">
+                            <option value="kp_price">开盘价</option>
+                            <option value="sp_price" selected>收盘价</option>
+                        </select>
+                    </div>
+                    <div class="config-box">
                         <label for="endDateInput" class="form-label">K 线截至日期</label>
                         <input type="date" class="form-control" id="endDateInput">
                         <div class="form-text">留空时使用运行日前一天；近 N 年会按该日期向前计算。</div>
@@ -1236,6 +1243,7 @@ async function createTask() {
             stock_code: stockCode,
             market_type: getSelectedMarketType(),
             kline_adjustment: document.getElementById('klineAdjustmentInput')?.value || 'forward',
+            price_mode: document.getElementById('priceModeInput')?.value || 'sp_price',
             token_type: 'file',
             token_id: Number(tokenId),
             parameters,

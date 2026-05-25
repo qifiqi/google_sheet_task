@@ -26,6 +26,7 @@ def _base_product(index, ratio="50"):
         "product_name": f"产品{index + 1}",
         "stock_code": f"TEST{index + 1}",
         "market_type": "cn",
+        "price_mode": "sp_price",
         "ratio": ratio,
         "sheet": {
             "spreadsheet_id": f"sheet-{index + 1}",
@@ -49,6 +50,22 @@ def test_normalize_multi_product_config_allows_ratio_total_not_equal_100():
     normalized = normalize_multi_product_config(config)
 
     assert [product["ratio"] for product in normalized["products"]] == ["60", "30"]
+    assert [product["price_mode"] for product in normalized["products"]] == ["sp_price", "sp_price"]
+
+
+def test_normalize_multi_product_config_keeps_per_product_price_mode():
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [
+            _base_product(0, "60") | {"price_mode": "kp_price"},
+            _base_product(1, "30") | {"price_mode": "sp_price"},
+        ],
+    }
+
+    normalized = normalize_multi_product_config(config)
+
+    assert [product["price_mode"] for product in normalized["products"]] == ["kp_price", "sp_price"]
 
 
 def test_normalize_multi_product_config_validates_parameter_alignment():

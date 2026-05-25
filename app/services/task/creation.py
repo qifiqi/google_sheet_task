@@ -37,6 +37,11 @@ class TaskCreationMixin:
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
             )
             normalized.pop("token_file", None)
+            normalized["price_mode"] = (
+                normalized.get("price_mode")
+                if normalized.get("price_mode") in ("kp_price", "sp_price")
+                else "sp_price"
+            )
 
         if task_type in ("google_sheet_C4", "google_sheet_C5"):
             normalized.pop("spreadsheet_id", None)

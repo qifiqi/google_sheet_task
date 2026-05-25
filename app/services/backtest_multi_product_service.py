@@ -57,6 +57,13 @@ def normalize_market_type(value: Any) -> str:
     return "cn"
 
 
+def normalize_price_mode(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"kp_price", "sp_price"}:
+        return normalized
+    return "sp_price"
+
+
 def parse_ratio(value: Any) -> Decimal:
     raw = str(value if value is not None else "").strip().replace("%", "")
     if not raw:
@@ -133,6 +140,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "product_name": str(product.get("product_name") or product.get("name") or stock_code).strip(),
             "stock_code": stock_code,
             "market_type": normalize_market_type(product.get("market_type")),
+            "price_mode": normalize_price_mode(product.get("price_mode") or config.get("price_mode")),
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
             "ratio": normalize_ratio_display(product.get("ratio")),
             "sheet": _normalize_sheet(product),
@@ -583,7 +591,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             product["market_type"],
             config_data["start_date"],
             config_data["end_date"],
-            price_mode=config_data.get("price_mode", "sp_price"),
+            price_mode=product.get("price_mode") or config_data.get("price_mode", "sp_price"),
             adjust_type=product.get("kline_adjustment", "forward"),
         )
         kline_key = f"{config_data['start_date']}~{config_data['end_date']}"

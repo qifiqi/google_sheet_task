@@ -4,6 +4,7 @@ from app.extensions import db
 from app.models import Task, TaskResult
 from app.routes.backtest_training import _extract_task_result_payload
 from app.services.backtest_training_service import BacktestTrainingService
+from app.services.task.facade import TaskManager
 
 
 def test_extract_task_result_payload_handles_metadata_outside_sheet_payload(app_factory):
@@ -84,3 +85,20 @@ def test_backtest_save_task_result_stores_returns_in_return_table_only(app_facto
 
         assert "_return_date" not in json.dumps(payload, ensure_ascii=False)
         assert stored.return_series_id is not None
+
+
+def test_backtest_training_keeps_price_mode_in_config(app_factory):
+    app = app_factory
+    with app.app_context():
+        manager = TaskManager()
+
+        normalized_default = manager._normalize_task_config_for_type("backtest_training", {
+            "sheet": {"spreadsheet_id": "sheet-1"},
+        })
+        normalized_custom = manager._normalize_task_config_for_type("backtest_training", {
+            "sheet": {"spreadsheet_id": "sheet-1"},
+            "price_mode": "kp_price",
+        })
+
+        assert normalized_default["price_mode"] == "sp_price"
+        assert normalized_custom["price_mode"] == "kp_price"
