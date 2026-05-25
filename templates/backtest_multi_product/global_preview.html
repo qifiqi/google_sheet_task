@@ -298,8 +298,8 @@
                 </div>
                 <div class="ratio-formula-hint">
                     <span class="hint-title">比例计算：</span>
-                    <span class="hint-desc">每个产品的指数/结果值 × 比例 ÷ 100 后求和</span>
-                    <br><span class="hint-note">不可解析或缺失显示 "-"；修改比例后先计算预览，再保存比例。</span>
+                    <span class="hint-desc">每个产品收益 × 比例 ÷ 100 后跑指标算法，再将同名指标相加</span>
+                    <br><span class="hint-note">修改比例后由后端实时计算预览；导出也使用同一套后端计算。</span>
                 </div>
                 <button class="btn btn-primary rounded-pill px-4" id="calculateRatiosBtn" type="button">
                     <i class="bi bi-calculator me-1"></i>计算预览
@@ -407,56 +407,6 @@ function renderRatios() {
     updateRatioStatus();
 }
 
-function parsePreviewNumber(value) {
-    if (value === null || value === undefined || value === '') {
-        return null;
-    }
-    if (typeof value === 'number') {
-        return Number.isFinite(value) ? value : null;
-    }
-    const raw = String(value).trim().replace(/,/g, '').replace(/\$/g, '');
-    if (!raw || raw === '-') {
-        return null;
-    }
-    const parsed = raw.endsWith('%')
-        ? Number(raw.slice(0, -1)) / 100
-        : Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
-}
-
-function formatPreviewValue(value, valueType) {
-    const number = parsePreviewNumber(value);
-    if (number === null) {
-        return value === null || value === undefined || value === '' ? '-' : String(value);
-    }
-    if (valueType === 'percent') {
-        return `${(number * 100).toFixed(2)}%`;
-    }
-    return number.toFixed(2).replace(/\.?0+$/, '');
-}
-
-function weightedPreviewValue(values, ratios, valueType) {
-    let total = 0;
-    for (let index = 0; index < values.length; index += 1) {
-        const number = parsePreviewNumber(values[index]);
-        const ratio = Number(ratios[index]);
-        if (number === null || !Number.isFinite(ratio)) {
-            return '-';
-        }
-        total += number * ratio / 100;
-    }
-    return formatPreviewValue(total, valueType);
-}
-
-function weightedSinglePreviewValue(value, ratio, valueType) {
-    const number = parsePreviewNumber(value);
-    const numericRatio = Number(ratio);
-    if (number === null || !Number.isFinite(numericRatio)) {
-        return '-';
-    }
-    return formatPreviewValue(number * numericRatio / 100, valueType);
-}
-
 function formatRatioHeader(value) {
     const text = String(value == null ? '' : value).trim();
     if (!text) {
@@ -469,7 +419,7 @@ function collectRatioValues() {
     return Array.from(document.querySelectorAll('.ratio-input')).map((input) => Number(input.value || 0));
 }
 
-function applyRatioPreview() {
+async function applyRatioPreview() {
     const ratios = collectRatioValues();
     if (ratios.some((value) => !Number.isFinite(value) || value < 0)) {
         alert('产品比例必须是大于等于 0 的数字');
@@ -479,38 +429,32 @@ function applyRatioPreview() {
         return;
     }
 
-    const products = Array.isArray(previewPayload.products) ? previewPayload.products : [];
-    products.forEach((product, index) => {
-        product.ratio = String(Number(ratios[index].toFixed(4)));
-    });
-
-    (previewPayload.groups || []).forEach((group) => {
-        (group.rows || []).forEach((row) => {
-            const productValues = row.product_values || [];
-            productValues.forEach((item, index) => {
-                item.weighted_result_value = weightedSinglePreviewValue(
-                    item.raw_result_value,
-                    ratios[index],
-                    row.value_type
-                );
-            });
-            row.weighted_index_value = weightedPreviewValue(
-                productValues.map((item) => item.raw_index_value),
-                ratios,
-                row.value_type
-            );
-            row.weighted_result_value = weightedPreviewValue(
-                productValues.map((item) => item.raw_result_value),
-                ratios,
-                row.value_type
-            );
+    const button = document.getElementById('calculateRatiosBtn');
+    button.disabled = true;
+    try {
+        const response = await fetch(`/backtest-multi-product/api/global-preview/${encodeURIComponent(TASK_ID)}/calculate-ratios`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ratios: ratios.map((ratio, index) => ({ product_index: index, ratio }))
+            })
         });
-    });
-
-    hasUnsavedRatioPreview = true;
-    ratioInputsDirty = false;
-    renderRatios();
-    renderActiveGroup();
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || '计算失败');
+        }
+        previewPayload = data;
+        hasUnsavedRatioPreview = true;
+        ratioInputsDirty = false;
+        renderSummary();
+        renderGroupOptions();
+        renderRatios();
+        renderActiveGroup();
+    } catch (error) {
+        alert(error.message || '计算失败');
+    } finally {
+        button.disabled = false;
+    }
 }
 
 function renderActiveGroup() {
@@ -639,20 +583,25 @@ async function saveRatios() {
 }
 
 async function exportPreview() {
-    const response = await fetch(`/backtest-multi-product/api/global-preview/${encodeURIComponent(TASK_ID)}/export`);
+    let exportUrl = `/backtest-multi-product/api/global-preview/${encodeURIComponent(TASK_ID)}/export`;
+    if (hasUnsavedRatioPreview && !ratioInputsDirty) {
+        const ratios = collectRatioValues().map((ratio, index) => ({ product_index: index, ratio }));
+        exportUrl += `?ratios=${encodeURIComponent(JSON.stringify(ratios))}`;
+    }
+    const response = await fetch(exportUrl);
     if (!response.ok) {
         alert('导出失败');
         return;
     }
     const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
+    const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
+    link.href = objectUrl;
     link.download = buildExcelDownloadName();
     document.body.appendChild(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(objectUrl);
 }
 
 document.getElementById('groupSelect').addEventListener('change', (event) => {

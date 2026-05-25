@@ -361,6 +361,13 @@ class TaskResult(db.Model):
     step_index = db.Column(db.Integer, nullable=False, index=True, comment="步骤序号")
     parameters = db.Column(db.Text, comment="参数JSON")
     result = db.Column(db.Text, comment="结果JSON")
+    return_series_id = db.Column(
+        db.Integer,
+        db.ForeignKey("task_results_return.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="收益曲线ID",
+    )
     success = db.Column(db.Boolean, default=True, index=True, comment="是否成功")
     error_message = db.Column(db.Text, comment="错误信息")
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="结果时间")
@@ -372,6 +379,7 @@ class TaskResult(db.Model):
             "step_index": self.step_index,
             "parameters": json.loads(self.parameters) if self.parameters else {},
             "result": json.loads(self.result) if self.result else {},
+            "return_series_id": self.return_series_id,
             "success": self.success,
             "error_message": self.error_message,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
@@ -410,6 +418,7 @@ class TaskResultReturn(db.Model):
     stock_date = db.Column(db.String(50), comment="日期")
     index_return = db.Column(db.Float, comment="指数收益")
     start_return = db.Column(db.Float, comment="策略起始收益")
+    returns_json = db.Column(db.Text, comment="收益曲线JSON，按列存储 dates/index_returns/start_returns")
 
     def to_dict(self):
         return {
@@ -418,6 +427,7 @@ class TaskResultReturn(db.Model):
             "stock_date": self.stock_date,
             "index_return": self.index_return,
             "start_return": self.start_return,
+            "returns_json": self.returns_json,
         }
 
 

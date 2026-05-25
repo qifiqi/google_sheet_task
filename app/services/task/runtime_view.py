@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Any
 
 from app.extensions import db
+import json
+
 from app.models import Task, TaskLog, TaskResult, TaskResultReturn
 
 from app.services.task.dashboard_query import TaskDashboardQueryService
@@ -165,19 +167,44 @@ class TaskRuntimeViewService:
                 }
             )
 
-        returns = (
-            TaskResultReturn.query.filter_by(task_id=task_id)
-            .order_by(TaskResultReturn.stock_date.asc())
-            .all()
+        return_chart = []
+        series_result = next((item for item in reversed(results) if item.return_series_id), None)
+        series_row = (
+            db.session.get(TaskResultReturn, series_result.return_series_id)
+            if series_result and series_result.return_series_id
+            else None
         )
-        return_chart = [
-            {
-                "date": item.stock_date,
-                "index_return": item.index_return,
-                "strategy_return": item.start_return,
-            }
-            for item in returns[-120:]
-        ]
+        if series_row:
+            try:
+                series = json.loads(series_row.returns_json)
+                dates = series.get("dates") or []
+                index_returns = series.get("index_returns") or []
+                start_returns = series.get("start_returns") or []
+                return_chart = [
+                    {
+                        "date": date,
+                        "index_return": index_returns[index] if index < len(index_returns) else None,
+                        "strategy_return": start_returns[index] if index < len(start_returns) else None,
+                    }
+                    for index, date in enumerate(dates)
+                ][-120:]
+            except (TypeError, ValueError):
+                return_chart = []
+        if not return_chart:
+            returns = (
+                TaskResultReturn.query.filter_by(task_id=task_id)
+                .order_by(TaskResultReturn.stock_date.asc())
+                .all()
+            )
+            return_chart = [
+                {
+                    "date": item.stock_date,
+                    "index_return": item.index_return,
+                    "strategy_return": item.start_return,
+                }
+                for item in returns[-120:]
+                if item.stock_date is not None
+            ]
 
         return {
             "total_results": total,

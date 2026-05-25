@@ -185,7 +185,17 @@ def _extract_task_result_payload(task_result):
     except (TypeError, json.JSONDecodeError):
         result_payload = {}
 
-    value = list(result_payload.values())[0] if isinstance(result_payload, dict) and result_payload else {}
+    if isinstance(result_payload, dict) and result_payload:
+        value = next(
+            (
+                item
+                for item in result_payload.values()
+                if isinstance(item, dict) and "calculate_metrics" in item
+            ),
+            next((item for item in result_payload.values() if isinstance(item, dict)), {}),
+        )
+    else:
+        value = {}
     if not isinstance(value, dict):
         return {}, {}
 
@@ -677,7 +687,17 @@ def get_task_result_detail(task_result_id):
         result_payload = json.loads(task_result.result) if task_result.result else {}
     except (TypeError, json.JSONDecodeError):
         result_payload = {}
-    val = list(result_payload.values())[0] if result_payload else {}
+    if isinstance(result_payload, dict) and result_payload:
+        val = next(
+            (
+                item
+                for item in result_payload.values()
+                if isinstance(item, dict) and "calculate_metrics" in item
+            ),
+            next((item for item in result_payload.values() if isinstance(item, dict)), {}),
+        )
+    else:
+        val = {}
     calculate_metrics = val.get("calculate_metrics") if isinstance(val, dict) else {}
     sheet_result = {
         key: item

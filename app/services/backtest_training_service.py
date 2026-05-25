@@ -351,7 +351,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                     # 执行单个参数组合
                     try:
-                        success, result = self._execute_parameter_combination(column_A_length, combination,cache_parameters, config_data,KLINE_DATA_MAP)
+                        success, result, return_date = self._execute_parameter_combination(
+                            column_A_length,
+                            combination,
+                            cache_parameters,
+                            config_data,
+                            KLINE_DATA_MAP,
+                        )
 
                         if success:
                             success_count += 1
@@ -368,7 +374,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             **combination,
                             'stock_code':combination['stock_code'],
                             'kline':[kline[0],kline[-1]],
-                        }, result, success)
+                        }, result, success, return_date=return_date)
 
                     except checkForErrors as e:
                         self._log_error(str(e))
@@ -593,24 +599,44 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     calculate_metrics = self.xpl.get_calculate_metrics_v1(_return_date)
                     _result['calculate_metrics'] = calculate_metrics
                     results[f"{self.google_sheet.spreadsheet_id}__{self.google_sheet.title}"] = _result
-                    return True, results
+                    return True, results, _return_date
                 else:
                     self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
                     self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
                     
             self._log_warning("执行超时，未在规定时间内完成")
-            return False, {}
+            return False, {}, []
 
         except Exception as e:
             error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
             self._log_error(error_msg)
             raise
 
-    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
+    def _save_task_result(
+        self,
+        step_index: int,
+        parameters,
+        result: Dict,
+        success: bool,
+        return_date=None,
+    ):
         """保存任务结果到数据库，包含重试逻辑"""
 
+        def build_returns_json(return_rows):
+            dates = []
+            index_returns = []
+            start_returns = []
+            for item in return_rows or []:
+                dates.append(item.get('stock_date') or item.get('date'))
+                index_returns.append(item.get('index_return'))
+                start_returns.append(item.get('start_return'))
+            return json.dumps({
+                "dates": dates,
+                "index_returns": index_returns,
+                "start_returns": start_returns,
+            }, ensure_ascii=False, allow_nan=False)
+
         def save_result_operation():
-            _index_start_return_date = None
             safe_parameters = self._sanitize_json_value(parameters)
             safe_result = self._sanitize_json_value(result)
             task_result = TaskResult(
@@ -621,15 +647,14 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 success=success
             )
             db.session.add(task_result)
-            if _index_start_return_date:
-                for i in _index_start_return_date:
-                    task_result_return = TaskResultReturn(
-                        task_id=self.task_id,
-                        stock_date=i['stock_date'],
-                        index_return=i['index_return'],
-                        start_return=i['start_return']
-                    )
-                    db.session.add(task_result_return)
+            if return_date:
+                return_series = TaskResultReturn(
+                    task_id=self.task_id,
+                    returns_json=build_returns_json(return_date),
+                )
+                db.session.add(return_series)
+                db.session.flush()
+                task_result.return_series_id = return_series.id
             db.session.commit()
 
         try:

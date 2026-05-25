@@ -63,6 +63,20 @@ def ensure_task_schema():
             db.session.commit()
 
 
+def ensure_task_result_schema():
+    inspector = inspect(db.engine)
+    if 'task_results' not in inspector.get_table_names():
+        return
+    columns = {column['name'] for column in inspector.get_columns('task_results')}
+    if 'return_series_id' not in columns:
+        db.session.execute(text('ALTER TABLE task_results ADD COLUMN return_series_id INTEGER'))
+        db.session.commit()
+    indexes = {index['name'] for index in inspector.get_indexes('task_results')}
+    if 'ix_task_results_return_series_id' not in indexes:
+        db.session.execute(text('CREATE INDEX ix_task_results_return_series_id ON task_results (return_series_id)'))
+        db.session.commit()
+
+
 def ensure_scheduled_task_schema():
     inspector = inspect(db.engine)
     if 'scheduled_tasks' not in inspector.get_table_names():
@@ -95,6 +109,16 @@ def ensure_task_result_summary_index_schema():
     inspector = inspect(db.engine)
     if 'task_result_summary_index' not in inspector.get_table_names():
         TaskResultSummaryIndex.__table__.create(db.engine)
+
+
+def ensure_task_result_return_schema():
+    inspector = inspect(db.engine)
+    if 'task_results_return' not in inspector.get_table_names():
+        return
+    columns = {column['name'] for column in inspector.get_columns('task_results_return')}
+    if 'returns_json' not in columns:
+        db.session.execute(text('ALTER TABLE task_results_return ADD COLUMN returns_json TEXT'))
+        db.session.commit()
 
 
 def ensure_navigation_menu_schema():
@@ -170,7 +194,9 @@ def register_cli(app):
         ensure_google_sheet_token_schema()
         ensure_user_schema()
         ensure_task_schema()
+        ensure_task_result_schema()
         ensure_scheduled_task_schema()
+        ensure_task_result_return_schema()
         ensure_task_result_summary_index_schema()
         ensure_navigation_menu_schema()
         print('数据库初始化完成')
@@ -439,7 +465,9 @@ def bootstrap_app(app):
         ensure_google_sheet_token_schema()
         ensure_user_schema()
         ensure_task_schema()
+        ensure_task_result_schema()
         ensure_scheduled_task_schema()
+        ensure_task_result_return_schema()
         ensure_task_result_summary_index_schema()
         ensure_navigation_menu_schema()
         reset_google_sheet_token_occupancy()

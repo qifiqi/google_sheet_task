@@ -19,6 +19,7 @@ from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
+    refresh_multi_product_weighted_metrics,
 )
 from app.utils.auth import login_required, permission_required
 from app.utils.dfcf_api import DFCJStockApi
@@ -258,7 +259,18 @@ def get_task_result_detail(task_result_id):
         return error_response
 
     payload = _parse_json(task_result.result, {})
-    value = list(payload.values())[0] if isinstance(payload, dict) and payload else {}
+    if isinstance(payload, dict) and payload:
+        prioritized_keys = ("calculate_metrics", "weighted_calculate_metrics")
+        value = next(
+            (
+                item
+                for item in payload.values()
+                if isinstance(item, dict) and any(key in item for key in prioritized_keys)
+            ),
+            next((item for item in payload.values() if isinstance(item, dict)), {}),
+        )
+    else:
+        value = {}
     calculate_metrics = value.get("calculate_metrics") if isinstance(value, dict) else {}
     sheet_result = {
         key: item for key, item in value.items() if key != "calculate_metrics"
@@ -280,6 +292,26 @@ def get_global_preview(task_id):
     if error_response:
         return error_response
     payload = build_multi_product_global_preview_payload(task_id)
+    if payload is None:
+        return jsonify({"status": "error", "message": "任务不存在"}), 404
+    return jsonify({"status": "success", **_sanitize_json_value(payload)})
+
+
+@bp.route("/api/global-preview/<task_id>/calculate-ratios", methods=["POST"])
+@login_required
+@permission_required("backtest:view")
+def calculate_ratios(task_id):
+    _, error_response = _load_multi_product_task_or_response(task_id, action="view")
+    if error_response:
+        return error_response
+    data = request.get_json() or {}
+    ratios = data.get("ratios")
+    if not isinstance(ratios, list):
+        return jsonify({"status": "error", "message": "ratios 必须是数组"}), 400
+    try:
+        payload = build_multi_product_global_preview_payload(task_id, ratios_override=ratios)
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
     if payload is None:
         return jsonify({"status": "error", "message": "任务不存在"}), 404
     return jsonify({"status": "success", **_sanitize_json_value(payload)})
@@ -309,6 +341,10 @@ def update_ratios(task_id):
         return jsonify({"status": "error", "message": str(exc)}), 400
 
     task.config = json.dumps(config, ensure_ascii=False)
+    try:
+        refresh_multi_product_weighted_metrics(task_id, config_override=config)
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
     db.session.commit()
     payload = build_multi_product_global_preview_payload(task_id)
     return jsonify({"status": "success", "message": "比例已保存", **_sanitize_json_value(payload or {})})
@@ -407,7 +443,17 @@ def export_global_preview(task_id):
     _, error_response = _load_multi_product_task_or_response(task_id, action="view")
     if error_response:
         return error_response
-    payload = build_multi_product_global_preview_payload(task_id)
+    ratios = None
+    raw_ratios = request.args.get("ratios")
+    if raw_ratios:
+        try:
+            ratios = json.loads(raw_ratios)
+        except json.JSONDecodeError:
+            return jsonify({"status": "error", "message": "ratios 参数不是有效 JSON"}), 400
+    try:
+        payload = build_multi_product_global_preview_payload(task_id, ratios_override=ratios)
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
     if payload is None:
         return jsonify({"status": "error", "message": "任务不存在"}), 404
 
