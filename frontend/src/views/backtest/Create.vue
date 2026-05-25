@@ -61,6 +61,15 @@
             </el-radio-group>
           </el-form-item>
         </el-col>
+        <el-col :xs="24" :sm="4">
+          <el-form-item label="K线复权">
+            <el-select v-model="form.kline_adjustment" class="full-width">
+              <el-option value="forward" label="前复权" />
+              <el-option value="back" label="后复权" />
+              <el-option value="none" label="不复权" />
+            </el-select>
+          </el-form-item>
+        </el-col>
       </el-row>
 
       <el-collapse v-model="configOpen" class="backtest-create-page__collapse">
@@ -212,7 +221,8 @@ const form = reactive({
   task_name: '',
   token_id: '',
   commission: '0.0350%',
-  market_type: 'cn'
+  market_type: 'cn',
+  kline_adjustment: 'forward'
 })
 
 let searchTimer = null
@@ -319,6 +329,7 @@ async function submit() {
         sheet_url: sheetUrl.value,
         stock_code: stockCode.value,
         market_type: form.market_type,
+        kline_adjustment: form.kline_adjustment,
         token_id: form.token_id || null,
         commission: form.commission,
         recent_years: useRecentYears.value ? selectedRecentYears.value : [],

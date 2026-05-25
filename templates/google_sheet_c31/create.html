@@ -167,6 +167,15 @@
                                             </div>
                                             <div class="form-text">选择回测市场</div>
                                         </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label class="form-label" for="kline_adjustment">K线复权</label>
+                                            <select class="form-select" id="kline_adjustment">
+                                                <option value="forward" selected>前复权</option>
+                                                <option value="back">后复权</option>
+                                                <option value="none">不复权</option>
+                                            </select>
+                                            <div class="form-text">A股映射东方财富 fqt，美股映射 Yahoo 调整价</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1277,6 +1286,7 @@
         const currentMarketType = normalizeMarketTypeValue(
             document.querySelector('input[name="market_type"]:checked')?.value
         );
+        const currentAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         if (marketTypeCnInput) {
             const marketTypeCol = marketTypeCnInput.closest('.col-md-2');
             if (marketTypeCol) {
@@ -1295,6 +1305,25 @@
                     targetMarketInput.checked = true;
                 }
             }
+        }
+        if (!document.getElementById('kline_adjustment')) {
+            const marketTypeCol = document.getElementById('market_type_cn')?.closest('.col-md-2');
+            const adjustmentCol = document.createElement('div');
+            adjustmentCol.className = 'col-md-3 mb-3';
+            adjustmentCol.innerHTML = `
+                <label class="form-label" for="kline_adjustment">K线复权</label>
+                <select class="form-select" id="kline_adjustment">
+                    <option value="forward">前复权</option>
+                    <option value="back">后复权</option>
+                    <option value="none">不复权</option>
+                </select>
+                <div class="form-text">A股映射东方财富 fqt，美股映射 Yahoo 调整价</div>
+            `;
+            if (marketTypeCol && marketTypeCol.parentElement) {
+                marketTypeCol.parentElement.insertBefore(adjustmentCol, marketTypeCol.nextSibling);
+            }
+            const adjustmentSelect = adjustmentCol.querySelector('#kline_adjustment');
+            if (adjustmentSelect) adjustmentSelect.value = currentAdjustment;
         }
     }
 
@@ -1496,6 +1525,10 @@
             if (mtInput) {
                 mtInput.checked = true;
             }
+        }
+        if (normalized.kline_adjustment) {
+            const adjustSelect = document.getElementById('kline_adjustment');
+            if (adjustSelect) adjustSelect.value = normalized.kline_adjustment;
         }
         const endDateInput = document.getElementById('end_date');
         if (endDateInput) {
@@ -1997,6 +2030,7 @@
 
         const taskDescription = document.getElementById('task_description').value.trim();
         const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+        const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         const endDate = document.getElementById('end_date')?.value?.trim() || '';
 
         const parameterValues = getParameterValues();
@@ -2024,6 +2058,7 @@
             task_description: taskDescription,
             stock_codes: [stockCodeValue],
             market_type: marketType,
+            kline_adjustment: klineAdjustment,
             // token_type: tokenType,
             // token_id: tokenType === 'file' ? tokenId : null,
             // token_file: tokenFile,
@@ -2116,6 +2151,7 @@
             stock_code: getStockCode(),
             end_date: document.getElementById('end_date')?.value || '',
             market_type: normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value),
+            kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             sheets: sheets,
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
@@ -2173,6 +2209,10 @@
                     if (mtInput) {
                         mtInput.checked = true;
                     }
+                }
+                if (formData.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
                 }
                 // if (formData.count_mode) {
                 //     const cmInput = document.querySelector(`input[name="count_mode"][value="${formData.count_mode}"]`);
@@ -2241,6 +2281,7 @@
             const taskDescription = document.getElementById('task_description').value.trim();
             const stockCodeValue = getStockCode();
             const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+            const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
             const endDate = document.getElementById('end_date')?.value?.trim() || '';
 
             if (!baseTaskName) {
@@ -2275,6 +2316,7 @@
                 task_description: taskDescription,
                 stock_codes: [stockCodeValue],
                 market_type: marketType,
+                kline_adjustment: klineAdjustment,
                 // “更多配置”目前不参与模板保存；注释保留供后续恢复。
                 // token_type: tokenType,
                 // token_id: tokenType === 'file' ? tokenId : null,
@@ -2382,6 +2424,7 @@
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: normalizeMarketTypeValue(raw.market_type),
+            kline_adjustment: raw.kline_adjustment || 'forward',
             token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',

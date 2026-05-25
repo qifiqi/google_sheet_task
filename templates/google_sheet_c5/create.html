@@ -368,6 +368,14 @@
                                                         </div>
                                                     </div>
                                                     <div class="col-md-3">
+                                                        <label class="form-label" for="kline_adjustment">K线复权</label>
+                                                        <select class="form-select" id="kline_adjustment">
+                                                            <option value="forward" selected>前复权</option>
+                                                            <option value="back">后复权</option>
+                                                            <option value="none">不复权</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3">
                                                         <label class="form-label d-block">快速时间范围</label>
                                                         <div class="btn-group d-flex" role="group" aria-label="Quick date range">
                                                             <div class="form-check form-check-inline mb-0 me-2">
@@ -707,6 +715,10 @@
                     if (mtInput) {
                         mtInput.checked = true;
                     }
+                }
+                if (config.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = config.kline_adjustment;
                 }
 
                 if (config.date_range_mode !== undefined) {
@@ -1324,6 +1336,10 @@
                 mtInput.checked = true;
             }
         }
+        if (normalized.kline_adjustment) {
+            const adjustSelect = document.getElementById('kline_adjustment');
+            if (adjustSelect) adjustSelect.value = normalized.kline_adjustment;
+        }
         if (normalized.start_date) {
             const sd = document.getElementById('start_date');
             if (sd) sd.value = normalized.start_date;
@@ -1925,6 +1941,7 @@
         const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
         const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price';
         const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+        const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         const dateRangeModes = getSelectedDateRangeModes();
         const startDate = document.getElementById('start_date')?.value || null;
         const endDate = document.getElementById('end_date')?.value || null;
@@ -2002,6 +2019,7 @@
             count_mode: countMode,
             price_mode: priceMode,
             market_type: marketType,
+            kline_adjustment: klineAdjustment,
             date_range_mode: dateRangeModes,
             exclude_recent_years: getExcludedRecentYears(),
             start_date: startDate,
@@ -2093,6 +2111,7 @@
             count_mode: document.querySelector('input[name="count_mode"]:checked')?.value || 'total',
             price_mode: document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price',
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
+            kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             date_range_mode: getSelectedDateRangeModes(),
             exclude_recent_years: getExcludedRecentYears(),
             param1: document.getElementById('param1').value,
@@ -2142,6 +2161,10 @@
                     if (mtInput) {
                         mtInput.checked = true;
                     }
+                }
+                if (formData.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
                 }
 
                 if (formData.count_mode) {
@@ -2226,6 +2249,7 @@
             const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
             const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price';
             const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+            const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
             const dateRangeModes = getSelectedDateRangeModes();
             const startDate = document.getElementById('start_date')?.value || null;
             const endDate = document.getElementById('end_date')?.value || null;
@@ -2310,6 +2334,7 @@
                 count_mode: countMode,
                 price_mode: priceMode,
                 market_type: marketType,
+                kline_adjustment: klineAdjustment,
                 date_range_mode: dateRangeModes,
                 exclude_recent_years: getExcludedRecentYears(),
                 start_date: startDate,
@@ -2401,6 +2426,7 @@
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',
+            kline_adjustment: raw.kline_adjustment || 'forward',
             token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',

@@ -10,6 +10,7 @@ from requests.exceptions import RequestException
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.services.config_manager import get_config_manager
+from app.utils.kline_adjustment import eastmoney_fqt
 from app.utils.logger import get_logger
 from app.utils.proxy_manager import SmartProxyManager, get_smart_proxy_manager
 from app.utils.task_error_utils import is_retryable_network_error
@@ -106,9 +107,9 @@ class DFCJStockApi:
         response.raise_for_status()
         return response
 
-    def get_stock_kline_data(self, stock_code, stock_type, limit=100, kline_type="101"):
+    def get_stock_kline_data(self, stock_code, stock_type, limit=100, kline_type="101", adjust_type=None):
         try:
-            url = self._build_eastmoney_url(stock_type, stock_code, limit, kline_type)
+            url = self._build_eastmoney_url(stock_type, stock_code, limit, kline_type, adjust_type)
             if not url:
                 self.logger.error("无法构建东方财富API URL，参数可能不正确")
                 return []
@@ -145,7 +146,7 @@ class DFCJStockApi:
             return hashlib.md5(raw_string.encode()).hexdigest()
         return self.ut_fixed
 
-    def _build_eastmoney_url(self, stock_type, stock_code, limit, kline_type="101"):
+    def _build_eastmoney_url(self, stock_type, stock_code, limit, kline_type="101", adjust_type=None):
         base_url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
         ut = self.get_ut(True)
         secid = f"{stock_type}.{stock_code}"
@@ -157,7 +158,7 @@ class DFCJStockApi:
             "dect": "1",
             "klt": kline_type,
             "lmt": str(limit),
-            "fqt": "1",
+            "fqt": eastmoney_fqt(adjust_type),
             "forcect": "1",
             "end": "20500000",
             "wbp2u": self.generate_wbp2u(),

@@ -225,6 +225,14 @@
                         </div>
                     </div>
                     <div class="config-box">
+                        <label for="klineAdjustmentInput" class="form-label">K线复权</label>
+                        <select class="form-select" id="klineAdjustmentInput">
+                            <option value="forward" selected>前复权</option>
+                            <option value="back">后复权</option>
+                            <option value="none">不复权</option>
+                        </select>
+                    </div>
+                    <div class="config-box">
                         <label for="endDateInput" class="form-label">K 线截至日期</label>
                         <input type="date" class="form-control" id="endDateInput">
                         <div class="form-text">留空时使用运行日前一天；近 N 年会按该日期向前计算。</div>
@@ -1227,6 +1235,7 @@ async function createTask() {
             },
             stock_code: stockCode,
             market_type: getSelectedMarketType(),
+            kline_adjustment: document.getElementById('klineAdjustmentInput')?.value || 'forward',
             token_type: 'file',
             token_id: Number(tokenId),
             parameters,

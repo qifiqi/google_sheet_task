@@ -471,6 +471,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         price_mode = config_data.get('price_mode', 'sp_price')
         end_date = config_data.get('end_date')
         market_type = config_data.get('market_type','cn')
+        adjust_type = config_data.get('kline_adjustment')
         C3_commission_cell = config_data.get('C3_commission_cell','B5')
 
         c3_input_column_d = config_data.get('c3_input_column_d').upper()
@@ -533,9 +534,9 @@ class GoogleSheetService(BaseGoogleSheetService):
                 stock_config = stock_config[0]
             market = stock_config['market']
 
-            klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit)
+            klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit, adjust_type=adjust_type)
         else:
-            klines = self.YF_api.get_kline_data(stock_code, '10y')
+            klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
 
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']

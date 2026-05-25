@@ -54,6 +54,15 @@
             </el-radio-group>
           </el-form-item>
         </el-col>
+        <el-col :xs="24" :sm="3">
+          <el-form-item label="K线复权">
+            <el-select v-model="form.kline_adjustment" class="full-width">
+              <el-option value="forward" label="前复权" />
+              <el-option value="back" label="后复权" />
+              <el-option value="none" label="不复权" />
+            </el-select>
+          </el-form-item>
+        </el-col>
       </el-row>
       <div class="tag-wall">
         <el-tag v-for="code in stockCodes" :key="code" closable @close="removeStockCode(code)">{{ code }}</el-tag>
@@ -226,7 +235,7 @@ const stockCodeInput = ref('')
 const stockCodes = ref([])
 
 const form = reactive({
-  base_task_name: '', description: '', end_date: '', market_type: 'cn',
+  base_task_name: '', description: '', end_date: '', market_type: 'cn', kline_adjustment: 'forward',
   token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: ''
 })
 
@@ -339,6 +348,7 @@ async function applyTemplate(id) {
     form.description = config.task_description || tpl.description || ''
     form.end_date = config.end_date || ''
     form.market_type = config.market_type || 'cn'
+    form.kline_adjustment = config.kline_adjustment || 'forward'
     form.token_type = config.token_type || 'file'
     form.token_id = config.token_id ? String(config.token_id) : RANDOM_TOKEN
     form.token_json = config.token_json || ''
@@ -374,6 +384,7 @@ async function loadRestartTask(taskId) {
     form.description = config.task_description || task.description || ''
     form.end_date = config.end_date || ''
     form.market_type = config.market_type || 'cn'
+    form.kline_adjustment = config.kline_adjustment || 'forward'
     form.token_type = config.token_type || 'file'
     form.token_id = config.token_id ? String(config.token_id) : RANDOM_TOKEN
     form.token_json = config.token_json || ''
@@ -431,6 +442,7 @@ function loadSavedFormData() {
       description: data.description || '',
       end_date: data.end_date || '',
       market_type: data.market_type || 'cn',
+      kline_adjustment: data.kline_adjustment || 'forward',
       token_type: data.token_type || 'file',
       token_id: data.token_id || RANDOM_TOKEN,
       token_json: data.token_json || '',
@@ -448,7 +460,7 @@ function loadSavedFormData() {
 
 function clearSaved() {
   localStorage.removeItem(LS_KEY)
-  Object.assign(form, { base_task_name: '', description: '', end_date: '', market_type: 'cn', token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: '' })
+  Object.assign(form, { base_task_name: '', description: '', end_date: '', market_type: 'cn', kline_adjustment: 'forward', token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: '' })
   sheetConfigs.value = [{ spreadsheet_id: '', title: '', sheet_name: '' }]
   stockCodes.value = []
   params.value = ['', '', '', '', '', '']
@@ -474,6 +486,7 @@ async function submit() {
         stock_codes: stockCodes.value,
         end_date: form.end_date || null,
         market_type: form.market_type,
+        kline_adjustment: form.kline_adjustment,
         token_type: form.token_type,
         token_id: form.token_type === 'file' ? form.token_id : null,
         token_file: '',
@@ -511,6 +524,7 @@ async function doSaveTemplate() {
         stock_codes: stockCodes.value,
         end_date: form.end_date || null,
         market_type: form.market_type,
+        kline_adjustment: form.kline_adjustment,
         token_type: form.token_type,
         token_id: form.token_type === 'file' ? form.token_id : null,
         token_json: form.token_json,

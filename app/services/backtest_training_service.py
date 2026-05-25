@@ -271,6 +271,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             market_type = self._normalize_market_type(
                 config_data.get('market_type', 'cn')
             )
+            adjust_type = config_data.get('kline_adjustment')
             include_full_year_range = bool(config_data.get('include_full_year_range'))
             end_date = config_data.get('end_date')
 
@@ -283,6 +284,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 parameters,
                 stock_code,
                 market_type=market_type,
+                adjust_type=adjust_type,
                 include_full_year_range=include_full_year_range,
                 end_date=end_date,
             )
@@ -648,6 +650,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         recent_years,
         parameters,
         stock_code,price_mode="sp_price",market_type="cn",
+        adjust_type=None,
         include_full_year_range=False,
         end_date=None,
 
@@ -708,9 +711,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if market_type == 'cn':
             resolved_code, market = self._resolve_cn_stock_quote(stock_code)
             stock_code = resolved_code
-            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit)
+            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         else:
-            klines = self.YF_api.get_kline_data(stock_code, '10y')
+            klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
 
         if not klines:
             raise ValueError(f"股票{stock_code} 没有获取到K线数据")

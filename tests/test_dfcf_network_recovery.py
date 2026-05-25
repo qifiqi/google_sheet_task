@@ -76,7 +76,7 @@ def test_backtest_full_years_accept_string_values(monkeypatch):
     monkeypatch.setattr(
         service.dfcf_api,
         "get_stock_kline_data",
-        lambda _stock_code, _market, _limit: _kline_rows("2023-01-01", "2025-01-10"),
+        lambda _stock_code, _market, _limit, **_kwargs: _kline_rows("2023-01-01", "2025-01-10"),
     )
 
     combinations, column_a_length, kline_map = service._get_all_parameters(
@@ -110,7 +110,7 @@ def test_backtest_recent_years_use_configured_end_date(monkeypatch):
     monkeypatch.setattr(
         service.dfcf_api,
         "get_stock_kline_data",
-        lambda _stock_code, _market, _limit: _kline_rows("2019-04-01", "2025-01-10"),
+        lambda _stock_code, _market, _limit, **_kwargs: _kline_rows("2019-04-01", "2025-01-10"),
     )
 
     combinations, _column_a_length, kline_map = service._get_all_parameters(
@@ -138,7 +138,7 @@ def test_backtest_recent_years_allow_short_listing_history(monkeypatch):
     monkeypatch.setattr(
         service.dfcf_api,
         "get_stock_kline_data",
-        lambda _stock_code, _market, _limit: _kline_rows("2022-01-19", "2026-05-21"),
+        lambda _stock_code, _market, _limit, **_kwargs: _kline_rows("2022-01-19", "2026-05-21"),
     )
 
     combinations, _column_a_length, kline_map = service._get_all_parameters(
@@ -166,7 +166,7 @@ def test_backtest_include_full_year_range_replaces_individual_full_years(monkeyp
     monkeypatch.setattr(
         service.dfcf_api,
         "get_stock_kline_data",
-        lambda _stock_code, _market, _limit: _kline_rows("2022-01-04", "2025-01-10"),
+        lambda _stock_code, _market, _limit, **_kwargs: _kline_rows("2022-01-04", "2025-01-10"),
     )
 
     combinations, column_a_length, kline_map = service._get_all_parameters(

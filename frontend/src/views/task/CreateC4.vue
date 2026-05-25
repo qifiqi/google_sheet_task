@@ -197,6 +197,15 @@
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :sm="8">
+                <el-form-item label="K线复权">
+                  <el-select v-model="form.kline_adjustment" class="full-width">
+                    <el-option value="forward" label="前复权" />
+                    <el-option value="back" label="后复权" />
+                    <el-option value="none" label="不复权" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
                 <el-form-item label="开始日期">
                   <el-date-picker
                     v-model="form.start_date"
@@ -342,6 +351,7 @@ const form = reactive({
   proxy_url: '',
   count_mode: 'total',
   market_type: 'cn',
+  kline_adjustment: 'forward',
   start_date: '',
   end_date: ''
 })
@@ -487,6 +497,7 @@ async function applyTemplate(id) {
     if (config.proxy_url) form.proxy_url = config.proxy_url
     if (config.count_mode) form.count_mode = config.count_mode
     if (config.market_type) form.market_type = config.market_type
+    if (config.kline_adjustment) form.kline_adjustment = config.kline_adjustment
     if (config.start_date) form.start_date = config.start_date
     if (config.end_date) form.end_date = config.end_date
 
@@ -541,6 +552,7 @@ async function loadRestartTask(taskId) {
       proxy_url: config.proxy_url || '',
       count_mode: config.count_mode || 'total',
       market_type: config.market_type || 'cn',
+      kline_adjustment: config.kline_adjustment || 'forward',
       start_date: config.start_date || '',
       end_date: config.end_date || ''
     })
@@ -607,6 +619,7 @@ function loadSavedFormData() {
       proxy_url: data.proxy_url || '',
       count_mode: data.count_mode || 'total',
       market_type: data.market_type || 'cn',
+      kline_adjustment: data.kline_adjustment || 'forward',
       start_date: data.start_date || '',
       end_date: data.end_date || ''
     })
@@ -637,6 +650,7 @@ function clearSaved() {
     proxy_url: '',
     count_mode: 'total',
     market_type: 'cn',
+    kline_adjustment: 'forward',
     start_date: '',
     end_date: ''
   })
@@ -706,6 +720,7 @@ async function submit() {
         proxy_url: form.proxy_url || null,
         count_mode: form.count_mode,
         market_type: form.market_type,
+        kline_adjustment: form.kline_adjustment,
         date_range_mode: dateRangeModes.length ? dateRangeModes : ['full'],
         start_date: form.start_date || null,
         end_date: form.end_date || null,
@@ -772,6 +787,7 @@ async function doSaveTemplate() {
         proxy_url: form.proxy_url,
         count_mode: form.count_mode,
         market_type: form.market_type,
+        kline_adjustment: form.kline_adjustment,
         date_range_mode: dateRangeModes,
         start_date: form.start_date,
         end_date: form.end_date,

@@ -132,6 +132,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "product_name": str(product.get("product_name") or product.get("name") or stock_code).strip(),
             "stock_code": stock_code,
             "market_type": normalize_market_type(product.get("market_type")),
+            "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
             "ratio": normalize_ratio_display(product.get("ratio")),
             "sheet": _normalize_sheet(product),
             "parameters": parameters,
@@ -432,6 +433,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             "title": product["sheet"].get("title") or "",
             "stock_code": product["stock_code"],
             "market_type": product["market_type"],
+            "kline_adjustment": product.get("kline_adjustment", "forward"),
         })
         return product_config
 
@@ -442,6 +444,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             config_data["start_date"],
             config_data["end_date"],
             price_mode=config_data.get("price_mode", "sp_price"),
+            adjust_type=product.get("kline_adjustment", "forward"),
         )
         kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
         return {
@@ -487,6 +490,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         end_date: str,
         *,
         price_mode: str = "sp_price",
+        adjust_type: str | None = None,
     ) -> list[dict[str, Any]]:
         price_field = "stock_kp" if price_mode == "kp_price" else "stock_sp"
         market_type = normalize_market_type(market_type)
@@ -497,9 +501,9 @@ class BacktestMultiProductService(BacktestTrainingService):
 
         if market_type == "cn":
             resolved_code, market = self._resolve_cn_stock_quote(stock_code)
-            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit)
+            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         else:
-            klines = self.YF_api.get_kline_data(stock_code, "10y")
+            klines = self.YF_api.get_kline_data(stock_code, "10y", adjust_type=adjust_type)
 
         if not klines:
             raise ValueError(f"股票 {stock_code} 没有 K 线数据")

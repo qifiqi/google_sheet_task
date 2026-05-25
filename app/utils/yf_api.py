@@ -8,6 +8,8 @@ from datetime import datetime
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+from app.utils.kline_adjustment import yahoo_adjust_flags
+
 
 
 class YFApi:
@@ -18,9 +20,16 @@ class YFApi:
         self.kline_data = []
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', proxy=None):
+    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', proxy=None, adjust_type=None):
         # 3. 下载数据
-        data = yf.download(stock_code, period=period,interval=interval,progress=False)
+        adjust_flags = yahoo_adjust_flags(adjust_type)
+        data = yf.download(
+            stock_code,
+            period=period,
+            interval=interval,
+            progress=False,
+            **adjust_flags,
+        )
         data = self.parse_multiple_tickers(data)
         return data
 

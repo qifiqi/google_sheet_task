@@ -209,6 +209,15 @@
         </el-col>
       </el-row>
 
+      <div class="sub-card task-create-c5__adjust-card">
+        <div class="task-create-c5__config-title">K线复权</div>
+        <el-select v-model="form.kline_adjustment" class="full-width">
+          <el-option value="forward" label="前复权" />
+          <el-option value="back" label="后复权" />
+          <el-option value="none" label="不复权" />
+        </el-select>
+      </div>
+
       <div class="sub-card task-create-c5__range-card">
         <div class="section-heading task-create-c5__range-head">
           <div>
@@ -397,6 +406,7 @@ const form = reactive({
   proxy_url: '',
   count_mode: 'total',
   market_type: 'cn',
+  kline_adjustment: 'forward',
   price_mode: 'kp_price',
   start_date: '',
   end_date: ''
@@ -529,6 +539,7 @@ function applyConfig(config, name) {
   if (config.proxy_url) form.proxy_url = config.proxy_url
   if (config.count_mode) form.count_mode = config.count_mode
   if (config.market_type) form.market_type = config.market_type
+  if (config.kline_adjustment) form.kline_adjustment = config.kline_adjustment
   if (config.price_mode) form.price_mode = config.price_mode
   if (config.start_date) form.start_date = config.start_date
   if (config.end_date) form.end_date = config.end_date
@@ -631,6 +642,7 @@ function loadSavedFormData() {
       proxy_url: data.proxy_url || '',
       count_mode: data.count_mode || 'total',
       market_type: data.market_type || 'cn',
+      kline_adjustment: data.kline_adjustment || 'forward',
       price_mode: data.price_mode || 'kp_price',
       start_date: data.start_date || '',
       end_date: data.end_date || ''
@@ -661,6 +673,7 @@ function clearSaved() {
     proxy_url: '',
     count_mode: 'total',
     market_type: 'cn',
+    kline_adjustment: 'forward',
     price_mode: 'kp_price',
     start_date: '',
     end_date: ''
@@ -742,6 +755,7 @@ async function submit() {
         proxy_url: form.proxy_url || null,
         count_mode: form.count_mode,
         market_type: form.market_type,
+        kline_adjustment: form.kline_adjustment,
         price_mode: form.price_mode,
         date_range_mode: dateRangeModes.length ? dateRangeModes : ['full'],
         start_date: form.start_date || null,
@@ -818,6 +832,7 @@ async function doSaveTemplate() {
         proxy_url: form.proxy_url,
         count_mode: form.count_mode,
         market_type: form.market_type,
+        kline_adjustment: form.kline_adjustment,
         price_mode: form.price_mode,
         date_range_mode: dateRangeModes,
         start_date: form.start_date,
@@ -899,6 +914,7 @@ onMounted(async () => {
 }
 
 .task-create-c5__range-card,
+.task-create-c5__adjust-card,
 .task-create-c5__product-block,
 .task-create-c5__param-row {
   margin-top: 16px;

@@ -272,6 +272,7 @@ class TaskCreationMixin:
                             "title": sheet_title or None,
                             "stock_code": stock_code,
                             "market_type": shared_config.get("market_type", "cn"),
+                            "kline_adjustment": shared_config.get("kline_adjustment", "forward"),
                             "end_date": end_date,
                             "year_n": year_n,
                             "parameters": child_parameters,

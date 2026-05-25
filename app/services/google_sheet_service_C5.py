@@ -266,6 +266,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             end_date = config_data.get('end_date')
             start_date = config_data.get('start_date')
             market_type = config_data.get('market_type')
+            adjust_type = config_data.get('kline_adjustment')
             c5_input_column_a = config_data.get('c5_input_column_a').upper()
             c5_input_column_b = config_data.get('c5_input_column_b').upper()
 
@@ -275,7 +276,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
             for outer_param in parameters[0]:
                 combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
-                    outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters
+                    outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type
                 )
                 precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
                 total_combinations += len(combinations)
@@ -685,7 +686,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None):
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -730,9 +731,9 @@ class GoogleSheetService(BaseGoogleSheetService):
                 stock_config = stock_config[0]
             market = stock_config['market']
 
-            klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit)
+            klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
         else:
-            klines = self.YF_api.get_kline_data(parameter, '10y')
+            klines = self.YF_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
 
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']

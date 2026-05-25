@@ -284,6 +284,14 @@ function addProduct(defaults = {}) {
                     </select>
                 </div>
                 <div class="col-xl-2">
+                    <label class="form-label">K线复权</label>
+                    <select class="form-select kline-adjustment">
+                        <option value="forward">前复权</option>
+                        <option value="back">后复权</option>
+                        <option value="none">不复权</option>
+                    </select>
+                </div>
+                <div class="col-xl-2">
                     <label class="form-label">比例 %</label>
                     <input class="form-control ratio-input" type="number" min="0" step="0.0001" value="${escapeHtml(defaults.ratio ?? '')}">
                 </div>
@@ -314,6 +322,7 @@ function addProduct(defaults = {}) {
     resetParameterTable(card, 'c3');
     initParameterHelpPopover(card);
     card.querySelector('.market-type').value = defaults.market_type || 'cn';
+    card.querySelector('.kline-adjustment').value = defaults.kline_adjustment || 'forward';
     card.querySelector('.ratio-input').addEventListener('input', updateRatioTotal);
     card.querySelector('.product-name').addEventListener('input', () => {
         card.querySelector('.product-title').textContent = card.querySelector('.product-name').value.trim() || '产品';
@@ -640,6 +649,7 @@ function collectProducts() {
         product_name: card.querySelector('.product-name').value.trim() || `产品 ${index + 1}`,
         stock_code: card.querySelector('.stock-code').value.trim().toUpperCase(),
         market_type: card.querySelector('.market-type').value,
+        kline_adjustment: card.querySelector('.kline-adjustment').value || 'forward',
         ratio: card.querySelector('.ratio-input').value.trim(),
         sheet: {
             spreadsheet_id: card.dataset.sheetStatus === 'success' ? card.dataset.spreadsheetId : '',

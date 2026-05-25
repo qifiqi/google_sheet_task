@@ -96,6 +96,15 @@
             </el-radio-group>
           </el-form-item>
         </el-col>
+        <el-col :xs="24" :sm="4">
+          <el-form-item label="K线复权">
+            <el-select v-model="product.kline_adjustment" class="full-width">
+              <el-option value="forward" label="前复权" />
+              <el-option value="back" label="后复权" />
+              <el-option value="none" label="不复权" />
+            </el-select>
+          </el-form-item>
+        </el-col>
         <el-col :xs="24" :sm="6">
           <el-form-item label="年份">
             <el-select v-model="product.years" multiple class="full-width" placeholder="选择年份">
@@ -201,6 +210,7 @@ function createEmptyProduct() {
   return reactive({
     stock_code: '',
     market_type: 'cn',
+    kline_adjustment: 'forward',
     years: [currentYear],
     ratio: 0,
     paramHeaders: ['参数1', '参数2', '参数3'],
@@ -278,6 +288,7 @@ async function handleImportExcel(file) {
       products.value = res.products.map((p) => reactive({
         stock_code: p.stock_code || '',
         market_type: p.market_type || 'cn',
+        kline_adjustment: p.kline_adjustment || 'forward',
         years: p.years || [currentYear],
         ratio: p.ratio || 0,
         paramHeaders: p.headers || ['参数1', '参数2', '参数3'],
@@ -306,6 +317,7 @@ async function submit() {
     const productsConfig = products.value.map((p) => ({
       stock_code: p.stock_code,
       market_type: p.market_type,
+      kline_adjustment: p.kline_adjustment,
       years: p.years,
       ratio: p.ratio,
       headers: p.paramHeaders,
