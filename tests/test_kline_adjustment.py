@@ -1,5 +1,7 @@
 from urllib.parse import parse_qs, urlparse
 
+import pandas as pd
+
 from app.services.backtest_multi_product_service import normalize_multi_product_config
 import app.services.google_sheet_service_C4 as google_sheet_service_C4
 from app.services.google_sheet_service_C4 import GoogleSheetService as C4GoogleSheetService
@@ -9,6 +11,7 @@ from app.utils.kline_adjustment import (
     normalize_kline_adjustment,
     yahoo_adjust_flags,
 )
+from app.utils.yf_api import YFApi
 
 
 def test_kline_adjustment_defaults_and_aliases():
@@ -116,4 +119,85 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
     assert data[0]["kline"] == [
         {"stock_date": "2024-01-01", "stock_val": 10},
         {"stock_date": "2024-01-02", "stock_val": 11},
+    ]
+
+
+def test_yahoo_forward_adjustment_uses_adj_close_as_close():
+    api = YFApi()
+    frame = pd.DataFrame(
+        {
+            "Open": [10.0, 12.0],
+            "High": [11.0, 13.0],
+            "Low": [9.0, 11.0],
+            "Close": [10.0, 12.0],
+            "Adj Close": [20.0, 24.0],
+            "Volume": [100, 200],
+        },
+        index=pd.to_datetime(["2024-01-01", "2024-01-02"]),
+    )
+
+    adjusted = api._adjust_ticker_frame(frame, adjust_type="forward")
+
+    assert adjusted["Close"].tolist() == [20.0, 24.0]
+    assert adjusted["Adj Close"].tolist() == [20.0, 24.0]
+    assert adjusted["Open"].tolist() == [20.0, 24.0]
+    assert adjusted["High"].tolist() == [22.0, 26.0]
+    assert adjusted["Low"].tolist() == [18.0, 22.0]
+
+
+def test_yahoo_back_adjustment_bases_on_first_row():
+    api = YFApi()
+    frame = pd.DataFrame(
+        {
+            "Open": [10.0, 12.0],
+            "High": [11.0, 13.0],
+            "Low": [9.0, 11.0],
+            "Close": [10.0, 12.0],
+            "Adj Close": [20.0, 30.0],
+            "Volume": [100, 200],
+        },
+        index=pd.to_datetime(["2024-01-01", "2024-01-02"]),
+    )
+
+    adjusted = api._adjust_ticker_frame(frame, adjust_type="back")
+
+    assert adjusted["Close"].tolist() == [10.0, 15.0]
+    assert adjusted["Adj Close"].tolist() == [10.0, 15.0]
+    assert adjusted["Open"].tolist() == [10.0, 15.0]
+    assert adjusted["High"].tolist() == [11.0, 16.25]
+    assert adjusted["Low"].tolist() == [9.0, 13.75]
+
+
+def test_yahoo_parse_single_ticker_uses_ticker_hint_and_adjusted_close_for_cje():
+    api = YFApi()
+    frame = pd.DataFrame(
+        {
+            "Open": [10.0],
+            "High": [11.0],
+            "Low": [9.0],
+            "Close": [10.0],
+            "Adj Close": [20.0],
+            "Volume": [5],
+        },
+        index=pd.to_datetime(["2024-01-01"]),
+    )
+
+    rows = api.parse_multiple_tickers(frame, adjust_type="forward", ticker_hint="AAPL")
+
+    assert rows == [
+        {
+            "stock_code": "AAPL",
+            "stock_date": "2024-01-01",
+            "stock_kp": 20.0,
+            "stock_sp": 20.0,
+            "stock_zg": 22.0,
+            "stock_zd": 18.0,
+            "stock_cjl": 5,
+            "stock_cje": 100.0,
+            "stock_zf": 22.22,
+            "stock_zdf": 0.0,
+            "stock_zde": 0.0,
+            "stock_hsl": 0.0,
+            "timestamp": rows[0]["timestamp"],
+        }
     ]

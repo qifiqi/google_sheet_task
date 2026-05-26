@@ -793,6 +793,69 @@
             .replace(/'/g, '&#39;');
     }
 
+    function isKlinePoint(value) {
+        return isPlainObject(value) && (
+            value.stock_date !== undefined ||
+            value.stock_val !== undefined
+        );
+    }
+
+    function formatKlinePoint(value) {
+        const date = value && value.stock_date != null ? String(value.stock_date) : '-';
+        const stockVal = value && value.stock_val != null ? String(value.stock_val) : '';
+        return stockVal ? `${date}(${stockVal})` : date;
+    }
+
+    function formatParameterValue(value) {
+        if (value === null || value === undefined || value === '') {
+            return '-';
+        }
+
+        if (Array.isArray(value)) {
+            if (value.length && value.every(isKlinePoint)) {
+                const first = value[0];
+                const last = value[value.length - 1];
+                return `K线范围：${formatKlinePoint(first)} ~ ${formatKlinePoint(last)}`;
+            }
+            return value.map(formatParameterValue).join(', ');
+        }
+
+        if (isPlainObject(value)) {
+            if (isKlinePoint(value)) {
+                return formatKlinePoint(value);
+            }
+            return JSON.stringify(value);
+        }
+
+        return String(value);
+    }
+
+    function getParameterValues(parameters) {
+        if (Array.isArray(parameters)) {
+            return parameters;
+        }
+        if (parameters === null || parameters === undefined || parameters === '') {
+            return [];
+        }
+        return [parameters];
+    }
+
+    function renderParameterBadges(parameters) {
+        const values = getParameterValues(parameters);
+        if (!values.length) {
+            return '<span class="text-muted">-</span>';
+        }
+
+        return values.map((param) =>
+            `<span class="badge bg-secondary" style="font-size: 0.75rem;">${escapeHtml(formatParameterValue(param))}</span>`
+        ).join('');
+    }
+
+    function formatParameterCombinationText(parameters) {
+        const values = getParameterValues(parameters).map(formatParameterValue).filter(Boolean);
+        return values.length ? values.join(', ') : '-';
+    }
+
     function isPlainObject(value) {
         return value != null && typeof value === 'object' && !Array.isArray(value);
     }
@@ -1137,9 +1200,7 @@
                 <td>${result.step_index + 1}</td>
                 <td>
                     <div class="d-flex flex-wrap gap-1">
-                        ${result.parameters.map((param, i) => 
-                            `<span class="badge bg-secondary" style="font-size: 0.75rem;">${param}</span>`
-                        ).join('')}
+                        ${renderParameterBadges(result.parameters)}
                     </div>
                 </td>
                 <td>
@@ -1204,7 +1265,7 @@
         }
 
         modalTitle.textContent = `结果详情 #${result.step_index + 1}`;
-        const paramsText = Array.isArray(result.parameters) ? result.parameters.join(', ') : '-';
+        const paramsText = formatParameterCombinationText(result.parameters);
         metaEl.textContent = `参数组合：${paramsText || '-'} · 执行时间：${formatTime(result.timestamp) || '-'} · 状态：${result.success ? '成功' : '失败'}`;
 
         const startReturn = hasFlatResult ? null : (metrics.start_return_xpl || null);

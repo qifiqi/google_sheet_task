@@ -257,7 +257,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         try:
             # 计算总参数组合数（按每个具体组合计数）
             count_mode = config_data.get('count_mode', 'n_plus_1')
-            price_mode = config_data.get('price_mode', 'kp_price')
+            price_mode = config_data.get('price_mode', 'sp_price')
             date_range_mode = config_data.get('date_range_mode',[])
             exclude_recent_years = config_data.get(
                 'exclude_recent_years',

@@ -30,8 +30,8 @@
     </div>
     <div class="collapse show" id="filterPanel">
         <div class="card-body">
-            <form class="row g-3 align-items-end" id="filterForm">
-                <div class="col-12 col-md-2">
+            <form class="model-summary-filter-grid" id="filterForm">
+                <div class="filter-field">
                     <label class="form-label">任务类型</label>
                     <select class="form-select" id="taskType">
                         <option value="">全部</option>
@@ -41,26 +41,26 @@
                         <option value="backtest_training">回测</option>
                     </select>
                 </div>
-                <div class="col-12 col-md-2">
+                <div class="filter-field">
                     <label class="form-label">股票代码</label>
                     <input type="text" class="form-control" id="stockCode" placeholder="如 600519">
                 </div>
-                <div class="col-12 col-md-3">
+                <div class="filter-field task-id-field">
                     <label class="form-label">任务 ID</label>
                     <input type="text" class="form-control" id="taskId" placeholder="精确任务 ID">
                 </div>
-                <div class="col-12 col-md-2">
+                <div class="filter-field">
                     <label class="form-label">结果 ID</label>
                     <input type="number" class="form-control" id="resultId" placeholder="结果 ID">
                 </div>
-                <div class="col-12 col-md-2">
+                <div class="filter-field">
                     <label class="form-label">汇总方式</label>
                     <select class="form-select" id="summaryType">
                         <option value="task">任务汇总</option>
                         <option value="stock">股票汇总</option>
                     </select>
                 </div>
-                <div class="col-12 col-md-2">
+                <div class="filter-field">
                     <label class="form-label">数据范围</label>
                     <select class="form-select" id="bestOnly">
                         <option value="true">仅最优</option>
@@ -68,8 +68,10 @@
                     </select>
                     <div class="form-text">全部结果必须输入单个股票代码</div>
                 </div>
-                <div class="col-12 col-md-2 d-grid">
-                    <button type="submit" class="btn btn-dark">查询</button>
+                <div class="filter-actions">
+                    <button type="submit" class="btn btn-primary" id="queryBtn">
+                        <i class="bi bi-search me-1"></i>查询
+                    </button>
                 </div>
             </form>
         </div>
@@ -146,6 +148,44 @@
     }
     .collapse-toggle {
         min-width: 76px;
+    }
+    .model-summary-filter-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+        align-items: start;
+    }
+    .model-summary-filter-grid .form-label {
+        margin-bottom: 0.45rem;
+    }
+    .filter-actions {
+        align-self: start;
+        padding-top: 1.94rem;
+    }
+    .filter-actions .btn {
+        min-height: 38px;
+        width: 100%;
+        white-space: nowrap;
+    }
+    @media (min-width: 1200px) {
+        .model-summary-filter-grid {
+            grid-template-columns:
+                minmax(0, 0.95fr)
+                minmax(0, 0.95fr)
+                minmax(0, 1.5fr)
+                minmax(0, 0.95fr)
+                minmax(0, 0.95fr)
+                minmax(0, 0.95fr)
+                minmax(0, 0.7fr);
+        }
+    }
+    @media (max-width: 575.98px) {
+        .model-summary-filter-grid {
+            grid-template-columns: 1fr;
+        }
+        .filter-actions {
+            padding-top: 0;
+        }
     }
     .summary-tile {
         border: 1px solid var(--bs-border-color);
@@ -450,21 +490,29 @@
         if (bestOnly === "false" && !stockCode) {
             throw new Error("查询全部结果时必须输入单个股票代码");
         }
+        const queryButton = document.getElementById("queryBtn");
+        queryButton.disabled = true;
+        queryButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>查询中`;
         document.getElementById("statusText").textContent = "加载中...";
-        const response = await fetch(`/admin/api/model-summary?${collectParams().toString()}`, {
-            headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        const data = await response.json();
-        if (data.status !== "success") {
-            throw new Error(data.message || "加载失败");
+        try {
+            const response = await fetch(`/admin/api/model-summary?${collectParams().toString()}`, {
+                headers: { Authorization: `Bearer ${getToken()}` },
+            });
+            const data = await response.json();
+            if (data.status !== "success") {
+                throw new Error(data.message || "加载失败");
+            }
+            state.columns = data.columns || [];
+            state.total = data.pagination?.total || 0;
+            state.pages = data.pagination?.pages || 0;
+            renderHead();
+            renderBody(data.items || []);
+            renderPagination();
+            document.getElementById("statusText").textContent = "已加载";
+        } finally {
+            queryButton.disabled = false;
+            queryButton.innerHTML = `<i class="bi bi-search me-1"></i>查询`;
         }
-        state.columns = data.columns || [];
-        state.total = data.pagination?.total || 0;
-        state.pages = data.pagination?.pages || 0;
-        renderHead();
-        renderBody(data.items || []);
-        renderPagination();
-        document.getElementById("statusText").textContent = "已加载";
     }
 
     async function rebuildSummary() {
@@ -553,14 +601,18 @@
         }, 3000);
     }
 
+    function runSummaryQuery() {
+        return loadSummary().catch((error) => {
+            document.getElementById("statusText").textContent = error.message;
+        });
+    }
+
     document.getElementById("filterForm").addEventListener("submit", (event) => {
         event.preventDefault();
         state.page = 1;
-        loadSummary().catch((error) => {
-            document.getElementById("statusText").textContent = error.message;
-        });
+        runSummaryQuery();
     });
-    document.getElementById("refreshBtn").addEventListener("click", () => loadSummary());
+    document.getElementById("refreshBtn").addEventListener("click", () => runSummaryQuery());
     document.getElementById("rebuildBtn").addEventListener("click", () => rebuildSummary().catch((error) => {
         document.getElementById("statusText").textContent = error.message;
         alert(error.message || "重建失败");
@@ -568,18 +620,18 @@
     document.getElementById("pageSize").addEventListener("change", (event) => {
         state.perPage = Number(event.target.value);
         state.page = 1;
-        loadSummary();
+        runSummaryQuery();
     });
     document.getElementById("prevPage").addEventListener("click", () => {
         if (state.page > 1) {
             state.page -= 1;
-            loadSummary();
+            runSummaryQuery();
         }
     });
     document.getElementById("nextPage").addEventListener("click", () => {
         if (state.page < state.pages) {
             state.page += 1;
-            loadSummary();
+            runSummaryQuery();
         }
     });
     document.querySelectorAll(".collapsible-panel .collapse").forEach((panel) => {
@@ -602,8 +654,6 @@
     });
 
     renderHead();
-    loadSummary().catch((error) => {
-        document.getElementById("statusText").textContent = error.message;
-    });
+    runSummaryQuery();
 </script>
 {% endblock %}

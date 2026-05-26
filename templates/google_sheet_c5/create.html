@@ -349,10 +349,10 @@
                                                     <div class="col-md-3">
                                                         <label class="form-label d-block">开盘/收盘</label>
                                                         <div class="btn-group d-flex" role="group" aria-label="Price mode">
-                                                            <input type="radio" class="btn-check" name="price_mode" id="kp_price" value="kp_price" autocomplete="off" checked>
+                                                            <input type="radio" class="btn-check" name="price_mode" id="kp_price" value="kp_price" autocomplete="off">
                                                             <label class="btn btn-outline-primary flex-fill" for="kp_price">开盘</label>
 
-                                                            <input type="radio" class="btn-check" name="price_mode" id="sp_price" value="sp_price" autocomplete="off">
+                                                            <input type="radio" class="btn-check" name="price_mode" id="sp_price" value="sp_price" autocomplete="off" checked>
                                                             <label class="btn btn-outline-primary flex-fill"
                                                                    for="sp_price">收盘</label>
                                                         </div>
@@ -1939,7 +1939,7 @@
         const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
         const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
-        const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price';
+        const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'sp_price';
         const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
         const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         const dateRangeModes = getSelectedDateRangeModes();
@@ -2109,7 +2109,7 @@
             token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
             count_mode: document.querySelector('input[name="count_mode"]:checked')?.value || 'total',
-            price_mode: document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price',
+            price_mode: document.querySelector('input[name="price_mode"]:checked')?.value || 'sp_price',
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             date_range_mode: getSelectedDateRangeModes(),
@@ -2247,7 +2247,7 @@
             const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
             const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
-            const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price';
+            const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'sp_price';
             const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
             const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
             const dateRangeModes = getSelectedDateRangeModes();
@@ -2422,7 +2422,7 @@
 
         return {
             count_mode: raw.count_mode || 'total',
-            price_mode: raw.price_mode || 'kp_price',
+            price_mode: raw.price_mode || 'sp_price',
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',
