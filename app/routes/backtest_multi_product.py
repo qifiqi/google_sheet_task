@@ -13,7 +13,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import load_only
 
 from app.extensions import db
-from app.models import Task, TaskResult
+from app.models import Task, TaskResult, TaskResultReturn
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
@@ -267,11 +267,21 @@ def get_task_result_detail(task_result_id):
     sheet_result = {
         key: item for key, item in value.items() if key != "calculate_metrics"
     } if isinstance(value, dict) else {}
+
+    daily_returns = {}
+    if task_result.return_series_id:
+        return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
+        if return_series and return_series.returns_json:
+            parsed_returns = _parse_json(return_series.returns_json, {})
+            if isinstance(parsed_returns, dict):
+                daily_returns = parsed_returns
+
     return jsonify({
         "status": "success",
         "result": _sanitize_json_value({
             **(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "sheet_result": sheet_result,
+            "daily_returns": daily_returns,
         }),
     })
 
@@ -375,7 +385,8 @@ def _build_global_preview_workbook(payload: dict[str, object]):
 
         header = ["指标类型", "指标"]
         for product in products:
-            header.extend(["指数", "模型结果", "单品比例参考"])
+            ratio = product.get("ratio")
+            header.extend(["指数", "模型结果", f"模型结果（{ratio}%）"])
         header.extend(["比例计算-指数", "比例计算-结果"])
         sheet.append(header)
         for row in group.get("rows") or []:
@@ -406,10 +417,9 @@ def _build_global_preview_workbook(payload: dict[str, object]):
                 "指标",
                 "指数",
                 "模型结果",
-                "单品比例参考",
                 "比例计算-指数",
                 "比例计算-结果",
-            }:
+            } or str(cell.value or "").startswith("模型结果（"):
                 cell.font = header_font
                 cell.fill = sub_header_fill
             if cell.column == 1:

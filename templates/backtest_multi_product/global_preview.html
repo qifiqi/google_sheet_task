@@ -479,7 +479,7 @@ function renderActiveGroup() {
     const columnHeads = products.map((product) => `
         <th>指数</th>
         <th>模型结果</th>
-        <th>单品比例参考</th>
+        <th>模型结果（${escapeHtml(formatRatioHeader(product.ratio || 0))}）</th>
     `).join('');
     const body = group.rows.map((row) => {
         const values = (row.product_values || []).map((item) => `

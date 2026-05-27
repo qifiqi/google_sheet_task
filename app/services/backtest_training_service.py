@@ -424,8 +424,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
         reraise=True,  # 重试耗尽后重新抛出原始异常
         retry=retry_if_result(lambda result: result[0] is False)
     )
-    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> tuple[
-        bool, Dict[str, Any]]:
+    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> \
+    tuple[bool, dict[Any, Any], list[Any]]:
         """执行单个参数组合"""
         try:
             # 获取参数位置配置
@@ -592,8 +592,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     for i in range(len(kline)):
                         _return_date.append({
                             'date': kline[i].get('stock_date'),
-                            'index_return': _index_return[f"{output_column_index}{i + 2}"],
-                            'start_return': _start_return[f"{output_column_start}{i + 2}"]
+                            'index_return': round(_index_return[f"{output_column_index}{i + 2}"],6),
+                            'start_return': round(_start_return[f"{output_column_start}{i + 2}"],6)
 
                         })
                     calculate_metrics = self.xpl.get_calculate_metrics_v1(_return_date)

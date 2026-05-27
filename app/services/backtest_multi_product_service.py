@@ -227,11 +227,24 @@ def _fmt_value(value: Any, value_type: str) -> str:
     return f"{number:.2f}".rstrip("0").rstrip(".")
 
 
-def _format_ratio_reference(value: Any) -> str:
-    try:
-        return f"{normalize_ratio_display(value)}%"
-    except ValueError:
-        return "-"
+def _scale_return_date(
+    return_date: list[dict[str, Any]],
+    ratio: Any,
+) -> list[dict[str, Any]]:
+    ratio_value = float(parse_ratio(ratio) / RATIO_BASE)
+    scaled = []
+    for item in return_date:
+        date = item.get("date") or item.get("stock_date")
+        index_return = _safe_number(item.get("index_return"))
+        start_return = _safe_number(item.get("start_return"))
+        if not date or index_return is None or start_return is None:
+            continue
+        scaled.append({
+            "date": date,
+            "index_return": index_return * ratio_value,
+            "start_return": start_return * ratio_value,
+        })
+    return scaled
 
 
 def _build_returns_json(return_date: list[dict[str, Any]]) -> str:
@@ -274,6 +287,19 @@ def _get_return_date_for_task_result(task_result: TaskResult) -> list[dict[str, 
         if return_series:
             return _parse_returns_json(return_series.returns_json)
     return _extract_return_date_from_result_payload(_parse_json(task_result.result, {}))
+
+
+def _set_weighted_metrics_on_result_payload(
+    result_payload: dict[str, Any],
+    weighted_calculate_metrics: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(result_payload, dict) or not result_payload:
+        return result_payload
+    first_key = next(iter(result_payload))
+    value = result_payload.get(first_key)
+    if isinstance(value, dict):
+        value["weighted_calculate_metrics"] = weighted_calculate_metrics
+    return result_payload
 
 
 def _return_date_by_date(return_date: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
@@ -336,6 +362,17 @@ def _build_portfolio_metrics(
     if not return_date:
         return {}
     calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(return_date)
+    return calculate_metrics if isinstance(calculate_metrics, dict) else {}
+
+
+def _build_weighted_product_metrics(
+    return_date: list[dict[str, Any]],
+    ratio: Any,
+) -> dict[str, Any]:
+    scaled = _scale_return_date(return_date, ratio)
+    if not scaled:
+        return {}
+    calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(scaled)
     return calculate_metrics if isinstance(calculate_metrics, dict) else {}
 
 
@@ -561,7 +598,13 @@ class BacktestMultiProductService(BacktestTrainingService):
     ):
         def save_result_operation():
             safe_parameters = self._sanitize_json_value(parameters)
-            safe_result = self._sanitize_json_value(result)
+            safe_result_payload = dict(result) if isinstance(result, dict) else {}
+            weighted_calculate_metrics = _build_weighted_product_metrics(return_date or [], safe_parameters.get("ratio"))
+            safe_result_payload = _set_weighted_metrics_on_result_payload(
+                safe_result_payload,
+                weighted_calculate_metrics,
+            )
+            safe_result = self._sanitize_json_value(safe_result_payload)
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
@@ -635,7 +678,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         cache_parameters,
         config_data: dict[str, Any],
         KLINE_DATA_MAP,
-    ) -> tuple[bool, dict[str, Any]]:
+    ) -> tuple[bool, dict[Any, Any], list[Any]]:
         cached_combination = cache_parameters.get("combination") or {}
         if cached_combination and not self._is_same_kline_source(combination, cached_combination):
             cache_parameters["combination"] = {}
@@ -735,6 +778,7 @@ def build_multi_product_global_preview_payload(
         success_count += 1
         core = _extract_result_core(result)
         calculate_metrics = core.get("calculate_metrics") if isinstance(core, dict) else {}
+        weighted_calculate_metrics = core.get("weighted_calculate_metrics") if isinstance(core, dict) else {}
         group["product_results"][product_index] = {
             "result_id": result.id,
             "step_index": result.step_index,
@@ -742,6 +786,11 @@ def build_multi_product_global_preview_payload(
             "parameters": parameters,
             "metrics": _derive_metrics(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "return_date": _get_return_date_for_task_result(result),
+            "weighted_metrics": (
+                _derive_metrics(weighted_calculate_metrics)
+                if isinstance(weighted_calculate_metrics, dict) and weighted_calculate_metrics
+                else {}
+            ),
         }
 
     serialized_groups = []
@@ -754,17 +803,31 @@ def build_multi_product_global_preview_payload(
                 product_index = int(product["product_index"])
                 product_result = group["product_results"].get(product_index) or {}
                 metrics = product_result.get("metrics") or {}
+                weighted_metrics = product_result.get("weighted_metrics") or {}
+                current_ratio = (products[product_index] if product_index < len(products) else {}).get("ratio")
+                saved_ratio = str((product_result.get("parameters") or {}).get("ratio") or "").strip()
+                if ratios_override is not None or not weighted_metrics or saved_ratio != str(current_ratio or "").strip():
+                    weighted_metrics = _derive_metrics(
+                        _build_weighted_product_metrics(
+                            product_result.get("return_date") or [],
+                            current_ratio,
+                        )
+                    )
+                    product_result["weighted_metrics"] = weighted_metrics
                 index_value = metrics.get(index_key) if index_key else None
                 result_value = metrics.get(result_key) if result_key else None
                 product_values.append({
                     "product_index": product_index,
                     "index_value": _fmt_value(index_value, value_type) if index_key else "-",
                     "result_value": _fmt_value(result_value, value_type),
-                    "weighted_result_value": _format_ratio_reference(product.get("ratio")),
+                    "weighted_result_value": _fmt_value(
+                        weighted_metrics.get(result_key),
+                        value_type,
+                    ),
                     "raw_index_value": index_value,
                     "raw_result_value": result_value,
-                    "raw_weighted_index_value": _safe_number(product.get("ratio")),
-                    "raw_weighted_result_value": _safe_number(product.get("ratio")),
+                    "raw_weighted_index_value": weighted_metrics.get(index_key) if index_key else None,
+                    "raw_weighted_result_value": weighted_metrics.get(result_key),
                 })
             weighted_index_value = portfolio_metrics.get(index_key) if index_key else None
             weighted_result_value = portfolio_metrics.get(result_key) if result_key else None
@@ -810,4 +873,3 @@ def build_multi_product_global_preview_payload(
         "products": products,
         "groups": serialized_groups,
     }
-

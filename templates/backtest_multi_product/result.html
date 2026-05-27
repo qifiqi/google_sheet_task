@@ -169,6 +169,8 @@
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-sheet-result" type="button" role="tab">Sheet 结果</button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-daily-returns" type="button" role="tab">每天收益率</button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-raw" type="button" role="tab">全量 JSON</button>
                     </div>
                 </div>
@@ -449,6 +451,26 @@
                             </div>
                         </div>
 
+                        <div class="tab-pane fade" id="tab-daily-returns" role="tabpanel">
+                            <div class="d-flex justify-content-end mb-2">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" id="btn-copy-daily-returns">
+                                    <i class="bi bi-clipboard me-1"></i>复制 JSON
+                                </button>
+                            </div>
+                            <div class="table-responsive overflow-auto" style="max-height: 520px;">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead class="sticky-top bg-body-tertiary">
+                                    <tr>
+                                        <th>日期</th>
+                                        <th>指数收益率</th>
+                                        <th>策略收益率</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-daily-returns"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <div class="tab-pane fade" id="tab-raw" role="tabpanel">
                             <div class="d-flex justify-content-end mb-2">
                                 <button class="btn btn-sm btn-outline-secondary" type="button" id="btn-copy-raw-json">复制</button>
@@ -603,6 +625,7 @@
         resultId: {{ result_id|tojson }},
         taskId: {{ task_id|tojson }},
         exportBaseName: '',
+        dailyReturnsJsonText: '',
         lastResults: null,
         charts: {}
     };
@@ -614,6 +637,7 @@
         }
         document.getElementById('btn-reload-result')?.addEventListener('click', loadBacktestResult);
         document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
+        document.getElementById('btn-copy-daily-returns')?.addEventListener('click', copyDailyReturns);
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         loadBacktestResult();
     });
@@ -634,6 +658,33 @@
     async function copyRawJson() {
         const pre = document.getElementById('pre-raw-json');
         const text = pre?.textContent || '';
+        if (!text) {
+            showAlert('暂无可复制内容', 'warning');
+            return;
+        }
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+                if (!ok) throw new Error('copy failed');
+            }
+            showAlert('复制成功', 'success');
+        } catch (e) {
+            showAlert('复制失败', 'danger');
+        }
+    }
+
+    async function copyDailyReturns() {
+        const text = state.dailyReturnsJsonText || '';
         if (!text) {
             showAlert('暂无可复制内容', 'warning');
             return;
@@ -992,6 +1043,63 @@
             const tr = document.createElement('tr');
             const v = sheetResult[k];
             tr.innerHTML = `<td><code>${escapeHtml(k)}</code></td><td>${formatDisplayValue(v)}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function renderTabDailyReturns(r) {
+        const tbody = document.getElementById('tbl-daily-returns');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const raw = r.daily_returns;
+        let rows = [];
+        let jsonText = '';
+
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            const dates = Array.isArray(raw.dates) ? raw.dates : [];
+            const indexReturns = Array.isArray(raw.index_returns) ? raw.index_returns : [];
+            const startReturns = Array.isArray(raw.start_returns) ? raw.start_returns : [];
+            const maxLength = Math.max(dates.length, indexReturns.length, startReturns.length);
+            for (let i = 0; i < maxLength; i += 1) {
+                rows.push({
+                    date: dates[i] ?? '-',
+                    index_return: indexReturns[i],
+                    start_return: startReturns[i],
+                });
+            }
+            jsonText = JSON.stringify(raw, null, 2);
+        } else if (Array.isArray(raw)) {
+            rows = raw.map((item) => ({
+                date: item?.date ?? item?.stock_date ?? '-',
+                index_return: item?.index_return ?? item?.indexReturns ?? null,
+                start_return: item?.start_return ?? item?.strategy_return ?? null,
+            }));
+            jsonText = JSON.stringify(raw, null, 2);
+        } else if (typeof raw === 'string') {
+            jsonText = raw;
+        } else if (raw !== null && raw !== undefined) {
+            jsonText = String(raw);
+        }
+
+        state.dailyReturnsJsonText = jsonText;
+
+        if (!rows.length) {
+            if (typeof raw === 'string' && raw.trim()) {
+                tbody.innerHTML = `<tr><td colspan="3"><pre class="mb-0 text-wrap" style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(raw)}</pre></td></tr>`;
+            } else {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-body-secondary">暂无数据</td></tr>';
+            }
+            return;
+        }
+
+        rows.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${escapeHtml(String(item.date ?? '-'))}</td>
+                <td class="${(Number(item.index_return) || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(item.index_return, 2)}</td>
+                <td class="${(Number(item.start_return) || 0) >= 0 ? 'text-success' : 'text-danger'}">${fmtPct(item.start_return, 2)}</td>
+            `;
             tbody.appendChild(tr);
         });
     }
@@ -1403,6 +1511,7 @@
         setPreJson('pre-raw-json', r);
         renderTabScalars(r);
         renderTabSheetResult(r);
+        renderTabDailyReturns(r);
         renderTabAnnualAndDrawdown(r);
         renderTabExcessReturns(r);
         renderTabMonthlyExcessReturns(r);

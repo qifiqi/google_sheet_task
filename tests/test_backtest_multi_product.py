@@ -219,6 +219,59 @@ def test_runtime_view_reads_return_chart_from_returns_json(app_factory):
         ]
 
 
+def test_multi_product_result_detail_includes_daily_returns_from_return_series(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="result-daily-returns-task",
+            name="result-daily-returns-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="completed",
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        return_series = TaskResultReturn(
+            task_id=task.id,
+            returns_json=json.dumps({
+                "dates": ["2024-01-01", "2024-01-02"],
+                "index_returns": [0.11, 0.22],
+                "start_returns": [0.33, 0.44],
+            }),
+        )
+        db.session.add(return_series)
+        db.session.flush()
+        task_result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters="{}",
+            result=json.dumps({
+                "sheet__title": {
+                    "calculate_metrics": {
+                        "excess_returns": []
+                    },
+                    "D2": "1",
+                }
+            }),
+            success=True,
+            return_series_id=return_series.id,
+        )
+        db.session.add(task_result)
+        db.session.commit()
+
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        client = app.test_client()
+        resp = client.get(f"/backtest-multi-product/api/task-result/{task_result.id}")
+
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert payload["status"] == "success"
+        assert payload["result"]["daily_returns"] == {
+            "dates": ["2024-01-01", "2024-01-02"],
+            "index_returns": [0.11, 0.22],
+            "start_returns": [0.33, 0.44],
+        }
+
+
 def test_multi_product_execution_runs_all_parameters_per_product_first(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
@@ -402,13 +455,21 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
         assert payload["summary"]["product_count"] == 2
         row = payload["groups"][0]["rows"][0]
         assert row["metric"] == "年化收益"
-        assert row["product_values"][0]["weighted_result_value"] == "25%"
-        assert row["product_values"][1]["weighted_result_value"] == "75%"
+        assert row["product_values"][0]["weighted_result_value"] == "150.00%"
+        assert row["product_values"][1]["weighted_result_value"] == "4500.00%"
         assert row["weighted_index_value"] == "3100.00%"
         assert row["weighted_result_value"] == "4650.00%"
         assert captured_returns[0] == [
             {"date": "2024-01-01", "index_return": 7.75, "start_return": 15.5},
             {"date": "2024-01-02", "index_return": 23.25, "start_return": 31.0},
+        ]
+        assert captured_returns[1] == [
+            {"date": "2024-01-01", "index_return": 0.25, "start_return": 0.5},
+            {"date": "2024-01-02", "index_return": 0.75, "start_return": 1.0},
+        ]
+        assert captured_returns[2] == [
+            {"date": "2024-01-01", "index_return": 7.5, "start_return": 15.0},
+            {"date": "2024-01-02", "index_return": 22.5, "start_return": 30.0},
         ]
 
         workbook = _build_global_preview_workbook(payload)
@@ -417,10 +478,10 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
         assert sheet["B1"].value == ""
         assert sheet["C1"].value == "产品1"
         assert sheet["F1"].value == "产品2"
-        assert sheet["E2"].value == "单品比例参考"
-        assert sheet["H2"].value == "单品比例参考"
-        assert sheet["E3"].value == "25%"
-        assert sheet["H3"].value == "75%"
+        assert sheet["E2"].value == "模型结果（25%）"
+        assert sheet["H2"].value == "模型结果（75%）"
+        assert sheet["E3"].value == "150.00%"
+        assert sheet["H3"].value == "4500.00%"
         assert sheet["I2"].value == "比例计算-指数"
         assert sheet["J2"].value == "比例计算-结果"
         assert sheet["C1"].fill.fgColor.rgb == "00FCECC5"
@@ -583,12 +644,20 @@ def test_build_multi_product_global_preview_uses_common_dates_for_portfolio_retu
 
         row = payload["groups"][0]["rows"][0]
         assert row["metric"] == "年化收益"
-        assert row["product_values"][0]["weighted_result_value"] == "25%"
-        assert row["product_values"][1]["weighted_result_value"] == "75%"
+        assert row["product_values"][0]["weighted_result_value"] == "150.00%"
+        assert row["product_values"][1]["weighted_result_value"] == "7500.00%"
         assert row["weighted_result_value"] == "3100.00%"
-        assert captured_returns[0] == [
+        assert [
+            {"date": "2024-01-01", "index_return": 0.25, "start_return": 0.5},
+            {"date": "2024-01-02", "index_return": 0.75, "start_return": 1.0},
+        ] in captured_returns
+        assert [
+            {"date": "2024-01-02", "index_return": 22.5, "start_return": 30.0},
+            {"date": "2024-01-03", "index_return": 37.5, "start_return": 45.0},
+        ] in captured_returns
+        assert [
             {"date": "2024-01-02", "index_return": 23.25, "start_return": 31.0},
-        ]
+        ] in captured_returns
 
         captured_returns.clear()
         preview_payload = build_multi_product_global_preview_payload(
@@ -597,9 +666,9 @@ def test_build_multi_product_global_preview_uses_common_dates_for_portfolio_retu
         )
         preview_row = preview_payload["groups"][0]["rows"][0]
         assert preview_row["weighted_result_value"] == "2200.00%"
-        assert captured_returns[0] == [
+        assert [
             {"date": "2024-01-02", "index_return": 16.5, "start_return": 22.0},
-        ]
+        ] in captured_returns
 
 
 def test_build_multi_product_global_preview_returns_dash_without_common_return_dates(app_factory, monkeypatch):
@@ -669,4 +738,9 @@ def test_build_multi_product_global_preview_returns_dash_without_common_return_d
 
         assert row["weighted_index_value"] == "-"
         assert row["weighted_result_value"] == "-"
-        assert captured_returns == []
+        assert captured_returns[0] == [
+            {"date": "2024-01-01", "index_return": 0.5, "start_return": 1.0},
+        ]
+        assert captured_returns[1] == [
+            {"date": "2024-01-02", "index_return": 5.0, "start_return": 10.0},
+        ]

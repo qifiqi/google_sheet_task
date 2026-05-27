@@ -180,7 +180,7 @@ class XPLAnalyzer:
             # Record monthly return data
             annual_returns.append({
                 'year_month': str(year_month),  # 年月 Year and month
-                'annual_return': float(annual_return.__round__(4)),  # 收益率 Monthly return
+                'annual_return': float(annual_return.__round__(6)),  # 收益率 Monthly return
                 'year': str(current_month_last_day['year']),  # 年份 Year
                 'net_value': current_month_last_day['net_value'],  # 净值
                 'date': current_month_last_day['date'].strftime('%Y-%m-%d')  # 日期 Date
@@ -643,8 +643,8 @@ class XPLAnalyzer:
             columns={'drawdown': 'index_drawdown'})
         start_year_maximum_drawdown = start_year_maximum_drawdown.rename(
             columns={'drawdown': 'start_drawdown'})
-
         maximum_drawdown = pd.merge(index_year_maximum_drawdown, start_year_maximum_drawdown, on='year')
+        logger.debug(maximum_drawdown[['year', 'start_drawdown', 'index_drawdown']])
         start_index = maximum_drawdown[maximum_drawdown['start_drawdown'] < maximum_drawdown['index_drawdown']]
         return len(start_index['start_drawdown']) / len(maximum_drawdown['start_drawdown'])
 
@@ -1638,11 +1638,18 @@ xpl_analyzer = XPLAnalyzer()
 
 if __name__ == "__main__":
     xpl_analyzer = XPLAnalyzer()
-    from d import data
+    from d import data2
+    df = pd.DataFrame(data2)
+    df2 = pd.DataFrame(data2)
+    df2['index_return'] = df2['index_returns']
+    df2['start_return'] = df2['start_returns']
+    df['index_return'] = df['index_returns'] * 0.5
+    df['start_return'] = df['start_returns'] * 0.5
 
-    parsed_data = xpl_analyzer._parse_input_data(data)
-
-    print(json.dumps(xpl_analyzer._calculate_metrics_v1(parsed_data),ensure_ascii=False))
+    # parsed_data = xpl_analyzer._parse_input_data(data)
+    #
+    print(json.dumps(xpl_analyzer._calculate_metrics_v1(df.to_dict(orient='records')),ensure_ascii=False))
+    print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')),ensure_ascii=False))
     # xpl_analyzer._calculate_metrics(parsed_data)
     # xpl_analyzer.analyze_v1('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
     # xpl_analyzer.get_google_sheet_data('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
