@@ -19,7 +19,6 @@ from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
-    refresh_multi_product_weighted_metrics,
 )
 from app.utils.auth import login_required, permission_required
 from app.utils.dfcf_api import DFCJStockApi
@@ -92,13 +91,6 @@ def _parse_json(raw, default):
         return json.loads(raw) if raw else default
     except (TypeError, json.JSONDecodeError):
         return default
-
-
-def _format_ratio_header(value):
-    text = str(value if value is not None else "").strip()
-    if not text:
-        return "-"
-    return text if text.endswith("%") else f"{text}%"
 
 
 def _build_excel_download_name(task_name, fallback_id: str) -> str:
@@ -341,10 +333,6 @@ def update_ratios(task_id):
         return jsonify({"status": "error", "message": str(exc)}), 400
 
     task.config = json.dumps(config, ensure_ascii=False)
-    try:
-        refresh_multi_product_weighted_metrics(task_id, config_override=config)
-    except ValueError as exc:
-        return jsonify({"status": "error", "message": str(exc)}), 400
     db.session.commit()
     payload = build_multi_product_global_preview_payload(task_id)
     return jsonify({"status": "success", "message": "比例已保存", **_sanitize_json_value(payload or {})})
@@ -387,8 +375,7 @@ def _build_global_preview_workbook(payload: dict[str, object]):
 
         header = ["指标类型", "指标"]
         for product in products:
-            ratio = product.get("ratio")
-            header.extend(["指数", "模型结果", f"模型结果（{_format_ratio_header(ratio)}）"])
+            header.extend(["指数", "模型结果", "单品比例参考"])
         header.extend(["比例计算-指数", "比例计算-结果"])
         sheet.append(header)
         for row in group.get("rows") or []:
@@ -419,9 +406,10 @@ def _build_global_preview_workbook(payload: dict[str, object]):
                 "指标",
                 "指数",
                 "模型结果",
+                "单品比例参考",
                 "比例计算-指数",
                 "比例计算-结果",
-            } or str(cell.value or "").startswith("模型结果（"):
+            }:
                 cell.font = header_font
                 cell.fill = sub_header_fill
             if cell.column == 1:

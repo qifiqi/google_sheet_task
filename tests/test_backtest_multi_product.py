@@ -14,7 +14,6 @@ from app.services.backtest_multi_product_service import (
     BacktestMultiProductService,
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
-    refresh_multi_product_weighted_metrics,
 )
 from app.services.task.facade import TaskManager
 from app.services.task.runtime_view import TaskRuntimeViewService
@@ -299,8 +298,34 @@ def _task_result_payload_with_metadata(index_return, start_return):
     }
 
 
-def test_build_multi_product_global_preview_payload_weights_values(app_factory):
+def test_build_multi_product_global_preview_payload_combines_returns_before_metrics(app_factory, monkeypatch):
     app = app_factory
+    captured_returns = []
+
+    def fake_metrics(return_date):
+        captured_returns.append(return_date)
+        total_start = sum(item["start_return"] for item in return_date)
+        total_index = sum(item["index_return"] for item in return_date)
+        return {
+            "excess_returns": [{
+                "year": "all",
+                "index_annualized_return": total_index,
+                "start_annualized_return": total_start,
+                "annualized_return_diff": total_start - total_index,
+            }],
+            "index_profit_annual": 1,
+            "start_profit_annual": 1,
+            "index_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+            "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+            "index_sharpe_ratios": {"all": {"avg_monthly_return": total_index, "sharpe_ratio": total_index}},
+            "start_sharpe_ratios": {"all": {"avg_monthly_return": total_start, "sharpe_ratio": total_start}},
+        }
+
+    monkeypatch.setattr(
+        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        fake_metrics,
+    )
+
     with app.app_context():
         config = normalize_multi_product_config({
             "start_date": "2024-01-01",
@@ -327,7 +352,10 @@ def test_build_multi_product_global_preview_payload_weights_values(app_factory):
                 "parameter_group_index": 0,
                 "parameter": config["products"][0]["parameters"][0],
             }, ensure_ascii=False),
-            result=json.dumps(_task_result_payload(0.10, 0.20)),
+            result=json.dumps(_task_result_payload_with_returns(0.10, 0.20, [
+                {"date": "2024-01-01", "index_return": 1, "start_return": 2},
+                {"date": "2024-01-02", "index_return": 3, "start_return": 4},
+            ])),
             success=True,
         ))
         db.session.add(TaskResult(
@@ -341,21 +369,47 @@ def test_build_multi_product_global_preview_payload_weights_values(app_factory):
                 "parameter_group_index": 0,
                 "parameter": config["products"][1]["parameters"][0],
             }, ensure_ascii=False),
-            result=json.dumps(_task_result_payload(0.20, 0.40)),
+            result=json.dumps(_task_result_payload_with_returns(0.20, 0.40, [
+                {"date": "2024-01-01", "index_return": 10, "start_return": 20},
+                {"date": "2024-01-02", "index_return": 30, "start_return": 40},
+            ])),
             success=True,
         ))
+        first_series = TaskResultReturn(
+            task_id=task.id,
+            returns_json=json.dumps({
+                "dates": ["2024-01-01", "2024-01-02"],
+                "index_returns": [1, 3],
+                "start_returns": [2, 4],
+            }),
+        )
+        second_series = TaskResultReturn(
+            task_id=task.id,
+            returns_json=json.dumps({
+                "dates": ["2024-01-01", "2024-01-02"],
+                "index_returns": [10, 30],
+                "start_returns": [20, 40],
+            }),
+        )
+        db.session.add_all([first_series, second_series])
+        db.session.flush()
+        db.session.query(TaskResult).filter_by(task_id=task.id, step_index=0).one().return_series_id = first_series.id
+        db.session.query(TaskResult).filter_by(task_id=task.id, step_index=1).one().return_series_id = second_series.id
         db.session.commit()
 
-        refresh_multi_product_weighted_metrics(task.id)
         payload = build_multi_product_global_preview_payload(task.id)
 
         assert payload["summary"]["product_count"] == 2
         row = payload["groups"][0]["rows"][0]
         assert row["metric"] == "年化收益"
-        assert row["product_values"][0]["weighted_result_value"] == "-"
-        assert row["product_values"][1]["weighted_result_value"] == "-"
-        assert row["weighted_index_value"] == "-"
-        assert row["weighted_result_value"] == "-"
+        assert row["product_values"][0]["weighted_result_value"] == "25%"
+        assert row["product_values"][1]["weighted_result_value"] == "75%"
+        assert row["weighted_index_value"] == "3100.00%"
+        assert row["weighted_result_value"] == "4650.00%"
+        assert captured_returns[0] == [
+            {"date": "2024-01-01", "index_return": 7.75, "start_return": 15.5},
+            {"date": "2024-01-02", "index_return": 23.25, "start_return": 31.0},
+        ]
 
         workbook = _build_global_preview_workbook(payload)
         sheet = workbook.active
@@ -363,16 +417,23 @@ def test_build_multi_product_global_preview_payload_weights_values(app_factory):
         assert sheet["B1"].value == ""
         assert sheet["C1"].value == "产品1"
         assert sheet["F1"].value == "产品2"
-        assert sheet["E2"].value == "模型结果（25%）"
-        assert sheet["H2"].value == "模型结果（75%）"
-        assert sheet["E3"].value == "-"
-        assert sheet["H3"].value == "-"
+        assert sheet["E2"].value == "单品比例参考"
+        assert sheet["H2"].value == "单品比例参考"
+        assert sheet["E3"].value == "25%"
+        assert sheet["H3"].value == "75%"
         assert sheet["I2"].value == "比例计算-指数"
         assert sheet["J2"].value == "比例计算-结果"
         assert sheet["C1"].fill.fgColor.rgb == "00FCECC5"
         assert sheet["F1"].fill.fgColor.rgb == "00FCECC5"
         assert sheet["A2"].fill.fgColor.rgb == "00F7E1A1"
         assert sheet["A3"].fill.fgColor.rgb == "00F7E1A1"
+
+        preview_payload = build_multi_product_global_preview_payload(
+            task.id,
+            ratios_override=[{"ratio": 50}, {"ratio": 50}],
+        )
+        assert preview_payload["groups"][0]["rows"][0]["weighted_result_value"] == "3300.00%"
+        assert json.loads(db.session.get(Task, task.id).config)["products"][0]["ratio"] == "25"
 
 
 def test_build_multi_product_global_preview_handles_result_metadata_outside_sheet_payload(app_factory):
@@ -431,7 +492,7 @@ def test_build_multi_product_global_preview_handles_result_metadata_outside_shee
         assert row["weighted_result_value"] == "-"
 
 
-def test_build_multi_product_global_preview_uses_scaled_returns_before_metrics(app_factory, monkeypatch):
+def test_build_multi_product_global_preview_uses_common_dates_for_portfolio_returns(app_factory, monkeypatch):
     app = app_factory
     captured_returns = []
 
@@ -507,9 +568,9 @@ def test_build_multi_product_global_preview_uses_scaled_returns_before_metrics(a
         second_series = TaskResultReturn(
             task_id=task.id,
             returns_json=json.dumps({
-                "dates": ["2024-01-01", "2024-01-02"],
-                "index_returns": [10, 30],
-                "start_returns": [20, 40],
+                "dates": ["2024-01-02", "2024-01-03"],
+                "index_returns": [30, 50],
+                "start_returns": [40, 60],
             }),
         )
         db.session.add_all([first_series, second_series])
@@ -518,21 +579,15 @@ def test_build_multi_product_global_preview_uses_scaled_returns_before_metrics(a
         second.return_series_id = second_series.id
         db.session.commit()
 
-        refresh_multi_product_weighted_metrics(task.id)
         payload = build_multi_product_global_preview_payload(task.id)
 
         row = payload["groups"][0]["rows"][0]
         assert row["metric"] == "年化收益"
-        assert row["product_values"][0]["weighted_result_value"] == "150.00%"
-        assert row["product_values"][1]["weighted_result_value"] == "4500.00%"
-        assert row["weighted_result_value"] == "4650.00%"
+        assert row["product_values"][0]["weighted_result_value"] == "25%"
+        assert row["product_values"][1]["weighted_result_value"] == "75%"
+        assert row["weighted_result_value"] == "3100.00%"
         assert captured_returns[0] == [
-            {"date": "2024-01-01", "index_return": 0.25, "start_return": 0.5},
-            {"date": "2024-01-02", "index_return": 0.75, "start_return": 1.0},
-        ]
-        assert captured_returns[1] == [
-            {"date": "2024-01-01", "index_return": 7.5, "start_return": 15.0},
-            {"date": "2024-01-02", "index_return": 22.5, "start_return": 30.0},
+            {"date": "2024-01-02", "index_return": 23.25, "start_return": 31.0},
         ]
 
         captured_returns.clear()
@@ -541,8 +596,77 @@ def test_build_multi_product_global_preview_uses_scaled_returns_before_metrics(a
             ratios_override=[{"ratio": 50}, {"ratio": 50}],
         )
         preview_row = preview_payload["groups"][0]["rows"][0]
-        assert preview_row["weighted_result_value"] == "3300.00%"
+        assert preview_row["weighted_result_value"] == "2200.00%"
         assert captured_returns[0] == [
-            {"date": "2024-01-01", "index_return": 0.5, "start_return": 1.0},
-            {"date": "2024-01-02", "index_return": 1.5, "start_return": 2.0},
+            {"date": "2024-01-02", "index_return": 16.5, "start_return": 22.0},
         ]
+
+
+def test_build_multi_product_global_preview_returns_dash_without_common_return_dates(app_factory, monkeypatch):
+    app = app_factory
+    captured_returns = []
+
+    monkeypatch.setattr(
+        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        lambda return_date: captured_returns.append(return_date) or {},
+    )
+
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "products": [_base_product(0, "50"), _base_product(1, "50")],
+        })
+        task = Task(
+            id="multi-no-common-date-task",
+            name="多品无共同日期测试",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="completed",
+            config=json.dumps(config, ensure_ascii=False),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        first = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters=json.dumps({"product_index": 0, "parameter_group_index": 0}, ensure_ascii=False),
+            result=json.dumps(_task_result_payload(0.50, 0.80)),
+            success=True,
+        )
+        second = TaskResult(
+            task_id=task.id,
+            step_index=1,
+            parameters=json.dumps({"product_index": 1, "parameter_group_index": 0}, ensure_ascii=False),
+            result=json.dumps(_task_result_payload(0.70, 0.90)),
+            success=True,
+        )
+        db.session.add_all([first, second])
+        db.session.flush()
+        first_series = TaskResultReturn(
+            task_id=task.id,
+            returns_json=json.dumps({
+                "dates": ["2024-01-01"],
+                "index_returns": [1],
+                "start_returns": [2],
+            }),
+        )
+        second_series = TaskResultReturn(
+            task_id=task.id,
+            returns_json=json.dumps({
+                "dates": ["2024-01-02"],
+                "index_returns": [10],
+                "start_returns": [20],
+            }),
+        )
+        db.session.add_all([first_series, second_series])
+        db.session.flush()
+        first.return_series_id = first_series.id
+        second.return_series_id = second_series.id
+        db.session.commit()
+
+        payload = build_multi_product_global_preview_payload(task.id)
+        row = payload["groups"][0]["rows"][0]
+
+        assert row["weighted_index_value"] == "-"
+        assert row["weighted_result_value"] == "-"
+        assert captured_returns == []

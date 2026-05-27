@@ -298,8 +298,8 @@
                 </div>
                 <div class="ratio-formula-hint">
                     <span class="hint-title">比例计算：</span>
-                    <span class="hint-desc">每个产品收益 × 比例 ÷ 100 后跑指标算法，再将同名指标相加</span>
-                    <br><span class="hint-note">修改比例后由后端实时计算预览；导出也使用同一套后端计算。</span>
+                    <span class="hint-desc">先按日期合成组合收益，再重新计算组合指标。</span>
+                    <br><span class="hint-note">比例计算-指数来自组合 index_return，比例计算-结果来自组合 start_return；导出也使用同一套后端计算。</span>
                 </div>
                 <button class="btn btn-primary rounded-pill px-4" id="calculateRatiosBtn" type="button">
                     <i class="bi bi-calculator me-1"></i>计算预览
@@ -479,7 +479,7 @@ function renderActiveGroup() {
     const columnHeads = products.map((product) => `
         <th>指数</th>
         <th>模型结果</th>
-        <th>模型结果（${escapeHtml(formatRatioHeader(product.ratio || 0))}）</th>
+        <th>单品比例参考</th>
     `).join('');
     const body = group.rows.map((row) => {
         const values = (row.product_values || []).map((item) => `
