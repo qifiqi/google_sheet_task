@@ -333,6 +333,7 @@ let previewPayload = null;
 let activeGroupKey = null;
 let hasUnsavedRatioPreview = false;
 let ratioInputsDirty = false;
+let appliedRatioSignature = '';
 
 function escapeHtml(value) {
     return String(value == null ? '' : value)
@@ -419,6 +420,23 @@ function collectRatioValues() {
     return Array.from(document.querySelectorAll('.ratio-input')).map((input) => Number(input.value || 0));
 }
 
+function normalizeRatioForSignature(value) {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? String(Number(number.toFixed(8))) : 'NaN';
+}
+
+function ratioSignatureFromValues(values) {
+    return values.map(normalizeRatioForSignature).join('|');
+}
+
+function ratioSignatureFromProducts(products) {
+    return ratioSignatureFromValues((products || []).map((product) => product.ratio));
+}
+
+function currentRatioSignature() {
+    return ratioSignatureFromValues(collectRatioValues());
+}
+
 async function applyRatioPreview() {
     const ratios = collectRatioValues();
     if (ratios.some((value) => !Number.isFinite(value) || value < 0)) {
@@ -426,6 +444,13 @@ async function applyRatioPreview() {
         return;
     }
     if (!previewPayload) {
+        return;
+    }
+    const signature = ratioSignatureFromValues(ratios);
+    if (signature === appliedRatioSignature) {
+        ratioInputsDirty = false;
+        updateRatioStatus();
+        alert('比例未变化，无需重新计算');
         return;
     }
 
@@ -446,6 +471,7 @@ async function applyRatioPreview() {
         previewPayload = data;
         hasUnsavedRatioPreview = true;
         ratioInputsDirty = false;
+        appliedRatioSignature = signature;
         renderSummary();
         renderGroupOptions();
         renderRatios();
@@ -530,6 +556,7 @@ async function loadGlobalPreview() {
         previewPayload = data;
         hasUnsavedRatioPreview = false;
         ratioInputsDirty = false;
+        appliedRatioSignature = ratioSignatureFromProducts(data.products || []);
         activeGroupKey = data.groups && data.groups.length ? data.groups[0].group_key : '';
         renderSummary();
         renderGroupOptions();
@@ -571,6 +598,7 @@ async function saveRatios() {
         previewPayload = data;
         hasUnsavedRatioPreview = false;
         ratioInputsDirty = false;
+        appliedRatioSignature = ratioSignatureFromProducts(data.products || []);
         renderSummary();
         renderGroupOptions();
         renderRatios();
@@ -609,7 +637,7 @@ document.getElementById('groupSelect').addEventListener('change', (event) => {
     renderActiveGroup();
 });
 document.getElementById('ratioListBody').addEventListener('input', () => {
-    ratioInputsDirty = true;
+    ratioInputsDirty = currentRatioSignature() !== appliedRatioSignature;
     updateRatioStatus();
 });
 document.getElementById('calculateRatiosBtn').addEventListener('click', applyRatioPreview);

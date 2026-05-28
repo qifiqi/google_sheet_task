@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+import hashlib
 import json
 import math
 import re
@@ -25,6 +27,8 @@ from app.utils.task_error_utils import build_task_error_message, unwrap_exceptio
 
 BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
 RATIO_BASE = Decimal("100")
+GLOBAL_PREVIEW_CACHE_MAX_SIZE = 64
+_GLOBAL_PREVIEW_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 
 SUMMARY_ROW_DEFS = [
     ("绝对收益", "年化收益", "index_annualized_return", "start_annualized_return", "percent"),
@@ -82,6 +86,47 @@ def normalize_ratio_display(value: Any) -> str:
     normalized = ratio.quantize(Decimal("0.0001")).normalize()
     text = format(normalized, "f")
     return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _hash_text(value: Any) -> str:
+    raw = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def _global_preview_cache_key(
+    task_id: str,
+    products: list[dict[str, Any]],
+    results: list[TaskResult],
+) -> tuple[Any, ...]:
+    ratio_signature = tuple(normalize_ratio_display(product.get("ratio")) for product in products)
+    result_signature = tuple(
+        (
+            result.id,
+            result.step_index,
+            bool(result.success),
+            result.return_series_id,
+            result.timestamp.isoformat() if result.timestamp else None,
+            _hash_text(result.parameters or ""),
+            _hash_text(result.result or ""),
+        )
+        for result in results
+    )
+    return (task_id, ratio_signature, result_signature)
+
+
+def _get_global_preview_cache(cache_key: tuple[Any, ...]) -> dict[str, Any] | None:
+    cached = _GLOBAL_PREVIEW_CACHE.get(cache_key)
+    if cached is None:
+        return None
+    _GLOBAL_PREVIEW_CACHE.move_to_end(cache_key)
+    return deepcopy(cached)
+
+
+def _set_global_preview_cache(cache_key: tuple[Any, ...], payload: dict[str, Any]) -> None:
+    _GLOBAL_PREVIEW_CACHE[cache_key] = deepcopy(payload)
+    _GLOBAL_PREVIEW_CACHE.move_to_end(cache_key)
+    while len(_GLOBAL_PREVIEW_CACHE) > GLOBAL_PREVIEW_CACHE_MAX_SIZE:
+        _GLOBAL_PREVIEW_CACHE.popitem(last=False)
 
 
 def _normalize_sheet(product: dict[str, Any]) -> dict[str, str]:
@@ -754,6 +799,11 @@ def build_multi_product_global_preview_payload(
         .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
         .all()
     )
+    cache_key = _global_preview_cache_key(task_id, products, results)
+    cached_payload = _get_global_preview_cache(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
     groups: OrderedDict[str, dict[str, Any]] = OrderedDict()
     success_count = 0
     failed_count = 0
@@ -796,24 +846,32 @@ def build_multi_product_global_preview_payload(
     serialized_groups = []
     for group in groups.values():
         portfolio_metrics = _derive_metrics(_build_portfolio_metrics(group["product_results"], products))
+        weighted_metrics_by_product: dict[int, dict[str, Any]] = {}
+        metrics_by_product: dict[int, dict[str, Any]] = {}
+        for product in products:
+            product_index = int(product["product_index"])
+            product_result = group["product_results"].get(product_index) or {}
+            metrics_by_product[product_index] = product_result.get("metrics") or {}
+            weighted_metrics = product_result.get("weighted_metrics") or {}
+            current_ratio = (products[product_index] if product_index < len(products) else {}).get("ratio")
+            saved_ratio = str((product_result.get("parameters") or {}).get("ratio") or "").strip()
+            if not weighted_metrics or saved_ratio != str(current_ratio or "").strip():
+                weighted_metrics = _derive_metrics(
+                    _build_weighted_product_metrics(
+                        product_result.get("return_date") or [],
+                        current_ratio,
+                    )
+                )
+                product_result["weighted_metrics"] = weighted_metrics
+            weighted_metrics_by_product[product_index] = weighted_metrics
+
         rows = []
         for category, metric, index_key, result_key, value_type in SUMMARY_ROW_DEFS:
             product_values = []
             for product in products:
                 product_index = int(product["product_index"])
-                product_result = group["product_results"].get(product_index) or {}
-                metrics = product_result.get("metrics") or {}
-                weighted_metrics = product_result.get("weighted_metrics") or {}
-                current_ratio = (products[product_index] if product_index < len(products) else {}).get("ratio")
-                saved_ratio = str((product_result.get("parameters") or {}).get("ratio") or "").strip()
-                if ratios_override is not None or not weighted_metrics or saved_ratio != str(current_ratio or "").strip():
-                    weighted_metrics = _derive_metrics(
-                        _build_weighted_product_metrics(
-                            product_result.get("return_date") or [],
-                            current_ratio,
-                        )
-                    )
-                    product_result["weighted_metrics"] = weighted_metrics
+                metrics = metrics_by_product.get(product_index) or {}
+                weighted_metrics = weighted_metrics_by_product.get(product_index) or {}
                 index_value = metrics.get(index_key) if index_key else None
                 result_value = metrics.get(result_key) if result_key else None
                 product_values.append({
@@ -855,7 +913,7 @@ def build_multi_product_global_preview_payload(
             "result_count": len(group["product_results"]),
         })
 
-    return {
+    payload = {
         "task": {
             "id": task.id,
             "name": task.name,
@@ -873,3 +931,5 @@ def build_multi_product_global_preview_payload(
         "products": products,
         "groups": serialized_groups,
     }
+    _set_global_preview_cache(cache_key, payload)
+    return payload

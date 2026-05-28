@@ -13,6 +13,10 @@
             <i class="bi bi-arrow-clockwise"></i>
             刷新
         </button>
+        <button class="btn btn-outline-success" id="exportCsvBtn">
+            <i class="bi bi-file-earmark-spreadsheet"></i>
+            导出 CSV
+        </button>
         <button class="btn btn-primary" id="rebuildBtn">
             <i class="bi bi-database-fill-gear"></i>
             重建索引
@@ -66,7 +70,7 @@
                         <option value="true">仅最优</option>
                         <option value="false">全部结果</option>
                     </select>
-                    <div class="form-text">全部结果必须输入单个股票代码</div>
+                    <div class="form-text">全部结果必须输入股票代码、股票名或任务名关键字</div>
                 </div>
                 <div class="filter-actions">
                     <button type="submit" class="btn btn-primary" id="queryBtn">
@@ -138,6 +142,31 @@
         <div class="btn-group">
             <button class="btn btn-outline-secondary btn-sm" id="prevPage">上一页</button>
             <button class="btn btn-outline-secondary btn-sm" id="nextPage">下一页</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="exportCsvModal" tabindex="-1" aria-labelledby="exportCsvModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportCsvModalLabel">确认导出 CSV</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label" for="exportFilename">文件名</label>
+                    <input type="text" class="form-control" id="exportFilename" placeholder="请输入 CSV 文件名">
+                    <div class="form-text">无需输入 .csv，系统会自动补全。</div>
+                </div>
+                <div class="small text-muted" id="exportSummaryText"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" id="confirmExportCsvBtn">
+                    <i class="bi bi-file-earmark-spreadsheet me-1"></i>确认导出
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -430,6 +459,36 @@
         return params;
     }
 
+    function safeFilenamePart(value) {
+        const text = String(value || "").trim();
+        if (!text) return "";
+        return text.replace(/[\\/:*?"<>|\r\n\t]+/g, "_").slice(0, 80);
+    }
+
+    function defaultExportFilename() {
+        const summaryType = document.getElementById("summaryType").value === "stock" ? "股票汇总" : "任务汇总";
+        const range = document.getElementById("bestOnly").value === "false" ? "全部结果" : "仅最优";
+        const taskTypeValue = document.getElementById("taskType").value;
+        const taskType = taskTypeValue ? taskTypeLabel(taskTypeValue) : "全部类型";
+        const keyword = document.getElementById("stockCode").value.trim() || document.getElementById("taskId").value.trim() || "全部";
+        const now = new Date();
+        const pad = (value) => String(value).padStart(2, "0");
+        const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        return [summaryType, range, taskType, keyword, timestamp]
+            .map(safeFilenamePart)
+            .filter(Boolean)
+            .join("_");
+    }
+
+    function describeExportFilters() {
+        const taskTypeValue = document.getElementById("taskType").value;
+        const taskType = taskTypeValue ? taskTypeLabel(taskTypeValue) : "全部";
+        const keyword = document.getElementById("stockCode").value.trim() || "未填写";
+        const summaryType = document.getElementById("summaryType").value === "stock" ? "股票汇总" : "任务汇总";
+        const range = document.getElementById("bestOnly").value === "false" ? "全部结果" : "仅最优";
+        return `任务类型：${taskType}；查询词：${keyword}；汇总方式：${summaryType}；数据范围：${range}`;
+    }
+
     function renderHead() {
         const fixedHead = leadingColumns.map(([key, label], index) => {
             const sticky = index === 0 ? ` sticky-col sticky-col-${index + 1}` : "";
@@ -488,7 +547,7 @@
         const bestOnly = document.getElementById("bestOnly").value;
         const stockCode = document.getElementById("stockCode").value.trim();
         if (bestOnly === "false" && !stockCode) {
-            throw new Error("查询全部结果时必须输入单个股票代码");
+            throw new Error("查询全部结果时必须输入股票代码、股票名或任务名关键字");
         }
         const queryButton = document.getElementById("queryBtn");
         queryButton.disabled = true;
@@ -512,6 +571,78 @@
         } finally {
             queryButton.disabled = false;
             queryButton.innerHTML = `<i class="bi bi-search me-1"></i>查询`;
+        }
+    }
+
+    function getExportFilenameFromResponse(response) {
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match) {
+            try {
+                return decodeURIComponent(utf8Match[1]);
+            } catch (error) {
+                return utf8Match[1];
+            }
+        }
+        const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+        return asciiMatch ? asciiMatch[1] : "";
+    }
+
+    function openExportCsvModal() {
+        const bestOnly = document.getElementById("bestOnly").value;
+        const stockCode = document.getElementById("stockCode").value.trim();
+        if (bestOnly === "false" && !stockCode) {
+            throw new Error("导出全部结果时必须输入股票代码、股票名或任务名关键字");
+        }
+
+        const filenameInput = document.getElementById("exportFilename");
+        filenameInput.value = defaultExportFilename();
+        document.getElementById("exportSummaryText").textContent = describeExportFilters();
+        const modalElement = document.getElementById("exportCsvModal");
+        const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+        modal.show();
+        modalElement.addEventListener("shown.bs.modal", () => {
+            filenameInput.focus();
+            filenameInput.select();
+        }, { once: true });
+    }
+
+    async function exportSummaryCsv() {
+        const exportButton = document.getElementById("exportCsvBtn");
+        const confirmButton = document.getElementById("confirmExportCsvBtn");
+        const filename = document.getElementById("exportFilename").value.trim();
+        const params = collectParams();
+        if (filename) params.set("filename", filename);
+
+        exportButton.disabled = true;
+        exportButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中`;
+        confirmButton.disabled = true;
+        confirmButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中`;
+        document.getElementById("statusText").textContent = "正在生成 CSV...";
+        try {
+            const response = await fetch(`/admin/api/model-summary/export?${params.toString()}`, {
+                headers: { Authorization: `Bearer ${getToken()}` },
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.message || "导出失败");
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = getExportFilenameFromResponse(response) || "model_summary.csv";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            bootstrap.Modal.getOrCreateInstance(document.getElementById("exportCsvModal")).hide();
+            document.getElementById("statusText").textContent = "CSV 已开始下载";
+        } finally {
+            exportButton.disabled = false;
+            exportButton.innerHTML = `<i class="bi bi-file-earmark-spreadsheet"></i>导出 CSV`;
+            confirmButton.disabled = false;
+            confirmButton.innerHTML = `<i class="bi bi-file-earmark-spreadsheet me-1"></i>确认导出`;
         }
     }
 
@@ -613,6 +744,18 @@
         runSummaryQuery();
     });
     document.getElementById("refreshBtn").addEventListener("click", () => runSummaryQuery());
+    document.getElementById("exportCsvBtn").addEventListener("click", () => {
+        try {
+            openExportCsvModal();
+        } catch (error) {
+            document.getElementById("statusText").textContent = error.message;
+            alert(error.message || "导出失败");
+        }
+    });
+    document.getElementById("confirmExportCsvBtn").addEventListener("click", () => exportSummaryCsv().catch((error) => {
+        document.getElementById("statusText").textContent = error.message;
+        alert(error.message || "导出失败");
+    }));
     document.getElementById("rebuildBtn").addEventListener("click", () => rebuildSummary().catch((error) => {
         document.getElementById("statusText").textContent = error.message;
         alert(error.message || "重建失败");

@@ -4,7 +4,7 @@ from datetime import datetime
 import pytest
 
 from app.extensions import db
-from app.models import Task, TaskResult, TaskResultReturn
+from app.models import Permission, Task, TaskResult, TaskResultReturn
 from app.routes.backtest_multi_product import (
     _build_excel_download_name,
     _build_global_preview_workbook,
@@ -12,6 +12,7 @@ from app.routes.backtest_multi_product import (
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     BacktestMultiProductService,
+    _GLOBAL_PREVIEW_CACHE,
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
 )
@@ -230,6 +231,22 @@ def test_multi_product_result_detail_includes_daily_returns_from_return_series(a
             created_at=datetime.now(),
         )
         db.session.add(task)
+        db.session.add_all([
+            Permission(
+                name="查看任务",
+                code="task:view",
+                group="task",
+                description="查看任务",
+                route_path="/admin/tasks",
+            ),
+            Permission(
+                name="查看回测任务",
+                code="backtest:view",
+                group="backtest",
+                description="查看回测任务",
+                route_path="/backtest/list",
+            ),
+        ])
         return_series = TaskResultReturn(
             task_id=task.id,
             returns_json=json.dumps({
@@ -341,6 +358,25 @@ def _task_result_payload(index_return, start_return):
 def _task_result_payload_with_returns(index_return, start_return, returns):
     payload = _task_result_payload(index_return, start_return)
     payload["sheet__title"]["return_date"] = returns
+    return payload
+
+
+def _task_result_payload_with_returns_and_weighted(index_return, start_return, weighted_start, returns):
+    payload = _task_result_payload_with_returns(index_return, start_return, returns)
+    payload["sheet__title"]["weighted_calculate_metrics"] = {
+        "excess_returns": [{
+            "year": "all",
+            "index_annualized_return": weighted_start,
+            "start_annualized_return": weighted_start,
+            "annualized_return_diff": 0,
+        }],
+        "index_profit_annual": 1,
+        "start_profit_annual": 1,
+        "index_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+        "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+        "index_sharpe_ratios": {"all": {"avg_monthly_return": weighted_start, "sharpe_ratio": weighted_start}},
+        "start_sharpe_ratios": {"all": {"avg_monthly_return": weighted_start, "sharpe_ratio": weighted_start}},
+    }
     return payload
 
 
@@ -495,6 +531,212 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
         )
         assert preview_payload["groups"][0]["rows"][0]["weighted_result_value"] == "3300.00%"
         assert json.loads(db.session.get(Task, task.id).config)["products"][0]["ratio"] == "25"
+
+
+def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_factory, monkeypatch):
+    app = app_factory
+    captured_returns = []
+    _GLOBAL_PREVIEW_CACHE.clear()
+
+    def fake_metrics(return_date):
+        captured_returns.append(return_date)
+        total_start = sum(item["start_return"] for item in return_date)
+        total_index = sum(item["index_return"] for item in return_date)
+        return {
+            "excess_returns": [{
+                "year": "all",
+                "index_annualized_return": total_index,
+                "start_annualized_return": total_start,
+                "annualized_return_diff": total_start - total_index,
+            }],
+            "index_profit_annual": 1,
+            "start_profit_annual": 1,
+            "index_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+            "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+            "index_sharpe_ratios": {"all": {"avg_monthly_return": total_index, "sharpe_ratio": total_index}},
+            "start_sharpe_ratios": {"all": {"avg_monthly_return": total_start, "sharpe_ratio": total_start}},
+        }
+
+    monkeypatch.setattr(
+        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        fake_metrics,
+    )
+
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "products": [_base_product(0, "25"), _base_product(1, "75")],
+        })
+        task = Task(
+            id="ratio-preview-changed-only-task",
+            name="比例局部试算测试",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="completed",
+            config=json.dumps(config, ensure_ascii=False),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        first = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters=json.dumps({"product_index": 0, "ratio": "25", "parameter_group_index": 0}, ensure_ascii=False),
+            result=json.dumps(_task_result_payload_with_returns_and_weighted(0.10, 0.20, 0.25, [
+                {"date": "2024-01-01", "index_return": 1, "start_return": 2},
+                {"date": "2024-01-02", "index_return": 3, "start_return": 4},
+            ])),
+            success=True,
+        )
+        second = TaskResult(
+            task_id=task.id,
+            step_index=1,
+            parameters=json.dumps({"product_index": 1, "ratio": "75", "parameter_group_index": 0}, ensure_ascii=False),
+            result=json.dumps(_task_result_payload_with_returns_and_weighted(0.20, 0.40, 0.75, [
+                {"date": "2024-01-01", "index_return": 10, "start_return": 20},
+                {"date": "2024-01-02", "index_return": 30, "start_return": 40},
+            ])),
+            success=True,
+        )
+        db.session.add_all([first, second])
+        db.session.flush()
+        first_series = TaskResultReturn(
+            task_id=task.id,
+            returns_json=json.dumps({
+                "dates": ["2024-01-01", "2024-01-02"],
+                "index_returns": [1, 3],
+                "start_returns": [2, 4],
+            }),
+        )
+        second_series = TaskResultReturn(
+            task_id=task.id,
+            returns_json=json.dumps({
+                "dates": ["2024-01-01", "2024-01-02"],
+                "index_returns": [10, 30],
+                "start_returns": [20, 40],
+            }),
+        )
+        db.session.add_all([first_series, second_series])
+        db.session.flush()
+        first.return_series_id = first_series.id
+        second.return_series_id = second_series.id
+        db.session.commit()
+
+        payload = build_multi_product_global_preview_payload(
+            task.id,
+            ratios_override=[{"ratio": 25}, {"ratio": 50}],
+        )
+
+        row = payload["groups"][0]["rows"][0]
+        assert row["product_values"][0]["weighted_result_value"] == "25.00%"
+        assert row["product_values"][1]["weighted_result_value"] == "3000.00%"
+        assert row["weighted_result_value"] == "3150.00%"
+        assert captured_returns == [
+            [
+                {"date": "2024-01-01", "index_return": 5.25, "start_return": 10.5},
+                {"date": "2024-01-02", "index_return": 15.75, "start_return": 21.0},
+            ],
+            [
+                {"date": "2024-01-01", "index_return": 5.0, "start_return": 10.0},
+                {"date": "2024-01-02", "index_return": 15.0, "start_return": 20.0},
+            ],
+        ]
+        assert json.loads(db.session.get(Task, task.id).config)["products"][1]["ratio"] == "75"
+
+
+def test_global_preview_reuses_in_memory_cache_for_same_ratios(app_factory, monkeypatch):
+    app = app_factory
+    metric_call_count = 0
+    _GLOBAL_PREVIEW_CACHE.clear()
+
+    def fake_metrics(return_date):
+        nonlocal metric_call_count
+        metric_call_count += 1
+        total_start = sum(item["start_return"] for item in return_date)
+        total_index = sum(item["index_return"] for item in return_date)
+        return {
+            "excess_returns": [{
+                "year": "all",
+                "index_annualized_return": total_index,
+                "start_annualized_return": total_start,
+                "annualized_return_diff": total_start - total_index,
+            }],
+            "index_profit_annual": 1,
+            "start_profit_annual": 1,
+            "index_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+            "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+            "index_sharpe_ratios": {"all": {"avg_monthly_return": total_index, "sharpe_ratio": total_index}},
+            "start_sharpe_ratios": {"all": {"avg_monthly_return": total_start, "sharpe_ratio": total_start}},
+        }
+
+    monkeypatch.setattr(
+        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        fake_metrics,
+    )
+
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "products": [_base_product(0, "50"), _base_product(1, "50")],
+        })
+        task = Task(
+            id="preview-cache-task",
+            name="预览缓存测试",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="completed",
+            config=json.dumps(config, ensure_ascii=False),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        first = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters=json.dumps({"product_index": 0, "ratio": "50", "parameter_group_index": 0}, ensure_ascii=False),
+            result=json.dumps(_task_result_payload_with_returns_and_weighted(0.10, 0.20, 1, [
+                {"date": "2024-01-01", "index_return": 1, "start_return": 2},
+            ])),
+            success=True,
+        )
+        second = TaskResult(
+            task_id=task.id,
+            step_index=1,
+            parameters=json.dumps({"product_index": 1, "ratio": "50", "parameter_group_index": 0}, ensure_ascii=False),
+            result=json.dumps(_task_result_payload_with_returns_and_weighted(0.20, 0.40, 10, [
+                {"date": "2024-01-01", "index_return": 10, "start_return": 20},
+            ])),
+            success=True,
+        )
+        db.session.add_all([first, second])
+        db.session.flush()
+        first_series = TaskResultReturn(
+            task_id=task.id,
+            returns_json=json.dumps({
+                "dates": ["2024-01-01"],
+                "index_returns": [1],
+                "start_returns": [2],
+            }),
+        )
+        second_series = TaskResultReturn(
+            task_id=task.id,
+            returns_json=json.dumps({
+                "dates": ["2024-01-01"],
+                "index_returns": [10],
+                "start_returns": [20],
+            }),
+        )
+        db.session.add_all([first_series, second_series])
+        db.session.flush()
+        first.return_series_id = first_series.id
+        second.return_series_id = second_series.id
+        db.session.commit()
+
+        first_payload = build_multi_product_global_preview_payload(task.id)
+        calls_after_first = metric_call_count
+        second_payload = build_multi_product_global_preview_payload(task.id)
+
+        assert first_payload == second_payload
+        assert calls_after_first == 1
+        assert metric_call_count == calls_after_first
 
 
 def test_build_multi_product_global_preview_handles_result_metadata_outside_sheet_payload(app_factory):

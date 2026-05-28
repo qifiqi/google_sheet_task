@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import math
 import re
@@ -139,6 +141,26 @@ C4_C5_METRIC_CELLS = {
     "unit_actual_leverage_return": "D20",
 }
 
+CSV_LEADING_COLUMNS = [
+    ("stock_code", "产品/股票"),
+    ("task_name", "任务名"),
+    ("best_metric_value", "return beats"),
+    ("result_timestamp", "结果时间"),
+]
+
+CSV_TRAILING_COLUMNS = [
+    ("task_type", "类型"),
+    ("task_result_id", "结果 ID"),
+    ("year_label", "年份/区间"),
+]
+
+TASK_TYPE_LABELS = {
+    "google_sheet": "C3",
+    "google_sheet_C4": "C4",
+    "google_sheet_C5": "C5",
+    "backtest_training": "回测",
+}
+
 
 @dataclass(frozen=True)
 class SummaryRecord:
@@ -246,6 +268,46 @@ def _kline_range(parameters: Any) -> str:
 
 def _json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _csv_text(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+    return str(value)
+
+
+def _format_csv_metric(value: Any, format_name: str | None = None) -> str:
+    if value in (None, ""):
+        return ""
+    if not format_name and isinstance(value, str):
+        return value
+    number = _safe_number(value)
+    if number is None:
+        return _csv_text(value)
+    if format_name == "percent":
+        return f"{number * 100:.2f}%"
+    if format_name == "integer":
+        return str(int(round(number)))
+    return f"{number:.4f}".rstrip("0").rstrip(".")
+
+
+def _format_csv_parameter_summary(value: Any) -> str:
+    if isinstance(value, dict):
+        parameter_value = value.get("parameter")
+        if isinstance(parameter_value, list):
+            return ",".join(_csv_text(item) for item in parameter_value)
+        a1 = value.get("A1")
+        b1 = value.get("B1")
+        if a1 not in (None, "") or b1 not in (None, ""):
+            return ",".join(_csv_text(item) for item in (a1, b1) if item not in (None, ""))
+        return _csv_text(parameter_value)
+
+    parameter_value = value
+    if isinstance(parameter_value, list):
+        return ",".join(_csv_text(item) for item in parameter_value)
+    return _csv_text(parameter_value)
 
 
 def _parameter_summary(parameters: Any) -> dict[str, Any]:
@@ -1143,6 +1205,35 @@ class ModelSummaryService:
             },
         }
 
+    def export_csv(self, user: Any, filters: dict[str, Any]) -> dict[str, Any]:
+        export_filters = dict(filters)
+        export_filters["page"] = 1
+        export_filters["per_page"] = 200
+        items: list[dict[str, Any]] = []
+        columns: list[dict[str, str]] = []
+        summary_type = str(export_filters.get("summary_type") or "task").strip().lower() or "task"
+
+        while True:
+            payload = self.query(user, export_filters)
+            if payload.get("status") != "success":
+                return payload
+
+            if not columns:
+                columns = payload.get("columns") or []
+            items.extend(payload.get("items") or [])
+
+            pagination = payload.get("pagination") or {}
+            if not pagination.get("has_next"):
+                break
+            export_filters["page"] = int(export_filters["page"]) + 1
+
+        return {
+            "status": "success",
+            "filename": self._export_filename(export_filters, summary_type),
+            "content": self._render_csv(columns, items),
+            "count": len(items),
+        }
+
     def _apply_record(self, item: TaskResultSummaryIndex, row: SummaryRecord) -> None:
         item.task_id = row.task_id
         item.task_result_id = row.task_result_id
@@ -1215,6 +1306,15 @@ class ModelSummaryService:
 
         task_id = str(filters.get("task_id") or "").strip()
         result_id = filters.get("result_id")
+        task_query = db.session.query(Task.id).filter(Task.task_type.in_(visible_types))
+        if task_id:
+            task_query = task_query.filter(Task.id == task_id)
+        if stock_code:
+            task_query = task_query.filter(Task.name.ilike(f"%{stock_code}%"))
+        matched_task_ids = [row[0] for row in task_query.all()]
+        if not matched_task_ids:
+            return self._empty_response(page, per_page, columns=columns)
+
         query = (
             db.session.query(Task, TaskResult)
             .join(TaskResult, TaskResult.task_id == Task.id)
@@ -1229,19 +1329,14 @@ class ModelSummaryService:
                     TaskResult.timestamp,
                 ),
             )
-            .filter(Task.task_type.in_(visible_types), TaskResult.success == True)
+            .filter(Task.id.in_(matched_task_ids), TaskResult.success == True)
         )
-        if task_id:
-            query = query.filter(Task.id == task_id)
         if result_id:
             query = query.filter(TaskResult.id == int(result_id))
 
         rows: list[SummaryRecord] = []
-        normalized_stock_code = stock_code.upper()
         for task, result in query.order_by(TaskResult.timestamp.desc(), TaskResult.id.desc()).all():
-            for row in _extract_candidate_records(task, result):
-                if row.stock_code.upper() == normalized_stock_code:
-                    rows.append(row)
+            rows.extend(_extract_candidate_records(task, result))
 
         total = len(rows)
         start = (page - 1) * per_page
@@ -1541,6 +1636,67 @@ class ModelSummaryService:
 
     def _columns_for_task_type(self, task_type: str | None) -> list[dict[str, str]]:
         return BACKTEST_SUMMARY_COLUMNS if normalize_task_type(task_type) == "backtest_training" else SUMMARY_COLUMNS
+
+    def _export_filename(self, filters: dict[str, Any], summary_type: str) -> str:
+        custom_filename = self._safe_filename_part(filters.get("filename"))
+        if custom_filename and custom_filename != "all":
+            return custom_filename if custom_filename.lower().endswith(".csv") else f"{custom_filename}.csv"
+
+        task_type = self._safe_filename_part(filters.get("task_type") or "all")
+        stock_code = self._safe_filename_part(filters.get("stock_code") or "all")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"model_summary_{summary_type}_{task_type}_{stock_code}_{timestamp}.csv"
+
+    def _safe_filename_part(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return "all"
+        text = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", text)
+        return text[:80] or "all"
+
+    def _render_csv(self, columns: list[dict[str, str]], items: list[dict[str, Any]]) -> str:
+        buffer = io.StringIO(newline="")
+        writer = csv.writer(buffer)
+        headers = (
+            [label for _key, label in CSV_LEADING_COLUMNS]
+            + ["参数"]
+            + [column.get("label") or column.get("key") or "" for column in columns]
+            + [label for _key, label in CSV_TRAILING_COLUMNS]
+        )
+        writer.writerow(headers)
+
+        for item in items:
+            metrics = item.get("metrics") if isinstance(item.get("metrics"), dict) else {}
+            row = [
+                self._csv_column_value(item, key, "percent" if key == "best_metric_value" else None)
+                for key, _label in CSV_LEADING_COLUMNS
+            ]
+            row.append(_format_csv_parameter_summary(item.get("parameter_summary")))
+            row.extend(
+                _format_csv_metric(metrics.get(column.get("key")), column.get("format"))
+                for column in columns
+            )
+            row.extend(
+                self._csv_column_value(item, key)
+                for key, _label in CSV_TRAILING_COLUMNS
+            )
+            writer.writerow(row)
+        return buffer.getvalue()
+
+    def _csv_column_value(
+        self,
+        item: dict[str, Any],
+        key: str,
+        format_name: str | None = None,
+    ) -> str:
+        value = item.get(key)
+        if key == "task_type":
+            return TASK_TYPE_LABELS.get(str(value or ""), _csv_text(value))
+        if key == "result_timestamp" and value:
+            return str(value).replace("T", " ")
+        if format_name:
+            return _format_csv_metric(value, format_name)
+        return _csv_text(value)
 
     def _empty_response(
         self,

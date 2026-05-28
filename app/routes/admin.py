@@ -1,4 +1,6 @@
-from flask import Blueprint, current_app, g, jsonify, render_template, request
+from urllib.parse import quote
+
+from flask import Blueprint, Response, current_app, g, jsonify, render_template, request
 
 from app.extensions import db
 from app.services.model_summary_service import model_summary_service
@@ -190,6 +192,33 @@ def model_summary_api():
         return jsonify(payload)
     except Exception as e:
         logger.error(f"获取单模型汇总失败: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@admin_bp.route('/api/model-summary/export')
+@login_required
+@permission_required('task:view')
+def export_model_summary_api():
+    """按当前查询条件导出单模型汇总 CSV。"""
+    try:
+        payload = model_summary_service.export_csv(
+            getattr(g, "current_user", None),
+            request.args.to_dict(),
+        )
+        if payload.get("status") != "success":
+            return jsonify(payload), 400
+
+        filename = payload.get("filename") or "model_summary.csv"
+        response = Response(
+            "\ufeff" + (payload.get("content") or ""),
+            content_type="text/csv; charset=utf-8",
+        )
+        response.headers["Content-Disposition"] = (
+            f"attachment; filename=\"model_summary.csv\"; filename*=UTF-8''{quote(filename, safe='')}"
+        )
+        return response
+    except Exception as e:
+        logger.error(f"导出单模型汇总失败: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 

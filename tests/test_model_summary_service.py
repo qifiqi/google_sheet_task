@@ -1,10 +1,12 @@
+import csv
+import io
 import json
 import time
 
 import pytest
 
 from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
+from app.models import Permission, Task, TaskLog, TaskResult, TaskResultSummaryIndex
 from app.services.model_summary_service import extract_summary_records, model_summary_service
 
 
@@ -502,6 +504,237 @@ def test_query_all_results_requires_stock_and_reads_raw_results(app_factory):
         assert TaskResultSummaryIndex.query.filter_by(task_id="task-a").count() == 1
         assert payload["pagination"]["total"] == 3
         assert [item["task_result_id"] for item in payload["items"]] == [22, 21, 20]
+
+
+def test_query_all_results_fuzzy_matches_task_name_before_loading_results(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-a", task_type="google_sheet_C5", name="C5-600776-东方通信"))
+        db.session.add(_task(task_id="task-b", task_type="google_sheet_C5", name="C5-600519-贵州茅台"))
+        db.session.add(_result(
+            task_id="task-a",
+            result_id=23,
+            parameters={"A1": "1.8", "B1": "4", "year": "2025-2024"},
+            result={"sheet__model-a": {"D11": "15%"}},
+        ))
+        db.session.add(_result(
+            task_id="task-a",
+            result_id=24,
+            parameters={"A1": "2.0", "B1": "4", "year": "2025-2024"},
+            result={"sheet__model-a": {"D11": "18%"}},
+        ))
+        db.session.add(_result(
+            task_id="task-b",
+            result_id=25,
+            parameters={"A1": "2.0", "B1": "4", "year": "2025-2024"},
+            result={"sheet__model-b": {"D11": "30%"}},
+        ))
+        db.session.commit()
+
+        payload = model_summary_service.query(
+            _User(),
+            {
+                "best_only": "false",
+                "task_type": "google_sheet_C5",
+                "stock_code": "东方通信",
+                "page": 1,
+                "per_page": 10,
+            },
+        )
+
+        assert payload["status"] == "success"
+        assert payload["pagination"]["total"] == 2
+        assert [item["task_result_id"] for item in payload["items"]] == [24, 23]
+        assert all(item["task_id"] == "task-a" for item in payload["items"])
+
+
+def test_export_csv_uses_query_filters_and_ignores_pagination(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-a", name="600519"))
+        db.session.add(_task(task_id="task-b", name="600519"))
+        db.session.add(_task(task_id="task-c", name="000001"))
+        db.session.add(_result(task_id="task-a", result_id=20, result={"I15": 0.2, "I18": 0.01}))
+        db.session.add(_result(task_id="task-b", result_id=21, result={"I15": 0.3, "I18": 0.1}))
+        db.session.add(_result(task_id="task-c", result_id=22, result={"I15": 0.5, "I18": 0.1}))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        payload = model_summary_service.export_csv(
+            _User(),
+            {"stock_code": "600519", "page": 1, "per_page": 1},
+        )
+
+        assert payload["status"] == "success"
+        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        assert [row["任务名"] for row in rows] == ["600519", "600519"]
+        assert [row["结果 ID"] for row in rows] == ["21", "20"]
+        assert all(row["产品/股票"] == "600519" for row in rows)
+        assert "000001" not in payload["content"]
+
+
+def test_export_csv_supports_all_results_query(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-a", name="600519"))
+        db.session.add(_result(task_id="task-a", result_id=20, result={"I15": 0.1, "I18": 0.01}))
+        db.session.add(_result(task_id="task-a", result_id=21, result={"I15": 0.2, "I18": 0.15}))
+        db.session.add(_result(task_id="task-a", result_id=22, result={"I15": 0.15, "I18": 0.02}))
+        db.session.commit()
+
+        model_summary_service.rebuild(task_id="task-a", reset=True)
+        payload = model_summary_service.export_csv(
+            _User(),
+            {"best_only": "false", "stock_code": "600519", "page": 1, "per_page": 1},
+        )
+
+        assert payload["status"] == "success"
+        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        assert [row["结果 ID"] for row in rows] == ["22", "21", "20"]
+        assert [row["return beats"] for row in rows] == ["13.00%", "5.00%", "9.00%"]
+
+
+def test_export_csv_joins_parameter_list_values(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c5", task_type="google_sheet_C5", name="C5-600776-东方通信"))
+        db.session.add(_result(
+            task_id="task-c5",
+            result_id=26,
+            parameters={"parameter": [4, 0.92, 0.3, 1, 0, 0]},
+            result={"sheet__model": {"D11": "18%"}},
+        ))
+        db.session.commit()
+
+        payload = model_summary_service.export_csv(
+            _User(),
+            {
+                "best_only": "false",
+                "task_type": "google_sheet_C5",
+                "stock_code": "东方通信",
+                "page": 1,
+                "per_page": 10,
+            },
+        )
+
+        assert payload["status"] == "success"
+        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        assert rows[0]["参数"] == "4,0.92,0.3,1,0,0"
+
+
+def test_export_csv_joins_a1_b1_when_parameter_list_missing(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c5", task_type="google_sheet_C5", name="C5-002916-深南电路"))
+        db.session.add(_result(
+            task_id="task-c5",
+            result_id=27,
+            parameters={"stock_code": "002916", "year": 2025, "A1": 11, "B1": 3},
+            result={"sheet__model": {"D11": "18%"}},
+        ))
+        db.session.commit()
+
+        payload = model_summary_service.export_csv(
+            _User(),
+            {
+                "best_only": "false",
+                "task_type": "google_sheet_C5",
+                "stock_code": "深南电路",
+                "page": 1,
+                "per_page": 10,
+            },
+        )
+
+        assert payload["status"] == "success"
+        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        assert rows[0]["参数"] == "11,3"
+
+
+def test_export_csv_uses_custom_safe_filename(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-a", name="600519"))
+        db.session.add(_result(task_id="task-a", result_id=20, result={"I15": 0.2, "I18": 0.01}))
+        db.session.commit()
+
+        model_summary_service.rebuild(task_id="task-a", reset=True)
+        payload = model_summary_service.export_csv(
+            _User(),
+            {
+                "stock_code": "600519",
+                "filename": "东方通信/全部结果",
+                "page": 1,
+                "per_page": 10,
+            },
+        )
+
+        assert payload["status"] == "success"
+        assert payload["filename"] == "东方通信_全部结果.csv"
+
+
+def test_export_csv_preserves_backtest_display_metrics(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-bt", task_type="backtest_training", name="回测任务"))
+        db.session.add(_result(
+            task_id="task-bt",
+            result_id=30,
+            parameters={"stock_code": "000001"},
+            result={
+                "sheet": {
+                    "calculate_metrics": {
+                        "excess_returns": [
+                            {
+                                "year": "all",
+                                "start_annualized_return": 0.12,
+                                "annualized_return_diff": 0.04,
+                            }
+                        ],
+                        "start_profit_annual": 0.7,
+                    }
+                }
+            },
+        ))
+        db.session.commit()
+
+        model_summary_service.rebuild(task_id="task-bt", reset=True)
+        payload = model_summary_service.export_csv(
+            _User(),
+            {"task_type": "backtest_training", "page": 1, "per_page": 1},
+        )
+
+        assert payload["status"] == "success"
+        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        assert rows[0]["年化收益"] == "12.00%"
+        assert rows[0]["年化超额收益"] == "4.00%"
+
+
+def test_export_model_summary_api_returns_csv_download(app_factory, monkeypatch):
+    app = app_factory
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    with app.app_context():
+        db.session.add(Permission(name="查看任务", code="task:view", group="task"))
+        db.session.add(Permission(name="查看 C3", code="google_sheet:c3", group="task"))
+        db.session.add(_task(task_id="task-a", name="600519"))
+        db.session.add(_result(task_id="task-a", result_id=20, result={"I15": 0.2, "I18": 0.01}))
+        db.session.commit()
+
+        model_summary_service.rebuild(task_id="task-a", reset=True)
+
+    response = app.test_client().get(
+        "/admin/api/model-summary/export",
+        query_string={"stock_code": "600519", "filename": "东方通信/全部结果"},
+    )
+
+    assert response.status_code == 200
+    assert response.content_type == "text/csv; charset=utf-8"
+    assert "attachment;" in response.headers["Content-Disposition"]
+    assert "filename=\"model_summary.csv\"" in response.headers["Content-Disposition"]
+    assert "filename*=UTF-8''%E4%B8%9C%E6%96%B9%E9%80%9A%E4%BF%A1_%E5%85%A8%E9%83%A8%E7%BB%93%E6%9E%9C.csv" in response.headers["Content-Disposition"]
+    text = response.data.decode("utf-8-sig")
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert rows[0]["产品/股票"] == "600519"
+    assert rows[0]["return beats"] == "19.00%"
 
 
 def test_rebuild_batches_by_task_not_result(app_factory):
