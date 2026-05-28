@@ -462,6 +462,7 @@ class TaskResultSummaryIndex(db.Model):
     task_type = db.Column(db.String(50), nullable=False, index=True, comment="任务类型")
     task_name = db.Column(db.String(255), comment="任务名称")
     stock_code = db.Column(db.String(64), index=True, comment="股票代码/产品代码")
+    stock_name = db.Column(db.String(255), index=True, comment="股票名称/产品名称")
     model_key = db.Column(db.String(255), nullable=False, default="default", comment="模型键")
     model_name = db.Column(db.String(255), comment="模型名称")
     year_label = db.Column(db.String(64), index=True, comment="年份或区间标签")
@@ -486,6 +487,7 @@ class TaskResultSummaryIndex(db.Model):
             "task_type": self.task_type,
             "task_name": self.task_name,
             "stock_code": self.stock_code,
+            "stock_name": self.stock_name,
             "model_key": self.model_key,
             "model_name": self.model_name,
             "year_label": self.year_label,
@@ -496,6 +498,43 @@ class TaskResultSummaryIndex(db.Model):
             "metrics": _normalize_summary_metrics(_json_object_or_empty(self.metrics_json)),
             "is_best": self.is_best,
             "result_timestamp": self.result_timestamp.isoformat() if self.result_timestamp else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class StockMetadata(db.Model):
+    """股票元数据表。"""
+
+    __tablename__ = "stock_metadata"
+    __table_args__ = (
+        db.UniqueConstraint("stock_code", "market_type", name="uk_stock_metadata_code_market_type"),
+        db.Index("idx_stock_metadata_name", "stock_name"),
+        db.Index("idx_stock_metadata_exchange_market", "exchange_market"),
+        {"comment": "股票元数据表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    stock_code = db.Column(db.String(64), nullable=False, index=True, comment="股票代码")
+    stock_name = db.Column(db.String(255), nullable=False, default="", comment="股票名称")
+    market_type = db.Column(db.String(20), nullable=False, default="", index=True, comment="业务市场类型 cn/us")
+    exchange_market = db.Column(db.String(50), comment="交易市场/东方财富 market")
+    security_type_name = db.Column(db.String(100), comment="证券类型名称")
+    source = db.Column(db.String(50), comment="数据来源")
+    raw_json = db.Column(db.Text, comment="原始搜索结果 JSON")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "stock_code": self.stock_code,
+            "stock_name": self.stock_name,
+            "market_type": self.market_type,
+            "exchange_market": self.exchange_market,
+            "security_type_name": self.security_type_name,
+            "source": self.source,
+            "raw": _json_object_or_empty(self.raw_json),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

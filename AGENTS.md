@@ -434,3 +434,5 @@ raise
 - 不要继续把旧 `app/services/task_manager.py` 当成真实生产入口
 - 不要把代理账号、密码、token 等敏感信息继续硬编码扩散到仓库里
 
+## svg保存位置
+.\docs\design 下建立独立的目录存放

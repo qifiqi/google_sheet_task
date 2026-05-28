@@ -1,0 +1,64 @@
+<svg width="1600" height="520" viewBox="0 0 1600 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="520" fill="#F3F6F8"/>
+  <rect x="36" y="34" width="1528" height="452" rx="16" fill="#FFFFFF" stroke="#D7DFE8"/>
+  <text x="68" y="78" fill="#101828" font-family="Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="700">数据汇总</text>
+  <text x="68" y="106" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">按当前筛选条件实时聚合，ReturnBeats 阈值从左到右逐级收紧</text>
+  <g transform="translate(68 140)">
+    <rect width="500" height="294" rx="12" fill="#F8FAFC" stroke="#DCE3ED"/>
+    <text x="28" y="40" fill="#475467" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">市场结构</text>
+    <text x="28" y="94" fill="#111827" font-family="DIN Alternate, Arial, sans-serif" font-size="54" font-weight="700">1,284</text>
+    <text x="172" y="92" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">股票总数</text>
+    <rect x="28" y="126" width="420" height="14" rx="7" fill="#E5E7EB"/>
+    <rect x="28" y="126" width="309" height="14" rx="7" fill="#22C55E"/>
+    <rect x="337" y="126" width="111" height="14" rx="7" fill="#6366F1"/>
+    <circle cx="34" cy="174" r="6" fill="#22C55E"/>
+    <text x="50" y="179" fill="#475467" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">A股</text>
+    <text x="410" y="179" fill="#111827" font-family="DIN Alternate, Arial, sans-serif" font-size="24" font-weight="700" text-anchor="end">942</text>
+    <circle cx="34" cy="220" r="6" fill="#6366F1"/>
+    <text x="50" y="225" fill="#475467" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">美股</text>
+    <text x="410" y="225" fill="#111827" font-family="DIN Alternate, Arial, sans-serif" font-size="24" font-weight="700" text-anchor="end">342</text>
+    <line x1="28" y1="248" x2="448" y2="248" stroke="#E5E7EB"/>
+    <text x="28" y="277" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">任务总数</text>
+    <text x="410" y="280" fill="#0891B2" font-family="DIN Alternate, Arial, sans-serif" font-size="28" font-weight="700" text-anchor="end">2,016</text>
+  </g>
+  <g transform="translate(596 140)">
+    <rect width="220" height="294" rx="12" fill="#F0FDF4" stroke="#BBF7D0"/>
+    <text x="24" y="40" fill="#166534" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">ReturnBeats</text>
+    <text x="24" y="72" fill="#15803D" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">&gt; 0%</text>
+    <text x="24" y="146" fill="#14532D" font-family="DIN Alternate, Arial, sans-serif" font-size="56" font-weight="700">816</text>
+    <rect x="24" y="184" width="172" height="10" rx="5" fill="#DCFCE7"/>
+    <rect x="24" y="184" width="132" height="10" rx="5" fill="#16A34A"/>
+    <text x="24" y="232" fill="#166534" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">正超额覆盖率</text>
+    <text x="24" y="260" fill="#166534" font-family="DIN Alternate, Arial, sans-serif" font-size="26" font-weight="700">63.6%</text>
+  </g>
+  <g transform="translate(844 140)">
+    <rect width="220" height="294" rx="12" fill="#F7FEE7" stroke="#D9F99D"/>
+    <text x="24" y="40" fill="#3F6212" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">ReturnBeats</text>
+    <text x="24" y="72" fill="#4D7C0F" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">&gt; 20%</text>
+    <text x="24" y="146" fill="#365314" font-family="DIN Alternate, Arial, sans-serif" font-size="56" font-weight="700">392</text>
+    <rect x="24" y="184" width="172" height="10" rx="5" fill="#ECFCCB"/>
+    <rect x="24" y="184" width="76" height="10" rx="5" fill="#65A30D"/>
+    <text x="24" y="232" fill="#4D7C0F" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">中高超额</text>
+    <text x="24" y="260" fill="#4D7C0F" font-family="DIN Alternate, Arial, sans-serif" font-size="26" font-weight="700">30.5%</text>
+  </g>
+  <g transform="translate(1092 140)">
+    <rect width="220" height="294" rx="12" fill="#FFFBEB" stroke="#FDE68A"/>
+    <text x="24" y="40" fill="#92400E" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">ReturnBeats</text>
+    <text x="24" y="72" fill="#B45309" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">&gt; 50%</text>
+    <text x="24" y="146" fill="#854D0E" font-family="DIN Alternate, Arial, sans-serif" font-size="56" font-weight="700">148</text>
+    <rect x="24" y="184" width="172" height="10" rx="5" fill="#FEF3C7"/>
+    <rect x="24" y="184" width="42" height="10" rx="5" fill="#D97706"/>
+    <text x="24" y="232" fill="#92400E" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">强超额</text>
+    <text x="24" y="260" fill="#92400E" font-family="DIN Alternate, Arial, sans-serif" font-size="26" font-weight="700">11.5%</text>
+  </g>
+  <g transform="translate(1340 140)">
+    <rect width="164" height="294" rx="12" fill="#FEF2F2" stroke="#FECACA"/>
+    <text x="20" y="40" fill="#991B1B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">ReturnBeats</text>
+    <text x="20" y="72" fill="#B91C1C" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">&gt; 100%</text>
+    <text x="20" y="146" fill="#7F1D1D" font-family="DIN Alternate, Arial, sans-serif" font-size="56" font-weight="700">43</text>
+    <rect x="20" y="184" width="120" height="10" rx="5" fill="#FEE2E2"/>
+    <rect x="20" y="184" width="18" height="10" rx="5" fill="#DC2626"/>
+    <text x="20" y="232" fill="#991B1B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">极高超额</text>
+    <text x="20" y="260" fill="#991B1B" font-family="DIN Alternate, Arial, sans-serif" font-size="26" font-weight="700">3.3%</text>
+  </g>
+</svg>

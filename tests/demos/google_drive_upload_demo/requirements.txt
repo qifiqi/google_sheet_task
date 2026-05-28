@@ -1,0 +1,5 @@
+Flask
+google-auth
+google-auth-oauthlib
+openpyxl
+requests

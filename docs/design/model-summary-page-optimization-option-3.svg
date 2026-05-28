@@ -1,0 +1,70 @@
+<svg width="1600" height="1000" viewBox="0 0 1600 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="1000" fill="#F6F8FB"/>
+  <text x="40" y="44" fill="#111827" font-family="Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="700">方案 3：任务流工作台</text>
+  <text x="40" y="76" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">强调任务操作、索引状态和结果表格，适合运维/分析人员反复重建和排查。</text>
+  <g transform="translate(40 108)">
+    <rect width="1520" height="70" rx="12" fill="#111827"/>
+    <text x="24" y="30" fill="#CBD5E1" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">当前索引状态</text>
+    <text x="24" y="53" fill="#FFFFFF" font-family="Microsoft YaHei, Arial, sans-serif" font-size="18" font-weight="700">已加载 · 任务 255 · 股票 73 · 最新重建 10:49:20</text>
+    <rect x="1130" y="18" width="108" height="34" rx="6" fill="#FFFFFF" fill-opacity="0.08" stroke="#475569"/><text x="1152" y="40" fill="#E5E7EB" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">刷新</text>
+    <rect x="1250" y="18" width="126" height="34" rx="6" fill="#16A34A"/><text x="1276" y="40" fill="#FFFFFF" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">导出 CSV</text>
+    <rect x="1390" y="18" width="108" height="34" rx="6" fill="#2563EB"/><text x="1414" y="40" fill="#FFFFFF" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">重建索引</text>
+  </g>
+  <g transform="translate(40 202)">
+    <rect width="1520" height="128" rx="12" fill="#FFFFFF" stroke="#D7DFE8"/>
+    <g transform="translate(22 20)">
+      <rect width="270" height="88" rx="9" fill="#F8FAFC" stroke="#E2E8F0"/>
+      <text x="18" y="29" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700">市场结构</text>
+      <text x="18" y="68" fill="#111827" font-family="DIN Alternate, Arial, sans-serif" font-size="34" font-weight="700">73</text>
+      <text x="96" y="66" fill="#64748B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">A 34 / US 39</text>
+    </g>
+    <g transform="translate(318 20)">
+      <rect width="270" height="88" rx="9" fill="#F0FDF4" stroke="#BBF7D0"/>
+      <text x="18" y="29" fill="#166534" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700">ReturnBeats &gt; 0</text>
+      <text x="18" y="68" fill="#14532D" font-family="DIN Alternate, Arial, sans-serif" font-size="34" font-weight="700">214</text>
+      <text x="140" y="66" fill="#166534" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">100%</text>
+    </g>
+    <g transform="translate(614 20)">
+      <rect width="270" height="88" rx="9" fill="#F7FEE7" stroke="#D9F99D"/>
+      <text x="18" y="29" fill="#4D7C0F" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700">ReturnBeats &gt; 20</text>
+      <text x="18" y="68" fill="#365314" font-family="DIN Alternate, Arial, sans-serif" font-size="34" font-weight="700">181</text>
+      <text x="140" y="66" fill="#4D7C0F" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">84.6%</text>
+    </g>
+    <g transform="translate(910 20)">
+      <rect width="270" height="88" rx="9" fill="#FFFBEB" stroke="#FDE68A"/>
+      <text x="18" y="29" fill="#92400E" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700">ReturnBeats &gt; 50</text>
+      <text x="18" y="68" fill="#854D0E" font-family="DIN Alternate, Arial, sans-serif" font-size="34" font-weight="700">147</text>
+      <text x="140" y="66" fill="#92400E" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">68.7%</text>
+    </g>
+    <g transform="translate(1206 20)">
+      <rect width="292" height="88" rx="9" fill="#FEF2F2" stroke="#FECACA"/>
+      <text x="18" y="29" fill="#991B1B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700">ReturnBeats &gt; 100</text>
+      <text x="18" y="68" fill="#7F1D1D" font-family="DIN Alternate, Arial, sans-serif" font-size="34" font-weight="700">107</text>
+      <text x="140" y="66" fill="#991B1B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">50.0%</text>
+    </g>
+  </g>
+  <g transform="translate(40 352)">
+    <rect width="1520" height="86" rx="12" fill="#FFFFFF" stroke="#D7DFE8"/>
+    <g transform="translate(20 26)" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">
+      <rect width="126" height="34" rx="17" fill="#EFF6FF" stroke="#BFDBFE"/><text x="28" y="22" fill="#1D4ED8">全部任务</text>
+      <rect x="140" width="112" height="34" rx="17" fill="#FFFFFF" stroke="#CBD5E1"/><text x="168" y="22" fill="#475569">A股</text>
+      <rect x="266" width="112" height="34" rx="17" fill="#FFFFFF" stroke="#CBD5E1"/><text x="294" y="22" fill="#475569">美股</text>
+      <rect x="392" width="154" height="34" rx="17" fill="#FFFFFF" stroke="#CBD5E1"/><text x="420" y="22" fill="#475569">ReturnBeats &gt;20</text>
+      <rect x="560" width="154" height="34" rx="17" fill="#FFFFFF" stroke="#CBD5E1"/><text x="588" y="22" fill="#475569">全部结果</text>
+      <rect x="1230" width="268" height="34" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/><text x="1250" y="22" fill="#94A3B8">输入股票代码、名称或任务 ID</text>
+    </g>
+  </g>
+  <g transform="translate(40 460)">
+    <rect width="1520" height="460" rx="12" fill="#FFFFFF" stroke="#D7DFE8"/>
+    <rect width="1520" height="42" rx="12" fill="#F8FAFC"/>
+    <text x="18" y="27" fill="#111827" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14" font-weight="700">结果列表</text>
+    <text x="1370" y="27" fill="#64748B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">显示 1-50，共 255</text>
+    <g transform="translate(18 62)" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">
+      <rect width="1484" height="40" fill="#FFFFFF"/><text x="0" y="26" fill="#111827" font-weight="700">产品/股票</text><text x="132" y="26" fill="#111827" font-weight="700">任务名</text><text x="330" y="26" fill="#111827" font-weight="700">ReturnBeats</text><text x="470" y="26" fill="#111827" font-weight="700">参数</text><text x="670" y="26" fill="#111827" font-weight="700">年份/区间</text><text x="920" y="26" fill="#111827" font-weight="700">指标</text>
+      <line x1="0" y1="40" x2="1484" y2="40" stroke="#E2E8F0"/>
+      <text x="0" y="76" fill="#334155">QQQ</text><text x="132" y="76" fill="#334155">C5-QQQ-Invesco</text><text x="330" y="76" fill="#15803D">147.23%</text><text x="470" y="76" fill="#334155">3.5,3</text><text x="670" y="76" fill="#334155">2025-01-01 ~ 2025-12-31</text><text x="920" y="76" fill="#334155">Return 252%</text>
+      <line x1="0" y1="96" x2="1484" y2="96" stroke="#EDF2F7"/>
+      <text x="0" y="132" fill="#334155">600776</text><text x="132" y="132" fill="#334155">C5-600776-东方通信</text><text x="330" y="132" fill="#15803D">82.10%</text><text x="470" y="132" fill="#334155">11,3</text><text x="670" y="132" fill="#334155">2024-01-01 ~ 2024-12-31</text><text x="920" y="132" fill="#334155">Return 126%</text>
+    </g>
+  </g>
+</svg>

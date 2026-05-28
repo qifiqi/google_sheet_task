@@ -20,6 +20,7 @@ from app.services.backtest_multi_product_service import (
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
 )
+from app.services.stock_metadata_service import bulk_upsert_stock_metadata
 from app.utils.auth import login_required, permission_required
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
@@ -184,6 +185,20 @@ def search_stocks():
             "label": " · ".join(part for part in [code, short_name, security_type_name] if part),
             "status": item.get("status"),
         })
+
+    bulk_upsert_stock_metadata([
+        {
+            "stock_code": item.get("code"),
+            "stock_name": item.get("name"),
+            "market_type": item.get("market") or item.get("marketType"),
+            "exchange_market": item.get("market"),
+            "security_type_name": item.get("security_type_name"),
+            "source": item.get("source"),
+            "raw": item,
+        }
+        for item in normalized_results
+    ])
+    db.session.commit()
 
     return jsonify({"status": "success", "keyword": keyword, "results": normalized_results})
 

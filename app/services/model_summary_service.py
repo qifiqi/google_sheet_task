@@ -14,11 +14,14 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Load
+
+from flask import has_app_context
 
 from app.extensions import db
 from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
+from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.xpl_service import xpl_analyzer
 from app.utils.logger import get_logger
 from app.utils.task_authorization import filter_task_types_by_action, normalize_task_type
@@ -29,6 +32,7 @@ logger = get_logger(__name__)
 SUPPORTED_TASK_TYPES = ("google_sheet", "google_sheet_C4", "google_sheet_C5", "backtest_training")
 MODEL_SUMMARY_REBUILD_TASK_TYPE = "model_summary_rebuild"
 FINISHED_TASK_STATUSES = ("completed", "cancelled", "error")
+ACTIVE_REBUILD_TASK_STATUSES = ("pending", "running")
 SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
 
 SUMMARY_COLUMNS = [
@@ -143,15 +147,15 @@ C4_C5_METRIC_CELLS = {
 
 CSV_LEADING_COLUMNS = [
     ("stock_code", "产品/股票"),
+    ("stock_name", "股票名"),
     ("task_name", "任务名"),
+    ("task_type", "类型"),
     ("best_metric_value", "return beats"),
     ("result_timestamp", "结果时间"),
 ]
 
 CSV_TRAILING_COLUMNS = [
-    ("task_type", "类型"),
     ("task_result_id", "结果 ID"),
-    ("year_label", "年份/区间"),
 ]
 
 TASK_TYPE_LABELS = {
@@ -169,6 +173,7 @@ class SummaryRecord:
     task_type: str
     task_name: str
     stock_code: str
+    stock_name: str
     model_key: str
     model_name: str
     year_label: str
@@ -310,6 +315,42 @@ def _format_csv_parameter_summary(value: Any) -> str:
     return _csv_text(parameter_value)
 
 
+def _interval_display_value(item: dict[str, Any]) -> str:
+    return _csv_text(item.get("kline_range") or item.get("year_label"))
+
+
+def _normalize_market_type(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"cn", "a", "a股", "ashare", "china"}:
+        return "cn"
+    if text in {"us", "en", "美股", "usa"}:
+        return "us"
+    return ""
+
+
+def _is_cn_stock_code(stock_code: Any) -> bool:
+    return bool(re.fullmatch(r"\d+", str(stock_code or "").strip()))
+
+
+def _matches_market_type(stock_code: Any, market_type: str) -> bool:
+    if not market_type:
+        return True
+    text = str(stock_code or "").strip()
+    if not text:
+        return False
+    is_cn = _is_cn_stock_code(text)
+    return is_cn if market_type == "cn" else not is_cn
+
+
+def _normalize_excess_return_min(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    number = _safe_number(value)
+    if number is None:
+        return None
+    return number / 100 if abs(number) > 1 else number
+
+
 def _parameter_summary(parameters: Any) -> dict[str, Any]:
     if isinstance(parameters, dict):
         summary = {
@@ -349,8 +390,20 @@ def _display_model_name(raw_name: Any, task_type: str | None = None) -> str:
     return text
 
 
+def _strip_task_name_bracket_content(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    previous = None
+    while previous != text:
+        previous = text
+        text = re.sub(r"\s*[\(（][^()（）]*[\)）]\s*", " ", text).strip()
+        text = re.sub(r"\s*[\[【][^\[\]【】]*[\]】]\s*", " ", text).strip()
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _stock_code_from_task_name(task_type: str | None, task_name: str | None) -> str:
-    text = str(task_name or "").strip()
+    text = _strip_task_name_bracket_content(task_name)
     if not text:
         return ""
 
@@ -370,21 +423,29 @@ def _stock_code_from_task_name(task_type: str | None, task_name: str | None) -> 
 
 
 def _extract_stock_code(task: Task, parameters: Any) -> str:
+    normalized = normalize_task_type(task.task_type)
     parameter_task_name = _first_text_value(
         parameters,
         ("task_name", "name", "base_task_name", "taskName"),
     )
-    parsed = _stock_code_from_task_name(task.task_type, parameter_task_name)
-    if parsed:
-        return parsed
 
     config = _parse_json(task.config, {})
     if isinstance(parameters, dict):
+        direct = _first_text_value(parameters, ("stock_code", "stock_no", "code", "symbol"))
+        if direct:
+            return direct.upper()
         config_from_parameters = parameters.get("config")
         if isinstance(config_from_parameters, dict):
             config = {**config, **config_from_parameters} if isinstance(config, dict) else config_from_parameters
 
+    parsed = _stock_code_from_task_name(task.task_type, parameter_task_name)
+    if parsed:
+        return parsed
+
     if isinstance(config, dict):
+        direct = _first_text_value(config, ("stock_code", "stock_no", "code", "symbol"))
+        if direct:
+            return direct.upper()
         parsed = _stock_code_from_task_name(
             task.task_type,
             _first_text_value(config, ("task_name", "name", "base_task_name", "taskName")),
@@ -404,6 +465,32 @@ def _extract_stock_code(task: Task, parameters: Any) -> str:
         if direct:
             return direct.upper()
     return str(task.id).strip().upper()
+
+
+def _extract_stock_name(parameters: Any) -> str:
+    if not isinstance(parameters, dict):
+        return ""
+    return _first_text_value(parameters, ("stock_name", "name_cn", "product_name"))
+
+
+def _stock_name_from_config(task: Task, parameters: Any, stock_code: str) -> str:
+    stock_name = _extract_stock_name(parameters)
+    if stock_name:
+        return stock_name
+
+    config = _parse_json(task.config, {})
+    if isinstance(config, dict):
+        stock_name = _first_text_value(config, ("stock_name", "name_cn", "product_name"))
+        if stock_name:
+            return stock_name
+        if not has_app_context():
+            return ""
+        metadata = lookup_stock_metadata(stock_code, config.get("market_type"))
+    else:
+        if not has_app_context():
+            return ""
+        metadata = lookup_stock_metadata(stock_code)
+    return str(metadata.get("stock_name") or "").strip()
 
 
 def _extract_candidate_records(task: Task, result: TaskResult) -> list[SummaryRecord]:
@@ -480,13 +567,15 @@ def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
     metrics["return_beats"] = return_beats
     metrics.update(_extract_return_analysis_metrics(payload))
     summary = _parameter_summary(parameters)
+    stock_code = _extract_stock_code(task, parameters)
     return [
         SummaryRecord(
             task_id=task.id,
             task_result_id=result.id,
             task_type=task.task_type,
             task_name=task.name,
-            stock_code=_extract_stock_code(task, parameters),
+            stock_code=stock_code,
+            stock_name=_stock_name_from_config(task, parameters, stock_code),
             model_key="default",
             model_name="C3",
             year_label=str(summary.get("year") or ""),
@@ -537,13 +626,15 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
                 metrics.get("index_sharpe_ratio"),
             ),
         })
+        stock_code = _extract_stock_code(task, parameters)
         records.append(
             SummaryRecord(
                 task_id=task.id,
                 task_result_id=result.id,
                 task_type=task.task_type,
                 task_name=task.name,
-                stock_code=_extract_stock_code(task, parameters),
+                stock_code=stock_code,
+                stock_name=_stock_name_from_config(task, parameters, stock_code),
                 model_key=str(model_key),
                 model_name=model_name,
                 year_label=str(parameters.get("year") or parameters.get("Kline_key") or ""),
@@ -814,13 +905,15 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
     annualized_diff = _safe_number(metrics.get("relative_annualized_excess_return"))
     if annualized_diff is None:
         annualized_diff = _safe_number((_all_entry(calculate_metrics.get("excess_returns"))).get("annualized_return_diff"))
+    stock_code = _extract_stock_code(task, parameters)
     return [
         SummaryRecord(
             task_id=task.id,
             task_result_id=result.id,
             task_type=task.task_type,
             task_name=task.name,
-            stock_code=_extract_stock_code(task, parameters),
+            stock_code=stock_code,
+            stock_name=_stock_name_from_config(task, parameters, stock_code),
             model_key="default",
             model_name="回测",
             year_label=str(parameters.get("year") or parameters.get("Kline_key") or ""),
@@ -1001,47 +1094,51 @@ class ModelSummaryService:
         reset: bool = False,
         created_by_user_id: int | None = None,
     ) -> dict[str, Any]:
-        job_id = str(uuid.uuid4())
-        rebuild_task = Task(
-            id=job_id,
-            name="单模型汇总索引重建",
-            description="后台扫描历史 task_results，重建任务/股票汇总查询索引",
-            task_type=MODEL_SUMMARY_REBUILD_TASK_TYPE,
-            status="pending",
-            config=json.dumps(
-                {
+        with self._jobs_lock:
+            active_job = self._active_rebuild_job()
+            if active_job:
+                return active_job
+
+            job_id = str(uuid.uuid4())
+            rebuild_task = Task(
+                id=job_id,
+                name="单模型汇总索引重建",
+                description="后台扫描历史 task_results，重建任务/股票汇总查询索引",
+                task_type=MODEL_SUMMARY_REBUILD_TASK_TYPE,
+                status="pending",
+                config=json.dumps(
+                    {
+                        "task_type": task_type,
+                        "task_id": task_id,
+                        "batch_size": batch_size,
+                        "reset": reset,
+                    },
+                    ensure_ascii=False,
+                ),
+                total_steps=0,
+                current_step=0,
+                created_by_user_id=created_by_user_id,
+            )
+            db.session.add(rebuild_task)
+            db.session.add(TaskLog(task_id=job_id, level="info", message="索引重建任务已创建"))
+            db.session.commit()
+
+            job = {
+                "job_id": job_id,
+                "task_id": job_id,
+                "status": "pending",
+                "message": "索引重建任务已创建",
+                "params": {
                     "task_type": task_type,
                     "task_id": task_id,
                     "batch_size": batch_size,
                     "reset": reset,
                 },
-                ensure_ascii=False,
-            ),
-            total_steps=0,
-            current_step=0,
-            created_by_user_id=created_by_user_id,
-        )
-        db.session.add(rebuild_task)
-        db.session.add(TaskLog(task_id=job_id, level="info", message="索引重建任务已创建"))
-        db.session.commit()
-
-        job = {
-            "job_id": job_id,
-            "task_id": job_id,
-            "status": "pending",
-            "message": "索引重建任务已创建",
-            "params": {
-                "task_type": task_type,
-                "task_id": task_id,
-                "batch_size": batch_size,
-                "reset": reset,
-            },
-            "result": None,
-            "error": None,
-            "started_at": datetime.now().isoformat(),
-            "finished_at": None,
-        }
-        with self._jobs_lock:
+                "result": None,
+                "error": None,
+                "started_at": datetime.now().isoformat(),
+                "finished_at": None,
+            }
             self._jobs[job_id] = job
 
         thread = threading.Thread(
@@ -1052,6 +1149,24 @@ class ModelSummaryService:
         )
         thread.start()
         return job.copy()
+
+    def _active_rebuild_job(self) -> dict[str, Any] | None:
+        task = (
+            Task.query
+            .filter(
+                Task.task_type == MODEL_SUMMARY_REBUILD_TASK_TYPE,
+                Task.status.in_(ACTIVE_REBUILD_TASK_STATUSES),
+            )
+            .order_by(Task.created_at.desc(), Task.id.desc())
+            .first()
+        )
+        if not task:
+            return None
+
+        job = self._job_from_task(task.id)
+        if job:
+            job["message"] = f"已有索引重建任务正在执行: {task.id}"
+        return job
 
     def get_rebuild_job(self, job_id: str) -> dict[str, Any] | None:
         with self._jobs_lock:
@@ -1138,6 +1253,8 @@ class ModelSummaryService:
         per_page = min(max(int(filters.get("per_page") or 50), 1), 200)
         task_type = str(filters.get("task_type") or "").strip()
         stock_code = str(filters.get("stock_code") or "").strip()
+        market_type = _normalize_market_type(filters.get("market_type"))
+        excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
         best_only = str(filters.get("best_only", "true")).lower() not in {"false", "0", "no"}
         if not best_only:
             return self._query_all_results(user, filters, page, per_page, task_type, stock_code)
@@ -1161,8 +1278,10 @@ class ModelSummaryService:
             if not visible_types:
                 return self._empty_response(page, per_page)
             query = query.filter(TaskResultSummaryIndex.task_type.in_(visible_types))
-        if stock_code:
-            query = query.filter(TaskResultSummaryIndex.stock_code.ilike(f"%{stock_code}%"))
+        query = self._apply_stock_keyword_filter(query, stock_code)
+        query = self._apply_market_type_filter(query, market_type)
+        if excess_return_min is not None:
+            query = query.filter(TaskResultSummaryIndex.best_metric_value > excess_return_min)
         task_id = str(filters.get("task_id") or "").strip()
         if task_id:
             query = query.filter(TaskResultSummaryIndex.task_id == task_id)
@@ -1189,11 +1308,14 @@ class ModelSummaryService:
                 TaskResultSummaryIndex.result_timestamp.desc(),
                 TaskResultSummaryIndex.id.desc(),
             )
+        items = [item.to_dict() for item in query.all()]
+        summary = self._summary_from_items(items)
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         return {
             "status": "success",
             "summary_type": summary_type,
             "columns": self._columns_for_task_type(task_type),
+            "summary": summary,
             "items": [item.to_dict() for item in pagination.items],
             "pagination": {
                 "page": page,
@@ -1240,6 +1362,7 @@ class ModelSummaryService:
         item.task_type = row.task_type
         item.task_name = row.task_name
         item.stock_code = row.stock_code
+        item.stock_name = row.stock_name
         item.model_key = row.model_key
         item.model_name = row.model_name
         item.year_label = row.year_label
@@ -1258,6 +1381,7 @@ class ModelSummaryService:
             "task_type": row.task_type,
             "task_name": row.task_name,
             "stock_code": row.stock_code,
+            "stock_name": row.stock_name,
             "model_key": row.model_key,
             "model_name": row.model_name,
             "year_label": row.year_label,
@@ -1282,6 +1406,8 @@ class ModelSummaryService:
         stock_code: str,
     ) -> dict[str, Any]:
         columns = self._columns_for_task_type(task_type)
+        market_type = _normalize_market_type(filters.get("market_type"))
+        excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
         if not stock_code:
             return {
                 "status": "error",
@@ -1309,8 +1435,10 @@ class ModelSummaryService:
         task_query = db.session.query(Task.id).filter(Task.task_type.in_(visible_types))
         if task_id:
             task_query = task_query.filter(Task.id == task_id)
-        if stock_code:
-            task_query = task_query.filter(Task.name.ilike(f"%{stock_code}%"))
+        task_query = task_query.filter(or_(
+            Task.name.ilike(f"%{stock_code}%"),
+            Task.config.ilike(f"%{stock_code}%"),
+        ))
         matched_task_ids = [row[0] for row in task_query.all()]
         if not matched_task_ids:
             return self._empty_response(page, per_page, columns=columns)
@@ -1336,16 +1464,29 @@ class ModelSummaryService:
 
         rows: list[SummaryRecord] = []
         for task, result in query.order_by(TaskResult.timestamp.desc(), TaskResult.id.desc()).all():
-            rows.extend(_extract_candidate_records(task, result))
+            rows.extend(
+                row
+                for row in _extract_candidate_records(task, result)
+                if _matches_market_type(row.stock_code, market_type)
+            )
+        if excess_return_min is not None:
+            rows = [
+                row
+                for row in rows
+                if row.best_metric_value is not None and row.best_metric_value > excess_return_min
+            ]
 
         total = len(rows)
         start = (page - 1) * per_page
         paged_rows = rows[start:start + per_page]
         pages = math.ceil(total / per_page) if total else 0
+        records = [self._record_to_dict(row) for row in rows]
+        summary = self._summary_from_items(records)
         return {
             "status": "success",
             "summary_type": str(filters.get("summary_type") or "task"),
             "columns": columns,
+            "summary": summary,
             "items": [self._record_to_dict(row) for row in paged_rows],
             "pagination": {
                 "page": page,
@@ -1515,6 +1656,79 @@ class ModelSummaryService:
             )
         )
 
+    def _apply_market_type_filter(self, query, market_type: str):
+        if not market_type:
+            return query
+
+        column = TaskResultSummaryIndex.stock_code
+        dialect_name = db.engine.dialect.name
+        if dialect_name == "sqlite":
+            numeric_expression = column.op("GLOB")("[0-9]*") & ~column.op("GLOB")("*[^0-9]*")
+        elif dialect_name == "postgresql":
+            numeric_expression = column.op("~")(r"^\d+$")
+        else:
+            numeric_expression = column.op("REGEXP")(r"^\d+$")
+
+        non_empty_expression = and_(column.isnot(None), column != "")
+        if market_type == "cn":
+            return query.filter(non_empty_expression, numeric_expression)
+        return query.filter(non_empty_expression, ~numeric_expression)
+
+    def _apply_stock_keyword_filter(self, query, stock_keyword: str):
+        if not stock_keyword:
+            return query
+        pattern = f"%{stock_keyword}%"
+        return query.filter(or_(
+            TaskResultSummaryIndex.stock_code.ilike(pattern),
+            TaskResultSummaryIndex.stock_name.ilike(pattern),
+            TaskResultSummaryIndex.task_name.ilike(pattern),
+        ))
+
+    def _summary_from_items(self, items) -> dict[str, int]:
+        stock_codes: set[str] = set()
+        cn_stock_codes: set[str] = set()
+        us_stock_codes: set[str] = set()
+        task_ids: set[str] = set()
+        return_beats_counts = {
+            "return_beats_gt_0": 0,
+            "return_beats_gt_20": 0,
+            "return_beats_gt_50": 0,
+            "return_beats_gt_100": 0,
+        }
+
+        for item in items:
+            stock_code = str((item or {}).get("stock_code") or "").strip()
+            if stock_code:
+                stock_codes.add(stock_code)
+                if _is_cn_stock_code(stock_code):
+                    cn_stock_codes.add(stock_code)
+                else:
+                    us_stock_codes.add(stock_code)
+
+            task_id = str((item or {}).get("task_id") or "").strip()
+            if task_id:
+                task_ids.add(task_id)
+
+            value = _safe_number((item or {}).get("best_metric_value"))
+            if value is None:
+                continue
+            if value > 0:
+                return_beats_counts["return_beats_gt_0"] += 1
+            if value > 0.2:
+                return_beats_counts["return_beats_gt_20"] += 1
+            if value > 0.5:
+                return_beats_counts["return_beats_gt_50"] += 1
+            if value > 1:
+                return_beats_counts["return_beats_gt_100"] += 1
+
+        return {
+            "stock_count": len(stock_codes),
+            "cn_stock_count": len(cn_stock_codes),
+            "us_stock_count": len(us_stock_codes),
+            "task_count": len(task_ids),
+            **return_beats_counts,
+        }
+
     def _count_index_rows(self, task_type: str | None = None, task_id: str | None = None) -> int:
         query = TaskResultSummaryIndex.query
         if task_id:
@@ -1660,6 +1874,7 @@ class ModelSummaryService:
         headers = (
             [label for _key, label in CSV_LEADING_COLUMNS]
             + ["参数"]
+            + ["年份/区间"]
             + [column.get("label") or column.get("key") or "" for column in columns]
             + [label for _key, label in CSV_TRAILING_COLUMNS]
         )
@@ -1672,6 +1887,7 @@ class ModelSummaryService:
                 for key, _label in CSV_LEADING_COLUMNS
             ]
             row.append(_format_csv_parameter_summary(item.get("parameter_summary")))
+            row.append(_interval_display_value(item))
             row.extend(
                 _format_csv_metric(metrics.get(column.get("key")), column.get("format"))
                 for column in columns
@@ -1707,6 +1923,7 @@ class ModelSummaryService:
         return {
             "status": "success",
             "columns": columns or SUMMARY_COLUMNS,
+            "summary": self._summary_from_items([]),
             "items": [],
             "pagination": {
                 "page": page,

@@ -1,0 +1,53 @@
+<svg width="1600" height="1000" viewBox="0 0 1600 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="1000" fill="#F3F6F8"/>
+  <text x="40" y="44" fill="#111827" font-family="Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="700">方案 2：分析优先布局</text>
+  <text x="40" y="76" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">把筛选固定在左侧，右侧主区域用于汇总和表格，适合频繁调筛选条件。</text>
+  <g transform="translate(40 108)">
+    <rect width="286" height="812" rx="12" fill="#FFFFFF" stroke="#D7DFE8"/>
+    <text x="22" y="36" fill="#111827" font-family="Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700">查询条件</text>
+    <g font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">
+      <text x="22" y="80" fill="#475569">任务类型</text><rect x="22" y="92" width="242" height="36" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/><text x="36" y="115" fill="#111827">全部</text>
+      <text x="22" y="158" fill="#475569">股票代码 / 名称</text><rect x="22" y="170" width="242" height="36" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/><text x="36" y="193" fill="#94A3B8">如 QQQ / 东方通信</text>
+      <text x="22" y="236" fill="#475569">市场</text><rect x="22" y="248" width="242" height="36" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/><text x="36" y="271" fill="#111827">全部市场</text>
+      <text x="22" y="314" fill="#475569">超额收益</text><rect x="22" y="326" width="242" height="36" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/><text x="36" y="349" fill="#111827">ReturnBeats &gt; 20%</text>
+      <text x="22" y="392" fill="#475569">汇总方式</text><rect x="22" y="404" width="242" height="36" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/><text x="36" y="427" fill="#111827">任务汇总</text>
+      <text x="22" y="470" fill="#475569">数据范围</text><rect x="22" y="482" width="242" height="36" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/><text x="36" y="505" fill="#111827">仅最优</text>
+      <line x1="22" y1="552" x2="264" y2="552" stroke="#E2E8F0"/>
+      <rect x="22" y="584" width="242" height="40" rx="6" fill="#2563EB"/><text x="118" y="609" fill="#FFFFFF" text-anchor="middle">查询</text>
+      <rect x="22" y="638" width="242" height="40" rx="6" fill="#FFFFFF" stroke="#16A34A"/><text x="118" y="663" fill="#15803D" text-anchor="middle">导出 CSV</text>
+      <rect x="22" y="692" width="242" height="40" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/><text x="118" y="717" fill="#475569" text-anchor="middle">重置条件</text>
+    </g>
+  </g>
+  <g transform="translate(350 108)">
+    <rect width="1210" height="182" rx="12" fill="#FFFFFF" stroke="#D7DFE8"/>
+    <g transform="translate(24 24)">
+      <text x="0" y="0" dominant-baseline="hanging" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="700">市场结构</text>
+      <text x="0" y="64" fill="#111827" font-family="DIN Alternate, Arial, sans-serif" font-size="48" font-weight="700">73</text>
+      <text x="88" y="63" fill="#64748B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">股票总数</text>
+      <rect x="180" y="42" width="220" height="10" rx="5" fill="#E2E8F0"/>
+      <rect x="180" y="42" width="103" height="10" rx="5" fill="#22C55E"/>
+      <rect x="283" y="42" width="117" height="10" rx="5" fill="#6366F1"/>
+      <text x="180" y="83" fill="#64748B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">A股 34</text>
+      <text x="270" y="83" fill="#64748B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">美股 39</text>
+      <text x="360" y="83" fill="#64748B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">任务 255</text>
+    </g>
+    <g transform="translate(500 24)">
+      <rect width="150" height="132" rx="9" fill="#F0FDF4" stroke="#BBF7D0"/><text x="18" y="30" fill="#166534" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700">&gt; 0%</text><text x="18" y="78" fill="#14532D" font-family="DIN Alternate, Arial, sans-serif" font-size="38" font-weight="700">214</text><text x="18" y="108" fill="#166534" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">100%</text>
+      <rect x="170" width="150" height="132" rx="9" fill="#F7FEE7" stroke="#D9F99D"/><text x="188" y="30" fill="#4D7C0F" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700">&gt; 20%</text><text x="188" y="78" fill="#365314" font-family="DIN Alternate, Arial, sans-serif" font-size="38" font-weight="700">181</text><text x="188" y="108" fill="#4D7C0F" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">84.6%</text>
+      <rect x="340" width="150" height="132" rx="9" fill="#FFFBEB" stroke="#FDE68A"/><text x="358" y="30" fill="#92400E" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700">&gt; 50%</text><text x="358" y="78" fill="#854D0E" font-family="DIN Alternate, Arial, sans-serif" font-size="38" font-weight="700">147</text><text x="358" y="108" fill="#92400E" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">68.7%</text>
+      <rect x="510" width="150" height="132" rx="9" fill="#FEF2F2" stroke="#FECACA"/><text x="528" y="30" fill="#991B1B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13" font-weight="700">&gt; 100%</text><text x="528" y="78" fill="#7F1D1D" font-family="DIN Alternate, Arial, sans-serif" font-size="38" font-weight="700">107</text><text x="528" y="108" fill="#991B1B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">50.0%</text>
+    </g>
+  </g>
+  <g transform="translate(350 312)">
+    <rect width="1210" height="608" rx="12" fill="#FFFFFF" stroke="#D7DFE8"/>
+    <rect width="1210" height="44" rx="12" fill="#F8FAFC"/>
+    <text x="18" y="28" fill="#111827" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14" font-weight="700">筛选结果表格</text>
+    <g transform="translate(18 66)" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">
+      <rect width="1174" height="42" fill="#FFFFFF"/><text x="0" y="27" fill="#111827" font-weight="700">产品/股票</text><text x="120" y="27" fill="#111827" font-weight="700">任务名</text><text x="290" y="27" fill="#111827" font-weight="700">ReturnBeats</text><text x="420" y="27" fill="#111827" font-weight="700">参数</text><text x="620" y="27" fill="#111827" font-weight="700">年份/区间</text>
+      <line x1="0" y1="42" x2="1174" y2="42" stroke="#E2E8F0"/>
+      <text x="0" y="78" fill="#334155">QQQ</text><text x="120" y="78" fill="#334155">C5-QQQ-Invesco</text><text x="290" y="78" fill="#15803D">147.23%</text><text x="420" y="78" fill="#334155">3.5,3</text><text x="620" y="78" fill="#334155">2025-01-01 ~ 2025-12-31</text>
+      <line x1="0" y1="96" x2="1174" y2="96" stroke="#EDF2F7"/>
+      <text x="0" y="132" fill="#334155">AAPL</text><text x="120" y="132" fill="#334155">C5-AAPL-Apple</text><text x="290" y="132" fill="#15803D">92.14%</text><text x="420" y="132" fill="#334155">4.2,2</text><text x="620" y="132" fill="#334155">2024-01-01 ~ 2024-12-31</text>
+    </g>
+  </g>
+</svg>

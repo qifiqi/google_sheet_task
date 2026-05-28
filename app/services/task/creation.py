@@ -17,10 +17,61 @@ from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
 )
+from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
 from app.utils.database import safe_create, transaction_required
 from app.utils.logger import get_logger, get_task_logger
 
 logger = get_logger(__name__)
+
+
+def _stock_metadata_items_from_config(config: Any) -> list[dict[str, Any]]:
+    if not isinstance(config, dict):
+        return []
+
+    items: list[dict[str, Any]] = []
+    stock_item = {
+        "stock_code": config.get("stock_code"),
+        "stock_name": config.get("stock_name"),
+        "market_type": config.get("market_type"),
+        "exchange_market": config.get("exchange_market") or config.get("market"),
+        "security_type_name": config.get("security_type_name"),
+        "source": config.get("stock_source") or "task_config",
+    }
+    if stock_item["stock_code"] and stock_item["stock_name"]:
+        items.append(stock_item)
+
+    for key in ("stocks", "stock_items", "selected_stocks"):
+        values = config.get(key)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if isinstance(value, dict):
+                items.append({
+                    "stock_code": value.get("stock_code") or value.get("code"),
+                    "stock_name": value.get("stock_name") or value.get("name"),
+                    "market_type": value.get("market_type") or value.get("marketType") or config.get("market_type"),
+                    "exchange_market": value.get("exchange_market") or value.get("market"),
+                    "security_type_name": value.get("security_type_name") or value.get("securityTypeName"),
+                    "source": value.get("source") or "task_config",
+                    "raw": value,
+                })
+    return items
+
+
+def _hydrate_stock_name_from_metadata(config: dict[str, Any]) -> dict[str, Any]:
+    if config.get("stock_name") or not config.get("stock_code"):
+        return config
+    metadata = lookup_stock_metadata(config.get("stock_code"), config.get("market_type"))
+    stock_name = str(metadata.get("stock_name") or "").strip()
+    if not stock_name:
+        return config
+    hydrated = dict(config)
+    hydrated["stock_name"] = stock_name
+    if metadata.get("exchange_market") and not hydrated.get("exchange_market"):
+        hydrated["exchange_market"] = metadata.get("exchange_market")
+    if metadata.get("security_type_name") and not hydrated.get("security_type_name"):
+        hydrated["security_type_name"] = metadata.get("security_type_name")
+    return hydrated
 
 
 class TaskCreationMixin:
@@ -79,12 +130,15 @@ class TaskCreationMixin:
         config = self._normalize_task_config_for_type(task_type, config)
 
         if isinstance(config, dict):
+            config = _hydrate_stock_name_from_metadata(config)
             config = get_google_sheet_token_service().prepare_task_config(config)
             self.validate_google_sheet_available_for_task(
                 config,
                 task_id,
                 allow_in_use=(task_type in ("backtest_training", "backtest_multi_product")),
             )
+            for stock_item in _stock_metadata_items_from_config(config):
+                upsert_stock_metadata_in_session(stock_item)
 
         config_str = json.dumps(config) if isinstance(config, dict) else str(config)
         safe_create(
@@ -172,6 +226,18 @@ class TaskCreationMixin:
 
         sheets = config.get("sheets") or []
         stock_codes = config.get("stock_codes") or []
+        stocks = config.get("stocks") or []
+        stock_metadata_by_code = {}
+        if isinstance(stocks, list):
+            for item in stocks:
+                if not isinstance(item, dict):
+                    continue
+                code = str(item.get("stock_code") or item.get("code") or "").strip().upper()
+                if not code:
+                    continue
+                stock_metadata_by_code[code] = item
+            if stock_metadata_by_code and not stock_codes:
+                stock_codes = [item.get("stock_code") or item.get("code") for item in stocks if isinstance(item, dict)]
         parameter_groups = config.get("parameters") or []
         if not isinstance(sheets, list) or not sheets:
             raise ValueError("至少需要一组 sheets 配置")
@@ -245,6 +311,18 @@ class TaskCreationMixin:
             stock_code = str(stock_code).strip()
             if not stock_code:
                 continue
+            stock_metadata = stock_metadata_by_code.get(stock_code.upper()) or {}
+            stock_name = str(
+                stock_metadata.get("stock_name") or stock_metadata.get("name") or ""
+            ).strip()
+            if stock_metadata:
+                upsert_stock_metadata_in_session({
+                    **stock_metadata,
+                    "stock_code": stock_code,
+                    "stock_name": stock_name,
+                    "market_type": stock_metadata.get("market_type") or stock_metadata.get("marketType") or shared_config.get("market_type", "cn"),
+                    "source": stock_metadata.get("source") or "task_config",
+                })
 
             for index, parameter_combo in enumerate(parameter_combinations):
                 matched_sheets = [sheet_dict[key][index] for key in sheet_dict.keys()]
@@ -276,6 +354,7 @@ class TaskCreationMixin:
                             "sheet_name": sheet_name,
                             "title": sheet_title or None,
                             "stock_code": stock_code,
+                            "stock_name": stock_name,
                             "market_type": shared_config.get("market_type", "cn"),
                             "kline_adjustment": shared_config.get("kline_adjustment", "forward"),
                             "end_date": end_date,

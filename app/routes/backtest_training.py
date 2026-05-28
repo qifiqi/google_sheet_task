@@ -16,6 +16,7 @@ from sqlalchemy.orm import load_only
 from app.extensions import db
 from app.models import Task, TaskResult
 from app.services.backtest_excel_service import BacktestExcelService
+from app.services.stock_metadata_service import bulk_upsert_stock_metadata
 from app.services.xpl_service import xpl_analyzer
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.auth import login_required, permission_required
@@ -587,6 +588,20 @@ def search_stocks():
             "jys": item.get("jys"),
             "classify": item.get("classify"),
         })
+
+    bulk_upsert_stock_metadata([
+        {
+            "stock_code": item.get("code"),
+            "stock_name": item.get("name"),
+            "market_type": item.get("market_type") or item.get("market"),
+            "exchange_market": item.get("market"),
+            "security_type_name": item.get("security_type_name"),
+            "source": item.get("source"),
+            "raw": item,
+        }
+        for item in normalized_results
+    ])
+    db.session.commit()
 
     return jsonify({
         "status": "success",

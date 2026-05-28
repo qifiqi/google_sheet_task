@@ -12,6 +12,7 @@ from app.models import (
     Permission,
     Role,
     ScheduledTask,
+    StockMetadata,
     SystemConfig,
     Task,
     TaskLog,
@@ -109,6 +110,24 @@ def ensure_task_result_summary_index_schema():
     inspector = inspect(db.engine)
     if 'task_result_summary_index' not in inspector.get_table_names():
         TaskResultSummaryIndex.__table__.create(db.engine)
+        return
+    columns = {column['name'] for column in inspector.get_columns('task_result_summary_index')}
+    changed = False
+    if 'stock_name' not in columns:
+        db.session.execute(text('ALTER TABLE task_result_summary_index ADD COLUMN stock_name VARCHAR(255)'))
+        changed = True
+    if changed:
+        db.session.commit()
+    indexes = {index['name'] for index in inspector.get_indexes('task_result_summary_index')}
+    if 'ix_task_result_summary_index_stock_name' not in indexes:
+        db.session.execute(text('CREATE INDEX ix_task_result_summary_index_stock_name ON task_result_summary_index (stock_name)'))
+        db.session.commit()
+
+
+def ensure_stock_metadata_schema():
+    inspector = inspect(db.engine)
+    if 'stock_metadata' not in inspector.get_table_names():
+        StockMetadata.__table__.create(db.engine)
 
 
 def ensure_task_result_return_schema():
@@ -198,6 +217,7 @@ def register_cli(app):
         ensure_scheduled_task_schema()
         ensure_task_result_return_schema()
         ensure_task_result_summary_index_schema()
+        ensure_stock_metadata_schema()
         ensure_navigation_menu_schema()
         print('数据库初始化完成')
 
@@ -469,6 +489,7 @@ def bootstrap_app(app):
         ensure_scheduled_task_schema()
         ensure_task_result_return_schema()
         ensure_task_result_summary_index_schema()
+        ensure_stock_metadata_schema()
         ensure_navigation_menu_schema()
         reset_google_sheet_token_occupancy()
         reset_google_sheet_occupancy()

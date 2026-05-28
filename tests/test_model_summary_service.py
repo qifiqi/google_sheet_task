@@ -6,8 +6,12 @@ import time
 import pytest
 
 from app.extensions import db
-from app.models import Permission, Task, TaskLog, TaskResult, TaskResultSummaryIndex
-from app.services.model_summary_service import extract_summary_records, model_summary_service
+from app.models import Permission, StockMetadata, Task, TaskLog, TaskResult, TaskResultSummaryIndex
+from app.services.model_summary_service import (
+    MODEL_SUMMARY_REBUILD_TASK_TYPE,
+    extract_summary_records,
+    model_summary_service,
+)
 
 
 class _User:
@@ -47,6 +51,36 @@ def test_extract_c3_uses_return_beats_as_best_metric():
     assert rows[0].metrics["annualized_rate"] == 0.2
     assert rows[0].metrics["return_beats"] == pytest.approx(0.07)
     assert rows[0].stock_code == "XME"
+
+
+def test_extract_c3_includes_stock_name_from_task_config():
+    task = _task(name="600519")
+    task.config = json.dumps({"stock_code": "600519", "stock_name": "贵州茅台", "market_type": "cn"})
+    result = _result(
+        parameters=[1, 2, [{"stock_date": "2024-01-01"}, {"stock_date": "2024-12-31"}]],
+        result={"I15": 0.12, "I18": 0.05},
+    )
+
+    rows = extract_summary_records(task, result)
+
+    assert rows[0].stock_name == "贵州茅台"
+
+
+def test_extract_c3_includes_stock_name_from_metadata(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(StockMetadata(stock_code="600519", stock_name="贵州茅台", market_type="cn"))
+        db.session.commit()
+        task = _task(name="600519")
+        task.config = json.dumps({"stock_code": "600519", "market_type": "cn"})
+        result = _result(
+            parameters=[1, 2, [{"stock_date": "2024-01-01"}, {"stock_date": "2024-12-31"}]],
+            result={"I15": 0.12, "I18": 0.05},
+        )
+
+        rows = extract_summary_records(task, result)
+
+        assert rows[0].stock_name == "贵州茅台"
 
 
 def test_extract_c3_maps_i15_to_i23_metric_cells():
@@ -347,6 +381,18 @@ def test_extract_c5_falls_back_to_prefixed_task_name_when_stock_code_missing():
     assert rows[0].stock_code == "600776"
 
 
+def test_extract_c5_prefers_parameter_stock_code_before_task_name():
+    task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
+    result = _result(
+        parameters={"stock_code": "qqq", "year": 2022, "A1": 3.5, "B1": 3},
+        result={"sheet__model": {"D11": "15%"}},
+    )
+
+    rows = extract_summary_records(task, result)
+
+    assert rows[0].stock_code == "QQQ"
+
+
 def test_extract_backtest_uses_global_preview_model_value_columns():
     task = _task(task_type="backtest_training", name="回测任务")
     result = _result(
@@ -444,6 +490,58 @@ def test_extract_backtest_fills_metrics_from_calculate_metrics_when_export_forma
     assert rows[0].metrics["relative_monthly_excess_win_rate"] == "60.00%"
     assert rows[0].metrics["ratio_sharpe_ratio"] == "1.5"
     assert rows[0].metrics["sharpe_excess_sharpe"] == "1.2"
+
+
+def test_extract_backtest_uses_parameter_stock_code_when_task_name_has_rerun_suffix():
+    task = _task(task_type="backtest_training", name="威腾电气 (近5年重跑)")
+    result = _result(
+        parameters={"stock_code": "688226", "parameter": ["5", "5"], "year": 2025},
+        result={
+            "sheet": {
+                "calculate_metrics": {
+                    "excess_returns": [
+                        {
+                            "year": "all",
+                            "start_end_date": "2024-01-01 ~ 2025-12-31",
+                            "start_annualized_return": 0.12,
+                            "index_annualized_return": 0.08,
+                            "annualized_return_diff": 0.04,
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    rows = extract_summary_records(task, result)
+
+    assert rows[0].stock_code == "688226"
+
+
+def test_extract_backtest_strips_brackets_from_task_name_when_stock_code_missing():
+    task = _task(task_type="backtest_training", name="威腾电气 [近5年重跑]")
+    result = _result(
+        parameters={"parameter": ["5", "5"], "year": 2025},
+        result={
+            "sheet": {
+                "calculate_metrics": {
+                    "excess_returns": [
+                        {
+                            "year": "all",
+                            "start_end_date": "2024-01-01 ~ 2025-12-31",
+                            "start_annualized_return": 0.12,
+                            "index_annualized_return": 0.08,
+                            "annualized_return_diff": 0.04,
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    rows = extract_summary_records(task, result)
+
+    assert rows[0].stock_code == "威腾电气"
 
 
 def test_rebuild_marks_best_row(app_factory):
@@ -548,6 +646,152 @@ def test_query_all_results_fuzzy_matches_task_name_before_loading_results(app_fa
         assert all(item["task_id"] == "task-a" for item in payload["items"])
 
 
+def test_query_filters_summary_by_market_type(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-cn", name="600519"))
+        db.session.add(_task(task_id="task-us", name="AAPL"))
+        db.session.add(_result(task_id="task-cn", result_id=28, result={"I15": 0.2, "I18": 0.01}))
+        db.session.add(_result(task_id="task-us", result_id=29, result={"I15": 0.3, "I18": 0.1}))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        cn_payload = model_summary_service.query(
+            _User(),
+            {"market_type": "cn", "summary_type": "task", "page": 1, "per_page": 10},
+        )
+        us_payload = model_summary_service.query(
+            _User(),
+            {"market_type": "us", "summary_type": "task", "page": 1, "per_page": 10},
+        )
+
+        assert [item["stock_code"] for item in cn_payload["items"]] == ["600519"]
+        assert [item["stock_code"] for item in us_payload["items"]] == ["AAPL"]
+
+
+def test_query_filters_summary_by_stock_name(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-cn", task_type="google_sheet_C5", name="C5-600776"))
+        db.session.add(_result(
+            task_id="task-cn",
+            result_id=90,
+            parameters={"stock_code": "600776", "stock_name": "东方通信", "A1": "1.8", "B1": "4"},
+            result={"sheet__model-cn": {"D11": "15%"}},
+        ))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        payload = model_summary_service.query(
+            _User(),
+            {"stock_code": "东方通信", "summary_type": "task", "page": 1, "per_page": 10},
+        )
+
+        assert payload["pagination"]["total"] == 1
+        assert payload["items"][0]["stock_code"] == "600776"
+        assert payload["items"][0]["stock_name"] == "东方通信"
+
+
+def test_query_filters_by_return_beats_threshold(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-low", name="600519"))
+        db.session.add(_task(task_id="task-equal", name="000001"))
+        db.session.add(_task(task_id="task-high", name="AAPL"))
+        db.session.add(_result(task_id="task-low", result_id=33, result={"I15": 0.25, "I18": 0.1}))
+        db.session.add(_result(task_id="task-equal", result_id=34, result={"I15": 0.3, "I18": 0.1}))
+        db.session.add(_result(task_id="task-high", result_id=35, result={"I15": 0.45, "I18": 0.1}))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        payload = model_summary_service.query(
+            _User(),
+            {"excess_return_min": "20", "summary_type": "task", "page": 1, "per_page": 10},
+        )
+
+        assert payload["pagination"]["total"] == 1
+        assert [item["stock_code"] for item in payload["items"]] == ["AAPL"]
+        assert payload["items"][0]["best_metric_value"] == pytest.approx(0.35)
+
+
+def test_query_returns_summary_counts_for_current_filters(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-cn-positive", name="600519"))
+        db.session.add(_task(task_id="task-cn-negative", name="000001"))
+        db.session.add(_task(task_id="task-us-high", name="AAPL"))
+        db.session.add(_task(task_id="task-us-very-high", name="MSFT"))
+        db.session.add(_result(task_id="task-cn-positive", result_id=36, result={"I15": 0.25, "I18": 0.1}))
+        db.session.add(_result(task_id="task-cn-negative", result_id=37, result={"I15": 0.05, "I18": 0.1}))
+        db.session.add(_result(task_id="task-us-high", result_id=38, result={"I15": 0.75, "I18": 0.1}))
+        db.session.add(_result(task_id="task-us-very-high", result_id=39, result={"I15": 1.25, "I18": 0.1}))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        payload = model_summary_service.query(
+            _User(),
+            {"summary_type": "task", "page": 1, "per_page": 2},
+        )
+
+        assert payload["pagination"]["total"] == 4
+        assert payload["summary"] == {
+            "stock_count": 4,
+            "cn_stock_count": 2,
+            "us_stock_count": 2,
+            "task_count": 4,
+            "return_beats_gt_0": 3,
+            "return_beats_gt_20": 2,
+            "return_beats_gt_50": 2,
+            "return_beats_gt_100": 1,
+        }
+
+
+def test_query_all_results_filters_by_market_type(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-cn", task_type="google_sheet_C5", name="C5-600776-东方通信"))
+        db.session.add(_task(task_id="task-us", task_type="google_sheet_C5", name="C5-AAPL-苹果"))
+        db.session.add(_result(
+            task_id="task-cn",
+            result_id=30,
+            parameters={"stock_code": "600776", "A1": "1.8", "B1": "4"},
+            result={"sheet__model-cn": {"D11": "15%"}},
+        ))
+        db.session.add(_result(
+            task_id="task-us",
+            result_id=31,
+            parameters={"stock_code": "AAPL", "A1": "2.0", "B1": "4"},
+            result={"sheet__model-us": {"D11": "30%"}},
+        ))
+        db.session.commit()
+
+        cn_payload = model_summary_service.query(
+            _User(),
+            {
+                "best_only": "false",
+                "task_type": "google_sheet_C5",
+                "stock_code": "C5",
+                "market_type": "cn",
+                "page": 1,
+                "per_page": 10,
+            },
+        )
+        us_payload = model_summary_service.query(
+            _User(),
+            {
+                "best_only": "false",
+                "task_type": "google_sheet_C5",
+                "stock_code": "C5",
+                "market_type": "us",
+                "page": 1,
+                "per_page": 10,
+            },
+        )
+
+        assert [item["stock_code"] for item in cn_payload["items"]] == ["600776"]
+        assert [item["stock_code"] for item in us_payload["items"]] == ["AAPL"]
+
+
 def test_export_csv_uses_query_filters_and_ignores_pagination(app_factory):
     app = app_factory
     with app.app_context():
@@ -571,6 +815,45 @@ def test_export_csv_uses_query_filters_and_ignores_pagination(app_factory):
         assert [row["结果 ID"] for row in rows] == ["21", "20"]
         assert all(row["产品/股票"] == "600519" for row in rows)
         assert "000001" not in payload["content"]
+
+
+def test_export_csv_places_task_type_after_task_name(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-a", task_type="google_sheet_C5", name="600519"))
+        db.session.add(_result(task_id="task-a", result_id=20, result={"I15": 0.2, "I18": 0.01}))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        payload = model_summary_service.export_csv(
+            _User(),
+            {"stock_code": "600519", "page": 1, "per_page": 10},
+        )
+
+        header = next(csv.reader(io.StringIO(payload["content"])))
+        assert header.index("任务名") < header.index("类型") < header.index("return beats")
+
+
+def test_export_csv_prefers_kline_range_for_year_interval(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-a", name="600519"))
+        db.session.add(_result(
+            task_id="task-a",
+            result_id=32,
+            parameters=[1, 2, [{"stock_date": "2025-01-01"}, {"stock_date": "2025-12-31"}]],
+            result={"I15": 0.2, "I18": 0.01},
+        ))
+        db.session.commit()
+
+        model_summary_service.rebuild(task_id="task-a", reset=True)
+        payload = model_summary_service.export_csv(
+            _User(),
+            {"stock_code": "600519", "page": 1, "per_page": 10},
+        )
+
+        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        assert rows[0]["年份/区间"] == "2025-01-01 ~ 2025-12-31"
 
 
 def test_export_csv_supports_all_results_query(app_factory):
@@ -921,3 +1204,25 @@ def test_start_rebuild_job_completes_in_background(app_factory):
         assert task.current_step == 1
         assert task.total_steps == 1
         assert TaskLog.query.filter_by(task_id=job["task_id"]).count() >= 1
+
+
+def test_start_rebuild_job_reuses_active_rebuild_task(app_factory):
+    app = app_factory
+    with app.app_context():
+        active_task = Task(
+            id="active-rebuild",
+            name="单模型汇总索引重建",
+            task_type=MODEL_SUMMARY_REBUILD_TASK_TYPE,
+            status="running",
+            config=json.dumps({"task_type": "google_sheet", "reset": True}),
+        )
+        db.session.add(active_task)
+        db.session.commit()
+
+        job = model_summary_service.start_rebuild_job(app, task_type="google_sheet_C5", reset=True)
+
+        assert job["job_id"] == "active-rebuild"
+        assert job["task_id"] == "active-rebuild"
+        assert job["status"] == "running"
+        assert "已有索引重建任务正在执行" in job["message"]
+        assert Task.query.filter_by(task_type=MODEL_SUMMARY_REBUILD_TASK_TYPE).count() == 1

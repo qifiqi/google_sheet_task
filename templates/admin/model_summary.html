@@ -3,7 +3,7 @@
 {% block title %}单模型汇总数据看板{% endblock %}
 
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+<div class="model-summary-hero">
     <div>
         <h1 class="h3 mb-1">单模型汇总数据看板</h1>
         <div class="text-muted">按历史任务结果汇总 C3、C5、回测最优参数结果</div>
@@ -24,109 +24,136 @@
     </div>
 </div>
 
-<div class="card mb-3 collapsible-panel">
-    <div class="card-header py-2 d-flex justify-content-between align-items-center">
-        <div class="fw-semibold">查询条件</div>
-        <button class="btn btn-outline-secondary btn-sm collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#filterPanel" aria-expanded="true" aria-controls="filterPanel">
-            <i class="bi bi-chevron-up"></i>
-            <span>收起</span>
-        </button>
-    </div>
-    <div class="collapse show" id="filterPanel">
-        <div class="card-body">
-            <form class="model-summary-filter-grid" id="filterForm">
-                <div class="filter-field">
-                    <label class="form-label">任务类型</label>
-                    <select class="form-select" id="taskType">
-                        <option value="">全部</option>
-                        <option value="google_sheet">C3</option>
-                        <option value="google_sheet_C4">C4</option>
-                        <option value="google_sheet_C5">C5</option>
-                        <option value="backtest_training">回测</option>
-                    </select>
-                </div>
-                <div class="filter-field">
-                    <label class="form-label">股票代码</label>
-                    <input type="text" class="form-control" id="stockCode" placeholder="如 600519">
-                </div>
-                <div class="filter-field task-id-field">
-                    <label class="form-label">任务 ID</label>
-                    <input type="text" class="form-control" id="taskId" placeholder="精确任务 ID">
-                </div>
-                <div class="filter-field">
-                    <label class="form-label">结果 ID</label>
-                    <input type="number" class="form-control" id="resultId" placeholder="结果 ID">
-                </div>
-                <div class="filter-field">
-                    <label class="form-label">汇总方式</label>
-                    <select class="form-select" id="summaryType">
-                        <option value="task">任务汇总</option>
-                        <option value="stock">股票汇总</option>
-                    </select>
-                </div>
-                <div class="filter-field">
-                    <label class="form-label">数据范围</label>
-                    <select class="form-select" id="bestOnly">
-                        <option value="true">仅最优</option>
-                        <option value="false">全部结果</option>
-                    </select>
-                    <div class="form-text">全部结果必须输入股票代码、股票名或任务名关键字</div>
-                </div>
-                <div class="filter-actions">
-                    <button type="submit" class="btn btn-primary" id="queryBtn">
-                        <i class="bi bi-search me-1"></i>查询
-                    </button>
-                </div>
-            </form>
+<div class="summary-card-grid option-one mb-3">
+    <div class="summary-market-card">
+        <div class="summary-card-title">市场结构</div>
+        <div class="summary-main-row">
+            <div class="summary-main-number" id="summaryStockCount">0</div>
+            <div class="summary-main-label">股票总数</div>
         </div>
-    </div>
-</div>
-
-<div class="card mb-3 collapsible-panel">
-    <div class="card-header py-2 d-flex justify-content-between align-items-center">
-        <div class="fw-semibold">页面信息</div>
-        <button class="btn btn-outline-secondary btn-sm collapse-toggle collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#summaryPanel" aria-expanded="false" aria-controls="summaryPanel">
-            <i class="bi bi-chevron-down"></i>
-            <span>展开</span>
-        </button>
-    </div>
-    <div class="collapse" id="summaryPanel">
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-6 col-lg-3">
-                    <div class="summary-tile h-100">
-                        <div class="text-muted small">当前页</div>
-                        <div class="h4 mb-0" id="pageCount">-</div>
-                    </div>
-                </div>
-                <div class="col-6 col-lg-3">
-                    <div class="summary-tile h-100">
-                        <div class="text-muted small">总记录</div>
-                        <div class="h4 mb-0" id="totalCount">-</div>
-                    </div>
-                </div>
-                <div class="col-6 col-lg-3">
-                    <div class="summary-tile h-100">
-                        <div class="text-muted small">分页大小</div>
-                        <select class="form-select form-select-sm mt-2" id="pageSize">
-                            <option value="25">25</option>
-                            <option value="50" selected>50</option>
-                            <option value="100">100</option>
-                            <option value="200">200</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="col-6 col-lg-3">
-                    <div class="summary-tile h-100">
-                        <div class="text-muted small">状态</div>
-                        <div class="fw-semibold mt-2" id="statusText">等待查询</div>
-                        <div class="small mt-1" id="rebuildTaskLink"></div>
-                    </div>
-                </div>
+        <div class="market-share-bar" aria-hidden="true">
+            <div class="market-share-cn" id="summaryCnShareBar"></div>
+            <div class="market-share-us" id="summaryUsShareBar"></div>
+        </div>
+        <div class="market-inline-row">
+            <div class="market-row">
+                <span><i class="market-dot cn"></i>A股</span>
+                <strong id="summaryCnStockCount">0</strong>
+            </div>
+            <div class="market-row">
+                <span><i class="market-dot us"></i>美股</span>
+                <strong id="summaryUsStockCount">0</strong>
             </div>
         </div>
+        <div class="market-task-row">
+            <span>任务总数</span>
+            <strong id="summaryTaskCount">0</strong>
+        </div>
+    </div>
+    <div class="return-threshold-card threshold-positive">
+        <div class="return-card-title">ReturnBeats</div>
+        <div class="return-card-threshold">&gt; 0%</div>
+        <div class="return-card-count" id="summaryReturnGt0">0</div>
+        <div class="return-progress"><span id="summaryReturnGt0Bar"></span></div>
+        <div class="return-card-caption" id="summaryReturnGt0Caption">占筛选任务</div>
+        <div class="return-card-rate" id="summaryReturnGt0Rate">0%</div>
+    </div>
+    <div class="return-threshold-card threshold-medium">
+        <div class="return-card-title">ReturnBeats</div>
+        <div class="return-card-threshold">&gt; 20%</div>
+        <div class="return-card-count" id="summaryReturnGt20">0</div>
+        <div class="return-progress"><span id="summaryReturnGt20Bar"></span></div>
+        <div class="return-card-caption" id="summaryReturnGt20Caption">占筛选任务</div>
+        <div class="return-card-rate" id="summaryReturnGt20Rate">0%</div>
+    </div>
+    <div class="return-threshold-card threshold-strong">
+        <div class="return-card-title">ReturnBeats</div>
+        <div class="return-card-threshold">&gt; 50%</div>
+        <div class="return-card-count" id="summaryReturnGt50">0</div>
+        <div class="return-progress"><span id="summaryReturnGt50Bar"></span></div>
+        <div class="return-card-caption" id="summaryReturnGt50Caption">占筛选任务</div>
+        <div class="return-card-rate" id="summaryReturnGt50Rate">0%</div>
+    </div>
+    <div class="return-threshold-card threshold-extreme">
+        <div class="return-card-title">ReturnBeats</div>
+        <div class="return-card-threshold">&gt; 100%</div>
+        <div class="return-card-count" id="summaryReturnGt100">0</div>
+        <div class="return-progress"><span id="summaryReturnGt100Bar"></span></div>
+        <div class="return-card-caption" id="summaryReturnGt100Caption">占筛选任务</div>
+        <div class="return-card-rate" id="summaryReturnGt100Rate">0%</div>
     </div>
 </div>
+<div class="d-none" id="statusText">等待查询</div>
+
+<div class="card mb-3 model-summary-filter-card">
+    <div class="card-body">
+        <form class="model-summary-filter-grid" id="filterForm">
+            <div class="filter-field">
+                <label class="form-label">任务类型</label>
+                <select class="form-select form-select-sm" id="taskType">
+                    <option value="">全部</option>
+                    <option value="google_sheet">C3</option>
+                    <option value="google_sheet_C4">C4</option>
+                    <option value="google_sheet_C5">C5</option>
+                    <option value="backtest_training">回测</option>
+                </select>
+            </div>
+            <div class="filter-field">
+                <label class="form-label">股票代码</label>
+                <input type="text" class="form-control form-control-sm" id="stockCode" placeholder="代码/股票名/任务名">
+            </div>
+            <div class="filter-field">
+                <label class="form-label">市场</label>
+                <select class="form-select form-select-sm" id="marketType">
+                    <option value="">全部</option>
+                    <option value="cn">A股</option>
+                    <option value="us">美股</option>
+                </select>
+            </div>
+            <div class="filter-field task-id-field">
+                <label class="form-label">任务 ID</label>
+                <input type="text" class="form-control form-control-sm" id="taskId" placeholder="精确任务 ID">
+            </div>
+            <div class="filter-field">
+                <label class="form-label">结果 ID</label>
+                <input type="number" class="form-control form-control-sm" id="resultId" placeholder="结果 ID">
+            </div>
+            <div class="filter-field">
+                <label class="form-label">汇总方式</label>
+                <select class="form-select form-select-sm" id="summaryType">
+                    <option value="task">任务汇总</option>
+                    <option value="stock">股票汇总</option>
+                </select>
+            </div>
+            <div class="filter-field">
+                <label class="form-label">数据范围</label>
+                <select class="form-select form-select-sm" id="bestOnly">
+                    <option value="true">仅最优</option>
+                    <option value="false">全部结果</option>
+                </select>
+            </div>
+            <div class="filter-field">
+                <label class="form-label">超额收益</label>
+                <select class="form-select form-select-sm" id="excessReturnMin">
+                    <option value="">全部</option>
+                    <option value="0">大于 0%</option>
+                    <option value="10">大于 10%</option>
+                    <option value="20">大于 20%</option>
+                    <option value="30">大于 30%</option>
+                    <option value="50">大于 50%</option>
+                    <option value="100">大于 100%</option>
+                </select>
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="btn btn-primary btn-sm" id="queryBtn">
+                    <i class="bi bi-search me-1"></i>查询
+                </button>
+            </div>
+            <div class="filter-hint">全部结果必须输入股票代码、股票名或任务名关键字；市场按股票代码纯数字识别 A股。</div>
+        </form>
+    </div>
+</div>
+<div class="small mb-2" id="rebuildTaskLink"></div>
 
 <div class="card">
     <div class="card-body p-0">
@@ -138,9 +165,18 @@
         </div>
     </div>
     <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <div class="small text-muted" id="paginationText">-</div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <div class="small text-muted" id="paginationText">显示 0-0 条，共 0 条任务</div>
+            <select class="form-select form-select-sm pagination-size-select" id="pageSize">
+                <option value="25">25 / 页</option>
+                <option value="50" selected>50 / 页</option>
+                <option value="100">100 / 页</option>
+                <option value="200">200 / 页</option>
+            </select>
+        </div>
         <div class="btn-group">
             <button class="btn btn-outline-secondary btn-sm" id="prevPage">上一页</button>
+            <button class="btn btn-primary btn-sm" id="currentPage" disabled>1</button>
             <button class="btn btn-outline-secondary btn-sm" id="nextPage">下一页</button>
         </div>
     </div>
@@ -172,40 +208,255 @@
 </div>
 
 <style>
-    .collapsible-panel .card-header {
-        background: var(--bs-tertiary-bg);
+    .model-summary-hero {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1rem;
     }
-    .collapse-toggle {
-        min-width: 76px;
+    .model-summary-hero .h3 {
+        font-size: 1.45rem;
+    }
+    .model-summary-filter-card .card-body {
+        padding: 0.72rem 1rem 0.62rem;
     }
     .model-summary-filter-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 1rem;
+        gap: 0.46rem 0.65rem;
         align-items: start;
     }
     .model-summary-filter-grid .form-label {
-        margin-bottom: 0.45rem;
+        margin-bottom: 0.25rem;
+        color: var(--bs-secondary-color);
+        font-size: 0.76rem;
+        font-weight: 700;
     }
     .filter-actions {
         align-self: start;
-        padding-top: 1.94rem;
+        padding-top: 1.48rem;
     }
     .filter-actions .btn {
-        min-height: 38px;
+        min-height: 31px;
         width: 100%;
         white-space: nowrap;
+    }
+    .filter-hint {
+        grid-column: 1 / -1;
+        color: var(--bs-secondary-color);
+        font-size: 0.78rem;
+        line-height: 1.2;
+    }
+    .summary-card-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.55rem;
+    }
+    .summary-card-grid.option-one {
+        align-items: stretch;
+    }
+    .summary-market-card,
+    .return-threshold-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 0.08rem 0.22rem rgba(15, 23, 42, 0.04);
+    }
+    .summary-market-card {
+        min-height: 4.75rem;
+        padding: 0.58rem 0.82rem;
+        background: #f8fafc;
+    }
+    .summary-card-title,
+    .return-card-title {
+        color: var(--bs-secondary-color);
+        font-size: 0.76rem;
+        font-weight: 700;
+    }
+    .summary-main-row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        margin-top: 0.25rem;
+    }
+    .summary-main-number {
+        color: var(--bs-body-color);
+        font-size: 1.72rem;
+        font-weight: 800;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+    }
+    .summary-main-label {
+        color: var(--bs-secondary-color);
+        font-size: 0.76rem;
+    }
+    .market-share-bar {
+        display: flex;
+        width: 100%;
+        height: 0.36rem;
+        margin: 0.38rem 0 0.35rem;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--bs-border-color);
+    }
+    .market-share-cn {
+        width: 0;
+        background: #22c55e;
+        transition: width 0.2s ease;
+    }
+    .market-share-us {
+        width: 0;
+        background: #6366f1;
+        transition: width 0.2s ease;
+    }
+    .market-inline-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+    .market-row,
+    .market-task-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.1rem 0;
+        color: var(--bs-secondary-color);
+        font-size: 0.76rem;
+        border-bottom: 0;
+    }
+    .market-task-row {
+        margin-top: 0.02rem;
+        padding-bottom: 0;
+    }
+    .market-row strong,
+    .market-task-row strong {
+        color: var(--bs-body-color);
+        font-size: 0.92rem;
+        font-variant-numeric: tabular-nums;
+    }
+    .market-dot {
+        display: inline-block;
+        width: 0.46rem;
+        height: 0.46rem;
+        margin-right: 0.35rem;
+        border-radius: 50%;
+    }
+    .market-dot.cn {
+        background: #22c55e;
+    }
+    .market-dot.us {
+        background: #6366f1;
+    }
+    .return-threshold-card {
+        min-height: 4.75rem;
+        padding: 0.58rem 0.72rem;
+    }
+    .return-card-threshold {
+        margin-top: 0.06rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+    .return-card-count {
+        margin-top: 0.24rem;
+        font-size: 1.55rem;
+        font-weight: 800;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+    }
+    .return-progress {
+        height: 0.31rem;
+        margin-top: 0.34rem;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.22);
+    }
+    .return-progress span {
+        display: block;
+        width: 0;
+        height: 100%;
+        border-radius: inherit;
+        transition: width 0.2s ease;
+    }
+    .return-card-caption {
+        margin-top: 0.28rem;
+        color: var(--bs-secondary-color);
+        font-size: 0.7rem;
+    }
+    .return-card-rate {
+        margin-top: 0.04rem;
+        font-size: 0.88rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+    }
+    .threshold-positive {
+        background: #f0fdf4;
+        border-color: #bbf7d0;
+    }
+    .threshold-positive .return-card-title,
+    .threshold-positive .return-card-threshold,
+    .threshold-positive .return-card-count,
+    .threshold-positive .return-card-rate {
+        color: #166534;
+    }
+    .threshold-positive .return-progress span {
+        background: #16a34a;
+    }
+    .threshold-medium {
+        background: #f7fee7;
+        border-color: #d9f99d;
+    }
+    .threshold-medium .return-card-title,
+    .threshold-medium .return-card-threshold,
+    .threshold-medium .return-card-count,
+    .threshold-medium .return-card-rate {
+        color: #4d7c0f;
+    }
+    .threshold-medium .return-progress span {
+        background: #65a30d;
+    }
+    .threshold-strong {
+        background: #fffbeb;
+        border-color: #fde68a;
+    }
+    .threshold-strong .return-card-title,
+    .threshold-strong .return-card-threshold,
+    .threshold-strong .return-card-count,
+    .threshold-strong .return-card-rate {
+        color: #92400e;
+    }
+    .threshold-strong .return-progress span {
+        background: #d97706;
+    }
+    .threshold-extreme {
+        background: #fef2f2;
+        border-color: #fecaca;
+    }
+    .threshold-extreme .return-card-title,
+    .threshold-extreme .return-card-threshold,
+    .threshold-extreme .return-card-count,
+    .threshold-extreme .return-card-rate {
+        color: #991b1b;
+    }
+    .threshold-extreme .return-progress span {
+        background: #dc2626;
     }
     @media (min-width: 1200px) {
         .model-summary-filter-grid {
             grid-template-columns:
                 minmax(0, 0.95fr)
                 minmax(0, 0.95fr)
+                minmax(0, 0.8fr)
                 minmax(0, 1.5fr)
                 minmax(0, 0.95fr)
                 minmax(0, 0.95fr)
                 minmax(0, 0.95fr)
+                minmax(0, 0.95fr)
                 minmax(0, 0.7fr);
+        }
+        .summary-card-grid {
+            grid-template-columns: minmax(20rem, 1.45fr) repeat(4, minmax(9.25rem, 1fr));
         }
     }
     @media (max-width: 575.98px) {
@@ -222,8 +473,12 @@
         padding: 1rem;
         background: var(--bs-body-bg);
     }
+    .pagination-size-select {
+        width: auto;
+        min-width: 98px;
+    }
     .model-summary-table-wrap {
-        max-height: calc(100vh - 330px);
+        max-height: calc(100vh - 300px);
         min-height: 360px;
     }
     .model-summary-table {
@@ -325,21 +580,22 @@
         columns: [],
         total: 0,
         pages: 0,
+        summary: {},
         rebuildJobId: "",
         rebuildTimer: null,
     };
 
     const leadingColumns = [
         ["stock_code", "产品/股票"],
+        ["stock_name", "股票名"],
         ["task_name", "任务名"],
+        ["task_type", "类型"],
         ["best_metric_value", "return beats"],
         ["result_timestamp", "结果时间"],
     ];
 
     const trailingColumns = [
-        ["task_type", "类型"],
         ["task_result_id", "结果 ID"],
-        ["year_label", "年份/区间"],
     ];
 
     function getToken() {
@@ -449,6 +705,8 @@
         const fields = [
             ["task_type", "taskType"],
             ["stock_code", "stockCode"],
+            ["market_type", "marketType"],
+            ["excess_return_min", "excessReturnMin"],
             ["task_id", "taskId"],
             ["result_id", "resultId"],
         ];
@@ -470,11 +728,12 @@
         const range = document.getElementById("bestOnly").value === "false" ? "全部结果" : "仅最优";
         const taskTypeValue = document.getElementById("taskType").value;
         const taskType = taskTypeValue ? taskTypeLabel(taskTypeValue) : "全部类型";
+        const threshold = document.getElementById("excessReturnMin").value;
         const keyword = document.getElementById("stockCode").value.trim() || document.getElementById("taskId").value.trim() || "全部";
         const now = new Date();
         const pad = (value) => String(value).padStart(2, "0");
         const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-        return [summaryType, range, taskType, keyword, timestamp]
+        return [summaryType, range, taskType, threshold ? `超额大于${threshold}` : "", keyword, timestamp]
             .map(safeFilenamePart)
             .filter(Boolean)
             .join("_");
@@ -483,10 +742,14 @@
     function describeExportFilters() {
         const taskTypeValue = document.getElementById("taskType").value;
         const taskType = taskTypeValue ? taskTypeLabel(taskTypeValue) : "全部";
+        const marketTypeValue = document.getElementById("marketType").value;
+        const marketType = marketTypeValue === "cn" ? "A股" : (marketTypeValue === "us" ? "美股" : "全部市场");
         const keyword = document.getElementById("stockCode").value.trim() || "未填写";
         const summaryType = document.getElementById("summaryType").value === "stock" ? "股票汇总" : "任务汇总";
         const range = document.getElementById("bestOnly").value === "false" ? "全部结果" : "仅最优";
-        return `任务类型：${taskType}；查询词：${keyword}；汇总方式：${summaryType}；数据范围：${range}`;
+        const threshold = document.getElementById("excessReturnMin").value;
+        const thresholdText = threshold ? `ReturnBeats > ${threshold}%` : "全部";
+        return `任务类型：${taskType}；市场：${marketType}；查询词：${keyword}；汇总方式：${summaryType}；数据范围：${range}；超额收益：${thresholdText}`;
     }
 
     function renderHead() {
@@ -496,13 +759,13 @@
         }).join("");
         const metricHead = state.columns.map((column) => `<th>${column.label}</th>`).join("");
         const trailingHead = trailingColumns.map(([, label]) => `<th>${label}</th>`).join("");
-        document.getElementById("summaryHead").innerHTML = `<tr>${fixedHead}<th>参数</th>${metricHead}${trailingHead}</tr>`;
+        document.getElementById("summaryHead").innerHTML = `<tr>${fixedHead}<th>参数</th><th>年份/区间</th>${metricHead}${trailingHead}</tr>`;
     }
 
     function renderBody(items) {
         const body = document.getElementById("summaryBody");
         if (!items.length) {
-            body.innerHTML = `<tr><td colspan="${leadingColumns.length + state.columns.length + trailingColumns.length + 1}" class="text-center text-muted py-5">暂无汇总数据，请先重建索引或调整筛选条件</td></tr>`;
+            body.innerHTML = `<tr><td colspan="${leadingColumns.length + state.columns.length + trailingColumns.length + 2}" class="text-center text-muted py-5">暂无汇总数据，请先重建索引或调整筛选条件</td></tr>`;
             return;
         }
         body.innerHTML = items.map((item) => {
@@ -515,11 +778,13 @@
                 if (key === "task_name") value = renderTaskName(item);
                 if (key === "result_timestamp") value = formatDateTime(value);
                 if (key === "task_result_id") value = `<a href="/admin/results?task_id=${encodeURIComponent(item.task_id || "")}">${value || "-"}</a>`;
+                if (key === "stock_name" && !value) value = "-";
                 const klass = key === "best_metric_value" ? metricClass(item.best_metric_value) : "";
                 const html = ["task_name", "result_timestamp", "task_result_id"].includes(key) ? (value || "-") : renderTextValue(value);
                 return `<td class="${sticky} ${klass}">${html}</td>`;
             }).join("");
             const parameter = renderParameterTags(item.parameter_summary);
+            const interval = renderTextValue(item.kline_range || item.year_label);
             const metrics = state.columns.map((column) => {
                 const value = item.metrics ? item.metrics[column.key] : null;
                 return `<td class="${metricClass(value)}">${escapeHtml(formatMetric(value, column.format))}</td>`;
@@ -531,14 +796,68 @@
                 const html = key === "task_result_id" ? (value || "-") : renderTextValue(value);
                 return `<td>${html}</td>`;
             }).join("");
-            return `<tr>${leadingCells}<td>${parameter}</td>${metrics}${trailingCells}</tr>`;
+            return `<tr>${leadingCells}<td>${parameter}</td><td>${interval}</td>${metrics}${trailingCells}</tr>`;
         }).join("");
     }
 
+    function renderSummary(summary) {
+        const data = summary || {};
+        const setText = (id, value) => {
+            document.getElementById(id).textContent = String(value ?? 0);
+        };
+        const stockCount = Number(data.stock_count || 0);
+        const cnCount = Number(data.cn_stock_count || 0);
+        const usCount = Number(data.us_stock_count || 0);
+        const taskCount = Number(data.task_count || 0);
+        const isStockSummary = document.getElementById("summaryType").value === "stock";
+        const returnRateBase = isStockSummary ? stockCount : taskCount;
+        const returnRateCaption = isStockSummary ? "占筛选股票" : "占筛选任务";
+        const percent = (value, total = stockCount) => {
+            if (!total) return 0;
+            return Math.max(0, Math.min(100, (Number(value || 0) / total) * 100));
+        };
+        const setWidth = (id, value) => {
+            document.getElementById(id).style.width = `${value.toFixed(1)}%`;
+        };
+        const setRate = (id, value) => {
+            document.getElementById(id).textContent = `${value.toFixed(1)}%`;
+        };
+        const setCaption = (id) => {
+            document.getElementById(id).textContent = returnRateCaption;
+        };
+        setText("summaryStockCount", data.stock_count);
+        setText("summaryCnStockCount", data.cn_stock_count);
+        setText("summaryUsStockCount", data.us_stock_count);
+        setText("summaryTaskCount", data.task_count);
+        setText("summaryReturnGt0", data.return_beats_gt_0);
+        setText("summaryReturnGt20", data.return_beats_gt_20);
+        setText("summaryReturnGt50", data.return_beats_gt_50);
+        setText("summaryReturnGt100", data.return_beats_gt_100);
+        setWidth("summaryCnShareBar", percent(cnCount));
+        setWidth("summaryUsShareBar", percent(usCount));
+        setCaption("summaryReturnGt0Caption");
+        setCaption("summaryReturnGt20Caption");
+        setCaption("summaryReturnGt50Caption");
+        setCaption("summaryReturnGt100Caption");
+        const gt0Rate = percent(data.return_beats_gt_0, returnRateBase);
+        const gt20Rate = percent(data.return_beats_gt_20, returnRateBase);
+        const gt50Rate = percent(data.return_beats_gt_50, returnRateBase);
+        const gt100Rate = percent(data.return_beats_gt_100, returnRateBase);
+        setWidth("summaryReturnGt0Bar", gt0Rate);
+        setWidth("summaryReturnGt20Bar", gt20Rate);
+        setWidth("summaryReturnGt50Bar", gt50Rate);
+        setWidth("summaryReturnGt100Bar", gt100Rate);
+        setRate("summaryReturnGt0Rate", gt0Rate);
+        setRate("summaryReturnGt20Rate", gt20Rate);
+        setRate("summaryReturnGt50Rate", gt50Rate);
+        setRate("summaryReturnGt100Rate", gt100Rate);
+    }
+
     function renderPagination() {
-        document.getElementById("pageCount").textContent = `${state.page} / ${state.pages || 1}`;
-        document.getElementById("totalCount").textContent = String(state.total);
-        document.getElementById("paginationText").textContent = `第 ${state.page} 页，共 ${state.pages || 1} 页`;
+        const start = state.total ? (state.page - 1) * state.perPage + 1 : 0;
+        const end = state.total ? Math.min(state.page * state.perPage, state.total) : 0;
+        document.getElementById("paginationText").textContent = `显示 ${start}-${end} 条，共 ${state.total} 条任务`;
+        document.getElementById("currentPage").textContent = String(state.page);
         document.getElementById("prevPage").disabled = state.page <= 1;
         document.getElementById("nextPage").disabled = state.page >= state.pages;
     }
@@ -564,7 +883,9 @@
             state.columns = data.columns || [];
             state.total = data.pagination?.total || 0;
             state.pages = data.pagination?.pages || 0;
+            state.summary = data.summary || {};
             renderHead();
+            renderSummary(state.summary);
             renderBody(data.items || []);
             renderPagination();
             document.getElementById("statusText").textContent = "已加载";
@@ -777,26 +1098,8 @@
             runSummaryQuery();
         }
     });
-    document.querySelectorAll(".collapsible-panel .collapse").forEach((panel) => {
-        const button = document.querySelector(`[data-bs-target="#${panel.id}"]`);
-        if (!button) return;
-        const icon = button.querySelector("i");
-        const label = button.querySelector("span");
-        const setToggleState = (expanded) => {
-            button.setAttribute("aria-expanded", expanded ? "true" : "false");
-            button.classList.toggle("collapsed", !expanded);
-            if (icon) {
-                icon.classList.toggle("bi-chevron-up", expanded);
-                icon.classList.toggle("bi-chevron-down", !expanded);
-            }
-            if (label) label.textContent = expanded ? "收起" : "展开";
-        };
-        setToggleState(panel.classList.contains("show"));
-        panel.addEventListener("shown.bs.collapse", () => setToggleState(true));
-        panel.addEventListener("hidden.bs.collapse", () => setToggleState(false));
-    });
-
     renderHead();
+    renderSummary({});
     runSummaryQuery();
 </script>
 {% endblock %}
