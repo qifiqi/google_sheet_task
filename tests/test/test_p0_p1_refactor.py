@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.extensions import db
-from app.models import GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
+from app.models import BacktestSheetRunLock, GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.task import (
     TaskDashboardQueryService,
@@ -335,14 +335,14 @@ def test_backtest_start_task_blocks_existing_sheet_lock(monkeypatch, app_factory
         task_id = task.id
 
         manager = TaskManager()
-        lock_dir = tmp_path / "backtest_sheet_locks"
-        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
-        lock_path = manager._get_backtest_sheet_lock_path(spreadsheet_id)
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path.write_text(
-            json.dumps({"task_id": "locked-backtest", "spreadsheet_id": spreadsheet_id}),
-            encoding="utf-8",
+        db.session.add(
+            BacktestSheetRunLock(
+                spreadsheet_id=spreadsheet_id,
+                task_id="locked-backtest",
+                task_type="backtest_training",
+            )
         )
+        db.session.commit()
 
         started = manager.start_task(task_id)
 
@@ -384,8 +384,6 @@ def test_backtest_start_task_releases_sheet_lock_when_thread_start_fails(
                 return False
 
         manager = TaskManager()
-        lock_dir = tmp_path / "backtest_sheet_locks"
-        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
         monkeypatch.setattr("app.services.task.runtime.threading.Thread", _FailThread)
 
         started = manager.start_task(task_id)
@@ -393,7 +391,7 @@ def test_backtest_start_task_releases_sheet_lock_when_thread_start_fails(
         refreshed = db.session.get(Task, task_id)
         assert started is False
         assert refreshed.status == "pending"
-        assert not manager._get_backtest_sheet_lock_path(spreadsheet_id).exists()
+        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).count() == 0
 
 
 def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_factory, tmp_path):
@@ -432,11 +430,9 @@ def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_f
             def is_alive(self):
                 return True
 
-        lock_dir = tmp_path / "backtest_sheet_locks"
         monkeypatch.setattr("app.services.task.runtime.threading.Thread", _NoopThread)
 
         manager = TaskManager()
-        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
         assert manager.start_task(first_task_id) is True
 
         refreshed_first = db.session.get(Task, first_task_id)
@@ -496,13 +492,14 @@ def test_running_backtest_checkpoint_restart_queues_when_lock_exists(
         task_id = task.id
 
         manager = TaskManager()
-        lock_dir = tmp_path / "backtest_sheet_locks"
-        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
-        lock_path = manager._get_backtest_sheet_lock_path(spreadsheet_id)
-        lock_path.write_text(
-            json.dumps({"task_id": task_id, "spreadsheet_id": spreadsheet_id}),
-            encoding="utf-8",
+        db.session.add(
+            BacktestSheetRunLock(
+                spreadsheet_id=spreadsheet_id,
+                task_id="other-running-lock",
+                task_type="backtest_training",
+            )
         )
+        db.session.commit()
 
         result = manager.restart_task(task_id, resume_from_checkpoint=True)
 
@@ -548,9 +545,10 @@ def test_backtest_checkpoint_restart_blocks_other_running_same_sheet(monkeypatch
         result = manager.restart_task(restart_task_id, resume_from_checkpoint=True)
 
         refreshed = db.session.get(Task, restart_task_id)
-        assert result["status"] == "error"
+        assert result["status"] == "success"
+        assert result["queued"] is True
         assert "已有回测任务正在运行" in result["message"]
-        assert refreshed.status == "cancelled"
+        assert refreshed.status == "pending"
 
 
 def test_backtest_restart_stays_pending_when_sheet_lock_exists(
@@ -574,14 +572,14 @@ def test_backtest_restart_stays_pending_when_sheet_lock_exists(
         task_id = task.id
 
         manager = TaskManager()
-        lock_dir = tmp_path / "backtest_sheet_locks"
-        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
-        lock_path = manager._get_backtest_sheet_lock_path(spreadsheet_id)
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path.write_text(
-            json.dumps({"task_id": "running-from-lock", "spreadsheet_id": spreadsheet_id}),
-            encoding="utf-8",
+        db.session.add(
+            BacktestSheetRunLock(
+                spreadsheet_id=spreadsheet_id,
+                task_id="running-from-lock",
+                task_type="backtest_training",
+            )
         )
+        db.session.commit()
 
         result = manager.restart_task(task_id, resume_from_checkpoint=True)
 
@@ -702,7 +700,6 @@ def test_restart_task_from_scratch_clears_backtest_returns(monkeypatch, app_fact
 
 def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory, tmp_path):
     with app_factory.app_context():
-        lock_dir = tmp_path / "backtest_sheet_locks"
         finished_task = Task(
             id="finished-backtest",
             name="finished-backtest",
@@ -737,7 +734,6 @@ def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory
 
         started_task_ids = []
         manager = TaskManager()
-        monkeypatch.setattr(manager, "_get_backtest_sheet_lock_dir", lambda: lock_dir)
 
         original_start_task = manager.start_task
 
@@ -769,7 +765,10 @@ def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory
         next_logs = [log.message for log in TaskLog.query.filter_by(task_id=next_task_id).all()]
         assert started_task_ids == ["next-backtest"]
         assert refreshed_next.status == "running"
-        assert manager._get_backtest_sheet_lock_path("spreadsheet-next").exists()
+        assert BacktestSheetRunLock.query.filter_by(
+            spreadsheet_id="spreadsheet-next",
+            task_id="next-backtest",
+        ).count() == 1
         assert transition_message in finished_logs
         assert transition_message in next_logs
 

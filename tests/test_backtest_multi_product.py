@@ -4,7 +4,14 @@ from datetime import datetime
 import pytest
 
 from app.extensions import db
-from app.models import Permission, Task, TaskResult, TaskResultReturn
+from app.models import (
+    BacktestProductResultCache,
+    BacktestSheetRunLock,
+    Permission,
+    Task,
+    TaskResult,
+    TaskResultReturn,
+)
 from app.routes.backtest_multi_product import (
     _build_excel_download_name,
     _build_global_preview_workbook,
@@ -394,6 +401,260 @@ def test_multi_product_resets_kline_cache_once_per_product(app_factory, monkeypa
             (1, 0, True),
             (1, 1, False),
         ]
+
+
+def test_backtest_sheet_run_lock_uses_database_rows(app_factory):
+    app = app_factory
+    with app.app_context():
+        manager = TaskManager()
+
+        acquired, locked_task_id, acquired_ids = manager._acquire_backtest_sheet_run_locks(
+            ["shared-sheet"],
+            "task-1",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+        )
+
+        assert acquired is True
+        assert locked_task_id is None
+        assert acquired_ids == ["shared-sheet"]
+        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+
+        acquired, locked_task_id, acquired_ids = manager._acquire_backtest_sheet_run_locks(
+            ["shared-sheet"],
+            "task-2",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+        )
+
+        assert acquired is False
+        assert locked_task_id == "task-1"
+        assert acquired_ids == []
+
+        manager._release_backtest_sheet_run_reservation("shared-sheet", "task-2")
+        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 1
+
+        manager._release_backtest_sheet_run_reservation("shared-sheet", "task-1")
+        assert BacktestSheetRunLock.query.filter_by(spreadsheet_id="shared-sheet").count() == 0
+
+
+def test_fixed_product_cache_key_ignores_ratio_and_changes_for_inputs(app_factory):
+    app = app_factory
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "fixed_product_batch_id": "batch-1",
+            "products": [
+                _base_product(0, "25") | {"is_fixed": True},
+                _base_product(1, "75"),
+            ],
+        })
+        service = BacktestMultiProductService({}, "cache-key-task")
+        product = config["products"][0]
+        parameter = product["parameters"][0]
+
+        first_key = service._build_fixed_product_cache_key(config, product, parameter)
+        ratio_changed_key = service._build_fixed_product_cache_key(
+            config,
+            {**product, "ratio": "99"},
+            parameter,
+        )
+        parameter_changed_key = service._build_fixed_product_cache_key(
+            config,
+            product,
+            product["parameters"][1],
+        )
+        date_changed_key = service._build_fixed_product_cache_key(
+            {**config, "end_date": "2025-12-31"},
+            product,
+            parameter,
+        )
+
+        assert first_key == ratio_changed_key
+        assert first_key != parameter_changed_key
+        assert first_key != date_changed_key
+
+
+def test_fixed_product_cache_hit_writes_current_task_result_without_execute(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "fixed_product_batch_id": "batch-1",
+            "products": [
+                _base_product(0, "25") | {"is_fixed": True},
+                _base_product(1, "75"),
+            ],
+        })
+        task = Task(
+            id="fixed-cache-hit-task",
+            name="fixed-cache-hit-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="running",
+            config=json.dumps(config, ensure_ascii=False),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        task_id = task.id
+        service = BacktestMultiProductService({}, task.id)
+        fixed_product = config["products"][0]
+        for group_index, parameter in enumerate(fixed_product["parameters"]):
+            cache_key = service._build_fixed_product_cache_key(config, fixed_product, parameter)
+            db.session.add(BacktestProductResultCache(
+                batch_id="batch-1",
+                cache_key=cache_key,
+                result_json=json.dumps(_task_result_payload(0.1 + group_index, 0.2 + group_index)),
+                returns_json=json.dumps({
+                    "dates": ["2024-01-01"],
+                    "index_returns": [0.1 + group_index],
+                    "start_returns": [0.2 + group_index],
+                }),
+                source_task_id="source-task",
+                source_step_index=group_index,
+            ))
+        db.session.commit()
+
+        execute_calls = []
+        monkeypatch.setattr(service, "_resolve_resume_start_index", lambda _task: 0)
+        monkeypatch.setattr(service, "_init_google_sheet", lambda _config: None)
+        monkeypatch.setattr(
+            "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+            lambda _return_date: {"weighted_metric": 1},
+        )
+        monkeypatch.setattr(service, "_build_product_kline", lambda product, _config: {
+            "kline_key": "2024-01-01~2024-12-31",
+            "kline": [
+                {"stock_date": "2024-01-01", "stock_val": 1},
+                {"stock_date": "2024-12-31", "stock_val": 2},
+            ],
+            "kline_signature": {"stock_code": product["stock_code"]},
+            "column_A_length": 22,
+        })
+
+        def fake_execute(_column_a_length, combination, cache_parameters, _config_data, _kline_data_map):
+            execute_calls.append((combination["product_index"], combination["parameter_group_index"]))
+            cache_parameters["combination"] = combination
+            return True, _task_result_payload(0.7, 0.9), [{
+                "date": "2024-01-01",
+                "index_return": 0.7,
+                "start_return": 0.9,
+            }]
+
+        monkeypatch.setattr(service, "_execute_parameter_combination", fake_execute)
+
+        assert service._execute_products(task, config) == "completed"
+        assert execute_calls == [(1, 0), (1, 1)]
+
+        fixed_results = [
+            result.to_dict()
+            for result in TaskResult.query.filter_by(task_id=task_id).order_by(TaskResult.step_index.asc()).all()
+            if result.to_dict()["parameters"]["product_index"] == 0
+        ]
+        assert len(fixed_results) == 2
+        assert fixed_results[0]["parameters"]["ratio"] == "25"
+        assert fixed_results[0]["return_series_id"] is not None
+        assert fixed_results[0]["result"]["sheet__title"]["weighted_calculate_metrics"]
+
+
+def test_fixed_product_cache_hit_advances_progress_when_all_steps_cached(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "fixed_product_batch_id": "batch-progress",
+            "products": [
+                _base_product(0, "40") | {"is_fixed": True},
+                _base_product(1, "60") | {"is_fixed": True},
+            ],
+        })
+        task = Task(
+            id="fixed-cache-progress-task",
+            name="fixed-cache-progress-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="running",
+            config=json.dumps(config, ensure_ascii=False),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        task_id = task.id
+        service = BacktestMultiProductService({}, task_id)
+        for product in config["products"]:
+            for group_index, parameter in enumerate(product["parameters"]):
+                cache_key = service._build_fixed_product_cache_key(config, product, parameter)
+                db.session.add(BacktestProductResultCache(
+                    batch_id="batch-progress",
+                    cache_key=cache_key,
+                    result_json=json.dumps(_task_result_payload(0.1 + group_index, 0.2 + group_index)),
+                    returns_json=json.dumps({
+                        "dates": ["2024-01-01"],
+                        "index_returns": [0.1 + group_index],
+                        "start_returns": [0.2 + group_index],
+                    }),
+                    source_task_id="source-task",
+                    source_step_index=group_index,
+                ))
+        db.session.commit()
+
+        monkeypatch.setattr(service, "_resolve_resume_start_index", lambda _task: 0)
+        monkeypatch.setattr(
+            service,
+            "_init_google_sheet",
+            lambda _config: pytest.fail("cached fixed products should not initialize Google Sheet"),
+        )
+        monkeypatch.setattr(
+            service,
+            "_execute_parameter_combination",
+            lambda *_args, **_kwargs: pytest.fail("cached fixed products should not execute combinations"),
+        )
+        monkeypatch.setattr(
+            "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+            lambda _return_date: {"weighted_metric": 1},
+        )
+
+        assert service._execute_products(task, config) == "completed"
+
+        progress_task = db.session.get(Task, task_id)
+        assert progress_task.current_step == progress_task.total_steps == 4
+        assert TaskResult.query.filter_by(task_id=task_id).count() == 4
+
+
+def test_lock_spreadsheet_ids_skip_cached_fixed_products(app_factory):
+    app = app_factory
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "fixed_product_batch_id": "batch-1",
+            "products": [
+                _base_product(0, "25") | {"is_fixed": True},
+                _base_product(1, "75"),
+            ],
+        })
+        service = BacktestMultiProductService({}, "lock-cache-task")
+        fixed_product = config["products"][0]
+        for group_index, parameter in enumerate(fixed_product["parameters"]):
+            cache_key = service._build_fixed_product_cache_key(config, fixed_product, parameter)
+            db.session.add(BacktestProductResultCache(
+                batch_id="batch-1",
+                cache_key=cache_key,
+                result_json=json.dumps(_task_result_payload(0.1 + group_index, 0.2 + group_index)),
+                returns_json=json.dumps({"dates": [], "index_returns": [], "start_returns": []}),
+                source_task_id="source-task",
+                source_step_index=group_index,
+            ))
+        db.session.commit()
+
+        manager = TaskManager()
+
+        assert manager._extract_backtest_spreadsheet_ids_to_lock(
+            BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            config,
+        ) == ["sheet-2"]
 
 
 def _task_result_payload(index_return, start_return):

@@ -1,8 +1,8 @@
 from sqlalchemy import inspect, text
 
 from app.extensions import db
-from app.models import ScheduledTask
-from app.startup import ensure_scheduled_task_schema
+from app.models import BacktestSheetRunLock, ScheduledTask, Task
+from app.startup import cleanup_stale_backtest_sheet_run_locks, ensure_scheduled_task_schema
 
 
 def test_ensure_scheduled_task_schema_adds_lock_fields_to_legacy_table(app_factory):
@@ -51,3 +51,35 @@ def test_ensure_scheduled_task_schema_adds_lock_fields_to_legacy_table(app_facto
 
     assert ScheduledTask.query.count() == 1
     assert ScheduledTask.query.first().is_running is False
+
+
+def test_cleanup_stale_backtest_sheet_run_locks_keeps_running_task_locks(app_factory):
+    running_task = Task(id="running-lock-task", name="running", task_type="backtest_training", status="running")
+    completed_task = Task(id="completed-lock-task", name="completed", task_type="backtest_training", status="completed")
+    db.session.add_all([running_task, completed_task])
+    db.session.add_all([
+        BacktestSheetRunLock(
+            spreadsheet_id="running-sheet",
+            task_id="running-lock-task",
+            task_type="backtest_training",
+        ),
+        BacktestSheetRunLock(
+            spreadsheet_id="completed-sheet",
+            task_id="completed-lock-task",
+            task_type="backtest_training",
+        ),
+        BacktestSheetRunLock(
+            spreadsheet_id="missing-sheet",
+            task_id="missing-task",
+            task_type="backtest_training",
+        ),
+    ])
+    db.session.commit()
+
+    cleanup_stale_backtest_sheet_run_locks()
+
+    locks = {
+        lock.spreadsheet_id
+        for lock in BacktestSheetRunLock.query.order_by(BacktestSheetRunLock.spreadsheet_id.asc()).all()
+    }
+    assert locks == {"running-sheet"}

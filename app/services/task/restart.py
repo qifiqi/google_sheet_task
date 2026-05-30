@@ -116,7 +116,7 @@ class TaskRestartMixin:
                 return {"status": "error", "message": "任务不存在"}
             if task.task_type in ("backtest_training", "backtest_multi_product"):
                 config_data = self._get_task_config_dict(task)
-                spreadsheet_ids = self._extract_backtest_spreadsheet_ids(config_data)
+                spreadsheet_ids = self._extract_backtest_spreadsheet_ids_to_lock(task.task_type, config_data)
                 running_backtest = self._find_running_backtest_task_for_spreadsheets(
                     spreadsheet_ids,
                     exclude_task_id=task_id,

@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="680" viewBox="0 0 980 680">
+  <rect width="980" height="680" fill="#f6f8fb"/>
+  <text x="32" y="42" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="22" font-weight="700">展开态重设计：工具栏头部 + 参数表格</text>
+  <text x="32" y="72" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">参数区域不再使用独立标题，保留表格结构，列名清楚、横向扫描更方便。</text>
+
+  <rect x="32" y="104" width="916" height="520" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+
+  <rect x="32" y="104" width="916" height="68" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <path d="M32 162h916" stroke="#e2e8f0"/>
+  <circle cx="64" cy="138" r="15" fill="#0d6efd"/>
+  <path d="M58 141l6-6 6 6" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="92" y="126" width="38" height="24" rx="12" fill="#e8f1ff" stroke="#cfe2ff"/>
+  <text x="111" y="143" text-anchor="middle" fill="#0d6efd" font-family="Arial, sans-serif" font-size="12" font-weight="700">C3</text>
+
+  <text x="148" y="144" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">贵州茅台</text>
+  <text x="248" y="144" fill="#64748b" font-family="Arial, sans-serif" font-size="14">600519</text>
+  <circle cx="318" cy="138" r="3" fill="#cbd5e1"/>
+  <text x="336" y="144" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">A股 cn</text>
+  <circle cx="422" cy="138" r="3" fill="#cbd5e1"/>
+  <text x="440" y="144" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">比例</text>
+  <text x="478" y="144" fill="#0f172a" font-family="Arial, sans-serif" font-size="14" font-weight="700">50%</text>
+
+  <rect x="745" y="130" width="34" height="18" rx="9" fill="#0d6efd"/>
+  <circle cx="770" cy="139" r="7" fill="#ffffff"/>
+  <text x="790" y="144" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">固定</text>
+  <rect x="874" y="119" width="38" height="38" rx="6" fill="#ffffff" stroke="#e11d48"/>
+  <path d="M886 129h14m-12 2v14m4-14v14m4-14v14m-11-16h16m-10-3h4l1 3h-6z" fill="none" stroke="#e11d48" stroke-width="1.5" stroke-linecap="round"/>
+
+  <g font-family="Microsoft YaHei, Arial, sans-serif">
+    <text x="56" y="207" fill="#334155" font-size="13" font-weight="700">基础信息</text>
+
+    <text x="56" y="237" fill="#64748b" font-size="12">产品名称</text>
+    <rect x="56" y="248" width="250" height="40" rx="6" fill="#ffffff" stroke="#d7dee8"/>
+    <text x="72" y="274" fill="#0f172a" font-size="14">贵州茅台</text>
+
+    <text x="326" y="237" fill="#64748b" font-size="12">股票代码</text>
+    <rect x="326" y="248" width="170" height="40" rx="6" fill="#ffffff" stroke="#d7dee8"/>
+    <text x="342" y="274" fill="#0f172a" font-size="14">600519</text>
+
+    <text x="516" y="237" fill="#64748b" font-size="12">市场</text>
+    <rect x="516" y="248" width="140" height="40" rx="6" fill="#ffffff" stroke="#d7dee8"/>
+    <text x="532" y="274" fill="#0f172a" font-size="14">cn</text>
+    <path d="M632 264l6 6 6-6" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linecap="round"/>
+
+    <text x="676" y="237" fill="#64748b" font-size="12">比例 %</text>
+    <rect x="676" y="248" width="120" height="40" rx="6" fill="#ffffff" stroke="#d7dee8"/>
+    <text x="692" y="274" fill="#0f172a" font-size="14">50</text>
+
+    <text x="816" y="237" fill="#64748b" font-size="12">价格模式</text>
+    <rect x="816" y="248" width="96" height="40" rx="6" fill="#ffffff" stroke="#d7dee8"/>
+    <text x="832" y="274" fill="#0f172a" font-size="14">收盘价</text>
+
+    <text x="56" y="318" fill="#64748b" font-size="12">Google Sheet 链接</text>
+    <rect x="56" y="329" width="580" height="40" rx="6" fill="#ffffff" stroke="#d7dee8"/>
+    <text x="72" y="355" fill="#94a3b8" font-size="14">粘贴 Google Sheet 链接后自动识别</text>
+
+    <text x="656" y="318" fill="#64748b" font-size="12">K线复权</text>
+    <rect x="656" y="329" width="140" height="40" rx="6" fill="#ffffff" stroke="#d7dee8"/>
+    <text x="672" y="355" fill="#0f172a" font-size="14">前复权</text>
+
+    <text x="816" y="318" fill="#64748b" font-size="12">Sheet 状态</text>
+    <rect x="816" y="329" width="96" height="40" rx="20" fill="#ecfdf5" stroke="#bbf7d0"/>
+    <circle cx="838" cy="349" r="5" fill="#16a34a"/>
+    <text x="852" y="354" fill="#166534" font-size="13">已识别</text>
+  </g>
+
+  <g font-family="Microsoft YaHei, Arial, sans-serif">
+    <rect x="56" y="402" width="856" height="156" rx="8" fill="#ffffff" stroke="#d7dee8"/>
+    <rect x="56" y="402" width="856" height="40" rx="8" fill="#f8fafc"/>
+    <path d="M56 442h856" stroke="#d7dee8"/>
+
+    <text x="74" y="427" fill="#475569" font-size="12" font-weight="700">Commission</text>
+    <text x="181" y="427" fill="#475569" font-size="12" font-weight="700">X Multiplier</text>
+    <text x="293" y="427" fill="#475569" font-size="12" font-weight="700">单边保护1</text>
+    <text x="400" y="427" fill="#475569" font-size="12" font-weight="700">单边保护2</text>
+    <text x="507" y="427" fill="#475569" font-size="12" font-weight="700">中立限仓</text>
+    <text x="612" y="427" fill="#475569" font-size="12" font-weight="700">指数跟踪</text>
+    <text x="715" y="427" fill="#475569" font-size="12" font-weight="700">一窝蜂 S</text>
+    <text x="815" y="427" fill="#475569" font-size="12" font-weight="700">操作</text>
+
+    <path d="M162 402v156M274 402v156M382 402v156M490 402v156M595 402v156M700 402v156M804 402v156" stroke="#edf2f7"/>
+
+    <text x="74" y="474" fill="#0f172a" font-size="13">0.035%</text>
+    <text x="181" y="474" fill="#0f172a" font-size="13">0.8</text>
+    <text x="293" y="474" fill="#0f172a" font-size="13">1.2</text>
+    <text x="400" y="474" fill="#0f172a" font-size="13">1.6</text>
+    <text x="507" y="474" fill="#0f172a" font-size="13">2.0</text>
+    <text x="612" y="474" fill="#0f172a" font-size="13">0.4</text>
+    <text x="715" y="474" fill="#0f172a" font-size="13">3</text>
+    <rect x="828" y="456" width="32" height="28" rx="5" fill="#fff5f5" stroke="#fecdd3"/>
+    <path d="M836 464h16m-13 3v10m5-10v10m5-10v10" fill="none" stroke="#e11d48" stroke-width="1.3" stroke-linecap="round"/>
+
+    <path d="M56 492h856" stroke="#edf2f7"/>
+    <text x="74" y="525" fill="#64748b" font-size="13">0.035%</text>
+    <text x="181" y="525" fill="#64748b" font-size="13">1.0</text>
+    <text x="293" y="525" fill="#64748b" font-size="13">1.4</text>
+    <text x="400" y="525" fill="#64748b" font-size="13">1.8</text>
+    <text x="507" y="525" fill="#64748b" font-size="13">2.2</text>
+    <text x="612" y="525" fill="#64748b" font-size="13">0.5</text>
+    <text x="715" y="525" fill="#64748b" font-size="13">4</text>
+    <rect x="828" y="507" width="32" height="28" rx="5" fill="#fff5f5" stroke="#fecdd3"/>
+    <path d="M836 515h16m-13 3v10m5-10v10m5-10v10" fill="none" stroke="#e11d48" stroke-width="1.3" stroke-linecap="round"/>
+  </g>
+
+  <rect x="56" y="574" width="92" height="36" rx="7" fill="#ffffff" stroke="#0d6efd"/>
+  <text x="102" y="597" text-anchor="middle" fill="#0d6efd" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">+ 添加行</text>
+  <rect x="158" y="574" width="76" height="36" rx="7" fill="#ffffff" stroke="#d7dee8"/>
+  <text x="196" y="597" text-anchor="middle" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">粘贴</text>
+  <rect x="244" y="574" width="76" height="36" rx="7" fill="#ffffff" stroke="#d7dee8"/>
+  <text x="282" y="597" text-anchor="middle" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">复制</text>
+
+  <text x="32" y="654" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">变化：去掉参数行 title；参数直接用表头承载语义，按钮放到表格下方，阅读和复制粘贴都更顺。</text>
+</svg>

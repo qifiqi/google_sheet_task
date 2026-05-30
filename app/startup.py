@@ -7,6 +7,8 @@ from werkzeug.security import generate_password_hash
 from app.config import PERMISSIONS, init_config
 from app.extensions import db
 from app.models import (
+    BacktestProductResultCache,
+    BacktestSheetRunLock,
     GoogleSheetToken,
     NavigationMenuItem,
     Permission,
@@ -130,6 +132,15 @@ def ensure_stock_metadata_schema():
         StockMetadata.__table__.create(db.engine)
 
 
+def ensure_backtest_runtime_schema():
+    inspector = inspect(db.engine)
+    table_names = set(inspector.get_table_names())
+    if 'backtest_product_result_cache' not in table_names:
+        BacktestProductResultCache.__table__.create(db.engine)
+    if 'backtest_sheet_run_locks' not in table_names:
+        BacktestSheetRunLock.__table__.create(db.engine)
+
+
 def ensure_task_result_return_schema():
     inspector = inspect(db.engine)
     if 'task_results_return' not in inspector.get_table_names():
@@ -192,6 +203,19 @@ def reset_google_sheet_occupancy():
         db.session.commit()
 
 
+def cleanup_stale_backtest_sheet_run_locks():
+    stale_locks = (
+        BacktestSheetRunLock.query.outerjoin(Task, BacktestSheetRunLock.task_id == Task.id)
+        .filter((Task.id.is_(None)) | (Task.status != 'running'))
+        .all()
+    )
+    if not stale_locks:
+        return
+    for lock in stale_locks:
+        db.session.delete(lock)
+    db.session.commit()
+
+
 def register_shell_context(app):
     @app.shell_context_processor
     def make_shell_context():
@@ -203,6 +227,8 @@ def register_shell_context(app):
             'SystemConfig': SystemConfig,
             'ScheduledTask': ScheduledTask,
             'GoogleSheetToken': GoogleSheetToken,
+            'BacktestProductResultCache': BacktestProductResultCache,
+            'BacktestSheetRunLock': BacktestSheetRunLock,
         }
 
 
@@ -218,6 +244,7 @@ def register_cli(app):
         ensure_task_result_return_schema()
         ensure_task_result_summary_index_schema()
         ensure_stock_metadata_schema()
+        ensure_backtest_runtime_schema()
         ensure_navigation_menu_schema()
         print('数据库初始化完成')
 
@@ -490,9 +517,11 @@ def bootstrap_app(app):
         ensure_task_result_return_schema()
         ensure_task_result_summary_index_schema()
         ensure_stock_metadata_schema()
+        ensure_backtest_runtime_schema()
         ensure_navigation_menu_schema()
         reset_google_sheet_token_occupancy()
         reset_google_sheet_occupancy()
+        cleanup_stale_backtest_sheet_run_locks()
         init_config()
         init_rbac()
         init_navigation_menu()

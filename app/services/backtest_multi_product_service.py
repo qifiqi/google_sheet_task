@@ -15,9 +15,10 @@ from typing import Any
 
 from flask import current_app
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
-from app.models import Task, TaskResult, TaskResultReturn
+from app.models import BacktestProductResultCache, Task, TaskResult, TaskResultReturn
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
 from app.services.xpl_service import xpl_analyzer
@@ -91,6 +92,10 @@ def normalize_ratio_display(value: Any) -> str:
 def _hash_text(value: Any) -> str:
     raw = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def _is_fixed_product(product: dict[str, Any]) -> bool:
+    return bool(product.get("is_fixed"))
 
 
 def _global_preview_cache_key(
@@ -188,6 +193,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "price_mode": normalize_price_mode(product.get("price_mode") or config.get("price_mode")),
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
             "ratio": normalize_ratio_display(product.get("ratio")),
+            "is_fixed": bool(product.get("is_fixed")),
             "sheet": _normalize_sheet(product),
             "parameters": parameters,
         })
@@ -485,6 +491,158 @@ class BacktestMultiProductService(BacktestTrainingService):
     """Multi-product backtest service with independent product sheets."""
 
     @staticmethod
+    def _build_fixed_product_cache_key(
+        config_data: dict[str, Any],
+        product: dict[str, Any],
+        parameter: list[Any],
+    ) -> str:
+        sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
+        payload = {
+            "stock_code": str(product.get("stock_code") or "").strip().upper(),
+            "market_type": normalize_market_type(product.get("market_type")),
+            "start_date": str(config_data.get("start_date") or "").strip(),
+            "end_date": str(config_data.get("end_date") or "").strip(),
+            "price_mode": normalize_price_mode(product.get("price_mode") or config_data.get("price_mode")),
+            "kline_adjustment": product.get("kline_adjustment") or config_data.get("kline_adjustment") or "forward",
+            "spreadsheet_id": str(sheet.get("spreadsheet_id") or product.get("spreadsheet_id") or "").strip(),
+            "sheet_name": str(sheet.get("sheet_name") or product.get("sheet_name") or "data").strip() or "data",
+            "sheet_title": str(sheet.get("title") or product.get("title") or "").strip(),
+            "parameter": parameter,
+        }
+        return _hash_text(payload)
+
+    @classmethod
+    def fixed_product_cache_exists(
+        cls,
+        config_data: dict[str, Any],
+        product: dict[str, Any],
+    ) -> bool:
+        batch_id = str(config_data.get("fixed_product_batch_id") or "").strip()
+        if not batch_id or not _is_fixed_product(product):
+            return False
+        parameters = product.get("parameters") if isinstance(product.get("parameters"), list) else []
+        if not parameters:
+            return False
+        for parameter in parameters:
+            cache_key = cls._build_fixed_product_cache_key(config_data, product, parameter)
+            exists = BacktestProductResultCache.query.filter_by(
+                batch_id=batch_id,
+                cache_key=cache_key,
+            ).first()
+            if not exists:
+                return False
+        return True
+
+    def _get_fixed_product_cache(
+        self,
+        config_data: dict[str, Any],
+        product: dict[str, Any],
+        parameter: list[Any],
+    ) -> dict[str, Any] | None:
+        batch_id = str(config_data.get("fixed_product_batch_id") or "").strip()
+        if not batch_id or not _is_fixed_product(product):
+            return None
+        cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
+        cache_entry = BacktestProductResultCache.query.filter_by(
+            batch_id=batch_id,
+            cache_key=cache_key,
+        ).first()
+        if not cache_entry:
+            return None
+        return {
+            "result_json": cache_entry.result_json,
+            "returns_json": cache_entry.returns_json,
+            "source_task_id": cache_entry.source_task_id,
+            "source_step_index": cache_entry.source_step_index,
+        }
+
+    def _save_fixed_product_cache(
+        self,
+        config_data: dict[str, Any],
+        product: dict[str, Any],
+        parameter: list[Any],
+        result_payload: dict[str, Any],
+        return_date: list[dict[str, Any]] | None,
+        step_index: int,
+    ) -> None:
+        batch_id = str(config_data.get("fixed_product_batch_id") or "").strip()
+        if not batch_id or not _is_fixed_product(product):
+            return
+
+        cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
+        if BacktestProductResultCache.query.filter_by(batch_id=batch_id, cache_key=cache_key).first():
+            return
+
+        db.session.add(BacktestProductResultCache(
+            batch_id=batch_id,
+            cache_key=cache_key,
+            result_json=json.dumps(self._sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
+            returns_json=_build_returns_json(return_date or []) if return_date else None,
+            source_task_id=self.task_id,
+            source_step_index=step_index,
+        ))
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+
+    def _build_cached_result_parameters(
+        self,
+        config_data: dict[str, Any],
+        product: dict[str, Any],
+        group_index: int,
+        parameter: list[Any],
+        return_date: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        dates = [
+            str(item.get("date") or item.get("stock_date") or "").strip()
+            for item in return_date
+            if isinstance(item, dict) and (item.get("date") or item.get("stock_date"))
+        ]
+        return {
+            "parameter": parameter,
+            "stock_code": product["stock_code"],
+            "year": f"{config_data['start_date']}~{config_data['end_date']}",
+            "Kline_key": f"{config_data['start_date']}~{config_data['end_date']}",
+            "product_index": int(product["product_index"]),
+            "product_name": product["product_name"],
+            "ratio": product["ratio"],
+            "parameter_group_index": group_index,
+            "kline": [dates[0], dates[-1]] if dates else [],
+            "start_date": config_data["start_date"],
+            "end_date": config_data["end_date"],
+            "sheet": product["sheet"],
+            "is_fixed": True,
+            "fixed_product_batch_id": config_data.get("fixed_product_batch_id"),
+        }
+
+    def _save_result_from_fixed_product_cache(
+        self,
+        step_index: int,
+        config_data: dict[str, Any],
+        product: dict[str, Any],
+        group_index: int,
+        parameter: list[Any],
+        cache_entry: dict[str, Any],
+    ) -> None:
+        result_payload = _parse_json(cache_entry.get("result_json"), {})
+        return_date = _parse_returns_json(cache_entry.get("returns_json"))
+        parameters = self._build_cached_result_parameters(
+            config_data,
+            product,
+            group_index,
+            parameter,
+            return_date,
+        )
+        self._save_task_result(
+            step_index,
+            parameters,
+            result_payload if isinstance(result_payload, dict) else {},
+            True,
+            return_date=return_date,
+        )
+
+    @staticmethod
     def _build_kline_signature(kline: list[dict[str, Any]]) -> dict[str, Any]:
         if not kline:
             return {}
@@ -573,6 +731,24 @@ class BacktestMultiProductService(BacktestTrainingService):
                 sheet_cache_key = self._build_sheet_cache_key(product)
                 parameter = product["parameters"][group_index]
                 product_config = self._build_product_config(config_data, product)
+                cached_fixed_result = self._get_fixed_product_cache(config_data, product, parameter)
+                if cached_fixed_result:
+                    self._update_task_progress(current_step)
+                    self._log_info(
+                        f"固定产品结果命中同批缓存: 产品 {product['product_name']} / 方案 {group_index + 1}"
+                    )
+                    self._save_result_from_fixed_product_cache(
+                        current_step - 1,
+                        config_data,
+                        product,
+                        group_index,
+                        parameter,
+                        cached_fixed_result,
+                    )
+                    success_count += 1
+                    processed_index += 1
+                    self._log_info(f"第 {current_step} 步执行成功（缓存复用）")
+                    continue
                 self._init_google_sheet(product_config)
                 kline_info = kline_cache.get(product_index)
                 if not kline_info:
@@ -599,8 +775,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     total_steps,
                     f"执行方案 {group_index + 1} / 产品 {product['product_name']}",
                 )
-                task.current_step = current_step
-                db_retry_manager.commit_with_retry(db.session)
+                self._update_task_progress(current_step)
 
                 try:
                     success, result_payload, return_date = self._execute_parameter_combination(
@@ -622,7 +797,17 @@ class BacktestMultiProductService(BacktestTrainingService):
                         "start_date": config_data["start_date"],
                         "end_date": config_data["end_date"],
                         "sheet": product["sheet"],
+                        "is_fixed": _is_fixed_product(product),
+                        "fixed_product_batch_id": config_data.get("fixed_product_batch_id"),
                     }, result_payload, True, return_date=return_date)
+                    self._save_fixed_product_cache(
+                        config_data,
+                        product,
+                        parameter,
+                        result_payload,
+                        return_date,
+                        current_step - 1,
+                    )
                     sheet_kline_cache[sheet_cache_key]["combination"] = combination
                     success_count += 1
                     self._log_info(f"第 {current_step} 步执行成功")
@@ -635,6 +820,13 @@ class BacktestMultiProductService(BacktestTrainingService):
 
         self._log_info(f"多品数据回测完成，总成功: {success_count}, 总失败: {failed_count}")
         return "completed" if success_count else "error"
+
+    def _update_task_progress(self, current_step: int) -> None:
+        task = db.session.get(Task, self.task_id)
+        if not task:
+            return
+        task.current_step = current_step
+        db_retry_manager.commit_with_retry(db.session)
 
     def _save_task_result(
         self,

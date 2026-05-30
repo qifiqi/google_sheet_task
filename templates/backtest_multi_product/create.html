@@ -16,6 +16,113 @@
         background: var(--bs-body-bg);
         overflow: visible;
     }
+    .product-card-header {
+        cursor: pointer;
+        flex-wrap: nowrap !important;
+        gap: 0.75rem !important;
+        min-height: 4.25rem;
+        padding: 0.55rem 0.75rem !important;
+        user-select: none;
+    }
+    .product-card-header .form-check,
+    .product-card-header button {
+        cursor: pointer;
+    }
+    .product-card-title-group {
+        min-width: 0;
+    }
+    .product-card-header > .product-card-title-group {
+        flex-wrap: nowrap;
+        gap: 0.65rem !important;
+        overflow: hidden;
+    }
+    .product-card-title-group .product-card-title-group {
+        display: flex;
+        flex: 1 1 auto;
+        align-items: center;
+        gap: 0.8rem;
+        min-width: 0;
+        overflow: hidden;
+    }
+    .product-title {
+        display: block;
+        flex: 0 1 auto;
+        max-width: 16rem;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--bs-emphasis-color);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .product-summary {
+        display: flex;
+        flex: 1 1 auto;
+        flex-wrap: nowrap;
+        gap: 0;
+        min-width: 0;
+        margin-top: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;
+    }
+    .product-summary::-webkit-scrollbar {
+        display: none;
+    }
+    .product-summary-item {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        max-width: none;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--bs-secondary-color);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .product-summary-item + .product-summary-item::before {
+        width: 0.25rem;
+        height: 0.25rem;
+        margin: 0 0.65rem;
+        border-radius: 50%;
+        background: var(--bs-border-color);
+        content: "";
+    }
+    .product-collapse-toggle {
+        width: 1.85rem;
+        height: 1.85rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border-radius: 999px;
+        border-color: var(--bs-primary);
+        background: var(--bs-primary);
+        color: #fff;
+    }
+    .model-badge {
+        border: 1px solid rgba(var(--bs-primary-rgb), 0.18);
+        background: rgba(var(--bs-primary-rgb), 0.1) !important;
+        color: var(--bs-primary) !important;
+    }
+    .product-card.is-collapsed .product-card-body {
+        display: none !important;
+    }
+    .product-card.is-collapsed .product-card-header {
+        border-bottom: 0 !important;
+        border-radius: 0.75rem;
+    }
+    .product-card-actions {
+        flex: 0 0 auto;
+    }
+    .product-card.is-collapsed .product-collapse-toggle i {
+        transform: rotate(180deg);
+    }
+    .product-collapse-toggle i {
+        transition: transform 0.15s ease;
+    }
     .stock-search-shell { position: relative; }
     .stock-search-results {
         position: absolute;
@@ -72,9 +179,61 @@
         padding: 0.45rem 0.75rem;
         background: var(--bs-tertiary-bg);
     }
+    .floating-action-bar {
+        position: fixed;
+        left: calc(16.666667% + 1.25rem);
+        bottom: 1.25rem;
+        z-index: 1040;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.6rem;
+        max-width: min(42rem, calc(100vw - 2.5rem));
+        padding: 0.75rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.8rem;
+        background: rgba(var(--bs-body-bg-rgb, 255, 255, 255), 0.96);
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
+        backdrop-filter: blur(10px);
+    }
+    html[data-bs-theme="dark"] .floating-action-bar {
+        background: rgba(var(--bs-body-bg-rgb, 33, 37, 41), 0.96);
+        box-shadow: 0 18px 45px rgba(0, 0, 0, 0.38);
+    }
+    .fixed-product-switch {
+        min-height: auto;
+        margin: 0;
+    }
+    .fixed-product-switch .form-check-input {
+        cursor: pointer;
+    }
     @media (max-width: 991.98px) {
         .product-card .row > * { min-width: 100%; }
         .param-action-status { width: 100%; }
+        .floating-action-bar { left: calc(25% + 1rem); }
+    }
+    @media (max-width: 767.98px) {
+        .product-card-title-group .product-card-title-group {
+            gap: 0.55rem;
+        }
+        .product-title {
+            max-width: 8rem;
+        }
+        .product-summary-item + .product-summary-item::before {
+            margin: 0 0.45rem;
+        }
+        .floating-action-bar {
+            left: 1rem;
+            right: 1rem;
+            bottom: 1rem;
+            max-width: none;
+            flex-wrap: wrap;
+        }
+        .floating-action-bar .btn {
+            flex: 1 1 auto;
+        }
+        #createStatus {
+            width: 100%;
+        }
     }
 </style>
 {% endblock %}
@@ -93,8 +252,8 @@
         <div class="card-body p-4">
             <div class="row g-3 align-items-end">
                 <div class="col-md-3">
-                    <label class="form-label" for="taskName">任务名称</label>
-                    <input class="form-control" id="taskName" placeholder="如 多品组合回测-0518">
+                    <label class="form-label">任务名称</label>
+                    <div class="form-control bg-body-tertiary text-body-secondary">按组合产品名自动拼接</div>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label" for="startDate">K线开始日期</label>
@@ -115,19 +274,20 @@
                     </div>
                 </div>
             </div>
-            <div class="d-flex flex-wrap gap-2 mt-3">
-                <button class="btn btn-outline-primary" id="addProductBtn" type="button">
-                    <i class="bi bi-plus-lg me-1"></i>添加产品
-                </button>
-                <button class="btn btn-primary" id="createBtn" type="button">
-                    <i class="bi bi-play-circle me-1"></i>创建任务
-                </button>
-                <span class="small align-self-center" id="createStatus"></span>
-            </div>
         </div>
     </div>
 
     <div id="productsContainer" class="d-grid gap-3"></div>
+
+    <div class="floating-action-bar" aria-label="多品任务操作">
+        <button class="btn btn-outline-primary" id="addProductBtn" type="button">
+            <i class="bi bi-plus-lg me-1"></i>添加产品
+        </button>
+        <button class="btn btn-primary" id="createBtn" type="button">
+            <i class="bi bi-play-circle me-1"></i>创建任务
+        </button>
+        <span class="small align-self-center text-body-secondary" id="createStatus"></span>
+    </div>
 </div>
 {% endblock %}
 
@@ -135,10 +295,11 @@
 <script>
 const TASK_API_BASE = '/api/tasks';
 const TASK_TYPE = 'backtest_multi_product';
-const DEFAULT_C3_COMMISSION = '0.0350%';
+const DEFAULT_C3_COMMISSION_CN = '0.035%';
+const DEFAULT_C3_COMMISSION_US = '0.002%';
 const PARAMETER_HELP_HTML = `
     <div class="param-help-content">
-        <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统自动补默认手续费；每行 7 列时第 1 列按手续费处理。</div>
+        <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统按当前市场自动补手续费（A股 0.035%，美股 0.002%）；每行 7 列时第 1 列按手续费处理。</div>
         <div><strong>C3 复制</strong>：复制当前表格为 Tab 分隔行，包含 <code>Commission</code> 和后续参数列，可直接贴到其他产品或 Excel。</div>
         <div><strong>C5 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
     </div>
@@ -194,6 +355,45 @@ function resolveMarketTypeBySecurityTypeName(securityTypeName) {
     return String(securityTypeName || '').includes('美股') ? 'en' : 'cn';
 }
 
+function getDefaultCommissionByMarket(marketType) {
+    return String(marketType || '').trim().toLowerCase() === 'en'
+        ? DEFAULT_C3_COMMISSION_US
+        : DEFAULT_C3_COMMISSION_CN;
+}
+
+function getCardMarketType(card) {
+    return card.querySelector('.market-type')?.value || 'cn';
+}
+
+function getCardDefaultCommission(card) {
+    return getDefaultCommissionByMarket(getCardMarketType(card));
+}
+
+function isReusableParameterRow(card, row) {
+    const version = card.dataset.modelVersion || 'c3';
+    const inputs = Array.from(row.querySelectorAll('.param-input'));
+    if (!inputs.length) {
+        return true;
+    }
+    if (version !== 'c3') {
+        return inputs.every((input) => !input.value.trim());
+    }
+    return inputs.slice(1).every((input) => !input.value.trim());
+}
+
+function syncEmptyCommissionRows(card) {
+    const defaultCommission = getCardDefaultCommission(card);
+    Array.from(card.querySelectorAll('.param-body tr')).forEach((row) => {
+        if (!isReusableParameterRow(card, row)) {
+            return;
+        }
+        const commissionInput = row.querySelector('.param-input[data-key="commission"]');
+        if (commissionInput) {
+            commissionInput.value = defaultCommission;
+        }
+    });
+}
+
 function getProductCards() {
     return Array.from(productsContainer.querySelectorAll('.product-card'));
 }
@@ -207,6 +407,46 @@ function updateRatioTotal() {
     ratioTotal.className = 'text-body';
 }
 
+function formatMarketLabel(marketType) {
+    return String(marketType || '').trim().toLowerCase() === 'en' ? '美股 en' : 'A股 cn';
+}
+
+function updateProductSummary(card) {
+    const productName = card.querySelector('.product-name')?.value.trim() || '未命名产品';
+    const stockCode = card.querySelector('.stock-code')?.value.trim().toUpperCase() || '未填写';
+    const marketType = card.querySelector('.market-type')?.value || 'cn';
+    const ratio = card.querySelector('.ratio-input')?.value.trim();
+    const title = card.querySelector('.product-title');
+    const stockSummary = card.querySelector('.summary-stock');
+    const marketSummary = card.querySelector('.summary-market');
+    const ratioSummary = card.querySelector('.summary-ratio');
+    if (title) {
+        title.textContent = productName;
+        title.title = productName;
+    }
+    if (stockSummary) {
+        stockSummary.textContent = stockCode;
+        stockSummary.title = `${productName} / ${stockCode}`;
+    }
+    if (marketSummary) {
+        marketSummary.textContent = formatMarketLabel(marketType);
+    }
+    if (ratioSummary) {
+        ratioSummary.textContent = `比例 ${ratio || 0}%`;
+    }
+}
+
+function setProductCollapsed(card, collapsed) {
+    card.classList.toggle('is-collapsed', collapsed);
+    const toggle = card.querySelector('.product-collapse-toggle');
+    if (!toggle) {
+        return;
+    }
+    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    toggle.setAttribute('title', collapsed ? '展开产品' : '折叠产品');
+    toggle.setAttribute('aria-label', collapsed ? '展开产品' : '折叠产品');
+}
+
 function buildParameterHead(version) {
     const fields = FIELD_MAP[version] || FIELD_MAP.c3;
     return `<tr>${fields.map((field) => `<th>${escapeHtml(field.label)}</th>`).join('')}<th class="text-end">操作</th></tr>`;
@@ -216,9 +456,14 @@ function addParameterRow(card, values = []) {
     const version = card.dataset.modelVersion || 'c3';
     const fields = FIELD_MAP[version] || FIELD_MAP.c3;
     const tbody = card.querySelector('.param-body');
+    const defaultCommission = getCardDefaultCommission(card);
+    const rowValues = Array.isArray(values) ? [...values] : [];
+    if (version === 'c3' && !String(rowValues[0] ?? '').trim()) {
+        rowValues[0] = defaultCommission;
+    }
     const row = document.createElement('tr');
     row.innerHTML = `${fields.map((field, index) => `
-        <td><input class="form-control form-control-sm param-input" data-key="${field.key}" value="${escapeHtml(values[index] ?? (field.key === 'commission' ? DEFAULT_C3_COMMISSION : ''))}"></td>
+        <td><input class="form-control form-control-sm param-input" data-key="${field.key}" value="${escapeHtml(rowValues[index] ?? (field.key === 'commission' ? defaultCommission : ''))}"></td>
     `).join('')}<td class="text-end"><button class="btn btn-sm btn-outline-danger delete-param" type="button"><i class="bi bi-trash"></i></button></td>`;
     tbody.appendChild(row);
 }
@@ -251,19 +496,36 @@ function resetParameterTable(card, version) {
 function addProduct(defaults = {}) {
     productSeq += 1;
     const productId = `product-${productSeq}`;
+    const fixedInputId = `fixedProduct${productSeq}`;
     const card = document.createElement('div');
     card.className = 'product-card';
     card.dataset.productId = productId;
     card.dataset.modelVersion = 'c3';
     card.innerHTML = `
-        <div class="p-3 border-bottom bg-body-tertiary d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <div class="d-flex align-items-center gap-2">
+        <div class="p-3 border-bottom bg-body-tertiary d-flex justify-content-between align-items-center flex-wrap gap-2 product-card-header">
+            <div class="d-flex align-items-center gap-2 flex-grow-1 product-card-title-group">
+                <button class="btn btn-sm btn-outline-secondary product-collapse-toggle" type="button" title="折叠产品" aria-label="折叠产品" aria-expanded="true">
+                    <i class="bi bi-chevron-up"></i>
+                </button>
                 <span class="badge text-bg-primary rounded-pill model-badge">C3</span>
-                <strong class="product-title">产品 ${productSeq}</strong>
+                <div class="product-card-title-group">
+                    <strong class="product-title">产品 ${productSeq}</strong>
+                    <div class="product-summary small">
+                        <span class="product-summary-item summary-stock">未填写</span>
+                        <span class="product-summary-item summary-market">A股 cn</span>
+                        <span class="product-summary-item summary-ratio">比例 ${escapeHtml(defaults.ratio ?? '') || '0'}%</span>
+                    </div>
+                </div>
             </div>
-            <button class="btn btn-sm btn-outline-danger delete-product" type="button"><i class="bi bi-trash"></i></button>
+            <div class="d-flex align-items-center gap-3 product-card-actions">
+                <div class="form-check form-switch fixed-product-switch">
+                    <input class="form-check-input fixed-product" id="${fixedInputId}" type="checkbox" role="switch" ${defaults.is_fixed ? 'checked' : ''}>
+                    <label class="form-check-label small text-body-secondary" for="${fixedInputId}">固定</label>
+                </div>
+                <button class="btn btn-sm btn-outline-danger delete-product" type="button" title="删除产品" aria-label="删除产品"><i class="bi bi-trash"></i></button>
+            </div>
         </div>
-        <div class="p-3 d-grid gap-3">
+        <div class="p-3 d-grid gap-3 product-card-body">
             <div class="row g-3 align-items-end">
                 <div class="col-xl-3">
                     <label class="form-label">产品名称</label>
@@ -326,19 +588,30 @@ function addProduct(defaults = {}) {
         </div>
     `;
     productsContainer.appendChild(card);
-    resetParameterTable(card, 'c3');
-    initParameterHelpPopover(card);
     card.querySelector('.market-type').value = defaults.market_type || 'cn';
     card.querySelector('.kline-adjustment').value = defaults.kline_adjustment || 'forward';
     card.querySelector('.price-mode').value = defaults.price_mode || 'sp_price';
-    card.querySelector('.ratio-input').addEventListener('input', updateRatioTotal);
+    resetParameterTable(card, 'c3');
+    initParameterHelpPopover(card);
+    card.querySelector('.ratio-input').addEventListener('input', () => {
+        updateRatioTotal();
+        updateProductSummary(card);
+    });
     card.querySelector('.product-name').addEventListener('input', () => {
-        card.querySelector('.product-title').textContent = card.querySelector('.product-name').value.trim() || '产品';
+        updateProductSummary(card);
+    });
+    card.querySelector('.stock-code').addEventListener('input', () => {
+        updateProductSummary(card);
+    });
+    card.querySelector('.market-type').addEventListener('change', () => {
+        syncEmptyCommissionRows(card);
+        updateProductSummary(card);
     });
     if (defaults.sheet_url) {
         scheduleSheetAnalyze(card, { immediate: true });
     }
     updateRatioTotal();
+    updateProductSummary(card);
 }
 
 function setSheetInfo(card, message, className = 'small text-body-secondary sheet-info') {
@@ -472,9 +745,10 @@ async function fetchStockSuggestions(card, keyword) {
 }
 
 function collectParameterRows(card) {
+    const version = card.dataset.modelVersion || 'c3';
     return Array.from(card.querySelectorAll('.param-body tr'))
         .map((row) => Array.from(row.querySelectorAll('.param-input')).map((input) => input.value.trim()))
-        .filter((row) => row.some(Boolean));
+        .filter((row) => version === 'c3' ? row.slice(1).some(Boolean) : row.some(Boolean));
 }
 
 function parseParameterClipboard(raw) {
@@ -491,9 +765,10 @@ function normalizePastedParameterRow(card, row) {
         return values;
     }
     if (values.length === 6) {
-        return [DEFAULT_C3_COMMISSION, ...values];
+        return [getCardDefaultCommission(card), ...values];
     }
     if (values.length === 7) {
+        values[0] = values[0] || getCardDefaultCommission(card);
         return values;
     }
     return values;
@@ -626,7 +901,19 @@ async function pasteParametersFromClipboard(card, button) {
         if (!rows.length) {
             throw new Error('剪切板中没有可追加的参数行');
         }
-        rows.forEach((row) => addParameterRow(card, normalizePastedParameterRow(card, row)));
+        rows.forEach((row) => {
+            const normalizedRow = normalizePastedParameterRow(card, row);
+            const reusableRow = Array.from(card.querySelectorAll('.param-body tr'))
+                .find((tr) => isReusableParameterRow(card, tr));
+            if (reusableRow) {
+                const inputs = Array.from(reusableRow.querySelectorAll('.param-input'));
+                inputs.forEach((input, index) => {
+                    input.value = normalizedRow[index] ?? (input.dataset.key === 'commission' ? getCardDefaultCommission(card) : '');
+                });
+                return;
+            }
+            addParameterRow(card, normalizedRow);
+        });
         setParamActionStatus(card, `已追加 ${rows.length} 行参数`, 'small text-success align-self-center param-action-status');
     } catch (error) {
         alert(error.message || '读取剪切板失败');
@@ -660,6 +947,7 @@ function collectProducts() {
         kline_adjustment: card.querySelector('.kline-adjustment').value || 'forward',
         price_mode: card.querySelector('.price-mode').value || 'sp_price',
         ratio: card.querySelector('.ratio-input').value.trim(),
+        is_fixed: Boolean(card.querySelector('.fixed-product')?.checked),
         sheet: {
             spreadsheet_id: card.dataset.sheetStatus === 'success' ? card.dataset.spreadsheetId : '',
             sheet_name: card.dataset.sheetName || 'data',
@@ -667,6 +955,35 @@ function collectProducts() {
         },
         parameters: collectParameterRows(card)
     }));
+}
+
+function cloneProductForTask(product, index) {
+    const cloned = JSON.parse(JSON.stringify(product));
+    cloned.product_index = index;
+    return cloned;
+}
+
+function buildTaskProductGroups(products) {
+    const fixedProducts = products.filter((product) => product.is_fixed);
+    const activeProducts = products.filter((product) => !product.is_fixed);
+    if (fixedProducts.length && activeProducts.length) {
+        return activeProducts.map((activeProduct) => [...fixedProducts, activeProduct]
+            .map((product, index) => cloneProductForTask(product, index)));
+    }
+    return [products.map((product, index) => cloneProductForTask(product, index))];
+}
+
+function buildBatchId() {
+    if (window.crypto?.randomUUID) {
+        return window.crypto.randomUUID();
+    }
+    return `batch-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function buildTaskName(products) {
+    return products.map((product, index) => (
+        product.product_name?.trim() || product.stock_code?.trim() || `产品 ${index + 1}`
+    )).join('-');
 }
 
 function validatePayload(products) {
@@ -703,44 +1020,65 @@ async function loadBacktestTokens() {
 async function createTask() {
     createStatus.className = 'small text-body-secondary align-self-center';
     createStatus.textContent = '';
+    const createButton = document.getElementById('createBtn');
+    createButton.disabled = true;
     try {
         const products = collectProducts();
         validatePayload(products);
-        const taskName = document.getElementById('taskName').value.trim() || `多品数据回测-${new Date().toISOString().slice(0, 10)}`;
+        const taskGroups = buildTaskProductGroups(products);
+        const batchId = buildBatchId();
         const startDate = document.getElementById('startDate').value;
         const endDate = document.getElementById('endDate').value;
         if (!startDate || !endDate) throw new Error('请选择 K 线数据时间范围');
         if (!tokenIdSelect.value) throw new Error('请选择回测 Token');
-        const response = await fetch(TASK_API_BASE, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: taskName,
-                description: 'multi product backtest task',
-                task_type: TASK_TYPE,
-                config: {
-                    start_date: startDate,
-                    end_date: endDate,
-                    token_type: 'file',
-                    token_id: Number(tokenIdSelect.value),
-                    products
-                }
-            })
-        });
-        const data = await response.json();
-        if (!response.ok || !data.task_id) {
-            throw new Error(data.message || '任务创建失败');
+
+        for (let index = 0; index < taskGroups.length; index += 1) {
+            const groupProducts = taskGroups[index];
+            createStatus.className = 'small text-body-secondary align-self-center';
+            createStatus.textContent = `正在创建 ${index + 1}/${taskGroups.length}`;
+            const response = await fetch(TASK_API_BASE, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: buildTaskName(groupProducts),
+                    description: 'multi product backtest task',
+                    task_type: TASK_TYPE,
+                    config: {
+                        start_date: startDate,
+                        end_date: endDate,
+                        token_type: 'file',
+                        token_id: Number(tokenIdSelect.value),
+                        fixed_product_batch_id: batchId,
+                        products: groupProducts
+                    }
+                })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.task_id) {
+                throw new Error(data.message || `第 ${index + 1} 个任务创建失败`);
+            }
         }
         window.location.href = '{{ url_for("backtest_multi_product.list_page") }}';
     } catch (error) {
         createStatus.className = 'small text-danger align-self-center';
         createStatus.textContent = error.message || '任务创建失败';
+    } finally {
+        createButton.disabled = false;
     }
 }
 
 productsContainer.addEventListener('click', (event) => {
     const card = event.target.closest('.product-card');
     if (!card) return;
+    if (event.target.closest('.product-collapse-toggle')) {
+        setProductCollapsed(card, !card.classList.contains('is-collapsed'));
+        return;
+    }
+    const header = event.target.closest('.product-card-header');
+    if (header && !event.target.closest('button, input, label, select, a, .form-check')) {
+        setProductCollapsed(card, !card.classList.contains('is-collapsed'));
+        return;
+    }
     if (event.target.closest('.delete-product')) {
         card.remove();
         updateRatioTotal();
@@ -768,8 +1106,9 @@ productsContainer.addEventListener('click', (event) => {
     if (stockItem) {
         card.querySelector('.stock-code').value = stockItem.dataset.code || '';
         card.querySelector('.product-name').value = stockItem.dataset.name || stockItem.dataset.code || '';
-        card.querySelector('.product-title').textContent = card.querySelector('.product-name').value;
         card.querySelector('.market-type').value = stockItem.dataset.market || 'cn';
+        syncEmptyCommissionRows(card);
+        updateProductSummary(card);
         card.querySelector('.stock-search-results').classList.add('d-none');
     }
 });

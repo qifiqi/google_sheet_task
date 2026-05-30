@@ -5,14 +5,13 @@ from __future__ import annotations
 import json
 import threading
 from datetime import datetime
-from hashlib import sha256
-from pathlib import Path
 from typing import Any
 
-from flask import current_app, has_app_context
+from flask import current_app
+from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
-from app.models import Task
+from app.models import BacktestSheetRunLock, Task
 from app.services.backtest_multi_product_service import BacktestMultiProductService
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
@@ -69,6 +68,55 @@ class TaskRuntimeMixin:
 
         return sorted(set(spreadsheet_ids))
 
+    def _extract_backtest_spreadsheet_ids_to_lock(
+        self,
+        task_type: str,
+        config: dict[str, Any] | None,
+    ) -> list[str]:
+        """Extract spreadsheet IDs that still need real execution locks."""
+        if task_type != "backtest_multi_product" or not isinstance(config, dict):
+            return self._extract_backtest_spreadsheet_ids(config)
+
+        products = config.get("products")
+        if not isinstance(products, list):
+            return self._extract_backtest_spreadsheet_ids(config)
+
+        spreadsheet_ids = []
+        for product in products:
+            if not isinstance(product, dict):
+                continue
+            if product.get("is_fixed") and BacktestMultiProductService.fixed_product_cache_exists(config, product):
+                continue
+            sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
+            spreadsheet_id = str(
+                sheet.get("spreadsheet_id") or product.get("spreadsheet_id") or ""
+            ).strip()
+            if spreadsheet_id:
+                spreadsheet_ids.append(spreadsheet_id)
+        return sorted(set(spreadsheet_ids))
+
+    def _config_for_spreadsheet_locks(
+        self,
+        config: dict[str, Any],
+        spreadsheet_ids: list[str],
+    ) -> dict[str, Any]:
+        if not isinstance(config, dict) or not spreadsheet_ids:
+            return {}
+        allowed = set(spreadsheet_ids)
+        filtered = dict(config)
+        products = config.get("products")
+        if isinstance(products, list):
+            filtered_products = []
+            for product in products:
+                if not isinstance(product, dict):
+                    continue
+                sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
+                spreadsheet_id = str(sheet.get("spreadsheet_id") or product.get("spreadsheet_id") or "").strip()
+                if spreadsheet_id in allowed:
+                    filtered_products.append(product)
+            filtered["products"] = filtered_products
+        return filtered
+
     def _is_backtest_task_type(self, task_type: str | None) -> bool:
         return task_type in {"backtest_training", "backtest_multi_product"}
 
@@ -123,75 +171,50 @@ class TaskRuntimeMixin:
                 return running_task
         return None
 
-    def _get_backtest_sheet_lock_dir(self) -> Path:
-        if has_app_context():
-            data_dir = Path(current_app.config.get("DATA_DIR") or "data")
-        else:
-            data_dir = Path("data")
-        lock_dir = data_dir / "backtest_sheet_locks"
-        lock_dir.mkdir(parents=True, exist_ok=True)
-        return lock_dir
-
-    def _get_backtest_sheet_lock_path(self, spreadsheet_id: str) -> Path:
-        digest = sha256(spreadsheet_id.encode("utf-8")).hexdigest()
-        lock_dir = self._get_backtest_sheet_lock_dir()
-        lock_dir.mkdir(parents=True, exist_ok=True)
-        return lock_dir / f"{digest}.lock"
-
-    def _write_backtest_sheet_lock(
-        self,
-        lock_path: Path,
-        *,
-        task_id: str,
-        spreadsheet_id: str,
-    ) -> None:
-        payload = {
-            "task_id": task_id,
-            "spreadsheet_id": spreadsheet_id,
-            "started_at": datetime.now().isoformat(),
-        }
-        with lock_path.open("x", encoding="utf-8") as lock_file:
-            json.dump(payload, lock_file, ensure_ascii=False)
-
-    def _read_backtest_sheet_lock_task_id(self, lock_path: Path) -> str | None:
-        try:
-            with lock_path.open("r", encoding="utf-8") as lock_file:
-                payload = json.load(lock_file)
-            task_id = str(payload.get("task_id") or "").strip()
-            return task_id or None
-        except (OSError, json.JSONDecodeError, TypeError):
-            return None
-
     def _acquire_backtest_sheet_run_lock(
         self,
         spreadsheet_id: str,
         task_id: str,
+        *,
+        task_type: str,
     ) -> tuple[bool, str | None]:
-        """Create a per-sheet backtest lock file atomically."""
+        """Create a per-sheet backtest lock row atomically."""
         if not spreadsheet_id:
             return True, None
 
-        lock_path = self._get_backtest_sheet_lock_path(spreadsheet_id)
-        try:
-            self._write_backtest_sheet_lock(
-                lock_path,
-                task_id=task_id,
-                spreadsheet_id=spreadsheet_id,
-            )
+        existing = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
+        if existing and existing.task_id == task_id:
             return True, None
-        except FileExistsError:
-            return False, self._read_backtest_sheet_lock_task_id(lock_path)
+        if existing:
+            return False, existing.task_id
+
+        lock = BacktestSheetRunLock(
+            spreadsheet_id=spreadsheet_id,
+            task_id=task_id,
+            task_type=task_type,
+        )
+        db.session.add(lock)
+        try:
+            db.session.commit()
+            return True, None
+        except IntegrityError:
+            db.session.rollback()
+            existing = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
+            return False, existing.task_id if existing else None
 
     def _acquire_backtest_sheet_run_locks(
         self,
         spreadsheet_ids: list[str],
         task_id: str,
+        *,
+        task_type: str = "backtest_training",
     ) -> tuple[bool, str | None, list[str]]:
         acquired = []
         for spreadsheet_id in spreadsheet_ids:
             lock_acquired, locked_task_id = self._acquire_backtest_sheet_run_lock(
                 spreadsheet_id,
                 task_id,
+                task_type=task_type,
             )
             if not lock_acquired:
                 for acquired_spreadsheet_id in acquired:
@@ -211,28 +234,20 @@ class TaskRuntimeMixin:
         if not spreadsheet_id:
             return
 
-        lock_path = self._get_backtest_sheet_lock_path(spreadsheet_id)
-        locked_task_id = self._read_backtest_sheet_lock_task_id(lock_path)
-        if locked_task_id and locked_task_id != task_id:
+        lock = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
+        if lock and lock.task_id != task_id:
             logger.warning(
-                "跳过释放回测 Sheet 文件锁: sheet=%s, task_id=%s, locked_task_id=%s",
+                "跳过释放回测 Sheet 数据库锁: sheet=%s, task_id=%s, locked_task_id=%s",
                 spreadsheet_id,
                 task_id,
-                locked_task_id,
+                lock.task_id,
             )
             return
 
-        try:
-            lock_path.unlink()
-        except FileNotFoundError:
+        if not lock:
             return
-        except OSError as exc:
-            logger.warning(
-                "释放回测 Sheet 文件锁失败: sheet=%s, task_id=%s, err=%s",
-                spreadsheet_id,
-                task_id,
-                exc,
-            )
+        db.session.delete(lock)
+        db.session.commit()
 
     def _start_next_pending_backtest_task(self, finished_task_id: str, app) -> None:
         """Start the oldest pending backtest task that uses the finished task's sheet."""
@@ -406,7 +421,7 @@ class TaskRuntimeMixin:
         config_data = self._get_task_config_dict(task)
         if self._is_backtest_task_type(task.task_type):
             with self.backtest_sheet_start_lock:
-                spreadsheet_ids = self._extract_backtest_spreadsheet_ids(config_data)
+                spreadsheet_ids = self._extract_backtest_spreadsheet_ids_to_lock(task.task_type, config_data)
                 running_backtest = self._find_running_backtest_task_for_spreadsheets(
                     spreadsheet_ids,
                     exclude_task_id=task_id,
@@ -436,7 +451,7 @@ class TaskRuntimeMixin:
         try:
             if self._is_backtest_task_type(task.task_type):
                 with self.backtest_sheet_start_lock:
-                    spreadsheet_ids = self._extract_backtest_spreadsheet_ids(config_data)
+                    spreadsheet_ids = self._extract_backtest_spreadsheet_ids_to_lock(task.task_type, config_data)
                     running_backtest = self._find_running_backtest_task_for_spreadsheets(
                         spreadsheet_ids,
                         exclude_task_id=task_id,
@@ -454,6 +469,7 @@ class TaskRuntimeMixin:
                     lock_acquired, locked_task_id, acquired_ids = self._acquire_backtest_sheet_run_locks(
                         spreadsheet_ids,
                         task_id,
+                        task_type=task.task_type,
                     )
                     if not lock_acquired:
                         error_msg = (
@@ -466,7 +482,10 @@ class TaskRuntimeMixin:
                         return False
                     reserved_backtest_spreadsheet_ids = acquired_ids
 
-                    self.ensure_google_sheet_occupancy(task_id, config_data)
+                    self.ensure_google_sheet_occupancy(
+                        task_id,
+                        self._config_for_spreadsheet_locks(config_data, spreadsheet_ids),
+                    )
                     rows = (
                         Task.query.filter(Task.id == task_id, Task.status == "pending")
                         .update(

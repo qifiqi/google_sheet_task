@@ -431,6 +431,70 @@ class TaskResultReturn(db.Model):
         }
 
 
+class BacktestProductResultCache(db.Model):
+    """Same-batch reusable result for fixed multi-product backtest products."""
+
+    __tablename__ = "backtest_product_result_cache"
+    __table_args__ = (
+        db.UniqueConstraint("batch_id", "cache_key", name="uk_backtest_product_cache_batch_key"),
+        {"comment": "多品回测固定产品同批结果缓存表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    batch_id = db.Column(db.String(64), nullable=False, index=True, comment="同批创建ID")
+    cache_key = db.Column(db.String(64), nullable=False, index=True, comment="固定产品结果缓存键")
+    result_json = db.Column(db.Text, nullable=False, comment="结果JSON")
+    returns_json = db.Column(db.Text, comment="收益曲线JSON")
+    source_task_id = db.Column(db.String(36), index=True, comment="来源任务ID")
+    source_step_index = db.Column(db.Integer, comment="来源步骤序号")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "batch_id": self.batch_id,
+            "cache_key": self.cache_key,
+            "result_json": self.result_json,
+            "returns_json": self.returns_json,
+            "source_task_id": self.source_task_id,
+            "source_step_index": self.source_step_index,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class BacktestSheetRunLock(db.Model):
+    """Database-backed per-spreadsheet run lock for backtest tasks."""
+
+    __tablename__ = "backtest_sheet_run_locks"
+    __table_args__ = (
+        db.UniqueConstraint("spreadsheet_id", name="uk_backtest_sheet_run_locks_spreadsheet_id"),
+        {"comment": "回测任务 Google Sheet 运行锁表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    spreadsheet_id = db.Column(db.String(255), nullable=False, index=True, comment="Google Sheet 表ID")
+    task_id = db.Column(db.String(36), nullable=False, index=True, comment="持锁任务ID")
+    task_type = db.Column(db.String(50), nullable=False, comment="任务类型")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.now,
+        onupdate=datetime.now,
+        nullable=False,
+        comment="更新时间",
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "spreadsheet_id": self.spreadsheet_id,
+            "task_id": self.task_id,
+            "task_type": self.task_type,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class TaskResultSummaryIndex(db.Model):
     """任务结果汇总查询索引表。"""
 
