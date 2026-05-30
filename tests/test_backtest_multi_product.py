@@ -20,6 +20,8 @@ from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     BacktestMultiProductService,
     _GLOBAL_PREVIEW_CACHE,
+    _derive_metrics,
+    _fmt_value,
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
 )
@@ -678,6 +680,39 @@ def _task_result_payload(index_return, start_return):
     }
 
 
+def _task_result_payload_with_year_drawdowns():
+    return {
+        "sheet__title": {
+            "calculate_metrics": {
+                "excess_returns": [
+                    {
+                        "year": "2024",
+                        "annualized_return_diff": 0.08,
+                    },
+                    {
+                        "year": "all",
+                        "index_annualized_return": 0.10,
+                        "start_annualized_return": 0.18,
+                        "annualized_return_diff": 0.08,
+                    },
+                ],
+                "index_maximum_drawdown": {
+                    "year_maximum_drawdown": [
+                        {"year": 2024, "drawdown": 0.10},
+                    ],
+                },
+                "start_maximum_drawdown": {
+                    "year_maximum_drawdown": [
+                        {"year": "2024", "drawdown": 0.06},
+                    ],
+                    "total_maximum_drawdown": {"drawdown": 0.06},
+                },
+                "excess_drawdown_winning_rate": 0.75,
+            }
+        }
+    }
+
+
 def _task_result_payload_with_returns(index_return, start_return, returns):
     payload = _task_result_payload(index_return, start_return)
     payload["sheet__title"]["return_date"] = returns
@@ -964,6 +999,75 @@ def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_fa
             ],
         ]
         assert json.loads(db.session.get(Task, task.id).config)["products"][1]["ratio"] == "75"
+
+
+def test_build_multi_product_global_preview_derives_year_max_excess_drawdown(app_factory):
+    app = app_factory
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "products": [_base_product(0, "100"), _base_product(1, "0")],
+        })
+        task = Task(
+            id="preview-drawdown-task",
+            name="多品回撤测试",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="completed",
+            config=json.dumps(config, ensure_ascii=False),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.add(TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters=json.dumps(
+                {"product_index": 0, "ratio": "100", "parameter_group_index": 0},
+                ensure_ascii=False,
+            ),
+            result=json.dumps(_task_result_payload_with_year_drawdowns(), ensure_ascii=False),
+            success=True,
+        ))
+        db.session.commit()
+
+        payload = build_multi_product_global_preview_payload(task.id)
+
+        drawdown_row = next(
+            row
+            for row in payload["groups"][0]["rows"]
+            if row["metric"] == "年最大超额回撤"
+        )
+        assert drawdown_row["product_values"][0]["result_value"] == "4.00%"
+        assert drawdown_row["product_values"][0]["raw_result_value"] == pytest.approx(0.04)
+        drawdown_win_rate_row = next(
+            row
+            for row in payload["groups"][0]["rows"]
+            if row["metric"] == "超额回撤胜率"
+        )
+        assert drawdown_win_rate_row["product_values"][0]["result_value"] == "-75.00%"
+        max_drawdown_row = next(
+            row
+            for row in payload["groups"][0]["rows"]
+            if row["metric"] == "年最大回撤"
+        )
+        assert max_drawdown_row["product_values"][0]["result_value"] == "-6.00%"
+
+
+def test_multi_product_year_max_excess_drawdown_uses_zero_when_no_year_outperforms():
+    metrics = _derive_metrics({
+        "excess_returns": [
+            {"year": "2024", "annualized_return_diff": -0.01},
+            {"year": "all", "annualized_return_diff": -0.01},
+        ],
+        "index_maximum_drawdown": {
+            "year_maximum_drawdown": [{"year": "2024", "drawdown": 0.10}],
+        },
+        "start_maximum_drawdown": {
+            "year_maximum_drawdown": [{"year": "2024", "drawdown": 0.12}],
+        },
+    })
+
+    assert _fmt_value(metrics["year_max_excess_drawdown"], "percent") == "-0.00%"
 
 
 def test_global_preview_reuses_in_memory_cache_for_same_ratios(app_factory, monkeypatch):

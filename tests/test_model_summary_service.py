@@ -579,6 +579,232 @@ def test_rebuild_keeps_one_best_row_per_task(app_factory):
         assert TaskResultSummaryIndex.query.filter_by(task_id="task-a").count() == 1
 
 
+def test_rebuild_classifies_c3_period_from_legacy_task_name(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c3-3y", task_type="google_sheet", name="C3-XME-BDL-3Y-1"))
+        db.session.add(_result(task_id="task-c3-3y", result_id=120, result={"I15": 0.2, "I18": 0.05}))
+        db.session.commit()
+
+        model_summary_service.rebuild(task_id="task-c3-3y", reset=True)
+        row = TaskResultSummaryIndex.query.filter_by(task_id="task-c3-3y").one()
+
+        assert row.period_key == "recent_3y"
+        assert row.to_dict()["period_key"] == "recent_3y"
+
+
+def test_rebuild_classifies_c3_period_from_legacy_one_year_task_name(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c3-1y", task_type="google_sheet", name="策略A-600519-1y-3"))
+        db.session.add(_result(task_id="task-c3-1y", result_id=121, result={"I15": 0.2, "I18": 0.05}))
+        db.session.commit()
+
+        model_summary_service.rebuild(task_id="task-c3-1y", reset=True)
+        row = TaskResultSummaryIndex.query.filter_by(task_id="task-c3-1y").one()
+
+        assert row.period_key == "recent_1y"
+
+
+def test_rebuild_does_not_classify_c3_period_from_embedded_task_name_text(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c3-embedded", task_type="google_sheet", name="C3-MY1YFACTOR-600519"))
+        db.session.add(_result(task_id="task-c3-embedded", result_id=122, result={"I15": 0.2, "I18": 0.05}))
+        db.session.commit()
+
+        model_summary_service.rebuild(task_id="task-c3-embedded", reset=True)
+        row = TaskResultSummaryIndex.query.filter_by(task_id="task-c3-embedded").one()
+
+        assert row.period_key in (None, "")
+
+
+def test_rebuild_prefers_explicit_c3_year_over_task_name_period(app_factory):
+    app = app_factory
+    with app.app_context():
+        task = _task(task_id="task-c3-explicit", task_type="google_sheet", name="C3-XME-BDL-3Y-1")
+        task.config = json.dumps({"year_n": "1y"})
+        db.session.add(task)
+        db.session.add(_result(
+            task_id="task-c3-explicit",
+            result_id=123,
+            parameters={"year": 2026, "stock_code": "XME"},
+            result={"I15": 0.2, "I18": 0.05},
+        ))
+        db.session.commit()
+
+        model_summary_service.rebuild(task_id="task-c3-explicit", reset=True)
+        row = TaskResultSummaryIndex.query.filter_by(task_id="task-c3-explicit").one()
+
+        assert row.period_key == "full_2026"
+
+
+def test_rebuild_keeps_one_best_row_per_task_period(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c5-periods", task_type="google_sheet_C5", name="C5-600776-东方通信"))
+        db.session.add(_result(
+            task_id="task-c5-periods",
+            result_id=130,
+            parameters={"stock_code": "600776", "year": "2026-2025", "A1": 1, "B1": 2},
+            result={"sheet__model-a": {"D11": "10%"}},
+        ))
+        db.session.add(_result(
+            task_id="task-c5-periods",
+            result_id=131,
+            parameters={"stock_code": "600776", "year": "2026-2025", "A1": 2, "B1": 2},
+            result={"sheet__model-a": {"D11": "18%"}},
+        ))
+        db.session.add(_result(
+            task_id="task-c5-periods",
+            result_id=132,
+            parameters={"stock_code": "600776", "year": "2026-2023", "A1": 3, "B1": 2},
+            result={"sheet__model-a": {"D11": "12%"}},
+        ))
+        db.session.commit()
+
+        summary = model_summary_service.rebuild(task_id="task-c5-periods", reset=True)
+        rows = TaskResultSummaryIndex.query.filter_by(task_id="task-c5-periods").order_by(
+            TaskResultSummaryIndex.period_key.asc()
+        ).all()
+
+        assert summary["candidate_records"] == 3
+        assert summary["indexed"] == 2
+        assert [(row.period_key, row.task_result_id) for row in rows] == [
+            ("recent_1y", 131),
+            ("recent_3y", 132),
+        ]
+        assert all(row.is_best for row in rows)
+
+
+def test_query_period_filter_matches_c3_fallback_and_c5_year(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c3-1y", task_type="google_sheet", name="C3-XME-BDL-1Y-1"))
+        db.session.add(_task(task_id="task-c3-3y", task_type="google_sheet", name="C3-XME-BDL-3Y-1"))
+        db.session.add(_task(task_id="task-c5-1y", task_type="google_sheet_C5", name="C5-600776-东方通信"))
+        db.session.add(_task(task_id="task-c5-3y", task_type="google_sheet_C5", name="C5-600519-贵州茅台"))
+        db.session.add(_result(task_id="task-c3-1y", result_id=140, result={"I15": 0.2, "I18": 0.05}))
+        db.session.add(_result(task_id="task-c3-3y", result_id=141, result={"I15": 0.25, "I18": 0.05}))
+        db.session.add(_result(
+            task_id="task-c5-1y",
+            result_id=142,
+            parameters={"stock_code": "600776", "year": "2026-2025"},
+            result={"sheet__model-a": {"D11": "30%"}},
+        ))
+        db.session.add(_result(
+            task_id="task-c5-3y",
+            result_id=143,
+            parameters={"stock_code": "600519", "year": "2026-2023"},
+            result={"sheet__model-a": {"D11": "35%"}},
+        ))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        one_year = model_summary_service.query(
+            _User(),
+            {"period_filter": "recent_1y", "summary_type": "task", "page": 1, "per_page": 10},
+        )
+        three_year = model_summary_service.query(
+            _User(),
+            {"period_filter": "recent_3y", "summary_type": "task", "page": 1, "per_page": 10},
+        )
+
+        assert {item["task_id"] for item in one_year["items"]} == {"task-c3-1y", "task-c5-1y"}
+        assert {item["task_id"] for item in three_year["items"]} == {"task-c3-3y", "task-c5-3y"}
+
+
+def test_query_period_filter_matches_full_year(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c5-full", task_type="google_sheet_C5", name="C5-600776-东方通信"))
+        db.session.add(_task(task_id="task-c5-other", task_type="google_sheet_C5", name="C5-600519-贵州茅台"))
+        db.session.add(_result(
+            task_id="task-c5-full",
+            result_id=144,
+            parameters={"stock_code": "600776", "year": 2026},
+            result={"sheet__model-a": {"D11": "30%"}},
+        ))
+        db.session.add(_result(
+            task_id="task-c5-other",
+            result_id=145,
+            parameters={"stock_code": "600519", "year": 2025},
+            result={"sheet__model-a": {"D11": "35%"}},
+        ))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        payload = model_summary_service.query(
+            _User(),
+            {"period_filter": "full_2026", "summary_type": "task", "page": 1, "per_page": 10},
+        )
+
+        assert payload["pagination"]["total"] == 1
+        assert payload["items"][0]["task_id"] == "task-c5-full"
+        assert payload["items"][0]["period_key"] == "full_2026"
+
+
+def test_stock_summary_compares_across_periods_after_optional_period_filter(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-600776", task_type="google_sheet_C5", name="C5-600776-东方通信"))
+        db.session.add(_result(
+            task_id="task-600776",
+            result_id=150,
+            parameters={"stock_code": "600776", "year": "2026-2025"},
+            result={"sheet__model-a": {"D11": "10%"}},
+        ))
+        db.session.add(_result(
+            task_id="task-600776",
+            result_id=151,
+            parameters={"stock_code": "600776", "year": "2026-2023"},
+            result={"sheet__model-a": {"D11": "40%"}},
+        ))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        all_periods = model_summary_service.query(
+            _User(),
+            {"summary_type": "stock", "page": 1, "per_page": 10},
+        )
+        one_year = model_summary_service.query(
+            _User(),
+            {"summary_type": "stock", "period_filter": "recent_1y", "page": 1, "per_page": 10},
+        )
+
+        assert all_periods["pagination"]["total"] == 1
+        assert all_periods["items"][0]["task_result_id"] == 151
+        assert one_year["pagination"]["total"] == 1
+        assert one_year["items"][0]["task_result_id"] == 150
+        assert one_year["items"][0]["period_key"] == "recent_1y"
+
+
+def test_query_all_results_filters_by_period_with_c3_task_name_fallback(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c3-1y", task_type="google_sheet", name="C3-XME-BDL-1Y-1"))
+        db.session.add(_task(task_id="task-c3-3y", task_type="google_sheet", name="C3-XME-BDL-3Y-1"))
+        db.session.add(_result(task_id="task-c3-1y", result_id=160, result={"I15": 0.2, "I18": 0.05}))
+        db.session.add(_result(task_id="task-c3-3y", result_id=161, result={"I15": 0.25, "I18": 0.05}))
+        db.session.commit()
+
+        payload = model_summary_service.query(
+            _User(),
+            {
+                "best_only": "false",
+                "stock_code": "XME",
+                "period_filter": "recent_1y",
+                "summary_type": "task",
+                "page": 1,
+                "per_page": 10,
+            },
+        )
+
+        assert payload["pagination"]["total"] == 1
+        assert payload["items"][0]["task_id"] == "task-c3-1y"
+        assert payload["items"][0]["period_key"] == "recent_1y"
+
+
 def test_query_all_results_requires_stock_and_reads_raw_results(app_factory):
     app = app_factory
     with app.app_context():
@@ -815,6 +1041,35 @@ def test_export_csv_uses_query_filters_and_ignores_pagination(app_factory):
         assert [row["结果 ID"] for row in rows] == ["21", "20"]
         assert all(row["产品/股票"] == "600519" for row in rows)
         assert "000001" not in payload["content"]
+
+
+def test_export_csv_applies_period_filter(app_factory):
+    app = app_factory
+    with app.app_context():
+        db.session.add(_task(task_id="task-c5", task_type="google_sheet_C5", name="C5-600776-东方通信"))
+        db.session.add(_result(
+            task_id="task-c5",
+            result_id=170,
+            parameters={"stock_code": "600776", "year": "2026-2025"},
+            result={"sheet__model-a": {"D11": "10%"}},
+        ))
+        db.session.add(_result(
+            task_id="task-c5",
+            result_id=171,
+            parameters={"stock_code": "600776", "year": "2026-2023"},
+            result={"sheet__model-a": {"D11": "40%"}},
+        ))
+        db.session.commit()
+
+        model_summary_service.rebuild(reset=True)
+        payload = model_summary_service.export_csv(
+            _User(),
+            {"period_filter": "recent_1y", "summary_type": "task", "page": 1, "per_page": 10},
+        )
+
+        rows = list(csv.DictReader(io.StringIO(payload["content"])))
+        assert [row["结果 ID"] for row in rows] == ["170"]
+        assert rows[0]["年份/区间"] == "2026-2025"
 
 
 def test_export_csv_places_task_type_after_task_name(app_factory):

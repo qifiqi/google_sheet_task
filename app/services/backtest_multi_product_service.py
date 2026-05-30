@@ -269,6 +269,71 @@ def _safe_number(value: Any) -> float | None:
         return None
 
 
+def _year_key(value: Any) -> str:
+    text = str(value if value is not None else "").strip()
+    if not text or text.lower() == "all":
+        return ""
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    if number.is_integer():
+        return str(int(number))
+    return text
+
+
+def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float | None:
+    annual_excess_returns = [
+        (year, _safe_number(item.get("annualized_return_diff")))
+        for item in calculate_metrics.get("excess_returns") or []
+        if isinstance(item, dict)
+        for year in [_year_key(item.get("year"))]
+        if year
+    ]
+    if not annual_excess_returns:
+        return None
+
+    excess_years = {
+        year
+        for year, annualized_return_diff in annual_excess_returns
+        if annualized_return_diff is not None and annualized_return_diff > 0
+    }
+    if not excess_years:
+        return -0.0
+
+    index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
+    start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
+    index_year_map = {
+        year: item
+        for item in index_max_dd.get("year_maximum_drawdown", [])
+        if isinstance(item, dict)
+        for year in [_year_key(item.get("year"))]
+        if year in excess_years
+    }
+    start_year_map = {
+        year: item
+        for item in start_max_dd.get("year_maximum_drawdown", [])
+        if isinstance(item, dict)
+        for year in [_year_key(item.get("year"))]
+        if year in excess_years
+    }
+
+    diffs = []
+    for year, index_item in index_year_map.items():
+        start_item = start_year_map.get(year) or {}
+        index_drawdown = _safe_number(index_item.get("drawdown"))
+        start_drawdown = _safe_number(start_item.get("drawdown"))
+        if index_drawdown is None or start_drawdown is None:
+            continue
+        diffs.append(start_drawdown - index_drawdown)
+    return -max(diffs) if diffs else None
+
+
+def _negative_number(value: Any) -> float | None:
+    number = _safe_number(value)
+    return -number if number is not None else None
+
+
 def _fmt_value(value: Any, value_type: str) -> str:
     number = _safe_number(value)
     if number is None:
@@ -455,6 +520,7 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
         (calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown")
         or {}
     )
+    year_max_excess_drawdown = _derive_year_max_excess_drawdown(calculate_metrics)
     return {
         "index_annualized_return": excess_all.get("index_annualized_return"),
         "start_annualized_return": excess_all.get("start_annualized_return"),
@@ -471,9 +537,9 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
         "monthly_excess_return_percentage": monthly_excess_percentage_all.get("excess_return"),
         "avg_monthly_excess_return": avg_monthly_excess_return,
         "monthly_excess_volatility": calculate_metrics.get("monthly_excess_volatility"),
-        "year_max_excess_drawdown": calculate_metrics.get("max_drawdown"),
-        "excess_drawdown_winning_rate": calculate_metrics.get("excess_drawdown_winning_rate"),
-        "start_max_drawdown": total_max_drawdown.get("drawdown"),
+        "year_max_excess_drawdown": year_max_excess_drawdown,
+        "excess_drawdown_winning_rate": _negative_number(calculate_metrics.get("excess_drawdown_winning_rate")),
+        "start_max_drawdown": _negative_number(total_max_drawdown.get("drawdown")),
         "start_maximum_number_of_backtest_repair_days": calculate_metrics.get("start_maximum_number_of_backtest_repair_days"),
         "excess_maximum_number_of_backtest_repair_days": calculate_metrics.get("excess_maximum_number_of_backtest_repair_days"),
         "index_sharpe_ratio": index_sharpe_all.get("sharpe_ratio"),

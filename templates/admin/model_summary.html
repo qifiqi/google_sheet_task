@@ -110,6 +110,22 @@
                     <option value="us">美股</option>
                 </select>
             </div>
+            <div class="filter-field">
+                <label class="form-label">年份/区间</label>
+                <select class="form-select form-select-sm" id="periodFilter">
+                    <option value="">全部</option>
+                    <option value="recent_1y">近1年</option>
+                    <option value="recent_3y">近3年</option>
+                    <option value="full_2026">整年26</option>
+                    <option value="full_2025">整年25</option>
+                    <option value="full_2024">整年24</option>
+                    <option value="full_2023">整年23</option>
+                    <option value="full_2022">整年22</option>
+                    <option value="full_2021">整年21</option>
+                    <option value="full_2020">整年20</option>
+                    <option value="full_2019">整年19</option>
+                </select>
+            </div>
             <div class="filter-field task-id-field">
                 <label class="form-label">任务 ID</label>
                 <input type="text" class="form-control form-control-sm" id="taskId" placeholder="精确任务 ID">
@@ -626,6 +642,21 @@
         }[value] || value || "-";
     }
 
+    function periodFilterLabel(value) {
+        return {
+            recent_1y: "近1年",
+            recent_3y: "近3年",
+            full_2026: "整年26",
+            full_2025: "整年25",
+            full_2024: "整年24",
+            full_2023: "整年23",
+            full_2022: "整年22",
+            full_2021: "整年21",
+            full_2020: "整年20",
+            full_2019: "整年19",
+        }[value] || "";
+    }
+
     function normalizeTaskType(value) {
         return String(value || "").trim().toLowerCase();
     }
@@ -706,6 +737,7 @@
             ["task_type", "taskType"],
             ["stock_code", "stockCode"],
             ["market_type", "marketType"],
+            ["period_filter", "periodFilter"],
             ["excess_return_min", "excessReturnMin"],
             ["task_id", "taskId"],
             ["result_id", "resultId"],
@@ -728,12 +760,14 @@
         const range = document.getElementById("bestOnly").value === "false" ? "全部结果" : "仅最优";
         const taskTypeValue = document.getElementById("taskType").value;
         const taskType = taskTypeValue ? taskTypeLabel(taskTypeValue) : "全部类型";
+        const periodValue = document.getElementById("periodFilter").value;
+        const periodText = periodValue ? periodFilterLabel(periodValue) : "";
         const threshold = document.getElementById("excessReturnMin").value;
         const keyword = document.getElementById("stockCode").value.trim() || document.getElementById("taskId").value.trim() || "全部";
         const now = new Date();
         const pad = (value) => String(value).padStart(2, "0");
         const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-        return [summaryType, range, taskType, threshold ? `超额大于${threshold}` : "", keyword, timestamp]
+        return [summaryType, range, taskType, periodText, threshold ? `超额大于${threshold}` : "", keyword, timestamp]
             .map(safeFilenamePart)
             .filter(Boolean)
             .join("_");
@@ -744,12 +778,14 @@
         const taskType = taskTypeValue ? taskTypeLabel(taskTypeValue) : "全部";
         const marketTypeValue = document.getElementById("marketType").value;
         const marketType = marketTypeValue === "cn" ? "A股" : (marketTypeValue === "us" ? "美股" : "全部市场");
+        const periodValue = document.getElementById("periodFilter").value;
+        const periodText = periodValue ? periodFilterLabel(periodValue) : "全部";
         const keyword = document.getElementById("stockCode").value.trim() || "未填写";
         const summaryType = document.getElementById("summaryType").value === "stock" ? "股票汇总" : "任务汇总";
         const range = document.getElementById("bestOnly").value === "false" ? "全部结果" : "仅最优";
         const threshold = document.getElementById("excessReturnMin").value;
         const thresholdText = threshold ? `ReturnBeats > ${threshold}%` : "全部";
-        return `任务类型：${taskType}；市场：${marketType}；查询词：${keyword}；汇总方式：${summaryType}；数据范围：${range}；超额收益：${thresholdText}`;
+        return `任务类型：${taskType}；市场：${marketType}；年份/区间：${periodText}；查询词：${keyword}；汇总方式：${summaryType}；数据范围：${range}；超额收益：${thresholdText}`;
     }
 
     function renderHead() {

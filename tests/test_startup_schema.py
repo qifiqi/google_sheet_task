@@ -2,7 +2,11 @@ from sqlalchemy import inspect, text
 
 from app.extensions import db
 from app.models import BacktestSheetRunLock, ScheduledTask, Task
-from app.startup import cleanup_stale_backtest_sheet_run_locks, ensure_scheduled_task_schema
+from app.startup import (
+    cleanup_stale_backtest_sheet_run_locks,
+    ensure_scheduled_task_schema,
+    ensure_task_result_summary_index_schema,
+)
 
 
 def test_ensure_scheduled_task_schema_adds_lock_fields_to_legacy_table(app_factory):
@@ -83,3 +87,44 @@ def test_cleanup_stale_backtest_sheet_run_locks_keeps_running_task_locks(app_fac
         for lock in BacktestSheetRunLock.query.order_by(BacktestSheetRunLock.spreadsheet_id.asc()).all()
     }
     assert locks == {"running-sheet"}
+
+
+def test_ensure_task_result_summary_index_schema_adds_period_key_to_legacy_table(app_factory):
+    db.session.execute(text("DROP TABLE task_result_summary_index"))
+    db.session.execute(
+        text(
+            """
+            CREATE TABLE task_result_summary_index (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id VARCHAR(36) NOT NULL,
+                task_result_id INTEGER NOT NULL,
+                task_type VARCHAR(50) NOT NULL,
+                task_name VARCHAR(255),
+                stock_code VARCHAR(64),
+                stock_name VARCHAR(255),
+                model_key VARCHAR(255) NOT NULL DEFAULT 'default',
+                model_name VARCHAR(255),
+                year_label VARCHAR(64),
+                kline_range VARCHAR(128),
+                parameter_summary TEXT,
+                best_metric_name VARCHAR(100),
+                best_metric_value FLOAT,
+                metrics_json TEXT,
+                is_best BOOLEAN NOT NULL DEFAULT 0,
+                result_timestamp DATETIME,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+            """
+        )
+    )
+    db.session.commit()
+
+    ensure_task_result_summary_index_schema()
+
+    inspector = inspect(db.engine)
+    columns = {column["name"] for column in inspector.get_columns("task_result_summary_index")}
+    indexes = inspector.get_indexes("task_result_summary_index")
+
+    assert "period_key" in columns
+    assert any(index.get("column_names") == ["period_key"] for index in indexes)

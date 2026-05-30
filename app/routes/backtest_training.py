@@ -4,6 +4,7 @@ import json
 import math
 import re
 from collections import OrderedDict
+from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 
@@ -866,6 +867,7 @@ def _get_summary_derived_value(column, metric_key):
 def _extract_summary_rows(calculate_metrics, model_name):
     if not isinstance(calculate_metrics, dict) or not calculate_metrics:
         return "", []
+    calculate_metrics = _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics)
 
     def _normalize_metric_label(label):
         text = str(label or "").strip()
@@ -1011,6 +1013,32 @@ def _extract_summary_rows(calculate_metrics, model_name):
             "model_value": _normalize_display_value(summary_df.iat[row_index, 3]),
         })
     return period_text, rows
+
+
+def _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics):
+    normalized = deepcopy(calculate_metrics)
+
+    def normalize_year(value):
+        text = str(value if value is not None else "").strip()
+        if not text or text.lower() == "all":
+            return value
+        try:
+            number = float(text)
+        except ValueError:
+            return value
+        return int(number) if number.is_integer() else value
+
+    for item in normalized.get("excess_returns") or []:
+        if isinstance(item, dict):
+            item["year"] = normalize_year(item.get("year"))
+    for drawdown_key in ("index_maximum_drawdown", "start_maximum_drawdown"):
+        drawdown = normalized.get(drawdown_key)
+        if not isinstance(drawdown, dict):
+            continue
+        for item in drawdown.get("year_maximum_drawdown") or []:
+            if isinstance(item, dict):
+                item["year"] = normalize_year(item.get("year"))
+    return normalized
 
 
 def _build_global_preview_payload(task_id):

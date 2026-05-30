@@ -505,6 +505,7 @@ class TaskResultSummaryIndex(db.Model):
         db.Index("idx_result_summary_task_best", "task_id", "is_best"),
         db.Index("idx_result_summary_best_metric", "best_metric_value"),
         db.Index("idx_result_summary_created_at", "created_at"),
+        db.Index("idx_result_summary_period_key", "period_key"),
         {"comment": "任务结果汇总查询索引表"},
     )
 
@@ -530,6 +531,7 @@ class TaskResultSummaryIndex(db.Model):
     model_key = db.Column(db.String(255), nullable=False, default="default", comment="模型键")
     model_name = db.Column(db.String(255), comment="模型名称")
     year_label = db.Column(db.String(64), index=True, comment="年份或区间标签")
+    period_key = db.Column(db.String(32), comment="标准化年份/区间筛选键")
     kline_range = db.Column(db.String(128), comment="K线区间")
     parameter_summary = db.Column(db.Text, comment="参数摘要")
     best_metric_name = db.Column(db.String(100), comment="最优指标名称")
@@ -555,6 +557,7 @@ class TaskResultSummaryIndex(db.Model):
             "model_key": self.model_key,
             "model_name": self.model_name,
             "year_label": self.year_label,
+            "period_key": self.period_key,
             "kline_range": self.kline_range,
             "parameter_summary": _json_object_or_empty(self.parameter_summary),
             "best_metric_name": self.best_metric_name,

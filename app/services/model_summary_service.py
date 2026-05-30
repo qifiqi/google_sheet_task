@@ -177,6 +177,7 @@ class SummaryRecord:
     model_key: str
     model_name: str
     year_label: str
+    period_key: str
     kline_range: str
     parameter_summary: dict[str, Any]
     best_metric_name: str
@@ -269,6 +270,85 @@ def _kline_range(parameters: Any) -> str:
         return ""
     dated.sort(key=lambda item: str(item.get("stock_date") or ""))
     return f"{dated[0].get('stock_date')} ~ {dated[-1].get('stock_date')}"
+
+
+def _normalize_year_number(value: str) -> int | None:
+    text = str(value or "").strip()
+    if not re.fullmatch(r"\d{2}|\d{4}", text):
+        return None
+    year = int(text)
+    return 2000 + year if year < 100 else year
+
+
+def _period_key_from_year_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    compact = re.sub(r"\s+", "", text)
+    year = _normalize_year_number(compact)
+    if year is not None:
+        return f"full_{year}"
+
+    match = re.fullmatch(r"(\d{2}|\d{4})[-_/~](\d{2}|\d{4})", compact)
+    if not match:
+        return ""
+    end_year = _normalize_year_number(match.group(1))
+    start_year = _normalize_year_number(match.group(2))
+    if end_year is None or start_year is None:
+        return ""
+    diff = abs(end_year - start_year)
+    if diff <= 0:
+        return ""
+    return f"recent_{diff}y"
+
+
+def _period_key_from_year_n(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    match = re.fullmatch(r"([13])\s*y", text)
+    if not match:
+        return ""
+    return f"recent_{match.group(1)}y"
+
+
+def _period_key_from_c3_task_name(task_name: Any) -> str:
+    text = _strip_task_name_bracket_content(task_name)
+    if not text:
+        return ""
+    match = re.search(r"(^|[-_\s\(\[（【])([13])y($|[-_\s\)\]）】])", text, flags=re.IGNORECASE)
+    if not match:
+        return ""
+    return f"recent_{match.group(2).lower()}y"
+
+
+def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
+    period_key = _period_key_from_year_label(year_label)
+    if period_key:
+        return period_key
+
+    normalized = normalize_task_type(task.task_type)
+    if normalized == "google_sheet":
+        config = _parse_json(task.config, {})
+        if isinstance(config, dict):
+            period_key = _period_key_from_year_n(config.get("year_n"))
+            if period_key:
+                return period_key
+        return _period_key_from_c3_task_name(task.name)
+
+    return ""
+
+
+def _summary_record_group_key(row: SummaryRecord) -> str:
+    return row.period_key or row.year_label or row.kline_range or ""
+
+
+def _summary_index_group_expression():
+    return func.coalesce(
+        func.nullif(TaskResultSummaryIndex.period_key, ""),
+        func.nullif(TaskResultSummaryIndex.year_label, ""),
+        func.nullif(TaskResultSummaryIndex.kline_range, ""),
+        "",
+    )
 
 
 def _json_text(value: Any) -> str:
@@ -568,6 +648,8 @@ def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
     metrics.update(_extract_return_analysis_metrics(payload))
     summary = _parameter_summary(parameters)
     stock_code = _extract_stock_code(task, parameters)
+    year_label = str(summary.get("year") or "")
+    kline_range = _kline_range({"kline": parameters[-1]} if isinstance(parameters, list) and parameters else parameters)
     return [
         SummaryRecord(
             task_id=task.id,
@@ -578,8 +660,9 @@ def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
             stock_name=_stock_name_from_config(task, parameters, stock_code),
             model_key="default",
             model_name="C3",
-            year_label=str(summary.get("year") or ""),
-            kline_range=_kline_range({"kline": parameters[-1]} if isinstance(parameters, list) and parameters else parameters),
+            year_label=year_label,
+            period_key=_period_key_for_record(task, parameters, year_label),
+            kline_range=kline_range,
             parameter_summary=summary,
             best_metric_name="ReturnBeats",
             best_metric_value=return_beats,
@@ -627,6 +710,7 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
             ),
         })
         stock_code = _extract_stock_code(task, parameters)
+        year_label = str(parameters.get("year") or parameters.get("Kline_key") or "")
         records.append(
             SummaryRecord(
                 task_id=task.id,
@@ -637,7 +721,8 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
                 stock_name=_stock_name_from_config(task, parameters, stock_code),
                 model_key=str(model_key),
                 model_name=model_name,
-                year_label=str(parameters.get("year") or parameters.get("Kline_key") or ""),
+                year_label=year_label,
+                period_key=_period_key_for_record(task, parameters, year_label),
                 kline_range=_kline_range(parameters),
                 parameter_summary=_parameter_summary(parameters),
                 best_metric_name="ReturnBeats",
@@ -906,6 +991,7 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
     if annualized_diff is None:
         annualized_diff = _safe_number((_all_entry(calculate_metrics.get("excess_returns"))).get("annualized_return_diff"))
     stock_code = _extract_stock_code(task, parameters)
+    year_label = str(parameters.get("year") or parameters.get("Kline_key") or "")
     return [
         SummaryRecord(
             task_id=task.id,
@@ -916,7 +1002,8 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
             stock_name=_stock_name_from_config(task, parameters, stock_code),
             model_key="default",
             model_name="回测",
-            year_label=str(parameters.get("year") or parameters.get("Kline_key") or ""),
+            year_label=year_label,
+            period_key=_period_key_for_record(task, parameters, year_label),
             kline_range=period_text or _kline_range(parameters),
             parameter_summary=_parameter_summary(parameters),
             best_metric_name="年化超额收益",
@@ -1074,7 +1161,7 @@ class ModelSummaryService:
                 progress_task_id,
                 current_step=processed_tasks,
                 total_steps=total,
-                message=f"索引表当前保留 {indexed} 条任务最优记录，去重删除 {deduped} 条",
+                message=f"索引表当前保留 {indexed} 条任务/时间分组最优记录，去重删除 {deduped} 条",
             )
         return {
             "processed": processed,
@@ -1218,7 +1305,7 @@ class ModelSummaryService:
                     message=(
                         f"索引重建完成：处理 {result.get('processed_tasks', 0)} 个任务、"
                         f"{result.get('processed', 0)} 条结果，"
-                        f"保留 {result.get('indexed', 0)} 条任务最优索引，"
+                        f"保留 {result.get('indexed', 0)} 条任务/时间分组最优索引，"
                         f"删除 {result.get('deleted', 0)} 条旧索引，"
                         f"去重 {result.get('deduped', 0)} 条"
                     ),
@@ -1255,6 +1342,7 @@ class ModelSummaryService:
         stock_code = str(filters.get("stock_code") or "").strip()
         market_type = _normalize_market_type(filters.get("market_type"))
         excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
+        period_filter = str(filters.get("period_filter") or "").strip()
         best_only = str(filters.get("best_only", "true")).lower() not in {"false", "0", "no"}
         if not best_only:
             return self._query_all_results(user, filters, page, per_page, task_type, stock_code)
@@ -1280,6 +1368,8 @@ class ModelSummaryService:
             query = query.filter(TaskResultSummaryIndex.task_type.in_(visible_types))
         query = self._apply_stock_keyword_filter(query, stock_code)
         query = self._apply_market_type_filter(query, market_type)
+        if period_filter:
+            query = query.filter(TaskResultSummaryIndex.period_key == period_filter)
         if excess_return_min is not None:
             query = query.filter(TaskResultSummaryIndex.best_metric_value > excess_return_min)
         task_id = str(filters.get("task_id") or "").strip()
@@ -1366,6 +1456,7 @@ class ModelSummaryService:
         item.model_key = row.model_key
         item.model_name = row.model_name
         item.year_label = row.year_label
+        item.period_key = row.period_key
         item.kline_range = row.kline_range
         item.parameter_summary = _json_text(row.parameter_summary)
         item.best_metric_name = row.best_metric_name
@@ -1385,6 +1476,7 @@ class ModelSummaryService:
             "model_key": row.model_key,
             "model_name": row.model_name,
             "year_label": row.year_label,
+            "period_key": row.period_key,
             "kline_range": row.kline_range,
             "parameter_summary": row.parameter_summary,
             "best_metric_name": row.best_metric_name,
@@ -1408,6 +1500,7 @@ class ModelSummaryService:
         columns = self._columns_for_task_type(task_type)
         market_type = _normalize_market_type(filters.get("market_type"))
         excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
+        period_filter = str(filters.get("period_filter") or "").strip()
         if not stock_code:
             return {
                 "status": "error",
@@ -1475,6 +1568,8 @@ class ModelSummaryService:
                 for row in rows
                 if row.best_metric_value is not None and row.best_metric_value > excess_return_min
             ]
+        if period_filter:
+            rows = [row for row in rows if row.period_key == period_filter]
 
         total = len(rows)
         start = (page - 1) * per_page
@@ -1582,22 +1677,23 @@ class ModelSummaryService:
             .order_by(Task.id.asc(), TaskResult.id.asc())
             .all()
         )
-        best_by_task: dict[str, SummaryRecord] = {}
+        best_by_group: dict[tuple[str, str], SummaryRecord] = {}
         candidate_records = 0
 
         for task, result in batch:
             for row in _extract_candidate_records(task, result):
                 candidate_records += 1
-                current = best_by_task.get(row.task_id)
+                key = (row.task_id, _summary_record_group_key(row))
+                current = best_by_group.get(key)
                 if current is None or self._is_better_record(row, current):
-                    best_by_task[row.task_id] = row
+                    best_by_group[key] = row
 
         TaskResultSummaryIndex.query.filter(
             TaskResultSummaryIndex.task_id.in_(task_ids)
         ).delete(synchronize_session=False)
         db.session.flush()
 
-        for row in best_by_task.values():
+        for row in best_by_group.values():
             item = TaskResultSummaryIndex(
                 task_result_id=row.task_result_id,
                 model_key=row.model_key,
@@ -1738,10 +1834,11 @@ class ModelSummaryService:
         return query.count()
 
     def _dedupe_best_per_task(self, task_type: str | None = None, task_id: str | None = None) -> int:
+        group_expression = _summary_index_group_expression()
         ranked_query = db.session.query(
             TaskResultSummaryIndex.id.label("id"),
             func.row_number().over(
-                partition_by=TaskResultSummaryIndex.task_id,
+                partition_by=(TaskResultSummaryIndex.task_id, group_expression),
                 order_by=(
                     TaskResultSummaryIndex.best_metric_value.desc(),
                     TaskResultSummaryIndex.result_timestamp.desc(),
@@ -1772,14 +1869,20 @@ class ModelSummaryService:
             TaskResultSummaryIndex.query
             .filter_by(task_id=task_id)
             .order_by(
+                TaskResultSummaryIndex.period_key.asc(),
+                TaskResultSummaryIndex.year_label.asc(),
+                TaskResultSummaryIndex.kline_range.asc(),
                 TaskResultSummaryIndex.best_metric_value.desc(),
                 TaskResultSummaryIndex.result_timestamp.desc(),
                 TaskResultSummaryIndex.id.desc(),
             )
             .all()
         )
-        for index, row in enumerate(rows):
-            if index == 0 and row.best_metric_value is not None:
+        seen_groups: set[str] = set()
+        for row in rows:
+            group_key = row.period_key or row.year_label or row.kline_range or ""
+            if group_key not in seen_groups and row.best_metric_value is not None:
+                seen_groups.add(group_key)
                 row.is_best = True
                 continue
             db.session.delete(row)

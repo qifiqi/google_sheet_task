@@ -118,11 +118,17 @@ def ensure_task_result_summary_index_schema():
     if 'stock_name' not in columns:
         db.session.execute(text('ALTER TABLE task_result_summary_index ADD COLUMN stock_name VARCHAR(255)'))
         changed = True
+    if 'period_key' not in columns:
+        db.session.execute(text('ALTER TABLE task_result_summary_index ADD COLUMN period_key VARCHAR(32)'))
+        changed = True
     if changed:
         db.session.commit()
     indexes = {index['name'] for index in inspector.get_indexes('task_result_summary_index')}
     if 'ix_task_result_summary_index_stock_name' not in indexes:
         db.session.execute(text('CREATE INDEX ix_task_result_summary_index_stock_name ON task_result_summary_index (stock_name)'))
+        db.session.commit()
+    if 'idx_result_summary_period_key' not in indexes:
+        db.session.execute(text('CREATE INDEX idx_result_summary_period_key ON task_result_summary_index (period_key)'))
         db.session.commit()
 
 

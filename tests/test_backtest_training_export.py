@@ -1,4 +1,4 @@
-from app.routes.backtest_training import _build_global_preview_workbook
+from app.routes.backtest_training import _build_global_preview_workbook, _extract_summary_rows
 
 
 def test_global_preview_workbook_adds_summary_sheet_first():
@@ -69,3 +69,61 @@ def test_global_preview_workbook_adds_summary_sheet_first():
     assert sheet["D7"].value == "3.00%"
     assert sheet["A1"].fill.fgColor.rgb == "00F7E1A1"
     assert sheet["B2"].fill.fgColor.rgb == "00F7E1A1"
+
+
+def test_single_global_preview_derives_year_max_excess_drawdown_with_string_years():
+    calculate_metrics = {
+        "excess_returns": [
+            {
+                "year": "2024",
+                "index_annualized_return": 0.10,
+                "start_annualized_return": 0.18,
+                "annualized_return_diff": 0.08,
+                "start_end_date": "2024-01-01 00:00:00/2024-12-31 00:00:00",
+            },
+            {
+                "year": "all",
+                "index_annualized_return": 0.10,
+                "start_annualized_return": 0.18,
+                "annualized_return_diff": 0.08,
+                "start_end_date": "2024-01-01 00:00:00/2024-12-31 00:00:00",
+            },
+        ],
+        "index_profit_annual": 1,
+        "start_profit_annual": 1,
+        "index_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+        "start_profit_monthly": [{"year": "all", "profit_monthly_percentage": 1}],
+        "index_sharpe_ratios": {"all": {"avg_monthly_return": 0.01, "sharpe_ratio": 1}},
+        "start_sharpe_ratios": {"all": {"avg_monthly_return": 0.02, "sharpe_ratio": 2}},
+        "index_monthly_return_volatility": 0.03,
+        "start_monthly_return_volatility": 0.04,
+        "outperform_year": 1,
+        "monthly_excess_return_percentage": [{"year": "all", "excess_return": 1}],
+        "monthly_excess_returns": [{
+            "date": "2024-01",
+            "start_monthly_return": 0.02,
+            "monthly_excess_return_diff": 0.01,
+        }],
+        "monthly_excess_volatility": 0.01,
+        "index_maximum_drawdown": {
+            "year_maximum_drawdown": [{"year": "2024", "drawdown": 0.10}],
+        },
+        "start_maximum_drawdown": {
+            "year_maximum_drawdown": [{"year": "2024", "drawdown": 0.06}],
+            "total_maximum_drawdown": {"drawdown": 0.06},
+        },
+        "excess_drawdown_winning_rate": 1,
+        "index_kama_ratio": [{"year": "all", "kama_ratio": 1}],
+        "start_kama_ratio": [{"year": "all", "kama_ratio": 2}],
+        "index_sotino_ratio": [{"year": "all", "sotino_ratio": 1}],
+        "start_sotino_ratio": [{"year": "all", "sotino_ratio": 2}],
+        "excess_sharp": 1,
+        "excess_of_promissory_note": 1,
+        "start_maximum_number_of_backtest_repair_days": 3,
+        "excess_maximum_number_of_backtest_repair_days": 2,
+    }
+
+    _period_text, rows = _extract_summary_rows(calculate_metrics, "C3")
+
+    drawdown_row = next(row for row in rows if row["metric"] == "年最大超额回撤")
+    assert drawdown_row["model_value"] == "4.00%"
