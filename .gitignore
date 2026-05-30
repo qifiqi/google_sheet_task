@@ -157,4 +157,5 @@ node_modules/
 
 # Docker
 docker-compose.override.yml
+dockers/postgres/data/
 test

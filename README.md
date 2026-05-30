@@ -151,13 +151,19 @@ DING_TALK_SECRET=
 
 开发环境 `.env.development`：
 ```bash
-DATABASE_URL=sqlite:///instance/app.db
+DATABASE_URL=postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator
 ```
 
 生产环境 `.env.production`：
 ```bash
 APP_ENV=production
-DATABASE_URL=postgresql://validator_user:123456@172.18.20.17:5432/googlesheet_validator
+DATABASE_URL=postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator
+```
+
+本地开发数据库使用 Docker 启动：
+```bash
+docker compose -f dockers/postgres/docker-compose.yml up -d
+python scripts/migrate_db.py
 ```
 
 ## 登录与鉴权（前后端）
@@ -252,11 +258,11 @@ export SECRET_KEY="your_secure_random_key_here"
 
 # 开发环境数据库
 export APP_ENV="development"
-export DATABASE_URL="sqlite:///instance/app.db"
+export DATABASE_URL="postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator"
 
 # 生产环境数据库
 export APP_ENV="production"
-export DATABASE_URL="postgresql://validator_user:123456@172.18.20.17:5432/googlesheet_validator"
+export DATABASE_URL="postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator"
 
 # 其他配置
 export MAX_CONCURRENT_TASKS=5

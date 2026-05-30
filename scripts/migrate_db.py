@@ -23,18 +23,32 @@ from app.models import (  # noqa: F401,E402
 
 
 DEFAULT_SOURCE_DB = f"sqlite:///{(PROJECT_ROOT / 'instance' / 'app.db').as_posix()}"
-DEFAULT_TARGET_DB = "postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator"
+DEFAULT_TARGET_DB = "postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator"
 TABLE_MIGRATION_ORDER = [
+    "permission",
+    "role",
+    "user",
+    "role_permissions",
+    "user_roles",
     "scheduled_tasks",
     "system_configs",
+    "navigation_menu_items",
+    "stock_metadata",
     "task_templates",
     "google_sheet_tokens",
+    "google_sheet",
     "tasks",
+    "task_results_return",
     "task_logs",
     "task_results",
-    "task_results_return",
+    "task_result_summary_index",
 ]
-TASK_CHILD_TABLES = {"task_logs", "task_results", "task_results_return"}
+TASK_CHILD_TABLES = {
+    "task_logs",
+    "task_result_summary_index",
+    "task_results",
+    "task_results_return",
+}
 
 
 def reset_postgres_sequence(conn, table):
@@ -107,6 +121,12 @@ def upsert_batch(target_conn, target_table, batch, dialect_name):
                 for column in target_table.columns
                 if column.name not in primary_keys
             }
+            if not update_columns:
+                target_conn.execute(
+                    insert_stmt.on_conflict_do_nothing(index_elements=primary_keys)
+                )
+                return
+
             target_conn.execute(
                 insert_stmt.on_conflict_do_update(
                     index_elements=primary_keys,

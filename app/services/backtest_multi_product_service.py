@@ -578,6 +578,10 @@ class BacktestMultiProductService(BacktestTrainingService):
                 if not kline_info:
                     kline_info = self._build_product_kline(product, config_data)
                     kline_cache[product_index] = kline_info
+                sheet_cache = sheet_kline_cache.setdefault(sheet_cache_key, {"combination": {}})
+                cached_combination = sheet_cache.get("combination") or {}
+                if cached_combination.get("product_index") != product_index:
+                    sheet_cache["combination"] = {}
 
                 combination = {
                     "parameter": parameter,
@@ -602,7 +606,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     success, result_payload, return_date = self._execute_parameter_combination(
                         kline_info["column_A_length"],
                         combination,
-                        sheet_kline_cache.setdefault(sheet_cache_key, {"combination": {}}),
+                        sheet_cache,
                         product_config,
                         {kline_info["kline_key"]: kline_info["kline"]},
                     )

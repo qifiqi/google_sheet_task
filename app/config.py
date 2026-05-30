@@ -26,7 +26,7 @@ def _resolve_database_url(default_url):
         sqlite_path_obj = Path(sqlite_path)
         if not sqlite_path_obj.is_absolute():
             sqlite_path_obj = BASE_DIR / sqlite_path_obj
-        database_url = f"sqlite:///{sqlite_path_obj.resolve()}"
+        database_url = f"sqlite:///{sqlite_path_obj.resolve().as_posix()}"
 
     return database_url
 
@@ -141,7 +141,7 @@ class BaseConfig:
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
-    DEFAULT_DATABASE_URL = f'sqlite:///{INSTANCE_DIR / "app.db"}'
+    DEFAULT_DATABASE_URL = 'postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator'
 
 
 class ProductionConfig(BaseConfig):

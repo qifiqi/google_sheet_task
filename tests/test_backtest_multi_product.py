@@ -334,6 +334,68 @@ def test_multi_product_execution_runs_all_parameters_per_product_first(app_facto
         assert call_order == [(0, 0), (0, 1), (1, 0), (1, 1)]
 
 
+def test_multi_product_resets_kline_cache_once_per_product(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        shared_sheet = {
+            "spreadsheet_id": "shared-sheet",
+            "sheet_name": "data",
+            "title": "C3 model",
+        }
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "products": [
+                _base_product(0, "50") | {"stock_code": "SAME", "sheet": shared_sheet},
+                _base_product(1, "50") | {"stock_code": "SAME", "sheet": shared_sheet},
+            ],
+        })
+        task = Task(
+            id="product-cache-reset-task",
+            name="product-cache-reset-task",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="running",
+            config=json.dumps(config, ensure_ascii=False),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        task = db.session.get(Task, "product-cache-reset-task")
+        service = BacktestMultiProductService({}, task.id)
+        cache_empty_by_step = []
+        monkeypatch.setattr(service, "_resolve_resume_start_index", lambda _task: 0)
+        monkeypatch.setattr(service, "_init_google_sheet", lambda _config: None)
+        monkeypatch.setattr(service, "_build_product_kline", lambda product, _config: {
+            "kline_key": "2024-01-01~2024-12-31",
+            "kline": [
+                {"stock_date": "2024-01-01", "stock_val": 1},
+                {"stock_date": "2024-12-31", "stock_val": 2},
+            ],
+            "kline_signature": {"same": "signature"},
+            "column_A_length": 22,
+        })
+
+        def fake_execute(_column_a_length, combination, cache_parameters, _config_data, _kline_data_map):
+            cache_empty_by_step.append((
+                combination["product_index"],
+                combination["parameter_group_index"],
+                not bool(cache_parameters.get("combination")),
+            ))
+            cache_parameters["combination"] = combination
+            return True, {}, []
+
+        monkeypatch.setattr(service, "_execute_parameter_combination", fake_execute)
+
+        assert service._execute_products(task, config) == "completed"
+        assert cache_empty_by_step == [
+            (0, 0, True),
+            (0, 1, False),
+            (1, 0, True),
+            (1, 1, False),
+        ]
+
+
 def _task_result_payload(index_return, start_return):
     return {
         "sheet__title": {
