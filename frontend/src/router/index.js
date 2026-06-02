@@ -55,6 +55,7 @@ const routes = [
       { path: 'admin/users',          name: 'AdminUsers',      component: () => import('@/views/admin/Users.vue'),        meta: { title: '用户管理',          permission: 'user:view' } },
       { path: 'admin/roles',          name: 'AdminRoles',      component: () => import('@/views/admin/Roles.vue'),        meta: { title: '角色管理',          permission: 'user:view' } },
       { path: 'admin/navigation',    name: 'AdminNavigation', component: () => import('@/views/admin/Navigation.vue'),   meta: { title: '导航管理',          permission: 'navigation:view' } },
+      { path: 'admin/model-summary',    name: 'ModelSummary', component: () => import('@/views/admin/Results.vue'),   meta: { title: '单模型汇总',          permission: 'modelsummary:view' } },
     ],
   },
 ]

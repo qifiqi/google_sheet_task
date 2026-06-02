@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 import json
+import math
 import re
 
 from flask import Blueprint, current_app, g, jsonify, render_template, request, send_file
@@ -98,6 +99,34 @@ def _build_excel_download_name(task_name, fallback_id: str) -> str:
     safe_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(task_name or "").strip())
     safe_name = safe_name.rstrip(" .")
     return f"{safe_name or fallback_id}.xlsx"
+
+
+def _parse_excel_percent_text(value: str) -> float | None:
+    text = value.strip().replace(",", "").replace("$", "")
+    if not text.endswith("%"):
+        return None
+
+    sign = 1
+    while text.startswith("-"):
+        sign *= -1
+        text = text[1:]
+    try:
+        number = sign * float(text[:-1]) / 100
+    except ValueError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _format_excel_data_cell(cell):
+    if not isinstance(cell.value, str):
+        return
+
+    parsed = _parse_excel_percent_text(cell.value)
+    if parsed is None:
+        return
+
+    cell.value = 0 if parsed == 0 else parsed
+    cell.number_format = "0.00%"
 
 
 @bp.route("/create")
@@ -441,6 +470,8 @@ def _build_global_preview_workbook(payload: dict[str, object]):
                 cell.fill = first_col_fill
                 if cell.row <= 2:
                     cell.font = header_font
+            if cell.row >= 3 and cell.column >= 3:
+                _format_excel_data_cell(cell)
     for column_index in range(1, total_columns + 1):
         sheet.column_dimensions[get_column_letter(column_index)].width = 18 if column_index > 2 else 16
     sheet.freeze_panes = "A3"

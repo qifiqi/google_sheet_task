@@ -874,8 +874,9 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
         assert sheet["F1"].value == "产品2"
         assert sheet["E2"].value == "模型结果（25%）"
         assert sheet["H2"].value == "模型结果（75%）"
-        assert sheet["E3"].value == "150.00%"
-        assert sheet["H3"].value == "4500.00%"
+        assert sheet["E3"].value == pytest.approx(1.5)
+        assert sheet["H3"].value == pytest.approx(45)
+        assert sheet["E3"].number_format == "0.00%"
         assert sheet["I2"].value == "比例计算-指数"
         assert sheet["J2"].value == "比例计算-结果"
         assert sheet["C1"].fill.fgColor.rgb == "00FCECC5"
@@ -1044,7 +1045,7 @@ def test_build_multi_product_global_preview_derives_year_max_excess_drawdown(app
             for row in payload["groups"][0]["rows"]
             if row["metric"] == "超额回撤胜率"
         )
-        assert drawdown_win_rate_row["product_values"][0]["result_value"] == "-75.00%"
+        assert drawdown_win_rate_row["product_values"][0]["result_value"] == "75.00%"
         max_drawdown_row = next(
             row
             for row in payload["groups"][0]["rows"]
@@ -1067,7 +1068,60 @@ def test_multi_product_year_max_excess_drawdown_uses_zero_when_no_year_outperfor
         },
     })
 
-    assert _fmt_value(metrics["year_max_excess_drawdown"], "percent") == "-0.00%"
+    assert _fmt_value(metrics["year_max_excess_drawdown"], "percent") == "0.00%"
+
+
+def test_multi_product_global_preview_workbook_writes_percentage_cells_as_numbers():
+    payload = {
+        "products": [
+            {
+                "product_index": 0,
+                "product_name": "产品1",
+                "stock_code": "TEST1",
+                "ratio": "25",
+            }
+        ],
+        "groups": [
+            {
+                "rows": [
+                    {
+                        "category": "绝对收益",
+                        "metric": "年化收益",
+                        "product_values": [
+                            {
+                                "index_value": "5.00%",
+                                "result_value": "12.00%",
+                                "weighted_result_value": "3.00%",
+                            }
+                        ],
+                        "weighted_index_value": "1.25%",
+                        "weighted_result_value": "3.00%",
+                    },
+                    {
+                        "category": "回撤",
+                        "metric": "年最大回撤",
+                        "product_values": [
+                            {
+                                "index_value": "-10.00%",
+                                "result_value": "0.00%",
+                                "weighted_result_value": "0.00%",
+                            }
+                        ],
+                        "weighted_index_value": "-10.00%",
+                        "weighted_result_value": "0.00%",
+                    },
+                ],
+            }
+        ],
+    }
+
+    workbook = _build_global_preview_workbook(payload)
+    sheet = workbook.active
+
+    assert sheet["C3"].value == pytest.approx(0.05)
+    assert sheet["C3"].number_format == "0.00%"
+    assert sheet["D4"].value == pytest.approx(0)
+    assert sheet["D4"].number_format == "0.00%"
 
 
 def test_global_preview_reuses_in_memory_cache_for_same_ratios(app_factory, monkeypatch):

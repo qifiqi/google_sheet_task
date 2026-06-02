@@ -16,7 +16,7 @@ DEFAULT_INPUT_DIR = (
     Path(__file__).resolve().parents[1]
     / "downloads"
     / "backtest_global_previews"
-    / "20260530_170631"
+    / "20260530_182139"
 )
 OVERWRITE_OUTPUT = True
 

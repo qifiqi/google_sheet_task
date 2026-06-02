@@ -173,10 +173,14 @@ def _parse_percent_like_value(value):
         return None
 
     normalized = raw.replace(",", "").replace("$", "")
+    sign = 1
+    while normalized.startswith("-"):
+        sign *= -1
+        normalized = normalized[1:]
     try:
         if normalized.endswith("%"):
-            return float(normalized[:-1]) / 100
-        return float(normalized)
+            return sign * float(normalized[:-1]) / 100
+        return sign * float(normalized)
     except (TypeError, ValueError):
         return raw
 
@@ -864,6 +868,136 @@ def _get_summary_derived_value(column, metric_key):
     return _format_summary_value(_get_summary_raw_metric(column, metric_key))
 
 
+def _negative_percent_display(value):
+    parsed = _parse_percent_like_value(value)
+    if not isinstance(parsed, (int, float)) or not math.isfinite(parsed):
+        return ""
+    if parsed == 0:
+        return "0.00%"
+    return f"{-abs(parsed):.2%}"
+
+
+def _percent_display(value):
+    parsed = _parse_percent_like_value(value)
+    if not isinstance(parsed, (int, float)) or not math.isfinite(parsed):
+        return ""
+    return f"{0 if parsed == 0 else parsed:.2%}"
+
+
+def _metric_year_key(value):
+    text = str(value if value is not None else "").strip()
+    if not text or text.lower() == "all":
+        return ""
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    return str(int(number)) if number.is_integer() else text
+
+
+def _derive_year_max_excess_drawdown(calculate_metrics):
+    excess_returns = [
+        (_metric_year_key(item.get("year")), _parse_percent_like_value(item.get("annualized_return_diff")))
+        for item in calculate_metrics.get("excess_returns") or []
+        if isinstance(item, dict)
+    ]
+    annual_excess_returns = [
+        (year, diff)
+        for year, diff in excess_returns
+        if year
+    ]
+    if not annual_excess_returns:
+        return None
+
+    excess_years = {
+        year
+        for year, annualized_return_diff in annual_excess_returns
+        if isinstance(annualized_return_diff, (int, float))
+        and math.isfinite(annualized_return_diff)
+        and annualized_return_diff > 0
+    }
+    if not excess_years:
+        return 0.0
+
+    index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
+    start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
+    index_year_map = {
+        year: item
+        for item in index_max_dd.get("year_maximum_drawdown", [])
+        if isinstance(item, dict)
+        for year in [_metric_year_key(item.get("year"))]
+        if year in excess_years
+    }
+    start_year_map = {
+        year: item
+        for item in start_max_dd.get("year_maximum_drawdown", [])
+        if isinstance(item, dict)
+        for year in [_metric_year_key(item.get("year"))]
+        if year in excess_years
+    }
+
+    diffs = []
+    for year, index_item in index_year_map.items():
+        start_item = start_year_map.get(year) or {}
+        index_drawdown = _parse_percent_like_value(index_item.get("drawdown"))
+        start_drawdown = _parse_percent_like_value(start_item.get("drawdown"))
+        if not isinstance(index_drawdown, (int, float)) or not isinstance(start_drawdown, (int, float)):
+            continue
+        if not math.isfinite(index_drawdown) or not math.isfinite(start_drawdown):
+            continue
+        diffs.append(start_drawdown - index_drawdown)
+    return max(diffs) if diffs else None
+
+
+def _format_excel_data_cell(cell):
+    value = cell.value
+    if not isinstance(value, str):
+        return
+
+    text = value.strip()
+    if not text.endswith("%"):
+        return
+
+    parsed = _parse_percent_like_value(text)
+    if not isinstance(parsed, (int, float)) or not math.isfinite(parsed):
+        return
+
+    cell.value = 0 if parsed == 0 else parsed
+    cell.number_format = "0.00%"
+
+
+def _with_excess_return_preview_row(summary_rows, column):
+    if not summary_rows:
+        return summary_rows
+    if any(
+        row.get("category") == "绝对收益" and row.get("metric") == "超额回报"
+        for row in summary_rows
+    ):
+        return summary_rows
+
+    excess_return_row = {
+        "category": "绝对收益",
+        "metric": "超额回报",
+        "index_value": "",
+        "model_value": _get_summary_derived_value(column, "excess_return"),
+    }
+    rows = []
+    inserted = False
+    for row in summary_rows:
+        if (
+            not inserted
+            and row.get("category") == "绝对收益"
+            and row.get("metric") == "年化收益"
+        ):
+            rows.append(excess_return_row)
+            inserted = True
+        rows.append(row)
+
+    if not inserted:
+        rows.insert(0, excess_return_row)
+    return rows
+
+
 def _extract_summary_rows(calculate_metrics, model_name):
     if not isinstance(calculate_metrics, dict) or not calculate_metrics:
         return "", []
@@ -889,6 +1023,11 @@ def _extract_summary_rows(calculate_metrics, model_name):
         while text.startswith("--"):
             text = text[1:]
         return _normalize_scientific_text(text)
+
+    def _normalize_negative_display_value(metric, value):
+        if metric == "年最大回撤":
+            return _negative_percent_display(value)
+        return _normalize_display_value(value)
 
     def _fmt_percent(value):
         if value is None or not math.isfinite(value):
@@ -932,37 +1071,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
             sum(valid_excess_months) / len(valid_excess_months) if valid_excess_months else None
         )
 
-        max_drawdown = None
-        try:
-            index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
-            start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
-            year_excess_returns = [
-                int(item["year"])
-                for item in (calculate_metrics.get("excess_returns") or [])
-                if isinstance(item, dict)
-                and item.get("year") != "all"
-                and item.get("annualized_return_diff") is not None
-                and item.get("annualized_return_diff") > 0
-            ]
-            index_year_map = {
-                item["year"]: item
-                for item in index_max_dd.get("year_maximum_drawdown", [])
-                if isinstance(item, dict) and item.get("year") in year_excess_returns
-            }
-            start_year_map = {
-                item["year"]: item
-                for item in start_max_dd.get("year_maximum_drawdown", [])
-                if isinstance(item, dict) and item.get("year") in year_excess_returns
-            }
-            diffs = []
-            for year, index_item in index_year_map.items():
-                start_item = start_year_map.get(year) or {}
-                if index_item.get("drawdown") is None or start_item.get("drawdown") is None:
-                    continue
-                diffs.append(start_item["drawdown"] - index_item["drawdown"])
-            max_drawdown = max(diffs) if diffs else None
-        except Exception:
-            max_drawdown = None
+        max_drawdown = _derive_year_max_excess_drawdown(calculate_metrics)
 
         total_max_drawdown = ((calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {})
 
@@ -978,9 +1087,9 @@ def _extract_summary_rows(calculate_metrics, model_name):
             {"category": "相对收益", "metric": "月超额收益胜率", "index_value": "", "model_value": _fmt_percent(monthly_excess_percentage_all.get("excess_return"))},
             {"category": "相对收益", "metric": "平均月超额", "index_value": "", "model_value": _fmt_percent(avg_monthly_excess_returns)},
             {"category": "相对收益", "metric": "月超额波动率", "index_value": "", "model_value": _fmt_percent(calculate_metrics.get("monthly_excess_volatility"))},
-            {"category": "回撤", "metric": "年最大超额回撤", "index_value": "", "model_value": _fmt_percent(-max_drawdown) if max_drawdown is not None else ""},
-            {"category": "回撤", "metric": "超额回撤胜率", "index_value": "", "model_value": _fmt_percent(-(calculate_metrics.get("excess_drawdown_winning_rate"))) if calculate_metrics.get("excess_drawdown_winning_rate") is not None else ""},
-            {"category": "回撤", "metric": "年最大回撤", "index_value": "", "model_value": _fmt_percent(-(total_max_drawdown.get("drawdown"))) if total_max_drawdown.get("drawdown") is not None else ""},
+            {"category": "回撤", "metric": "年最大超额回撤", "index_value": "", "model_value": _percent_display(max_drawdown) if max_drawdown is not None else ""},
+            {"category": "回撤", "metric": "超额回撤胜率", "index_value": "", "model_value": _percent_display(calculate_metrics.get("excess_drawdown_winning_rate")) if calculate_metrics.get("excess_drawdown_winning_rate") is not None else ""},
+            {"category": "回撤", "metric": "年最大回撤", "index_value": "", "model_value": _negative_percent_display(total_max_drawdown.get("drawdown")) if total_max_drawdown.get("drawdown") is not None else ""},
             {"category": "回撤", "metric": "最大修复天数", "index_value": "", "model_value": str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or "")},
             {"category": "回撤", "metric": "超额最大修复天数", "index_value": "", "model_value": str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or "")},
             {"category": "比率", "metric": "夏普比率", "index_value": _fmt_number(index_sharpe_all.get("sharpe_ratio")), "model_value": _fmt_number(start_sharpe_all.get("sharpe_ratio"))},
@@ -1010,8 +1119,15 @@ def _extract_summary_rows(calculate_metrics, model_name):
             "category": category,
             "metric": _normalize_metric_label(metric),
             "index_value": _normalize_display_value(summary_df.iat[row_index, 2]),
-            "model_value": _normalize_display_value(summary_df.iat[row_index, 3]),
+            "model_value": _normalize_negative_display_value(
+                _normalize_metric_label(metric),
+                summary_df.iat[row_index, 3],
+            ),
         })
+        if rows[-1]["metric"] == "年最大超额回撤":
+            rows[-1]["model_value"] = _percent_display(_derive_year_max_excess_drawdown(calculate_metrics))
+        elif rows[-1]["metric"] == "超额回撤胜率":
+            rows[-1]["model_value"] = _percent_display(calculate_metrics.get("excess_drawdown_winning_rate"))
     return period_text, rows
 
 
@@ -1088,7 +1204,7 @@ def _build_global_preview_payload(task_id):
 
         column_key = f"result_{task_result.id}"
         result_core = _extract_result_core(task_result) if task_result.success else {}
-        group["columns"].append({
+        column = {
             "column_key": column_key,
             "result_id": task_result.id,
             "step_index": task_result.step_index,
@@ -1098,7 +1214,8 @@ def _build_global_preview_payload(task_id):
             "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
             "parameter_values": parameters.get("parameter") if isinstance(parameters.get("parameter"), list) else [],
             "raw_metrics": _extract_raw_sheet_metrics(result_core),
-        })
+        }
+        group["columns"].append(column)
 
         if not task_result.success:
             failed_count += 1
@@ -1107,6 +1224,7 @@ def _build_global_preview_payload(task_id):
 
         calculate_metrics = result_core.get("calculate_metrics") if isinstance(result_core, dict) else {}
         period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
+        summary_rows = _with_excess_return_preview_row(summary_rows, column)
         if not summary_rows:
             failed_count += 1
             group["failed_results"] += 1
@@ -1243,6 +1361,8 @@ def _append_global_summary_sheet(workbook, payload, styles):
                 cell.font = styles["header_font"]
             elif cell.column == 2:
                 cell.fill = styles["first_col_fill"]
+            if cell.row >= 2 and cell.column >= 3:
+                _format_excel_data_cell(cell)
 
     return sheet
 
@@ -1351,6 +1471,8 @@ def _build_global_preview_workbook(payload):
                     cell.fill = first_col_fill
                     if row_index == 2:
                         cell.font = header_font
+                if row_index >= 3 and col_index >= 3:
+                    _format_excel_data_cell(cell)
 
         if group.get("period"):
             period_col = max_col + 1

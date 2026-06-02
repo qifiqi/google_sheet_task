@@ -299,7 +299,7 @@ def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float
         if annualized_return_diff is not None and annualized_return_diff > 0
     }
     if not excess_years:
-        return -0.0
+        return 0.0
 
     index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
     start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
@@ -326,12 +326,16 @@ def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float
         if index_drawdown is None or start_drawdown is None:
             continue
         diffs.append(start_drawdown - index_drawdown)
-    return -max(diffs) if diffs else None
+    return max(diffs) if diffs else None
 
 
 def _negative_number(value: Any) -> float | None:
     number = _safe_number(value)
-    return -number if number is not None else None
+    if number is None:
+        return None
+    if number == 0:
+        return 0.0
+    return -abs(number)
 
 
 def _fmt_value(value: Any, value_type: str) -> str:
@@ -538,7 +542,7 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
         "avg_monthly_excess_return": avg_monthly_excess_return,
         "monthly_excess_volatility": calculate_metrics.get("monthly_excess_volatility"),
         "year_max_excess_drawdown": year_max_excess_drawdown,
-        "excess_drawdown_winning_rate": _negative_number(calculate_metrics.get("excess_drawdown_winning_rate")),
+        "excess_drawdown_winning_rate": _safe_number(calculate_metrics.get("excess_drawdown_winning_rate")),
         "start_max_drawdown": _negative_number(total_max_drawdown.get("drawdown")),
         "start_maximum_number_of_backtest_repair_days": calculate_metrics.get("start_maximum_number_of_backtest_repair_days"),
         "excess_maximum_number_of_backtest_repair_days": calculate_metrics.get("excess_maximum_number_of_backtest_repair_days"),

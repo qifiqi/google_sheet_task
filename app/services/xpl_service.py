@@ -1543,8 +1543,8 @@ class XPLAnalyzer:
             ["相对收益", "月超额收益胜率", "", f"{monthly_excess_return_percentage_last_return:.2%}"],
             ["相对收益", "平均月超额", "", f"{avg_monthly_excess_returns:.2%}"],
             ["相对收益", "月超额波动率", "", f"{monthly_excess_volatility:.2%}"],
-            ["回撤", "年最大超额回撤", "", f"-{max_drawdown:.2%}"],
-            ["回撤", "超额回撤胜率", "", f"-{excess_drawdown_winning_rate:.2%}"],
+            ["回撤", "年最大超额回撤", "", f"{max_drawdown:.2%}"],
+            ["回撤", "超额回撤胜率", "", f"{excess_drawdown_winning_rate:.2%}"],
             ["回撤", "年最大回撤", "", f"-{start_drawdown:.2%}"],
             ["回撤", "最大修复天数", "", f"{start_maximum_number_of_backtest_repair_days}"],
             ["回撤", "超额最大修复天数", "", f"{excess_maximum_number_of_backtest_repair_days}"],
@@ -1638,18 +1638,23 @@ xpl_analyzer = XPLAnalyzer()
 
 if __name__ == "__main__":
     xpl_analyzer = XPLAnalyzer()
-    from d import data2
-    df = pd.DataFrame(data2)
-    df2 = pd.DataFrame(data2)
-    df2['index_return'] = df2['index_returns']
-    df2['start_return'] = df2['start_returns']
-    df['index_return'] = df['index_returns'] * 0.5
-    df['start_return'] = df['start_returns'] * 0.5
+    # from d import data2
+    # df = pd.DataFrame(data2)
+    # df2 = pd.DataFrame(data2)
+    # df2['index_return'] = df2['index_returns']
+    # df2['start_return'] = df2['start_returns']
+    # df['index_return'] = df['index_returns'] * 0.5
+    # df['start_return'] = df['start_returns'] * 0.5
 
-    # parsed_data = xpl_analyzer._parse_input_data(data)
-    #
-    print(json.dumps(xpl_analyzer._calculate_metrics_v1(df.to_dict(orient='records')),ensure_ascii=False))
-    print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')),ensure_ascii=False))
+    from d import data
+
+    parsed_data = xpl_analyzer._parse_input_data(data)
+    df2 = pd.DataFrame(parsed_data)
+    df2['index_return'] = df2['daily_return']
+    df2['start_return'] = df2['daily_return']
+    print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')),ensure_ascii=False,indent=4))
+    # print(json.dumps(xpl_analyzer._calculate_metrics_v1(df.to_dict(orient='records')),ensure_ascii=False))
+    # print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')),ensure_ascii=False))
     # xpl_analyzer._calculate_metrics(parsed_data)
     # xpl_analyzer.analyze_v1('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
     # xpl_analyzer.get_google_sheet_data('1jTXxqMzQXu52_eWt8_5qnnZB0EfRwjH9bfC79TpPcwM','data7y')
