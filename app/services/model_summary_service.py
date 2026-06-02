@@ -1339,11 +1339,14 @@ class ModelSummaryService:
         page = max(int(filters.get("page") or 1), 1)
         per_page = min(max(int(filters.get("per_page") or 50), 1), 200)
         task_type = str(filters.get("task_type") or "").strip()
+        result_date_from = str(filters.get("result_date_from") or "").strip()
+        result_date_to = str(filters.get("result_date_to") or "").strip()
         stock_code = str(filters.get("stock_code") or "").strip()
         market_type = _normalize_market_type(filters.get("market_type"))
         excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
         period_filter = str(filters.get("period_filter") or "").strip()
         best_only = str(filters.get("best_only", "true")).lower() not in {"false", "0", "no"}
+
         if not best_only:
             return self._query_all_results(user, filters, page, per_page, task_type, stock_code)
 
@@ -1366,25 +1369,47 @@ class ModelSummaryService:
             if not visible_types:
                 return self._empty_response(page, per_page)
             query = query.filter(TaskResultSummaryIndex.task_type.in_(visible_types))
+
         query = self._apply_stock_keyword_filter(query, stock_code)
         query = self._apply_market_type_filter(query, market_type)
+
         if period_filter:
             query = query.filter(TaskResultSummaryIndex.period_key == period_filter)
+
         if excess_return_min is not None:
             query = query.filter(TaskResultSummaryIndex.best_metric_value > excess_return_min)
+
+        # 添加时间范围查询
+        if result_date_from:
+            try:
+                from_date = datetime.strptime(result_date_from, "%Y-%m-%d")
+                query = query.filter(TaskResultSummaryIndex.result_timestamp >= from_date)
+            except ValueError:
+                pass  # 忽略无效的日期格式
+
+        if result_date_to:
+            try:
+                to_date = datetime.strptime(result_date_to, "%Y-%m-%d")
+                # 包含结束日期的整天
+                to_date = to_date.replace(hour=23, minute=59, second=59)
+                query = query.filter(TaskResultSummaryIndex.result_timestamp <= to_date)
+            except ValueError:
+                pass  # 忽略无效的日期格式
+
         task_id = str(filters.get("task_id") or "").strip()
         if task_id:
             query = query.filter(TaskResultSummaryIndex.task_id == task_id)
+
         result_id = filters.get("result_id")
         if result_id:
             query = query.filter(TaskResultSummaryIndex.task_result_id == int(result_id))
+
         summary_type = str(filters.get("summary_type") or "task").strip().lower()
         if summary_type not in {"task", "stock"}:
             summary_type = "task"
-        if summary_type == "stock":
-            query = query.filter(TaskResultSummaryIndex.is_best == True)
 
         if summary_type == "stock":
+            query = query.filter(TaskResultSummaryIndex.is_best == True)
             query = query.filter(
                 TaskResultSummaryIndex.stock_code.isnot(None),
                 TaskResultSummaryIndex.stock_code != "",
@@ -1398,9 +1423,13 @@ class ModelSummaryService:
                 TaskResultSummaryIndex.result_timestamp.desc(),
                 TaskResultSummaryIndex.id.desc(),
             )
-        items = [item.to_dict() for item in query.all()]
-        summary = self._summary_from_items(items)
+
+        # 直接使用分页查询，避免重复查询
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+        # 基于分页结果计算统计摘要
+        summary = self._summary_from_items(pagination.items)
+
         return {
             "status": "success",
             "summary_type": summary_type,
@@ -1416,6 +1445,7 @@ class ModelSummaryService:
                 "has_next": pagination.has_next,
             },
         }
+
 
     def export_csv(self, user: Any, filters: dict[str, Any]) -> dict[str, Any]:
         export_filters = dict(filters)
@@ -1780,49 +1810,41 @@ class ModelSummaryService:
             TaskResultSummaryIndex.task_name.ilike(pattern),
         ))
 
-    def _summary_from_items(self, items) -> dict[str, int]:
-        stock_codes: set[str] = set()
-        cn_stock_codes: set[str] = set()
-        us_stock_codes: set[str] = set()
-        task_ids: set[str] = set()
-        return_beats_counts = {
-            "return_beats_gt_0": 0,
-            "return_beats_gt_20": 0,
-            "return_beats_gt_50": 0,
-            "return_beats_gt_100": 0,
-        }
+    def _summary_from_items(self, items):
+        """
+        从项目列表中计算统计摘要
+        items: 可以是 TaskResultSummaryIndex 对象列表或字典列表
+        """
+        total_count = 0
+        excess_return_count = 0
+        excess_return_sum = 0.0
 
         for item in items:
-            stock_code = str((item or {}).get("stock_code") or "").strip()
-            if stock_code:
-                stock_codes.add(stock_code)
-                if _is_cn_stock_code(stock_code):
-                    cn_stock_codes.add(stock_code)
-                else:
-                    us_stock_codes.add(stock_code)
+            total_count += 1
 
-            task_id = str((item or {}).get("task_id") or "").strip()
-            if task_id:
-                task_ids.add(task_id)
+            # 兼容对象和字典两种格式
+            if hasattr(item, 'get'):  # 字典格式
+                stock_code = str(item.get("stock_code") or "").strip()
+                best_metric_value = item.get("best_metric_value")
+            else:  # 对象格式
+                stock_code = str(getattr(item, 'stock_code', '') or "").strip()
+                best_metric_value = getattr(item, 'best_metric_value', None)
 
-            value = _safe_number((item or {}).get("best_metric_value"))
-            if value is None:
-                continue
-            if value > 0:
-                return_beats_counts["return_beats_gt_0"] += 1
-            if value > 0.2:
-                return_beats_counts["return_beats_gt_20"] += 1
-            if value > 0.5:
-                return_beats_counts["return_beats_gt_50"] += 1
-            if value > 1:
-                return_beats_counts["return_beats_gt_100"] += 1
+            # 计算超额收益相关的统计
+            if best_metric_value is not None:
+                try:
+                    value = float(best_metric_value)
+                    excess_return_sum += value
+                    excess_return_count += 1
+                except (ValueError, TypeError):
+                    pass
 
+        # 返回统计摘要
         return {
-            "stock_count": len(stock_codes),
-            "cn_stock_count": len(cn_stock_codes),
-            "us_stock_count": len(us_stock_codes),
-            "task_count": len(task_ids),
-            **return_beats_counts,
+            "total_count": total_count,
+            "excess_return_avg": excess_return_sum / excess_return_count if excess_return_count > 0 else 0,
+            "excess_return_count": excess_return_count,
+            "excess_return_sum": excess_return_sum,
         }
 
     def _count_index_rows(self, task_type: str | None = None, task_id: str | None = None) -> int:

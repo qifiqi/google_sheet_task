@@ -111,6 +111,14 @@
                 </select>
             </div>
             <div class="filter-field">
+                <label class="form-label">结果日期范围</label>
+                <div class="d-flex gap-2">
+                    <input type="date" class="form-control form-control-sm" id="resultDateFrom" placeholder="开始日期">
+                    <span class="align-self-center">至</span>
+                    <input type="date" class="form-control form-control-sm" id="resultDateTo" placeholder="结束日期">
+                </div>
+            </div>
+            <div class="filter-field">
                 <label class="form-label">年份/区间</label>
                 <select class="form-select form-select-sm" id="periodFilter">
                     <option value="">全部</option>
@@ -464,7 +472,8 @@
                 minmax(0, 0.95fr)
                 minmax(0, 0.95fr)
                 minmax(0, 0.8fr)
-                minmax(0, 1.5fr)
+                minmax(0, 2.5fr)
+                minmax(0, 0.95fr)
                 minmax(0, 0.95fr)
                 minmax(0, 0.95fr)
                 minmax(0, 0.95fr)
@@ -746,6 +755,13 @@
             const value = document.getElementById(id).value.trim();
             if (value) params.set(key, value);
         });
+
+        // 添加日期范围参数
+        const dateFrom = document.getElementById("resultDateFrom").value;
+        const dateTo = document.getElementById("resultDateTo").value;
+        if (dateFrom) params.set("result_date_from", dateFrom);
+        if (dateTo) params.set("result_date_to", dateTo);
+
         return params;
     }
 
@@ -785,7 +801,19 @@
         const range = document.getElementById("bestOnly").value === "false" ? "全部结果" : "仅最优";
         const threshold = document.getElementById("excessReturnMin").value;
         const thresholdText = threshold ? `ReturnBeats > ${threshold}%` : "全部";
-        return `任务类型：${taskType}；市场：${marketType}；年份/区间：${periodText}；查询词：${keyword}；汇总方式：${summaryType}；数据范围：${range}；超额收益：${thresholdText}`;
+        // 添加日期范围描述
+        const dateFrom = document.getElementById("resultDateFrom").value;
+        const dateTo = document.getElementById("resultDateTo").value;
+        let dateRangeText = "";
+        if (dateFrom && dateTo) {
+            dateRangeText = `；结果日期：${dateFrom} 至${dateTo}`;
+        } else if (dateFrom) {
+            dateRangeText = `；结果日期：≥ ${dateFrom}`;
+        } else if (dateTo) {
+            dateRangeText = `；结果日期：≤ ${dateTo}`;
+        }
+
+        return `任务类型：${taskType}；市场：${marketType}；年份 / 区间：${periodText}；查询词：${keyword}；汇总方式：${summaryType}；数据范围：${range}；超额收益：${thresholdText}${dateRangeText}`;
     }
 
     function renderHead() {
