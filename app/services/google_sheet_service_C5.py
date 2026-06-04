@@ -744,8 +744,8 @@ class GoogleSheetService(BaseGoogleSheetService):
             raise Exception(
                 f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
-        if len(klines) < 100:
-            raise Exception(f"股票{parameter} 数据量不足,k线数据量小于100条，无法在模型正确产生数据，或者联系开发")
+        if len(klines) < 30:
+            raise Exception(f"股票{parameter} 数据量不足,k线数据量小于60条，无法在模型正确产生数据，或者联系开发")
 
         all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
         data = []
