@@ -25,6 +25,57 @@ class XPLAnalyzer:
         self.data = []
         self.metrics = {}
 
+
+    @staticmethod
+    def monthly_maximum_drawdown(df):
+        """
+
+        每年每月最好的那个
+        """
+        all_years = df['year_month'].unique()
+        result = {"year_maximum_drawdown": []}
+
+        # 计算每年的最大回撤
+        # Calculate maximum drawdown for each year
+        df_yearly = df.copy()
+
+        for year in all_years:
+            yearly_data = df_yearly[df_yearly['year_month'] == year]
+
+            # 按时间排序，确保计算正确
+            # Sort by date to ensure correct calculation
+            yearly_data = yearly_data.sort_values('date').reset_index(drop=True)
+
+            # 计算每个时间点的回撤
+            # Calculate drawdown for each time point
+            for index in range(len(yearly_data)):
+                current_row = yearly_data.iloc[index]
+
+                # 获取当前时间及之前的所有数据
+                # Get all data up to the current time
+                historical_data = yearly_data.iloc[:index + 1]
+
+                # 计算到当前时间的最高净值
+                # Calculate maximum net value up to current time
+                historical_max = historical_data['net_value'].max()
+
+                # 计算回撤：(历史最高净值 - 当前净值) / 历史最高净值
+                if historical_max > 0:
+                    drawdown = (historical_max - current_row['net_value']) / historical_max
+                else:
+                    drawdown = 0
+
+                yearly_data.at[index, 'drawdown'] = drawdown  # 回撤值 Drawdown value
+
+            # 找到该年度的最大回撤
+            max_drawdown_row = yearly_data.loc[yearly_data['drawdown'].idxmax()]
+            _ = max_drawdown_row.to_dict()
+            _['date'] = _['date'].strftime('%Y-%m-%d')
+            result['year_maximum_drawdown'].append(_)
+
+        return result
+
+
     @staticmethod
     def calculate_max_drawdown_by_year_and_total(df):
         """

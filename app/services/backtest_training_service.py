@@ -769,8 +769,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 raise Exception(
                     f"股票{stock_code} 设定区间 [{start_date}, {effective_end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
-        if len(klines) < 100:
-            raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于100条，无法在模型正确产生数据，或者联系开发")
+        if len(klines) < 30:
+            raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于30条，无法在模型正确产生数据，或者联系开发")
 
         all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=effective_end_date)
         data = []

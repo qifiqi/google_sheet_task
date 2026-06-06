@@ -1417,10 +1417,8 @@ class ModelSummaryService:
             query = self._stock_summary_query(query)
         else:
             query = query.order_by(
-                TaskResultSummaryIndex.task_type.asc(),
-                TaskResultSummaryIndex.stock_code.asc(),
+                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
                 TaskResultSummaryIndex.best_metric_value.desc(),
-                TaskResultSummaryIndex.result_timestamp.desc(),
                 TaskResultSummaryIndex.id.desc(),
             )
 
