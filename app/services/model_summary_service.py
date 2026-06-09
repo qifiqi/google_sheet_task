@@ -1758,8 +1758,8 @@ class ModelSummaryService:
                 func.row_number().over(
                     partition_by=TaskResultSummaryIndex.stock_code,
                     order_by=(
+                        func.date(TaskResultSummaryIndex.result_timestamp).desc(),
                         TaskResultSummaryIndex.best_metric_value.desc(),
-                        TaskResultSummaryIndex.result_timestamp.desc(),
                         TaskResultSummaryIndex.id.desc(),
                     ),
                 ).label("row_number"),
@@ -1771,9 +1771,9 @@ class ModelSummaryService:
             .join(subquery, TaskResultSummaryIndex.id == subquery.c.id)
             .filter(subquery.c.row_number == 1)
             .order_by(
-                TaskResultSummaryIndex.stock_code.asc(),
+                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
                 TaskResultSummaryIndex.best_metric_value.desc(),
-                TaskResultSummaryIndex.result_timestamp.desc(),
+                TaskResultSummaryIndex.stock_code.asc(),
                 TaskResultSummaryIndex.id.desc(),
             )
         )
@@ -1866,8 +1866,8 @@ class ModelSummaryService:
             func.row_number().over(
                 partition_by=(TaskResultSummaryIndex.task_id, group_expression),
                 order_by=(
+                    func.date(TaskResultSummaryIndex.result_timestamp).desc(),
                     TaskResultSummaryIndex.best_metric_value.desc(),
-                    TaskResultSummaryIndex.result_timestamp.desc(),
                     TaskResultSummaryIndex.id.desc(),
                 ),
             ).label("row_number"),
@@ -1895,11 +1895,11 @@ class ModelSummaryService:
             TaskResultSummaryIndex.query
             .filter_by(task_id=task_id)
             .order_by(
+                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
+                TaskResultSummaryIndex.best_metric_value.desc(),
                 TaskResultSummaryIndex.period_key.asc(),
                 TaskResultSummaryIndex.year_label.asc(),
                 TaskResultSummaryIndex.kline_range.asc(),
-                TaskResultSummaryIndex.best_metric_value.desc(),
-                TaskResultSummaryIndex.result_timestamp.desc(),
                 TaskResultSummaryIndex.id.desc(),
             )
             .all()
