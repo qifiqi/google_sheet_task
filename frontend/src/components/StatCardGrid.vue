@@ -1,5 +1,5 @@
 <template>
-  <el-row :gutter="12" class="stat-card-grid">
+  <el-row :gutter="16" class="stat-card-grid">
     <el-col
       v-for="card in cards"
       :key="card.key"
@@ -40,25 +40,37 @@ function cardStyle(card) {
 </script>
 
 <style lang="scss" scoped>
+.stat-card-grid {
+  margin-bottom: 20px;
+}
+
 .stat-card-grid__col {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  display: flex;
 }
 
 .stat-card {
-  padding: 16px 20px;
-  border-radius: var(--el-border-radius-base);
+  width: 100%;
+  padding: 18px 20px;
+  border-radius: var(--app-radius-md);
   background: var(--app-surface);
   border: 1px solid var(--app-border);
-  transition: box-shadow 0.2s;
+  transition: box-shadow 0.2s, transform 0.2s;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 
   &:hover {
-    box-shadow: var(--app-shadow-soft);
+    box-shadow: var(--app-shadow-md);
+    transform: translateY(-1px);
   }
 
   &__label {
     font-size: var(--app-font-xs);
+    font-weight: 500;
     color: var(--app-text-muted);
-    margin-bottom: 4px;
+    margin-bottom: 6px;
+    line-height: 1.4;
   }
 
   &__value {
@@ -66,6 +78,7 @@ function cardStyle(card) {
     font-weight: 700;
     color: var(--app-text);
     line-height: 1.2;
+    font-variant-numeric: tabular-nums;
   }
 
   &__hint {
@@ -80,11 +93,15 @@ function cardStyle(card) {
 
     .stat-card__label,
     .stat-card__hint {
-      color: rgba(255, 255, 255, 0.8);
+      color: rgba(255, 255, 255, 0.85);
     }
 
     .stat-card__value {
       color: #fff;
+    }
+
+    &:hover {
+      box-shadow: var(--app-shadow-lg);
     }
   }
 }

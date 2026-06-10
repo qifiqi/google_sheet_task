@@ -1,220 +1,279 @@
 <template>
-  <div class="app-page google-sheets-page">
-    <PageToolbar eyebrow="管理后台" title="Google Sheet 管理">
-      <template #actions>
-        <el-button type="primary" @click="openCreate">新增表格</el-button>
+  <div class="admin-google-sheets">
+    <PageToolbar eyebrow="管理中心" title="Google Sheets 管理" description="管理 Google Sheets 数据和令牌" />
+
+    <!-- Sheets Table -->
+    <el-card shadow="never" class="mb-4">
+      <template #header>
+        <div class="card-header">
+          <span>Sheets 列表</span>
+          <el-button text type="primary" @click="loadSheets">
+            <el-icon><Refresh /></el-icon> 刷新
+          </el-button>
+        </div>
       </template>
-    </PageToolbar>
+      <el-table :data="sheets" v-loading="sheetsLoading" stripe style="width: 100%">
+        <el-table-column prop="sheet_name" label="名称" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="sheet_id" label="Sheet ID" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            <el-link type="primary" :href="`https://docs.google.com/spreadsheets/d/${row.sheet_id}`" target="_blank">
+              {{ row.sheet_id }}
+            </el-link>
+          </template>
+        </el-table-column>
+        <el-table-column prop="token_email" label="关联令牌" width="200" show-overflow-tooltip />
+        <el-table-column prop="created_at" label="创建时间" width="175" align="center">
+          <template #default="{ row }">
+            <span class="cell-time">{{ formatTime(row.created_at) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-popconfirm title="确定删除此 Sheet？" @confirm="handleDeleteSheet(row)">
+              <template #reference>
+                <el-button type="danger" size="small" text @click.stop>删除</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
-    <FilterToolbar
-      v-model="filters"
-      :filters="filterConfig"
-      @search="loadSheets"
-      @clear="clearFilters"
-    />
+    <!-- Tokens Section -->
+    <el-card shadow="never">
+      <template #header>
+        <div class="card-header">
+          <span>令牌管理</span>
+          <div>
+            <el-button type="primary" size="small" @click="importDialogVisible = true">
+              <el-icon><Upload /></el-icon> 导入令牌
+            </el-button>
+            <el-button text type="primary" @click="loadTokens">
+              <el-icon><Refresh /></el-icon>
+            </el-button>
+          </div>
+        </div>
+      </template>
+      <el-table :data="tokens" v-loading="tokensLoading" stripe style="width: 100%">
+        <el-table-column prop="email" label="邮箱" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="status" label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.is_active ? 'success' : 'danger'" size="small">
+              {{ row.is_active ? '有效' : '无效' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" width="175" align="center">
+          <template #default="{ row }">
+            <span class="cell-time">{{ formatTime(row.created_at) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="160" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button type="primary" size="small" text @click="openEditTokenDialog(row)">编辑</el-button>
+            <el-popconfirm title="确定删除此令牌？" @confirm="handleDeleteToken(row)">
+              <template #reference>
+                <el-button type="danger" size="small" text @click.stop>删除</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
-    <DataTableCard
-      :data="filteredSheets"
-      :loading="loading"
-      :show-pagination="false"
-    >
-      <el-table-column prop="name" label="名称" min-width="120" />
-      <el-table-column label="Spreadsheet ID" min-width="200">
-        <template #default="{ row }">
-          <code class="mono-inline">{{ row.spreadsheet_id }}</code>
-        </template>
-      </el-table-column>
-      <el-table-column label="表格类型" width="100">
-        <template #default="{ row }">
-          <el-tag size="small">{{ (row.table_type || '').toUpperCase() }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
-      <el-table-column label="启用" width="80">
-        <template #default="{ row }">
-          <el-tag :type="row.is_active ? 'success' : 'info'" size="small">{{ row.is_active ? '启用' : '停用' }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="占用" width="90">
-        <template #default="{ row }">
-          <el-tag :type="row.is_in_use ? 'warning' : ''" size="small">{{ row.is_in_use ? '使用中' : '空闲' }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="当前任务" min-width="160" show-overflow-tooltip>
-        <template #default="{ row }">
-          <code class="mono-inline">{{ row.current_task_id || '-' }}</code>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="120">
-        <template #default="{ row }">
-          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="danger" :disabled="row.is_in_use" @click="handleDelete(row.id)">删除</el-button>
-        </template>
-      </el-table-column>
-    </DataTableCard>
-
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑表格' : '新增表格'" width="480px" :fullscreen="isMobile">
-      <el-form :model="form" label-width="110px">
-        <el-form-item label="名称">
-          <el-input v-model="form.name" placeholder="例如：主表 A" />
+    <!-- Import Token Dialog -->
+    <el-dialog v-model="importDialogVisible" title="导入令牌" width="500px" destroy-on-close>
+      <el-form :model="importForm" label-width="100px">
+        <el-form-item label="令牌文件">
+          <el-upload
+            :auto-upload="false"
+            :limit="1"
+            accept=".json"
+            :on-change="handleFileChange"
+          >
+            <el-button type="primary">选择 JSON 文件</el-button>
+            <template #tip>
+              <div class="el-upload__tip">仅支持 .json 格式的 Google 服务账号令牌</div>
+            </template>
+          </el-upload>
         </el-form-item>
-        <el-form-item label="Spreadsheet ID">
-          <el-input v-model="form.spreadsheet_id" placeholder="Google Sheet ID 或完整 URL" />
-          <div class="helper-text">支持直接粘贴 Google Sheet URL，系统会自动提取 ID。</div>
-        </el-form-item>
-        <el-form-item label="表格类型">
-          <el-select v-model="form.table_type" class="full-width">
-            <el-option v-for="opt in tableTypeOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="form.remark" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-switch v-model="form.is_active" />
+        <el-form-item label="邮箱">
+          <el-input v-model="importForm.email" placeholder="关联邮箱（可选）" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importing" @click="handleImport">导入</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Edit Token Dialog -->
+    <el-dialog v-model="editTokenVisible" title="编辑令牌" width="500px" destroy-on-close>
+      <el-form :model="editTokenForm" label-width="100px">
+        <el-form-item label="邮箱">
+          <el-input v-model="editTokenForm.email" placeholder="关联邮箱" />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-switch v-model="editTokenForm.is_active" active-text="有效" inactive-text="无效" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editTokenVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingToken" @click="handleSaveToken">保存</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { getGoogleSheets, createGoogleSheet, updateGoogleSheet, deleteGoogleSheet } from '@/api/googleSheet'
-import { getEnums } from '@/api/meta'
-import { useResponsive } from '@/composables/useResponsive'
-import { usePolling } from '@/composables/usePolling'
+import { ref, onMounted } from 'vue'
+import { Refresh, Upload } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { getGoogleSheets, deleteGoogleSheet, getTokens, updateToken, deleteToken, importToken } from '@/api/googleSheet'
 import PageToolbar from '@/components/PageToolbar.vue'
-import FilterToolbar from '@/components/FilterToolbar.vue'
-import DataTableCard from '@/components/DataTableCard.vue'
 
-const { isMobile } = useResponsive()
+const sheetsLoading = ref(false)
 const sheets = ref([])
-const loading = ref(false)
-const saving = ref(false)
-const dialogVisible = ref(false)
-const editingId = ref(null)
-const tableTypeOptions = ref([])
-const filters = reactive({ keyword: '', active: '', tableType: '', usage: '' })
-const form = reactive({ name: '', spreadsheet_id: '', table_type: '', remark: '', is_active: true })
+const tokensLoading = ref(false)
+const tokens = ref([])
 
-const filterConfig = computed(() => [
-  { key: 'keyword', type: 'input', placeholder: '名称 / Spreadsheet ID', span: { xs: 24, sm: 8, md: 5 } },
-  { key: 'active', type: 'select', placeholder: '状态', options: [{ value: '1', label: '启用' }, { value: '0', label: '停用' }], span: { xs: 12, sm: 4, md: 3 } },
-  { key: 'tableType', type: 'select', placeholder: '表格类型', options: tableTypeOptions.value.map(o => ({ value: o.value, label: o.label })), span: { xs: 12, sm: 4, md: 3 } },
-  { key: 'usage', type: 'select', placeholder: '占用情况', options: [{ value: '1', label: '使用中' }, { value: '0', label: '空闲' }], span: { xs: 12, sm: 4, md: 3 } },
-])
+// Import dialog
+const importDialogVisible = ref(false)
+const importForm = ref({ file_content: '', email: '' })
+const importing = ref(false)
 
-const filteredSheets = computed(() => {
-  return sheets.value.filter(item => {
-    const kw = filters.keyword.toLowerCase()
-    const matchKw = !kw || (item.name || '').toLowerCase().includes(kw) || (item.spreadsheet_id || '').toLowerCase().includes(kw)
-    const matchActive = filters.active === '' || String(Number(!!item.is_active)) === filters.active
-    const matchUsage = filters.usage === '' || String(Number(!!item.is_in_use)) === filters.usage
-    const matchType = !filters.tableType || String(item.table_type || '') === filters.tableType
-    return matchKw && matchActive && matchUsage && matchType
-  })
-})
+// Edit token dialog
+const editTokenVisible = ref(false)
+const editTokenForm = ref({ id: null, email: '', is_active: true })
+const savingToken = ref(false)
 
-function clearFilters() {
-  filters.keyword = ''
-  filters.active = ''
-  filters.tableType = ''
-  filters.usage = ''
-}
-
-function extractSpreadsheetId(input) {
-  if (!input) return ''
-  const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
-  return match ? match[1] : input.trim()
+function formatTime(str) {
+  if (!str) return '-'
+  return new Date(str).toLocaleString('zh-CN')
 }
 
 async function loadSheets() {
-  loading.value = true
+  sheetsLoading.value = true
   try {
-    const res = await getGoogleSheets({ include_inactive: 1 })
-    sheets.value = res.items || []
-    if (!tableTypeOptions.value.length) {
-      try {
-        const metaRes = await getEnums()
-        tableTypeOptions.value = metaRes.data?.google_sheet_table_type_options || []
-      } catch {
-        tableTypeOptions.value = []
-      }
-    }
+    const res = await getGoogleSheets()
+    const data = res?.data || res || {}
+    sheets.value = data.sheets || data.items || data || []
+  } catch {
+    sheets.value = []
   } finally {
-    loading.value = false
+    sheetsLoading.value = false
   }
 }
 
-function openCreate() {
-  editingId.value = null
-  form.name = ''
-  form.spreadsheet_id = ''
-  form.table_type = tableTypeOptions.value[0]?.value || ''
-  form.remark = ''
-  form.is_active = true
-  dialogVisible.value = true
-}
-
-function openEdit(row) {
-  editingId.value = row.id
-  form.name = row.name || ''
-  form.spreadsheet_id = row.spreadsheet_id || ''
-  form.table_type = row.table_type || ''
-  form.remark = row.remark || ''
-  form.is_active = !!row.is_active
-  dialogVisible.value = true
-}
-
-async function handleSave() {
-  const payload = {
-    name: form.name,
-    spreadsheet_id: extractSpreadsheetId(form.spreadsheet_id),
-    table_type: form.table_type,
-    remark: form.remark,
-    is_active: form.is_active
+async function loadTokens() {
+  tokensLoading.value = true
+  try {
+    const res = await getTokens()
+    const data = res?.data || res || []
+    tokens.value = Array.isArray(data) ? data : data.items || []
+  } catch {
+    tokens.value = []
+  } finally {
+    tokensLoading.value = false
   }
+}
 
-  if (!payload.spreadsheet_id) {
-    ElMessage.warning('请输入 Spreadsheet ID')
+async function handleDeleteSheet(row) {
+  try {
+    await deleteGoogleSheet(row.id)
+    ElMessage.success('已删除')
+    loadSheets()
+  } catch {
+    ElMessage.error('删除失败')
+  }
+}
+
+function handleFileChange(file) {
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    importForm.value.file_content = e.target.result
+  }
+  reader.readAsText(file.raw)
+}
+
+async function handleImport() {
+  if (!importForm.value.file_content) {
+    ElMessage.warning('请选择令牌文件')
     return
   }
-
-  saving.value = true
+  importing.value = true
   try {
-    if (editingId.value) {
-      await updateGoogleSheet(editingId.value, payload)
-    } else {
-      await createGoogleSheet(payload)
-    }
-    ElMessage.success('保存成功')
-    dialogVisible.value = false
-    loadSheets()
+    await importToken({
+      token_data: importForm.value.file_content,
+      email: importForm.value.email,
+    })
+    ElMessage.success('令牌已导入')
+    importDialogVisible.value = false
+    importForm.value = { file_content: '', email: '' }
+    loadTokens()
+  } catch {
+    ElMessage.error('导入失败')
+  } finally {
+    importing.value = false
+  }
+}
+
+function openEditTokenDialog(row) {
+  editTokenForm.value = {
+    id: row.id,
+    email: row.email || '',
+    is_active: row.is_active ?? true,
+  }
+  editTokenVisible.value = true
+}
+
+async function handleSaveToken() {
+  savingToken.value = true
+  try {
+    await updateToken(editTokenForm.value.id, {
+      email: editTokenForm.value.email,
+      is_active: editTokenForm.value.is_active,
+    })
+    ElMessage.success('令牌已更新')
+    editTokenVisible.value = false
+    loadTokens()
   } catch {
     ElMessage.error('保存失败')
   } finally {
-    saving.value = false
+    savingToken.value = false
   }
 }
 
-async function handleDelete(id) {
-  await ElMessageBox.confirm('确定删除这条 Google Sheet 配置吗？', '确认删除', { type: 'warning' })
-  await deleteGoogleSheet(id)
-  ElMessage.success('删除成功')
-  loadSheets()
+async function handleDeleteToken(row) {
+  try {
+    await deleteToken(row.id)
+    ElMessage.success('已删除')
+    loadTokens()
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
-usePolling(loadSheets, { interval: 30000 })
+onMounted(() => {
+  loadSheets()
+  loadTokens()
+})
 </script>
 
-<style scoped>
-.google-sheets-page :deep(.el-dialog__body) {
-  padding-top: 12px;
+<style lang="scss" scoped>
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mb-4 {
+  margin-bottom: 16px;
+}
+
+.cell-time {
+  font-size: var(--app-font-sm);
+  color: var(--app-text-muted);
+  white-space: nowrap;
 }
 </style>

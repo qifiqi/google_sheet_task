@@ -29,6 +29,10 @@ export default defineConfig({
         target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
+      '/backtest-multi-product/api': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
       '/xpl/analyze': {
         target: 'http://127.0.0.1:5000',
         changeOrigin: true,
@@ -45,5 +49,18 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/vue/') || id.includes('node_modules/vue-router/') || id.includes('node_modules/@vue/')) {
+            return 'vendor'
+          }
+          if (id.includes('node_modules/element-plus/')) {
+            return 'element-plus'
+          }
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
   },
 })

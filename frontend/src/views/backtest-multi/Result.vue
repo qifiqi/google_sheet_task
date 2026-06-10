@@ -1,116 +1,131 @@
 <template>
-  <div class="app-page backtest-multi-result-page">
-    <PageToolbar
-      eyebrow="Multi-Product Result"
-      title="多产品回测结果"
-      description="查看当前多产品回测任务的详细结果数据。"
-    >
+  <div class="backtest-multi-result-page" v-loading="loading">
+    <PageToolbar eyebrow="多产品回测结果" :title="resultTitle">
       <template #actions>
-        <el-button @click="loadResult">刷新</el-button>
-        <el-button class="page-back-button" @click="$router.push(`/backtest-multi/${taskId}`)">返回详情</el-button>
+        <el-button type="primary" plain @click="handleExport" :loading="exporting">
+          <el-icon style="margin-right: 4px"><Download /></el-icon>导出
+        </el-button>
+        <el-button plain @click="router.push(`/backtest-multi/${taskId}`)">返回详情</el-button>
       </template>
     </PageToolbar>
 
-    <div v-loading="loading">
-      <el-card v-if="result" shadow="never" class="page-section">
-        <div class="section-heading">
-          <div>
-            <h3 class="section-title section-title--muted">结果概览</h3>
-            <div class="panel-note">结果 ID: {{ result.id || taskId }}</div>
-          </div>
-          <div class="section-actions">
-            <el-button size="small" @click="copyRawJson">复制 JSON</el-button>
-          </div>
+    <StatCardGrid
+      v-if="summaryCards.length"
+      :cards="summaryCards"
+      :data="summaryData"
+      :columns="{ xs: 12, sm: 8, md: 6 }"
+      class="mb-4"
+    />
+
+    <el-card shadow="never">
+      <template #header>
+        <div class="card-header">
+          <span>结果数据</span>
+          <el-button size="small" @click="loadResult">
+            <el-icon><Refresh /></el-icon> 刷新
+          </el-button>
         </div>
+      </template>
 
-        <el-descriptions :column="2" border size="small" class="backtest-multi-result-page__desc">
-          <el-descriptions-item label="状态">
-            <el-tag :type="result.success ? 'success' : 'danger'" size="small">
-              {{ result.success ? '成功' : '失败' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ result.timestamp || '-' }}</el-descriptions-item>
-        </el-descriptions>
-      </el-card>
-
-      <el-card v-if="result" shadow="never" class="page-section">
-        <div class="section-heading">
-          <h3 class="section-title section-title--muted">参数信息</h3>
-        </div>
-        <CodeBlock :code="JSON.stringify(result.parameters || {}, null, 2)" language="json" />
-      </el-card>
-
-      <el-card v-if="result" shadow="never" class="page-section">
-        <div class="section-heading">
-          <h3 class="section-title section-title--muted">执行结果</h3>
-        </div>
-        <CodeBlock :code="JSON.stringify(result.result || {}, null, 2)" language="json" />
-      </el-card>
-
-      <el-card v-if="result && result.error_message" shadow="never" class="page-section">
-        <div class="section-heading">
-          <h3 class="section-title section-title--muted">错误信息</h3>
-        </div>
-        <pre class="backtest-multi-result-page__error-block">{{ result.error_message }}</pre>
-      </el-card>
-
-      <el-empty v-if="!loading && !result" description="暂无回测结果" />
-    </div>
+      <el-table :data="resultRows" stripe border style="width: 100%" max-height="600">
+        <el-table-column
+          v-for="col in tableColumns"
+          :key="col.prop"
+          :prop="col.prop"
+          :label="col.label"
+          :width="col.width"
+          :min-width="col.minWidth"
+          show-overflow-tooltip
+        />
+      </el-table>
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Download, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { getTaskResult } from '@/api/backtestMulti'
+import { getTaskResult, exportGlobalPreview } from '@/api/backtestMulti'
 import PageToolbar from '@/components/PageToolbar.vue'
-import CodeBlock from '@/components/CodeBlock.vue'
+import StatCardGrid from '@/components/StatCardGrid.vue'
 
 const route = useRoute()
-const taskId = route.params.id
+const router = useRouter()
+const taskId = computed(() => route.params.id)
+
 const loading = ref(false)
+const exporting = ref(false)
 const result = ref(null)
+
+const resultTitle = computed(() => result.value?.task_name || `多产品回测结果 #${taskId.value}`)
+
+const summaryCards = computed(() => {
+  if (!result.value?.summary) return []
+  return Object.keys(result.value.summary).map(key => ({
+    key,
+    label: key,
+  }))
+})
+
+const summaryData = computed(() => result.value?.summary || {})
+
+const resultRows = computed(() => {
+  if (!result.value) return []
+  return result.value.rows || result.value.data || result.value.results || []
+})
+
+const tableColumns = computed(() => {
+  const rows = resultRows.value
+  if (!rows.length) return []
+  const first = rows[0]
+  return Object.keys(first).map(key => ({
+    prop: key,
+    label: key,
+    minWidth: 120,
+  }))
+})
 
 async function loadResult() {
   loading.value = true
   try {
-    const res = await getTaskResult(taskId)
-    result.value = res.result || res
+    const res = await getTaskResult(taskId.value)
+    result.value = res.data || res
   } catch {
-    ElMessage.error('加载回测结果失败')
+    result.value = null
+    ElMessage.error('加载结果失败')
   } finally {
     loading.value = false
   }
 }
 
-async function copyRawJson() {
+async function handleExport() {
+  exporting.value = true
   try {
-    await navigator.clipboard.writeText(JSON.stringify(result.value, null, 2))
-    ElMessage.success('复制成功')
+    const res = await exportGlobalPreview(taskId.value)
+    const blob = new Blob([res], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `backtest_multi_result_${taskId.value}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
   } catch {
-    ElMessage.error('复制失败')
+    ElMessage.error('导出失败')
+  } finally {
+    exporting.value = false
   }
 }
 
 onMounted(loadResult)
 </script>
 
-<style scoped>
-.backtest-multi-result-page__desc {
-  margin-bottom: 12px;
-}
-
-.backtest-multi-result-page__error-block {
-  max-height: 250px;
-  margin: 0;
-  overflow: auto;
-  padding: 12px;
-  border-radius: 12px;
-  background: #fef2f2;
-  color: #dc2626;
-  font-family: 'Fira Code', monospace;
-  font-size: 12px;
-  line-height: 1.6;
+<style lang="scss" scoped>
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 </style>

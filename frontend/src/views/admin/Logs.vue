@@ -1,136 +1,171 @@
 <template>
-  <div class="logs-page">
-    <PageToolbar title="系统日志">
+  <div class="admin-logs">
+    <PageToolbar eyebrow="管理中心" title="系统日志" description="查看系统运行日志">
       <template #actions>
-        <el-button :size="componentSize" @click="loadLogs">刷新</el-button>
-        <el-button type="danger" :size="componentSize" @click="handleClearLogs">清空日志</el-button>
-        <el-button type="primary" :size="componentSize" @click="handleDownload">下载日志</el-button>
+        <el-switch
+          v-model="autoRefresh"
+          active-text="自动刷新"
+          inactive-text=""
+          class="mr-2"
+        />
+        <el-button @click="handleDownload">
+          <el-icon><Download /></el-icon> 下载日志
+        </el-button>
       </template>
     </PageToolbar>
 
     <FilterToolbar
-      :filters="filterConfig"
-      v-model="filters"
+      :filters="FILTERS"
+      v-model="filterValues"
       @search="loadLogs"
       @clear="clearFilters"
+      class="mb-3"
     />
 
     <el-card shadow="never">
-      <template #header>
-        <div class="card-header-row">
-          <span>系统日志</span>
-          <el-tag size="small">{{ logs.length }}</el-tag>
-        </div>
-      </template>
-
-      <LogViewer :logs="logs" height="600px" :loading="loading" />
+      <LogViewer
+        :logs="logs"
+        :loading="loading"
+        height="600px"
+        :auto-scroll="true"
+      />
     </el-card>
+
+    <div class="pagination-wrap">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[50, 100, 200, 500]"
+        layout="total, sizes, prev, pager, next"
+        @size-change="loadLogs"
+        @current-change="loadLogs"
+      />
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getLogs } from '@/api/config'
-import { useResponsive } from '@/composables/useResponsive'
-import { usePolling } from '@/composables/usePolling'
 import PageToolbar from '@/components/PageToolbar.vue'
 import FilterToolbar from '@/components/FilterToolbar.vue'
 import LogViewer from '@/components/LogViewer.vue'
 
-const { componentSize } = useResponsive()
-
-const logs = ref([])
 const loading = ref(false)
-const filters = ref({
-  level: '',
-  search: '',
-  date: '',
-})
+const logs = ref([])
+const page = ref(1)
+const pageSize = ref(100)
+const total = ref(0)
+const autoRefresh = ref(false)
+let refreshTimer = null
 
-const filterConfig = [
+const filterValues = ref({ level: '', search: '', date: '' })
+
+const FILTERS = [
   {
-    key: 'level',
-    type: 'select',
-    placeholder: '全部级别',
-    span: { xs: 24, sm: 6, md: 4 },
+    key: 'level', type: 'select', label: '日志级别',
     options: [
-      { value: 'info', label: '信息' },
-      { value: 'warning', label: '警告' },
-      { value: 'error', label: '错误' },
+      { label: '全部', value: '' },
+      { label: 'INFO', value: 'info' },
+      { label: 'WARNING', value: 'warning' },
+      { label: 'ERROR', value: 'error' },
+      { label: 'DEBUG', value: 'debug' },
     ],
   },
-  {
-    key: 'search',
-    type: 'input',
-    placeholder: '搜索日志内容...',
-    span: { xs: 24, sm: 6, md: 4 },
-  },
-  {
-    key: 'date',
-    type: 'date',
-    placeholder: '选择日期',
-    span: { xs: 24, sm: 6, md: 4 },
-  },
+  { key: 'date', type: 'date', label: '日期' },
+  { key: 'search', type: 'input', label: '搜索', placeholder: '日志内容关键词' },
 ]
+
+watch(autoRefresh, (val) => {
+  if (val) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+})
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  refreshTimer = window.setInterval(() => {
+    loadLogs()
+  }, 10000)
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+function clearFilters() {
+  filterValues.value = { level: '', search: '', date: '' }
+  page.value = 1
+  loadLogs()
+}
 
 async function loadLogs() {
   loading.value = true
   try {
-    const params = { limit: 200 }
-    if (filters.value.level) params.level = filters.value.level
-    if (filters.value.search) params.search = filters.value.search
-    if (filters.value.date) params.date = filters.value.date
-
+    const params = {
+      page: page.value,
+      per_page: pageSize.value,
+      ...filterValues.value,
+    }
+    Object.keys(params).forEach(k => { if (!params[k]) delete params[k] })
     const res = await getLogs(params)
-    logs.value = res.logs || []
+    const data = res?.data || res || {}
+    const items = data.logs || data.items || data || []
+    logs.value = items.map(log => ({
+      timestamp: log.timestamp || log.created_at || '',
+      level: log.level || 'info',
+      message: log.message || log.msg || '',
+    }))
+    total.value = data.total || logs.value.length
   } catch {
-    ElMessage.error('加载日志失败')
+    logs.value = []
   } finally {
     loading.value = false
   }
 }
 
-function clearFilters() {
-  filters.value = { level: '', search: '', date: '' }
-  loadLogs()
-}
-
-function formatLogLine(log) {
-  const time = log.timestamp ? new Date(log.timestamp).toLocaleString('zh-CN') : '-'
-  const level = (log.level || 'info').toUpperCase()
-  const source = log.source ? `[${log.source}] ` : ''
-  return `[${time}] [${level}] ${source}${log.message || ''}`
-}
-
-function handleClearLogs() {
-  ElMessage.warning('清空日志功能暂未实现')
-}
-
 function handleDownload() {
-  if (!logs.value.length) {
-    ElMessage.warning('没有日志可下载')
-    return
-  }
-
-  const text = logs.value.map((log) => formatLogLine(log)).join('\n')
-  const blob = new Blob([text], { type: 'text/plain' })
-  const url = URL.createObjectURL(blob)
+  const params = new URLSearchParams({
+    ...filterValues.value,
+    per_page: 10000,
+  })
+  Object.keys(filterValues.value).forEach(k => {
+    if (!filterValues.value[k]) params.delete(k)
+  })
   const link = document.createElement('a')
-  link.href = url
-  link.download = `system_logs_${new Date().toISOString().split('T')[0]}.txt`
+  link.href = `/api/logs/download?${params.toString()}`
+  link.download = `system-logs-${new Date().toISOString().slice(0, 10)}.log`
   link.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('日志下载完成')
+  ElMessage.success('开始下载')
 }
 
-usePolling(loadLogs, { interval: 5000, immediate: true })
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+})
+
+onMounted(loadLogs)
 </script>
 
-<style scoped>
-.card-header-row {
+<style lang="scss" scoped>
+.pagination-wrap {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.mb-3 {
+  margin-bottom: 12px;
+}
+
+.mr-2 {
+  margin-right: 8px;
 }
 </style>

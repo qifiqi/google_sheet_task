@@ -1,130 +1,189 @@
 <template>
-  <div class="app-page backtest-list-page">
-    <PageToolbar
-      eyebrow="Backtest Center"
-      title="数据回测中心"
-      description="集中查看回测任务状态、运行情况和入口操作，快速进入详情或创建新任务。"
-    >
+  <div class="backtest-list-page">
+    <PageToolbar eyebrow="回测训练" title="回测列表">
       <template #actions>
-        <el-button type="primary" @click="$router.push('/backtest/create')">创建新任务</el-button>
+        <el-button type="primary" @click="router.push('/backtest/create')">
+          <el-icon style="margin-right: 4px"><Plus /></el-icon>创建回测
+        </el-button>
       </template>
     </PageToolbar>
 
-    <StatCardGrid :cards="statCards" :data="stats" />
-
-    <FilterToolbar
-      v-model="filters"
-      :filters="filterDefs"
-      @search="doFilter"
-      @clear="clearFilters"
+    <StatCardGrid
+      :cards="STAT_CARDS"
+      :data="stats"
+      :columns="{ xs: 12, sm: 6, md: 6 }"
+      variant="gradient"
+      class="mb-4"
     />
 
-    <DataTableCard
+    <FilterToolbar
+      :filters="FILTERS"
+      v-model="filterValues"
+      @search="onSearch"
+      @clear="onClear"
+      class="mb-3"
+    />
+
+    <el-table
       :data="tasks"
-      :loading="loading"
-      :total="total"
-      :page="page"
-      :page-size="pageSize"
-      @update:page="page = $event"
-      @update:page-size="pageSize = $event"
-      @page-change="loadTasks"
+      v-loading="loading"
+      stripe
+      style="width: 100%"
+      @row-click="goDetail"
     >
-      <el-table-column label="任务名称" min-width="200">
-        <template #default="{ row }">
-          <el-link type="primary" @click="$router.push(`/backtest/${row.id}`)">{{ row.name }}</el-link>
-          <div class="inline-muted font-mono">{{ row.id?.slice(0, 8) }}...</div>
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="90">
+      <el-table-column prop="task_name" label="任务名称" min-width="200" show-overflow-tooltip />
+      <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
           <StatusTag :status="row.status" />
         </template>
       </el-table-column>
-      <el-table-column label="进度" min-width="160">
+      <el-table-column label="进度" width="160">
         <template #default="{ row }">
-          <TaskProgressCell :current-step="row.current_step || 0" :total-steps="row.total_steps || 0" />
+          <TaskProgressCell :current-step="row.current_step" :total-steps="row.total_steps" />
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
-      <el-table-column label="操作" width="80">
+      <el-table-column prop="market_type" label="市场" width="90" align="center">
         <template #default="{ row }">
-          <el-button link type="primary" @click="$router.push(`/backtest/${row.id}`)">详情</el-button>
+          <el-tag size="small" effect="plain">{{ row.market_type || '-' }}</el-tag>
         </template>
       </el-table-column>
-    </DataTableCard>
+      <el-table-column prop="created_at" label="创建时间" width="175" align="center">
+        <template #default="{ row }">
+          <span class="cell-time">{{ formatTime(row.created_at) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="140" fixed="right" align="center">
+        <template #default="{ row }">
+          <TaskActions :task="row" @refresh="loadTasks" />
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <div class="pagination-wrap">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[10, 20, 50]"
+        layout="total, sizes, prev, pager, next"
+        @size-change="loadTasks"
+        @current-change="loadTasks"
+      />
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { Plus } from '@element-plus/icons-vue'
 import { getTasks } from '@/api/task'
+import { usePolling } from '@/composables/usePolling'
 import PageToolbar from '@/components/PageToolbar.vue'
 import StatCardGrid from '@/components/StatCardGrid.vue'
 import FilterToolbar from '@/components/FilterToolbar.vue'
-import DataTableCard from '@/components/DataTableCard.vue'
-import TaskProgressCell from '@/components/TaskProgressCell.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { usePolling } from '@/composables/usePolling'
+import TaskProgressCell from '@/components/TaskProgressCell.vue'
+import TaskActions from '@/views/task/components/TaskActions.vue'
+
+const router = useRouter()
 
 const tasks = ref([])
 const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
-const stats = ref({})
-const filters = reactive({ status: '', keyword: '' })
+const filterValues = ref({ status: '', search: '' })
 
-const statCards = [
-  { key: 'total', label: '任务总数' },
-  { key: 'running', label: '运行中' },
-  { key: 'completed', label: '已完成' },
-  { key: 'failed', label: '执行失败' },
+const stats = ref({ total: 0, completed: 0, running: 0, error: 0 })
+
+const STAT_CARDS = [
+  { key: 'total',     label: '全部回测', background: 'linear-gradient(135deg, #6366f1, #4338ca)' },
+  { key: 'completed', label: '已完成',   background: 'linear-gradient(135deg, #10b981, #059669)' },
+  { key: 'running',   label: '运行中',   background: 'linear-gradient(135deg, #f59e0b, #d97706)' },
+  { key: 'error',     label: '异常',     background: 'linear-gradient(135deg, #ef4444, #dc2626)' },
 ]
 
-const filterDefs = [
-  { key: 'status', type: 'select', placeholder: '任务状态', span: { xs: 24, sm: 6 }, options: [
-    { value: 'pending', label: '待执行' },
-    { value: 'running', label: '运行中' },
-    { value: 'completed', label: '已完成' },
-    { value: 'cancelled', label: '已取消' },
-    { value: 'error', label: '错误' },
-  ]},
-  { key: 'keyword', type: 'input', placeholder: '任务名称 / ID', span: { xs: 24, sm: 8 } },
+const FILTERS = [
+  {
+    key: 'status', type: 'select', label: '状态',
+    options: [
+      { label: '全部',   value: '' },
+      { label: '待执行', value: 'pending' },
+      { label: '运行中', value: 'running' },
+      { label: '已完成', value: 'completed' },
+      { label: '错误',   value: 'error' },
+      { label: '已取消', value: 'cancelled' },
+    ],
+  },
+  { key: 'search', type: 'input', label: '搜索', placeholder: '任务名称 / ID' },
 ]
+
+function formatTime(str) {
+  if (!str) return '-'
+  return new Date(str).toLocaleString('zh-CN')
+}
+
+function onSearch() {
+  page.value = 1
+  loadTasks()
+}
+
+function onClear() {
+  filterValues.value = { status: '', search: '' }
+  page.value = 1
+  loadTasks()
+}
 
 async function loadTasks() {
   loading.value = true
   try {
-    const params = { page: page.value, per_page: pageSize.value, task_type: 'backtest_training' }
-    if (filters.status) params.status = filters.status
-    if (filters.keyword) params.keyword = filters.keyword
+    const params = {
+      page: page.value,
+      per_page: pageSize.value,
+      task_type: 'backtest_training',
+      ...filterValues.value,
+    }
+    Object.keys(params).forEach(k => { if (!params[k]) delete params[k] })
+    // Restore task_type after cleanup
+    params.task_type = 'backtest_training'
 
     const res = await getTasks(params)
-    tasks.value = res.tasks || []
-    total.value = res.pagination?.total || 0
+    const data = res.data || res
+    tasks.value = data.tasks || data.items || data || []
+    total.value = data.total || tasks.value.length
 
-    const currentTasks = res.tasks || []
     stats.value = {
-      total: res.pagination?.total || 0,
-      running: currentTasks.filter((task) => task.status === 'running' || task.status === 'pending').length,
-      completed: currentTasks.filter((task) => task.status === 'completed').length,
-      failed: currentTasks.filter((task) => task.status === 'error').length
+      total: total.value,
+      completed: tasks.value.filter(t => t.status === 'completed').length,
+      running:   tasks.value.filter(t => t.status === 'running').length,
+      error:     tasks.value.filter(t => t.status === 'error').length,
     }
+  } catch {
+    tasks.value = []
   } finally {
     loading.value = false
   }
 }
 
-function doFilter() {
-  page.value = 1
-  loadTasks()
+function goDetail(row) {
+  router.push(`/backtest/${row.id}`)
 }
 
-function clearFilters() {
-  filters.status = ''
-  filters.keyword = ''
-  doFilter()
-}
-
-usePolling(loadTasks, { interval: 30000 })
+usePolling(loadTasks, { interval: 15000 })
+onMounted(loadTasks)
 </script>
+
+<style lang="scss" scoped>
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.cell-time {
+  font-size: var(--app-font-sm);
+  color: var(--app-text-muted);
+  white-space: nowrap;
+}
+</style>

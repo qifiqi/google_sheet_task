@@ -1,420 +1,236 @@
 <template>
-  <div class="app-page backtest-multi-create-page">
-    <PageToolbar
-      eyebrow="Multi-Product Builder"
-      title="创建多产品回测任务"
-      description="配置多个产品的参数和比例，生成多产品组合回测任务。"
-    >
-      <template #actions>
-        <el-upload :show-file-list="false" accept=".xlsx,.xlsm" :before-upload="handleImportExcel">
-          <el-button>从 Excel 导入</el-button>
-        </el-upload>
-        <el-button type="primary" :loading="submitting" @click="submit">提交创建</el-button>
-        <el-button class="page-back-button" @click="$router.push('/backtest-multi/list')">返回列表</el-button>
-      </template>
-    </PageToolbar>
+  <div class="backtest-multi-create-page">
+    <PageToolbar eyebrow="多产品回测" title="创建多产品回测任务" />
 
-    <el-card shadow="never" class="page-section">
-      <div class="section-heading">
-        <h3 class="section-title section-title--muted">基础配置</h3>
-      </div>
-      <el-row :gutter="16">
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="任务名称">
-            <el-input v-model="form.task_name" placeholder="留空按默认规则自动生成" />
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="回测 Token">
-            <el-select v-model="form.token_id" class="full-width" placeholder="选择 Token">
-              <el-option
-                v-for="token in tokens"
-                :key="token.id"
-                :value="String(token.id)"
-                :label="`${token.name} | 占用 ${token.current_in_use_count || 0}`"
-                :disabled="!token.is_available"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="手续费">
-            <el-input v-model="form.commission" placeholder="例如 0.0350%" />
-          </el-form-item>
-        </el-col>
-      </el-row>
-    </el-card>
-
-    <!-- Product Cards -->
-    <el-card
-      v-for="(product, pIndex) in products"
-      :key="pIndex"
-      shadow="never"
-      class="page-section backtest-multi-create-page__product-card"
-    >
-      <div class="section-heading">
-        <div>
-          <h3 class="section-title section-title--muted">产品 {{ pIndex + 1 }}</h3>
-          <div class="panel-note">配置股票、市场、年份和参数</div>
-        </div>
-        <div class="section-actions">
-          <el-button v-if="products.length > 1" size="small" type="danger" @click="removeProduct(pIndex)">
-            移除产品
-          </el-button>
-        </div>
-      </div>
-
-      <el-row :gutter="16">
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="股票代码">
-            <div class="backtest-multi-create-page__search-wrap">
-              <el-input
-                v-model="product.stock_code"
-                placeholder="例如 AAPL 或 601318"
-                @input="onStockInput(pIndex)"
-                @blur="hideSearch(pIndex)"
-              />
-              <div v-if="product.searchResults.length" class="backtest-multi-create-page__search-panel">
-                <div
-                  v-for="stock in product.searchResults"
-                  :key="stock.code"
-                  class="backtest-multi-create-page__search-item"
-                  @mousedown.prevent="selectStock(pIndex, stock)"
-                >
-                  <div class="backtest-multi-create-page__search-code">{{ stock.code }}</div>
-                  <div class="panel-note">{{ stock.name }} | {{ stock.market }}</div>
-                </div>
-              </div>
-            </div>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="4">
-          <el-form-item label="市场">
-            <el-radio-group v-model="product.market_type">
-              <el-radio-button value="cn">A股</el-radio-button>
-              <el-radio-button value="us">美股</el-radio-button>
-            </el-radio-group>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="4">
-          <el-form-item label="K线复权">
-            <el-select v-model="product.kline_adjustment" class="full-width">
-              <el-option value="forward" label="前复权" />
-              <el-option value="back" label="后复权" />
-              <el-option value="none" label="不复权" />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="6">
-          <el-form-item label="年份">
-            <el-select v-model="product.years" multiple class="full-width" placeholder="选择年份">
-              <el-option v-for="y in yearOptions" :key="y" :value="y" :label="String(y)" />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="6">
-          <el-form-item label="比例 (%)">
-            <el-input-number v-model="product.ratio" :min="0" :step="5" />
-          </el-form-item>
-        </el-col>
-      </el-row>
-
-      <!-- Parameter Table -->
-      <div class="backtest-multi-create-page__param-section">
-        <div class="section-heading">
-          <div class="panel-note">参数表 (可粘贴 Tab 分隔数据)</div>
-          <div class="section-actions">
-            <el-button size="small" @click="addParamRow(pIndex)">添加行</el-button>
-          </div>
-        </div>
-        <div class="backtest-multi-create-page__paste-area">
-          <el-input
-            v-model="product.pasteText"
-            type="textarea"
-            :rows="2"
-            placeholder="粘贴 Tab 分隔的参数数据，自动解析为参数行"
-            @change="parsePaste(pIndex)"
-          />
-        </div>
-        <el-table v-if="product.paramRows.length" :data="product.paramRows" border size="small">
-          <el-table-column
-            v-for="(header, hIndex) in product.paramHeaders"
-            :key="hIndex"
-            :label="header"
-            min-width="100"
+    <el-card shadow="never" class="form-card">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-width="110px"
+        label-position="top"
+      >
+        <!-- Excel 上传 -->
+        <el-form-item label="Excel 文件" prop="file">
+          <el-upload
+            ref="uploadRef"
+            :auto-upload="false"
+            :limit="1"
+            accept=".xlsx,.xls"
+            :on-change="handleFileChange"
+            :on-exceed="handleExceed"
+            :on-remove="handleRemove"
+            drag
           >
-            <template #default="{ $index }">
-              <el-input v-model="product.paramRows[$index][hIndex]" size="small" />
+            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <div class="el-upload__text">拖拽文件至此，或<em>点击选择</em></div>
+            <template #tip>
+              <div class="el-upload__tip">支持 .xlsx / .xls 格式</div>
             </template>
-          </el-table-column>
-          <el-table-column label="操作" width="60">
-            <template #default="{ $index }">
-              <el-button link type="danger" size="small" @click="product.paramRows.splice($index, 1)">删</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-    </el-card>
+          </el-upload>
+        </el-form-item>
 
-    <!-- Ratio Summary & Add Product -->
-    <el-card shadow="never" class="page-section">
-      <div class="section-heading">
-        <h3 class="section-title section-title--muted">产品比例汇总</h3>
-        <div class="section-actions">
-          <el-button type="primary" size="small" @click="addProduct">添加产品</el-button>
-        </div>
-      </div>
-      <div class="backtest-multi-create-page__ratio-bar">
-        <el-tag
-          v-for="(product, pIndex) in products"
-          :key="pIndex"
-          type="info"
-          size="large"
-          class="backtest-multi-create-page__ratio-pill"
-        >
-          产品{{ pIndex + 1 }}: {{ product.stock_code || '未设置' }} — {{ product.ratio }}%
-        </el-tag>
-        <el-tag type="success" size="large">
-          合计: {{ ratioTotal }}%
-        </el-tag>
-      </div>
+        <!-- 市场选择 -->
+        <el-form-item label="市场类型" prop="market_type">
+          <el-radio-group v-model="form.market_type">
+            <el-radio-button value="cn">A股</el-radio-button>
+            <el-radio-button value="en">美股</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+
+        <!-- 股票搜索 -->
+        <el-form-item label="关联股票" prop="stock_code">
+          <el-autocomplete
+            v-model="stockInput"
+            :fetch-suggestions="handleStockQuery"
+            :placeholder="stockLoading ? '搜索中...' : '输入股票代码或名称'"
+            :disabled="stockLoading"
+            value-key="code"
+            clearable
+            @select="handleStockSelect"
+            style="width: 100%"
+          >
+            <template #default="{ item }">
+              <span style="font-weight: 600">{{ item.code }}</span>
+              <span style="color: var(--el-text-color-secondary); margin-left: 8px">{{ item.name }}</span>
+            </template>
+          </el-autocomplete>
+        </el-form-item>
+
+        <!-- 年份范围 -->
+        <el-form-item label="回测年份范围" prop="year_range">
+          <div class="year-range-row">
+            <el-date-picker
+              v-model="form.start_date"
+              type="year"
+              placeholder="开始年份"
+              value-format="YYYY"
+              style="flex: 1"
+            />
+            <span class="year-range-sep">至</span>
+            <el-date-picker
+              v-model="form.end_date"
+              type="year"
+              placeholder="结束年份"
+              value-format="YYYY"
+              style="flex: 1"
+            />
+          </div>
+        </el-form-item>
+
+        <!-- 任务备注 -->
+        <el-form-item label="任务备注" prop="remark">
+          <el-input v-model="form.remark" type="textarea" :rows="3" placeholder="可选填写任务备注" />
+        </el-form-item>
+
+        <!-- 操作按钮 -->
+        <el-form-item>
+          <div class="form-actions">
+            <el-button @click="router.push('/backtest-multi/list')">取消</el-button>
+            <el-button type="primary" :loading="submitting" @click="handleSubmit">
+              提交创建
+            </el-button>
+          </div>
+        </el-form-item>
+      </el-form>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { UploadFilled } from '@element-plus/icons-vue'
+import { ElMessage, genFileId } from 'element-plus'
 import { importExcel, searchStocks } from '@/api/backtestMulti'
-import { getTokens } from '@/api/googleSheet'
-import { createTask } from '@/api/task'
 import PageToolbar from '@/components/PageToolbar.vue'
-import { useResponsive } from '@/composables/useResponsive'
 
 const router = useRouter()
-useResponsive()
+const formRef = ref(null)
+const uploadRef = ref(null)
 
 const submitting = ref(false)
-const tokens = ref([])
+const stockInput = ref('')
+const stockLoading = ref(false)
+const selectedStock = ref(null)
+let stockTimer = null
+
 const form = reactive({
-  task_name: '',
-  token_id: '',
-  commission: '0.0350%'
+  file: null,
+  market_type: 'cn',
+  stock_code: '',
+  start_date: '',
+  end_date: '',
+  remark: '',
 })
 
-const currentYear = new Date().getFullYear()
-const yearOptions = Array.from({ length: 10 }, (_, i) => currentYear - i)
-
-function createEmptyProduct() {
-  return reactive({
-    stock_code: '',
-    market_type: 'cn',
-    kline_adjustment: 'forward',
-    years: [currentYear],
-    ratio: 0,
-    paramHeaders: ['参数1', '参数2', '参数3'],
-    paramRows: [],
-    pasteText: '',
-    searchResults: [],
-    searchTimer: null
-  })
+const rules = {
+  file: [{ required: true, message: '请上传 Excel 文件', trigger: 'change' }],
+  market_type: [{ required: true, message: '请选择市场类型', trigger: 'change' }],
 }
 
-const products = ref([createEmptyProduct(), createEmptyProduct()])
+function handleStockQuery(query, cb) {
+  const q = (query || '').trim()
+  if (!q) { cb([]); return }
 
-const ratioTotal = computed(() => products.value.reduce((sum, p) => sum + (p.ratio || 0), 0))
-
-function addProduct() {
-  products.value.push(createEmptyProduct())
-}
-
-function removeProduct(index) {
-  products.value.splice(index, 1)
-}
-
-function onStockInput(pIndex) {
-  const product = products.value[pIndex]
-  clearTimeout(product.searchTimer)
-  if (!product.stock_code.trim()) {
-    product.searchResults = []
-    return
-  }
-  product.searchTimer = setTimeout(async () => {
+  if (stockTimer) clearTimeout(stockTimer)
+  stockTimer = setTimeout(async () => {
+    stockLoading.value = true
     try {
-      const res = await searchStocks({ q: product.stock_code.trim(), page_size: 10 })
-      product.searchResults = res.results || []
+      const params = { q, market: form.market_type }
+      Object.keys(params).forEach(k => { if (!params[k]) delete params[k] })
+      const res = await searchStocks(params)
+      const data = Array.isArray(res) ? res : (res.data || res.results || [])
+      cb(data.map(item => ({
+        code: item.code || item.stock_code || '',
+        name: item.name || item.stock_name || '',
+        ...item,
+      })))
     } catch {
-      product.searchResults = []
+      cb([])
+    } finally {
+      stockLoading.value = false
     }
   }, 300)
 }
 
-function selectStock(pIndex, stock) {
-  const product = products.value[pIndex]
-  product.stock_code = stock.code
-  product.searchResults = []
+function handleStockSelect(item) {
+  selectedStock.value = item
+  form.stock_code = item.code
+  stockInput.value = `${item.code} - ${item.name}`
 }
 
-function hideSearch(pIndex) {
-  setTimeout(() => {
-    products.value[pIndex].searchResults = []
-  }, 200)
+function handleFileChange(file) {
+  form.file = file.raw
+  formRef.value?.clearValidate('file')
 }
 
-function addParamRow(pIndex) {
-  const product = products.value[pIndex]
-  product.paramRows.push(product.paramHeaders.map(() => ''))
+function handleExceed(files) {
+  uploadRef.value?.clearFiles()
+  const file = files[0]
+  file.uid = genFileId()
+  uploadRef.value?.handleStart(file)
+  form.file = file
 }
 
-function parsePaste(pIndex) {
-  const product = products.value[pIndex]
-  if (!product.pasteText.trim()) return
-  const lines = product.pasteText.trim().split('\n')
-  const parsed = lines.map((line) => line.split('\t'))
-  if (parsed.length > 0 && parsed[0].length > product.paramHeaders.length) {
-    product.paramHeaders = parsed[0].map((_, i) => `参数${i + 1}`)
-  }
-  product.paramRows.push(...parsed)
-  product.pasteText = ''
+function handleRemove() {
+  form.file = null
 }
 
-async function handleImportExcel(file) {
-  const formData = new FormData()
-  formData.append('file', file)
+async function handleSubmit() {
   try {
-    const res = await importExcel(formData)
-    if (res.products && Array.isArray(res.products)) {
-      products.value = res.products.map((p) => reactive({
-        stock_code: p.stock_code || '',
-        market_type: p.market_type || 'cn',
-        kline_adjustment: p.kline_adjustment || 'forward',
-        years: p.years || [currentYear],
-        ratio: p.ratio || 0,
-        paramHeaders: p.headers || ['参数1', '参数2', '参数3'],
-        paramRows: p.rows || [],
-        pasteText: '',
-        searchResults: [],
-        searchTimer: null
-      }))
-    }
-    ElMessage.success('Excel 导入成功')
+    await formRef.value?.validate()
   } catch {
-    ElMessage.error('Excel 导入失败')
-  }
-  return false
-}
-
-async function submit() {
-  const hasEmpty = products.value.some((p) => !p.stock_code.trim())
-  if (hasEmpty) {
-    ElMessage.error('请为每个产品设置股票代码')
     return
   }
 
   submitting.value = true
   try {
-    const productsConfig = products.value.map((p) => ({
-      stock_code: p.stock_code,
-      market_type: p.market_type,
-      kline_adjustment: p.kline_adjustment,
-      years: p.years,
-      ratio: p.ratio,
-      headers: p.paramHeaders,
-      rows: p.paramRows
-    }))
+    const fd = new FormData()
+    fd.append('file', form.file)
+    fd.append('market_type', form.market_type)
+    if (form.stock_code) fd.append('stock_code', form.stock_code)
+    if (form.start_date) fd.append('start_date', form.start_date)
+    if (form.end_date) fd.append('end_date', form.end_date)
+    if (form.remark) fd.append('remark', form.remark)
 
-    const res = await createTask({
-      name: form.task_name || `多产品回测-${new Date().toLocaleString()}`,
-      task_type: 'backtest_multi_product',
-      config: {
-        token_id: form.token_id || null,
-        commission: form.commission,
-        products: productsConfig
-      }
-    })
-    ElMessage.success('任务创建成功')
-    setTimeout(() => router.push(`/backtest-multi/${res.task_id}`), 800)
-  } catch {
-    ElMessage.error('创建任务失败')
+    await importExcel(fd)
+    ElMessage.success('多产品回测任务创建成功，即将跳转')
+    router.push('/backtest-multi/list')
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.message || '创建失败，请重试')
   } finally {
     submitting.value = false
   }
 }
-
-async function loadTokens() {
-  try {
-    const res = await getTokens()
-    tokens.value = res.tokens || []
-  } catch {}
-}
-
-onMounted(() => loadTokens())
 </script>
 
-<style scoped>
-.full-width {
-  width: 100%;
+<style lang="scss" scoped>
+.backtest-multi-create-page {
+  max-width: 720px;
 }
 
-.backtest-multi-create-page__product-card {
-  position: relative;
-}
-
-.backtest-multi-create-page__search-wrap {
-  position: relative;
-}
-
-.backtest-multi-create-page__search-panel {
-  position: absolute;
-  z-index: 20;
-  width: 100%;
-  max-height: 220px;
-  overflow-y: auto;
-  border: 1px solid var(--app-border);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: var(--app-shadow-soft);
-}
-
-.backtest-multi-create-page__search-item {
-  padding: 10px 12px;
-  cursor: pointer;
-  border-bottom: 1px solid rgba(30, 64, 175, 0.08);
-}
-
-.backtest-multi-create-page__search-item:last-child {
-  border-bottom: none;
-}
-
-.backtest-multi-create-page__search-code {
-  color: var(--app-text);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.backtest-multi-create-page__param-section {
-  margin-top: 12px;
-}
-
-.backtest-multi-create-page__paste-area {
-  margin-bottom: 12px;
-}
-
-.backtest-multi-create-page__ratio-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.backtest-multi-create-page__ratio-pill {
-  font-weight: 600;
-}
-
-.backtest-multi-create-page__ratio-warn {
+.form-card {
   margin-top: 8px;
-  color: #dc2626;
-  font-size: 13px;
+}
+
+.year-range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.year-range-sep {
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  width: 100%;
+  padding-top: 8px;
 }
 </style>

@@ -25,10 +25,30 @@ const percentage = computed(() => {
 
 <style lang="scss" scoped>
 .task-progress-cell {
-  min-width: 120px;
+  min-width: 100px;
+  display: flex;
+  align-items: center;
+
+  :deep(.el-progress) {
+    width: 100%;
+    align-items: center;
+  }
+
+  :deep(.el-progress-bar) {
+    padding-right: 0;
+    margin-right: 0;
+  }
+
+  :deep(.el-progress__text) {
+    font-size: var(--app-font-xs) !important;
+    color: var(--app-text-muted);
+    min-width: 42px;
+    text-align: right;
+  }
 
   &__empty {
-    color: var(--app-text-muted);
+    color: var(--app-text-subtle);
+    font-size: var(--app-font-sm);
   }
 }
 </style>

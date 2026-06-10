@@ -1,248 +1,328 @@
 <template>
-  <div class="app-page admin-tasks-page">
-    <PageToolbar eyebrow="管理后台" title="任务管理">
+  <div class="admin-tasks">
+    <PageToolbar eyebrow="管理中心" title="任务管理" description="查看和管理所有任务">
       <template #actions>
-        <el-button type="primary" :size="componentSize" @click="openCreate">创建任务</el-button>
+        <el-button type="primary" @click="showCreateDialog = true">
+          <el-icon><Plus /></el-icon> 创建任务
+        </el-button>
       </template>
     </PageToolbar>
 
     <FilterToolbar
-      :filters="filterConfig"
-      v-model="filters"
-      @search="doFilter"
+      :filters="FILTERS"
+      v-model="filterValues"
+      @search="loadTasks"
       @clear="clearFilters"
+      class="mb-3"
     />
 
-    <DataTableCard
-      title="任务列表"
-      :loading="loading"
-      :data="tasks"
-      :total="total"
-      v-model:page="page"
-      v-model:page-size="pageSize"
-      :pageSizes="[10, 20, 50, 100]"
-      @page-change="loadTasks"
-    >
-      <el-table-column label="任务" min-width="160">
+    <el-table :data="tasks" v-loading="loading" stripe style="width: 100%">
+      <el-table-column prop="task_name" label="任务名称" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="task_type" label="类型" width="130" align="center">
         <template #default="{ row }">
-          <div style="font-weight:600">{{ row.name }}</div>
-          <div class="admin-tasks-page__sub-id">{{ row.id?.slice(0,8) }}...</div>
+          <el-tag size="small" effect="plain">{{ row.task_type }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="类型" width="130">
-        <template #default="{ row }"><el-tag size="small" type="info">{{ row.task_type }}</el-tag></template>
-      </el-table-column>
-      <el-table-column label="状态" width="90">
-        <template #default="{ row }"><StatusTag :status="row.status" /></template>
-      </el-table-column>
-      <el-table-column label="参数组" width="70">
-        <template #default="{ row }">{{ row.config?.parameters?.length ?? 0 }}</template>
-      </el-table-column>
-      <el-table-column label="进度" min-width="140">
+      <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
-          <TaskProgressCell :current-step="row.current_step || 0" :total-steps="row.total_steps || 0" />
+          <StatusTag :status="row.status" />
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
-      <el-table-column prop="start_time" label="开始时间" width="160" show-overflow-tooltip />
-      <el-table-column prop="end_time" label="结束时间" width="160" show-overflow-tooltip />
-      <el-table-column label="操作" width="180">
+      <el-table-column label="进度" width="160">
         <template #default="{ row }">
-          <el-button link type="primary" @click="$router.push(`/task/${row.id}`)">详情</el-button>
-          <el-button link type="info" @click="showDetail(row.id)">摘要</el-button>
-          <el-button v-if="row.status === 'running'" link type="warning" @click="handleCancel(row.id)">停止</el-button>
-          <el-button link type="danger" @click="handleDelete(row.id)">删除</el-button>
+          <TaskProgressCell :current="row.current_step" :total="row.total_steps" />
         </template>
       </el-table-column>
-    </DataTableCard>
+      <el-table-column prop="created_at" label="创建时间" width="175" align="center">
+        <template #default="{ row }">
+          <span class="cell-time">{{ formatTime(row.created_at) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="220" fixed="right" align="center">
+        <template #default="{ row }">
+          <el-button
+            v-if="row.status === 'running' || row.status === 'pending'"
+            type="warning"
+            size="small"
+            text
+            @click.stop="handleCancel(row)"
+          >取消</el-button>
+          <el-button
+            v-if="row.status === 'error' || row.status === 'cancelled'"
+            type="primary"
+            size="small"
+            text
+            @click.stop="handleRestart(row)"
+          >重启</el-button>
+          <el-button type="info" size="small" text @click.stop="openEditConfig(row)">配置</el-button>
+          <el-popconfirm title="确定删除此任务？" @confirm="handleDelete(row)">
+            <template #reference>
+              <el-button type="danger" size="small" text @click.stop>删除</el-button>
+            </template>
+          </el-popconfirm>
+        </template>
+      </el-table-column>
+    </el-table>
 
-    <!-- 任务摘要抽屉 -->
-    <el-drawer v-model="detailDrawerVisible" title="任务摘要" :size="drawerSize">
-      <div v-if="detailTask" v-loading="detailLoading">
-        <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="任务ID">{{ detailTask.id }}</el-descriptions-item>
-          <el-descriptions-item label="任务名称">{{ detailTask.name }}</el-descriptions-item>
-          <el-descriptions-item label="任务类型">{{ detailTask.task_type }}</el-descriptions-item>
-          <el-descriptions-item label="状态"><StatusTag :status="detailTask.status" /></el-descriptions-item>
-          <el-descriptions-item label="进度">{{ detailTask.current_step || 0 }}/{{ detailTask.total_steps || 0 }} ({{ detailTask.progress_percentage || 0 }}%)</el-descriptions-item>
-          <el-descriptions-item label="耗时">{{ detailTask.duration_seconds != null ? detailTask.duration_seconds + 's' : '-' }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ detailTask.created_at }}</el-descriptions-item>
-          <el-descriptions-item label="开始时间">{{ detailTask.start_time }}</el-descriptions-item>
-          <el-descriptions-item label="结束时间">{{ detailTask.end_time }}</el-descriptions-item>
-        </el-descriptions>
-        <div style="margin-top:16px">
-          <h4>任务配置</h4>
-          <CodeBlock :content="detailTask.config || {}" />
-        </div>
-        <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
-          <el-button type="primary" @click="$router.push(`/task/${detailTask.id}`); detailDrawerVisible = false">查看详情页</el-button>
-          <el-button v-if="detailTask.status === 'running'" type="warning" @click="handleCancel(detailTask.id)">停止任务</el-button>
-          <el-button v-if="detailTask.status !== 'running'" type="success" @click="handleRestart(detailTask.id)">重启任务</el-button>
-          <el-button type="danger" @click="handleDelete(detailTask.id)">删除任务</el-button>
-        </div>
-      </div>
-    </el-drawer>
+    <div class="pagination-wrap">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next"
+        @size-change="loadTasks"
+        @current-change="loadTasks"
+      />
+    </div>
 
-    <!-- 创建任务弹窗 -->
-    <el-dialog v-model="createDialogVisible" title="创建任务" :width="dialogWidth" :fullscreen="isMobile">
-      <el-form :model="createForm" :label-width="formLabelWidth" :label-position="formLabelPosition">
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="任务名称"><el-input v-model="createForm.name" /></el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="任务类型">
-              <el-select v-model="createForm.task_type" style="width:100%">
-                <el-option value="google_sheet" label="Google Sheet" />
-                <el-option value="google_sheet_C4" label="Google Sheet C4" />
-                <el-option value="google_sheet_C5" label="Google Sheet C5" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="任务描述">
-          <el-input v-model="createForm.description" type="textarea" :rows="2" />
+    <!-- Edit Config Dialog -->
+    <el-dialog v-model="configDialogVisible" title="编辑任务配置" width="600px" destroy-on-close>
+      <el-form :model="editConfigForm" label-width="120px" v-if="editConfigForm">
+        <el-form-item label="任务名称">
+          <el-input v-model="editConfigForm.task_name" disabled />
         </el-form-item>
-        <el-form-item label="任务配置">
-          <el-input v-model="createForm.config" type="textarea" :rows="10" spellcheck="false" placeholder="JSON 格式" />
+        <el-form-item label="配置 (JSON)">
+          <el-input
+            v-model="editConfigForm.config_json"
+            type="textarea"
+            :rows="12"
+            placeholder="请输入 JSON 配置"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="handleCreate">创建并启动</el-button>
+        <el-button @click="configDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingConfig" @click="saveConfig">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Create Task Dialog -->
+    <el-dialog v-model="showCreateDialog" title="创建任务" width="600px" destroy-on-close>
+      <el-form :model="createForm" label-width="120px">
+        <el-form-item label="任务名称" required>
+          <el-input v-model="createForm.task_name" placeholder="请输入任务名称" />
+        </el-form-item>
+        <el-form-item label="任务类型" required>
+          <el-select v-model="createForm.task_type" placeholder="选择类型" style="width: 100%">
+            <el-option label="C3 参数校验" value="c3" />
+            <el-option label="C4 参数校验" value="c4" />
+            <el-option label="C5 参数校验" value="c5" />
+            <el-option label="回测训练" value="backtest_training" />
+            <el-option label="多品种回测" value="backtest_multi" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="配置 (JSON)">
+          <el-input
+            v-model="createForm.config_json"
+            type="textarea"
+            :rows="10"
+            placeholder="请输入 JSON 配置（可选）"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCreateDialog = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="handleCreate">创建</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, onMounted } from 'vue'
+import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getTasks, getTask, createTask, cancelTask, deleteTask, restartTask } from '@/api/task'
-import { getTaskRuntimeDetail } from '@/api/admin'
-import StatusTag from '@/components/StatusTag.vue'
+import { getTasks, createTask, deleteTask, cancelTask, restartTask, updateTaskConfig } from '@/api/task'
+import { usePolling } from '@/composables/usePolling'
 import PageToolbar from '@/components/PageToolbar.vue'
 import FilterToolbar from '@/components/FilterToolbar.vue'
-import DataTableCard from '@/components/DataTableCard.vue'
+import StatusTag from '@/components/StatusTag.vue'
 import TaskProgressCell from '@/components/TaskProgressCell.vue'
-import CodeBlock from '@/components/CodeBlock.vue'
-import { useResponsive } from '@/composables/useResponsive'
-import { usePolling } from '@/composables/usePolling'
 
-const { isMobile, componentSize, drawerSize, dialogWidth, formLabelPosition, formLabelWidth } = useResponsive()
-const tasks = ref([])
 const loading = ref(false)
+const tasks = ref([])
 const page = ref(1)
-const pageSize = ref(10)
+const pageSize = ref(20)
 const total = ref(0)
-const filters = ref({ status: '', task_type: '', keyword: '' })
-const detailDrawerVisible = ref(false)
-const detailTask = ref(null)
-const detailLoading = ref(false)
-const createDialogVisible = ref(false)
-const creating = ref(false)
-const createForm = reactive({ name: '', task_type: 'google_sheet', description: '', config: '' })
 
-const filterConfig = [
+const filterValues = ref({ status: '', task_type: '', search: '' })
+
+const FILTERS = [
   {
-    key: 'status',
-    type: 'select',
-    placeholder: '状态',
-    span: { xs: 24, sm: 6, md: 4 },
+    key: 'status', type: 'select', label: '状态',
     options: [
-      { value: 'pending', label: '待执行' },
-      { value: 'running', label: '运行中' },
-      { value: 'completed', label: '已完成' },
-      { value: 'cancelled', label: '已取消' },
-      { value: 'error', label: '错误' },
+      { label: '全部', value: '' },
+      { label: '待执行', value: 'pending' },
+      { label: '运行中', value: 'running' },
+      { label: '已完成', value: 'completed' },
+      { label: '错误', value: 'error' },
+      { label: '已取消', value: 'cancelled' },
     ],
   },
   {
-    key: 'task_type',
-    type: 'select',
-    placeholder: '类型',
-    span: { xs: 24, sm: 6, md: 4 },
+    key: 'task_type', type: 'select', label: '类型',
     options: [
-      { value: 'google_sheet', label: 'Google Sheet' },
-      { value: 'google_sheet_C4', label: 'Google Sheet C4' },
-      { value: 'google_sheet_C5', label: 'Google Sheet C5' },
+      { label: '全部', value: '' },
+      { label: 'C3', value: 'c3' },
+      { label: 'C4', value: 'c4' },
+      { label: 'C5', value: 'c5' },
+      { label: '回测训练', value: 'backtest_training' },
+      { label: '多品种回测', value: 'backtest_multi' },
     ],
   },
-  {
-    key: 'keyword',
-    type: 'input',
-    placeholder: '任务名称 / ID',
-    span: { xs: 24, sm: 8, md: 6 },
-  },
+  { key: 'search', type: 'input', label: '搜索', placeholder: '任务名称 / ID' },
 ]
+
+// Config dialog
+const configDialogVisible = ref(false)
+const editConfigForm = ref(null)
+const savingConfig = ref(false)
+
+// Create dialog
+const showCreateDialog = ref(false)
+const createForm = ref({ task_name: '', task_type: '', config_json: '' })
+const creating = ref(false)
+
+function formatTime(str) {
+  if (!str) return '-'
+  return new Date(str).toLocaleString('zh-CN')
+}
+
+function clearFilters() {
+  filterValues.value = { status: '', task_type: '', search: '' }
+  page.value = 1
+  loadTasks()
+}
 
 async function loadTasks() {
   loading.value = true
   try {
-    const params = { page: page.value, per_page: pageSize.value }
-    if (filters.value.status) params.status = filters.value.status
-    if (filters.value.task_type) params.task_type = filters.value.task_type
-    if (filters.value.keyword) params.keyword = filters.value.keyword
+    const params = {
+      page: page.value,
+      per_page: pageSize.value,
+      ...filterValues.value,
+    }
+    Object.keys(params).forEach(k => { if (!params[k]) delete params[k] })
     const res = await getTasks(params)
-    tasks.value = res.tasks || []
-    total.value = res.pagination?.total || 0
-  } finally { loading.value = false }
-}
-
-function doFilter() { page.value = 1; loadTasks() }
-function clearFilters() { filters.value = { status: '', task_type: '', keyword: '' }; doFilter() }
-
-usePolling(loadTasks, { interval: 30000, immediate: true })
-
-async function showDetail(id) {
-  detailDrawerVisible.value = true
-  detailLoading.value = true
-  detailTask.value = null
-  try {
-    const res = await getTaskRuntimeDetail(id)
-    detailTask.value = res.task || null
+    const data = res?.data || res || {}
+    tasks.value = data.tasks || data.items || data || []
+    total.value = data.total || tasks.value.length
   } catch {
-    const res = await getTask(id)
-    detailTask.value = res.task || res
-  } finally { detailLoading.value = false }
+    tasks.value = []
+  } finally {
+    loading.value = false
+  }
 }
 
-async function handleCancel(id) {
-  await ElMessageBox.confirm('确定要停止这个任务吗？', '确认停止', { type: 'warning' })
-  await cancelTask(id)
-  ElMessage.success('已发送停止请求')
-  loadTasks()
+async function handleCancel(row) {
+  try {
+    await ElMessageBox.confirm('确定取消此任务？', '确认')
+    await cancelTask(row.id)
+    ElMessage.success('任务已取消')
+    loadTasks()
+  } catch { /* cancelled */ }
 }
 
-async function handleRestart(id) {
-  await restartTask(id)
-  ElMessage.success('任务重启成功')
-  loadTasks()
+async function handleRestart(row) {
+  try {
+    await restartTask(row.id)
+    ElMessage.success('任务已重启')
+    loadTasks()
+  } catch {
+    ElMessage.error('重启失败')
+  }
 }
 
-async function handleDelete(id) {
-  await ElMessageBox.confirm('确定要删除这个任务吗？删除后不可恢复。', '确认删除', { type: 'warning' })
-  await deleteTask(id)
-  ElMessage.success('任务已删除')
-  detailDrawerVisible.value = false
-  loadTasks()
+async function handleDelete(row) {
+  try {
+    await deleteTask(row.id)
+    ElMessage.success('已删除')
+    loadTasks()
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
-function openCreate() {
-  Object.assign(createForm, { name: '', task_type: 'google_sheet', description: '', config: '' })
-  createDialogVisible.value = true
+function openEditConfig(row) {
+  editConfigForm.value = {
+    id: row.id,
+    task_name: row.task_name,
+    config_json: typeof row.config === 'string' ? row.config : JSON.stringify(row.config || {}, null, 2),
+  }
+  configDialogVisible.value = true
+}
+
+async function saveConfig() {
+  savingConfig.value = true
+  try {
+    let config = editConfigForm.value.config_json
+    try {
+      config = JSON.parse(config)
+    } catch {
+      ElMessage.warning('配置 JSON 格式无效')
+      return
+    }
+    await updateTaskConfig(editConfigForm.value.id, { config })
+    ElMessage.success('配置已更新')
+    configDialogVisible.value = false
+    loadTasks()
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    savingConfig.value = false
+  }
 }
 
 async function handleCreate() {
-  if (!createForm.name || !createForm.config) { ElMessage.warning('请填写必要字段'); return }
-  try { JSON.parse(createForm.config) } catch { ElMessage.error('配置格式错误'); return }
+  if (!createForm.value.task_name || !createForm.value.task_type) {
+    ElMessage.warning('请填写任务名称和类型')
+    return
+  }
   creating.value = true
   try {
-    await createTask({ name: createForm.name, task_type: createForm.task_type, description: createForm.description, config: JSON.parse(createForm.config) })
-    ElMessage.success('任务创建成功')
-    createDialogVisible.value = false
+    const payload = {
+      task_name: createForm.value.task_name,
+      task_type: createForm.value.task_type,
+    }
+    if (createForm.value.config_json) {
+      try {
+        payload.config = JSON.parse(createForm.value.config_json)
+      } catch {
+        ElMessage.warning('配置 JSON 格式无效')
+        return
+      }
+    }
+    await createTask(payload)
+    ElMessage.success('任务已创建')
+    showCreateDialog.value = false
+    createForm.value = { task_name: '', task_type: '', config_json: '' }
     loadTasks()
-  } catch { ElMessage.error('任务创建失败') }
-  finally { creating.value = false }
+  } catch {
+    ElMessage.error('创建失败')
+  } finally {
+    creating.value = false
+  }
 }
+
+usePolling(loadTasks, { interval: 15000 })
+onMounted(loadTasks)
 </script>
+
+<style lang="scss" scoped>
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.mb-3 {
+  margin-bottom: 12px;
+}
+
+.cell-time {
+  font-size: var(--app-font-sm);
+  color: var(--app-text-muted);
+  white-space: nowrap;
+}
+</style>

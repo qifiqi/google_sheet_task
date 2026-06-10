@@ -1,211 +1,316 @@
 <template>
-  <div class="app-page scheduler-page">
-    <PageToolbar eyebrow="管理后台" title="定时任务管理">
+  <div class="admin-scheduler">
+    <PageToolbar eyebrow="管理中心" title="定时任务" description="管理系统定时任务调度">
       <template #actions>
-        <el-button type="primary" @click="openCreate">添加定时任务</el-button>
+        <el-button type="primary" @click="openCreateDialog">
+          <el-icon><Plus /></el-icon> 创建定时任务
+        </el-button>
       </template>
     </PageToolbar>
 
-    <StatCardGrid :cards="statCards" :data="stats" variant="gradient" />
+    <StatCardGrid
+      :cards="STAT_CARDS"
+      :data="statsData"
+      :columns="{ xs: 12, sm: 6, md: 6 }"
+      variant="gradient"
+      class="mb-4"
+    />
 
     <el-card shadow="never">
-      <template #header>定时任务列表</template>
-      <el-table :data="tasks" v-loading="loading" stripe>
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="name" label="任务名称" min-width="140" />
-        <el-table-column prop="description" label="描述" min-width="120" show-overflow-tooltip />
-        <el-table-column label="Cron 表达式" width="160">
+      <template #header>
+        <div class="card-header">
+          <span>任务列表</span>
+          <el-button text type="primary" @click="loadData">
+            <el-icon><Refresh /></el-icon> 刷新
+          </el-button>
+        </div>
+      </template>
+      <el-table :data="tasks" v-loading="loading" stripe style="width: 100%">
+        <el-table-column prop="name" label="任务名称" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="task_type" label="类型" width="130" align="center">
           <template #default="{ row }">
-            <code class="mono-inline">{{ row.cron_expression }}</code>
+            <el-tag size="small" effect="plain">{{ row.task_type }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="任务类型" width="100">
+        <el-table-column prop="cron_expression" label="Cron 表达式" width="150" align="center">
           <template #default="{ row }">
-            <el-tag size="small">{{ taskTypeText(row.task_type) }}</el-tag>
+            <code class="cron-code">{{ row.cron_expression }}</code>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="80">
+        <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.is_active ? 'success' : 'info'" size="small">{{ row.is_active ? '启用' : '禁用' }}</el-tag>
+            <el-switch
+              :model-value="row.is_active"
+              @change="handleToggle(row)"
+              size="small"
+            />
           </template>
         </el-table-column>
-        <el-table-column prop="run_count" label="执行次数" width="80" />
-        <el-table-column prop="last_run_time" label="上次执行" width="160" show-overflow-tooltip />
-        <el-table-column prop="next_run_time" label="下次执行" width="160" show-overflow-tooltip />
-        <el-table-column label="操作" width="160">
+        <el-table-column prop="last_run_at" label="上次执行" width="175" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link :type="row.is_active ? 'warning' : 'success'" @click="handleToggle(row)">{{ row.is_active ? '禁用' : '启用' }}</el-button>
-            <el-button link type="info" @click="handleRunNow(row.id)">立即执行</el-button>
-            <el-button link type="danger" @click="handleDelete(row.id)">删除</el-button>
+            <span class="cell-time">{{ formatTime(row.last_run_at) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="next_run_at" label="下次执行" width="175" align="center">
+          <template #default="{ row }">
+            <span class="cell-time">{{ formatTime(row.next_run_at) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button type="success" size="small" text @click="handleRunNow(row)">执行</el-button>
+            <el-button type="primary" size="small" text @click="openEditDialog(row)">编辑</el-button>
+            <el-popconfirm title="确定删除此定时任务？" @confirm="handleDelete(row)">
+              <template #reference>
+                <el-button type="danger" size="small" text @click.stop>删除</el-button>
+              </template>
+            </el-popconfirm>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑定时任务' : '添加定时任务'" width="600px" :fullscreen="isMobile">
-      <el-form :model="form" label-width="100px">
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="任务名称">
-              <el-input v-model="form.name" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="任务类型">
-              <el-select v-model="form.task_type" class="full-width">
-                <el-option value="cleanup" label="数据清理" />
-                <el-option value="backup" label="数据备份" />
-                <el-option value="maintenance" label="系统维护" />
-                <el-option value="custom" label="自定义" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="任务描述">
-          <el-input v-model="form.description" type="textarea" :rows="2" />
+    <!-- Create/Edit Dialog -->
+    <el-dialog
+      v-model="dialogVisible"
+      :title="isEdit ? '编辑定时任务' : '创建定时任务'"
+      width="600px"
+      destroy-on-close
+    >
+      <el-form :model="form" label-width="120px" ref="formRef">
+        <el-form-item label="任务名称" required>
+          <el-input v-model="form.name" placeholder="请输入任务名称" />
         </el-form-item>
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="Cron 表达式">
-              <el-input v-model="form.cron_expression" placeholder="如: 0 0 * * *" />
-              <div class="helper-text">格式：分 时 日 月 周</div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="执行函数">
-              <el-select v-model="form.task_function" class="full-width">
-                <el-option value="cleanup_old_logs" label="清理旧日志" />
-                <el-option value="cleanup_old_results" label="清理旧结果" />
-                <el-option value="cleanup_old_data" label="清理旧数据" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="任务参数">
-          <el-input v-model="form.task_params" type="textarea" :rows="3" placeholder='{"days": 10}' />
-          <div class="helper-text">JSON 格式，例如 {"days": 10}</div>
+        <el-form-item label="任务类型" required>
+          <el-select v-model="form.task_type" placeholder="选择类型" style="width: 100%">
+            <el-option label="C3 参数校验" value="c3" />
+            <el-option label="C4 参数校验" value="c4" />
+            <el-option label="C5 参数校验" value="c5" />
+            <el-option label="回测训练" value="backtest_training" />
+            <el-option label="多品种回测" value="backtest_multi" />
+            <el-option label="模型汇总重建" value="model_summary_rebuild" />
+          </el-select>
         </el-form-item>
-        <el-form-item label="启用任务">
+        <el-form-item label="Cron 表达式" required>
+          <el-input v-model="form.cron_expression" placeholder="例: 0 2 * * * (每天凌晨2点)">
+            <template #append>
+              <el-tooltip content="标准 5 位 Cron 表达式：分 时 日 月 周" placement="top">
+                <el-icon><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item label="配置 (JSON)">
+          <el-input
+            v-model="form.config_json"
+            type="textarea"
+            :rows="6"
+            placeholder="任务配置参数（可选）"
+          />
+        </el-form-item>
+        <el-form-item label="启用">
           <el-switch v-model="form.is_active" />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">{{ editingId ? '更新任务' : '添加任务' }}</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">
+          {{ isEdit ? '保存' : '创建' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, onMounted } from 'vue'
+import { Plus, Refresh, QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getSchedulerStats, getScheduledTasks, createScheduledTask, updateScheduledTask, deleteScheduledTask, toggleScheduledTask, runScheduledTask } from '@/api/scheduler'
-import { useResponsive } from '@/composables/useResponsive'
+import {
+  getScheduledTasks,
+  createScheduledTask,
+  updateScheduledTask,
+  deleteScheduledTask,
+  toggleScheduledTask,
+  runScheduledTask,
+  getSchedulerStats,
+} from '@/api/scheduler'
 import PageToolbar from '@/components/PageToolbar.vue'
 import StatCardGrid from '@/components/StatCardGrid.vue'
-import { usePolling } from '@/composables/usePolling'
 
-const { isMobile } = useResponsive()
-const tasks = ref([])
-const stats = ref({})
 const loading = ref(false)
-const saving = ref(false)
-const dialogVisible = ref(false)
-const editingId = ref(null)
+const tasks = ref([])
+const statsData = ref({ total: 0, active: 0, today_runs: 0, failed: 0 })
 
-const statCards = [
-  { key: 'total_tasks', label: '总任务数', background: '#409eff' },
-  { key: 'active_tasks', label: '活跃任务', background: '#67c23a' },
-  { key: 'inactive_tasks', label: '暂停任务', background: '#e6a23c' },
-  { key: 'scheduler_running', label: '调度器状态', background: '#17a2b8' },
+const STAT_CARDS = [
+  { key: 'total', label: '总任务数', background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)' },
+  { key: 'active', label: '已启用', background: 'linear-gradient(135deg, #10b981, #059669)' },
+  { key: 'today_runs', label: '今日执行', background: 'linear-gradient(135deg, #f59e0b, #d97706)' },
+  { key: 'failed', label: '失败次数', background: 'linear-gradient(135deg, #ef4444, #dc2626)' },
 ]
 
-const form = reactive({ name: '', description: '', cron_expression: '', task_type: 'cleanup', task_function: 'cleanup_old_logs', task_params: '', is_active: true })
+// Dialog
+const dialogVisible = ref(false)
+const isEdit = ref(false)
+const formRef = ref(null)
+const saving = ref(false)
+const form = ref({
+  id: null,
+  name: '',
+  task_type: '',
+  cron_expression: '',
+  config_json: '',
+  is_active: true,
+})
 
-const taskTypeMap = { cleanup: '数据清理', backup: '数据备份', maintenance: '系统维护', custom: '自定义' }
-const taskTypeText = (t) => taskTypeMap[t] || t
+function formatTime(str) {
+  if (!str) return '-'
+  return new Date(str).toLocaleString('zh-CN')
+}
 
-async function loadAll() {
+async function loadData() {
   loading.value = true
   try {
-    const [tRes, sRes] = await Promise.all([getScheduledTasks(), getSchedulerStats()])
-    tasks.value = tRes.tasks || []
-    const s = sRes.stats || {}
-    stats.value = { ...s, scheduler_running: s.scheduler_running ? '运行中' : '已停止' }
+    const [statsRes, tasksRes] = await Promise.allSettled([
+      getSchedulerStats(),
+      getScheduledTasks(),
+    ])
+
+    if (statsRes.status === 'fulfilled') {
+      const data = statsRes.value?.data || statsRes.value || {}
+      statsData.value = {
+        total: data.total ?? 0,
+        active: data.active ?? 0,
+        today_runs: data.today_runs ?? 0,
+        failed: data.failed ?? 0,
+      }
+    }
+
+    if (tasksRes.status === 'fulfilled') {
+      const data = tasksRes.value?.data || tasksRes.value || {}
+      tasks.value = data.tasks || data.items || data || []
+    }
+  } catch {
+    tasks.value = []
   } finally {
     loading.value = false
   }
 }
 
-function openCreate() {
-  editingId.value = null
-  Object.assign(form, { name: '', description: '', cron_expression: '', task_type: 'cleanup', task_function: 'cleanup_old_logs', task_params: '', is_active: true })
+function openCreateDialog() {
+  isEdit.value = false
+  form.value = { id: null, name: '', task_type: '', cron_expression: '', config_json: '', is_active: true }
   dialogVisible.value = true
 }
 
-function openEdit(task) {
-  editingId.value = task.id
-  form.name = task.name
-  form.description = task.description || ''
-  form.cron_expression = task.cron_expression
-  form.task_type = task.task_type
-  form.task_function = task.task_function
-  form.task_params = JSON.stringify(task.task_params || {}, null, 2)
-  form.is_active = task.is_active
+function openEditDialog(row) {
+  isEdit.value = true
+  form.value = {
+    id: row.id,
+    name: row.name,
+    task_type: row.task_type,
+    cron_expression: row.cron_expression,
+    config_json: typeof row.config === 'string' ? row.config : JSON.stringify(row.config || {}, null, 2),
+    is_active: row.is_active ?? true,
+  }
   dialogVisible.value = true
 }
 
 async function handleSave() {
-  if (!form.name || !form.cron_expression || !form.task_type || !form.task_function) {
-    ElMessage.warning('请填写所有必填字段')
+  if (!form.value.name || !form.value.task_type || !form.value.cron_expression) {
+    ElMessage.warning('请填写必要字段')
     return
   }
-  if (form.task_params) {
+
+  let config = {}
+  if (form.value.config_json) {
     try {
-      JSON.parse(form.task_params)
+      config = JSON.parse(form.value.config_json)
     } catch {
-      ElMessage.error('任务参数必须是有效的 JSON 格式')
+      ElMessage.warning('配置 JSON 格式无效')
       return
     }
   }
+
   saving.value = true
   try {
-    if (editingId.value) {
-      await updateScheduledTask(editingId.value, form)
-    } else {
-      await createScheduledTask(form)
+    const payload = {
+      name: form.value.name,
+      task_type: form.value.task_type,
+      cron_expression: form.value.cron_expression,
+      config,
+      is_active: form.value.is_active,
     }
-    ElMessage.success(editingId.value ? '任务更新成功' : '任务添加成功')
+    if (isEdit.value) {
+      await updateScheduledTask(form.value.id, payload)
+      ElMessage.success('已更新')
+    } else {
+      await createScheduledTask(payload)
+      ElMessage.success('已创建')
+    }
     dialogVisible.value = false
-    loadAll()
+    loadData()
   } catch {
-    ElMessage.error('保存失败')
+    ElMessage.error(isEdit.value ? '更新失败' : '创建失败')
   } finally {
     saving.value = false
   }
 }
 
-async function handleToggle(task) {
-  await toggleScheduledTask(task.id)
-  ElMessage.success(`任务已${task.is_active ? '禁用' : '启用'}`)
-  loadAll()
+async function handleToggle(row) {
+  try {
+    await toggleScheduledTask(row.id)
+    ElMessage.success(row.is_active ? '已禁用' : '已启用')
+    loadData()
+  } catch {
+    ElMessage.error('操作失败')
+  }
 }
 
-async function handleRunNow(id) {
-  await ElMessageBox.confirm('确定要立即执行这个任务吗？', '确认执行', { type: 'info' })
-  await runScheduledTask(id)
-  ElMessage.success('任务已开始执行')
-  loadAll()
+async function handleRunNow(row) {
+  try {
+    await ElMessageBox.confirm('确定立即执行此任务？', '确认')
+    await runScheduledTask(row.id)
+    ElMessage.success('已触发执行')
+    loadData()
+  } catch { /* cancelled */ }
 }
 
-async function handleDelete(id) {
-  await ElMessageBox.confirm('确定要删除这个定时任务吗？此操作不可恢复。', '确认删除', { type: 'warning' })
-  await deleteScheduledTask(id)
-  ElMessage.success('任务删除成功')
-  loadAll()
+async function handleDelete(row) {
+  try {
+    await deleteScheduledTask(row.id)
+    ElMessage.success('已删除')
+    loadData()
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
-usePolling(loadAll, { interval: 30000 })
+onMounted(loadData)
 </script>
+
+<style lang="scss" scoped>
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mb-4 {
+  margin-bottom: 16px;
+}
+
+.cron-code {
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  background: var(--el-fill-color-light);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.cell-time {
+  font-size: var(--app-font-sm);
+  color: var(--app-text-muted);
+  white-space: nowrap;
+}
+</style>

@@ -1,356 +1,199 @@
 <template>
-  <div class="app-page backtest-multi-detail-page">
-    <div class="page-toolbar">
-      <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">Multi-Product Monitor</div>
-        <h2 class="page-title">多产品回测详情</h2>
-        <p class="page-description">查看多产品回测任务执行状态、日志和结果。</p>
-      </div>
-      <div class="page-toolbar__actions">
-        <el-button @click="checkStatus">检查状态</el-button>
-        <el-button v-if="task?.status === 'running'" type="warning" @click="handleCancel">停止任务</el-button>
-        <el-dropdown v-if="task && task.status !== 'running'" @command="handleRestart">
-          <el-button type="success">
-            重启任务
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="resume">从断点重启</el-dropdown-item>
-              <el-dropdown-item command="fresh">从头重启</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <el-button class="page-back-button" @click="$router.push('/backtest-multi/list')">返回列表</el-button>
-      </div>
-    </div>
+  <div class="backtest-multi-detail-page" v-loading="loading">
+    <PageToolbar eyebrow="多产品回测详情" :title="task?.task_name || `回测任务 #${taskId}`">
+      <template #actions>
+        <el-button plain @click="router.push(`/backtest-multi/${taskId}/global-preview`)">全局预览</el-button>
+        <TaskActions v-if="task" :task="task" @refresh="loadTask" />
+      </template>
+    </PageToolbar>
 
-    <div v-loading="loading">
-      <el-row v-if="task" :gutter="16" class="backtest-multi-detail-page__metrics">
-        <el-col :xs="24" :md="8">
-          <el-card shadow="never" class="page-section">
-            <div class="section-heading">
-              <h3 class="section-title section-title--muted">基础执行信息</h3>
-            </div>
-            <el-descriptions :column="1" size="small">
-              <el-descriptions-item label="任务名称">{{ task.name }}</el-descriptions-item>
-              <el-descriptions-item label="任务 ID">
-                <span class="inline-muted font-mono">{{ task.id }}</span>
-              </el-descriptions-item>
-              <el-descriptions-item label="状态">
-                <StatusTag :status="task.status" />
-              </el-descriptions-item>
-              <el-descriptions-item label="进度">
-                <TaskProgressCell :current-step="task.current_step || 0" :total-steps="task.total_steps || 0" />
-              </el-descriptions-item>
-            </el-descriptions>
-          </el-card>
-        </el-col>
+    <template v-if="task">
+      <StatCardGrid
+        :cards="DETAIL_CARDS"
+        :data="detailStats"
+        :columns="{ xs: 12, sm: 6, md: 6 }"
+        class="mb-4"
+      />
 
-        <el-col :xs="24" :md="8">
-          <el-card shadow="never" class="page-section">
-            <div class="section-heading">
-              <h3 class="section-title section-title--muted">时间信息</h3>
-            </div>
-            <el-descriptions :column="1" size="small">
-              <el-descriptions-item label="创建时间">{{ task.created_at || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="开始时间">{{ task.start_time || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="结束时间">{{ task.end_time || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="执行时长">
-                {{ task.duration_seconds != null ? `${task.duration_seconds}s` : '-' }}
-              </el-descriptions-item>
-            </el-descriptions>
-          </el-card>
-        </el-col>
-
-        <el-col :xs="24" :md="8">
-          <div class="hero-panel">
-            <div class="hero-panel__eyebrow">Execution Summary</div>
-            <div class="backtest-multi-detail-page__hero-stats">
-              <div class="backtest-multi-detail-page__hero-stat">
-                <div class="backtest-multi-detail-page__hero-value">{{ summary.success_count ?? 0 }}</div>
-                <div class="backtest-multi-detail-page__hero-label">成功</div>
-              </div>
-              <div class="backtest-multi-detail-page__hero-stat">
-                <div class="backtest-multi-detail-page__hero-value">{{ summary.failed_count ?? 0 }}</div>
-                <div class="backtest-multi-detail-page__hero-label">失败</div>
-              </div>
-            </div>
+      <el-tabs v-model="activeTab" class="backtest-multi-detail-tabs">
+        <!-- Logs Tab -->
+        <el-tab-pane label="执行日志" name="logs">
+          <div class="tab-toolbar mb-3">
+            <el-button size="small" @click="loadLogs">
+              <el-icon><Refresh /></el-icon> 刷新
+            </el-button>
+            <el-switch v-model="autoScroll" active-text="自动滚动" size="small" />
           </div>
-        </el-col>
-      </el-row>
+          <LogViewer :logs="logs" :auto-scroll="autoScroll" />
+        </el-tab-pane>
 
-      <div v-if="task" class="page-section">
-        <div class="action-bar">
-          <el-button @click="$router.push(`/backtest-multi/${taskId}/global-preview`)">全局预览页</el-button>
-          <el-button @click="$router.push(`/backtest-multi/${taskId}/result`)">回测结果</el-button>
-        </div>
-      </div>
+        <!-- Results Tab -->
+        <el-tab-pane label="回测结果" name="results">
+          <div class="tab-toolbar mb-3">
+            <el-button size="small" @click="loadResults">
+              <el-icon><Refresh /></el-icon> 刷新
+            </el-button>
+          </div>
+          <el-table :data="results" stripe style="width: 100%" max-height="500">
+            <el-table-column prop="stock_code" label="股票代码" width="120" />
+            <el-table-column prop="parameter_index" label="参数序号" width="100" />
+            <el-table-column label="状态" width="90" align="center">
+              <template #default="{ row }">
+                <StatusTag :status="row.status" />
+              </template>
+            </el-table-column>
+            <el-table-column prop="result_data" label="结果摘要" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="created_at" label="时间" width="170">
+              <template #default="{ row }"><span class="cell-time">{{ formatTime(row.created_at) }}</span></template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
 
-      <el-card v-if="task" shadow="never" class="page-section">
-        <el-tabs v-model="activeTab">
-          <el-tab-pane label="任务日志" name="logs">
-            <div ref="logContainerRef" class="backtest-multi-detail-page__log-panel">
-              <div v-if="!logs.length" class="panel-note panel-note--center">暂无日志</div>
-              <div v-for="(log, index) in logs" :key="index" :class="['log-line', `log-${log.level}`]">
-                [{{ log.timestamp }}] [{{ (log.level || 'info').toUpperCase() }}] {{ log.message }}
-              </div>
-            </div>
-          </el-tab-pane>
+        <!-- Config Tab -->
+        <el-tab-pane label="任务配置" name="config">
+          <CodeBlock :content="task.config || {}" />
+        </el-tab-pane>
 
-          <el-tab-pane label="执行结果" name="results">
-            <el-table :data="results" stripe>
-              <el-table-column prop="id" label="结果 ID" min-width="180">
-                <template #default="{ row }">
-                  <span class="font-mono">{{ row.id }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="状态" width="90">
-                <template #default="{ row }">
-                  <el-tag :type="row.success ? 'success' : 'danger'" size="small">
-                    {{ row.success ? '成功' : '失败' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="timestamp" label="创建时间" width="170" show-overflow-tooltip />
-              <el-table-column label="操作" width="100">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="viewResult(row)">查看</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-            <div class="backtest-multi-detail-page__pagination">
-              <el-pagination
-                v-model:current-page="resultPage"
-                v-model:page-size="resultPageSize"
-                :total="resultTotal"
-                layout="total, prev, pager, next"
-                @current-change="loadResults"
-              />
-            </div>
-          </el-tab-pane>
-
-          <el-tab-pane label="任务配置" name="config">
-            <pre class="code-block">{{ JSON.stringify(task.config || {}, null, 2) }}</pre>
-          </el-tab-pane>
-        </el-tabs>
-      </el-card>
-    </div>
-
-    <el-drawer v-model="resultDrawerVisible" title="结果详情" :size="isMobile ? '100%' : '560px'">
-      <div v-if="currentResult">
-        <div class="backtest-multi-detail-page__drawer-section">
-          <div class="backtest-multi-detail-page__card-title">参数信息</div>
-          <pre class="code-block">{{ JSON.stringify(currentResult.parameters, null, 2) }}</pre>
-        </div>
-        <div class="backtest-multi-detail-page__drawer-section">
-          <div class="backtest-multi-detail-page__card-title">执行结果</div>
-          <pre class="code-block">{{ JSON.stringify(currentResult.result, null, 2) }}</pre>
-        </div>
-        <div v-if="currentResult.error_message" class="backtest-multi-detail-page__drawer-section">
-          <div class="backtest-multi-detail-page__card-title">错误信息</div>
-          <pre class="backtest-multi-detail-page__error-block">{{ currentResult.error_message }}</pre>
-        </div>
-      </div>
-    </el-drawer>
+        <!-- Error Tab -->
+        <el-tab-pane v-if="task.error_message" label="错误信息" name="error">
+          <el-alert
+            :title="task.error_message"
+            type="error"
+            :closable="false"
+            show-icon
+          />
+        </el-tab-pane>
+      </el-tabs>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Refresh } from '@element-plus/icons-vue'
+import { getTask, getTaskLogs } from '@/api/task'
 import { getTaskResults } from '@/api/backtestMulti'
-import {
-  getTask,
-  getTaskLogs,
-  cancelTask,
-  restartTask,
-  checkTaskStatus as apiCheckStatus
-} from '@/api/task'
+import PageToolbar from '@/components/PageToolbar.vue'
+import StatCardGrid from '@/components/StatCardGrid.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import TaskProgressCell from '@/components/TaskProgressCell.vue'
-import { useResponsive } from '@/composables/useResponsive'
+import LogViewer from '@/components/LogViewer.vue'
+import CodeBlock from '@/components/CodeBlock.vue'
+import TaskActions from '@/views/task/components/TaskActions.vue'
 
 const route = useRoute()
-const { isMobile } = useResponsive()
+const router = useRouter()
+const taskId = computed(() => route.params.id)
 
-const taskId = route.params.id
 const task = ref(null)
 const logs = ref([])
 const results = ref([])
-const summary = ref({})
 const loading = ref(false)
 const activeTab = ref('logs')
-const logContainerRef = ref()
-const resultPage = ref(1)
-const resultPageSize = ref(20)
-const resultTotal = ref(0)
-const resultDrawerVisible = ref(false)
-const currentResult = ref(null)
+const autoScroll = ref(true)
 let pollTimer = null
 
+const DETAIL_CARDS = [
+  { key: 'status',   label: '当前状态' },
+  { key: 'progress', label: '执行进度' },
+  { key: 'market',   label: '市场类型' },
+  { key: 'elapsed',  label: '运行时长' },
+]
+
+const detailStats = computed(() => {
+  if (!task.value) return {}
+  const t = task.value
+  return {
+    status:   t.status || '-',
+    progress: `${t.current_step || 0} / ${t.total_steps || 0}`,
+    market:   t.market_type || t.config?.market_type || '-',
+    elapsed:  calcElapsed(t.start_time, t.end_time),
+  }
+})
+
+function formatTime(str) {
+  if (!str) return '-'
+  return new Date(str).toLocaleString('zh-CN')
+}
+
+function calcElapsed(start, end) {
+  if (!start) return '-'
+  const s = new Date(start)
+  const e = end ? new Date(end) : new Date()
+  const diff = Math.floor((e - s) / 1000)
+  if (diff < 60) return `${diff}s`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ${diff % 60}s`
+  return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`
+}
+
 async function loadTask() {
+  loading.value = true
   try {
-    const res = await getTask(taskId)
-    task.value = res.task || res
-    summary.value = res.result_summary || {}
+    const res = await getTask(taskId.value)
+    task.value = res.data || res
   } catch {
-    ElMessage.error('加载任务失败')
+    task.value = null
+  } finally {
+    loading.value = false
   }
 }
 
 async function loadLogs() {
   try {
-    const res = await getTaskLogs(taskId)
-    logs.value = res.logs || []
-    setTimeout(() => {
-      if (logContainerRef.value) {
-        logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight
-      }
-    }, 50)
-  } catch {}
+    const res = await getTaskLogs(taskId.value)
+    logs.value = Array.isArray(res) ? res : (res.data || [])
+  } catch { logs.value = [] }
 }
 
 async function loadResults() {
   try {
-    const res = await getTaskResults(taskId, { page: resultPage.value, per_page: resultPageSize.value })
-    results.value = res.results || []
-    resultTotal.value = res.total || res.pagination?.total || 0
-  } catch {}
+    const res = await getTaskResults(taskId.value)
+    results.value = Array.isArray(res) ? res : (res.data || res.results || [])
+  } catch { results.value = [] }
 }
 
-async function checkStatus() {
-  try {
-    const res = await apiCheckStatus(taskId)
-    ElMessage.info(`状态: ${res.status || '未知'}`)
-    loadTask()
-  } catch {
-    ElMessage.error('检查状态失败')
+function startPolling() {
+  stopPolling()
+  pollTimer = setInterval(() => {
+    const status = task.value?.status
+    if (status === 'running' || status === 'pending') {
+      loadTask()
+      loadLogs()
+      loadResults()
+    }
+  }, 5000)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
   }
 }
 
-async function handleCancel() {
-  await ElMessageBox.confirm('确定要停止这个任务吗？', '确认停止', { type: 'warning' })
-  await cancelTask(taskId)
-  ElMessage.success('已发送停止请求')
-  loadTask()
-}
-
-async function handleRestart(cmd) {
-  await restartTask(taskId, cmd === 'resume' ? 'resume' : 'fresh')
-  ElMessage.success('任务重启成功')
-  loadTask()
-  loadResults()
-}
-
-function viewResult(row) {
-  currentResult.value = row
-  resultDrawerVisible.value = true
-}
-
-onMounted(() => {
-  loading.value = true
-  Promise.all([loadTask(), loadLogs()]).finally(async () => {
-    await loadResults()
-    loading.value = false
-  })
-
-  pollTimer = setInterval(() => {
-    if (task.value?.status === 'running' || task.value?.status === 'pending') {
-      loadTask()
-      loadLogs()
-    }
-  }, 5000)
+onMounted(async () => {
+  await loadTask()
+  await Promise.all([loadLogs(), loadResults()])
+  startPolling()
 })
 
-onUnmounted(() => clearInterval(pollTimer))
+onBeforeUnmount(stopPolling)
 </script>
 
-<style scoped>
-.backtest-multi-detail-page__metrics {
-  margin-bottom: 16px;
-}
-
-.backtest-multi-detail-page__hero-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 18px;
-}
-
-.backtest-multi-detail-page__hero-stat {
-  padding: 14px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
-  text-align: center;
-}
-
-.backtest-multi-detail-page__hero-value {
-  color: #fff;
-  font-size: 28px;
-  font-weight: 700;
-}
-
-.backtest-multi-detail-page__hero-label {
-  color: rgba(255, 255, 255, 0.76);
-  font-size: 12px;
-}
-
-.backtest-multi-detail-page__log-panel {
-  height: 320px;
-  overflow-y: auto;
-  overflow-x: auto;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: #0b1220;
-  color: #dbeafe;
-  font-family: 'Fira Code', monospace;
-  font-size: 14px;
-  line-height: 1.6;
-  white-space: pre;
-  word-break: normal;
-}
-
-.backtest-multi-detail-page__pagination {
+<style lang="scss" scoped>
+.tab-toolbar {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
+  align-items: center;
+  gap: 12px;
 }
 
-.backtest-multi-detail-page__drawer-section {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 16px;
+.backtest-multi-detail-tabs {
+  margin-top: 8px;
 }
 
-.backtest-multi-detail-page__card-title {
-  color: var(--app-text);
-  font-size: 13px;
-  font-weight: 700;
+.cell-time {
+  font-size: var(--app-font-sm);
+  color: var(--app-text-muted);
+  white-space: nowrap;
 }
-
-.backtest-multi-detail-page__error-block {
-  max-height: 250px;
-  margin: 0;
-  overflow: auto;
-  padding: 12px;
-  border-radius: 12px;
-  background: #fef2f2;
-  color: #dc2626;
-  font-family: 'Fira Code', monospace;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.log-line {
-  white-space: pre;
-  word-break: normal;
-  margin-bottom: 4px;
-}
-
-.log-info { color: #93c5fd; }
-.log-warning { color: #fcd34d; }
-.log-error { color: #fca5a5; }
 </style>

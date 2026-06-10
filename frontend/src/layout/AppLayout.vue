@@ -1,223 +1,194 @@
 <template>
-  <el-container class="app-layout">
-    <el-aside v-if="!isMobile" :width="collapsed ? '64px' : `${sidebarWidth}px`" class="app-aside">
-      <div class="brand-shell" @click="collapsed = !collapsed">
-        <div class="brand-mark">JP</div>
-        <div v-show="!collapsed" class="brand-copy">
-          <div class="brand-copy__title">Jaspil</div>
-          <div class="brand-copy__subtitle">参数校验与任务编排</div>
-        </div>
-      </div>
-      <AppSidebar :collapsed="collapsed" />
-      <div v-if="!collapsed" class="aside-footer">
-        <span class="aside-footer__dot"></span>
-        数据通道在线
-      </div>
-    </el-aside>
+  <div class="app-layout" :class="{ 'sidebar-open': sidebarOpen }">
+    <!-- Mobile overlay -->
+    <div
+      v-if="sidebarOpen && isMobile"
+      class="app-layout__overlay"
+      @click="sidebarOpen = false"
+    />
 
-    <el-drawer
-      v-if="isMobile"
-      v-model="drawerOpen"
-      class="app-drawer"
-      direction="ltr"
-      :size="`${sidebarWidth}px`"
-      :with-header="false"
+    <!-- Sidebar -->
+    <aside
+      class="app-layout__sidebar"
+      :class="{ 'is-mobile': isMobile, 'is-open': sidebarOpen }"
     >
-      <div class="brand-shell brand-shell--drawer">
-        <div class="brand-mark">JP</div>
-        <div class="brand-copy">
-          <div class="brand-copy__title">Jaspil</div>
-          <div class="brand-copy__subtitle">参数校验与任务编排</div>
+      <div class="app-layout__sidebar-brand">
+        <span class="brand-icon">
+          <el-icon :size="18"><DataBoard /></el-icon>
+        </span>
+        <div class="brand-text">
+          <div class="brand-text__title">Jaspil</div>
+          <div class="brand-text__subtitle">任务管理平台</div>
         </div>
       </div>
-      <AppSidebar :collapsed="false" />
-    </el-drawer>
 
-    <el-container class="main-container">
-      <el-header class="app-header-wrap" :height="`${headerHeight}px`">
-        <AppHeader :sidebar-open="drawerOpen" @toggle-sidebar="drawerOpen = !drawerOpen">
-          <template #user>
-            <el-dropdown v-if="user" @command="handleCommand">
-              <span class="user-info el-dropdown-link">
-                {{ user.username }}
-                <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-              </span>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="logout">退出登录</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </template>
-        </AppHeader>
-      </el-header>
-      <el-main>
-        <router-view />
-      </el-main>
-    </el-container>
-  </el-container>
+      <div class="app-layout__sidebar-body">
+        <SidebarMenu />
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <div class="app-layout__main" :style="mainStyle">
+      <AppHeader @toggle-sidebar="sidebarOpen = !sidebarOpen" />
+
+      <main class="app-layout__content">
+        <router-view v-slot="{ Component }">
+          <transition name="page-fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
+      </main>
+    </div>
+  </div>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown } from '@element-plus/icons-vue'
-import { useResponsive } from '@/composables/useResponsive'
-import { useAuth } from '@/composables/useAuth'
-import AppSidebar from './AppSidebar.vue'
-import AppHeader from './AppHeader.vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { DataBoard } from '@element-plus/icons-vue'
+import SidebarMenu from './components/SidebarMenu.vue'
+import AppHeader from './components/AppHeader.vue'
 
-const { isMobile, sidebarWidth, headerHeight } = useResponsive()
-const { user, logout } = useAuth()
-const route = useRoute()
-const router = useRouter()
-const collapsed = ref(false)
-const drawerOpen = ref(false)
+const SIDEBAR_WIDTH = 240
+const MOBILE_BREAKPOINT = 768
 
-watch(isMobile, (mobile) => {
-  if (!mobile) {
-    drawerOpen.value = false
-  }
+const sidebarOpen = ref(false)
+const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1200)
+const isMobile = computed(() => windowWidth.value < MOBILE_BREAKPOINT)
+
+const mainStyle = computed(() => {
+  if (isMobile.value) return {}
+  return { marginLeft: `${SIDEBAR_WIDTH}px` }
 })
 
-watch(
-  () => route.fullPath,
-  () => {
-    if (isMobile.value) {
-      drawerOpen.value = false
-    }
-  }
-)
-
-function handleCommand(command) {
-  if (command === 'logout') {
-    logout()
-    router.push('/login')
+function handleResize() {
+  windowWidth.value = window.innerWidth
+  if (!isMobile.value) {
+    sidebarOpen.value = false
   }
 }
+
+onMounted(() => {
+  window.addEventListener('resize', handleResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+})
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .app-layout {
-  height: 100vh;
-  background: transparent;
-}
+  min-height: 100vh;
+  background: var(--app-bg);
 
-.app-aside {
-  display: flex;
-  flex-direction: column;
-  background: var(--app-sidebar-bg);
-  transition: width 0.3s;
-  overflow: hidden;
-  border-right: 1px solid var(--app-sidebar-border);
-  box-shadow: var(--app-shadow-soft);
-}
-
-.brand-shell {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 18px 18px 16px;
-  color: #fff;
-  cursor: pointer;
-  border-bottom: 1px solid var(--app-sidebar-border);
-  background: var(--app-sidebar-shell-bg);
-}
-
-.brand-shell--drawer {
-  padding-inline: 8px 4px;
-  margin-bottom: 10px;
-  border-bottom: none;
-}
-
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #f59e0b 0%, #facc15 100%);
-  color: #11203f;
-  font-family: 'Fira Code', monospace;
-  font-weight: 700;
-  box-shadow: 0 12px 24px rgba(245, 158, 11, 0.24);
-}
-
-.brand-copy__title {
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-
-.brand-copy__subtitle {
-  margin-top: 2px;
-  color: rgba(255, 255, 255, 0.64);
-}
-
-.aside-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: auto 14px 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--app-sidebar-border);
-  border-radius: 14px;
-  color: rgba(255, 255, 255, 0.7);
-  background: var(--app-sidebar-hover-bg);
-}
-
-.aside-footer__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.16);
-  animation: sidebarPulse 2.4s infinite;
-}
-
-.app-header-wrap {
-  padding: 0;
-}
-
-.main-container {
-  overflow: hidden;
-}
-
-.user-info {
-  cursor: pointer;
-  color: var(--app-text);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  border: 1px solid var(--app-border);
-  border-radius: 999px;
-  background: var(--app-surface-elevated);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
-}
-
-.app-drawer :deep(.el-drawer) {
-  background: var(--app-sidebar-bg);
-}
-
-@keyframes sidebarPulse {
-  0%,
-  100% {
-    transform: scale(1);
+  &__overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 999;
+    animation: overlay-fade-in 0.2s ease;
   }
 
-  50% {
-    transform: scale(1.15);
+  &__sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 240px;
+    background: var(--app-surface-sidebar);
+    border-right: 1px solid var(--app-border);
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.03);
+    display: flex;
+    flex-direction: column;
+    z-index: 1000;
+    overflow: hidden;
+    transition: transform var(--app-transition-slow);
+
+    &.is-mobile {
+      transform: translateX(-100%);
+
+      &.is-open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+      }
+    }
+  }
+
+  &__sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--app-border-light);
+    flex-shrink: 0;
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+      color: #fff;
+      font-size: 16px;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+      flex-shrink: 0;
+    }
+
+    .brand-text {
+      min-width: 0;
+
+      &__title {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--app-text);
+        letter-spacing: 0.04em;
+      }
+
+      &__subtitle {
+        font-size: 11px;
+        color: var(--app-text-subtle);
+        letter-spacing: 0.02em;
+      }
+    }
+  }
+
+  &__sidebar-body {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+
+    &::-webkit-scrollbar {
+      width: 5px;
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: var(--app-border);
+      border-radius: 3px;
+    }
+  }
+
+  &__main {
+    min-height: 100vh;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  &__content {
+    flex: 1;
+    padding: var(--app-page-padding);
+    width: 100%;
+    max-width: var(--app-content-max-width);
   }
 }
 
-@media (max-width: 767px) {
-  .brand-shell {
-    padding: 12px 0 14px;
-  }
-
-  .brand-mark {
-    width: 38px;
-    height: 38px;
-  }
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 </style>

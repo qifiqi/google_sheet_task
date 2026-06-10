@@ -1,12 +1,13 @@
 <template>
-  <el-card shadow="never" class="filter-toolbar">
-    <el-row :gutter="12" align="bottom">
+  <div class="filter-toolbar">
+    <el-row :gutter="12" align="middle">
       <el-col
         v-for="filter in filters"
         :key="filter.key"
         :xs="filter.span?.xs ?? 24"
         :sm="filter.span?.sm ?? 6"
         :md="filter.span?.md ?? 4"
+        class="filter-toolbar__item"
       >
         <el-select
           v-if="filter.type === 'select'"
@@ -49,14 +50,17 @@
 
       <el-col :xs="24" :sm="8" :md="4" class="filter-toolbar__btns">
         <el-button @click="$emit('clear')">清空</el-button>
-        <el-button @click="$emit('search')">刷新</el-button>
+        <el-button type="primary" plain @click="$emit('search')">
+          <el-icon style="margin-right: 4px"><Refresh /></el-icon>刷新
+        </el-button>
         <slot name="extra" />
       </el-col>
     </el-row>
-  </el-card>
+  </div>
 </template>
 
 <script setup>
+import { Refresh } from '@element-plus/icons-vue'
 import { useDebounce } from '@/composables/useDebounce'
 
 const props = defineProps({
@@ -80,13 +84,26 @@ function updateFilterDebounced(key, value) {
 
 <style lang="scss" scoped>
 .filter-toolbar {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  padding: 16px;
   margin-bottom: 16px;
+
+  :deep(.el-row) {
+    align-items: center;
+  }
+}
+
+.filter-toolbar__item {
+  margin-bottom: 8px;
 }
 
 .filter-toolbar__btns {
   display: flex;
   gap: 8px;
-  margin-top: 4px;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
 .full-width {
