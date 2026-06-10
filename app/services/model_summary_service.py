@@ -1421,11 +1421,24 @@ class ModelSummaryService:
                 TaskResultSummaryIndex.best_metric_value.desc(),
                 TaskResultSummaryIndex.id.desc(),
             )
-
+        # 优化：只提取 summary 需要的字段，避免全量 to_dict() 和重复转换
+        summary_query = query.with_entities(
+            TaskResultSummaryIndex.stock_code,
+            TaskResultSummaryIndex.task_id,
+            TaskResultSummaryIndex.best_metric_value,
+        )
+        summary_items = [
+            {
+                "stock_code": row[0],
+                "task_id": row[1],
+                "best_metric_value": row[2],
+            }
+            for row in summary_query.all()
+        ]
+        summary = self._summary_from_items(summary_items)
         # 直接使用分页查询，避免重复查询
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-        items = [item.to_dict() for item in pagination.items]
-        summary = self._summary_from_items(items)
+
 
         return {
             "status": "success",
