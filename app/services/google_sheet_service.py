@@ -542,9 +542,16 @@ class GoogleSheetService(BaseGoogleSheetService):
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
 
+        # 如果设定的起始日期早于K线最早日期，则使用K线最早日期
+        if start_date < data_start_date:
+            self._log_info(
+                f"股票{stock_code} 设定区间起点 {start_date} 早于K线首日 {data_start_date}，"
+                f"将从K线首日开始执行"
+            )
+            start_date = data_start_date
 
-        # 检查用户设定的区间是否在数据范围内
-        if start_date < data_start_date or end_date > data_end_date:
+        # 检查结束日期是否超出K线数据范围
+        if end_date > data_end_date:
             raise Exception(
                 f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
