@@ -738,11 +738,25 @@ class GoogleSheetService(BaseGoogleSheetService):
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
+        # # 检查用户设定的区间是否在数据范围内
+        # if start_date < data_start_date or end_date > data_end_date:
+        #     raise Exception(
+        #         f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
+
+        # 构建 full_years 列表（用于全年回测模式的边界检查）
+        full_years = None
+        if 'full' in date_range_mode:
+            full_years = list(range(_start_date, _end_year_1 + 1))
 
         # 检查用户设定的区间是否在数据范围内
         if start_date < data_start_date or end_date > data_end_date:
-            raise Exception(
-                f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
+            if full_years and int(data_start_date[:4]) in full_years:
+                pass
+            elif full_years and int(full_years[0]) > int(data_start_date[:4]):
+                pass
+            else:
+                raise Exception(
+                    f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
         if len(klines) < 30:
             raise Exception(f"股票{parameter} 数据量不足,k线数据量小于60条，无法在模型正确产生数据，或者联系开发")
