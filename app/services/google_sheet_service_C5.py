@@ -814,7 +814,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
         if 'recent' in date_range_mode:
             total_years = (_end_year_1 - _start_date) + 1
-            for year in range(1, total_years):
+            for year in range(1, total_years + 1):
                 # 如果当前年份在排除列表中，跳过
                 if year in exclude_recent_years:
                     continue
@@ -826,7 +826,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 _end_data = f"{_end_year_1}{end_date[4:]}"
                 _start_data = f"{_end_year_1 - year}{end_date[4:]}"
                 kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
-                Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
+                Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
+                # Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
@@ -859,5 +860,30 @@ class GoogleSheetService(BaseGoogleSheetService):
         return data, len(all_kline) + 20,KLINE_DATA_MAP
 
 if __name__ == '__main__':
-    GoogleSheetService({}, '')._get_all_parameters('lcm', 'n_plus_1', 'kp_price','2025-05-01', '2024-05-01', 'cn',
-                                                   ['full','recent'],[],[[],[1,2],[1,2]],)
+    GoogleSheetService({}, '')._get_all_parameters('588000', 'n_plus_1', 'kp_price','2026-06-10', '2020-11-16', 'cn',
+                                                   [
+                                                       "recent"
+                                                   ],[2, 4, 5, 6],[
+    [
+        "588000"
+    ],
+    [
+        "",
+        3.1,
+        3.4,
+        3.7,
+        4,
+        4.3,
+        4.5
+    ],
+    [
+        1.5,
+        2,
+        2.5,
+        3,
+        3.5,
+        4,
+        4.5,
+        5
+    ]
+])
