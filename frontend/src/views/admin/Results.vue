@@ -21,11 +21,9 @@
       :data="results"
       :loading="loading"
       :total="total"
-      :page="page"
-      :page-size="pageSize"
+      v-model:page="page"
+      v-model:page-size="pageSize"
       :page-sizes="[10, 20, 50, 100]"
-      @update:page="page = $event"
-      @update:page-size="pageSize = $event"
       @page-change="loadResults"
     >
       <el-table-column prop="id" label="ID" width="80" />

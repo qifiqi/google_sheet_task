@@ -251,7 +251,12 @@ function parseJsonArray(str) {
 const singleCombinationCount = computed(() => {
   const arrays = params.value.map((p) => parseJsonArray(p)).filter((a) => a && a.length > 0)
   if (!arrays.length) return 0
-  return arrays.reduce((acc, a) => acc * a.length, 1)
+  // 二维数组 list[list[...]]：取 list[0].length（第一个子数组的长度）
+  // 一维数组 list[...]：取 list.length（整体长度）
+  return arrays.reduce((acc, a) => {
+    const candidateCount = Array.isArray(a[0]) ? a[0].length : a.length
+    return acc * candidateCount
+  }, 1)
 })
 
 const combinationCount = computed(() => {

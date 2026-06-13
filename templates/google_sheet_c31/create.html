@@ -419,7 +419,7 @@
                                 <button type="button" class="btn btn-outline-success me-md-2" onclick="saveAsTemplate()" title="将当前配置保存为模板">
                                     <i class="bi bi-save"></i> 保存为模板
                                 </button>
-                                <button type="submit" class="btn btn-primary btn-lg" id="execute-btn">
+                                <button type="button" class="btn btn-primary btn-lg" id="execute-btn">
                                     <i class="bi bi-play-circle"></i> 创建任务并执行
                                 </button>
                             </div>
@@ -613,12 +613,23 @@
         return activeParameters;
     }
 
+    // 获取单个参数的候选数量
+    // 二维数组 list[list[...]]：取 list[0].length（第一个子数组的长度）
+    // 一维数组 list[...]：取 list.length（整体长度）
+    function getParamCandidateCount(paramArray) {
+        if (!Array.isArray(paramArray) || paramArray.length === 0) return 0;
+        if (Array.isArray(paramArray[0])) {
+            return paramArray[0].length;
+        }
+        return paramArray.length;
+    }
+
     function getC31ParameterCombinationCount(parameterValues) {
-        const candidateGroups = getC31ParameterCandidateGroups(parameterValues);
-        if (!candidateGroups.length) {
+        const activeParameters = getActiveParameters(parameterValues);
+        if (!activeParameters.length) {
             return 0;
         }
-        return candidateGroups.reduce((total, group) => total * group.length, 1);
+        return activeParameters.reduce((total, group) => total * getParamCandidateCount(group), 1);
     }
 
     function isCountCompatible(leftCount, rightCount) {
@@ -1792,9 +1803,8 @@
             });
         }
 
-        // 表单提交事件
-        document.getElementById('parameter-form').addEventListener('submit', function(e) {
-            e.preventDefault();
+        // 创建任务按钮点击事件（不使用表单submit，防止回车键误触发）
+        document.getElementById('execute-btn').addEventListener('click', function() {
             submitTask();
         });
     }

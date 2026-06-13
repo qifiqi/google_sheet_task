@@ -79,59 +79,51 @@ def tasks():
                 distinct_task_types = [item[0] for item in Task.query.with_entities(Task.task_type).distinct().all()]
                 allowed_task_types = filter_task_types_by_action(current_user, "view", distinct_task_types)
 
-            use_pagination = page is not None or per_page is not None or bool(task_status) or bool(keyword)
-            if not task_type and not allowed_task_types:
-                if use_pagination:
-                    return jsonify({
-                        "status": "success",
-                        "tasks": [],
-                        "pagination": {
-                            "page": page or 1,
-                            "per_page": per_page or 10,
-                            "total": 0,
-                            "pages": 0,
-                            "has_prev": False,
-                            "has_next": False,
-                            "prev_num": None,
-                            "next_num": None,
-                        },
-                        "statistics": {
-                            "total_tasks": 0,
-                            "completed_tasks": 0,
-                            "running_tasks": 0,
-                            "error_tasks": 0,
-                            "pending_tasks": 0,
-                            "today_new_tasks": 0,
-                            "success_rate": 0,
-                            "error_rate": 0,
-                            "avg_duration_minutes": 0,
-                        },
-                    })
-                return jsonify({"status": "success", "tasks": []})
+            default_page = page or 1
+            default_per_page = per_page or 10
 
-            if use_pagination:
-                data = task_manager.get_tasks_paginated(
-                    page=page or 1,
-                    per_page=per_page or 10,
-                    task_type=task_type,
-                    task_types=allowed_task_types if not task_type else None,
-                    status=task_status,
-                    keyword=keyword,
-                )
-                data["tasks"] = filter_task_dicts_by_action(current_user, "view", data.get("tasks", []))
+            if not task_type and not allowed_task_types:
                 return jsonify({
                     "status": "success",
-                    "tasks": data["tasks"],
-                    "pagination": data["pagination"],
-                    "statistics": data["statistics"],
+                    "tasks": [],
+                    "pagination": {
+                        "page": default_page,
+                        "per_page": default_per_page,
+                        "total": 0,
+                        "pages": 0,
+                        "has_prev": False,
+                        "has_next": False,
+                        "prev_num": None,
+                        "next_num": None,
+                    },
+                    "statistics": {
+                        "total_tasks": 0,
+                        "completed_tasks": 0,
+                        "running_tasks": 0,
+                        "error_tasks": 0,
+                        "pending_tasks": 0,
+                        "today_new_tasks": 0,
+                        "success_rate": 0,
+                        "error_rate": 0,
+                        "avg_duration_minutes": 0,
+                    },
                 })
 
-            tasks = task_manager.get_all_tasks(
+            data = task_manager.get_tasks_paginated(
+                page=default_page,
+                per_page=default_per_page,
                 task_type=task_type,
                 task_types=allowed_task_types if not task_type else None,
+                status=task_status,
+                keyword=keyword,
             )
-            tasks = filter_task_dicts_by_action(current_user, "view", tasks)
-            return jsonify({"status": "success", "tasks": tasks})
+            data["tasks"] = filter_task_dicts_by_action(current_user, "view", data.get("tasks", []))
+            return jsonify({
+                "status": "success",
+                "tasks": data["tasks"],
+                "pagination": data["pagination"],
+                "statistics": data["statistics"],
+            })
 
         data = request.get_json() or {}
         config = data.get('config')

@@ -138,7 +138,7 @@
                 <span class="text-muted me-2">每页</span>
                 <select class="form-select form-select-sm me-2 w-auto" id="page-size-select" onchange="changePageSize()">
                     <option value="10">10</option>
-                    <option value="20">20</option>
+                    <option value="20" selected>20</option>
                     <option value="50">50</option>
                     <option value="100">100</option>
                 </select>
@@ -357,9 +357,9 @@
 {% block scripts %}
 <script>
     let currentTasks = [];
-    let paginationState = { page: 1, per_page: 10, total: 0, pages: 0, has_prev: false, has_next: false };
+    let paginationState = { page: 1, per_page: 20, total: 0, pages: 0, has_prev: false, has_next: false };
     let currentPage = 1;
-    let itemsPerPage = 10;
+    let itemsPerPage = 20;
     let currentTaskId = null;
     let currentTaskType = null;
     let searchDebounceTimer = null;

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import or_, and_, func, case, text
 
 from app.extensions import db
 from app.models import Task, TaskResult
@@ -56,7 +56,10 @@ class TaskQueryService:
             query = query.filter(Task.task_type == task_type)
 
         if status and status != "all":
-            query = query.filter(Task.status == status)
+            if status == "pending":
+                query = query.filter(Task.status == "pending", Task.current_step > 0)
+            else:
+                query = query.filter(Task.status == status)
 
         if keyword:
             keyword = keyword.strip()
@@ -78,15 +81,6 @@ class TaskQueryService:
         )
         items = [task.to_dict() for task in pagination.items]
 
-        total = query.count()
-        completed_tasks = query.filter(Task.status == "completed").count()
-        running_tasks = query.filter(Task.status == "running").count()
-        error_tasks = query.filter(Task.status == "error").count()
-        pending_tasks = query.filter(
-            Task.status == "pending",
-            Task.current_step > 0,
-        ).count()
-
         today_start = datetime.now().replace(
             hour=0,
             minute=0,
@@ -94,26 +88,44 @@ class TaskQueryService:
             microsecond=0,
         )
         tomorrow_start = today_start + timedelta(days=1)
-        today_new_tasks = query.filter(
-            Task.created_at >= today_start,
-            Task.created_at < tomorrow_start,
-        ).count()
 
-        completed_with_duration = query.filter(
-            Task.status == "completed",
-            Task.start_time.isnot(None),
-            Task.end_time.isnot(None),
-        ).all()
-        duration_minutes = []
-        for task in completed_with_duration:
-            if task.start_time and task.end_time and task.end_time > task.start_time:
-                duration_minutes.append(
-                    (task.end_time - task.start_time).total_seconds() / 60
+        # 单次聚合查询获取所有统计数据（避免多次 COUNT 查询）
+        stats_row = query.with_entities(
+            func.count(Task.id).label('total'),
+            func.count(case((Task.status == 'completed', 1))).label('completed'),
+            func.count(case((Task.status == 'running', 1))).label('running'),
+            func.count(case((Task.status == 'error', 1))).label('error'),
+            func.count(case(
+                (and_(Task.status == 'pending', Task.current_step > 0), 1)
+            )).label('pending'),
+            func.count(case(
+                (and_(Task.created_at >= today_start, Task.created_at < tomorrow_start), 1)
+            )).label('today_new'),
+        ).first()
+
+        total = stats_row.total or 0
+        completed_tasks = stats_row.completed or 0
+        running_tasks = stats_row.running or 0
+        error_tasks = stats_row.error or 0
+        pending_tasks = stats_row.pending or 0
+        today_new_tasks = stats_row.today_new or 0
+
+        # 平均时长单独查询（需要 JOIN TaskResult 或使用 start/end_time）
+        avg_duration_row = query.with_entities(
+            func.avg(
+                case(
+                    (
+                        Task.status == 'completed',
+                        text(
+                            "EXTRACT(EPOCH FROM (end_time - start_time))"
+                        ),
+                    ),
                 )
-
+            ).label('avg_seconds'),
+        ).first()
         avg_duration_minutes = (
-            round(sum(duration_minutes) / len(duration_minutes))
-            if duration_minutes
+            round((avg_duration_row.avg_seconds or 0) / 60)
+            if avg_duration_row.avg_seconds
             else 0
         )
         success_rate = (

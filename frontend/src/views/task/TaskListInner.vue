@@ -248,12 +248,12 @@ async function loadTasks() {
     tasks.value = res.tasks || []
     total.value = res.pagination?.total || 0
 
-    const currentPageTasks = res.tasks || []
+    const s = res.statistics || {}
     stats.value = {
-      total: res.pagination?.total || 0,
-      completed: currentPageTasks.filter((t) => t.status === 'completed').length,
-      running: currentPageTasks.filter((t) => t.status === 'running').length,
-      error: currentPageTasks.filter((t) => t.status === 'error').length,
+      total: s.total_tasks ?? res.pagination?.total ?? 0,
+      completed: s.completed_tasks ?? 0,
+      running: s.running_tasks ?? 0,
+      error: s.error_tasks ?? 0,
     }
   } finally {
     loading.value = false

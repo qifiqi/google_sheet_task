@@ -1,6 +1,8 @@
 import api from './index'
 
-export const getTasks = (params) => api.get('/tasks', { params })
+export const getTasks = (params = {}) => api.get('/tasks', {
+  params: { page: 1, per_page: 20, ...params },
+})
 export const getTask = (id) => api.get(`/tasks/${id}`)
 export const createTask = (data) => api.post('/tasks', data)
 export const batchCreateTasks = (data) => api.post('/tasks/batch-create', data)

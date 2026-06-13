@@ -23,10 +23,8 @@
       :data="tasks"
       :loading="loading"
       :total="total"
-      :page="page"
-      :page-size="pageSize"
-      @update:page="page = $event"
-      @update:page-size="pageSize = $event"
+      v-model:page="page"
+      v-model:page-size="pageSize"
       @page-change="loadTasks"
     >
       <el-table-column label="任务名称" min-width="200">
@@ -103,12 +101,12 @@ async function loadTasks() {
     tasks.value = res.tasks || []
     total.value = res.pagination?.total || 0
 
-    const currentTasks = res.tasks || []
+    const s = res.statistics || {}
     stats.value = {
-      total: res.pagination?.total || 0,
-      running: currentTasks.filter((task) => task.status === 'running' || task.status === 'pending').length,
-      completed: currentTasks.filter((task) => task.status === 'completed').length,
-      failed: currentTasks.filter((task) => task.status === 'error').length
+      total: s.total_tasks ?? res.pagination?.total ?? 0,
+      running: (s.running_tasks ?? 0) + (s.pending_tasks ?? 0),
+      completed: s.completed_tasks ?? 0,
+      failed: s.error_tasks ?? 0,
     }
   } finally {
     loading.value = false

@@ -133,7 +133,7 @@ const { isMobile, componentSize, drawerSize, dialogWidth, formLabelPosition, for
 const tasks = ref([])
 const loading = ref(false)
 const page = ref(1)
-const pageSize = ref(10)
+const pageSize = ref(20)
 const total = ref(0)
 const filters = ref({ status: '', task_type: '', keyword: '' })
 const detailDrawerVisible = ref(false)

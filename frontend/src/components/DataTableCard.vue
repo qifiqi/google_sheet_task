@@ -57,7 +57,7 @@ const emit = defineEmits(['update:page', 'update:pageSize', 'page-change', 'refr
 const { isMobile } = useResponsive()
 
 const paginationLayout = computed(() =>
-  isMobile.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next'
+  isMobile.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'
 )
 
 function handlePageChange(val) {
