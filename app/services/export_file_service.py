@@ -270,8 +270,23 @@ def build_c5_model(model_key: Any, metrics: Any) -> dict[str, Any]:
     raw_metrics = metrics if isinstance(metrics, dict) else {}
     key_text = str(model_key)
     key_parts = key_text.split("__")
+
+    # 优先从旧键读取（向后兼容），回退到 flat_result 中读取
     start_xpl = raw_metrics.get("start_return_xpl") if isinstance(raw_metrics.get("start_return_xpl"), dict) else {}
     index_xpl = raw_metrics.get("index_return_xpl") if isinstance(raw_metrics.get("index_return_xpl"), dict) else {}
+
+    if not start_xpl or not index_xpl:
+        flat_result = raw_metrics.get("flat_result") if isinstance(raw_metrics.get("flat_result"), dict) else {}
+        if not start_xpl:
+            start_xpl = {
+                "annual_std_dev": flat_result.get("start_annual_std_dev", ""),
+                "sharpe_ratio": flat_result.get("start_sharpe_ratio", ""),
+            }
+        if not index_xpl:
+            index_xpl = {
+                "annual_std_dev": flat_result.get("index_annual_std_dev", ""),
+                "sharpe_ratio": flat_result.get("index_sharpe_ratio", ""),
+            }
 
     return {
         "model_key": key_text,
