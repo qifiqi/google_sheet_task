@@ -54,6 +54,99 @@ FOUR_DECIMAL_COLUMN_NAMES = {
     "模型XPL",
 }
 
+# C3 参数列名 → Google Sheet 单元格引用映射（与 _build_stock_param_result_payload 对应）
+C3_PARAM_CELL_MAP = [
+    ("xm",   "B6"),
+    ("tp1",  "B7"),
+    ("nl",   "B9"),
+    ("if",   "B10"),
+    ("ywfs", "B11"),
+    ("ywb",  "B12"),
+]
+C3_PARAM_NAMES = [name for name, _ in C3_PARAM_CELL_MAP]
+C3_PARAM_COUNT = len(C3_PARAM_NAMES)
+
+# C3 指标列名 → Google Sheet 单元格引用映射（与 SQL / _build_stock_param_result_payload 对应）
+C3_METRIC_CELL_MAP = [
+    ("annualized_rate",      "I16"),
+    ("index_annualized_rate","I19"),
+    ("maxdd",                "I17"),
+    ("max_index_dd",         "I20"),
+    ("fee_total",            "I21"),
+    ("fee_annualized",       "I22"),
+    ("year_rate",            "I23"),
+]
+
+# C3 导出列定义
+C3_EXPORT_COLUMNS = [
+    "top choices",
+    "ywf top choices",
+    "data start",
+    "data end",
+    *C3_PARAM_NAMES,
+    "annualized%",
+    "index%",
+    "beats",
+    "strat max dd%",
+    "index max dd%",
+    "beats_dd",
+    "Fee total",
+    "Fee annualize",
+    "年换手率",
+    "模型年化标准差",
+    "指数年化标准差",
+    "指数XPL",
+    "模型XPL",
+]
+
+# 导出时 "beats_dd" 在表头显示为 "beats"（与 return beats 列同名，业务约定）
+C3_HEADER_DISPLAY = {"beats_dd": "beats"}
+
+C3_COLUMN_WIDTHS = {
+    "top choices": 16,
+    "ywf top choices": 16,
+    "data start": 14,
+    "data end": 14,
+    "xm": 7,
+    "tp1": 7,
+    "nl": 7,
+    "if": 7,
+    "ywfs": 7,
+    "ywb": 7,
+    "annualized%": 14,
+    "index%": 10,
+    "beats": 10,
+    "beats_dd": 10,
+    "strat max dd%": 14,
+    "index max dd%": 14,
+    "Fee total": 12,
+    "Fee annualize": 14,
+    "年换手率": 12,
+    "模型年化标准差": 16,
+    "指数年化标准差": 16,
+    "指数XPL": 11,
+    "模型XPL": 11,
+}
+
+C3_PERCENT_COLUMN_NAMES = {
+    "annualized%",
+    "index%",
+    "beats",
+    "beats_dd",
+    "strat max dd%",
+    "index max dd%",
+    "Fee total",
+    "Fee annualize",
+    "年换手率",
+}
+
+C3_FOUR_DECIMAL_COLUMN_NAMES = {
+    "模型年化标准差",
+    "指数年化标准差",
+    "指数XPL",
+    "模型XPL",
+}
+
 C5_COLUMN_WIDTHS = {
     "xm": 7,
     "ml": 7,
@@ -199,11 +292,7 @@ class GenericTaskResultExporter:
         )
 
 
-EXPORTERS: tuple[TaskResultExporter, ...] = (
-    # 注册顺序很重要：专用导出器必须放在通用兜底导出器前面。
-    C5TaskResultExporter(),
-    GenericTaskResultExporter(),
-)
+EXPORTERS: tuple[TaskResultExporter, ...]  # 在文件末尾初始化，确保所有导出器类已定义
 
 
 def build_task_export(task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
@@ -504,6 +593,8 @@ def column_width(sheet: Any, column_index: int) -> int:
     header = str(sheet.cell(row=1, column=column_index).value or "")
     if header in C5_COLUMN_WIDTHS:
         return C5_COLUMN_WIDTHS[header]
+    if header in C3_COLUMN_WIDTHS:
+        return C3_COLUMN_WIDTHS[header]
 
     max_width = 0
     for row_index in range(1, sheet.max_row + 1):
@@ -543,6 +634,10 @@ def apply_number_format(cell: Any, column_name: Any) -> None:
     if column_text in PERCENT_COLUMN_NAMES and isinstance(cell.value, (int, float)):
         cell.number_format = "0.00%"
     elif column_text in FOUR_DECIMAL_COLUMN_NAMES and isinstance(cell.value, (int, float)):
+        cell.number_format = "0.0000"
+    elif column_text in C3_PERCENT_COLUMN_NAMES and isinstance(cell.value, (int, float)):
+        cell.number_format = "0.00%"
+    elif column_text in C3_FOUR_DECIMAL_COLUMN_NAMES and isinstance(cell.value, (int, float)):
         cell.number_format = "0.0000"
 
 
@@ -667,5 +762,216 @@ def _task_type(task: Any) -> str:
     return str(getattr(task, "task_type", "") or "").lower()
 
 
+# ---------------------------------------------------------------------------
+# C3 导出支持
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class C3ResultGroup:
+    """C3 原始 TaskResult 的中间结构。"""
+
+    step_index: Any
+    success: bool
+    stock_code: str
+    kline_range: str
+    kline_start: str
+    kline_end: str
+    params: list[Any]
+    task_id: str
+    timestamp: str
+    error_message: str
+    result: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class C3ExportRecord:
+    group: C3ResultGroup
+    row: list[Any]
+
+
+class C3TaskResultExporter:
+    """C3 专用导出：每个参数组合一行，按 K 线范围拆分 worksheet。"""
+
+    key = "google_sheet"
+
+    def supports(self, task: Any) -> bool:
+        tt = _task_type(task)
+        return tt in ("google_sheet", "google_sheet_c3")
+
+    def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
+        worksheets = build_c3_worksheets(results)
+        return GeneratedExport(
+            filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
+            mimetype=EXCEL_MIMETYPE,
+            workbook=build_workbook(worksheets),
+        )
+
+
+def build_c3_groups(results: list[dict[str, Any]]) -> list[C3ResultGroup]:
+    groups = []
+    for item in results:
+        params = item.get("parameters")
+        if not isinstance(params, list):
+            params = []
+
+        result = item.get("result") if isinstance(item.get("result"), dict) else {}
+
+        # kline 数据追加在参数列表末尾（可能是 dict 或 list）
+        kline_data = params[-1] if params and isinstance(params[-1], (dict, list)) else None
+        numeric_params = params[:-1] if kline_data is not None else params
+
+        kline_range = "-"
+        kline_start = ""
+        kline_end = ""
+        if isinstance(kline_data, dict) and kline_data.get("stock_date"):
+            kline_start = str(kline_data.get("stock_date", ""))
+            kline_end = kline_start
+            kline_range = kline_start
+        elif isinstance(kline_data, list):
+            dated_rows = [r for r in kline_data if isinstance(r, dict) and r.get("stock_date")]
+            if dated_rows:
+                dated_rows.sort(key=lambda r: str(r.get("stock_date") or ""))
+                kline_start = str(dated_rows[0].get("stock_date", ""))
+                kline_end = str(dated_rows[-1].get("stock_date", ""))
+                kline_range = f"{kline_start} ~ {kline_end}"
+
+        groups.append(
+            C3ResultGroup(
+                step_index=item.get("step_index"),
+                success=bool(item.get("success")),
+                stock_code=str(result.get("stock_code") or ""),
+                kline_range=kline_range,
+                kline_start=kline_start,
+                kline_end=kline_end,
+                params=numeric_params,
+                task_id=str(item.get("task_id") or ""),
+                timestamp=format_time(item.get("timestamp")),
+                error_message=str(item.get("error_message") or ""),
+                result=result,
+            )
+        )
+    return groups
+
+
+def build_c3_records(results: list[dict[str, Any]]) -> list[C3ExportRecord]:
+    records = []
+    for group in build_c3_groups(results):
+        records.append(C3ExportRecord(group=group, row=c3_result_row(group)))
+    return sort_c3_records(records)
+
+
+def _c3_cell_value(result: dict[str, Any], cell_ref: str, named_key: str = "") -> Any:
+    """从 C3 result dict 中读取值：优先单元格引用，回退到命名键。"""
+    value = result.get(cell_ref, "")
+    if value == "" and named_key:
+        value = result.get(named_key, "")
+    return value
+
+
+def c3_result_row(group: C3ResultGroup) -> list[Any]:
+    r = group.result
+
+    # ── 参数列（从单元格引用读取，与 _build_stock_param_result_payload 一致）──
+    param_values = [_c3_cell_value(r, cell, name) for name, cell in C3_PARAM_CELL_MAP]
+
+    # ── 指标列（从单元格引用读取，与 SQL 查询字段一一对应）──
+    annualized_rate      = _c3_cell_value(r, "I16", "annualized_rate")
+    index_annualized_rate = _c3_cell_value(r, "I19", "index_annualized_rate")
+    maxdd                = _c3_cell_value(r, "I17", "maxdd")
+    max_index_dd         = _c3_cell_value(r, "I20", "max_index_dd")
+    fee_total            = _c3_cell_value(r, "I21", "fee_total")
+    fee_annualized       = _c3_cell_value(r, "I22", "fee_annualized")
+    year_rate            = _c3_cell_value(r, "I23", "year_rate")
+
+    # return_beats / dd_beats / turnover_rate 可能是命名键或单元格引用
+    return_beats  = r.get("return_beats", "")
+    dd_beats      = r.get("dd_beats", "")
+    turnover_rate = r.get("turnover_rate", year_rate)  # year_rate 即年换手率
+
+    # ── XPL 分析字段（从 flat_result 子字典读取）──
+    flat = r.get("flat_result") if isinstance(r.get("flat_result"), dict) else {}
+    start_monthly_std_dev = flat.get("start_monthly_std_dev", "")
+    index_monthly_std_dev = flat.get("index_monthly_std_dev", "")
+    index_sharpe_ratio    = flat.get("index_sharpe_ratio", "")
+    start_sharpe_ratio    = flat.get("start_sharpe_ratio", "")
+
+    # ── top choices 展示列 ──
+    xm_val  = str(param_values[0]) if param_values[0] != "" else ""
+    tp1_val = str(param_values[1]) if param_values[1] != "" else ""
+    top_choices = f"{xm_val}/{tp1_val}" if xm_val or tp1_val else ""
+
+    if_val   = str(param_values[3]) if param_values[3] != "" else ""
+    ywfs_val = str(param_values[4]) if param_values[4] != "" else ""
+    ywb_val  = str(param_values[5]) if param_values[5] != "" else ""
+    ywf_parts = [v for v in (if_val, ywfs_val, ywb_val) if v]
+    ywf_top_choices = "/".join(ywf_parts)
+
+    return [
+        top_choices,                      # top choices
+        ywf_top_choices,                  # ywf top choices
+        group.kline_start,                # data start
+        group.kline_end,                  # data end
+        *param_values,                    # xm, tp1, nl, if, ywfs, ywb
+        annualized_rate,                  # annualized%
+        index_annualized_rate,            # index%
+        return_beats,                     # beats (return)
+        maxdd,                            # strat max dd%
+        max_index_dd,                     # index max dd%
+        dd_beats,                         # beats (dd)
+        fee_total,                        # Fee total
+        fee_annualized,                   # Fee annualize
+        turnover_rate,                    # 年换手率
+        start_monthly_std_dev,            # 模型年化标准差
+        index_monthly_std_dev,            # 指数年化标准差
+        index_sharpe_ratio,               # 指数XPL
+        start_sharpe_ratio,               # 模型XPL
+    ]
+
+
+def sort_c3_records(records: list[C3ExportRecord]) -> list[C3ExportRecord]:
+    def compare(left: C3ExportRecord, right: C3ExportRecord) -> int:
+        comparisons = [
+            compare_desc(left.group.stock_code, right.group.stock_code),
+            compare_desc(
+                parse_range_end(left.group.kline_range),
+                parse_range_end(right.group.kline_range),
+            ),
+        ]
+        return next((value for value in comparisons if value), 0)
+
+    return sorted(records, key=cmp_to_key(compare))
+
+
+def c3_display_header(columns: list[str]) -> list[str]:
+    """将内部列名转换为导出表头显示名称。"""
+    return [C3_HEADER_DISPLAY.get(col, col) for col in columns]
+
+
+def build_c3_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
+    records = build_c3_records(results)
+    display_header = c3_display_header(C3_EXPORT_COLUMNS)
+    if not records:
+        return [WorksheetData(name="无K线区间", header=display_header, rows=[])]
+
+    grouped = OrderedDict()
+    for record in records:
+        key = str(record.group.kline_range or "无K线区间")
+        grouped.setdefault(key, []).append(record.row)
+
+    return [
+        WorksheetData(name=group_name, header=display_header, rows=rows)
+        for group_name, rows in grouped.items()
+    ]
+
+
 def _task_name(task: Any) -> str:
     return str(getattr(task, "name", None) or getattr(task, "id", None) or "task_export")
+
+
+# 注册顺序很重要：专用导出器必须放在通用兜底导出器前面。
+EXPORTERS = (
+    C5TaskResultExporter(),
+    C3TaskResultExporter(),
+    GenericTaskResultExporter(),
+)

@@ -167,6 +167,9 @@
                     <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshResults()">
                         <i class="bi bi-arrow-clockwise"></i> 刷新
                     </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV()">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> 导出 Excel
+                    </button>
                     <div class="btn-group" role="group">
                         <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
                             <i class="bi bi-funnel"></i> 筛选
@@ -1747,6 +1750,114 @@
         });
     }
     
+    // -----------------------------------------------------------------------
+    // 导出 Excel 功能
+    // -----------------------------------------------------------------------
+
+    async function exportResultsToCSV() {
+        if (!currentTaskId) {
+            showNotification('任务ID为空，无法导出', 'error');
+            return;
+        }
+
+        try {
+            const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
+            const saveTarget = await prepareExcelSaveTarget(defaultFilename);
+            const response = await fetch(`/api/tasks/${encodeURIComponent(currentTaskId)}/export`);
+            if (!response.ok) {
+                const text = await response.text();
+                let message = `导出失败，状态码 ${response.status}`;
+                try {
+                    const payload = JSON.parse(text);
+                    message = payload.message || message;
+                } catch (_error) {
+                    if (text) message = text;
+                }
+                showNotification(message, 'error');
+                return;
+            }
+
+            const blob = await response.blob();
+            await saveExcelBlob(blob, saveTarget, getExportFilenameFromResponse(response) || defaultFilename);
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                showNotification('已取消保存操作', 'info');
+                return;
+            }
+            showNotification(`导出失败: ${error.message || error}`, 'error');
+        }
+    }
+
+    async function prepareExcelSaveTarget(defaultFilename) {
+        if (window.showSaveFilePicker && window.isSecureContext) {
+            try {
+                const fileHandle = await window.showSaveFilePicker({
+                    suggestedName: defaultFilename,
+                    types: [{
+                        description: 'Excel 工作簿',
+                        accept: {
+                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
+                        }
+                    }]
+                });
+                return {type: 'fileHandle', fileHandle};
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    throw error;
+                }
+                console.warn('文件保存窗口不可用，回退到浏览器下载:', error);
+            }
+        }
+
+        const userFilename = prompt('请输入导出的 Excel 文件名:', defaultFilename);
+        if (userFilename === null) {
+            const abortError = new Error('用户取消了保存操作');
+            abortError.name = 'AbortError';
+            throw abortError;
+        }
+
+        return {type: 'download', filename: ensureExcelExtension(userFilename.trim() || defaultFilename)};
+    }
+
+    async function saveExcelBlob(blob, saveTarget, fallbackFilename) {
+        if (saveTarget?.type === 'fileHandle') {
+            const writable = await saveTarget.fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            showNotification('Excel 文件已保存', 'success');
+            return;
+        }
+
+        downloadBlob(blob, saveTarget?.filename || ensureExcelExtension(fallbackFilename));
+        showNotification('Excel 导出已开始下载', 'success');
+    }
+
+    function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function ensureExcelExtension(filename) {
+        const safeName = String(filename || 'export.xlsx').trim() || 'export.xlsx';
+        return safeName.toLowerCase().endsWith('.xlsx') ? safeName : `${safeName}.xlsx`;
+    }
+
+    function getExportFilenameFromResponse(response) {
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match) {
+            return decodeURIComponent(utf8Match[1]);
+        }
+        const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+        return asciiMatch ? asciiMatch[1] : '';
+    }
+
     // 保存任务配置
     function saveTaskConfig() {
         try {
