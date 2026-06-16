@@ -779,7 +779,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         success_count = start_index
         failed_count = 0
         processed_index = 0
-
+        column_A_length = 0
         for product in products:
             for group_index in range(parameter_count):
                 if self._is_cancel_requested():
@@ -829,6 +829,12 @@ class BacktestMultiProductService(BacktestTrainingService):
                 if cached_combination.get("product_index") != product_index:
                     sheet_cache["combination"] = {}
 
+                input_column_d, input_column_v, output_range_1, output_range_2, output_column_index, output_column_start, parameter_positions, check_positions, last_row = self._c3_to_c5_get_config(
+                    product_config)
+                A_num = self.google_sheet.get_last_row('A')
+                self._log_info(f'{self.google_sheet.title} 当前A列行数: {A_num}, 准备滞空 A列 B列')
+                self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
+
                 combination = {
                     "parameter": parameter,
                     "stock_code": product["stock_code"],
@@ -849,7 +855,7 @@ class BacktestMultiProductService(BacktestTrainingService):
 
                 try:
                     success, result_payload, return_date = self._execute_parameter_combination(
-                        kline_info["column_A_length"],
+                        column_A_length,
                         combination,
                         sheet_cache,
                         product_config,
@@ -861,6 +867,8 @@ class BacktestMultiProductService(BacktestTrainingService):
                         return "error"
 
                     kline = kline_info["kline"]
+                    column_A_length = len(kline)
+
                     self._save_task_result(current_step - 1, {
                         **combination,
                         "kline": [kline[0], kline[-1]],
@@ -970,7 +978,6 @@ class BacktestMultiProductService(BacktestTrainingService):
             "kline_key": kline_key,
             "kline": kline,
             "kline_signature": self._build_kline_signature(kline),
-            "column_A_length": len(kline) + 20,
         }
 
     def _is_same_kline_source(self, combination: dict[str, Any], cached_combination: dict[str, Any]) -> bool:
