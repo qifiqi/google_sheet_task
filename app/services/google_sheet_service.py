@@ -250,6 +250,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 return {}
 
             flat_result, analyze_result = self.xpl.get_return_analysis_v1(return_data)
+            progress_msg = f'收益率分析执行完成，结果如下：{analyze_result}'
+            self._log_info(progress_msg)
             return {
                 "analyze_result": analyze_result,
                 "flat_result": flat_result,

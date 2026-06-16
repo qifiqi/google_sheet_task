@@ -1,11 +1,20 @@
 import json
+from datetime import datetime
 from io import BytesIO
 
 from flask import Blueprint, g, jsonify, request, send_file
 
 from app.extensions import db
 from app.models import Task
-from app.services.export_file_service import build_task_export
+from app.services.export_file_service import (
+    EXCEL_MIMETYPE,
+    BatchExportFile,
+    build_batch_export_file,
+    build_c3_worksheets,
+    build_task_export,
+    build_workbook,
+    sanitize_export_filename,
+)
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.utils.auth import login_required, permission_required
 from app.utils.logger import get_logger
@@ -359,6 +368,101 @@ def export_task_results(task_id):
     except Exception as e:
         logger.error(f"导出任务结果失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ── 批量导出配置 ───────────────────────────────────────────────
+# 单次合并导出允许的最大任务数；超过此值直接拒绝请求，
+# 避免单次生成过大的 Excel 导致内存压力和响应超时。
+BATCH_EXPORT_MAX_TASKS = 10
+
+
+@task_api_bp.route('/tasks/batch-export', methods=['POST'])
+@login_required
+@permission_required('task:view')
+def batch_export_task_results():
+    """批量合并导出多个 C3 任务结果。
+
+    流程概览：
+      1. 参数校验（数量上限、任务存在性、用户权限）
+      2. 一次 SQL 批量查询所有 TaskResult（替代原来的 N+1 循环）
+      3. 按 task_name 排序后组装 merged_results
+      4. 调用 build_batch_export_file 生成 Excel
+      5. 返回带 Content-Length 的 send_file 响应（前端可展示进度条）
+
+    请求体: {"task_ids": ["id1", "id2", ...]}
+    最多支持 BATCH_EXPORT_MAX_TASKS 个任务，超出返回 400。
+    """
+    try:
+        # ① 参数校验：至少一个任务且不超过上限
+        data = request.get_json() or {}
+        task_ids = data.get('task_ids', [])
+
+        if not task_ids or not isinstance(task_ids, list):
+            return jsonify({"status": "error", "message": "请选择至少一个任务"}), 400
+
+        if len(task_ids) > BATCH_EXPORT_MAX_TASKS:
+            return jsonify({
+                "status": "error",
+                "message": f"合并导出最多支持 {BATCH_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个",
+            }), 400
+
+        # ② 查询任务对象并逐条校验权限
+        tasks = Task.query.filter(Task.id.in_(task_ids)).all()
+        if not tasks:
+            return jsonify({"status": "error", "message": "未找到匹配任务"}), 404
+
+        current_user = getattr(g, "current_user", None)
+        for t in tasks:
+            decision = authorize_task_type_action(current_user, "view", t.task_type)
+            if not decision["allowed"]:
+                return _task_permission_denied("view", t.task_type, decision, task_id=t.id)
+
+        # ③ 批量查询 TaskResult（性能优化：1 条 SQL 替代原来的 N 条循环查询）
+        #    使用 IN 查询 + 排序，避免在 Python 层重复排序
+        from app.models import TaskResult
+        all_results = (
+            TaskResult.query
+            .filter(TaskResult.task_id.in_(task_ids))
+            .order_by(TaskResult.task_id, TaskResult.step_index.asc())
+            .all()
+        )
+
+        # ④ 按 task_name 排序后组装 merged_results
+        #    每条结果注入 task_name，供 build_c3_worksheets 排序时跨任务分组
+        tasks.sort(key=lambda t: t.name or "")
+        result_map: dict[str, list] = {}
+        for r in all_results:
+            result_map.setdefault(r.task_id, []).append(r.to_dict())
+
+        merged_results = []
+        for t in tasks:
+            task_name = t.name or ""
+            for r in result_map.get(t.id, []):
+                r["task_name"] = task_name
+                merged_results.append(r)
+
+        # ⑤ 调用封装函数生成 Excel（含 worksheets、workbook、序列化）
+        export_file: BatchExportFile = build_batch_export_file(merged_results)
+
+        # ⑥ 返回 send_file 响应，显式设置 Content-Length
+        #    前端可通过 ReadableStream 读取进度条百分比
+        response = send_file(
+            export_file.buffer,
+            mimetype=EXCEL_MIMETYPE,
+            as_attachment=True,
+            download_name=export_file.filename,
+        )
+        response.headers['Content-Length'] = export_file.file_size
+        return response
+
+    except ValueError as e:
+        # 业务校验失败（如 merged_results 为空）
+        logger.warning(f"批量导出校验失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        logger.error(f"批量导出失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @task_api_bp.route('/tasks/<task_id>/status-check', methods=['GET'])
 @login_required

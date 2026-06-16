@@ -58,6 +58,12 @@ def create():
         return render_template('google_sheet_c4/create.html', version='c4')
     return render_template('google_sheet/create.html', version=None)
 
+@google_sheet_bp.route('/merge-export')
+def merge_export():
+    """C3 合并导出独立页面"""
+    return render_template('google_sheet/merge_export.html')
+
+
 @google_sheet_bp.route('/detail')
 def detail():
     """任务详情页面"""

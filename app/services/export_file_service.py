@@ -4,6 +4,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cmp_to_key
+from io import BytesIO
 from typing import Any, Protocol
 
 from openpyxl import Workbook
@@ -128,7 +129,13 @@ C3_COLUMN_WIDTHS = {
     "模型XPL": 11,
 }
 
-C3_PERCENT_COLUMN_NAMES = {
+# C3 导出字段格式说明：
+# 数据库存储的是小数（如 0.15），SQL 层已乘以 100 后存储（如 15.0）。
+# 导出时直接显示为纯数字，不添加 "%" 后缀，不使用 Excel 百分比格式。
+C3_PERCENT_COLUMN_NAMES = set()  # 保留变量名以兼容外部引用，实际不再做百分比转换
+
+# 这些列的值已在 SQL 中乘以 100，导出时用 "0.00" 格式显示纯数字
+C3_NUMBER_COLUMN_NAMES = {
     "annualized%",
     "index%",
     "beats",
@@ -554,8 +561,15 @@ def build_workbook(worksheets: list[WorksheetData]) -> Workbook:
 
 
 def style_table_sheet(sheet: Any) -> None:
-    """统一导出样式：冻结表头、居中显示、设置边框和自适应列宽。"""
+    """统一导出样式：冻结表头、居中显示、设置边框和自适应列宽。
 
+    优化策略：
+    - 预计算每列的数字格式，避免逐单元格重复查表头
+    - 样式对象在列级别复用，减少不必要的条件判断
+    - 列宽只对有预定义宽度的列查表，其余列一次扫描取最大宽度
+    """
+
+    # ── 预创建复用样式对象 ──
     header_fill = PatternFill("solid", fgColor="F7E1A1")
     header_font = Font(name="Microsoft YaHei", size=10, bold=True)
     body_font = Font(name="Microsoft YaHei", size=10)
@@ -570,23 +584,51 @@ def style_table_sheet(sheet: Any) -> None:
 
     sheet.freeze_panes = "A2"
 
-    for row_index in range(1, sheet.max_row + 1):
-        sheet.row_dimensions[row_index].height = 18
-        for column_index in range(1, sheet.max_column + 1):
-            cell = sheet.cell(row=row_index, column=column_index)
+    max_row = sheet.max_row
+    max_col = sheet.max_column
+
+    # ── 预计算每列的数字格式（一次查表，全列复用）──
+    col_format: dict[int, str] = {}
+    for col_idx in range(1, max_col + 1):
+        col_name = str(sheet.cell(row=1, column=col_idx).value or "")
+        if col_name in PERCENT_COLUMN_NAMES:
+            col_format[col_idx] = "0.00%"
+        elif col_name in FOUR_DECIMAL_COLUMN_NAMES or col_name in C3_FOUR_DECIMAL_COLUMN_NAMES:
+            col_format[col_idx] = "0.0000"
+        elif col_name in C3_NUMBER_COLUMN_NAMES:
+            col_format[col_idx] = "0.00"
+
+    # ── 逐行应用样式（header 单独处理，body 统一样式 + 列格式）──
+    for row_idx in range(1, max_row + 1):
+        sheet.row_dimensions[row_idx].height = 18
+        is_header = row_idx == 1
+        for col_idx in range(1, max_col + 1):
+            cell = sheet.cell(row=row_idx, column=col_idx)
             cell.border = border
-            if row_index == 1:
+            if is_header:
                 cell.fill = header_fill
                 cell.font = header_font
                 cell.alignment = header_alignment
             else:
                 cell.font = body_font
                 cell.alignment = body_alignment
-            apply_number_format(cell, sheet.cell(row=1, column=column_index).value)
+                fmt = col_format.get(col_idx)
+                if fmt and isinstance(cell.value, (int, float)):
+                    cell.number_format = fmt
 
-    for column_index in range(1, sheet.max_column + 1):
-        letter = get_column_letter(column_index)
-        sheet.column_dimensions[letter].width = column_width(sheet, column_index)
+    # ── 列宽：预定义宽度优先，其余一次扫描计算 ──
+    for col_idx in range(1, max_col + 1):
+        letter = get_column_letter(col_idx)
+        header = str(sheet.cell(row=1, column=col_idx).value or "")
+        predefined = C5_COLUMN_WIDTHS.get(header) or C3_COLUMN_WIDTHS.get(header)
+        if predefined:
+            sheet.column_dimensions[letter].width = predefined
+        else:
+            # 只在没有预定义宽度时扫描内容
+            max_w = 0
+            for row_idx in range(1, max_row + 1):
+                max_w = max(max_w, display_width(sheet.cell(row=row_idx, column=col_idx).value))
+            sheet.column_dimensions[letter].width = min(max(max_w + 2, 8), 40)
 
 
 def column_width(sheet: Any, column_index: int) -> int:
@@ -635,8 +677,8 @@ def apply_number_format(cell: Any, column_name: Any) -> None:
         cell.number_format = "0.00%"
     elif column_text in FOUR_DECIMAL_COLUMN_NAMES and isinstance(cell.value, (int, float)):
         cell.number_format = "0.0000"
-    elif column_text in C3_PERCENT_COLUMN_NAMES and isinstance(cell.value, (int, float)):
-        cell.number_format = "0.00%"
+    elif column_text in C3_NUMBER_COLUMN_NAMES and isinstance(cell.value, (int, float)):
+        cell.number_format = "0.00"
     elif column_text in C3_FOUR_DECIMAL_COLUMN_NAMES and isinstance(cell.value, (int, float)):
         cell.number_format = "0.0000"
 
@@ -752,6 +794,16 @@ def compare_desc(left: Any, right: Any) -> int:
     return -1 if left > right else 1
 
 
+def _safe_float(value: Any) -> float:
+    """安全转换为 float，无效值返回负无穷以保证排序时始终排在末尾。"""
+    if value is None or value == "":
+        return float("-inf")
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return float("-inf")
+
+
 def compare_asc(left: Any, right: Any) -> int:
     if left == right:
         return 0
@@ -782,6 +834,7 @@ class C3ResultGroup:
     timestamp: str
     error_message: str
     result: dict[str, Any]
+    task_name: str = ""  # 批量合并导出时用于跨任务排序
 
 
 @dataclass(frozen=True)
@@ -849,6 +902,7 @@ def build_c3_groups(results: list[dict[str, Any]]) -> list[C3ResultGroup]:
                 timestamp=format_time(item.get("timestamp")),
                 error_message=str(item.get("error_message") or ""),
                 result=result,
+                task_name=str(item.get("task_name") or ""),
             )
         )
     return groups
@@ -869,6 +923,28 @@ def _c3_cell_value(result: dict[str, Any], cell_ref: str, named_key: str = "") -
     return value
 
 
+def _safe_subtract(a: Any, b: Any) -> Any:
+    """安全计算 a - b，任意一方非数值时返回空字符串。"""
+    try:
+        a_num = float(a) if a != "" and a is not None else None
+        b_num = float(b) if b != "" and b is not None else None
+        if a_num is None or b_num is None:
+            return ""
+        return a_num - b_num
+    except (ValueError, TypeError):
+        return ""
+
+
+def _safe_multiply_100(value: Any) -> Any:
+    """安全地将值乘以 100，非数值返回空字符串。"""
+    if value is None or value == "":
+        return ""
+    try:
+        return float(value) * 100
+    except (ValueError, TypeError):
+        return ""
+
+
 def c3_result_row(group: C3ResultGroup) -> list[Any]:
     r = group.result
 
@@ -876,18 +952,21 @@ def c3_result_row(group: C3ResultGroup) -> list[Any]:
     param_values = [_c3_cell_value(r, cell, name) for name, cell in C3_PARAM_CELL_MAP]
 
     # ── 指标列（从单元格引用读取，与 SQL 查询字段一一对应）──
-    annualized_rate      = _c3_cell_value(r, "I16", "annualized_rate")
-    index_annualized_rate = _c3_cell_value(r, "I19", "index_annualized_rate")
-    maxdd                = _c3_cell_value(r, "I17", "maxdd")
-    max_index_dd         = _c3_cell_value(r, "I20", "max_index_dd")
-    fee_total            = _c3_cell_value(r, "I21", "fee_total")
-    fee_annualized       = _c3_cell_value(r, "I22", "fee_annualized")
-    year_rate            = _c3_cell_value(r, "I23", "year_rate")
+    # 数据库存储原始小数（如 0.15），业务层 ×100 后展示为 15.00
+    annualized_rate      = _safe_multiply_100(_c3_cell_value(r, "I16", "annualized_rate"))
+    index_annualized_rate = _safe_multiply_100(_c3_cell_value(r, "I19", "index_annualized_rate"))
+    maxdd                = _safe_multiply_100(_c3_cell_value(r, "I17", "maxdd"))
+    max_index_dd         = _safe_multiply_100(_c3_cell_value(r, "I20", "max_index_dd"))
+    fee_total            = _safe_multiply_100(_c3_cell_value(r, "I21", "fee_total"))
+    fee_annualized       = _safe_multiply_100(_c3_cell_value(r, "I22", "fee_annualized"))
+    year_rate            = _c3_cell_value(r, "I23", "year_rate")  # 年换手率不乘100
 
-    # return_beats / dd_beats / turnover_rate 可能是命名键或单元格引用
-    return_beats  = r.get("return_beats", "")
-    dd_beats      = r.get("dd_beats", "")
-    turnover_rate = r.get("turnover_rate", year_rate)  # year_rate 即年换手率
+    # beats（收益差）和 beats_dd（回撤差）基于已乘 100 的值计算
+    return_beats = _safe_subtract(annualized_rate, index_annualized_rate)
+    dd_beats     = _safe_subtract(maxdd, max_index_dd)
+
+    # 年换手率：优先读取命名键，回退到 year_rate（I23）
+    turnover_rate = r.get("turnover_rate") or year_rate
 
     # ── XPL 分析字段（从 flat_result 子字典读取）──
     flat = r.get("flat_result") if isinstance(r.get("flat_result"), dict) else {}
@@ -896,22 +975,11 @@ def c3_result_row(group: C3ResultGroup) -> list[Any]:
     index_sharpe_ratio    = flat.get("index_sharpe_ratio", "")
     start_sharpe_ratio    = flat.get("start_sharpe_ratio", "")
 
-    # ── top choices 展示列 ──
-    xm_val  = str(param_values[0]) if param_values[0] != "" else ""
-    tp1_val = str(param_values[1]) if param_values[1] != "" else ""
-    top_choices = f"{xm_val}/{tp1_val}" if xm_val or tp1_val else ""
-
-    if_val   = str(param_values[3]) if param_values[3] != "" else ""
-    ywfs_val = str(param_values[4]) if param_values[4] != "" else ""
-    ywb_val  = str(param_values[5]) if param_values[5] != "" else ""
-    ywf_parts = [v for v in (if_val, ywfs_val, ywb_val) if v]
-    ywf_top_choices = "/".join(ywf_parts)
-
     return [
-        top_choices,                      # top choices
-        ywf_top_choices,                  # ywf top choices
-        group.kline_start,                # data start
-        group.kline_end,                  # data end
+        "",  # top choices（暂不填数据）
+        "",  # ywf top choices（暂不填数据）
+        "",  # data start（暂不填数据）
+        "",  # data end（暂不填数据）
         *param_values,                    # xm, tp1, nl, if, ywfs, ywb
         annualized_rate,                  # annualized%
         index_annualized_rate,            # index%
@@ -929,16 +997,57 @@ def c3_result_row(group: C3ResultGroup) -> list[Any]:
     ]
 
 
+def _stock_code_priority(code: str) -> int:
+    """stock_code 以 '0' 结尾的优先级为 0（排在最前），其它为 1。"""
+    return 0 if code and code.endswith("0") else 1
+
+
+def _return_beats_value(result: dict[str, Any]) -> float:
+    """从 result dict 计算 return_beats = (I16 - I19) * 100，无效时返回负无穷。"""
+    val = _safe_subtract(
+        _c3_cell_value(result, "I16", "annualized_rate"),
+        _c3_cell_value(result, "I19", "index_annualized_rate"),
+    )
+    f = _safe_float(val)
+    return f * 100 if f != float("-inf") else f
+
+
 def sort_c3_records(records: list[C3ExportRecord]) -> list[C3ExportRecord]:
+    """C3 记录多级排序。
+
+    排序优先级（均为降序，除了 stock_code 优先级升序）：
+      1. task_name desc（跨任务合并时按任务名分组）
+      2. stock_code 以 '0' 结尾优先（升序，priority 0 < 1）
+      3. stock_code desc
+      4. kline_range 结束时间 desc
+      5. return_beats desc（annualized_rate - index_annualized_rate）
+
+    优化：预先计算每条记录的排序键，避免 cmp_to_key 中重复调用耗时的
+    _return_beats_value / _stock_code_priority / parse_range_end。
+    """
+
+    # 一次性计算所有排序键，存入 dict 避免重复计算
+    sort_keys: dict[int, tuple] = {}
+    for rec in records:
+        sort_keys[id(rec)] = (
+            rec.group.task_name,
+            _stock_code_priority(rec.group.stock_code),
+            rec.group.stock_code,
+            parse_range_end(rec.group.kline_range),
+            _return_beats_value(rec.group.result),
+        )
+
     def compare(left: C3ExportRecord, right: C3ExportRecord) -> int:
+        lk = sort_keys[id(left)]
+        rk = sort_keys[id(right)]
         comparisons = [
-            compare_desc(left.group.stock_code, right.group.stock_code),
-            compare_desc(
-                parse_range_end(left.group.kline_range),
-                parse_range_end(right.group.kline_range),
-            ),
+            compare_desc(lk[0], rk[0]),   # task_name desc
+            compare_asc(lk[1], rk[1]),    # stock_code priority asc (0 < 1 → 优先)
+            compare_desc(lk[2], rk[2]),   # stock_code desc
+            compare_desc(lk[3], rk[3]),   # kline_range end desc
+            compare_desc(lk[4], rk[4]),   # return_beats desc
         ]
-        return next((value for value in comparisons if value), 0)
+        return next((v for v in comparisons if v), 0)
 
     return sorted(records, key=cmp_to_key(compare))
 
@@ -967,6 +1076,55 @@ def build_c3_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
 
 def _task_name(task: Any) -> str:
     return str(getattr(task, "name", None) or getattr(task, "id", None) or "task_export")
+
+
+@dataclass(frozen=True)
+class BatchExportFile:
+    """批量导出生成的文件结果。"""
+
+    filename: str          # 导出文件名（含 .xlsx 后缀）
+    buffer: BytesIO        # Excel 二进制数据缓冲区（指针已 seek 到 0）
+    file_size: int         # 文件字节数，用于设置 Content-Length 响应头
+
+
+def build_batch_export_file(
+    merged_results: list[dict[str, Any]],
+    filename_prefix: str = "C3_合并导出",
+) -> BatchExportFile:
+    """批量合并导出完整封装：结果 → worksheets → workbook → BytesIO。
+
+    将多个 C3 任务的结果合并后，生成带时间戳的 Excel 文件。
+    路由层只需将返回的 buffer 传给 send_file，无需关心 Excel 生成细节。
+
+    参数:
+        merged_results: 已注入 task_name 的合并结果列表，
+                        每条记录包含 parameters、result 等字段。
+        filename_prefix: 文件名前缀，默认 "C3_合并导出"。
+
+    返回:
+        BatchExportFile: 包含 filename、buffer、file_size 的结果对象。
+
+    异常:
+        ValueError: 当 merged_results 为空时抛出，由路由层返回 400。
+    """
+    if not merged_results:
+        raise ValueError("所选任务均无结果数据")
+
+    # ① 构建 worksheet 数据（含排序、分组、格式化）
+    worksheets = build_c3_worksheets(merged_results)
+
+    # ② 生成 openpyxl Workbook 并应用样式
+    workbook = build_workbook(worksheets)
+
+    # ③ 序列化为 Excel 二进制数据
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = sanitize_export_filename(f"{filename_prefix}_{stamp}") + ".xlsx"
+    buffer = BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    file_size = buffer.getbuffer().nbytes
+
+    return BatchExportFile(filename=filename, buffer=buffer, file_size=file_size)
 
 
 # 注册顺序很重要：专用导出器必须放在通用兜底导出器前面。
