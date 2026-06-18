@@ -1,4 +1,6 @@
+import csv
 import json
+import time
 from datetime import datetime
 from io import BytesIO
 
@@ -393,6 +395,8 @@ def batch_export_task_results():
     最多支持 BATCH_EXPORT_MAX_TASKS 个任务，超出返回 400。
     """
     try:
+        _t_total = time.time()
+
         # ① 参数校验：至少一个任务且不超过上限
         data = request.get_json() or {}
         task_ids = data.get('task_ids', [])
@@ -417,22 +421,39 @@ def batch_export_task_results():
             if not decision["allowed"]:
                 return _task_permission_denied("view", t.task_type, decision, task_id=t.id)
 
-        # ③ 批量查询 TaskResult（性能优化：1 条 SQL 替代原来的 N 条循环查询）
-        #    使用 IN 查询 + 排序，避免在 Python 层重复排序
+        # ③ 批量查询 TaskResult
+        #    只选择导出需要的列（task_id, step_index, result），跳过 parameters（巨大JSON，
+        #    包含 kline 数据，单行 ~10KB）、return_series_id、error_message、timestamp 等无关列。
+        #    导出场景数据量大（~100MB/万行），覆盖全局 30s statement_timeout 为 120s。
+        _t_query = time.time()
         from app.models import TaskResult
-        all_results = (
-            TaskResult.query
+        _slim_stmt = (
+            db.session.query(
+                TaskResult.task_id,
+                TaskResult.step_index,
+                TaskResult.result,
+            )
             .filter(TaskResult.task_id.in_(task_ids))
             .order_by(TaskResult.task_id, TaskResult.step_index.asc())
-            .all()
+            .statement
         )
+        with db.engine.connect() as conn:
+            with conn.begin():
+                conn.execute(db.text("SET LOCAL statement_timeout = '120s'"))
+                raw_rows = conn.execute(_slim_stmt).fetchall()
+        logger.info(f"[batch-export] DB query: {time.time()-_t_query:.2f}s, {len(raw_rows)} rows")
 
         # ④ 按 task_name 排序后组装 merged_results
-        #    每条结果注入 task_name，供 build_c3_worksheets 排序时跨任务分组
+        #    将原始行转为导出所需的 dict 格式（不含 parameters，kline_range 默认为 "-"）
         tasks.sort(key=lambda t: t.name or "")
         result_map: dict[str, list] = {}
-        for r in all_results:
-            result_map.setdefault(r.task_id, []).append(r.to_dict())
+        for task_id, step_index, result_json in raw_rows:
+            parsed_result = json.loads(result_json) if result_json else {}
+            result_map.setdefault(task_id, []).append({
+                "task_id": task_id,
+                "step_index": step_index,
+                "result": parsed_result,
+            })
 
         merged_results = []
         for t in tasks:
@@ -441,19 +462,103 @@ def batch_export_task_results():
                 r["task_name"] = task_name
                 merged_results.append(r)
 
-        # ⑤ 调用封装函数生成 Excel（含 worksheets、workbook、序列化）
-        export_file: BatchExportFile = build_batch_export_file(merged_results)
+        # ⑤ CSV 导出（当前使用，性能优先）
+        _t_excel = time.time()
+        worksheets = build_c3_worksheets(merged_results)
 
-        # ⑥ 返回 send_file 响应，显式设置 Content-Length
-        #    前端可通过 ReadableStream 读取进度条百分比
+        from io import StringIO
+        csv_buffer = StringIO()
+        writer = csv.writer(csv_buffer)
+        if worksheets:
+            writer.writerow(worksheets[0].header)
+            for ws in worksheets:
+                writer.writerows(ws.rows)
+
+        csv_bytes = csv_buffer.getvalue().encode("utf-8-sig")
+        csv_buffer = BytesIO(csv_bytes)
+        csv_buffer.seek(0)
+        csv_size = len(csv_bytes)
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_filename = sanitize_export_filename(f"C3_合并导出_{stamp}") + ".csv"
+        logger.info(f"[batch-export] CSV build: {time.time()-_t_excel:.2f}s, {csv_size/1024/1024:.2f}MB")
+
         response = send_file(
-            export_file.buffer,
-            mimetype=EXCEL_MIMETYPE,
+            csv_buffer,
+            mimetype="text/csv; charset=utf-8",
             as_attachment=True,
-            download_name=export_file.filename,
+            download_name=csv_filename,
         )
-        response.headers['Content-Length'] = export_file.file_size
+        response.headers['Content-Length'] = csv_size
+        logger.info(f"[batch-export] Total: {time.time()-_t_total:.2f}s")
         return response
+
+        # ── xlsxwriter Excel 导出（备用，切换时取消注释并注释上方 CSV 部分） ──
+        # _t_excel = time.time()
+        # import xlsxwriter
+        # worksheets = build_c3_worksheets(merged_results)
+        # stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # filename = sanitize_export_filename(f"C3_合并导出_{stamp}") + ".xlsx"
+        # buf = BytesIO()
+        # wb = xlsxwriter.Workbook(buf, {"in_memory": True, "constant_memory": True})
+        #
+        # # 预定义格式
+        # header_fmt = wb.add_format({"bold": True, "bg_color": "#D9E1F2", "border": 1})
+        # num_fmt    = wb.add_format({"num_format": "0.00"})
+        # pct_fmt    = wb.add_format({"num_format": "0.00"})
+        # default_fmt = wb.add_format()
+        #
+        # from app.services.export_file_service import (
+        #     C3_EXPORT_COLUMNS, C3_NUMBER_COLUMN_NAMES, c3_display_header,
+        # )
+        # display_header = c3_display_header(C3_EXPORT_COLUMNS)
+        # col_format_map = {name: num_fmt for name in C3_NUMBER_COLUMN_NAMES}
+        #
+        # for ws_data in worksheets:
+        #     ws = wb.add_worksheet(ws_data.name[:31])
+        #     # 表头
+        #     for col_idx, hdr in enumerate(display_header):
+        #         ws.write(0, col_idx, hdr, header_fmt)
+        #     # 数据行
+        #     for row_idx, row in enumerate(ws_data.rows, start=1):
+        #         for col_idx, val in enumerate(row):
+        #             col_name = C3_EXPORT_COLUMNS[col_idx] if col_idx < len(C3_EXPORT_COLUMNS) else ""
+        #             fmt = col_format_map.get(col_name, default_fmt)
+        #             ws.write(row_idx, col_idx, val if val != "" else None, fmt)
+        #     # 列宽
+        #     for col_idx, col_name in enumerate(C3_EXPORT_COLUMNS):
+        #         from app.services.export_file_service import C3_COLUMN_WIDTHS
+        #         width = C3_COLUMN_WIDTHS.get(col_name, 12)
+        #         ws.set_column(col_idx, col_idx, width)
+        #
+        # wb.close()
+        # buf.seek(0)
+        # file_size = buf.getbuffer().nbytes
+        # logger.info(f"[batch-export] xlsxwriter build: {time.time()-_t_excel:.2f}s, {file_size/1024/1024:.2f}MB")
+        #
+        # response = send_file(
+        #     buf,
+        #     mimetype=EXCEL_MIMETYPE,
+        #     as_attachment=True,
+        #     download_name=filename,
+        # )
+        # response.headers['Content-Length'] = file_size
+        # logger.info(f"[batch-export] Total: {time.time()-_t_total:.2f}s")
+        # return response
+
+        # ── openpyxl Excel 导出（原始方案，已弃用） ──
+        # _t_excel = time.time()
+        # export_file: BatchExportFile = build_batch_export_file(merged_results)
+        # logger.info(f"[batch-export] Excel build: {time.time()-_t_excel:.2f}s, {export_file.file_size/1024/1024:.2f}MB")
+        # response = send_file(
+        #     export_file.buffer,
+        #     mimetype=EXCEL_MIMETYPE,
+        #     as_attachment=True,
+        #     download_name=export_file.filename,
+        # )
+        # response.headers['Content-Length'] = export_file.file_size
+        # logger.info(f"[batch-export] Total: {time.time()-_t_total:.2f}s")
+        # return response
 
     except ValueError as e:
         # 业务校验失败（如 merged_results 为空）
