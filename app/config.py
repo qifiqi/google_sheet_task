@@ -26,7 +26,7 @@ def _resolve_database_url(default_url):
         sqlite_path_obj = Path(sqlite_path)
         if not sqlite_path_obj.is_absolute():
             sqlite_path_obj = BASE_DIR / sqlite_path_obj
-        database_url = f"sqlite:///{sqlite_path_obj.resolve()}"
+        database_url = f"sqlite:///{sqlite_path_obj.resolve().as_posix()}"
 
     return database_url
 
@@ -90,9 +90,12 @@ class BaseConfig:
     SECRET_KEY = ''
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = False
+    SQLALCHEMY_ENGINE_LOG_ENABLED = False
 
     DING_TALK_ACCESS_TOKEN = ''
     DING_TALK_SECRET = ''
+    DING_TALK_DETAIL_BASE_URL = ''
+    PUBLIC_BASE_URL = ''
 
     BASE_URL = 'http://localhost:5000'
     TASK_TIMEOUT = 3600
@@ -104,9 +107,25 @@ class BaseConfig:
     @classmethod
     def init_app(cls):
         cls.SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
-        cls.SQLALCHEMY_ECHO = _get_bool('SQLALCHEMY_ECHO', False)
+        # 通过参数统一控制 SQLAlchemy SQL 输出。
+        # 默认关闭，避免运行期被 SQL 日志刷屏；排查数据库问题时可显式设为 true。
+        requested_sqlalchemy_echo = _get_bool('SQLALCHEMY_ECHO', False)
+        cls.SQLALCHEMY_ENGINE_LOG_ENABLED = _get_bool(
+            'SQLALCHEMY_ENGINE_LOG_ENABLED',
+            False,
+        )
+        # 只要未显式开启 SQLAlchemy 引擎日志，就强制关闭 echo。
+        # 这样即使环境里残留了 SQLALCHEMY_ECHO=True，重启后也不会继续刷 SQL。
+        cls.SQLALCHEMY_ECHO = (
+            requested_sqlalchemy_echo and cls.SQLALCHEMY_ENGINE_LOG_ENABLED
+        )
         cls.DING_TALK_ACCESS_TOKEN = os.environ.get('DING_TALK_ACCESS_TOKEN', '')
         cls.DING_TALK_SECRET = os.environ.get('DING_TALK_SECRET', '')
+        cls.DING_TALK_DETAIL_BASE_URL = os.environ.get(
+            'DING_TALK_DETAIL_BASE_URL',
+            '',
+        )
+        cls.PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
         cls.BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
         cls.TASK_TIMEOUT = _get_int('TASK_TIMEOUT', 3600)
         cls.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
@@ -122,7 +141,7 @@ class BaseConfig:
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
-    DEFAULT_DATABASE_URL = f'sqlite:///{INSTANCE_DIR / "app.db"}'
+    DEFAULT_DATABASE_URL = 'postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator'
 
 
 class ProductionConfig(BaseConfig):
@@ -173,9 +192,17 @@ def init_config():
             'value': 0,
             'description': 'Google token 全局总占用上限，0 表示不限制。',
         },
+        'backtest_training_token_id': {
+            'value': '',
+            'description': 'Backtest training task token_id from google_sheet_tokens table.',
+        },
         'proxy_url': {
             'value': None,
             'description': 'Google Sheet 请求默认代理地址，为空表示直连。',
+        },
+        'dfcf_kline_proxy_enabled': {
+            'value': False,
+            'description': '是否为东方财富 K 线接口启用 proxy_manager 代理。true 启用，false 直连。',
         },
         'max_concurrent_tasks': {
             'value': 20,
@@ -253,6 +280,46 @@ def init_config():
             'value': ['I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23'],
             'description': 'Google Sheet 主流程结果读取单元格位置列表。',
         },
+
+        "C3_commission_cell": {
+            "value": "B5",
+            "description": "C3 模板佣金单元格位置。",
+        },
+
+        'c3_parameter_positions': {
+            'value': ['B5','B6', 'B7', 'B8','B9', 'B10', 'B11', 'B12'],
+            'description': 'C3 模板参数输入单元格位置列表。',
+        },
+        'c3_check_positions': {
+            'value': ["I15","I16"],
+            'description': 'C3 模板勾选/触发单元格位置列表。',
+        },
+        'c3_input_column_d': {
+            'value': 'D',
+            'description': 'C3 模板输入列 D 的列标识。',
+        },
+        'c3_input_column_e': {
+            'value': 'E',
+            'description': 'C3 模板输入列 E 的列标识。',
+        },
+        'c3_output_range_1': {
+            'value': 'I2:I23',
+            'description': 'C3 模板第一段结果读取区域。',
+        },
+        'c3_output_range_2': {
+            'value': 'I15:I23',
+            'description': 'C3 模板第二段结果读取区域。',
+        },
+        'c3_output_column_K': {
+            'value': 'K',
+            'description': 'C3 模板输出列 K 的列标识。',
+        },
+        'c3_output_column_O': {
+            'value': 'O',
+            'description': 'C3 模板输出列 O 的列标识。',
+        },
+
+
         'c4_input_column_a': {
             'value': 'A',
             'description': 'C4 模板输入列 A 的列标识。',
@@ -277,12 +344,13 @@ def init_config():
             'value': 'L',
             'description': 'C4 模板输出列 L 的列标识。',
         },
+
         'c5_parameter_positions': {
             'value': ['A1', 'B1'],
             'description': 'C5 模板参数输入单元格位置列表。',
         },
         'c5_check_positions': {
-            'value': ['G1', 'H1'],
+            'value': ['D2', 'D3'],
             'description': 'C5 模板勾选/触发单元格位置列表。',
         },
         'c5_input_column_a': {
@@ -324,3 +392,54 @@ def init_config():
         elif not existing_configs.get(key):
             config_manager.set_config(key, config_manager.get_config(key, value), description=description)
             print(f"补充配置说明: {key}")
+
+
+# RBAC 权限定义，格式：(group, code, name, route_path)
+# route_path 仅供后台展示，标记该权限对应的前端路由入口
+# run.py 启动时幂等插入到数据库
+PERMISSIONS = [
+    ('task',         'task:view',           '查看任务/日志/结果',    '/admin/tasks'),
+    ('task',         'task:create',         '创建任务',              '/task/create'),
+    ('task',         'task:cancel',         '取消任务',              None),
+    ('task',         'task:restart',        '重启任务',              None),
+    ('task',         'task:delete',         '删除任务',              None),
+    ('template',     'template:view',       '查看模板',              '/admin/templates'),
+    ('template',     'template:manage',     '管理模板',              '/admin/templates'),
+    ('google_sheet', 'google_sheet:view',   '查看 Google Sheet',     '/admin/google-sheets'),
+    ('google_sheet', 'google_sheet:manage', '管理 Google Sheet',     '/admin/google-sheets'),
+    ('google_sheet', 'google_sheet:c3',     '访问 Google Sheet C3',  '/task/list?version=c3'),
+    ('google_sheet', 'google_sheet:c4',     '访问 Google Sheet C4',  '/task/list?version=c4'),
+    ('google_sheet', 'google_sheet:c5',     '访问 Google Sheet C5',  '/task/list?version=c5'),
+    ('config',       'config:view',         '查看系统配置',          '/admin/config'),
+    ('config',       'config:manage',       '修改系统配置',          '/admin/config'),
+    ('navigation',   'navigation:view',     '查看路由表',            '/admin/navigation'),
+    ('navigation',   'navigation:manage',   '管理路由表',            '/admin/navigation'),
+    ('scheduler',    'scheduler:view',      '查看定时任务',          '/admin/scheduler'),
+    ('scheduler',    'scheduler:manage',    '管理定时任务',          '/admin/scheduler'),
+    ('database',     'database:manage',     '数据库操作',            None),
+    ('database',     'database:model_summary','单模型汇总索引重建',   '/admin/model-summary'),
+    ('user',         'user:view',           '查看用户列表',          '/admin/users'),
+    ('user',         'user:manage',         '管理用户/角色/权限',    '/admin/users'),
+    ('backtest',     'backtest:view',       '查看回测任务',          '/backtest/list'),
+    ('backtest',     'backtest:create',     '创建回测任务',          '/backtest/create'),
+    ('page',         'page:admin:dashboard',    '访问仪表盘页面',         '/admin'),
+    ('page',         'page:admin:tasks',        '访问任务管理页面',       '/admin/tasks'),
+    ('page',         'page:admin:templates',    '访问任务模板页面',       '/admin/templates'),
+    ('page',         'page:admin:results',      '访问任务结果页面',       '/admin/results'),
+    ('page',         'page:admin:model_summary','访问单模型汇总页面',     '/admin/model-summary'),
+    ('page',         'page:admin:scheduler',    '访问定时任务页面',       '/admin/scheduler'),
+    ('page',         'page:admin:config',       '访问系统配置页面',       '/admin/config'),
+    ('page',         'page:admin:navigation',   '访问路由表页面',         '/admin/navigation'),
+    ('page',         'page:admin:google_sheets','访问 Google Sheet 管理页面', '/admin/google-sheets'),
+    ('page',         'page:admin:logs',         '访问系统日志页面',       '/admin/logs'),
+    ('page',         'page:admin:users',        '访问用户管理页面',       '/admin/users'),
+    ('page',         'page:admin:roles',        '访问角色管理页面',       '/admin/roles'),
+    ('page',         'page:google_sheet:c3',    '访问 Google Sheet C3 页面', '/google-sheet/?version=c3'),
+    ('page',         'page:google_sheet:c4',    '访问 Google Sheet C4 页面', '/google-sheet/?version=c4'),
+    ('page',         'page:google_sheet:c5',    '访问 Google Sheet C5 页面', '/google-sheet/?version=c5'),
+    ('page',         'page:backtest:list',      '访问回测列表页面',       '/backtest-training/list'),
+    ('page',         'page:backtest:create',    '访问回测创建页面',       '/backtest-training/create'),
+    ('page',         'page:backtest_multi_product:list',   '访问多品数据回测列表页面',   '/backtest-multi-product/list'),
+    ('page',         'page:backtest_multi_product:create', '访问多品数据回测创建页面',   '/backtest-multi-product/create'),
+]
+

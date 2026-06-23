@@ -124,7 +124,7 @@
                     <!-- 任务基本信息 -->
                     <div class="row mb-4">
                         <div class="col-12">
-                            <div class="card bg-light">
+                            <div class="card bg-body-tertiary border-0">
                                 <div class="card-body">
                                     <h5 class="card-title mb-3">
                                         <i class="bi bi-info-circle"></i> 任务基本信息
@@ -166,16 +166,13 @@
                         <div class="card-body">
                             <div id="sheet-config-list">
                                 <div class="sheet-config-item border rounded p-3 mb-3" data-sheet-config-index="0">
-                                    <div class="row align-items-end">
+                                    <div class="row align-items-start">
                                         <div class="col-md-4 mb-3">
                                             <label for="spreadsheet" class="form-label">
-                                                <i class="bi bi-link-45deg"></i> 电子表格ID或URL
+                                                <i class="bi bi-link-45deg"></i> 选择 Google Sheet
                                             </label>
                                             <input type="text" class="form-control" id="spreadsheet" 
-                                                   placeholder="请输入Google Sheet的ID或完整URL" required>
-                                            <div class="form-text">
-                                                <i class="bi bi-info-circle"></i> 支持直接输入ID或完整URL
-                                            </div>
+                                                   placeholder="请选择 Google Sheet" required>
                                         </div>
                                         <div class="col-md-4 mb-3">
                                             <label for="spreadsheet_title" class="form-label">
@@ -192,7 +189,7 @@
                                             </label>
                                             <div class="input-group">
                                                 <select class="form-select" id="sheet_name">
-                                                    <option value="">请先输入电子表格ID</option>
+                                                    <option value="">请先选择 Google Sheet</option>
                                                 </select>
                                                 <button class="btn btn-outline-secondary" type="button" id="refresh-sheets" title="刷新工作表列表">
                                                     <i class="bi bi-arrow-clockwise"></i>
@@ -200,7 +197,7 @@
                                             </div>
                                             <div class="form-text" id="sheet-name-help">选择要操作的工作表</div>
                                         </div>
-                                        <div class="col-md-6 mb-3" id="custom-sheet-container" style="display: none;">
+                                        <div class="col-md-6 mb-3 d-none" id="custom-sheet-container">
                                             <label for="custom_sheet_name" class="form-label">
                                                 <i class="bi bi-pencil"></i> 自定义工作表名称
                                             </label>
@@ -229,7 +226,7 @@
                                         <i class="bi bi-chevron-down ms-1" id="advanced-config-toggle-icon"></i>
                                     </button>
                                 </div>
-                                <div id="advanced-config" style="display: none;">
+                                <div id="advanced-config" class="d-none">
                                     <div class="row mt-2">
                                         <div class="col-md-6 mb-3">
                                             <label for="token_type" class="form-label">
@@ -257,7 +254,7 @@
                                             </div>
                                             <div class="form-text">支持选择指定Token，或选择“随机Token（按最低使用数均衡分配）”</div>
                                         </div>
-                                        <div class="col-md-6 mb-3" id="token_json_container" style="display: none;">
+                                        <div class="col-md-6 mb-3 d-none" id="token_json_container">
                                             <label for="token_json" class="form-label">
                                                 <i class="bi bi-code-square"></i> Token JSON字符串
                                             </label>
@@ -316,6 +313,14 @@
                                                         <label class="btn btn-outline-primary flex-fill" for="market_type_cn">A股</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="kline_adjustment">K线复权</label>
+                                                    <select class="form-select" id="kline_adjustment">
+                                                        <option value="forward" selected>前复权</option>
+                                                        <option value="back">后复权</option>
+                                                        <option value="none">不复权</option>
+                                                    </select>
+                                                </div>
                                                 <div class="col-md-6">
                                                     <label class="form-label">数据时间范围</label>
                                                     <div class="row g-2 align-items-end">
@@ -362,7 +367,7 @@
                     </div>
                     
                     <!-- 参数组合预览 -->
-                    <div class="card mb-4" id="combination-info" style="display: none;">
+                    <div class="card mb-4 d-none" id="combination-info">
                         <div class="card-header">
                             <h5 class="card-title mb-0">
                                 <i class="bi bi-eye"></i> 参数组合预览
@@ -391,7 +396,7 @@
                     <div class="card">
                         <div class="card-body">
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                                <a href="{{ url_for('google_sheet.index', version='c4') }}" class="btn btn-secondary me-md-2">
+                                <a href="{{ url_for('google_sheet.index', version=request.args.get('version', 'c4')) }}" class="btn btn-secondary me-md-2">
                                     <i class="bi bi-arrow-left"></i> 返回首页
                                 </a>
                                 <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="清除保存的表单数据">
@@ -400,7 +405,7 @@
                                 <button type="button" class="btn btn-outline-success me-md-2" onclick="saveAsTemplate()" title="将当前配置保存为模板">
                                     <i class="bi bi-save"></i> 保存为模板
                                 </button>
-                                <button type="submit" class="btn btn-primary btn-lg" id="execute-btn">
+                                <button type="button" class="btn btn-primary btn-lg" id="execute-btn">
                                     <i class="bi bi-play-circle"></i> 创建任务并执行
                                 </button>
                             </div>
@@ -444,11 +449,11 @@
                 <div class="row">
                     <div class="col-md-6">
                         <h6>执行参数:</h6>
-                        <pre id="confirm-params" class="bg-light p-3"></pre>
+                        <pre id="confirm-params" class="bg-body-tertiary p-3 rounded"></pre>
                     </div>
                     <div class="col-md-6">
                         <h6>执行结果:</h6>
-                        <pre id="confirm-results" class="bg-light p-3"></pre>
+                        <pre id="confirm-results" class="bg-body-tertiary p-3 rounded"></pre>
                     </div>
                 </div>
                 <div class="alert alert-warning">
@@ -505,12 +510,12 @@
                 </div>
                 <div class="mt-3">
                     <h6>任务状态</h6>
-                    <div id="task-status-message" class="border rounded p-2 bg-light" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+                    <div id="task-status-message" class="border rounded p-2 bg-body-tertiary overflow-auto font-monospace small" style="height: 200px;"></div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                <a href="/google-sheet/detail?version=c4" class="btn btn-primary" id="view-task-btn" style="display: none;">查看任务详情</a>
+                <a href="/google-sheet/detail?version=c4" class="btn btn-primary d-none" id="view-task-btn">查看任务详情</a>
             </div>
         </div>
     </div>
@@ -623,6 +628,10 @@
                     if (mtInput) {
                         mtInput.checked = true;
                     }
+                }
+                if (config.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = config.kline_adjustment;
                 }
 
                 if (config.date_range_mode !== undefined) {
@@ -767,7 +776,7 @@
                         sheetSelect.value = '自定义';
                         const customContainer = document.getElementById('custom-sheet-container');
                         if (customContainer) {
-                            customContainer.style.display = 'block';
+                            customContainer.classList.remove('d-none');
                         }
                         helpText.textContent = '使用自定义工作表名称';
                     }
@@ -1155,6 +1164,10 @@
                         mtInput.checked = true;
                     }
                 }
+                if (config.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = config.kline_adjustment;
+                }
                 if (config.start_date) {
                     const sd = document.getElementById('start_date');
                     if (sd) sd.value = config.start_date;
@@ -1292,10 +1305,10 @@
             const helpText = document.getElementById('sheet-name-help');
             
             if (this.value === '自定义') {
-                customContainer.style.display = 'block';
+                customContainer.classList.remove('d-none');
                 helpText.textContent = '使用自定义工作表名称';
             } else {
-                customContainer.style.display = 'none';
+                customContainer.classList.add('d-none');
                 if (this.value) {
                     helpText.textContent = `已选择工作表: ${this.value}`;
                 }
@@ -1308,12 +1321,12 @@
             const fileContainer = document.getElementById('token_file_container');
             const jsonContainer = document.getElementById('token_json_container');
             if (this.value === 'file') {
-                fileContainer.style.display = 'block';
-                jsonContainer.style.display = 'none';
+                fileContainer.classList.remove('d-none');
+                jsonContainer.classList.add('d-none');
                 syncSelectedTokenMeta();
             } else {
-                fileContainer.style.display = 'none';
-                jsonContainer.style.display = 'block';
+                fileContainer.classList.add('d-none');
+                jsonContainer.classList.remove('d-none');
             }
             debouncedSaveFormData();
         });
@@ -1423,17 +1436,15 @@
                 const textSpan = document.getElementById('advanced-config-toggle-text');
                 const icon = document.getElementById('advanced-config-toggle-icon');
                 if (!advanced || !textSpan || !icon) return;
-                const isHidden = advanced.style.display === 'none' || advanced.style.display === '';
-                advanced.style.display = isHidden ? 'block' : 'none';
+                const isHidden = advanced.classList.toggle('d-none');
                 textSpan.textContent = isHidden ? '收起' : '展开';
                 icon.classList.toggle('bi-chevron-down', !isHidden);
                 icon.classList.toggle('bi-chevron-up', isHidden);
             });
         }
 
-        // 表单提交事件
-        document.getElementById('parameter-form').addEventListener('submit', function(e) {
-            e.preventDefault();
+        // 创建任务按钮点击事件（不使用表单submit，防止回车键误触发）
+        document.getElementById('execute-btn').addEventListener('click', function() {
             submitTask();
         });
     }
@@ -1616,10 +1627,10 @@
         const countSpan = document.getElementById('combination-count');
         
         if (count > 0) {
-            infoDiv.style.display = 'block';
+            infoDiv.classList.remove('d-none');
             countSpan.textContent = count;
         } else {
-            infoDiv.style.display = 'none';
+            infoDiv.classList.add('d-none');
         }
         
         return count;
@@ -1703,6 +1714,7 @@
         const proxyUrl = document.getElementById('proxy_url').value;
         const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
         const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+        const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         const dateRangeModes = getSelectedDateRangeModes();
         const startDate = document.getElementById('start_date')?.value || null;
         const endDate = document.getElementById('end_date')?.value || null;
@@ -1802,6 +1814,7 @@
             proxy_url: proxyUrl || null,
             count_mode: countMode,
             market_type: marketType,
+            kline_adjustment: klineAdjustment,
             date_range_mode: dateRangeModes,
             start_date: startDate,
             end_date: endDate,
@@ -1840,7 +1853,7 @@
                 // 清空表单
                 document.getElementById('parameter-form').reset();
                 // 隐藏组合信息
-                document.getElementById('combination-info').style.display = 'none';
+                document.getElementById('combination-info').classList.add('d-none');
                 // 清除保存的表单数据
                 clearSavedFormData();
                 
@@ -1891,6 +1904,7 @@
             token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
+            kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             date_range_mode: getSelectedDateRangeModes(),
             param1: document.getElementById('param1').value
         };
@@ -1936,6 +1950,10 @@
                         mtInput.checked = true;
                     }
                 }
+                if (formData.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
+                }
 
                 if (formData.date_range_mode !== undefined) {
                     applyDateRangeModes(formData.date_range_mode);
@@ -1963,7 +1981,7 @@
             // 重置表单
             document.getElementById('parameter-form').reset();
             // 隐藏组合信息
-            document.getElementById('combination-info').style.display = 'none';
+            document.getElementById('combination-info').classList.add('d-none');
             // 重新计算组合数量
             calculateCombinations();
             console.log('已清除保存的表单数据');
@@ -2007,6 +2025,7 @@
             const proxyUrl = document.getElementById('proxy_url').value;
             const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
             const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+            const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
             const startDate = document.getElementById('start_date')?.value || null;
             const endDate = document.getElementById('end_date')?.value || null;
 
@@ -2094,6 +2113,7 @@
                 proxy_url: proxyUrl || null,
                 count_mode: countMode,
                 market_type: marketType,
+                kline_adjustment: klineAdjustment,
                 start_date: startDate,
                 end_date: endDate,
                 parameters: [param1],
@@ -2182,6 +2202,7 @@
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',
+            kline_adjustment: raw.kline_adjustment || 'forward',
             token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',

@@ -1,0 +1,1414 @@
+{% extends "admin/base.html" %}
+
+{% block title %}创建回测训练任务{% endblock %}
+
+{% block head %}
+<style>
+    .create-shell {
+        display: grid;
+        gap: 1rem;
+    }
+    .create-card {
+        border: 1px solid rgba(var(--bs-primary-rgb), 0.08);
+        border-radius: 1rem;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+    }
+    .stock-search-shell {
+        position: relative;
+    }
+    .stock-search-results {
+        position: absolute;
+        inset: calc(100% + 0.35rem) 0 auto 0;
+        z-index: 30;
+        max-height: 18rem;
+        overflow-y: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.9rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+    }
+    .stock-search-item {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        text-align: left;
+        padding: 0.8rem 0.95rem;
+        display: grid;
+        gap: 0.15rem;
+    }
+    .stock-search-item:hover,
+    .stock-search-item.active {
+        background: rgba(var(--bs-primary-rgb), 0.08);
+    }
+    .config-toggle {
+        border: 0;
+        background: transparent;
+        padding: 0;
+        font: inherit;
+        color: var(--bs-primary);
+    }
+    .config-toggle .bi {
+        transition: transform 0.2s ease;
+    }
+    .config-toggle[aria-expanded="true"] .bi {
+        transform: rotate(180deg);
+    }
+    .config-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+    .config-box {
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.95rem;
+        background: var(--bs-tertiary-bg);
+        min-height: 100%;
+    }
+    .market-toggle-group {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        align-items: center;
+        min-height: 38px;
+    }
+    .year-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 0.75rem;
+    }
+    .year-display {
+        font-size: 0.875rem;
+        color: var(--bs-secondary-color);
+    }
+    .sheet-info {
+        display: none;
+    }
+    .sheet-info.is-visible {
+        display: block;
+    }
+    .parameter-table th,
+    .parameter-table td {
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    .param-input {
+        min-width: 8rem;
+        text-align: center;
+    }
+    .paste-parse-panel {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.95rem;
+        background: var(--bs-tertiary-bg);
+        padding: 1rem;
+    }
+    .paste-parse-input {
+        min-height: 7rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 0.875rem;
+    }
+    .param-help-popover { max-width: 24rem; }
+    .param-help-content {
+        display: grid;
+        gap: 0.55rem;
+        font-size: 0.875rem;
+        line-height: 1.55;
+    }
+    .empty-hint {
+        border: 1px dashed var(--bs-border-color);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        text-align: center;
+        color: var(--bs-secondary-color);
+        background: var(--bs-tertiary-bg);
+    }
+    @media (max-width: 991.98px) {
+        .config-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 create-shell">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h1 class="h3 mb-1">创建回测训练任务</h1>
+            <div class="text-body-secondary">识别 Google Sheet、选择股票、导入参数并创建任务。</div>
+        </div>
+        <a href="{{ url_for('backtest_training.list_page') }}" class="btn btn-outline-secondary rounded-pill px-4">
+            返回列表
+        </a>
+    </div>
+
+    <div class="card create-card">
+        <div class="card-body p-4">
+            <div class="row g-3 align-items-end">
+                <div class="col-xl-6">
+                    <label for="modelUrl" class="form-label">Google Sheet 链接</label>
+                    <input type="text" class="form-control" id="modelUrl" placeholder="粘贴完整 Google Sheet URL">
+                </div>
+                <div class="col-xl-4">
+                    <label for="stockCode" class="form-label">股票代码</label>
+                    <div class="stock-search-shell">
+                        <input type="text" class="form-control" id="stockCode" placeholder="如 AAPL、MSFT、平安银行" autocomplete="off">
+                        <div id="stockSearchResults" class="stock-search-results d-none"></div>
+                    </div>
+                </div>
+                <div class="col-xl-2 d-grid">
+                    <button type="button" class="btn btn-primary" id="analyzeBtn">
+                        <i class="bi bi-search me-1"></i>识别链接
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card create-card">
+        <div class="card-body p-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div>
+                    <div class="text-body-secondary small">任务配置</div>
+                    <div class="fw-semibold">基础信息与年份范围</div>
+                </div>
+                <button
+                    type="button"
+                    class="config-toggle"
+                    id="configToggleBtn"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#taskConfigCollapse"
+                    aria-expanded="false"
+                    aria-controls="taskConfigCollapse"
+                >
+                    展开配置 <i class="bi bi-chevron-down ms-1"></i>
+                </button>
+            </div>
+
+            <div class="collapse mt-3" id="taskConfigCollapse">
+                <div class="card create-card sheet-info mb-3" id="sheetInfo">
+                    <div class="card-body p-3">
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                            <span class="badge text-bg-primary" id="modelVersionBadge">C3</span>
+                            <span class="fw-semibold" id="sheetTitle">-</span>
+                        </div>
+                        <div class="text-body-secondary small" id="sheetNames">-</div>
+                    </div>
+                </div>
+
+                <div class="config-grid">
+                    <div class="config-box">
+                        <label for="taskName" class="form-label">任务名称</label>
+                        <input type="text" class="form-control" id="taskName" placeholder="自动生成，例如 C3-NVDA">
+                    </div>
+                    <div class="config-box">
+                        <label for="tokenId" class="form-label">回测 Token</label>
+                        <select class="form-select" id="tokenId">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                    <div class="config-box" id="commissionConfigGroup">
+                        <label for="commissionInput" class="form-label">手续费</label>
+                        <input type="text" class="form-control" id="commissionInput" value="0.0350%" placeholder="如 0.0350%">
+                    </div>
+                    <div class="config-box">
+                        <label class="form-label d-block">市场类型</label>
+                        <div class="market-toggle-group">
+                            <div class="form-check form-check-inline mb-0">
+                                <input class="form-check-input" type="radio" name="market_type" id="market_type_cn" value="cn" checked>
+                                <label class="form-check-label" for="market_type_cn">cn</label>
+                            </div>
+                            <div class="form-check form-check-inline mb-0">
+                                <input class="form-check-input" type="radio" name="market_type" id="market_type_en" value="en">
+                                <label class="form-check-label" for="market_type_en">en</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="config-box">
+                        <label for="klineAdjustmentInput" class="form-label">K线复权</label>
+                        <select class="form-select" id="klineAdjustmentInput">
+                            <option value="forward" selected>前复权</option>
+                            <option value="back">后复权</option>
+                            <option value="none">不复权</option>
+                        </select>
+                    </div>
+                    <div class="config-box">
+                        <label for="priceModeInput" class="form-label">价格模式</label>
+                        <select class="form-select" id="priceModeInput">
+                            <option value="kp_price">开盘价</option>
+                            <option value="sp_price" selected>收盘价</option>
+                        </select>
+                    </div>
+                    <div class="config-box">
+                        <label for="endDateInput" class="form-label">K 线截至日期</label>
+                        <input type="date" class="form-control" id="endDateInput">
+                        <div class="form-text">留空时使用运行日前一天；近 N 年会按该日期向前计算。</div>
+                    </div>
+                </div>
+
+                <div class="config-grid mt-3">
+                    <div class="config-box">
+                        <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
+                            <label class="form-label mb-0" for="recentYearsCheck">近 N 年</label>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="recentYearsCheck">
+                            </div>
+                        </div>
+                        <div id="recentYearsOptions">
+                            <div class="year-options" id="recentYearsCheckboxes"></div>
+                            <div class="year-display mt-2" id="recentYearsDisplay">未选择</div>
+                            <div class="year-display" id="recentYearsInfoDisplay">用于按最近年份回测。</div>
+                        </div>
+                    </div>
+                    <div class="config-box">
+                        <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
+                            <label class="form-label mb-0" for="fullYearsCheck">完整年份</label>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="fullYearsCheck" checked>
+                            </div>
+                        </div>
+                        <div id="fullYearsOptions" class="d-none">
+                            <div class="year-options" id="fullYearsCheckboxes"></div>
+                            <div class="year-display mt-2" id="fullYearsDisplay">未选择</div>
+                            <div class="year-display" id="fullYearsInfoDisplay">用于按完整自然年回测。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-3" id="yearsContainerWrapper">
+                    <div class="small text-body-secondary">当前年份配置</div>
+                    <div class="fw-semibold" id="yearsDisplay">近 N 年：未选择；完整年份：未选择</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card create-card" id="paramSection">
+        <div class="card-body p-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+                <div>
+                    <div class="fw-semibold">参数配置</div>
+                    <div class="text-body-secondary small">支持手动录入或从 Excel 导入。</div>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <input type="file" id="excelFileInput" class="d-none" accept=".xlsx,.xlsm">
+                    <button type="button" class="btn btn-outline-secondary" id="importExcelBtn">
+                        <i class="bi bi-file-earmark-excel me-1"></i>导入 Excel
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="paramHelpBtn" aria-label="查看粘贴与复制说明">
+                        <i class="bi bi-exclamation-circle"></i>
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="pasteClipboardBtn">
+                        <i class="bi bi-clipboard2-plus me-1"></i>粘贴追加
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="copyParamBtn">
+                        <i class="bi bi-copy me-1"></i>复制参数
+                    </button>
+                    <button type="button" class="btn btn-outline-primary" id="addParamBtn">
+                        <i class="bi bi-plus-lg me-1"></i>添加参数
+                    </button>
+                    <button type="button" class="btn btn-primary" id="createBtn">
+                        <i class="bi bi-play-circle me-1"></i>创建任务
+                    </button>
+                </div>
+            </div>
+
+            <div id="excelImportStatus" class="small mb-3"></div>
+
+            <div id="emptyHint" class="empty-hint">
+                先识别模型或直接添加参数行。
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle parameter-table mb-0" id="paramTable">
+                    <thead id="paramTableHead"></thead>
+                    <tbody id="paramTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TASK_API_BASE = '/api/tasks';
+const BACKTEST_TASK_TYPE = 'backtest_training';
+const STOCK_SEARCH_DEBOUNCE_MS = 1000;
+const DEFAULT_C3_COMMISSION = '0.0350%';
+const FIELD_MAP = {
+    c5: [
+        { key: 'xm', label: 'X Multiplier (xm)' },
+        { key: 'ml', label: 'ML (ml)' }
+    ],
+    c3: [
+        { key: 'xm', label: 'X Multiplier (xm)' },
+        { key: 'dbbh1', label: '单边保护 1' },
+        { key: 'dbbh2', label: '单边保护 2' },
+        { key: 'zlxc', label: '中立限仓' },
+        { key: 'zsgz', label: '指数跟踪' },
+        { key: 'ywf1', label: '一窝蜂 S' },
+        { key: 'ywf2', label: '一窝蜂 B' }
+    ]
+};
+
+let spreadsheetId = '';
+let sheetTitle = '';
+let selectedWorksheetName = '';
+let currentModelVersion = 'c3';
+let currentFields = FIELD_MAP.c3;
+let importedParameterRows = [];
+let currentExcelImport = null;
+let backtestTokens = [];
+let isCreatingTask = false;
+let stockSearchTimer = null;
+let stockSearchAbortController = null;
+let lastStockSearchResults = [];
+let selectedStockSuggestion = null;
+let taskNameTouched = false;
+
+const currentYear = new Date().getFullYear();
+const PARAMETER_HELP_HTML = `
+    <div class="param-help-content">
+        <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统自动补默认手续费；每行 7 列时第 1 列按手续费处理。</div>
+        <div><strong>C3 复制</strong>：复制当前表格为 Tab 分隔行，包含 <code>Commission</code> 和后续参数列，可直接贴到其他任务或 Excel。</div>
+        <div><strong>C5 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
+    </div>
+`;
+const modelUrlInput = document.getElementById('modelUrl');
+const stockCodeInput = document.getElementById('stockCode');
+const stockSearchResults = document.getElementById('stockSearchResults');
+const analyzeBtn = document.getElementById('analyzeBtn');
+const configToggleBtn = document.getElementById('configToggleBtn');
+const taskConfigCollapse = document.getElementById('taskConfigCollapse');
+const taskNameInput = document.getElementById('taskName');
+const tokenIdSelect = document.getElementById('tokenId');
+const commissionInput = document.getElementById('commissionInput');
+const commissionConfigGroup = document.getElementById('commissionConfigGroup');
+const recentYearsCheck = document.getElementById('recentYearsCheck');
+const fullYearsCheck = document.getElementById('fullYearsCheck');
+const recentYearsOptions = document.getElementById('recentYearsOptions');
+const fullYearsOptions = document.getElementById('fullYearsOptions');
+const recentYearsCheckboxes = document.getElementById('recentYearsCheckboxes');
+const fullYearsCheckboxes = document.getElementById('fullYearsCheckboxes');
+const yearsContainerWrapper = document.getElementById('yearsContainerWrapper');
+const recentYearsDisplay = document.getElementById('recentYearsDisplay');
+const fullYearsDisplay = document.getElementById('fullYearsDisplay');
+const recentYearsInfoDisplay = document.getElementById('recentYearsInfoDisplay');
+const fullYearsInfoDisplay = document.getElementById('fullYearsInfoDisplay');
+const endDateInput = document.getElementById('endDateInput');
+const yearsDisplay = document.getElementById('yearsDisplay');
+const sheetInfo = document.getElementById('sheetInfo');
+const modelVersionBadge = document.getElementById('modelVersionBadge');
+const sheetTitleEl = document.getElementById('sheetTitle');
+const sheetNamesEl = document.getElementById('sheetNames');
+const emptyHint = document.getElementById('emptyHint');
+const paramTableHead = document.getElementById('paramTableHead');
+const paramTableBody = document.getElementById('paramTableBody');
+const excelFileInput = document.getElementById('excelFileInput');
+const importExcelBtn = document.getElementById('importExcelBtn');
+const paramHelpBtn = document.getElementById('paramHelpBtn');
+const pasteClipboardBtn = document.getElementById('pasteClipboardBtn');
+const copyParamBtn = document.getElementById('copyParamBtn');
+const addParamBtn = document.getElementById('addParamBtn');
+const createBtn = document.getElementById('createBtn');
+const excelImportStatus = document.getElementById('excelImportStatus');
+const marketTypeInputs = Array.from(document.querySelectorAll('input[name="market_type"]'));
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function inferModelVersion(title) {
+    const normalized = String(title || '').toUpperCase();
+    return normalized.includes('C5') || normalized.includes('C4') ? 'c5' : 'c3';
+}
+
+function resolveModelVersion(version) {
+    return version === 'c5' ? 'c5' : 'c3';
+}
+
+function extractSpreadsheetId(rawUrl) {
+    const value = String(rawUrl || '').trim();
+    if (!value) {
+        return '';
+    }
+    const match = value.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match ? match[1] : '';
+}
+
+function normalizeMarketTypeValue(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'en' ? 'en' : 'cn';
+}
+
+function resolveMarketTypeBySecurityTypeName(securityTypeName) {
+    return String(securityTypeName || '').includes('美股') ? 'en' : 'cn';
+}
+
+function getSelectedMarketType() {
+    return normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value || 'cn');
+}
+
+function setMarketTypeSelection(value) {
+    const normalized = normalizeMarketTypeValue(value);
+    const target = marketTypeInputs.find((item) => item.value === normalized);
+    if (target) {
+        target.checked = true;
+    }
+}
+
+function updateStockMeta() {
+    return;
+}
+
+function sanitizeTaskTitlePart(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/[\\/:*?"<>|]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+}
+
+function buildDefaultTaskName() {
+    const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());
+    const modelVersion = resolveModelVersion(currentModelVersion).toUpperCase();
+    return stockCode ? `${modelVersion}-${stockCode}` : '';
+}
+
+function syncTaskNameInput(force = false) {
+    const nextName = buildDefaultTaskName();
+    if (!nextName) {
+        return;
+    }
+    if (force || !taskNameTouched || !taskNameInput.value.trim()) {
+        taskNameInput.value = nextName;
+        taskNameTouched = false;
+    }
+}
+
+function clearSelectedStockSuggestion() {
+    selectedStockSuggestion = null;
+    updateStockMeta();
+}
+
+function buildYearCheckboxes() {
+    [1, 2, 3, 5, 7].forEach((year, index) => {
+        recentYearsCheckboxes.insertAdjacentHTML('beforeend', `
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input recent-year" type="checkbox" id="recent_year_${year}" value="${year}" ${index < 3 ? 'checked' : ''}>
+                <label class="form-check-label" for="recent_year_${year}">近 ${year} 年</label>
+            </div>
+        `);
+    });
+
+    for (let index = 0; index < 7; index += 1) {
+        const year = currentYear - index;
+        fullYearsCheckboxes.insertAdjacentHTML('beforeend', `
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input full-year" type="checkbox" id="full_year_${year}" value="${year}" ${index < 3 ? 'checked' : ''}>
+                <label class="form-check-label" for="full_year_${year}">${year}</label>
+            </div>
+        `);
+    }
+}
+
+function ensureDefaultRecentYearsSelection() {
+    const checked = document.querySelectorAll('.recent-year:checked').length;
+    if (checked > 0) {
+        return;
+    }
+    document.querySelectorAll('.recent-year').forEach((checkbox, index) => {
+        checkbox.checked = index < 3;
+    });
+}
+
+function ensureDefaultFullYearsSelection() {
+    const checked = document.querySelectorAll('.full-year:checked').length;
+    if (checked > 0) {
+        return;
+    }
+    document.querySelectorAll('.full-year').forEach((checkbox, index) => {
+        checkbox.checked = index < 3;
+    });
+}
+
+function syncYearsWrapper() {
+    const recentChecked = recentYearsCheck.checked;
+    const fullChecked = fullYearsCheck.checked;
+    recentYearsOptions.classList.toggle('d-none', !recentChecked);
+    fullYearsOptions.classList.toggle('d-none', !fullChecked);
+    yearsContainerWrapper.classList.toggle('d-none', !recentChecked && !fullChecked);
+}
+
+function getCheckedRecentYears() {
+    return Array.from(document.querySelectorAll('.recent-year:checked'))
+        .map((checkbox) => Number.parseInt(checkbox.value, 10))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+}
+
+function getCheckedFullYears() {
+    return Array.from(document.querySelectorAll('.full-year:checked'))
+        .map((checkbox) => Number.parseInt(checkbox.value, 10))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+}
+
+function syncYearsDisplay() {
+    const recentYears = recentYearsCheck.checked ? getCheckedRecentYears() : [];
+    const fullYears = fullYearsCheck.checked ? getCheckedFullYears() : [];
+
+    recentYearsDisplay.textContent = recentYears.length ? recentYears.map((year) => `近 ${year} 年`).join('、') : '未选择';
+    fullYearsDisplay.textContent = fullYears.length ? fullYears.join('、') : '未选择';
+    recentYearsInfoDisplay.textContent = recentYears.length ? `共 ${recentYears.length} 个近年窗口。` : '用于按最近年份回测。';
+    fullYearsInfoDisplay.textContent = fullYears.length ? `共 ${fullYears.length} 个完整年份。` : '用于按完整自然年回测。';
+    yearsDisplay.textContent = `近 N 年：${recentYears.length ? recentYears.join('、') : '未选择'}；完整年份：${fullYears.length ? fullYears.join('、') : '未选择'}`;
+}
+
+function updateConfigToggleText() {
+    configToggleBtn.innerHTML = `${taskConfigCollapse.classList.contains('show') ? '收起配置' : '展开配置'} <i class="bi bi-chevron-down ms-1"></i>`;
+}
+
+function updateTableHeader() {
+    currentFields = FIELD_MAP[resolveModelVersion(currentModelVersion)] || FIELD_MAP.c3;
+    const cells = currentFields.map((field) => `<th>${escapeHtml(field.label)}</th>`).join('');
+    paramTableHead.innerHTML = `<tr>${cells}<th class="text-center">操作</th></tr>`;
+    commissionConfigGroup.classList.toggle('d-none', resolveModelVersion(currentModelVersion) !== 'c3');
+}
+
+function syncEmptyState() {
+    const hasRows = paramTableBody.querySelectorAll('tr').length > 0;
+    emptyHint.classList.toggle('d-none', hasRows);
+}
+
+function addParameterRow(initialValues = {}) {
+    const cells = currentFields.map((field) => {
+        const value = initialValues[field.key] ?? '';
+        return `
+            <td>
+                <input type="text" class="form-control form-control-sm param-input" data-key="${field.key}" value="${escapeHtml(value)}">
+            </td>
+        `;
+    }).join('');
+
+    paramTableBody.insertAdjacentHTML('beforeend', `
+        <tr>
+            ${cells}
+            <td class="text-center">
+                <button type="button" class="btn btn-sm btn-outline-danger delete-row">删除</button>
+            </td>
+        </tr>
+    `);
+    syncEmptyState();
+}
+
+function projectImportedRows(rows) {
+    return (Array.isArray(rows) ? rows : [])
+        .map((row) => {
+            const projected = {};
+            currentFields.forEach((field) => {
+                projected[field.key] = row?.[field.key] ? String(row[field.key]).trim() : '';
+            });
+            return projected;
+        })
+        .filter((row) => Object.values(row).some(Boolean));
+}
+
+function splitPastedParameterLine(line) {
+    const value = String(line || '').trim();
+    if (!value) {
+        return [];
+    }
+    if (value.includes('\t')) {
+        return value.split('\t');
+    }
+    if (value.includes(',')) {
+        return value.split(',');
+    }
+    if (value.includes('，')) {
+        return value.split('，');
+    }
+    return value.split(/\s+/);
+}
+
+function normalizePastedCell(value) {
+    return String(value ?? '')
+        .replace(/\r/g, '')
+        .trim();
+}
+
+function normalizeHeaderToken(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_()（）:：/-]+/g, '');
+}
+
+function isCommissionCell(value) {
+    const normalized = normalizePastedCell(value).toLowerCase();
+    if (!normalized) {
+        return false;
+    }
+    return normalized.includes('%') || normalized === 'commission' || normalized === '手续费';
+}
+
+function isPastedHeaderRow(cells) {
+    const headerTokens = new Set([
+        'commission',
+        '手续费',
+        'xm',
+        'xmultiplier',
+        'ml',
+        'dbbh1',
+        'dbbh2',
+        'zlxc',
+        'zsgz',
+        'ywf1',
+        'ywf2',
+        '单边保护1',
+        '单边保护2',
+        '中立限仓',
+        '指数跟踪'
+    ]);
+    return cells.some((cell) => headerTokens.has(normalizeHeaderToken(cell)));
+}
+
+function parsePastedParameterRows(rawText) {
+    const rows = String(rawText || '')
+        .split(/\n+/)
+        .map((line) => splitPastedParameterLine(line).map(normalizePastedCell))
+        .filter((cells) => cells.some((cell) => cell !== ''));
+
+    if (!rows.length) {
+        return [];
+    }
+
+    const dataRows = isPastedHeaderRow(rows[0]) ? rows.slice(1) : rows;
+    const c3Mode = resolveModelVersion(currentModelVersion) === 'c3';
+    const expectedColumnCount = currentFields.length;
+    const firstDataRow = dataRows[0] || [];
+    const hasLeadingCommission = c3Mode
+        && firstDataRow.length > expectedColumnCount
+        && (isCommissionCell(firstDataRow[0]) || firstDataRow.length === expectedColumnCount + 1);
+
+    if (hasLeadingCommission && firstDataRow[0]) {
+        commissionInput.value = firstDataRow[0];
+    }
+
+    return dataRows
+        .map((cells) => {
+            const sourceCells = hasLeadingCommission ? cells.slice(1) : cells;
+            const projected = {};
+            currentFields.forEach((field, index) => {
+                projected[field.key] = sourceCells[index] || '';
+            });
+            return projected;
+        })
+        .filter((row) => Object.values(row).some(Boolean));
+}
+
+function resetParameterTable(rows = []) {
+    updateTableHeader();
+    paramTableBody.innerHTML = '';
+    const projectedRows = projectImportedRows(rows);
+    if (projectedRows.length) {
+        projectedRows.forEach((row) => addParameterRow(row));
+    } else {
+        addParameterRow();
+    }
+    syncEmptyState();
+}
+
+function collectParameterDraftRows() {
+    return Array.from(paramTableBody.querySelectorAll('tr')).map((row) => {
+        return currentFields.map((field) => row.querySelector(`[data-key="${field.key}"]`)?.value.trim() || '');
+    });
+}
+
+function hasParameterDraftValues() {
+    return collectParameterDraftRows().some((row) => row.some(Boolean));
+}
+
+function getCommissionValue() {
+    const value = commissionInput.value.trim();
+    return value || DEFAULT_C3_COMMISSION;
+}
+
+function collectParameters() {
+    const rows = collectParameterDraftRows().filter((row) => row.some(Boolean));
+    if (resolveModelVersion(currentModelVersion) === 'c3') {
+        const commission = getCommissionValue();
+        return rows.map((row) => [commission, ...row]);
+    }
+    return rows;
+}
+
+async function queryClipboardReadPermission() {
+    if (!navigator.permissions?.query) {
+        return '';
+    }
+    try {
+        const status = await navigator.permissions.query({ name: 'clipboard-read' });
+        return status.state || '';
+    } catch (error) {
+        return '';
+    }
+}
+
+function requestManualClipboardText(message) {
+    return new Promise((resolve) => {
+        if (!window.bootstrap?.Modal) {
+            resolve(window.prompt(`${message}\n请粘贴参数内容：`, '') || '');
+            return;
+        }
+
+        const modalEl = document.createElement('div');
+        modalEl.className = 'modal fade';
+        modalEl.tabIndex = -1;
+        modalEl.setAttribute('aria-hidden', 'true');
+        modalEl.innerHTML = `
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">粘贴参数</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning py-2 small"></div>
+                        <textarea class="form-control paste-parse-input" rows="8" placeholder="在这里粘贴从 Excel 或其他任务复制的参数"></textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="button" class="btn btn-primary confirm-manual-paste">追加参数</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalEl);
+        modalEl.querySelector('.alert').textContent = message;
+        const textarea = modalEl.querySelector('textarea');
+        const modal = new bootstrap.Modal(modalEl, { backdrop: 'static' });
+        let resolved = false;
+
+        modalEl.addEventListener('shown.bs.modal', () => textarea.focus(), { once: true });
+        modalEl.addEventListener('hidden.bs.modal', () => {
+            modal.dispose();
+            modalEl.remove();
+            if (!resolved) {
+                resolve('');
+            }
+        }, { once: true });
+        modalEl.querySelector('.confirm-manual-paste').addEventListener('click', () => {
+            resolved = true;
+            const value = textarea.value;
+            modal.hide();
+            resolve(value);
+        });
+        modal.show();
+    });
+}
+
+async function readClipboardText() {
+    const canUseClipboardApi = window.isSecureContext && navigator.clipboard?.readText;
+    if (!canUseClipboardApi) {
+        return requestManualClipboardText('当前页面不是 HTTPS，浏览器无法授予剪切板读取权限。请在下方粘贴参数后继续。');
+    }
+
+    const permissionState = await queryClipboardReadPermission();
+    if (permissionState === 'denied') {
+        return requestManualClipboardText('浏览器已拒绝剪切板读取权限。请在下方粘贴参数后继续。');
+    }
+
+    try {
+        return await navigator.clipboard.readText();
+    } catch (error) {
+        return requestManualClipboardText('未完成剪切板权限授权，或浏览器暂时无法读取剪切板。请在下方粘贴参数后继续。');
+    }
+}
+
+async function writeClipboardText(text) {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    textarea.remove();
+    if (!ok) {
+        throw new Error('复制失败，请检查浏览器剪切板权限');
+    }
+}
+
+function parameterRowsToClipboard() {
+    return collectParameters()
+        .filter((row) => Array.isArray(row) && row.some((value) => String(value ?? '').trim()))
+        .map((row) => row.join('\t'))
+        .join('\n');
+}
+
+async function pasteParametersFromClipboard() {
+    try {
+        const raw = await readClipboardText();
+        const rows = parsePastedParameterRows(raw);
+        if (!rows.length) {
+            setExcelImportStatus('剪切板中没有解析到有效参数', 'danger');
+            return;
+        }
+        rows.forEach((row) => addParameterRow(row));
+        syncEmptyState();
+        setExcelImportStatus(`已追加 ${rows.length} 行参数`, 'success');
+    } catch (error) {
+        alert(error.message || '读取剪切板失败');
+    }
+}
+
+async function copyParametersToClipboard() {
+    try {
+        const text = parameterRowsToClipboard();
+        if (!text) {
+            throw new Error('当前没有可复制的参数');
+        }
+        await writeClipboardText(text);
+        setExcelImportStatus('参数已复制，可直接粘贴到其他单产品回测或 Excel', 'success');
+    } catch (error) {
+        alert(error.message || '复制失败');
+    }
+}
+
+function setExcelImportStatus(message, tone = 'muted') {
+    excelImportStatus.className = `small mb-3 text-${tone}`;
+    excelImportStatus.textContent = message || '';
+}
+
+function setAnalyzeButtonState(isLoading) {
+    analyzeBtn.disabled = isLoading;
+    analyzeBtn.innerHTML = isLoading
+        ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>识别中'
+        : '<i class="bi bi-search me-1"></i>识别链接';
+}
+
+function setImportButtonState(isLoading) {
+    importExcelBtn.disabled = isLoading;
+    importExcelBtn.innerHTML = isLoading
+        ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导入中'
+        : '<i class="bi bi-file-earmark-excel me-1"></i>导入 Excel';
+}
+
+function setCreateButtonState(isLoading) {
+    isCreatingTask = isLoading;
+    createBtn.disabled = isLoading;
+    createBtn.innerHTML = isLoading
+        ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>创建中'
+        : '<i class="bi bi-play-circle me-1"></i>创建任务';
+}
+
+function renderSheetInfo(title, worksheets) {
+    const modelVersion = inferModelVersion(title);
+    currentModelVersion = modelVersion;
+    sheetTitle = title || '';
+    selectedWorksheetName = Array.isArray(worksheets) && worksheets.length ? String(worksheets[0]).trim() : '';
+    modelVersionBadge.textContent = modelVersion.toUpperCase();
+    sheetTitleEl.textContent = title || '-';
+    sheetNamesEl.textContent = Array.isArray(worksheets) && worksheets.length ? worksheets.join(' / ') : '-';
+    sheetInfo.classList.add('is-visible');
+    importedParameterRows = [];
+    currentExcelImport = null;
+    setExcelImportStatus('');
+    syncTaskNameInput(true);
+    resetParameterTable();
+}
+
+function renderTokenOptions(tokens) {
+    tokenIdSelect.innerHTML = '';
+    if (!Array.isArray(tokens) || !tokens.length) {
+        tokenIdSelect.innerHTML = '<option value="">暂无可用 Token</option>';
+        return;
+    }
+
+    tokens.forEach((token) => {
+        const option = document.createElement('option');
+        option.value = String(token.id);
+        option.disabled = !token.is_available;
+        option.textContent = `${token.name} | 占用 ${token.current_in_use_count || 0} | 累计 ${token.task_usage_count || 0} | 上限 ${Number(token.max_usage_count || 0) > 0 ? token.max_usage_count : '无限'}`;
+        tokenIdSelect.appendChild(option);
+    });
+
+    const firstAvailable = Array.from(tokenIdSelect.options).find((option) => !option.disabled);
+    if (firstAvailable) {
+        firstAvailable.selected = true;
+    }
+}
+
+async function loadBacktestTokens() {
+    try {
+        const response = await fetch('/api/google-sheet-tokens?task_type=backtest_training');
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '加载 Token 失败');
+        }
+        backtestTokens = Array.isArray(data.tokens) ? data.tokens : [];
+        renderTokenOptions(backtestTokens);
+    } catch (error) {
+        tokenIdSelect.innerHTML = '<option value="">加载 Token 失败</option>';
+        console.error(error);
+    }
+}
+
+function hideStockSearchResults() {
+    stockSearchResults.classList.add('d-none');
+}
+
+function showStockSearchResults() {
+    stockSearchResults.classList.remove('d-none');
+}
+
+function renderStockSearchResults(results, keyword) {
+    lastStockSearchResults = Array.isArray(results) ? results : [];
+    if (!lastStockSearchResults.length) {
+        stockSearchResults.innerHTML = `
+            <div class="px-3 py-2 text-body-secondary small">
+                ${keyword ? `未找到 “${escapeHtml(keyword)}” 的匹配结果` : '请输入股票代码'}
+            </div>
+        `;
+        showStockSearchResults();
+        return;
+    }
+
+    stockSearchResults.innerHTML = lastStockSearchResults.map((item, index) => `
+        <button type="button" class="stock-search-item ${index === 0 ? 'active' : ''}" data-index="${index}">
+            <div class="fw-semibold">${escapeHtml(item.code || '')}</div>
+            <div class="small text-body-secondary">${escapeHtml(item.label || item.name || '')}</div>
+        </button>
+    `).join('');
+    showStockSearchResults();
+}
+
+function selectStockSuggestion(item) {
+    if (!item) {
+        return;
+    }
+    stockCodeInput.value = item.code || '';
+    selectedStockSuggestion = item;
+    setMarketTypeSelection(resolveMarketTypeBySecurityTypeName(item.security_type_name));
+    syncTaskNameInput(true);
+    updateStockMeta();
+    showStockSearchResults();
+}
+
+async function fetchStockSuggestions(keyword, options = {}) {
+    const trimmedKeyword = String(keyword || '').trim();
+    if (!trimmedKeyword) {
+        lastStockSearchResults = [];
+        hideStockSearchResults();
+        return [];
+    }
+
+    if (stockSearchAbortController) {
+        stockSearchAbortController.abort();
+    }
+    stockSearchAbortController = new AbortController();
+
+    try {
+        const response = await fetch(`/api/search-stocks?q=${encodeURIComponent(trimmedKeyword)}`, {
+            signal: stockSearchAbortController.signal
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '股票搜索失败');
+        }
+        renderStockSearchResults(data.results || [], trimmedKeyword);
+        if (options.keepOpen) {
+            showStockSearchResults();
+        }
+        return data.results || [];
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            return [];
+        }
+        stockSearchResults.innerHTML = `<div class="px-3 py-2 text-danger small">${escapeHtml(error.message || '股票搜索失败')}</div>`;
+        showStockSearchResults();
+        return [];
+    }
+}
+
+function scheduleStockSearch() {
+    window.clearTimeout(stockSearchTimer);
+    stockSearchTimer = window.setTimeout(() => {
+        fetchStockSuggestions(stockCodeInput.value.trim(), { keepOpen: false });
+    }, STOCK_SEARCH_DEBOUNCE_MS);
+}
+
+function padNumber(value) {
+    return String(value).padStart(2, '0');
+}
+
+function formatDateInputValue(date) {
+    return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
+}
+
+function getDefaultEndDateValue() {
+    const date = new Date();
+    date.setDate(date.getDate() - 1);
+    return formatDateInputValue(date);
+}
+
+function buildMinuteTimestamp() {
+    const now = new Date();
+    return `${now.getFullYear()}${padNumber(now.getMonth() + 1)}${padNumber(now.getDate())}${padNumber(now.getHours())}${padNumber(now.getMinutes())}`;
+}
+
+function buildRunYearLabel() {
+    const recentYears = recentYearsCheck.checked ? getCheckedRecentYears() : [];
+    const fullYears = fullYearsCheck.checked ? getCheckedFullYears() : [];
+    const parts = [];
+
+    if (fullYears.length) {
+        parts.push(`整_${fullYears[0]}_${fullYears[fullYears.length - 1]}`);
+    }
+    if (recentYears.length) {
+        const maxRecentYear = Math.max(...recentYears);
+        parts.push(`近_${currentYear - maxRecentYear}_${currentYear}`);
+    }
+    return parts.join('_') || '未选年份';
+}
+
+function buildC3TaskName() {
+    return buildDefaultTaskName();
+}
+
+async function analyzeSheetUrl() {
+    const url = modelUrlInput.value.trim();
+    spreadsheetId = extractSpreadsheetId(url);
+    if (!spreadsheetId) {
+        alert('请填写有效的 Google Sheet 链接');
+        return;
+    }
+
+    setAnalyzeButtonState(true);
+    try {
+        const response = await fetch('/api/google-sheet/worksheets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ spreadsheet_id: spreadsheetId })
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '识别链接失败');
+        }
+        renderSheetInfo(data.title || '', data.worksheets || []);
+    } catch (error) {
+        alert(error.message || '识别链接失败');
+    } finally {
+        setAnalyzeButtonState(false);
+    }
+}
+
+async function importExcelFile(file) {
+    if (!file) {
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    setImportButtonState(true);
+
+    try {
+        const response = await fetch('/backtest-training/api/import-excel', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Excel 导入失败');
+        }
+
+        currentModelVersion = inferModelVersion(data.model_version || 'c3');
+        importedParameterRows = Array.isArray(data.parameters) ? data.parameters : [];
+        currentExcelImport = data.excel_import || null;
+        spreadsheetId = spreadsheetId || extractSpreadsheetId(modelUrlInput.value.trim());
+        if (data.stock_code) {
+            stockCodeInput.value = String(data.stock_code).trim().toUpperCase();
+        }
+        if (Array.isArray(data.recent_years)) {
+            document.querySelectorAll('.recent-year').forEach((checkbox) => {
+                checkbox.checked = data.recent_years.includes(Number.parseInt(checkbox.value, 10));
+            });
+            recentYearsCheck.checked = data.recent_years.length > 0;
+        }
+        if (Array.isArray(data.full_years)) {
+            document.querySelectorAll('.full-year').forEach((checkbox) => {
+                checkbox.checked = data.full_years.includes(Number.parseInt(checkbox.value, 10));
+            });
+            fullYearsCheck.checked = data.full_years.length > 0;
+        }
+        if (data.end_date) {
+            endDateInput.value = String(data.end_date);
+        }
+
+        syncYearsWrapper();
+        syncYearsDisplay();
+        modelVersionBadge.textContent = currentModelVersion.toUpperCase();
+        if (data.sheet_name) {
+            selectedWorksheetName = String(data.sheet_name).trim();
+        }
+        if (sheetTitle || selectedWorksheetName) {
+            sheetInfo.classList.add('is-visible');
+            if (!sheetTitle && data.sheet_name) {
+                sheetTitle = String(data.sheet_name).trim();
+            }
+            sheetTitleEl.textContent = sheetTitle || '-';
+            sheetNamesEl.textContent = selectedWorksheetName || sheetNamesEl.textContent || '-';
+        }
+        syncTaskNameInput(true);
+        resetParameterTable(importedParameterRows);
+        setExcelImportStatus(`已导入 ${importedParameterRows.length} 组参数`, 'success');
+    } catch (error) {
+        setExcelImportStatus(error.message || 'Excel 导入失败', 'danger');
+    } finally {
+        setImportButtonState(false);
+        excelFileInput.value = '';
+    }
+}
+
+async function createTask() {
+    if (isCreatingTask) {
+        return;
+    }
+
+    const taskName = buildDefaultTaskName();
+    const stockCode = stockCodeInput.value.trim().toUpperCase();
+    const tokenId = tokenIdSelect.value;
+    const parameters = collectParameters();
+    const recentYears = recentYearsCheck.checked ? getCheckedRecentYears() : [];
+    const fullYears = fullYearsCheck.checked ? getCheckedFullYears() : [];
+    const endDate = endDateInput.value;
+
+    if (!taskName) {
+        alert('请填写任务名称');
+        return;
+    }
+    if (!spreadsheetId) {
+        spreadsheetId = extractSpreadsheetId(modelUrlInput.value.trim());
+    }
+    if (!spreadsheetId) {
+        alert('请先识别有效的 Google Sheet 链接');
+        return;
+    }
+    if (!stockCode) {
+        alert('请输入股票代码');
+        return;
+    }
+    if (stockCode.includes(',') || stockCode.includes('，')) {
+        alert('当前仅支持单个股票代码');
+        return;
+    }
+    if (!tokenId) {
+        alert('请选择回测 Token');
+        return;
+    }
+    if (!parameters.length) {
+        alert('请至少填写一组参数');
+        return;
+    }
+    if (!sheetTitle) {
+        alert('请先识别链接或导入 Excel');
+        return;
+    }
+    if (!selectedWorksheetName) {
+        alert('未识别到可用工作表');
+        return;
+    }
+
+    setCreateButtonState(true);
+    try {
+        const config = {
+            sheet: {
+                spreadsheet_id: spreadsheetId,
+                sheet_name: selectedWorksheetName,
+                title: sheetTitle
+            },
+            stock_code: stockCode,
+            market_type: getSelectedMarketType(),
+            kline_adjustment: document.getElementById('klineAdjustmentInput')?.value || 'forward',
+            price_mode: document.getElementById('priceModeInput')?.value || 'sp_price',
+            token_type: 'file',
+            token_id: Number(tokenId),
+            parameters,
+            recent_years: recentYears,
+            full_years: fullYears,
+            end_date: endDate || undefined
+        };
+        if (currentExcelImport) {
+            config.excel_import = currentExcelImport;
+        }
+
+        const response = await fetch(TASK_API_BASE, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: taskName,
+                description: `backtest training task for ${sheetTitleEl.textContent.trim() || 'sheet'}`,
+                task_type: BACKTEST_TASK_TYPE,
+                config
+            })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.task_id) {
+            throw new Error(data.message || '任务创建失败');
+        }
+        alert('任务创建成功');
+        window.location.href = '{{ url_for("backtest_training.list_page") }}';
+    } catch (error) {
+        alert(error.message || '任务创建失败');
+    } finally {
+        setCreateButtonState(false);
+    }
+}
+
+buildYearCheckboxes();
+endDateInput.value = getDefaultEndDateValue();
+ensureDefaultRecentYearsSelection();
+ensureDefaultFullYearsSelection();
+resetParameterTable();
+syncYearsWrapper();
+syncYearsDisplay();
+updateConfigToggleText();
+updateStockMeta();
+loadBacktestTokens();
+
+analyzeBtn.addEventListener('click', analyzeSheetUrl);
+modelUrlInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        analyzeSheetUrl();
+    }
+});
+
+stockCodeInput.addEventListener('input', () => {
+    clearSelectedStockSuggestion();
+    syncTaskNameInput();
+    if (!stockCodeInput.value.trim()) {
+        hideStockSearchResults();
+        return;
+    }
+    scheduleStockSearch();
+});
+
+stockCodeInput.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter') {
+        return;
+    }
+    event.preventDefault();
+    window.clearTimeout(stockSearchTimer);
+    await fetchStockSuggestions(stockCodeInput.value.trim(), { keepOpen: true });
+    showStockSearchResults();
+});
+
+stockCodeInput.addEventListener('focus', () => {
+    if (lastStockSearchResults.length) {
+        showStockSearchResults();
+    }
+});
+
+taskNameInput.addEventListener('input', () => {
+    taskNameTouched = Boolean(taskNameInput.value.trim());
+});
+
+stockSearchResults.addEventListener('click', (event) => {
+    const target = event.target.closest('.stock-search-item');
+    if (!target) {
+        return;
+    }
+    const index = Number.parseInt(target.dataset.index, 10);
+    const item = lastStockSearchResults[index];
+    selectStockSuggestion(item);
+});
+
+document.addEventListener('click', (event) => {
+    if (!event.target.closest('.stock-search-shell')) {
+        hideStockSearchResults();
+    }
+});
+
+marketTypeInputs.forEach((input) => {
+    input.addEventListener('change', () => {
+        if (selectedStockSuggestion) {
+            const inferred = resolveMarketTypeBySecurityTypeName(selectedStockSuggestion.security_type_name);
+            if (normalizeMarketTypeValue(input.value) !== inferred) {
+                selectedStockSuggestion = null;
+            }
+        }
+        updateStockMeta();
+    });
+});
+
+recentYearsCheck.addEventListener('change', () => {
+    if (recentYearsCheck.checked) {
+        ensureDefaultRecentYearsSelection();
+    }
+    syncYearsWrapper();
+    syncYearsDisplay();
+});
+fullYearsCheck.addEventListener('change', () => {
+    if (fullYearsCheck.checked) {
+        ensureDefaultFullYearsSelection();
+    }
+    syncYearsWrapper();
+    syncYearsDisplay();
+});
+document.addEventListener('change', (event) => {
+    if (event.target.classList.contains('recent-year') || event.target.classList.contains('full-year')) {
+        syncYearsDisplay();
+    }
+});
+
+taskConfigCollapse.addEventListener('shown.bs.collapse', updateConfigToggleText);
+taskConfigCollapse.addEventListener('hidden.bs.collapse', updateConfigToggleText);
+
+if (paramHelpBtn && window.bootstrap?.Popover) {
+    paramHelpBtn.setAttribute('data-bs-content', PARAMETER_HELP_HTML);
+    new bootstrap.Popover(paramHelpBtn, {
+        container: 'body',
+        customClass: 'param-help-popover',
+        html: true,
+        placement: 'top',
+        sanitize: false,
+        title: '粘贴与复制说明',
+        trigger: 'focus'
+    });
+}
+
+pasteClipboardBtn.addEventListener('click', pasteParametersFromClipboard);
+copyParamBtn.addEventListener('click', copyParametersToClipboard);
+
+addParamBtn.addEventListener('click', () => addParameterRow());
+paramTableBody.addEventListener('click', (event) => {
+    const deleteButton = event.target.closest('.delete-row');
+    if (!deleteButton) {
+        return;
+    }
+    deleteButton.closest('tr')?.remove();
+    syncEmptyState();
+});
+
+importExcelBtn.addEventListener('click', () => excelFileInput.click());
+excelFileInput.addEventListener('change', (event) => {
+    importExcelFile(event.target.files?.[0]);
+});
+
+createBtn.addEventListener('click', createTask);
+</script>
+{% endblock %}

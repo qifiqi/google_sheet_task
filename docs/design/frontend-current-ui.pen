@@ -1,0 +1,2975 @@
+{
+  "version": "2.11",
+  "children": [
+    {
+      "type": "frame",
+      "id": "cover",
+      "x": 0,
+      "y": 0,
+      "name": "Cover",
+      "width": 1280,
+      "height": 720,
+      "fill": {
+        "type": "gradient",
+        "gradientType": "linear",
+        "enabled": true,
+        "rotation": 180,
+        "size": {
+          "height": 1
+        },
+        "colors": [
+          {
+            "color": "#F7FAFE",
+            "position": 0
+          },
+          {
+            "color": "#EEF4FB",
+            "position": 1
+          }
+        ]
+      },
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 40,
+      "children": [
+        {
+          "type": "text",
+          "id": "cover_kicker",
+          "fill": "#6C84A5",
+          "content": "Pencil Design Handoff",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "700",
+          "letterSpacing": 1.2
+        },
+        {
+          "type": "text",
+          "id": "cover_title",
+          "fill": "#16315F",
+          "content": "Vue 站点高保真临摹稿",
+          "fontFamily": "Inter",
+          "fontSize": 42,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "cover_desc",
+          "fill": "#48658D",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "本地可打开版本。包含单文件多画板结构，方便你先在 Pencil 中修改，再统一回写到 Vue。",
+          "lineHeight": 1.5,
+          "fontFamily": "Inter",
+          "fontSize": 18,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "cover_list_card",
+          "width": 980,
+          "fill": "#FFFFFF",
+          "cornerRadius": 24,
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "#D6E2F5"
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 24,
+          "children": [
+            {
+              "type": "text",
+              "id": "cover_list_title",
+              "fill": "#16315F",
+              "content": "画板目录",
+              "fontFamily": "Inter",
+              "fontSize": 22,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "cover_list_text",
+              "fill": "#48658D",
+              "textGrowth": "fixed-width",
+              "width": 930,
+              "content": "Login / AppLayout / TaskList / TaskCreate / TaskCreateC3 / TaskCreateC4 / TaskCreateC5 / TaskCreateC31 / TaskDetail / BacktestList / BacktestCreate / BacktestDetail / BacktestGlobalPreview / BacktestResult / Xpl / XplV1 / AdminDashboard / AdminTasks / AdminConfig / AdminLogs / AdminTemplates / AdminResults / AdminGoogleSheets / AdminScheduler / AdminUsers / AdminRoles",
+              "lineHeight": 1.6,
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "login",
+      "x": 1400,
+      "y": 0,
+      "name": "Login",
+      "width": 1440,
+      "height": 1024,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 24,
+      "padding": 32,
+      "children": [
+        {
+          "type": "frame",
+          "id": "login_top",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "login_brand",
+              "fill": "#16315F",
+              "content": "Task Validation Platform",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "login_theme",
+              "fill": "#FFFFFF",
+              "cornerRadius": 999,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#D6E2F5"
+              },
+              "padding": [
+                8,
+                12
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "login_theme_text",
+                  "fill": "#16315F",
+                  "content": "Theme",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "login_panel_wrap",
+          "width": "fill_container",
+          "height": "fill_container",
+          "layout": "vertical",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "login_panel",
+              "width": 460,
+              "fill": "#FFFFFFE8",
+              "cornerRadius": 28,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#D6E2F5"
+              },
+              "layout": "vertical",
+              "gap": 18,
+              "padding": 32,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "login_title",
+                  "fill": "#16315F",
+                  "content": "登录系统",
+                  "fontFamily": "Inter",
+                  "fontSize": 36,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "login_body",
+                  "fill": "#48658D",
+                  "textGrowth": "fixed-width",
+                  "width": 396,
+                  "content": "使用现有账号进入任务列表、回测结果和系统配置。",
+                  "lineHeight": 1.6,
+                  "fontFamily": "Inter",
+                  "fontSize": 16,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "login_form_card",
+                  "width": "fill_container",
+                  "fill": "#F7FAFE",
+                  "cornerRadius": 18,
+                  "stroke": {
+                    "align": "inside",
+                    "thickness": 1,
+                    "fill": "#D6E2F5"
+                  },
+                  "layout": "vertical",
+                  "gap": 14,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "login_field_1",
+                      "fill": "#6C84A5",
+                      "content": "用户名 / 密码 / 登录按钮",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "shell",
+      "x": 2880,
+      "y": 0,
+      "name": "AppLayout / Shell",
+      "width": 1440,
+      "height": 1024,
+      "fill": "#EFF4FB",
+      "layout": "none",
+      "children": [
+        {
+          "type": "frame",
+          "id": "shell_sidebar",
+          "x": 0,
+          "y": 0,
+          "width": 240,
+          "height": 1024,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "enabled": true,
+            "rotation": 180,
+            "size": {
+              "height": 1
+            },
+            "colors": [
+              {
+                "color": "#0F1D3F",
+                "position": 0
+              },
+              {
+                "color": "#17346F",
+                "position": 1
+              }
+            ]
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 16,
+          "children": [
+            {
+              "type": "text",
+              "id": "shell_sidebar_title",
+              "fill": "#FFFFFF",
+              "content": "Task Platform",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "shell_sidebar_nav",
+              "fill": "#C8D6EF",
+              "textGrowth": "fixed-width",
+              "width": 200,
+              "content": "仪表盘\n任务管理\n模板管理\nGoogle Sheets / 定时任务 / 用户管理",
+              "lineHeight": 1.8,
+              "fontFamily": "Inter",
+              "fontSize": 15,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "shell_header",
+          "x": 240,
+          "y": 0,
+          "width": 1200,
+          "height": 80,
+          "fill": "#FFFFFFB8",
+          "stroke": {
+            "align": "inside",
+            "thickness": {
+              "bottom": 1
+            },
+            "fill": "#D6E2F5"
+          },
+          "padding": [
+            0,
+            22
+          ],
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "shell_header_title",
+              "fill": "#16315F",
+              "content": "任务平台",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "shell_header_right",
+              "fill": "#6C84A5",
+              "content": "Theme / admin",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "shell_main",
+          "x": 240,
+          "y": 80,
+          "width": 1200,
+          "height": 944,
+          "fill": "#EFF4FB",
+          "layout": "vertical",
+          "gap": 16,
+          "padding": 24,
+          "children": [
+            {
+              "type": "frame",
+              "id": "shell_hero",
+              "width": "fill_container",
+              "fill": {
+                "type": "gradient",
+                "gradientType": "linear",
+                "enabled": true,
+                "rotation": 135,
+                "size": {
+                  "height": 1
+                },
+                "colors": [
+                  {
+                    "color": "#0F1D3F",
+                    "position": 0
+                  },
+                  {
+                    "color": "#16315F",
+                    "position": 0.5
+                  },
+                  {
+                    "color": "#1E40AF",
+                    "position": 1
+                  }
+                ]
+              },
+              "cornerRadius": 24,
+              "layout": "vertical",
+              "gap": 12,
+              "padding": 24,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "shell_hero_title",
+                  "fill": "#FFFFFF",
+                  "content": "统一查看任务、回测和系统配置",
+                  "fontFamily": "Inter",
+                  "fontSize": 36,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "shell_hero_text",
+                  "fill": "#FFFFFFCC",
+                  "textGrowth": "fixed-width",
+                  "width": 700,
+                  "content": "这块定义全局视觉锚点：深色侧栏、半透明头部、浅色内容区。",
+                  "lineHeight": 1.6,
+                  "fontFamily": "Inter",
+                  "fontSize": 16,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "task_list",
+      "x": 4360,
+      "y": 0,
+      "name": "TaskList",
+      "width": 1440,
+      "height": 1200,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "task_list_title",
+          "fill": "#16315F",
+          "content": "C3 任务列表",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "task_list_desc",
+          "fill": "#48658D",
+          "content": "查看任务排队、执行进度和错误状态，支持版本切换与快速创建。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "task_list_stats",
+          "width": "fill_container",
+          "gap": 12,
+          "children": [
+            {
+              "type": "frame",
+              "id": "task_list_s1",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 18,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#D6E2F5"
+              },
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "task_list_s1a",
+                  "fill": "#6C84A5",
+                  "content": "总任务数",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "task_list_s1b",
+                  "fill": "#16315F",
+                  "content": "248",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "task_list_s2",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 18,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#D6E2F5"
+              },
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "task_list_s2a",
+                  "fill": "#6C84A5",
+                  "content": "已完成",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "task_list_s2b",
+                  "fill": "#16315F",
+                  "content": "181",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "task_list_s3",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 18,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#D6E2F5"
+              },
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "task_list_s3a",
+                  "fill": "#6C84A5",
+                  "content": "运行中",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "task_list_s3b",
+                  "fill": "#16315F",
+                  "content": "22",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "task_list_s4",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 18,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#D6E2F5"
+              },
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "task_list_s4a",
+                  "fill": "#6C84A5",
+                  "content": "错误",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "task_list_s4b",
+                  "fill": "#16315F",
+                  "content": "6",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "task_create",
+      "x": 5840,
+      "y": 0,
+      "name": "TaskCreate",
+      "width": 1440,
+      "height": 900,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "task_create_title",
+          "fill": "#16315F",
+          "content": "创建任务",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "task_create_text",
+          "fill": "#48658D",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "当前 Vue 实现为占位页，仅渲染标题。这里保留占位态。",
+          "lineHeight": 1.6,
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "task_create_c3",
+      "x": 1400,
+      "y": 1100,
+      "name": "TaskCreateC3",
+      "width": 1440,
+      "height": 1400,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "task_create_c3_title",
+          "fill": "#16315F",
+          "content": "C3 创建任务",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "task_create_c3_text",
+          "fill": "#48658D",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "任务基础信息 / Google Sheet 配置 / 参数组 JSON / 保存模板 / 启动任务。",
+          "lineHeight": 1.6,
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "ie6tD",
+          "name": "c3Base",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 18,
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "#D6E2F5"
+          },
+          "layout": "vertical",
+          "gap": 14,
+          "padding": 24,
+          "children": [
+            {
+              "type": "text",
+              "id": "KIRbJ",
+              "name": "c3BaseTitle",
+              "fill": "#16315F",
+              "content": "任务基本信息",
+              "fontFamily": "Inter",
+              "fontSize": 20,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "GPir8",
+              "name": "c3BaseBody",
+              "fill": "#48658D",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "模板选择 / 任务名称 / 描述 / 返回动作",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 15,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "UVJaX",
+          "name": "c3Sheet",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 18,
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "#D6E2F5"
+          },
+          "layout": "vertical",
+          "gap": 14,
+          "padding": 24,
+          "children": [
+            {
+              "type": "text",
+              "id": "f1TMg",
+              "name": "c3SheetTitle",
+              "fill": "#16315F",
+              "content": "Google Sheet 配置",
+              "fontFamily": "Inter",
+              "fontSize": 20,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "SDlZw",
+              "name": "c3SheetBody",
+              "fill": "#48658D",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "Sheet 选择 / 刷新 / 表标题 / 工作表 / Token 模式 / Token 导入 / 代理 URL",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 15,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "b4CdT",
+          "name": "c3Params",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 18,
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "#D6E2F5"
+          },
+          "layout": "vertical",
+          "gap": 14,
+          "padding": 24,
+          "children": [
+            {
+              "type": "text",
+              "id": "QDJou",
+              "name": "c3ParamsTitle",
+              "fill": "#16315F",
+              "content": "参数配置",
+              "fontFamily": "Inter",
+              "fontSize": 20,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "7IoH0",
+              "name": "c3ParamsBody",
+              "fill": "#48658D",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "参数卡片列表 / 添加参数 / 清空全部 / JSON 数组输入 / 组合预览",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 15,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "pciAm",
+          "name": "c3Action",
+          "width": "fill_container",
+          "gap": 10,
+          "children": [
+            {
+              "type": "frame",
+              "id": "646Te",
+              "name": "c3Btn1",
+              "fill": "#FFFFFF",
+              "cornerRadius": 12,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#D6E2F5"
+              },
+              "padding": [
+                12,
+                18
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "7oLhQ",
+                  "name": "c3Btn1Text",
+                  "fill": "#16315F",
+                  "content": "清除数据",
+                  "fontFamily": "Inter",
+                  "fontSize": 15,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "r6zrk",
+              "name": "c3Btn2",
+              "fill": "#E8EEF9",
+              "cornerRadius": 12,
+              "padding": [
+                12,
+                18
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "fGMET",
+                  "name": "c3Btn2Text",
+                  "fill": "#16315F",
+                  "content": "保存为模板",
+                  "fontFamily": "Inter",
+                  "fontSize": 15,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "23vex",
+              "name": "c3Btn3",
+              "fill": "#1E40AF",
+              "cornerRadius": 12,
+              "padding": [
+                12,
+                18
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "VECkZ",
+                  "name": "c3Btn3Text",
+                  "fill": "#FFFFFF",
+                  "content": "创建任务并执行",
+                  "fontFamily": "Inter",
+                  "fontSize": 15,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "task_create_c4",
+      "x": 2880,
+      "y": 1100,
+      "name": "TaskCreateC4",
+      "width": 1440,
+      "height": 1780,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "tR45f",
+          "name": "c4Toolbar",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "EFWHL",
+              "name": "c4Meta",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 6,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Ehj3o",
+                  "name": "c4Eyebrow",
+                  "fill": "#6B7A90",
+                  "content": "Task Builder",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "Mvrno",
+                  "name": "c4Title",
+                  "fill": "#16315F",
+                  "content": "创建新任务 (C4)",
+                  "fontFamily": "Inter",
+                  "fontSize": 30,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "lPL1T",
+                  "name": "c4Desc",
+                  "fill": "#48658D",
+                  "textGrowth": "fixed-width",
+                  "width": 860,
+                  "content": "按产品代码、时间范围和多组 Google Sheet 配置创建 C4 任务，适合批量抓取与统一执行。",
+                  "lineHeight": 1.6,
+                  "fontFamily": "Inter",
+                  "fontSize": 15,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "IhjPT",
+              "name": "c4Back",
+              "fill": "#FFFFFF",
+              "cornerRadius": 14,
+              "stroke": {
+                "thickness": 1,
+                "fill": "#D8E2F0"
+              },
+              "padding": [
+                12,
+                18
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "KvrIU",
+                  "name": "c4BackText",
+                  "fill": "#23406E",
+                  "content": "返回",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "2SmHw",
+          "name": "c4Basic",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "#D7E3F680",
+            "offset": {
+              "x": 0,
+              "y": 8
+            },
+            "blur": 24
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "WHNOM",
+              "name": "c4BasicTitle",
+              "fill": "#16315F",
+              "content": "任务基本信息",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "jNdQn",
+              "name": "c4BasicBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "模板选择、任务名称与任务描述并列排布，首屏即展示创建上下文。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "lSZEO",
+          "name": "c4Sheet",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "kTWfq",
+              "name": "c4SheetTitle",
+              "fill": "#16315F",
+              "content": "Google Sheet 配置",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "4GCAQ",
+              "name": "c4SheetBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "支持多组 Spreadsheet ID / URL、表标题与工作表名；顶部保留新增与移除操作，内部以多张子卡片连续展开。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "bM72b",
+          "name": "c4Advanced",
+          "width": "fill_container",
+          "fill": "#F6F9FD",
+          "cornerRadius": 20,
+          "stroke": {
+            "thickness": 1,
+            "fill": "#D6E3F3"
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "Zat7Q",
+              "name": "c4AdvancedTitle",
+              "fill": "#16315F",
+              "content": "更多配置",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "L41sL",
+              "name": "c4AdvancedBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "认证方式切换 Token 文件 / Token JSON，并保留 Token 导入、代理 URL 等高级项。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "nGMc8",
+          "name": "c4Product",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "xtTld",
+              "name": "c4ProductTitle",
+              "fill": "#16315F",
+              "content": "产品与时间配置",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "oYotX",
+              "name": "c4ProductBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "统计维度、市场类型、日期范围、整年 / 近年模式与产品代码标签墙集中在同一区域，底部再以摘要条提示有效 Sheet 数量和日期模式。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "fBjv7",
+          "name": "c4Action",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "padding": [
+            18,
+            20
+          ],
+          "justifyContent": "space_between",
+          "children": [
+            {
+              "type": "text",
+              "id": "2iQe1",
+              "name": "c4ActionText",
+              "fill": "#23406E",
+              "content": "底部操作栏: 清除数据 / 保存为模板 / 创建任务并执行",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "700"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "task_create_c5",
+      "x": 4360,
+      "y": 1240,
+      "name": "TaskCreateC5",
+      "width": 1440,
+      "height": 1960,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "8PfuF",
+          "name": "c5Toolbar",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "Yww7H",
+              "name": "c5Meta",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 6,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "bhisd",
+                  "name": "c5Eyebrow",
+                  "fill": "#6B7A90",
+                  "content": "Task Builder",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "4gvIK",
+                  "name": "c5Title",
+                  "fill": "#16315F",
+                  "content": "创建新任务 (C5)",
+                  "fontFamily": "Inter",
+                  "fontSize": 30,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "kiDvp",
+                  "name": "c5Desc",
+                  "fill": "#48658D",
+                  "textGrowth": "fixed-width",
+                  "width": 860,
+                  "content": "按多组 Sheet、产品代码和价格维度创建 C5 任务，支持扩展参数与批量执行。",
+                  "lineHeight": 1.6,
+                  "fontFamily": "Inter",
+                  "fontSize": 15,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "5gJ2r",
+              "name": "c5Back",
+              "fill": "#FFFFFF",
+              "cornerRadius": 14,
+              "stroke": {
+                "thickness": 1,
+                "fill": "#D8E2F0"
+              },
+              "padding": [
+                12,
+                18
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "2wUYv",
+                  "name": "c5BackText",
+                  "fill": "#23406E",
+                  "content": "返回",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "s1tpI",
+          "name": "c5Basic",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "#D7E3F680",
+            "offset": {
+              "x": 0,
+              "y": 8
+            },
+            "blur": 24
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "ZRbGw",
+              "name": "c5BasicTitle",
+              "fill": "#16315F",
+              "content": "任务基本信息",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "4pqVq",
+              "name": "c5BasicBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "模板选择、任务名称与描述位于首个卡片，作为当前批量任务的入口配置。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "cVxZm",
+          "name": "c5Sheet",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "xIZYn",
+              "name": "c5SheetTitle",
+              "fill": "#16315F",
+              "content": "Google Sheet 配置",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "V9LpH",
+              "name": "c5SheetBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "这里按组选择已登记的 Google Sheet，每组包含 Sheet 下拉、标题回填与工作表名选择，并保留新增 / 删除成组操作。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "pxA71",
+          "name": "c5Advanced",
+          "width": "fill_container",
+          "fill": "#F6F9FD",
+          "cornerRadius": 20,
+          "stroke": {
+            "thickness": 1,
+            "fill": "#D6E3F3"
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "ddSgc",
+              "name": "c5AdvancedTitle",
+              "fill": "#16315F",
+              "content": "更多配置",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "NeQ3J",
+              "name": "c5AdvancedBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "高级区支持认证方式切换、Token 导入、代理 URL，以及与模板保存联动的持久化配置。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "0zDUe",
+          "name": "c5Params",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "e1lF9",
+              "name": "c5ParamsTitle",
+              "fill": "#16315F",
+              "content": "产品与参数配置",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "kOLm5",
+              "name": "c5ParamsBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "统计方式、市场类型、价格模式、日期范围、排除年份、产品代码标签墙，以及参数 2 / 参数 3 的 JSON 输入区都集中在这一屏。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "m7DcG",
+          "name": "c5Action",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "padding": [
+            18,
+            20
+          ],
+          "justifyContent": "space_between",
+          "children": [
+            {
+              "type": "text",
+              "id": "B6MGC",
+              "name": "c5ActionText",
+              "fill": "#23406E",
+              "content": "底部操作栏: 清除数据 / 保存为模板 / 创建任务并执行",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "700"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "task_create_c31",
+      "x": 5840,
+      "y": 940,
+      "name": "TaskCreateC31",
+      "width": 1440,
+      "height": 1880,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "wTRsC",
+          "name": "c31Toolbar",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "1j55n",
+              "name": "c31Meta",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 6,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "8KIUP",
+                  "name": "c31Eyebrow",
+                  "fill": "#6B7A90",
+                  "content": "Batch Builder",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "32kmJ",
+                  "name": "c31Title",
+                  "fill": "#16315F",
+                  "content": "创建批量任务 (C31)",
+                  "fontFamily": "Inter",
+                  "fontSize": 30,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "2TZNd",
+                  "name": "c31Desc",
+                  "fill": "#48658D",
+                  "textGrowth": "fixed-width",
+                  "width": 860,
+                  "content": "按股票代码、参数组合和多组 Sheet 配置批量创建子任务，适合批量回放与拆分执行。",
+                  "lineHeight": 1.6,
+                  "fontFamily": "Inter",
+                  "fontSize": 15,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "0o12M",
+              "name": "c31Back",
+              "fill": "#FFFFFF",
+              "cornerRadius": 14,
+              "stroke": {
+                "thickness": 1,
+                "fill": "#D8E2F0"
+              },
+              "padding": [
+                12,
+                18
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "A6hzy",
+                  "name": "c31BackText",
+                  "fill": "#23406E",
+                  "content": "返回",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "0O8qh",
+          "name": "c31Basic",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "#D7E3F680",
+            "offset": {
+              "x": 0,
+              "y": 8
+            },
+            "blur": 24
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "KsY9K",
+              "name": "c31BasicTitle",
+              "fill": "#16315F",
+              "content": "任务基本信息",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "4ELpI",
+              "name": "c31BasicBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "包含模板选择、Base Name、任务描述、股票代码输入、结束日期、市场类型与标签墙。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "grHSE",
+          "name": "c31Sheet",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "BHEbt",
+              "name": "c31SheetTitle",
+              "fill": "#16315F",
+              "content": "Google Sheet 配置",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "GkcKp",
+              "name": "c31SheetBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "每组配置支持选择 Google Sheet、刷新列表、校验标题格式和工作表名，并可批量新增或删除整组表格。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "9ommU",
+          "name": "c31Advanced",
+          "width": "fill_container",
+          "fill": "#F6F9FD",
+          "cornerRadius": 20,
+          "stroke": {
+            "thickness": 1,
+            "fill": "#D6E3F3"
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "MO2PP",
+              "name": "c31AdvancedTitle",
+              "fill": "#16315F",
+              "content": "更多配置",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "MwSIj",
+              "name": "c31AdvancedBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "高级区保留 Token 文件 / JSON 切换、Token 导入和代理 URL，行为与其他任务创建页保持一致。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "fO2o3",
+          "name": "c31Params",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "KAIDA",
+              "name": "c31ParamsTitle",
+              "fill": "#16315F",
+              "content": "参数配置与组合预览",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "Auaxc",
+              "name": "c31ParamsBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "最多六组参数文本域支持一维 / 二维 JSON 数组，底部摘要条实时显示股票数、参数组合数、表格组数与最终子任务总数。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Bh5Zn",
+          "name": "c31Action",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "padding": [
+            18,
+            20
+          ],
+          "justifyContent": "space_between",
+          "children": [
+            {
+              "type": "text",
+              "id": "aKkmm",
+              "name": "c31ActionText",
+              "fill": "#23406E",
+              "content": "底部操作栏: 清除数据 / 保存为模板 / 创建任务并执行",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "700"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "task_detail",
+      "x": 7320,
+      "y": 0,
+      "name": "TaskDetail",
+      "width": 1440,
+      "height": 1880,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "tttD0",
+          "name": "detailToolbar",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "8EDRP",
+              "name": "detailMeta",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 6,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "ZA28K",
+                  "name": "detailEyebrow",
+                  "fill": "#6B7A90",
+                  "content": "Task Monitor",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "h7fz4",
+                  "name": "detailTitle",
+                  "fill": "#16315F",
+                  "content": "任务详情",
+                  "fontFamily": "Inter",
+                  "fontSize": 30,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "gQsRY",
+                  "name": "detailDesc",
+                  "fill": "#48658D",
+                  "textGrowth": "fixed-width",
+                  "width": 860,
+                  "content": "查看任务状态、执行日志、结果趋势和当前配置，并支持停止与重启任务。",
+                  "lineHeight": 1.6,
+                  "fontFamily": "Inter",
+                  "fontSize": 15,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "GiFJB",
+              "name": "detailAction",
+              "fill": "#FFFFFF",
+              "cornerRadius": 14,
+              "stroke": {
+                "thickness": 1,
+                "fill": "#D8E2F0"
+              },
+              "padding": [
+                12,
+                18
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "H73cl",
+                  "name": "detailActionText",
+                  "fill": "#23406E",
+                  "content": "检查状态 / 停止 / 重启 / 返回",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "TmAMd",
+          "name": "detailTop",
+          "width": "fill_container",
+          "gap": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "zcZhv",
+              "name": "detailInfo",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 20,
+              "layout": "vertical",
+              "gap": 12,
+              "padding": 20,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "bj7kf",
+                  "name": "detailInfoTitle",
+                  "fill": "#16315F",
+                  "content": "任务信息",
+                  "fontFamily": "Inter",
+                  "fontSize": 18,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "D4MJm",
+                  "name": "detailInfoBody",
+                  "fill": "#5E7395",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "任务名称、任务 ID、状态标签与进度条在左侧卡片纵向展示。",
+                  "lineHeight": 1.7,
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "XwjpT",
+              "name": "detailTime",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 20,
+              "layout": "vertical",
+              "gap": 12,
+              "padding": 20,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "mUT6s",
+                  "name": "detailTimeTitle",
+                  "fill": "#16315F",
+                  "content": "时间信息",
+                  "fontFamily": "Inter",
+                  "fontSize": 18,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "CRhC5",
+                  "name": "detailTimeBody",
+                  "fill": "#5E7395",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "开始时间、结束时间、执行时长与错误信息独立成卡，和任务信息并排。",
+                  "lineHeight": 1.7,
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "MDicG",
+              "name": "detailHero",
+              "width": "fill_container",
+              "fill": {
+                "type": "gradient",
+                "gradientType": "linear",
+                "enabled": true,
+                "rotation": 180,
+                "size": {
+                  "height": 1
+                },
+                "colors": [
+                  {
+                    "color": "#234A8A",
+                    "position": 0
+                  },
+                  {
+                    "color": "#16315F",
+                    "position": 1
+                  }
+                ]
+              },
+              "cornerRadius": 24,
+              "layout": "vertical",
+              "gap": 12,
+              "padding": 20,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "kJSIp",
+                  "name": "detailHeroTitle",
+                  "fill": "#FFFFFF",
+                  "content": "Execution Summary",
+                  "fontFamily": "Inter",
+                  "fontSize": 18,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "2YW5Z",
+                  "name": "detailHeroBody",
+                  "fill": "#D8E6FF",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "成功 / 失败计数与成功率进度条，作为右侧高亮统计面板。",
+                  "lineHeight": 1.7,
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "brnPa",
+          "name": "detailTabs",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "#D7E3F680",
+            "offset": {
+              "x": 0,
+              "y": 8
+            },
+            "blur": 24
+          },
+          "layout": "vertical",
+          "gap": 16,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "eNgv2",
+              "name": "detailTabsTitle",
+              "fill": "#16315F",
+              "content": "日志 / 执行结果 / 任务配置",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "cjrjR",
+              "name": "detailTabsBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "日志区使用深色代码面板；结果区包含筛选、趋势图、表格和分页；配置区包含 Google Sheet 摘要、参数摘要与完整 JSON。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "okKzl",
+          "name": "detailDrawer",
+          "width": "fill_container",
+          "fill": "#F6F9FD",
+          "cornerRadius": 20,
+          "stroke": {
+            "thickness": 1,
+            "fill": "#D6E3F3"
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "pNiiX",
+              "name": "detailDrawerTitle",
+              "fill": "#16315F",
+              "content": "结果详情抽屉",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "wMvHq",
+              "name": "detailDrawerBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "右侧抽屉展示参数信息、执行结果 JSON 与错误文本，移动端则切为全屏。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "backtest_list",
+      "x": 7320,
+      "y": 1440,
+      "name": "BacktestList",
+      "width": 1440,
+      "height": 1460,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "WLbQP",
+          "name": "blToolbar",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "gYwm2",
+              "name": "blMeta",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 6,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "tpqT0",
+                  "name": "blEyebrow",
+                  "fill": "#6B7A90",
+                  "content": "Backtest Center",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "3W5Ca",
+                  "name": "blTitle",
+                  "fill": "#16315F",
+                  "content": "数据回测中心",
+                  "fontFamily": "Inter",
+                  "fontSize": 30,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "2Rr5C",
+                  "name": "blDesc",
+                  "fill": "#48658D",
+                  "textGrowth": "fixed-width",
+                  "width": 860,
+                  "content": "集中查看回测任务状态、运行情况和入口操作，快速进入详情或创建新任务。",
+                  "lineHeight": 1.6,
+                  "fontFamily": "Inter",
+                  "fontSize": 15,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "KWYzj",
+              "name": "blCreate",
+              "fill": "#234A8A",
+              "cornerRadius": 14,
+              "padding": [
+                12,
+                18
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "UelCz",
+                  "name": "blCreateText",
+                  "fill": "#FFFFFF",
+                  "content": "创建新任务",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "UpedF",
+          "name": "blStats",
+          "width": "fill_container",
+          "gap": 12,
+          "children": [
+            {
+              "type": "frame",
+              "id": "2SvKo",
+              "name": "blStat1",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 18,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 18,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "tuu26",
+                  "name": "blStat1Text",
+                  "fill": "#23406E",
+                  "content": "任务总数 / 当前页聚合统计",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "BhJS7",
+              "name": "blStat2",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 18,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 18,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "t5wyb",
+                  "name": "blStat2Text",
+                  "fill": "#2F6FDB",
+                  "content": "运行中 / Pending 与 Running 高亮",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "0MfDz",
+              "name": "blStat3",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 18,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 18,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "b84aN",
+                  "name": "blStat3Text",
+                  "fill": "#1F8A52",
+                  "content": "已完成 / Success 绿色计数",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "SHr12",
+              "name": "blStat4",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 18,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 18,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "auiAr",
+                  "name": "blStat4Text",
+                  "fill": "#CC3E4E",
+                  "content": "执行失败 / Error 红色计数",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "MDNrj",
+          "name": "blFilter",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "TpAyy",
+              "name": "blFilterTitle",
+              "fill": "#16315F",
+              "content": "筛选条件",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "nlwry",
+              "name": "blFilterBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "按状态与关键词过滤任务列表，支持清空与刷新动作。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "jNTen",
+          "name": "blTable",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 20,
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "#D7E3F680",
+            "offset": {
+              "x": 0,
+              "y": 8
+            },
+            "blur": 24
+          },
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "mAXss",
+              "name": "blTableTitle",
+              "fill": "#16315F",
+              "content": "回测任务表格",
+              "fontFamily": "Inter",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "R7uhR",
+              "name": "blTableBody",
+              "fill": "#5E7395",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "表格列包含任务名称、状态、进度、创建时间和详情入口，底部右对齐分页。",
+              "lineHeight": 1.7,
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "backtest_create",
+      "x": 1400,
+      "y": 2560,
+      "name": "BacktestCreate",
+      "width": 1440,
+      "height": 1500,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "backtest_create_title",
+          "fill": "#16315F",
+          "content": "创建回测任务",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "backtest_create_text",
+          "fill": "#48658D",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "Google Sheet URL / 股票搜索 / 任务配置折叠区 / Excel 导入 / 参数表格 / 创建按钮。",
+          "lineHeight": 1.6,
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "backtest_detail",
+      "x": 2880,
+      "y": 2640,
+      "name": "BacktestDetail",
+      "width": 1440,
+      "height": 1800,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "backtest_detail_title",
+          "fill": "#16315F",
+          "content": "回测任务详情",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "backtest_detail_text",
+          "fill": "#48658D",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "任务元信息 / 参数表 / C3 汇总表或 C5 结果列表 / 日志区 / 全局预览入口。",
+          "lineHeight": 1.6,
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "backtest_global_preview",
+      "x": 4360,
+      "y": 2880,
+      "name": "BacktestGlobalPreview",
+      "width": 1440,
+      "height": 1300,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "backtest_global_preview_title",
+          "fill": "#16315F",
+          "content": "全局预览",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "backtest_global_preview_text",
+          "fill": "#48658D",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "按年份分组的横向对比表 / XLSX 导出 / 分组切换 / 概览统计。",
+          "lineHeight": 1.6,
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "backtest_result",
+      "x": 5840,
+      "y": 2480,
+      "name": "BacktestResult",
+      "width": 1440,
+      "height": 1800,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "backtest_result_title",
+          "fill": "#16315F",
+          "content": "单结果详情",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "backtest_result_text",
+          "fill": "#48658D",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "指标摘要卡片 / 结构化指标表 / 分析内容 / 导出操作。",
+          "lineHeight": 1.6,
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "xpl",
+      "x": 7320,
+      "y": 2600,
+      "name": "Xpl",
+      "width": 1440,
+      "height": 1200,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "xpl_title",
+          "fill": "#16315F",
+          "content": "XPL 数据分析",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "xpl_text",
+          "fill": "#48658D",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "Excel 粘贴输入 / 分析设置 / 指标结果区 / 导出按钮。",
+          "lineHeight": 1.6,
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "xpl_v1",
+      "x": 8800,
+      "y": 0,
+      "name": "XplV1",
+      "width": 1440,
+      "height": 1700,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "xpl_v1_title",
+          "fill": "#16315F",
+          "content": "XPL V1",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "xpl_v1_text",
+          "fill": "#48658D",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "Google Sheet URL / 工作表选择 / 指标摘要卡片 / 结果明细和导出。",
+          "lineHeight": 1.6,
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_dashboard",
+      "x": 8800,
+      "y": 1740,
+      "name": "AdminDashboard",
+      "width": 1440,
+      "height": 1300,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_dashboard_title",
+          "fill": "#16315F",
+          "content": "仪表盘",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_dashboard_text",
+          "fill": "#48658D",
+          "content": "总览任务状态、最近 7 天趋势和当前运行中的任务。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "admin_dashboard_metrics",
+          "width": "fill_container",
+          "gap": 12,
+          "children": [
+            {
+              "type": "frame",
+              "id": "admin_dashboard_m1",
+              "width": "fill_container",
+              "fill": "#2563EB",
+              "cornerRadius": 20,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "admin_dashboard_m1a",
+                  "fill": "#FFFFFFC7",
+                  "content": "总任务数",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "admin_dashboard_m1b",
+                  "fill": "#FFFFFF",
+                  "content": "1,284",
+                  "fontFamily": "Inter",
+                  "fontSize": 30,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "admin_dashboard_m2",
+              "width": "fill_container",
+              "fill": "#22C55E",
+              "cornerRadius": 20,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "admin_dashboard_m2a",
+                  "fill": "#FFFFFFC7",
+                  "content": "已完成",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "admin_dashboard_m2b",
+                  "fill": "#FFFFFF",
+                  "content": "964",
+                  "fontFamily": "Inter",
+                  "fontSize": 30,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "admin_dashboard_m3",
+              "width": "fill_container",
+              "fill": "#F59E0B",
+              "cornerRadius": 20,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "admin_dashboard_m3a",
+                  "fill": "#FFFFFFC7",
+                  "content": "运行中",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "admin_dashboard_m3b",
+                  "fill": "#FFFFFF",
+                  "content": "17",
+                  "fontFamily": "Inter",
+                  "fontSize": 30,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "admin_dashboard_m4",
+              "width": "fill_container",
+              "fill": "#EF4444",
+              "cornerRadius": 20,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "admin_dashboard_m4a",
+                  "fill": "#FFFFFFC7",
+                  "content": "错误",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "admin_dashboard_m4b",
+                  "fill": "#FFFFFF",
+                  "content": "8",
+                  "fontFamily": "Inter",
+                  "fontSize": 30,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_tasks",
+      "x": 10280,
+      "y": 0,
+      "name": "AdminTasks",
+      "width": 1440,
+      "height": 1400,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_tasks_title",
+          "fill": "#16315F",
+          "content": "任务管理",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_tasks_text",
+          "fill": "#48658D",
+          "content": "状态筛选 / 类型筛选 / 任务表格 / 创建任务入口。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_config",
+      "x": 10280,
+      "y": 1440,
+      "name": "AdminConfig",
+      "width": 1440,
+      "height": 1600,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_config_title",
+          "fill": "#16315F",
+          "content": "系统配置",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_config_text",
+          "fill": "#48658D",
+          "content": "配置列表 / Token 概览卡片 / Token 管理表格。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_logs",
+      "x": 11760,
+      "y": 0,
+      "name": "AdminLogs",
+      "width": 1440,
+      "height": 1200,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_logs_title",
+          "fill": "#16315F",
+          "content": "系统日志",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_logs_text",
+          "fill": "#48658D",
+          "content": "日志级别 / 搜索 / 日期筛选 / 深色日志控制台。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_templates",
+      "x": 11760,
+      "y": 1240,
+      "name": "AdminTemplates",
+      "width": 1440,
+      "height": 1300,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_templates_title",
+          "fill": "#16315F",
+          "content": "模板管理",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_templates_text",
+          "fill": "#48658D",
+          "content": "快速入口卡片 + 模板卡片网格 + 新建 / 编辑 / 复制 / 删除动作。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_results",
+      "x": 13240,
+      "y": 0,
+      "name": "AdminResults",
+      "width": 1440,
+      "height": 1200,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_results_title",
+          "fill": "#16315F",
+          "content": "结果查询",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_results_text",
+          "fill": "#48658D",
+          "content": "按任务 ID 过滤结果 / 结果表格 / 抽屉式结果详情 / 删除动作。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_google_sheets",
+      "x": 13240,
+      "y": 1240,
+      "name": "AdminGoogleSheets",
+      "width": 1440,
+      "height": 1400,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_google_sheets_title",
+          "fill": "#16315F",
+          "content": "Google Sheets 管理",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_google_sheets_text",
+          "fill": "#48658D",
+          "content": "Sheet 资源表格 / 关键字与状态筛选 / 新增与编辑表单。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_scheduler",
+      "x": 14720,
+      "y": 0,
+      "name": "AdminScheduler",
+      "width": 1440,
+      "height": 1400,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_scheduler_title",
+          "fill": "#16315F",
+          "content": "定时任务",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_scheduler_text",
+          "fill": "#48658D",
+          "content": "定时任务统计卡片 / 任务表格 / 启停开关 / 创建与编辑弹窗。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_users",
+      "x": 14720,
+      "y": 1440,
+      "name": "AdminUsers",
+      "width": 1440,
+      "height": 1280,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_users_title",
+          "fill": "#16315F",
+          "content": "用户管理",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_users_text",
+          "fill": "#48658D",
+          "content": "用户列表 / 角色分配 / 状态字段 / 新建与编辑用户动作。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "admin_roles",
+      "x": 16200,
+      "y": 0,
+      "name": "AdminRoles",
+      "width": 1440,
+      "height": 1280,
+      "fill": "#EFF4FB",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "admin_roles_title",
+          "fill": "#16315F",
+          "content": "角色管理",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "admin_roles_text",
+          "fill": "#48658D",
+          "content": "角色列表 / 权限勾选 / 系统角色保护 / 新建与编辑角色动作。",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": "normal"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2462 @@
+{% extends "google_sheet/base.html" %}
+
+{% block title %}创建任务 - Google Sheet 3.1 批量启动{% endblock %}
+
+{% block styles %}
+<style>
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    .spin {
+        animation: spin 1s linear infinite;
+        display: inline-block;
+    }
+
+    #refresh-sheets:disabled {
+        cursor: not-allowed;
+    }
+
+    #refresh-sheets:not(:disabled):hover {
+        background-color: #e9ecef;
+    }
+
+    .sheet-loading {
+        opacity: 0.7;
+        cursor: wait;
+    }
+
+    /* 更紧凑的 Google Sheet 配置组件样式，仅作用于 C4 页面的配置块 */
+    .sheet-config-item {
+        padding: 0.75rem 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .sheet-config-item .form-label {
+        font-size: 0.875rem;
+        margin-bottom: 0.2rem;
+    }
+
+    .sheet-config-item .form-control,
+    .sheet-config-item .form-select {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+        height: auto;
+    }
+
+    .sheet-config-item .form-text {
+        font-size: 0.75rem;
+    }
+
+    #advanced-config .form-label {
+        font-size: 0.875rem;
+        margin-bottom: 0.2rem;
+    }
+
+    #advanced-config .form-control,
+    #advanced-config .form-select,
+    #advanced-config textarea {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+        height: auto;
+    }
+
+    /* 3.1 参数配置区样式 */
+    .product-config-card {
+        border-width: 2px;
+    }
+
+    .product-config-card .card-header {
+        padding: 0.4rem 0.75rem;
+    }
+
+    .product-config-card .card-body {
+        padding: 0.75rem 0.75rem 0.9rem;
+    }
+
+    .product-config-card .form-label {
+        font-size: 0.9rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .product-config-card .form-control {
+        font-size: 0.9rem;
+        padding: 0.35rem 0.55rem;
+        height: 2.25rem;
+    }
+
+    .parameter-matrix-card {
+        border-width: 2px;
+    }
+
+    .parameter-matrix-card textarea {
+        min-height: 132px;
+        resize: vertical;
+        font-family: var(--bs-font-monospace);
+        font-size: 0.875rem;
+    }
+
+    .parameter-hint {
+        background: #f8f9fa;
+        border: 1px dashed #dee2e6;
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="card-title mb-0">
+                    <i class="bi bi-plus-circle"></i> 创建新任务
+                </h4>
+            </div>
+            <div class="card-body">
+                <form id="parameter-form">
+                    <!-- 任务基本信息 -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h5 class="card-title mb-3">
+                                        <i class="bi bi-info-circle"></i> 任务基本信息
+                                    </h5>
+                                    <div class="row">
+                                        <div class="col-md-3 mb-3">
+                                            <label for="task_template" class="form-label">选择模板</label>
+                                            <select class="form-select" id="task_template">
+                                                <option value="">不使用模板</option>
+                                                <!-- 模板列表将通过JavaScript动态加载 -->
+                                            </select>
+                                            <div class="form-text">选择一个已保存的任务模板来快速填充配置</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="task_name" class="form-label">任务 Base Name</label>
+                                            <input type="text" class="form-control" id="task_name"
+                                                   placeholder="例如：strategy_batch，后端启动时会追加 _n 后缀"
+                                                   value="">
+                                            <div class="form-text">批量启动任务时使用的基础名称，每个子任务会基于它生成 `base_name_n`。</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="task_description" class="form-label">任务描述 (可选)</label>
+                                            <textarea class="form-control" id="task_description" rows="2"
+                                                      placeholder="记录这批任务的用途、来源或备注"></textarea>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="stock_code_input" class="form-label">股票代码</label>
+                                            <input type="text" class="form-control" id="stock_code_input"
+                                                   placeholder="例如：601727">
+                                            <div class="form-text">输入单个股票代码</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="end_date" class="form-label">结束时间</label>
+                                            <input type="date" class="form-control" id="end_date">
+                                            <div class="form-text">不选择则按后端默认逻辑处理</div>
+                                        </div>
+                                        <div class="col-md-2 mb-3">
+                                            <label class="form-label d-block">市场</label>
+                                            <div class="btn-group w-100" role="group" aria-label="市场类型">
+                                                <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" checked>
+                                                <label class="btn btn-outline-primary" for="market_type_cn">A股</label>
+                                                <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="en">
+                                                <label class="btn btn-outline-primary" for="market_type_us">美股</label>
+                                            </div>
+                                            <div class="form-text">选择回测市场</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label class="form-label" for="kline_adjustment">K线复权</label>
+                                            <select class="form-select" id="kline_adjustment">
+                                                <option value="forward" selected>前复权</option>
+                                                <option value="back">后复权</option>
+                                                <option value="none">不复权</option>
+                                            </select>
+                                            <div class="form-text">A股映射东方财富 fqt，美股映射 Yahoo 调整价</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Google Sheet 配置 -->
+                    <div class="card mb-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-table"></i> Google Sheet 配置
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="sheet-config-list">
+                                <div class="sheet-config-item border rounded p-3 mb-3" data-sheet-config-index="0">
+                                    <div class="row align-items-start">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="spreadsheet" class="form-label">
+                                                <i class="bi bi-link-45deg"></i> 选择 Google Sheet
+                                            </label>
+                                            <div class="input-group">
+                                                <select class="form-select google-sheet-select" id="spreadsheet" required>
+                                                    <option value="">请选择 Google Sheet</option>
+                                                </select>
+                                                <button class="btn btn-outline-secondary" type="button" id="refresh-google-sheets" title="刷新 Google Sheet 列表">
+                                                    <i class="bi bi-arrow-clockwise"></i>
+                                                </button>
+                                            </div>
+                                            <input type="hidden" id="google_sheet_id">
+                                            <div class="form-text" id="spreadsheet-help">
+                                                <i class="bi bi-info-circle"></i> 请从列表中选择可用的 Google Sheet
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="spreadsheet_title" class="form-label">
+                                                <i class="bi bi-type"></i> 表标题
+                                            </label>
+                                            <input type="text" class="form-control spreadsheet-title-input" id="spreadsheet_title"
+                                                   placeholder="例如：任意前缀-1y-3]">
+                                            <div class="form-text">必填，格式必须以“任意前缀-数字y-数字]”结尾，例如：策略A-1y-3]</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="sheet_name" class="form-label">
+                                                <i class="bi bi-file-spreadsheet"></i> 工作表名称
+                                            </label>
+                                            <input type="text" class="form-control worksheet-name-input" id="sheet_name"
+                                                   placeholder="选择 Google Sheet 后自动带出" readonly>
+                                            <div class="form-text" id="sheet-name-help">默认展示接口返回的第一个工作表</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-center mb-3">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button" class="btn btn-outline-primary" id="add-sheet-config-btn">
+                                        <i class="bi bi-plus-circle"></i> 添加一组表格配置
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger" id="remove-sheet-config-btn">
+                                        <i class="bi bi-dash-circle"></i> 移除最后一组表格配置
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="border-top pt-3 mt-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="fw-semibold"><i class="bi bi-sliders"></i> 更多配置</span>
+                                    <button type="button" class="btn btn-link btn-sm p-0" id="toggle-advanced-config-btn">
+                                        <span id="advanced-config-toggle-text">展开</span>
+                                        <i class="bi bi-chevron-down ms-1" id="advanced-config-toggle-icon"></i>
+                                    </button>
+                                </div>
+                                <div id="advanced-config" style="display: none;">
+                                    <div class="row mt-2">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="token_type" class="form-label">
+                                                <i class="bi bi-shield-lock"></i> 认证方式
+                                            </label>
+                                            <select class="form-select" id="token_type">
+                                                <option value="file">Token文件路径</option>
+                                                <option value="json">Token JSON字符串</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-6 mb-3" id="token_file_container">
+                                            <label for="token_id" class="form-label">
+                                                <i class="bi bi-file-earmark-lock"></i> Token选择
+                                            </label>
+                                            <select class="form-select mb-2" id="token_id">
+                                                <option value="">正在加载Token...</option>
+                                            </select>
+                                            <input type="hidden" id="token_file" value="">
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="token_import_path"
+                                                       placeholder="输入Token文件路径后点击导入">
+                                                <button type="button" class="btn btn-outline-primary" id="import-token-btn">
+                                                    导入
+                                                </button>
+                                            </div>
+                                            <div class="form-text">支持选择指定Token，或选择“随机Token（按最低使用数均衡分配）”</div>
+                                        </div>
+                                        <div class="col-md-6 mb-3" id="token_json_container" style="display: none;">
+                                            <label for="token_json" class="form-label">
+                                                <i class="bi bi-code-square"></i> Token JSON字符串
+                                            </label>
+                                            <textarea class="form-control" id="token_json" rows="3"
+                                                      placeholder='{"installed": {"client_id": "...", "client_secret": "...", ...}}'></textarea>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="proxy_url" class="form-label">
+                                                <i class="bi bi-globe"></i> 代理URL (可选)
+                                            </label>
+                                            <input type="text" class="form-control" id="proxy_url"
+                                                   placeholder="请输入代理URL">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 参数选择 -->
+                    <div class="card mb-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-grid-3x3-gap"></i> 参数选择
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="parameter-hint mb-3">
+                                <div class="fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i> 参数格式说明</div>
+                                <div class="small text-muted">
+                                    每个参数都支持一维数组或二维数组，提交时保持你输入的原格式不变。
+                                </div>
+                                <div class="small text-muted mt-1">
+                                    一维示例：<code>[1, 2, 3]</code>，二维示例：<code>[[1, "a"], [2, "b"]]</code>
+                                </div>
+                            </div>
+                            <div class="row" id="parameters-container">
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-primary parameter-matrix-card h-100">
+                                        <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-1-circle"></i> 参数1</h6></div>
+                                        <div class="card-body">
+                                            <textarea class="form-control parameter-input" id="param1" placeholder='["A", "B"] 或 [[1, "A"], [2, "B"]]'></textarea>
+                                            <div class="form-text">用于第 1 轮组合，支持一维或二维数组。</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-success parameter-matrix-card h-100">
+                                        <div class="card-header bg-success text-white"><h6 class="mb-0"><i class="bi bi-2-circle"></i> 参数2</h6></div>
+                                        <div class="card-body">
+                                            <textarea class="form-control parameter-input" id="param2" placeholder='[10, 20] 或 [[10, 20], [30, 40]]'></textarea>
+                                            <div class="form-text">用于第 2 轮组合，支持一维或二维数组。</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-info parameter-matrix-card h-100">
+                                        <div class="card-header bg-info text-white"><h6 class="mb-0"><i class="bi bi-3-circle"></i> 参数3</h6></div>
+                                        <div class="card-body">
+                                            <textarea class="form-control parameter-input" id="param3" placeholder='[0.1, 0.2] 或 [[0.1, 0.2], [0.3, 0.4]]'></textarea>
+                                            <div class="form-text">用于第 3 轮组合，支持一维或二维数组。</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-warning parameter-matrix-card h-100">
+                                        <div class="card-header bg-warning"><h6 class="mb-0"><i class="bi bi-4-circle"></i> 参数4</h6></div>
+                                        <div class="card-body">
+                                            <textarea class="form-control parameter-input" id="param4" placeholder='[100, 200, 300] 或 [[100], [200], [300]]'></textarea>
+                                            <div class="form-text">用于第 4 轮组合，支持一维或二维数组。</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-danger parameter-matrix-card h-100">
+                                        <div class="card-header bg-danger text-white"><h6 class="mb-0"><i class="bi bi-5-circle"></i> 参数5</h6></div>
+                                        <div class="card-body">
+                                            <textarea class="form-control parameter-input" id="param5" placeholder='[true, false] 或 [[true, false], ["x", "y"]]'></textarea>
+                                            <div class="form-text">用于第 5 轮组合，支持一维或二维数组。</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-secondary parameter-matrix-card h-100">
+                                        <div class="card-header bg-secondary text-white"><h6 class="mb-0"><i class="bi bi-6-circle"></i> 参数6</h6></div>
+                                        <div class="card-body">
+                                            <textarea class="form-control parameter-input" id="param6" placeholder='["x", "y"] 或 [[["x"]], [["y"]]]'></textarea>
+                                            <div class="form-text">用于第 6 轮组合，支持一维或二维数组。</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 参数组合预览 -->
+                    <div class="card mb-4" id="combination-info" style="display: none;">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-eye"></i> 参数组合预览
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-8">
+                                    <div class="alert alert-info mb-0">
+                                        <i class="bi bi-info-circle"></i>
+                                        <strong>参数组合信息：</strong>
+                                        <span id="combination-count" class="badge bg-primary ms-2">0</span> 个参数组合将被执行
+                                        <div class="mt-2 small">
+                                            <span class="text-muted">单个任务组合数：</span>
+                                            <span id="single-combination-count" class="badge bg-secondary">0</span>
+                                            <span class="text-muted ms-2">× Sheet数：</span>
+                                            <span id="sheet-count-display" class="badge bg-secondary">0</span>
+                                            <span class="text-muted ms-2">× 股票数：</span>
+                                            <span id="stock-count-display" class="badge bg-secondary">0</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <button type="button" class="btn btn-outline-info" onclick="showCombinationPreview()">
+                                        <i class="bi bi-eye"></i> 预览组合
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <!-- 操作按钮 -->
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                <a href="{{ url_for('google_sheet.index', version='c31') }}" class="btn btn-secondary me-md-2">
+                                    <i class="bi bi-arrow-left"></i> 返回首页
+                                </a>
+                                <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="清除保存的表单数据">
+                                    <i class="bi bi-trash"></i> 清除数据
+                                </button>
+                                <button type="button" class="btn btn-outline-success me-md-2" onclick="saveAsTemplate()" title="将当前配置保存为模板">
+                                    <i class="bi bi-save"></i> 保存为模板
+                                </button>
+                                <button type="button" class="btn btn-primary btn-lg" id="execute-btn">
+                                    <i class="bi bi-play-circle"></i> 创建任务并执行
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 参数组合预览模态框 -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="previewModalLabel">参数组合预览</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="combination-preview" id="combination-preview">
+                    <!-- 组合预览内容 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 第一次执行确认模态框 -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmModalLabel">第一次执行结果确认</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>执行参数:</h6>
+                        <pre id="confirm-params" class="bg-light p-3"></pre>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>执行结果:</h6>
+                        <pre id="confirm-results" class="bg-light p-3"></pre>
+                    </div>
+                </div>
+                <div class="alert alert-warning">
+                    请检查第一次执行的结果，确认无误后点击"继续执行"按钮，系统将自动执行剩余的参数组合。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancel-execution">停止执行</button>
+                <button type="button" class="btn btn-primary" id="confirm-continue">继续执行</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 保存模板模态框 -->
+<div class="modal fade" id="saveTemplateModal" tabindex="-1" aria-labelledby="saveTemplateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="saveTemplateModalLabel">保存为模板</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="saveTemplateForm">
+                    <div class="mb-3">
+                        <label for="templateName" class="form-label">模板名称</label>
+                        <input type="text" class="form-control" id="templateName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="templateDescription" class="form-label">模板描述</label>
+                        <textarea class="form-control" id="templateDescription" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="submitTemplate()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 任务执行状态模态框 -->
+<div class="modal fade" id="taskStatusModal" tabindex="-1" aria-labelledby="taskStatusModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="taskStatusModalLabel">任务执行状态</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" id="task-progress-bar" style="width: 0%;">0%</div>
+                </div>
+                <div class="mt-3">
+                    <h6>任务状态</h6>
+                    <div id="task-status-message" class="border rounded p-2 bg-light" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <a href="/google-sheet/?version=c3" class="btn btn-primary" id="view-task-btn" style="display: none;">查看已创建任务</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const TASK_TYPE = 'google_sheet_C31';
+    const STORAGE_KEY = 'google_sheet_c31_form_data';
+    const PAGE_LABEL = '3.1';
+    const GOOGLE_SHEET_TABLE_TYPE = 'c3';
+
+    let googleSheetTokens = [];
+    let googleSheetRandomValue = '__random__';
+    let pendingTokenSelection = null;
+
+    let currentTaskId = null;
+    let eventSource = null;
+    let stockCode = '';
+
+    // 本页专用错误提示封装
+    function showError(message) {
+        if (typeof showNotification === 'function') {
+            showNotification(message, 'error');
+        } else {
+            alert(message);
+        }
+    }
+
+    function getParameterIds() {
+        return ['param1', 'param2', 'param3', 'param4', 'param5', 'param6'];
+    }
+
+    function getParameterValues() {
+        return getParameterIds().map((paramId, index) => {
+            const field = document.getElementById(paramId);
+            const rawValue = field ? field.value.trim() : '';
+            if (!rawValue) {
+                return { id: paramId, index: index + 1, value: [], empty: true };
+            }
+
+            const parsed = parseJsonArray(rawValue);
+            return {
+                id: paramId,
+                index: index + 1,
+                value: parsed,
+                empty: false
+            };
+        });
+    }
+
+    function validateC31Parameters(parameterValues, showToast = true) {
+        for (const param of parameterValues) {
+            if (param.value === null) {
+                if (showToast) {
+                    showNotification(`参数${param.index} 不是合法的 JSON 数组`, 'error');
+                }
+                return false;
+            }
+            if (!Array.isArray(param.value)) {
+                if (showToast) {
+                    showNotification(`参数${param.index} 必须是数组`, 'error');
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function getActiveParameters(parameterValues) {
+        return parameterValues
+            .filter(param => Array.isArray(param.value) && param.value.length > 0)
+            .map(param => param.value);
+    }
+
+    function getC31ParameterCandidateGroups(parameterValues) {
+        const activeParameters = getActiveParameters(parameterValues);
+        // 与后端 _normalize_c31_parameter_groups 保持一致：
+        // 二维数组的每一行都是一个候选项；一维数组整体作为单个候选项。
+        return activeParameters;
+    }
+
+    // 获取单个参数的候选数量
+    // 二维数组 list[list[...]]：取 list[0].length（第一个子数组的长度）
+    // 一维数组 list[...]：取 list.length（整体长度）
+    function getParamCandidateCount(paramArray) {
+        if (!Array.isArray(paramArray) || paramArray.length === 0) return 0;
+        if (Array.isArray(paramArray[0])) {
+            return paramArray[0].length;
+        }
+        return paramArray.length;
+    }
+
+    function getC31ParameterCombinationCount(parameterValues) {
+        const activeParameters = getActiveParameters(parameterValues);
+        if (!activeParameters.length) {
+            return 0;
+        }
+        return activeParameters.reduce((total, group) => total * getParamCandidateCount(group), 1);
+    }
+
+    function isCountCompatible(leftCount, rightCount) {
+        if (leftCount <= 0 || rightCount <= 0) {
+            return false;
+        }
+        return leftCount === rightCount || leftCount % rightCount === 0 || rightCount % leftCount === 0;
+    }
+
+    function getSelectedSheetCount() {
+        const sheetConfigList = document.getElementById('sheet-config-list');
+        if (!sheetConfigList) {
+            return 0;
+        }
+
+        let count = 0;
+        sheetConfigList.querySelectorAll('.sheet-config-item').forEach(item => {
+            const { spreadsheetSelect } = getSheetConfigElements(item);
+            const spreadsheetId = spreadsheetSelect ? extractSpreadsheetId(spreadsheetSelect.value || '') : '';
+            if (spreadsheetId) {
+                count += 1;
+            }
+        });
+        return count;
+    }
+
+    function isValidC31SheetTitle(title) {
+        return /.+-\d+y-\d+\]$/.test(String(title || '').trim());
+    }
+
+    function validateSelectedSheetTitles(showToast = true) {
+        const sheetConfigList = document.getElementById('sheet-config-list');
+        if (!sheetConfigList) {
+            return true;
+        }
+
+        const items = sheetConfigList.querySelectorAll('.sheet-config-item');
+        for (let index = 0; index < items.length; index += 1) {
+            const item = items[index];
+            const { spreadsheetSelect, titleInput } = getSheetConfigElements(item);
+            const spreadsheetId = spreadsheetSelect ? extractSpreadsheetId(spreadsheetSelect.value || '') : '';
+            if (!spreadsheetId) {
+                continue;
+            }
+
+            const title = titleInput ? titleInput.value.trim() : '';
+            if (!isValidC31SheetTitle(title)) {
+                if (showToast) {
+                    showNotification(`第${index + 1}个Sheet的表标题格式无效，必须以“任意前缀-数字y-数字]”结尾，例如：策略A-1y-3]`, 'error');
+                }
+                if (titleInput) {
+                    titleInput.focus();
+                }
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    function collectSheetConfigs() {
+        const sheets = [];
+        const sheetConfigList = document.getElementById('sheet-config-list');
+        if (!sheetConfigList) {
+            return sheets;
+        }
+
+        sheetConfigList.querySelectorAll('.sheet-config-item').forEach(item => {
+            let sid = '';
+            let stitle = '';
+
+            const {
+                spreadsheetSelect,
+                titleInput,
+                worksheetInput
+            } = getSheetConfigElements(item);
+
+            if (spreadsheetSelect) {
+                sid = extractSpreadsheetId(spreadsheetSelect.value || '');
+            }
+            if (titleInput) {
+                stitle = titleInput.value.trim();
+            }
+
+            if (sid) {
+                const sheetConfig = {
+                    spreadsheet_id: sid,
+                    title: stitle
+                };
+                if (worksheetInput && worksheetInput.value.trim()) {
+                    sheetConfig.sheet_name = worksheetInput.value.trim();
+                }
+                sheets.push(sheetConfig);
+            }
+        });
+
+        return sheets;
+    }
+
+    function getSelectedRecentYears() {
+        return Array.from(document.querySelectorAll('.recent-year-checkbox:checked'))
+            .map(item => Number(item.value))
+            .filter(value => Number.isFinite(value));
+    }
+
+    function getRecentYearsPayload() {
+        const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
+        const recentEl = document.getElementById('date_range_recent');
+        if (countMode !== 'n_plus_1' || !recentEl || !recentEl.checked) {
+            return null;
+        }
+
+        const selected = getSelectedRecentYears();
+        return selected.length > 0 ? selected : 'all';
+    }
+
+    function applyRecentYears(raw) {
+        document.querySelectorAll('.recent-year-checkbox').forEach(item => {
+            item.checked = false;
+        });
+
+        if (raw === 'all' || raw === null || raw === undefined) {
+            return;
+        }
+
+        const values = Array.isArray(raw) ? raw.map(Number) : [Number(raw)];
+        document.querySelectorAll('.recent-year-checkbox').forEach(item => {
+            item.checked = values.includes(Number(item.value));
+        });
+    }
+
+    function updateRecentYearsVisibility() {
+        const container = document.getElementById('recent-years-container');
+        const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
+        const recentEl = document.getElementById('date_range_recent');
+        if (!container || !recentEl) {
+            return;
+        }
+
+        const visible = countMode === 'n_plus_1' && recentEl.checked;
+        container.style.display = visible ? 'block' : 'none';
+    }
+
+    function refreshDateRangeModeAvailability() {
+        const drmFull = document.getElementById('date_range_full');
+        const drmRecent = document.getElementById('date_range_recent');
+        const current = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
+        const enable = current === 'n_plus_1';
+
+        if (drmFull) {
+            drmFull.disabled = !enable;
+        }
+        if (drmRecent) {
+            drmRecent.disabled = !enable;
+        }
+
+        if (!enable) {
+            document.querySelectorAll('.recent-year-checkbox').forEach(item => {
+                item.checked = false;
+            });
+        }
+
+        updateRecentYearsVisibility();
+    }
+
+    function getStockCode() {
+        const input = document.getElementById('stock_code_input');
+        return input ? input.value.trim() : '';
+    }
+
+    function normalizeMarketTypeValue(value) {
+        return value === 'us' || value === 'en' || value === '美股' ? 'en' : 'cn';
+    }
+
+    // 从模板加载数据
+    function loadFromTemplate(template) {
+        if (!template) return;
+
+        try {
+            // 填充基本信息
+            if (template.name) {
+                document.getElementById('task_name').value = template.name;
+            }
+            if (template.description) {
+                document.getElementById('task_description').value = template.description;
+            }
+
+            // 填充配置信息
+            if (template.config) {
+                let config = template.config;
+                if (typeof config === 'string') {
+                    config = JSON.parse(config);
+                }
+
+                config = normalizeC4Config(config);
+                applySheetsToForm(config.sheets);
+
+                // “更多配置”已移除，暂不回填这些字段；保留结构供后续重新接后端时恢复。
+                // if (config.token_type) {
+                //     document.getElementById('token_type').value = config.token_type;
+                //     document.getElementById('token_type').dispatchEvent(new Event('change'));
+                // }
+                // pendingTokenSelection = {
+                //     token_id: config.token_id || '',
+                //     token_file: config.token_file || '',
+                //     token_selection_mode: config.token_selection_mode || ''
+                // };
+                // applyPendingTokenSelection();
+                // if (config.token_file) {
+                //     document.getElementById('token_file').value = config.token_file;
+                // }
+                // if (config.token_json) {
+                //     document.getElementById('token_json').value = config.token_json;
+                // }
+                // if (config.proxy_url) {
+                //     document.getElementById('proxy_url').value = config.proxy_url;
+                // }
+                // if (config.market_type) {
+                //     const mtInput = document.querySelector(`input[name="market_type"][value="${config.market_type}"]`);
+                //     if (mtInput) {
+                //         mtInput.checked = true;
+                //     }
+                // }
+                // if (config.date_range_mode !== undefined) {
+                //     applyDateRangeModes(config.date_range_mode);
+                // }
+
+                // 填充参数配置
+                if (config.parameters && Array.isArray(config.parameters)) {
+                    config.parameters.forEach((param, index) => {
+                        const paramId = `param${index + 1}`;
+                        const paramElement = document.getElementById(paramId);
+                        if (paramElement && Array.isArray(param)) {
+                            paramElement.value = JSON.stringify(param);
+                        }
+                    });
+                }
+
+                // 更新组合计算
+                calculateCombinations();
+                showNotification('已加载模板配置', 'success');
+
+                // 更新页面标题和提示
+                {% if template_id %}
+                document.title = '从模板创建任务 - Google Sheet 参数批量校验';
+                const cardHeader = document.querySelector('.card-header h4');
+                if (cardHeader) {
+                    cardHeader.innerHTML = '<i class="bi bi-file-earmark-text"></i> 从模板创建任务';
+                }
+                {% endif %}
+            }
+        } catch (error) {
+            console.error('加载模板失败:', error);
+            showError('加载模板配置失败: ' + error.message);
+        }
+    }
+
+    // 防抖函数
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    function getSheetConfigElements(item) {
+        if (!item) {
+            return {};
+        }
+
+        return {
+            spreadsheetSelect: item.querySelector('.google-sheet-select') || item.querySelector('#spreadsheet'),
+            googleSheetIdInput: item.querySelector('#google_sheet_id'),
+            spreadsheetHelp: item.querySelector('#spreadsheet-help'),
+            titleInput: item.querySelector('.spreadsheet-title-input') || item.querySelector('#spreadsheet_title'),
+            worksheetInput: item.querySelector('.worksheet-name-input') || item.querySelector('#sheet_name'),
+            refreshWorksheetsBtn: item.querySelector('.refresh-worksheets-btn') || item.querySelector('#refresh-sheets'),
+            sheetHelp: item.querySelector('.sheet-name-help') || item.querySelector('#sheet-name-help'),
+            customContainer: item.querySelector('.custom-sheet-container') || item.querySelector('#custom-sheet-container'),
+            customInput: item.querySelector('.custom-sheet-name-input') || item.querySelector('#custom_sheet_name'),
+            refreshGoogleSheetsBtn: item.querySelector('#refresh-google-sheets')
+        };
+    }
+
+    function syncSelectedGoogleSheetMetaForItem(item) {
+        const { spreadsheetSelect, googleSheetIdInput, spreadsheetHelp } = getSheetConfigElements(item);
+        if (!spreadsheetSelect || !googleSheetIdInput || !spreadsheetHelp) {
+            return;
+        }
+
+        const selectedOption = spreadsheetSelect.options[spreadsheetSelect.selectedIndex];
+        googleSheetIdInput.value = selectedOption ? (selectedOption.dataset.googleSheetId || '') : '';
+
+        if (spreadsheetSelect.value) {
+            spreadsheetHelp.innerHTML = `<i class="bi bi-info-circle"></i> 已选择 Google Sheet：${spreadsheetSelect.value}`;
+        } else {
+            spreadsheetHelp.innerHTML = '<i class="bi bi-info-circle"></i> 请从列表中选择可用的 Google Sheet';
+        }
+    }
+
+    function updateWorksheetSelectionUI(item) {
+        const { worksheetInput, sheetHelp } = getSheetConfigElements(item);
+        if (!worksheetInput || !sheetHelp) {
+            return;
+        }
+        sheetHelp.textContent = worksheetInput.value
+            ? `默认使用第一个工作表：${worksheetInput.value}`
+            : '默认展示接口返回的第一个工作表';
+    }
+
+    function loadGoogleSheetsForItem(item, preferredSpreadsheetId = '') {
+        const { spreadsheetSelect, refreshGoogleSheetsBtn } = getSheetConfigElements(item);
+        if (!item || !spreadsheetSelect) {
+            return Promise.resolve();
+        }
+
+        spreadsheetSelect.disabled = true;
+        if (refreshGoogleSheetsBtn) {
+            refreshGoogleSheetsBtn.disabled = true;
+        }
+
+        return fetch(`/api/google-sheets?only_available=1&table_type=${encodeURIComponent(GOOGLE_SHEET_TABLE_TYPE)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '加载 Google Sheet 列表失败');
+                }
+
+                const items = Array.isArray(data.items) ? data.items : [];
+                spreadsheetSelect.innerHTML = '<option value="">请选择 Google Sheet</option>';
+
+                items.forEach(sheetItem => {
+                    const option = document.createElement('option');
+                    option.value = sheetItem.spreadsheet_id || '';
+                    option.textContent = `${sheetItem.name} (${sheetItem.spreadsheet_id})`;
+                    option.dataset.googleSheetId = sheetItem.id || '';
+                    spreadsheetSelect.appendChild(option);
+                });
+
+                if (preferredSpreadsheetId) {
+                    const exists = Array.from(spreadsheetSelect.options).some(option => option.value === preferredSpreadsheetId);
+                    if (!exists) {
+                        const option = document.createElement('option');
+                        option.value = preferredSpreadsheetId;
+                        option.textContent = `当前配置 (${preferredSpreadsheetId})`;
+                        option.dataset.googleSheetId = '';
+                        spreadsheetSelect.appendChild(option);
+                    }
+                    spreadsheetSelect.value = preferredSpreadsheetId;
+                }
+
+                syncSelectedGoogleSheetMetaForItem(item);
+                if (spreadsheetSelect.value) {
+                    return loadWorksheetsForItem(item, false);
+                }
+            })
+            .catch(error => {
+                spreadsheetSelect.innerHTML = '<option value="">加载 Google Sheet 失败</option>';
+                showNotification(`加载 Google Sheet 失败：${error.message}`, 'error');
+            })
+            .finally(() => {
+                spreadsheetSelect.disabled = false;
+                if (refreshGoogleSheetsBtn) {
+                    refreshGoogleSheetsBtn.disabled = false;
+                }
+            });
+    }
+
+    // 获取单个配置块的工作表列表
+    function loadWorksheetsForItem(item, isManualRefresh = false) {
+        const {
+            spreadsheetSelect,
+            titleInput,
+            worksheetInput
+        } = getSheetConfigElements(item);
+
+        if (!item || !spreadsheetSelect || !titleInput || !worksheetInput) {
+            return Promise.resolve();
+        }
+
+        const spreadsheetId = extractSpreadsheetId(spreadsheetSelect.value || '');
+        const tokenType = document.getElementById('token_type').value;
+        const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
+        const tokenFile = document.getElementById('token_file').value;
+        const proxyUrl = document.getElementById('proxy_url').value;
+
+        if (!spreadsheetId) {
+            worksheetInput.value = '';
+            updateWorksheetSelectionUI(item);
+            return Promise.resolve();
+        }
+
+        const requestData = {
+            spreadsheet_id: spreadsheetId,
+            token_id: tokenType === 'file' ? tokenId : undefined,
+            token_file: tokenType === 'file' ? tokenFile : undefined,
+            proxy_url: proxyUrl || undefined
+        };
+
+        return fetch('/api/google-sheet/worksheets', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestData)
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (!(data.status === 'success' && Array.isArray(data.worksheets))) {
+                    throw new Error(data.message || '获取工作表列表失败');
+                }
+
+                if (titleInput && typeof data.title === 'string' && data.title.trim() !== '') {
+                    titleInput.value = data.title.trim();
+                }
+                worksheetInput.value = Array.isArray(data.worksheets) && data.worksheets.length > 0
+                    ? (data.worksheets[0] || '')
+                    : '';
+                updateWorksheetSelectionUI(item);
+                showNotification(isManualRefresh ? '表标题已刷新' : '表标题已自动加载', 'success');
+            })
+            .catch(error => {
+                console.error('获取工作表列表失败:', error);
+                worksheetInput.value = '';
+                updateWorksheetSelectionUI(item);
+                showError('获取工作表列表失败: ' + error.message);
+            });
+    }
+
+    function loadGoogleSheets(preferredSpreadsheetId = '') {
+        const firstItem = document.querySelector('#sheet-config-list .sheet-config-item');
+        return firstItem ? loadGoogleSheetsForItem(firstItem, preferredSpreadsheetId) : Promise.resolve();
+    }
+
+    // 保持原有接口，默认针对第一组主配置块
+    function loadWorksheets(isManualRefresh = false) {
+        const firstItem = document.querySelector('#sheet-config-list .sheet-config-item');
+        return firstItem ? loadWorksheetsForItem(firstItem, isManualRefresh) : Promise.resolve();
+    }
+
+    function syncSelectedTokenMeta() {
+        const tokenTypeEl = document.getElementById('token_type');
+        const tokenIdEl = document.getElementById('token_id');
+        const tokenFileEl = document.getElementById('token_file');
+        if (!tokenTypeEl || !tokenIdEl || !tokenFileEl) {
+            return;
+        }
+
+        if (tokenTypeEl.value !== 'file') {
+            tokenFileEl.value = '';
+            return;
+        }
+
+        const selected = googleSheetTokens.find(token => String(token.id) === String(tokenIdEl.value));
+        tokenFileEl.value = selected ? (selected.token_file || '') : '';
+    }
+
+    function applyPendingTokenSelection() {
+        if (!pendingTokenSelection) {
+            syncSelectedTokenMeta();
+            return;
+        }
+
+        const tokenIdEl = document.getElementById('token_id');
+        const tokenFileEl = document.getElementById('token_file');
+        if (!tokenIdEl || !tokenFileEl) {
+            return;
+        }
+
+        const tokenId = pendingTokenSelection.token_id;
+        const tokenFile = pendingTokenSelection.token_file;
+        let matchedValue = '';
+
+        if (tokenId && Array.from(tokenIdEl.options).some(option => option.value === String(tokenId))) {
+            matchedValue = String(tokenId);
+        } else if (tokenFile) {
+            const matchedToken = googleSheetTokens.find(token => token.token_file === tokenFile);
+            if (matchedToken) {
+                matchedValue = String(matchedToken.id);
+            }
+        }
+
+        if (!matchedValue && pendingTokenSelection.token_selection_mode === googleSheetRandomValue) {
+            matchedValue = googleSheetRandomValue;
+        }
+
+        if (matchedValue) {
+            tokenIdEl.value = matchedValue;
+        }
+        tokenFileEl.value = tokenFile || '';
+        syncSelectedTokenMeta();
+    }
+
+    function renderGoogleSheetTokenOptions(tokens) {
+        const tokenIdEl = document.getElementById('token_id');
+        if (!tokenIdEl) {
+            return;
+        }
+
+        tokenIdEl.innerHTML = '';
+
+        const randomOption = document.createElement('option');
+        randomOption.value = googleSheetRandomValue;
+        randomOption.textContent = '随机Token（按最低使用数均衡分配）';
+        tokenIdEl.appendChild(randomOption);
+
+        tokens.forEach(token => {
+            const option = document.createElement('option');
+            option.value = String(token.id);
+            option.textContent = `${token.name} | 占用 ${token.current_in_use_count || 0} | 累计 ${token.task_usage_count} | 上限 ${token.max_usage_count > 0 ? token.max_usage_count : '无限'}`;
+            option.disabled = !token.is_available;
+            tokenIdEl.appendChild(option);
+        });
+
+        applyPendingTokenSelection();
+    }
+
+    function loadGoogleSheetTokens(preferredValue = null) {
+        if (preferredValue) {
+            pendingTokenSelection = { token_id: preferredValue };
+        }
+
+        fetch('/api/google-sheet-tokens')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '加载Token失败');
+                }
+                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
+                googleSheetRandomValue = data.random_value || '__random__';
+                renderGoogleSheetTokenOptions(googleSheetTokens);
+            })
+            .catch(error => {
+                const tokenIdEl = document.getElementById('token_id');
+                if (tokenIdEl) {
+                    tokenIdEl.innerHTML = '<option value="">加载Token失败</option>';
+                }
+                console.error('加载Google Sheet Token失败:', error);
+            });
+    }
+
+    function importGoogleSheetToken() {
+        const input = document.getElementById('token_import_path');
+        const tokenFile = input ? input.value.trim() : '';
+        if (!tokenFile) {
+            showNotification('请输入Token文件路径', 'warning');
+            return;
+        }
+
+        fetch('/api/google-sheet-tokens/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ token_file: tokenFile })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '导入Token失败');
+                }
+                showNotification(data.message || 'Token导入成功', 'success');
+                pendingTokenSelection = { token_id: data.token && data.token.id ? String(data.token.id) : '' };
+                loadGoogleSheetTokens();
+                if (input) {
+                    input.value = '';
+                }
+            })
+            .catch(error => {
+                showNotification(`导入Token失败: ${error.message}`, 'error');
+            });
+    }
+
+    // 页面加载完成后绑定事件
+    document.addEventListener('DOMContentLoaded', function() {
+        bindEvents();
+        loadGoogleSheets();
+        // “更多配置”已移除，暂不初始化 Token 列表；保留函数供后续恢复。
+        // loadGoogleSheetTokens();
+        loadTemplates(); // 加载模板列表
+
+        // URL 参数驱动的数据加载：
+        // - ?template_id=xxx -> /api/templates/xxx
+        // - ?restart_task_id=xxx -> /api/tasks/xxx
+        // - 其它 -> loadSavedFormData()
+        initFromUrlParams();
+
+        normalizeBatchBasicFieldsMarkup();
+        calculateCombinations();
+
+        // 创建防抖版本的函数
+        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
+        const debouncedCalculateCombinations = debounce(calculateCombinations, 300);
+        const debouncedSaveFormData = debounce(saveFormData, 300);
+
+        // 监听spreadsheet选择变化
+        const spreadsheetInput = document.getElementById('spreadsheet');
+        spreadsheetInput.addEventListener('change', debouncedLoadWorksheets);
+
+        // 为参数输入添加防抖
+        document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
+            textarea.addEventListener('input', function() {
+                debouncedCalculateCombinations();
+                debouncedSaveFormData();
+            });
+        });
+
+        // 为其他输入字段添加防抖的自动保存
+        const inputFields = [
+            'task_name', 'task_description',
+            'token_import_path', 'token_json', 'proxy_url'
+        ];
+
+        inputFields.forEach(function(fieldId) {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.addEventListener('input', debouncedSaveFormData);
+                field.addEventListener('change', debouncedSaveFormData);
+            }
+        });
+    });
+
+    function initFromUrlParams() {
+        const params = new URLSearchParams(window.location.search);
+        const templateId = params.get('template_id');
+        const restartTaskId = params.get('restart_task_id');
+
+        if (templateId) {
+            fillFormWithTemplate(templateId);
+            return;
+        }
+
+        if (restartTaskId) {
+            fillFormWithRestartTask(restartTaskId);
+            return;
+        }
+
+        loadSavedFormData();
+    }
+
+    function normalizeBatchBasicFieldsMarkup() {
+        const endDateInput = document.getElementById('end_date');
+        const currentEndDate = endDateInput ? endDateInput.value : '';
+        if (endDateInput) {
+            const endDateCol = endDateInput.closest('.col-md-3');
+            if (endDateCol) {
+                endDateCol.innerHTML = `
+                    <label for="end_date" class="form-label">结束时间</label>
+                    <input type="date" class="form-control" id="end_date">
+                    <div class="form-text">不选择则按后端默认逻辑处理</div>
+                `;
+                const rebuiltEndDateInput = endDateCol.querySelector('#end_date');
+                if (rebuiltEndDateInput) {
+                    rebuiltEndDateInput.value = currentEndDate;
+                }
+            }
+        }
+
+        const marketTypeCnInput = document.getElementById('market_type_cn');
+        const currentMarketType = normalizeMarketTypeValue(
+            document.querySelector('input[name="market_type"]:checked')?.value
+        );
+        const currentAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
+        if (marketTypeCnInput) {
+            const marketTypeCol = marketTypeCnInput.closest('.col-md-2');
+            if (marketTypeCol) {
+                marketTypeCol.innerHTML = `
+                    <label class="form-label d-block">市场</label>
+                    <div class="btn-group w-100" role="group" aria-label="市场类型">
+                        <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" checked>
+                        <label class="btn btn-outline-primary" for="market_type_cn">A股</label>
+                        <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="en">
+                        <label class="btn btn-outline-primary" for="market_type_us">美股</label>
+                    </div>
+                    <div class="form-text">选择后会按英文值传给后端</div>
+                `;
+                const targetMarketInput = marketTypeCol.querySelector(`input[name="market_type"][value="${currentMarketType}"]`);
+                if (targetMarketInput) {
+                    targetMarketInput.checked = true;
+                }
+            }
+        }
+        if (!document.getElementById('kline_adjustment')) {
+            const marketTypeCol = document.getElementById('market_type_cn')?.closest('.col-md-2');
+            const adjustmentCol = document.createElement('div');
+            adjustmentCol.className = 'col-md-3 mb-3';
+            adjustmentCol.innerHTML = `
+                <label class="form-label" for="kline_adjustment">K线复权</label>
+                <select class="form-select" id="kline_adjustment">
+                    <option value="forward">前复权</option>
+                    <option value="back">后复权</option>
+                    <option value="none">不复权</option>
+                </select>
+                <div class="form-text">A股映射东方财富 fqt，美股映射 Yahoo 调整价</div>
+            `;
+            if (marketTypeCol && marketTypeCol.parentElement) {
+                marketTypeCol.parentElement.insertBefore(adjustmentCol, marketTypeCol.nextSibling);
+            }
+            const adjustmentSelect = adjustmentCol.querySelector('#kline_adjustment');
+            if (adjustmentSelect) adjustmentSelect.value = currentAdjustment;
+        }
+    }
+
+    function fillFormWithRestartTask(taskId) {
+        fetch(`/api/tasks/${encodeURIComponent(taskId)}`)
+            .then(resp => resp.json())
+            .then(data => {
+                const task = (data && data.task) ? data.task : null;
+                const configRaw = task ? task.config : null;
+                if (!configRaw) {
+                    showNotification('加载原任务配置失败：config为空', 'error');
+                    return;
+                }
+                loadRestartConfig(configRaw, taskId);
+            })
+            .catch(err => {
+                console.error('加载原任务失败:', err);
+                showNotification('加载原任务失败', 'error');
+            });
+    }
+
+    // 加载模板列表
+    function loadTemplates() {
+        fetch(`/api/templates?task_type=${TASK_TYPE}`)
+            .then(response => response.json())
+            .then(data => {
+                if (!data || data.status !== 'success' || !Array.isArray(data.templates)) {
+                    console.error('Invalid response format:', data);
+                    return;
+                }
+
+                const templateSelect = document.getElementById('task_template');
+                templateSelect.innerHTML = '<option value="">不使用模板</option>';
+                data.templates.forEach(template => {
+                    const option = document.createElement('option');
+                    option.value = template.id;
+                    option.textContent = template.name;
+                    templateSelect.appendChild(option);
+                });
+            })
+            .catch(error => {
+                console.error('加载模板列表失败:', error);
+                showError('加载模板列表失败');
+            });
+    }
+
+    // 使用模板填充表单
+    function fillFormWithTemplate(templateId) {
+        if (!templateId) {
+            return;
+        }
+
+        fetch(`/api/templates/${templateId}`)
+            .then(response => response.json())
+            .then(template => {
+                let config = template.config;
+                console.log('[C31 fillFormWithTemplate] config =', config);
+
+                if (typeof config === 'string') {
+                    try {
+                        config = JSON.parse(config);
+                    } catch (e) {
+                        console.error('解析模板配置失败:', e);
+                        return;
+                    }
+                }
+
+                if (template && template.description && !config.task_description) {
+                    config.task_description = template.description;
+                }
+
+                applyConfigToForm(config, {
+                    mode: 'template'
+                });
+            })
+            .catch(error => {
+                console.error('加载模板详情失败:', error);
+                showNotification('加载模板失败', 'error');
+            });
+    }
+
+    function ensureSheetConfigItemsCount(targetCount) {
+        const list = document.getElementById('sheet-config-list');
+        if (!list) return;
+        while (list.querySelectorAll('.sheet-config-item').length < targetCount) {
+            addVisualSheetConfigItem();
+        }
+    }
+
+    function applySheetsToForm(sheets) {
+        if (!Array.isArray(sheets) || sheets.length === 0) {
+            return;
+        }
+
+        ensureSheetConfigItemsCount(sheets.length);
+        const list = document.getElementById('sheet-config-list');
+        if (!list) return;
+        const items = list.querySelectorAll('.sheet-config-item');
+
+        const loadPromises = [];
+
+        sheets.forEach((sheetCfg, idx) => {
+            const item = items[idx];
+            if (!item) return;
+
+            const {
+                spreadsheetSelect,
+                titleInput,
+                worksheetInput
+            } = getSheetConfigElements(item);
+
+            if (spreadsheetSelect && sheetCfg.spreadsheet_id) {
+                spreadsheetSelect.value = sheetCfg.spreadsheet_id;
+            }
+            if (titleInput && sheetCfg.title !== undefined) {
+                titleInput.value = sheetCfg.title || '';
+            }
+            if (worksheetInput && sheetCfg.sheet_name) {
+                worksheetInput.value = sheetCfg.sheet_name || '';
+                updateWorksheetSelectionUI(item);
+            }
+
+            if (sheetCfg.spreadsheet_id) {
+                loadPromises.push(loadGoogleSheetsForItem(item, sheetCfg.spreadsheet_id));
+            }
+        });
+
+        Promise.allSettled(loadPromises).catch(error => {
+            console.warn('自动加载 Google Sheet 配置失败:', error);
+        });
+    }
+
+    function applyConfigToForm(rawConfig, options = {}) {
+        const mode = options.mode || 'template';
+        const originalTaskId = options.originalTaskId || '';
+
+        let config = rawConfig;
+        if (typeof config === 'string') {
+            try {
+                config = JSON.parse(config);
+            } catch (e) {
+                console.error('解析配置失败:', e);
+                showNotification('解析配置失败', 'error');
+                return;
+            }
+        }
+
+        const normalized = normalizeC4Config(config);
+
+        if (normalized.base_task_name) {
+            document.getElementById('task_name').value = normalized.base_task_name;
+        }
+        if (normalized.task_description) {
+            document.getElementById('task_description').value = normalized.task_description;
+        }
+
+        // sheets（统一处理）
+        applySheetsToForm(normalized.sheets);
+
+        // “更多配置”已移除，暂不回填这些字段；保留结构供后续重新接后端时恢复。
+        // if (normalized.token_type) {
+        //     document.getElementById('token_type').value = normalized.token_type;
+        //     document.getElementById('token_type').dispatchEvent(new Event('change'));
+        // }
+        // pendingTokenSelection = {
+        //     token_id: normalized.token_id || '',
+        //     token_file: normalized.token_file || '',
+        //     token_selection_mode: normalized.token_selection_mode || ''
+        // };
+        // applyPendingTokenSelection();
+        // if (normalized.token_file) {
+        //     document.getElementById('token_file').value = normalized.token_file;
+        // }
+        // if (normalized.token_json) {
+        //     document.getElementById('token_json').value = normalized.token_json;
+        // }
+        // if (normalized.proxy_url) {
+        //     document.getElementById('proxy_url').value = normalized.proxy_url;
+        // }
+        // if (normalized.count_mode) {
+        //     const modeInput = document.querySelector(`input[name="count_mode"][value="${normalized.count_mode}"]`);
+        //     if (modeInput) {
+        //         modeInput.checked = true;
+        //     }
+        //     if (normalized.count_mode === 'n_plus_1') {
+        //         document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        //             checkbox.disabled = false;
+        //         });
+        //     }
+        // }
+        // if (normalized.date_range_mode !== undefined) {
+        //     applyDateRangeModes(normalized.date_range_mode);
+        // }
+        // refreshDateRangeModeAvailability();
+        // applyRecentYears(normalized.recent_years);
+        // updateRecentYearsVisibility();
+        if (normalized.market_type) {
+            const mtInput = document.querySelector(`input[name="market_type"][value="${normalizeMarketTypeValue(normalized.market_type)}"]`);
+            if (mtInput) {
+                mtInput.checked = true;
+            }
+        }
+        if (normalized.kline_adjustment) {
+            const adjustSelect = document.getElementById('kline_adjustment');
+            if (adjustSelect) adjustSelect.value = normalized.kline_adjustment;
+        }
+        const endDateInput = document.getElementById('end_date');
+        if (endDateInput) {
+            endDateInput.value = normalized.end_date || normalized.start_date || '';
+        }
+        // if (normalized.end_date) {
+        //     const ed = document.getElementById('end_date');
+        //     if (ed) ed.value = normalized.end_date;
+        // }
+
+        // parameters
+                if (normalized.parameters && Array.isArray(normalized.parameters)) {
+            normalized.parameters.forEach((paramGroup, idx) => {
+                const el = document.getElementById(`param${idx + 1}`);
+                if (el && Array.isArray(paramGroup)) {
+                    el.value = JSON.stringify(paramGroup);
+                }
+            });
+        }
+        if (Array.isArray(normalized.stock_codes) && normalized.stock_codes.length > 0) {
+            const input = document.getElementById('stock_code_input');
+            if (input) {
+                input.value = String(normalized.stock_codes[0]).trim();
+            }
+        }
+
+        // mode-specific title/header
+        if (mode === 'restart') {
+            document.title = '重启任务 - Google Sheet 3.1 批量启动';
+            const cardHeader = document.querySelector('.card-header h4');
+            if (cardHeader) {
+                cardHeader.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重启任务 (基于原任务: ' + originalTaskId + ')';
+            }
+        }
+
+        calculateCombinations();
+
+        if (mode === 'restart') {
+            showNotification('已加载原任务配置', 'info');
+        } else {
+            showNotification('已加载模板配置', 'success');
+        }
+    }
+
+    // 日期由用户决定是否传递，不再前端自动填充
+    function initDefaultDatesIfEmpty() {
+        const endInput = document.getElementById('end_date');
+        if (!endInput || endInput.value) return;
+    }
+
+    function getSelectedDateRangeModes() {
+        const modes = [];
+        const fullEl = document.getElementById('date_range_full');
+        const recentEl = document.getElementById('date_range_recent');
+        if (fullEl && fullEl.checked) {
+            modes.push('full');
+        }
+        if (recentEl && recentEl.checked) {
+            modes.push('recent');
+        }
+        if (modes.length === 0) {
+            if (fullEl) {
+                fullEl.checked = true;
+            }
+            return ['full'];
+        }
+        return modes;
+    }
+
+    function applyDateRangeModes(raw) {
+        const fullEl = document.getElementById('date_range_full');
+        const recentEl = document.getElementById('date_range_recent');
+        let modes = [];
+        if (Array.isArray(raw)) {
+            modes = raw;
+        } else if (typeof raw === 'string' && raw) {
+            modes = [raw];
+        }
+        if (modes.length === 0) {
+            modes = ['full'];
+        }
+        if (fullEl) {
+            fullEl.checked = modes.includes('full');
+        }
+        if (recentEl) {
+            recentEl.checked = modes.includes('recent');
+        }
+        updateRecentYearsVisibility();
+    }
+
+    function bindSheetConfigItemEvents(item, debouncedSaveFormData) {
+        const {
+            spreadsheetSelect,
+            titleInput,
+            worksheetInput,
+            customInput,
+            refreshWorksheetsBtn,
+            refreshGoogleSheetsBtn
+        } = getSheetConfigElements(item);
+
+        if (spreadsheetSelect) {
+            spreadsheetSelect.addEventListener('change', function() {
+                syncSelectedGoogleSheetMetaForItem(item);
+                loadWorksheetsForItem(item, false);
+                calculateCombinations();
+                debouncedSaveFormData();
+            });
+        }
+
+        if (refreshGoogleSheetsBtn) {
+            refreshGoogleSheetsBtn.addEventListener('click', function() {
+                loadGoogleSheetsForItem(item, spreadsheetSelect ? spreadsheetSelect.value : '');
+            });
+        }
+
+        if (refreshWorksheetsBtn) {
+            refreshWorksheetsBtn.addEventListener('click', function() {
+                loadWorksheetsForItem(item, true);
+            });
+        }
+
+        [titleInput, worksheetInput, customInput].forEach(function(field) {
+            if (!field) {
+                return;
+            }
+            field.addEventListener('input', debouncedSaveFormData);
+            field.addEventListener('change', debouncedSaveFormData);
+        });
+    }
+
+    function bindEvents() {
+        // 创建防抖版本的函数
+        const debouncedLoadWorksheets = debounce(loadWorksheets, 500);
+        const debouncedCalculateCombinations = debounce(calculateCombinations, 300);
+        const debouncedSaveFormData = debounce(saveFormData, 300);
+
+        // 统计方式与时间范围类型联动
+        const countModeRadios = document.querySelectorAll('input[name="count_mode"]');
+        const drmFull = document.getElementById('date_range_full');
+        const drmRecent = document.getElementById('date_range_recent');
+        countModeRadios.forEach(r => {
+            r.addEventListener('change', refreshDateRangeModeAvailability);
+        });
+        [drmFull, drmRecent].forEach(item => {
+            if (item) {
+                item.addEventListener('change', function() {
+                    updateRecentYearsVisibility();
+                    debouncedSaveFormData();
+                });
+            }
+        });
+        document.querySelectorAll('.recent-year-checkbox').forEach(item => {
+            item.addEventListener('change', debouncedSaveFormData);
+        });
+        refreshDateRangeModeAvailability();
+
+        // 模板选择变化事件
+        document.getElementById('task_template').addEventListener('change', function() {
+            fillFormWithTemplate(this.value);
+        });
+
+        // 任务名称和描述变化事件
+        document.getElementById('task_name').addEventListener('input', debouncedSaveFormData);
+        document.getElementById('task_description').addEventListener('input', debouncedSaveFormData);
+
+        // “更多配置”已移除，先注释旧事件绑定逻辑，后续若恢复后端传参可直接启用。
+        // const tokenTypeEl = document.getElementById('token_type');
+        // if (tokenTypeEl) {
+        //     tokenTypeEl.addEventListener('change', function() {
+        //         const fileContainer = document.getElementById('token_file_container');
+        //         const jsonContainer = document.getElementById('token_json_container');
+        //         if (this.value === 'file') {
+        //             fileContainer.style.display = 'block';
+        //             jsonContainer.style.display = 'none';
+        //             syncSelectedTokenMeta();
+        //         } else {
+        //             fileContainer.style.display = 'none';
+        //             jsonContainer.style.display = 'block';
+        //         }
+        //         debouncedSaveFormData();
+        //     });
+        // }
+
+        const tokenIdEl = document.getElementById('token_id');
+        if (tokenIdEl) {
+            tokenIdEl.addEventListener('change', function() {
+                syncSelectedTokenMeta();
+                debouncedSaveFormData();
+            });
+        }
+
+        const importTokenBtn = document.getElementById('import-token-btn');
+        if (importTokenBtn) {
+            importTokenBtn.addEventListener('click', importGoogleSheetToken);
+        }
+
+        // 参数输入变化事件
+        document.querySelectorAll('textarea[id^="param"]').forEach(function(textarea) {
+            textarea.addEventListener('input', function() {
+                debouncedCalculateCombinations();
+                debouncedSaveFormData();
+            });
+        });
+
+        // 股票代码输入事件
+        const stockCodeInput = document.getElementById('stock_code_input');
+        if (stockCodeInput) {
+            stockCodeInput.addEventListener('input', debouncedSaveFormData);
+        }
+
+        // 为所有输入字段添加自动保存
+        const inputFields = [
+            'task_name', 'task_description', 'stock_code_input', 'end_date'
+        ];
+
+        inputFields.forEach(function(fieldId) {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.addEventListener('input', debouncedSaveFormData);
+                field.addEventListener('change', debouncedSaveFormData);
+            }
+        });
+
+        document.querySelectorAll('input[name="market_type"]').forEach(function(field) {
+            field.addEventListener('change', debouncedSaveFormData);
+        });
+
+        document.querySelectorAll('#sheet-config-list .sheet-config-item').forEach(function(item) {
+            bindSheetConfigItemEvents(item, debouncedSaveFormData);
+        });
+
+        // 添加一组表格配置（仅用于前端展示，实际提交仍使用第一组带有固定ID的配置）
+        const addSheetConfigBtn = document.getElementById('add-sheet-config-btn');
+        if (addSheetConfigBtn) {
+            addSheetConfigBtn.addEventListener('click', function() {
+                addVisualSheetConfigItem();
+            });
+        }
+
+        // 移除最后一组表格配置（至少保留第一组主配置）
+        const removeSheetConfigBtn = document.getElementById('remove-sheet-config-btn');
+        if (removeSheetConfigBtn) {
+            removeSheetConfigBtn.addEventListener('click', function() {
+                removeLastVisualSheetConfigItem();
+            });
+        }
+
+        // 高级配置折叠切换
+        const toggleAdvancedBtn = document.getElementById('toggle-advanced-config-btn');
+        if (toggleAdvancedBtn) {
+            toggleAdvancedBtn.addEventListener('click', function() {
+                const advanced = document.getElementById('advanced-config');
+                const textSpan = document.getElementById('advanced-config-toggle-text');
+                const icon = document.getElementById('advanced-config-toggle-icon');
+                if (!advanced || !textSpan || !icon) return;
+                const isHidden = advanced.style.display === 'none' || advanced.style.display === '';
+                advanced.style.display = isHidden ? 'block' : 'none';
+                textSpan.textContent = isHidden ? '收起' : '展开';
+                icon.classList.toggle('bi-chevron-down', !isHidden);
+                icon.classList.toggle('bi-chevron-up', isHidden);
+            });
+        }
+
+        // 创建任务按钮点击事件（不使用表单submit，防止回车键误触发）
+        document.getElementById('execute-btn').addEventListener('click', function() {
+            submitTask();
+        });
+    }
+
+    // 克隆一组仅用于展示的 Google Sheet 配置（移除重复ID，避免影响实际提交逻辑）
+    function addVisualSheetConfigItem() {
+        const list = document.getElementById('sheet-config-list');
+        if (!list) return;
+
+        const templateItem = list.querySelector('.sheet-config-item');
+        if (!templateItem) return;
+
+        const newIndex = list.querySelectorAll('.sheet-config-item').length;
+        const clone = templateItem.cloneNode(true);
+
+        clone.setAttribute('data-sheet-config-index', String(newIndex));
+
+        // 清空克隆中的输入值并移除ID，防止与主配置冲突
+        const inputs = clone.querySelectorAll('input, select, textarea');
+        inputs.forEach(function(el) {
+            if (el.id === 'spreadsheet' ||
+                el.id === 'google_sheet_id' ||
+                el.id === 'refresh-google-sheets' ||
+                el.id === 'spreadsheet_title' ||
+                el.id === 'sheet_name' ||
+                el.id === 'custom_sheet_name' ||
+                el.id === 'refresh-sheets') {
+                el.removeAttribute('id');
+            }
+            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                el.value = '';
+            }
+            if (el.tagName === 'SELECT') {
+                el.selectedIndex = 0;
+            }
+        });
+
+        // 同时移除帮助文本上的ID，避免与主块冲突
+        ['sheet-name-help', 'spreadsheet-help', 'custom-sheet-container'].forEach(function(idValue) {
+            const el = clone.querySelector(`#${idValue}`);
+            if (el) {
+                el.removeAttribute('id');
+            }
+        });
+
+        const debouncedSaveFormData = debounce(saveFormData, 300);
+        bindSheetConfigItemEvents(clone, debouncedSaveFormData);
+
+        list.appendChild(clone);
+    }
+
+    // 移除最后一组仅用于展示的 Google Sheet 配置（保留第一组主配置）
+    function removeLastVisualSheetConfigItem() {
+        const list = document.getElementById('sheet-config-list');
+        if (!list) return;
+
+        const items = list.querySelectorAll('.sheet-config-item');
+        if (items.length <= 1) {
+            // 只剩下主配置，不再删除
+            showNotification('至少保留一组表格配置', 'info');
+            return;
+        }
+
+        const lastItem = items[items.length - 1];
+        lastItem.remove();
+        showNotification('已移除最后一组表格配置', 'success');
+    }
+
+    // 计算参数组合数量（Google Sheet 数量 * 参数数组长度乘积）
+    function calculateCombinations() {
+        const parameterValues = getParameterValues();
+        const sheetCount = getSelectedSheetCount();
+        const stockCodeValue = getStockCode();
+        let count = 0;
+        let parameterCombinationCount = 0;
+
+        if (sheetCount > 0 && stockCodeValue && validateC31Parameters(parameterValues, false)) {
+            parameterCombinationCount = getC31ParameterCombinationCount(parameterValues);
+            if (parameterCombinationCount > 0) {
+                count = parameterCombinationCount * sheetCount;
+            }
+        }
+
+        const infoDiv = document.getElementById('combination-info');
+        const countSpan = document.getElementById('combination-count');
+        const singleCountSpan = document.getElementById('single-combination-count');
+        const sheetCountSpan = document.getElementById('sheet-count-display');
+        const stockCountSpan = document.getElementById('stock-count-display');
+
+        if (count > 0) {
+            infoDiv.style.display = 'block';
+            countSpan.textContent = count;
+            singleCountSpan.textContent = parameterCombinationCount;
+            sheetCountSpan.textContent = sheetCount;
+            stockCountSpan.textContent = 1;
+        } else {
+            infoDiv.style.display = 'none';
+        }
+        return count;
+    }
+
+    // 显示参数组合预览
+    function showCombinationPreview() {
+        const parameterValues = getParameterValues();
+        if (!validateC31Parameters(parameterValues)) {
+            return;
+        }
+        if (!validateSelectedSheetTitles(true)) {
+            return;
+        }
+
+        const parameterGroups = getC31ParameterCandidateGroups(parameterValues).filter(item => Array.isArray(item) && item.length > 0);
+        const parameterCombinationCount = getC31ParameterCombinationCount(parameterValues);
+        const sheetCount = getSelectedSheetCount();
+        if (!isCountCompatible(parameterCombinationCount, sheetCount)) {
+            showNotification(`参数组合数(${parameterCombinationCount})与Sheet数(${sheetCount})必须相等，或其中一方是另一方的整数倍`, 'error');
+            return;
+        }
+
+        const totalCount = calculateCombinations();
+        const combinations = generateCombinations(parameterGroups, 20);
+
+        const previewContainer = document.getElementById('combination-preview');
+        previewContainer.innerHTML = '';
+
+        const stockCodeBlock = document.createElement('div');
+        stockCodeBlock.className = 'mb-3 p-2 border rounded bg-light';
+        stockCodeBlock.innerHTML = `
+            <strong>股票代码:</strong>
+            <div class="small text-muted"><code>${getStockCode()}</code></div>
+        `;
+        previewContainer.appendChild(stockCodeBlock);
+
+        combinations.forEach((combination, index) => {
+            const div = document.createElement('div');
+            div.className = 'mb-2 p-2 border rounded';
+            div.innerHTML = `
+                <strong>参数组合 ${index + 1}:</strong>
+                <div class="small text-muted"><code>${JSON.stringify(combination)}</code></div>
+            `;
+            previewContainer.appendChild(div);
+        });
+
+        if (totalCount > combinations.length) {
+            const moreDiv = document.createElement('div');
+            moreDiv.className = 'text-center text-muted';
+            moreDiv.textContent = `... 还有 ${totalCount - combinations.length} 个组合`;
+            previewContainer.appendChild(moreDiv);
+        }
+
+        const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+        modal.show();
+    }
+
+    // 生成参数组合（笛卡尔积）
+    function generateCombinations(parameters, limit = Number.POSITIVE_INFINITY) {
+        if (!Array.isArray(parameters) || parameters.length === 0) {
+            return [];
+        }
+
+        return parameters.reduce((accumulator, currentGroup) => {
+            if (!Array.isArray(currentGroup) || currentGroup.length === 0) {
+                return accumulator;
+            }
+
+            const next = [];
+            accumulator.forEach(prefix => {
+                currentGroup.forEach(item => {
+                    if (next.length < limit) {
+                        next.push([...prefix, item]);
+                    }
+                });
+            });
+            return next;
+        }, [[]]);
+    }
+
+    function clearAllParameters() {
+        if (confirm('确定要清空所有配置吗？')) {
+            getParameterIds().forEach(paramId => {
+                const field = document.getElementById(paramId);
+                if (field) {
+                    field.value = '';
+                }
+            });
+            calculateCombinations();
+            showNotification('已清空所有配置', 'warning');
+        }
+    }
+
+    // 提交任务
+    function submitTask() {
+        // 计算参数组合数量
+        const combinationCount = calculateCombinations();
+        if (combinationCount === 0) {
+            showNotification('请至少输入一个参数', 'error');
+            return;
+        }
+
+        // 获取Google Sheet配置
+        // “更多配置”目前不再传递，只保留股票代码相关提交。
+        // const tokenType = document.getElementById('token_type').value;
+        // const tokenId = document.getElementById('token_id') ? document.getElementById('token_id').value : '';
+        // const tokenFile = document.getElementById('token_file').value;
+        // const tokenJson = document.getElementById('token_json').value;
+        // const proxyUrl = document.getElementById('proxy_url').value;
+        // const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
+        // const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price';
+        // const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+        // const dateRangeModes = getSelectedDateRangeModes();
+        // const recentYears = getRecentYearsPayload();
+        // const endDate = document.getElementById('end_date')?.value || null;
+        // const endDate = document.getElementById('end_date')?.value || null;
+        // if (tokenType === 'file' && !tokenId) {
+        //     showNotification('请选择Token', 'error');
+        //     return;
+        // }
+        // if (tokenType === 'json' && !tokenJson) {
+        //     showNotification('请输入Token JSON字符串', 'error');
+        //     return;
+        // }
+
+        const taskName = document.getElementById('task_name').value.trim();
+        if (!taskName) {
+            showNotification('请输入任务 Base Name', 'error');
+            return;
+        }
+        const stockCodeValue = getStockCode();
+        if (!stockCodeValue) {
+            showNotification('请输入股票代码', 'error');
+            return;
+        }
+
+        const taskDescription = document.getElementById('task_description').value.trim();
+        const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+        const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
+        const endDate = document.getElementById('end_date')?.value?.trim() || '';
+
+        const parameterValues = getParameterValues();
+        if (!validateC31Parameters(parameterValues)) {
+            return;
+        }
+        if (!validateSelectedSheetTitles(true)) {
+            return;
+        }
+
+        const parameterCombinationCount = getC31ParameterCombinationCount(parameterValues);
+        const sheetCount = getSelectedSheetCount();
+        if (!isCountCompatible(parameterCombinationCount, sheetCount)) {
+            showNotification(`参数组合数(${parameterCombinationCount})与Sheet数(${sheetCount})必须相等，或其中一方是另一方的整数倍`, 'error');
+            return;
+        }
+
+        const parameters = getActiveParameters(parameterValues);
+
+        const sheets = collectSheetConfigs();
+
+        // 构造任务配置（C5 任务仅使用 sheets 数组，不再重复顶层 spreadsheet_id/sheet_name）
+        const taskConfig = {
+            base_task_name: taskName,
+            task_description: taskDescription,
+            stock_codes: [stockCodeValue],
+            market_type: marketType,
+            kline_adjustment: klineAdjustment,
+            // token_type: tokenType,
+            // token_id: tokenType === 'file' ? tokenId : null,
+            // token_file: tokenFile,
+            // token_json: tokenJson,
+            // proxy_url: proxyUrl || null,
+            // count_mode: countMode,
+            // price_mode: priceMode,
+            // market_type: marketType,
+            // date_range_mode: dateRangeModes,
+            // recent_years: recentYears,
+            // start_date: startDate,
+            // end_date: endDate,
+            parameter_dimensions: [1, 2],
+            parameters: parameters,
+            sheets: sheets
+        };
+        if (endDate) {
+            taskConfig.end_date = endDate;
+        }
+
+        // 禁用执行按钮
+        const executeBtn = document.getElementById('execute-btn');
+        executeBtn.disabled = true;
+        executeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 创建任务中...';
+
+        // 获取任务名称和描述
+        const finalTaskName = taskName;
+
+        // 发送执行请求
+        const taskData = {
+            name: finalTaskName,
+            description: taskDescription || `批量执行 ${combinationCount} 个参数组合`,
+            task_type: TASK_TYPE,
+            config: taskConfig
+        };
+
+        ajaxRequest('/api/tasks/batch-create', 'POST', taskData, function(err, data) {
+            executeBtn.disabled = false;
+            executeBtn.innerHTML = '<i class="bi bi-play-circle"></i> 创建任务并执行';
+
+            if (!err && data && data.status === 'success') {
+                currentTaskId = data.task_id;
+                showNotification('任务创建成功，正在跳转到详情页面...', 'success');
+
+                // 清空表单
+                document.getElementById('parameter-form').reset();
+                // 隐藏组合信息
+                document.getElementById('combination-info').style.display = 'none';
+                // 清除保存的表单数据
+                clearSavedFormData();
+
+                // 延迟1秒后跳转到 C3 任务列表页
+                setTimeout(function() {
+                    window.location.href = `/google-sheet/?version=c3`;
+                }, 1000);
+            } else {
+                showNotification('创建任务失败: ' + (data ? data.message : '未知错误'), 'error');
+            }
+        });
+    }
+
+    // SSE相关功能已移除，任务创建后直接跳转到详情页面
+
+    // 处理任务事件（保留以备将来使用）
+    function handleTaskEvent(event) {
+        if (event.type === 'log_update') {
+            // 处理实时日志更新
+            console.log('收到日志更新:', event.data);
+        } else if (event.type === 'heartbeat') {
+            // 心跳包，无需处理
+        } else if (event.type === 'error') {
+            showNotification('任务执行出错: ' + event.data, 'error');
+        }
+    }
+
+    // 任务状态日志更新功能已移除
+
+    // 确认和取消执行功能已移除，任务创建后直接跳转到详情页面
+
+    // 任务状态模态框功能已移除，任务创建后直接跳转到详情页面
+
+    // 页面卸载时清理资源（SSE功能已移除）
+
+    // 保存表单数据到localStorage
+    function saveFormData() {
+        const sheets = collectSheetConfigs();
+        const formData = {
+            task_name: document.getElementById('task_name').value,
+            task_description: document.getElementById('task_description').value,
+            stock_code: getStockCode(),
+            end_date: document.getElementById('end_date')?.value || '',
+            market_type: normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value),
+            kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
+            sheets: sheets,
+            param1: document.getElementById('param1').value,
+            param2: document.getElementById('param2').value,
+            param3: document.getElementById('param3').value,
+            param4: document.getElementById('param4').value,
+            param5: document.getElementById('param5').value,
+            param6: document.getElementById('param6').value
+        };
+
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+        } catch (e) {
+            console.warn('无法保存表单数据到localStorage:', e);
+        }
+    }
+
+    // 从localStorage加载表单数据
+    function loadSavedFormData() {
+        try {
+            const savedData = localStorage.getItem(STORAGE_KEY);
+            if (savedData) {
+                const formData = JSON.parse(savedData);
+
+                // 恢复表单字段
+                if (formData.task_name) document.getElementById('task_name').value = formData.task_name;
+                if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
+                if (formData.stock_code) document.getElementById('stock_code_input').value = formData.stock_code;
+                if (typeof formData.end_date === 'string') {
+                    document.getElementById('end_date').value = formData.end_date;
+                } else if (typeof formData.start_date === 'string') {
+                    document.getElementById('end_date').value = formData.start_date;
+                }
+                if (Array.isArray(formData.sheets) && formData.sheets.length > 0) {
+                    applySheetsToForm(formData.sheets);
+                } else if (formData.spreadsheet) {
+                    loadGoogleSheets(formData.spreadsheet);
+                    if (formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.spreadsheet_title;
+                    if (formData.sheet_name) document.getElementById('sheet_name').value = formData.sheet_name;
+                }
+                const param1El = document.getElementById('param1');
+                if (formData.param1 && param1El) param1El.value = formData.param1;
+                const param2El = document.getElementById('param2');
+                if (formData.param2 && param2El) param2El.value = formData.param2;
+                const param3El = document.getElementById('param3');
+                if (formData.param3 && param3El) param3El.value = formData.param3;
+                const param4El = document.getElementById('param4');
+                if (formData.param4 && param4El) param4El.value = formData.param4;
+                const param5El = document.getElementById('param5');
+                if (formData.param5 && param5El) param5El.value = formData.param5;
+                const param6El = document.getElementById('param6');
+                if (formData.param6 && param6El) param6El.value = formData.param6;
+
+                if (formData.market_type) {
+                    const mtInput = document.querySelector(`input[name="market_type"][value="${normalizeMarketTypeValue(formData.market_type)}"]`);
+                    if (mtInput) {
+                        mtInput.checked = true;
+                    }
+                }
+                if (formData.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
+                }
+                // if (formData.count_mode) {
+                //     const cmInput = document.querySelector(`input[name="count_mode"][value="${formData.count_mode}"]`);
+                //     if (cmInput) {
+                //         cmInput.checked = true;
+                //     }
+                // }
+                // if (formData.price_mode) {
+                //     const pmInput = document.querySelector(`input[name="price_mode"][value="${formData.price_mode}"]`);
+                //     if (pmInput) {
+                //         pmInput.checked = true;
+                //     }
+                // }
+                // if (formData.date_range_mode !== undefined) {
+                //     applyDateRangeModes(formData.date_range_mode);
+                // }
+                // refreshDateRangeModeAvailability();
+                // applyRecentYears(formData.recent_years);
+                // document.getElementById('token_type').dispatchEvent(new Event('change'));
+                calculateCombinations();
+
+                showNotification('表单数据已恢复', 'info');
+            }
+        } catch (e) {
+            console.warn('无法从localStorage加载表单数据:', e);
+        }
+    }
+
+    // 清除保存的表单数据
+    function clearSavedFormData() {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+            document.getElementById('parameter-form').reset();
+            document.getElementById('stock_code_input').value = '';
+            document.getElementById('combination-info').style.display = 'none';
+            calculateCombinations();
+            showNotification('已清除 3.1 表单缓存', 'success');
+        } catch (e) {
+            console.warn('无法清除localStorage数据:', e);
+        }
+    }
+
+    // 保存为模板
+    function saveAsTemplate() {
+        // 获取当前配置
+        const config = getCurrentConfig();
+        if (!config) {
+            return;
+        }
+
+        // 预填充模板名称（如果有任务名称）
+        const taskName = document.getElementById('task_name').value.trim();
+        if (taskName) {
+            document.getElementById('templateName').value = taskName + ' 模板';
+        }
+
+        // 显示保存模板对话框
+        const modal = new bootstrap.Modal(document.getElementById('saveTemplateModal'));
+        modal.show();
+    }
+
+    // 获取当前配置
+    function getCurrentConfig() {
+        try {
+            const baseTaskName = document.getElementById('task_name').value.trim();
+            const taskDescription = document.getElementById('task_description').value.trim();
+            const stockCodeValue = getStockCode();
+            const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+            const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
+            const endDate = document.getElementById('end_date')?.value?.trim() || '';
+
+            if (!baseTaskName) {
+                showError('请输入任务 Base Name');
+                return null;
+            }
+            if (!stockCodeValue) {
+                showError('请至少添加一个股票代码');
+                return null;
+            }
+
+            // 验证必要字段
+            if (getSelectedSheetCount() === 0) {
+                showError('请选择 Google Sheet');
+                return null;
+            }
+
+            // 获取参数配置
+            const parameterValues = getParameterValues();
+            if (!validateC31Parameters(parameterValues)) {
+                return null;
+            }
+
+            const sheets = collectSheetConfigs();
+
+            // 构造参数列表：只加入非空数组
+            const parameters = getActiveParameters(parameterValues);
+
+            const currentConfig = {
+                task_type: TASK_TYPE,
+                base_task_name: baseTaskName,
+                task_description: taskDescription,
+                stock_codes: [stockCodeValue],
+                market_type: marketType,
+                kline_adjustment: klineAdjustment,
+                // “更多配置”目前不参与模板保存；注释保留供后续恢复。
+                // token_type: tokenType,
+                // token_id: tokenType === 'file' ? tokenId : null,
+                // token_file: tokenFile,
+                // token_json: tokenJson,
+                // proxy_url: proxyUrl || null,
+                // count_mode: countMode,
+                // price_mode: priceMode,
+                // market_type: marketType,
+                // date_range_mode: dateRangeModes,
+                // recent_years: recentYears,
+                // start_date: startDate,
+                // end_date: endDate,
+                parameter_dimensions: [1, 2],
+                parameters: parameters,
+                sheets: sheets
+            };
+            if (endDate) {
+                currentConfig.end_date = endDate;
+            }
+            return currentConfig;
+        } catch (error) {
+            console.error('获取当前配置失败:', error);
+            showError('获取当前配置失败: ' + error.message);
+            return null;
+        }
+    }
+
+    // 提交模板
+    function submitTemplate() {
+        const config = getCurrentConfig();
+        if (!config) {
+            return;
+        }
+
+        const name = document.getElementById('templateName').value.trim();
+        const description = document.getElementById('templateDescription').value.trim();
+
+        if (!name) {
+            showError('请输入模板名称');
+            return;
+        }
+
+        const templateData = {
+            name: name,
+            description: description,
+            config: config
+        };
+
+        fetch('/api/templates', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(templateData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const modal = document.getElementById('saveTemplateModal');
+                const modalInstance = bootstrap.Modal.getInstance(modal);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+                showNotification('模板保存成功', 'success');
+
+                // 重新加载模板列表
+                loadTemplates();
+            } else {
+                showError(data.message || '保存模板失败');
+            }
+        })
+        .catch(error => {
+            console.error('保存模板失败:', error);
+            showError('保存模板失败: ' + error.message);
+        });
+    }
+
+    // 将可能的旧结构配置转换为 C4 统一结构
+    function normalizeC4Config(raw) {
+        if (!raw || typeof raw !== 'object') {
+            return {};
+        }
+
+        // 已经是 C4 新结构（有 sheets 数组）则直接返回
+        if (Array.isArray(raw.sheets) && raw.sheets.length > 0) {
+            return raw;
+        }
+
+        // 兼容旧结构：顶层有 spreadsheet_id / sheet_name
+        const sheets = [];
+        if (raw.spreadsheet_id) {
+            sheets.push({
+                spreadsheet_id: raw.spreadsheet_id,
+                sheet_name: raw.sheet_name || '',
+                title: raw.title || ''
+            });
+        }
+
+        return {
+            base_task_name: raw.base_task_name || raw.task_name || '',
+            task_description: raw.task_description || '',
+            count_mode: raw.count_mode || 'total',
+            price_mode: raw.price_mode || 'sp_price',
+            start_date: raw.start_date || null,
+            end_date: raw.end_date || null,
+            market_type: normalizeMarketTypeValue(raw.market_type),
+            kline_adjustment: raw.kline_adjustment || 'forward',
+            token_type: raw.token_type || 'file',
+            token_id: raw.token_id || '',
+            token_file: raw.token_file || 'data/token.json',
+            token_json: raw.token_json || '',
+            proxy_url: raw.proxy_url || null,
+            stock_codes: Array.isArray(raw.stock_codes) ? raw.stock_codes : [],
+            recent_years: raw.recent_years ?? null,
+            parameters: Array.isArray(raw.parameters) ? raw.parameters : [[]],
+            sheets: sheets
+        };
+    }
+
+    // 加载重启配置
+    function loadRestartConfig(restartConfigRaw, originalTaskId) {
+        try {
+            applyConfigToForm(restartConfigRaw, {
+                mode: 'restart',
+                originalTaskId: originalTaskId
+            });
+        } catch (e) {
+            console.warn('加载重启配置失败:', e);
+        }
+    }
+</script>
+{% endblock %}

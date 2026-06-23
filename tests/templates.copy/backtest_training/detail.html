@@ -1,0 +1,1084 @@
+{% extends "admin/base.html" %}
+
+{% block title %}回测任务详情{% endblock %}
+
+{% block head %}
+<style>
+    html[data-bs-theme="dark"] .param-card .card,
+    html[data-bs-theme="dark"] .card.border-0.shadow-sm {
+        background-color: #182132;
+    }
+    html[data-bs-theme="dark"] #taskNameText,
+    html[data-bs-theme="dark"] .card-header .text-body {
+        color: #e5e7eb !important;
+    }
+    .param-card .card-header,
+    .param-card .card-body {
+        padding-top: 0.9rem !important;
+        padding-bottom: 0.9rem !important;
+    }
+    .param-card .table th,
+    .param-card .table td {
+        padding-top: 0.55rem;
+        padding-bottom: 0.55rem;
+        font-size: 0.9rem;
+    }
+    .result-param-summary {
+        display: grid;
+        gap: 0.45rem;
+    }
+    .result-param-main {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+    }
+    .result-param-detail {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 0.45rem;
+    }
+    .result-param-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.25rem 0.65rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 999px;
+        background: var(--bs-body-bg);
+        font-size: 0.84rem;
+        line-height: 1.35;
+    }
+    html[data-bs-theme="dark"] .result-param-chip {
+        background: #1e293b;
+        border-color: #334155;
+        color: #e5e7eb;
+    }
+    html[data-bs-theme="dark"] .result-param-chip strong,
+    html[data-bs-theme="dark"] .result-param-chip span {
+        color: #e5e7eb !important;
+    }
+    .result-param-chip strong {
+        color: var(--bs-body-color);
+        font-weight: 600;
+    }
+    .result-param-chip-muted {
+        color: var(--bs-secondary-color);
+    }
+    html[data-bs-theme="dark"] .result-param-chip-muted {
+        color: #cbd5e1 !important;
+    }
+    .log-container {
+        height: 320px;
+        overflow-y: auto;
+        overflow-x: auto;
+        background: #0b1220;
+        color: #dbeafe;
+        padding: 12px 14px;
+        border-radius: 0.75rem;
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+        line-height: 1.6;
+        white-space: pre;
+        word-break: normal;
+    }
+    .log-container > div {
+        white-space: pre;
+        word-break: normal;
+        margin-bottom: 0.25rem;
+    }
+    .summary-table-wrap {
+        overflow: auto;
+    }
+    .summary-table {
+        min-width: 1680px;
+        margin-bottom: 0;
+    }
+    .summary-table thead th {
+        white-space: nowrap;
+        text-align: center;
+        vertical-align: middle;
+        font-weight: 700;
+    }
+    .summary-table tbody td {
+        white-space: nowrap;
+        text-align: center;
+        vertical-align: middle;
+    }
+    .summary-parameter-cell {
+        background: color-mix(in srgb, var(--bs-tertiary-bg) 78%, white 22%);
+        font-weight: 600;
+    }
+    .summary-highlight {
+        background: linear-gradient(180deg, #fff3bf, #ffe69c) !important;
+    }
+    html[data-bs-theme="dark"] .summary-parameter-cell {
+        background: #111827;
+    }
+    html[data-bs-theme="dark"] .summary-highlight {
+        background: linear-gradient(180deg, rgba(146, 64, 14, 0.82), rgba(161, 98, 7, 0.92)) !important;
+        color: #fef3c7 !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pt-3 pb-4 d-grid gap-4">
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="card-header bg-body-tertiary border-0 p-4 d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <h5 class="mb-1 fw-bold"><i class="bi bi-info-circle text-primary me-2"></i>基础执行信息</h5>
+                <div class="d-flex align-items-center gap-3 flex-wrap mt-1">
+                    <div class="fw-semibold text-body" id="taskNameText">任务详情</div>
+                    <span>Task ID:</span>
+                    <code class="bg-body px-2 py-1 rounded text-primary fs-6" id="taskIdText">{{ task_id }}</code>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <a href="/backtest-training/list" class="btn btn-outline-secondary rounded-pill px-4">
+                    <i class="bi bi-arrow-left"></i> 返回列表
+                </a>
+            </div>
+        </div>
+        <div class="card-body p-4">
+            <div class="row g-4">
+                <div class="col-md-3">
+                    <div class="text-body-secondary small mb-1">当前状态</div>
+                    <div class="fw-semibold" id="taskStatus"></div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-body-secondary small mb-1">创建时间</div>
+                    <div class="fw-semibold" id="taskCreated"><span class="placeholder col-6"></span></div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-body-secondary small mb-1">开始执行时间</div>
+                    <div class="fw-semibold" id="taskStart"><span class="placeholder col-6"></span></div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-body-secondary small mb-1">结束时间</div>
+                    <div class="fw-semibold" id="taskEnd"><span class="placeholder col-6"></span></div>
+                </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-4">
+                <a href="/backtest-training/global-preview/{{ task_id }}" class="btn btn-outline-success rounded-pill px-4">
+                    <i class="bi bi-layout-text-window-reverse me-1"></i> 全局预览页
+                </a>
+                <button type="button" class="btn btn-outline-primary rounded-pill px-4" id="createRestartTaskBtn">
+                    <i class="bi bi-arrow-repeat me-1"></i> 任务重启
+                </button>
+                <button type="button" class="btn btn-outline-warning rounded-pill px-4" id="resumeRestartTaskBtn">
+                    <i class="bi bi-skip-forward-circle me-1"></i> 断点重启
+                </button>
+                <button type="button" class="btn btn-outline-danger rounded-pill px-4" id="restartFromScratchBtn">
+                    <i class="bi bi-bootstrap-reboot me-1"></i> 重头开始
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden param-card">
+        <div class="card-header bg-body-tertiary border-0 p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <button
+                class="btn btn-link text-decoration-none p-0 fw-bold text-body d-flex align-items-center"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#taskParamCollapse"
+                aria-expanded="true"
+                aria-controls="taskParamCollapse"
+                id="taskParamToggle"
+            >
+                <i class="bi bi-sliders text-success me-2"></i>
+                <span>任务输入参数</span>
+                <i class="bi bi-chevron-down ms-2" id="taskParamToggleIcon"></i>
+            </button>
+        </div>
+        <div class="collapse show" id="taskParamCollapse">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="taskParamTable">
+                    <thead class="table-light" id="taskParamHead"></thead>
+                    <tbody id="taskParamBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="card-header bg-body-tertiary border-0 p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <button
+                class="btn btn-link text-decoration-none p-0 fw-bold text-body d-flex align-items-center"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#taskResultCollapse"
+                aria-expanded="true"
+                aria-controls="taskResultCollapse"
+                id="taskResultToggle"
+            >
+                <i class="bi bi-clipboard-data text-warning me-2"></i>
+                <span id="taskResultSectionTitle">回测生成结果</span>
+                <i class="bi bi-chevron-down ms-2" id="taskResultToggleIcon"></i>
+            </button>
+        </div>
+        <div class="collapse show" id="taskResultCollapse">
+            <div id="c5TaskResultView">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">结果 ID</th>
+                                <th>执行参数</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th class="pe-4 text-end">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="subTaskTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 px-4 py-3 border-top bg-body-tertiary">
+                    <div class="small text-body-secondary" id="taskResultPaginationSummary">共 0 条结果</div>
+                    <nav aria-label="回测结果分页">
+                        <ul class="pagination pagination-sm mb-0" id="taskResultPagination"></ul>
+                    </nav>
+                </div>
+            </div>
+            <div id="c3SummaryView" class="d-none">
+                <div class="summary-table-wrap">
+                    <table class="table table-hover align-middle mb-0 summary-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>X Multiplier</th>
+                                <th>tp1</th>
+                                <th>tp2</th>
+                                <th>nl</th>
+                                <th>if</th>
+                                <th>ywfs</th>
+                                <th>ywfb</th>
+                                <th>年份</th>
+                                <th>return%</th>
+                                <th>index%</th>
+                                <th class="summary-highlight">beats Index%</th>
+                                <th>strat max dd%</th>
+                                <th>index max dd%</th>
+                                <th class="summary-highlight">beats%</th>
+                                <th>Fee total年化</th>
+                                <th>年换手率</th>
+                                <th>指数月夏普</th>
+                                <th>策略月夏普</th>
+                                <th>日均abs(chg%)</th>
+                                <th>MAX abs(chg%)</th>
+                                <th>日均abs标准差</th>
+                                <th class="pe-4 text-end">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="c3SummaryTableBody">
+                            <tr>
+                                <td colspan="22" class="text-center text-body-secondary py-4">正在加载参数汇总...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="card-header bg-body-tertiary border-0 p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <button
+                class="btn btn-link text-decoration-none p-0 fw-bold text-body d-flex align-items-center"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#taskLogCollapse"
+                aria-expanded="true"
+                aria-controls="taskLogCollapse"
+                id="taskLogToggle"
+            >
+                <i class="bi bi-journal-text text-primary me-2"></i>
+                <span>任务日志</span>
+                <i class="bi bi-chevron-down ms-2" id="taskLogToggleIcon"></i>
+            </button>
+            <div class="d-flex align-items-center gap-3 flex-wrap small text-body-secondary">
+                <span>自动刷新：1 分钟</span>
+                <span id="logLastUpdated">最近刷新：-</span>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="manualRefreshBtn">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新日志
+                </button>
+            </div>
+        </div>
+        <div class="collapse show" id="taskLogCollapse">
+            <div class="card-body p-4">
+                <div class="log-container" id="log-container">日志加载中...</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const TASK_API_BASE = '/api/tasks';
+    const currentTaskId = {{ task_id|tojson }};
+    const AUTO_REFRESH_INTERVAL = 60 * 1000;
+    const TASK_RESULT_PAGE_SIZE = 10;
+    const FIELD_MAP = {
+        c5: [
+            { key: 'xm', label: 'X Multiplier (xm)' },
+            { key: 'ml', label: 'ML (ml)' }
+        ],
+        c3: [
+            { key: 'commission', label: 'Commission' },
+            { key: 'xm', label: 'X Multiplier (xm)' },
+            { key: 'dbbh1', label: '单边保护1' },
+            { key: 'dbbh2', label: '单边保护2' },
+            { key: 'zlxc', label: '中立限仓' },
+            { key: 'zsgz', label: '指数跟踪' },
+            { key: 'ywf1', label: '一窝蜂 smoothing' },
+            { key: 'ywf2', label: '一窝蜂 bordering' }
+        ]
+    };
+    let refreshInterval = null;
+    let taskActionInProgress = false;
+    let currentModelVersion = 'c3';
+    let taskResultPaginationState = {
+        page: 1,
+        per_page: TASK_RESULT_PAGE_SIZE,
+        pages: 0,
+        total: 0,
+        has_prev: false,
+        has_next: false,
+        prev_num: null,
+        next_num: null
+    };
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatStatus(status) {
+        const statusClassMap = {
+            pending: 'bg-secondary',
+            running: 'bg-warning text-dark',
+            completed: 'bg-success',
+            cancelled: 'bg-info text-dark',
+            error: 'bg-danger'
+        };
+        const statusTextMap = {
+            pending: '待执行',
+            running: '执行中',
+            completed: '已完成',
+            cancelled: '已取消',
+            error: '执行失败'
+        };
+        const badgeClass = statusClassMap[status] || 'bg-secondary';
+        const statusText = statusTextMap[status] || status || '-';
+        return `<span class="badge ${badgeClass} rounded-pill px-3 py-2">${escapeHtml(statusText)}</span>`;
+    }
+
+    function renderValue(value) {
+        if (value === null || value === undefined || value === '') {
+            return '<span class="text-body-secondary">-</span>';
+        }
+        if (Array.isArray(value)) {
+            return `<code>${escapeHtml(JSON.stringify(value))}</code>`;
+        }
+        if (typeof value === 'object') {
+            return `<code>${escapeHtml(JSON.stringify(value))}</code>`;
+        }
+        return escapeHtml(value);
+    }
+
+    function inferModelVersion(config) {
+        const title = config && config.sheet && config.sheet.title ? String(config.sheet.title) : '';
+        const upperTitle = title.toUpperCase();
+        if (upperTitle.includes('C5') || upperTitle.includes('C4')) {
+            return 'c5';
+        }
+        return 'c3';
+    }
+
+    function renderParameterTable(config) {
+        const tableHead = document.getElementById('taskParamHead');
+        const tableBody = document.getElementById('taskParamBody');
+        tableHead.innerHTML = '';
+        tableBody.innerHTML = '';
+
+        const parameters = Array.isArray(config.parameters) ? config.parameters : [];
+
+        if (!parameters.length) {
+            tableHead.innerHTML = '<tr><th class="ps-4">参数组</th><th>参数值</th></tr>';
+            tableBody.innerHTML = '<tr><td colspan="2" class="text-center text-body-secondary py-4">暂无参数配置</td></tr>';
+            return;
+        }
+
+        const maxColumns = parameters.reduce((max, group) => Math.max(max, Array.isArray(group) ? group.length : 0), 0);
+        const fieldLabels = (FIELD_MAP[inferModelVersion(config)] || []).map((field) => field.label);
+        const headCells = ['<th class="ps-4">参数组</th>'];
+        for (let i = 0; i < maxColumns; i += 1) {
+            headCells.push(`<th>${escapeHtml(fieldLabels[i] || `参数 ${i + 1}`)}</th>`);
+        }
+        tableHead.innerHTML = `<tr>${headCells.join('')}</tr>`;
+
+        tableBody.innerHTML = parameters.map((group, index) => {
+            const rowValues = Array.isArray(group) ? group : [];
+            const cells = [`<td class="ps-4 fw-semibold">第 ${index + 1} 组</td>`];
+            for (let i = 0; i < maxColumns; i += 1) {
+                cells.push(`<td>${renderValue(rowValues[i])}</td>`);
+            }
+            return `<tr>${cells.join('')}</tr>`;
+        }).join('');
+    }
+
+    function formatPercentValue(value, digits = 2) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return escapeHtml(value);
+        }
+        return `${(Number(value) * 100).toFixed(digits)}%`;
+    }
+
+    function formatNumberValue(value, digits = 6) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return escapeHtml(value);
+        }
+        return Number(value).toFixed(digits);
+    }
+
+    function formatTurnoverValue(value) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return escapeHtml(value);
+        }
+        return Number(value).toFixed(2);
+    }
+
+    function formatDrawdownValue(value) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return escapeHtml(value);
+        }
+        return `${(Number(value) * 100).toFixed(2)}%`;
+    }
+
+    function metricClass(value) {
+        if (value === null || value === undefined || value === '' || typeof value === 'string') {
+            return '';
+        }
+        return Number(value) >= 0 ? 'text-success' : 'text-danger';
+    }
+
+    function buildSummaryGroupKey(row) {
+        return [
+            row.commission ?? '',
+            row.xm ?? '',
+            row.dbbh1 ?? '',
+            row.dbbh2 ?? '',
+            row.zlxc ?? '',
+            row.zsgz ?? '',
+            row.ywf1 ?? '',
+            row.ywf2 ?? ''
+        ].join('|');
+    }
+
+    function groupSummaryRows(rows) {
+        const groups = [];
+        let currentGroup = null;
+
+        (rows || []).forEach((row) => {
+            const key = buildSummaryGroupKey(row);
+            if (!currentGroup || currentGroup.key !== key) {
+                currentGroup = { key, rows: [] };
+                groups.push(currentGroup);
+            }
+            currentGroup.rows.push(row);
+        });
+
+        return groups;
+    }
+
+    function renderC3SummaryRows(rows) {
+        const tbody = document.getElementById('c3SummaryTableBody');
+        if (!tbody) {
+            return;
+        }
+
+        const groups = groupSummaryRows(rows);
+        if (!groups.length) {
+            tbody.innerHTML = '<tr><td colspan="22" class="text-center text-body-secondary py-4">暂无参数汇总数据</td></tr>';
+            return;
+        }
+
+        const html = [];
+        groups.forEach((group) => {
+            const rowspan = group.rows.length;
+            group.rows.forEach((row, rowIndex) => {
+                const resultLink = `/backtest-training/result/${encodeURIComponent(row.task_result_id)}`;
+                html.push('<tr>');
+
+                if (rowIndex === 0) {
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.xm ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.dbbh1 ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.dbbh2 ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.zlxc ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.zsgz ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.ywf1 ?? '')}</td>`);
+                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.ywf2 ?? '')}</td>`);
+                }
+
+                html.push(`<td class="fw-semibold">${escapeHtml(row.year ?? '')}</td>`);
+                html.push(`<td class="${metricClass(row.strategy_return)}">${formatPercentValue(row.strategy_return)}</td>`);
+                html.push(`<td class="${metricClass(row.index_return)}">${formatPercentValue(row.index_return)}</td>`);
+                html.push(`<td class="${metricClass(row.beats_index)}">${formatPercentValue(row.beats_index)}</td>`);
+                html.push(`<td class="text-danger">${formatDrawdownValue(row.strategy_max_drawdown)}</td>`);
+                html.push(`<td class="text-danger">${formatDrawdownValue(row.index_max_drawdown)}</td>`);
+                html.push(`<td class="${metricClass(row.drawdown_beats)}">${formatPercentValue(row.drawdown_beats)}</td>`);
+                html.push(`<td>${formatPercentValue(row.fee_total)}</td>`);
+                html.push(`<td>${formatTurnoverValue(row.year_rate)}</td>`);
+                html.push(`<td class="${metricClass(row.index_monthly_sharpe)}">${formatNumberValue(row.index_monthly_sharpe)}</td>`);
+                html.push(`<td class="${metricClass(row.strategy_monthly_sharpe)}">${formatNumberValue(row.strategy_monthly_sharpe)}</td>`);
+                html.push('<td></td>');
+                html.push('<td></td>');
+                html.push('<td></td>');
+                html.push(`<td class="pe-4 text-end"><a href="${resultLink}" class="btn btn-sm btn-outline-primary">查看结果</a></td>`);
+                html.push('</tr>');
+            });
+        });
+
+        tbody.innerHTML = html.join('');
+    }
+
+    function updateTaskResultSectionMode(config) {
+        currentModelVersion = inferModelVersion(config);
+        const title = document.getElementById('taskResultSectionTitle');
+        const c3View = document.getElementById('c3SummaryView');
+        const c5View = document.getElementById('c5TaskResultView');
+
+        if (currentModelVersion === 'c3') {
+            if (title) title.textContent = '参数汇总表';
+            if (c3View) c3View.classList.remove('d-none');
+            if (c5View) c5View.classList.add('d-none');
+            return;
+        }
+
+        if (title) title.textContent = '回测生成结果';
+        if (c3View) c3View.classList.add('d-none');
+        if (c5View) c5View.classList.remove('d-none');
+    }
+
+    function loadC3Summary(options = {}) {
+        const { silent = false } = options;
+        ajaxRequest(`/backtest-training/api/task-summary/${encodeURIComponent(currentTaskId)}`, 'GET', null, function(err, data) {
+            if (err || !data || data.status !== 'success') {
+                const tbody = document.getElementById('c3SummaryTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="22" class="text-center text-body-secondary py-4">参数汇总加载失败</td></tr>';
+                }
+                if (!silent) {
+                    showNotification(`加载参数汇总失败：${err ? err.message : '未知错误'}`, 'error');
+                }
+                return;
+            }
+            renderC3SummaryRows(data.rows || []);
+        });
+    }
+
+    function summarizeParameters(parameters) {
+        if (parameters === null || parameters === undefined) {
+            return '<span class="text-body-secondary">-</span>';
+        }
+
+        function stringifyCompact(value) {
+            if (value === null || value === undefined || value === '') {
+                return '-';
+            }
+            if (Array.isArray(value)) {
+                return JSON.stringify(value);
+            }
+            if (typeof value === 'object') {
+                return JSON.stringify(value);
+            }
+            return String(value);
+        }
+
+        function formatParameterArray(values) {
+            if (!Array.isArray(values) || !values.length) {
+                return '<span class="result-param-chip"><strong>参数</strong><span class="result-param-chip-muted">-</span></span>';
+            }
+
+            return values.map((value, index) => {
+                const display = stringifyCompact(value);
+                const safeDisplay = display.length > 24 ? `${display.slice(0, 24)}...` : display;
+                return `<span class="result-param-chip"><strong>P${index + 1}</strong><span>${escapeHtml(safeDisplay)}</span></span>`;
+            }).join('');
+        }
+
+        if (Array.isArray(parameters)) {
+            if (!parameters.length) {
+                return '<span class="text-body-secondary">-</span>';
+            }
+            return parameters.map((item, index) => {
+                const display = (item !== null && typeof item === 'object')
+                    ? JSON.stringify(item)
+                    : String(item);
+                return `<span class="badge rounded-pill text-bg-light border me-1 mb-1">参数 ${index + 1}: ${escapeHtml(display)}</span>`;
+            }).join('');
+        }
+        if (typeof parameters === 'object') {
+            const entries = Object.entries(parameters);
+            if (!entries.length) {
+                return '<span class="text-body-secondary">-</span>';
+            }
+
+            const stockCode = parameters.stock_code;
+            const year = parameters.year;
+            const kline = Array.isArray(parameters.kline) ? parameters.kline : [];
+            const parameterValues = Array.isArray(parameters.parameter) ? parameters.parameter : [];
+            const primaryChips = [];
+
+            if (stockCode) {
+                primaryChips.push(`<span class="result-param-chip"><strong>股票</strong><span>${escapeHtml(String(stockCode))}</span></span>`);
+            }
+            if (year !== undefined && year !== null && year !== '') {
+                primaryChips.push(`<span class="result-param-chip"><strong>年份</strong><span>${escapeHtml(String(year))}</span></span>`);
+            }
+            if (parameters.Kline_key !== undefined && parameters.Kline_key !== null && parameters.Kline_key !== '') {
+                primaryChips.push(`<span class="result-param-chip"><strong>K 线键</strong><span>${escapeHtml(String(parameters.Kline_key))}</span></span>`);
+            }
+            if (kline.length) {
+                const firstDate = kline[0] && kline[0].stock_date ? String(kline[0].stock_date) : '-';
+                const lastDate = kline[kline.length - 1] && kline[kline.length - 1].stock_date ? String(kline[kline.length - 1].stock_date) : '-';
+                primaryChips.push(`<span class="result-param-chip"><strong>K 线</strong><span>${escapeHtml(`${kline.length} 条，${firstDate} ~ ${lastDate}`)}</span></span>`);
+            }
+
+            const extraEntries = entries.filter(([key]) => !['stock_code', 'year', 'Kline_key', 'kline', 'parameter'].includes(key));
+            const extraChips = extraEntries.map(([key, value]) => {
+                const display = stringifyCompact(value);
+                const safeDisplay = display.length > 36 ? `${display.slice(0, 36)}...` : display;
+                return `<span class="result-param-chip"><strong>${escapeHtml(key)}</strong><span>${escapeHtml(safeDisplay)}</span></span>`;
+            }).join('');
+
+            return `
+                <div class="result-param-summary">
+                    <div class="result-param-main">${primaryChips.join('') || '<span class="text-body-secondary">-</span>'}</div>
+                    <div class="result-param-detail">${formatParameterArray(parameterValues)}${extraChips}</div>
+                </div>
+            `;
+        }
+        return escapeHtml(parameters);
+    }
+
+    function renderSubTasks(results) {
+        const tbody = document.getElementById('subTaskTableBody');
+        if (!Array.isArray(results) || !results.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-body-secondary py-4">暂无回测结果</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = results.map((result) => {
+            const actionHref = `/backtest-training/result/${encodeURIComponent(result.id)}`;
+            return `
+                <tr>
+                    <td class="ps-4 fw-semibold">${escapeHtml(result.id)}</td>
+                    <td>${summarizeParameters(result.parameters)}</td>
+                    <td>${result.success ? '<span class="badge bg-success rounded-pill px-3 py-2">成功</span>' : '<span class="badge bg-danger rounded-pill px-3 py-2">失败</span>'}</td>
+                    <td>${escapeHtml(formatTime(result.timestamp))}</td>
+                    <td class="pe-4 text-end">
+                        <a href="${actionHref}" class="btn btn-sm btn-outline-primary">查看结果</a>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function buildPaginationPages(currentPage, totalPages) {
+        const pages = [];
+        if (totalPages <= 7) {
+            for (let page = 1; page <= totalPages; page += 1) {
+                pages.push(page);
+            }
+            return pages;
+        }
+
+        pages.push(1);
+        if (currentPage > 3) {
+            pages.push('ellipsis-left');
+        }
+
+        const start = Math.max(2, currentPage - 1);
+        const end = Math.min(totalPages - 1, currentPage + 1);
+        for (let page = start; page <= end; page += 1) {
+            pages.push(page);
+        }
+
+        if (currentPage < totalPages - 2) {
+            pages.push('ellipsis-right');
+        }
+        pages.push(totalPages);
+        return pages;
+    }
+
+    function renderTaskResultPagination() {
+        const summary = document.getElementById('taskResultPaginationSummary');
+        const pagination = document.getElementById('taskResultPagination');
+        if (!summary || !pagination) {
+            return;
+        }
+
+        const { page, per_page, pages, total, has_prev, has_next, prev_num, next_num } = taskResultPaginationState;
+        if (!total) {
+            summary.textContent = '共 0 条结果';
+            pagination.innerHTML = '';
+            return;
+        }
+
+        const start = (page - 1) * per_page + 1;
+        const end = Math.min(page * per_page, total);
+        summary.textContent = `显示 ${start}-${end} 条，共 ${total} 条结果`;
+
+        const items = [];
+        items.push(`
+            <li class="page-item ${has_prev ? '' : 'disabled'}">
+                <button class="page-link" type="button" data-page="${has_prev ? prev_num : ''}" ${has_prev ? '' : 'disabled'}>上一页</button>
+            </li>
+        `);
+
+        buildPaginationPages(page, pages).forEach((item) => {
+            if (typeof item !== 'number') {
+                items.push('<li class="page-item disabled"><span class="page-link">...</span></li>');
+                return;
+            }
+            items.push(`
+                <li class="page-item ${item === page ? 'active' : ''}">
+                    <button class="page-link" type="button" data-page="${item}">${item}</button>
+                </li>
+            `);
+        });
+
+        items.push(`
+            <li class="page-item ${has_next ? '' : 'disabled'}">
+                <button class="page-link" type="button" data-page="${has_next ? next_num : ''}" ${has_next ? '' : 'disabled'}>下一页</button>
+            </li>
+        `);
+
+        pagination.innerHTML = items.join('');
+    }
+
+    function bindTaskResultPaginationEvents() {
+        const pagination = document.getElementById('taskResultPagination');
+        if (!pagination || pagination.dataset.bound === 'true') {
+            return;
+        }
+
+        pagination.addEventListener('click', function(event) {
+            const target = event.target.closest('[data-page]');
+            if (!target || target.disabled) {
+                return;
+            }
+            const nextPage = Number(target.getAttribute('data-page'));
+            if (!nextPage || nextPage === taskResultPaginationState.page) {
+                return;
+            }
+            loadTaskResults({ page: nextPage });
+        });
+
+        pagination.dataset.bound = 'true';
+    }
+
+    function renderTaskLogs(logs) {
+        if (!Array.isArray(logs) || !logs.length) {
+            return '<div class="text-body-secondary">暂无日志</div>';
+        }
+
+        return logs.map((log) => {
+            const level = String(log.level || 'info').toLowerCase();
+            const levelClass = level === 'error' ? 'text-danger'
+                : level === 'warning' ? 'text-warning'
+                : level === 'info' ? 'text-info'
+                : 'text-light';
+            return `<div class="${levelClass}">[${formatTime(log.timestamp)}] ${escapeHtml(log.message || '')}</div>`;
+        }).join('');
+    }
+
+    function updateRefreshTime() {
+        document.getElementById('logLastUpdated').textContent = `最近刷新：${formatTime(new Date().toISOString())}`;
+    }
+
+    function setTaskActionButtonsDisabled(disabled) {
+        ['createRestartTaskBtn', 'resumeRestartTaskBtn', 'restartFromScratchBtn'].forEach((id) => {
+            const button = document.getElementById(id);
+            if (button) {
+                button.disabled = disabled;
+            }
+        });
+    }
+
+    function withTaskActionLock(action) {
+        if (taskActionInProgress) {
+            showNotification('当前已有任务操作正在执行，请稍候', 'warning');
+            return Promise.resolve();
+        }
+
+        taskActionInProgress = true;
+        setTaskActionButtonsDisabled(true);
+
+        return Promise.resolve()
+            .then(action)
+            .finally(() => {
+                taskActionInProgress = false;
+                setTaskActionButtonsDisabled(false);
+            });
+    }
+
+    function postTaskAction(url, payload) {
+        return new Promise((resolve, reject) => {
+            ajaxRequest(url, 'POST', payload, function(err, data) {
+                if (err || !data || data.status !== 'success') {
+                    reject(new Error((data && data.message) || (err && err.message) || '未知错误'));
+                    return;
+                }
+                resolve(data);
+            });
+        });
+    }
+
+    function handleCreateRestartTask() {
+        if (!confirm('确认基于当前任务创建一个新的“任务重启”任务并立即启动吗？')) {
+            return Promise.resolve();
+        }
+
+        return withTaskActionLock(async function() {
+            const data = await postTaskAction(`${TASK_API_BASE}/${currentTaskId}/create-restart`, {});
+            showNotification(data.message || '任务重启已创建', 'success');
+            if (data.new_task_id) {
+                window.location.href = `/backtest-training/detail/${encodeURIComponent(data.new_task_id)}`;
+                return;
+            }
+            refreshPageData();
+        });
+    }
+
+    function handleResumeRestartTask() {
+        if (!confirm('确认按断点继续重启当前任务吗？系统会尽量从当前进度恢复执行。')) {
+            return Promise.resolve();
+        }
+
+        return withTaskActionLock(async function() {
+            const data = await postTaskAction(`${TASK_API_BASE}/${currentTaskId}/restart`, {
+                resume_from_checkpoint: true
+            });
+            showNotification(data.message || '任务已按断点重启', 'success');
+            refreshPageData();
+        });
+    }
+
+    function handleRestartFromScratch() {
+        if (!confirm('确认重头开始当前任务吗？这会清空当前任务已有结果并从第 1 步重新执行。')) {
+            return Promise.resolve();
+        }
+
+        return withTaskActionLock(async function() {
+            const data = await postTaskAction(`${TASK_API_BASE}/${currentTaskId}/restart`, {
+                resume_from_checkpoint: false
+            });
+            showNotification(data.message || '任务已重头开始', 'success');
+            refreshPageData();
+        });
+    }
+
+    function loadTaskDetail(options = {}) {
+        const { silent = false } = options;
+        ajaxRequest(`${TASK_API_BASE}/${currentTaskId}`, 'GET', null, function(err, data) {
+            if (err || !data || data.status !== 'success' || !data.task) {
+                if (!silent) {
+                    showNotification(`加载任务详情失败：${err ? err.message : '未知错误'}`, 'error');
+                }
+                return;
+            }
+
+            const task = data.task;
+            document.getElementById('taskNameText').textContent = task.name || '任务详情';
+            document.getElementById('taskStatus').innerHTML = formatStatus(task.status);
+            document.getElementById('taskCreated').innerHTML = renderValue(formatTime(task.created_at));
+            document.getElementById('taskStart').innerHTML = renderValue(formatTime(task.start_time));
+            document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
+            renderParameterTable(task.config || {});
+            updateTaskResultSectionMode(task.config || {});
+            if (currentModelVersion === 'c3') {
+                loadC3Summary({ silent });
+            } else {
+                loadTaskResults({ silent });
+            }
+        });
+    }
+
+    function loadTaskResults(options = {}) {
+        const {
+            silent = false,
+            page = taskResultPaginationState.page,
+            perPage = taskResultPaginationState.per_page || TASK_RESULT_PAGE_SIZE
+        } = options;
+        const resultUrl = `/backtest-training/api/task-results/${encodeURIComponent(currentTaskId)}?page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(perPage)}`;
+        ajaxRequest(resultUrl, 'GET', null, function(err, data) {
+            if (err || !data || data.status !== 'success') {
+                if (!silent) {
+                    showNotification(`加载回测结果失败：${err ? err.message : '未知错误'}`, 'error');
+                }
+                return;
+            }
+            const pagination = data.pagination || {};
+            taskResultPaginationState = {
+                page: Number(pagination.page || page || 1),
+                per_page: Number(pagination.per_page || perPage || TASK_RESULT_PAGE_SIZE),
+                pages: Number(pagination.pages || 0),
+                total: Number(pagination.total || 0),
+                has_prev: Boolean(pagination.has_prev),
+                has_next: Boolean(pagination.has_next),
+                prev_num: pagination.prev_num || null,
+                next_num: pagination.next_num || null
+            };
+            renderSubTasks(data.results || []);
+            renderTaskResultPagination();
+        });
+    }
+
+    function loadTaskLogs(options = {}) {
+        const { silent = false } = options;
+        ajaxRequest(`${TASK_API_BASE}/${currentTaskId}/logs`, 'GET', null, function(err, data) {
+            const logContainer = document.getElementById('log-container');
+            if (!logContainer) {
+                return;
+            }
+
+            if (err || !data || data.status !== 'success') {
+                logContainer.innerHTML = '<div class="text-danger">加载日志失败</div>';
+                if (!silent) {
+                    showNotification(`加载任务日志失败：${err ? err.message : '未知错误'}`, 'error');
+                }
+                return;
+            }
+
+            const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
+            logContainer.innerHTML = renderTaskLogs(data.logs || []);
+            if (wasNearBottom) {
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+            updateRefreshTime();
+        });
+    }
+
+    function refreshPageData(options = {}) {
+        const { silent = false } = options;
+        loadTaskDetail({ silent });
+        loadTaskLogs({ silent });
+    }
+
+    function startAutoRefresh() {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+        }
+        refreshInterval = setInterval(function() {
+            refreshPageData({ silent: true });
+        }, AUTO_REFRESH_INTERVAL);
+    }
+
+    function stopAutoRefresh() {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+            refreshInterval = null;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        bindTaskResultPaginationEvents();
+        refreshPageData({ silent: true });
+        startAutoRefresh();
+
+        const refreshButton = document.getElementById('manualRefreshBtn');
+        if (refreshButton) {
+            refreshButton.addEventListener('click', function() {
+                refreshPageData();
+                showNotification('详情与日志已刷新', 'info');
+            });
+        }
+
+        const createRestartTaskBtn = document.getElementById('createRestartTaskBtn');
+        if (createRestartTaskBtn) {
+            createRestartTaskBtn.addEventListener('click', function() {
+                handleCreateRestartTask().catch(function(err) {
+                    showNotification(`任务重启失败：${err ? err.message : '未知错误'}`, 'error');
+                });
+            });
+        }
+
+        const resumeRestartTaskBtn = document.getElementById('resumeRestartTaskBtn');
+        if (resumeRestartTaskBtn) {
+            resumeRestartTaskBtn.addEventListener('click', function() {
+                handleResumeRestartTask().catch(function(err) {
+                    showNotification(`断点重启失败：${err ? err.message : '未知错误'}`, 'error');
+                });
+            });
+        }
+
+        const restartFromScratchBtn = document.getElementById('restartFromScratchBtn');
+        if (restartFromScratchBtn) {
+            restartFromScratchBtn.addEventListener('click', function() {
+                handleRestartFromScratch().catch(function(err) {
+                    showNotification(`重头开始失败：${err ? err.message : '未知错误'}`, 'error');
+                });
+            });
+        }
+
+        const logCollapse = document.getElementById('taskLogCollapse');
+        const logToggleIcon = document.getElementById('taskLogToggleIcon');
+        if (logCollapse && logToggleIcon) {
+            logCollapse.addEventListener('show.bs.collapse', function() {
+                logToggleIcon.classList.remove('bi-chevron-right');
+                logToggleIcon.classList.add('bi-chevron-down');
+            });
+            logCollapse.addEventListener('hide.bs.collapse', function() {
+                logToggleIcon.classList.remove('bi-chevron-down');
+                logToggleIcon.classList.add('bi-chevron-right');
+            });
+        }
+
+        const paramCollapse = document.getElementById('taskParamCollapse');
+        const paramToggleIcon = document.getElementById('taskParamToggleIcon');
+        if (paramCollapse && paramToggleIcon) {
+            paramCollapse.addEventListener('show.bs.collapse', function() {
+                paramToggleIcon.classList.remove('bi-chevron-right');
+                paramToggleIcon.classList.add('bi-chevron-down');
+            });
+            paramCollapse.addEventListener('hide.bs.collapse', function() {
+                paramToggleIcon.classList.remove('bi-chevron-down');
+                paramToggleIcon.classList.add('bi-chevron-right');
+            });
+        }
+
+        const resultCollapse = document.getElementById('taskResultCollapse');
+        const resultToggleIcon = document.getElementById('taskResultToggleIcon');
+        if (resultCollapse && resultToggleIcon) {
+            resultCollapse.addEventListener('show.bs.collapse', function() {
+                resultToggleIcon.classList.remove('bi-chevron-right');
+                resultToggleIcon.classList.add('bi-chevron-down');
+            });
+            resultCollapse.addEventListener('hide.bs.collapse', function() {
+                resultToggleIcon.classList.remove('bi-chevron-down');
+                resultToggleIcon.classList.add('bi-chevron-right');
+            });
+        }
+    });
+
+    window.addEventListener('beforeunload', stopAutoRefresh);
+</script>
+{% endblock %}

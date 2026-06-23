@@ -13,6 +13,7 @@ import functools
 
 from gspread import Cell
 from app.utils.logger import get_logger
+from app.utils.task_error_utils import RetryableNetworkTaskError, is_retryable_network_error
 
 logger = get_logger(__name__)
 
@@ -58,17 +59,15 @@ class GoogleSheet:
                 f"{self._log_ctx()}初始化Google Sheet连接失败: {str(e)}\n"
                 f"连接参数 - Spreadsheet ID: {self.spreadsheet_id}, Sheet: {self._sheet_name}, Token: {self._token_file}"
             )
+            if is_retryable_network_error(e):
+                raise RetryableNetworkTaskError(f"{self._log_ctx()}初始化Google Sheet连接失败: {str(e)}") from e
             raise
 
     def _connect_and_select_worksheet(self):
         creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
         self.client = gspread.authorize(credentials=creds)
 
-        if self._proxy_url is not None and str(self._proxy_url).lower().startswith(('http','stock')):
-            logger.info(f"{self._log_ctx()}使用代理：{self._proxy_url}")
-            os.environ['HTTP_PROXY'] = self._proxy_url
-            os.environ['HTTPS_PROXY'] = self._proxy_url
-            self.client.session.proxies.update({"http": self._proxy_url, "https": self._proxy_url})
+        self._apply_proxy_settings()
 
         self._apply_default_timeout()
         self.sheet = self.client.open_by_key(self.spreadsheet_id)
@@ -113,7 +112,7 @@ class GoogleSheet:
 
     def _apply_default_timeout(self, timeout: Optional[int] = None):
         """为 gspread 底层 requests Session 注入默认 timeout，避免网络抖动时永久阻塞"""
-        if not self.client or not getattr(self.client, 'session', None):
+        if not self.client:
             return
 
         if timeout is None:
@@ -124,7 +123,18 @@ class GoogleSheet:
             except Exception:
                 timeout = 30
 
-        session = self.client.session
+        set_timeout = getattr(self.client, 'set_timeout', None)
+        if callable(set_timeout):
+            try:
+                set_timeout(timeout)
+                return
+            except Exception:
+                logger.debug(f"{self._log_ctx()}通过 client.set_timeout 设置超时失败，回退到 session patch", exc_info=True)
+
+        session = self._get_client_session()
+        if not session:
+            logger.warning(f"{self._log_ctx()}当前 gspread client 未暴露可用 session，跳过默认 timeout patch")
+            return
 
         # 已经打过补丁：如果 timeout 发生变化，更新即可
         if getattr(session, '_timeout_patched', False):
@@ -141,6 +151,58 @@ class GoogleSheet:
         session._default_timeout = timeout
         session.request = request_with_timeout
         session._timeout_patched = True
+
+    def _get_client_session(self):
+        """兼容不同 gspread 版本的 HTTP session 访问方式"""
+        if not self.client:
+            return None
+
+        session = getattr(self.client, 'session', None)
+        if session is not None:
+            return session
+
+        http_client = getattr(self.client, 'http_client', None)
+        if http_client is not None:
+            session = getattr(http_client, 'session', None)
+            if session is not None:
+                return session
+
+        internal_http_client = getattr(self.client, '_http_client', None)
+        if internal_http_client is not None:
+            session = getattr(internal_http_client, 'session', None)
+            if session is not None:
+                return session
+
+        return None
+
+    def _apply_proxy_settings(self):
+        """设置代理，兼容 gspread 6.x 等不同 client 结构"""
+        if not self.client or not self._proxy_url:
+            return
+
+        proxy_url = str(self._proxy_url).strip()
+        if not proxy_url.lower().startswith(('http://', 'https://', 'socks')):
+            return
+
+        logger.info(f"{self._log_ctx()}使用代理：{proxy_url}")
+        os.environ['HTTP_PROXY'] = proxy_url
+        os.environ['HTTPS_PROXY'] = proxy_url
+
+        session = self._get_client_session()
+        if session is None:
+            logger.warning(f"{self._log_ctx()}当前 gspread client 不支持直接访问 session，将仅使用环境变量代理")
+            return
+
+        try:
+            session.proxies.update({"http": proxy_url, "https": proxy_url})
+        except Exception:
+            logger.warning(f"{self._log_ctx()}写入 session 代理失败，将仅使用环境变量代理", exc_info=True)
+
+    @staticmethod
+    def _clear_proxy_settings():
+        for proxy_key in ('HTTP_PROXY', 'HTTPS_PROXY'):
+            if proxy_key in os.environ:
+                del os.environ[proxy_key]
 
     def get(self, name):
         """获取属性"""
@@ -250,7 +312,7 @@ class GoogleSheet:
         except Exception as e:
             logger.error(f'设置表格{sheet_rows},值:{sheet_values}错误。错误内容：{str(e)}')
             return f'设置表格{sheet_rows},值:{sheet_values}错误。错误内容：{str(e)}'
-
+        
     def update_cell(self, cell_address, cell_value):
         """更新单个单元格"""
         try:
@@ -271,7 +333,8 @@ class GoogleSheet:
             logger.info(f"{self._log_ctx()}更新单元格 {cell_address} = {cell_value} (类型: {type(cell_value)})")
 
             def _update_operation():
-                self.worksheet.update(cell_address, cell_value)
+                # 修复：将值包装成二维列表格式
+                self.worksheet.update(cell_address, [[cell_value]])
 
             self._retry_network_operation(_update_operation, f"update_cell({cell_address})")
 
@@ -279,7 +342,7 @@ class GoogleSheet:
             error_msg = f"{self._log_ctx()}更新单元格 {cell_address} 失败，值: {cell_value}, 错误: {str(e)}"
             logger.error(error_msg)
             raise Exception(error_msg) from e
-
+        
     def update_jumped_cells(self, cell_updates):
         """
         更新跳跃的单元格（带网络重试）
@@ -358,6 +421,55 @@ class GoogleSheet:
 
         return self._retry_network_operation(_get_range_operation, f"get_range({range_a1})")
 
+
+    def get_ranges(self, range_a1_list, value_render_option: str = 'FORMATTED_VALUE'):
+        """批量获取多个 A1 区间的值，返回 {range_a1: {cell_a1: value}}"""
+        self._ensure_worksheet()
+
+        if not range_a1_list:
+            return {}
+
+        normalized_ranges = [range_a1 for range_a1 in range_a1_list if range_a1]
+        if not normalized_ranges:
+            return {}
+
+        try:
+            def _get_ranges_operation():
+                return self.worksheet.batch_get(
+                    normalized_ranges,
+                    value_render_option=value_render_option,
+                )
+
+            batch_values = self._retry_network_operation(_get_ranges_operation, "get_ranges")
+
+            results = {}
+            for range_a1, values_2d in zip(normalized_ranges, batch_values):
+                start_row, start_col = a1_to_rowcol(range_a1.split(':')[0])
+                range_result = {}
+                for r_idx, row in enumerate(values_2d):
+                    for c_idx, value in enumerate(row):
+                        row_num = start_row + r_idx
+                        col_num = start_col + c_idx
+                        cell_a1 = rowcol_to_a1(row_num, col_num)
+                        range_result[cell_a1] = value
+                results[range_a1] = range_result
+
+            for range_a1 in normalized_ranges:
+                results.setdefault(range_a1, {})
+
+            return results
+
+        except Exception as e:
+            logger.error(f"{self._log_ctx()}批量获取区间失败: {e}", exc_info=True)
+            logger.info(f"{self._log_ctx()}回退到逐个获取区间")
+            results = {}
+            for range_a1 in normalized_ranges:
+                try:
+                    results[range_a1] = self.get_range(range_a1, value_render_option=value_render_option)
+                except Exception as range_error:
+                    logger.error(f"{self._log_ctx()}获取区间 {range_a1} 失败: {range_error}")
+                    results[range_a1] = {}
+            return results
 
     def get_range_2d(self, range_a1: str, value_render_option: str = 'FORMATTED_VALUE'):
         """根据 A1 区间获取整块区域的值，
@@ -474,11 +586,7 @@ class GoogleSheet:
             creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
             self.client = gspread.authorize(credentials=creds)
 
-            if self._proxy_url:
-                logger.info(f"{self._log_ctx()}使用代理：{self._proxy_url}")
-                os.environ['HTTP_PROXY'] = self._proxy_url
-                os.environ['HTTPS_PROXY'] = self._proxy_url
-                self.client.session.proxies.update({"http": self._proxy_url, "https": self._proxy_url})
+            self._apply_proxy_settings()
 
             self._apply_default_timeout()
             # 重新打开电子表格
@@ -538,6 +646,10 @@ class GoogleSheet:
             if not self._reconnect():
                 # 关键：重连失败时抛出原始异常，让上层按网络错误重试/退出
                 if self._last_reconnect_exception is not None:
+                    if is_retryable_network_error(self._last_reconnect_exception):
+                        raise RetryableNetworkTaskError(
+                            f"{self._log_ctx()}重连Google Sheet失败: {str(self._last_reconnect_exception)}"
+                        ) from self._last_reconnect_exception
                     raise self._last_reconnect_exception
                 raise Exception("请先选择工作表")
 
@@ -581,28 +693,31 @@ class GoogleSheet:
                     time.sleep(wait_time)
                 else:
                     logger.error(f"{operation_name} 网络错误，已重试 {max_retries} 次仍失败: {str(e)}")
-                    raise
+                    raise RetryableNetworkTaskError(
+                        f"{self._log_ctx()}{operation_name} 网络错误，已重试 {max_retries} 次仍失败: {str(e)}"
+                    ) from e
         
         # 如果所有重试都失败了
         if last_exception:
-            raise last_exception
+            raise RetryableNetworkTaskError(
+                f"{self._log_ctx()}{operation_name} 网络错误: {str(last_exception)}"
+            ) from last_exception
 
     def close(self):
         """关闭连接并清理资源"""
         try:
             # 清理代理设置
-            if 'HTTP_PROXY' in os.environ:
-                del os.environ['HTTP_PROXY']
-            if 'HTTPS_PROXY' in os.environ:
-                del os.environ['HTTPS_PROXY']
+            self._clear_proxy_settings()
             
             # 清理对象引用
             self.worksheet = None
             self.sheet = None
             if self.client:
                 try:
-                    self.client.session.close()  # 关闭gspread的session
-                except:
+                    session = self._get_client_session()
+                    if session and hasattr(session, 'close'):
+                        session.close()
+                except Exception:
                     pass
             self.client = None
             

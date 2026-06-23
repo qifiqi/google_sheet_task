@@ -1,0 +1,62 @@
+<svg width="1600" height="520" viewBox="0 0 1600 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="520" fill="#F5F7FA"/>
+  <rect x="32" y="32" width="1536" height="456" rx="14" fill="#FFFFFF" stroke="#D9E0EA"/>
+  <text x="64" y="78" fill="#172033" font-family="Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="700">单模型汇总</text>
+  <text x="64" y="108" fill="#6B7280" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">当前筛选条件下的股票、任务与 ReturnBeats 分布</text>
+  <g transform="translate(64 142)">
+    <rect width="356" height="126" rx="10" fill="#F8FAFC" stroke="#DCE3ED"/>
+    <rect x="0" y="0" width="5" height="126" rx="2.5" fill="#2563EB"/>
+    <text x="24" y="37" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">股票总数</text>
+    <text x="24" y="88" fill="#111827" font-family="DIN Alternate, Arial, sans-serif" font-size="42" font-weight="700">1,284</text>
+    <text x="230" y="88" fill="#2563EB" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">全部结果</text>
+  </g>
+  <g transform="translate(436 142)">
+    <rect width="356" height="126" rx="10" fill="#F8FAFC" stroke="#DCE3ED"/>
+    <rect x="0" y="0" width="5" height="126" rx="2.5" fill="#16A34A"/>
+    <text x="24" y="37" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">A股总数</text>
+    <text x="24" y="88" fill="#111827" font-family="DIN Alternate, Arial, sans-serif" font-size="42" font-weight="700">942</text>
+    <text x="240" y="88" fill="#16A34A" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">纯数字代码</text>
+  </g>
+  <g transform="translate(808 142)">
+    <rect width="356" height="126" rx="10" fill="#F8FAFC" stroke="#DCE3ED"/>
+    <rect x="0" y="0" width="5" height="126" rx="2.5" fill="#7C3AED"/>
+    <text x="24" y="37" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">美股总数</text>
+    <text x="24" y="88" fill="#111827" font-family="DIN Alternate, Arial, sans-serif" font-size="42" font-weight="700">342</text>
+    <text x="238" y="88" fill="#7C3AED" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">非纯数字代码</text>
+  </g>
+  <g transform="translate(1180 142)">
+    <rect width="324" height="126" rx="10" fill="#F8FAFC" stroke="#DCE3ED"/>
+    <rect x="0" y="0" width="5" height="126" rx="2.5" fill="#0891B2"/>
+    <text x="24" y="37" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">任务总数</text>
+    <text x="24" y="88" fill="#111827" font-family="DIN Alternate, Arial, sans-serif" font-size="42" font-weight="700">2,016</text>
+    <text x="218" y="88" fill="#0891B2" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">唯一任务</text>
+  </g>
+  <g transform="translate(64 292)">
+    <rect width="356" height="126" rx="10" fill="#FFFFFF" stroke="#DCE3ED"/>
+    <text x="24" y="37" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">超额收益 &gt; 0</text>
+    <text x="24" y="88" fill="#14532D" font-family="DIN Alternate, Arial, sans-serif" font-size="42" font-weight="700">816</text>
+    <rect x="225" y="60" width="96" height="28" rx="14" fill="#DCFCE7"/>
+    <text x="242" y="79" fill="#166534" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">63.6%</text>
+  </g>
+  <g transform="translate(436 292)">
+    <rect width="356" height="126" rx="10" fill="#FFFFFF" stroke="#DCE3ED"/>
+    <text x="24" y="37" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">超额收益 &gt; 20</text>
+    <text x="24" y="88" fill="#365314" font-family="DIN Alternate, Arial, sans-serif" font-size="42" font-weight="700">392</text>
+    <rect x="225" y="60" width="96" height="28" rx="14" fill="#ECFCCB"/>
+    <text x="242" y="79" fill="#3F6212" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">30.5%</text>
+  </g>
+  <g transform="translate(808 292)">
+    <rect width="356" height="126" rx="10" fill="#FFFFFF" stroke="#DCE3ED"/>
+    <text x="24" y="37" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">超额收益 &gt; 50</text>
+    <text x="24" y="88" fill="#854D0E" font-family="DIN Alternate, Arial, sans-serif" font-size="42" font-weight="700">148</text>
+    <rect x="225" y="60" width="96" height="28" rx="14" fill="#FEF3C7"/>
+    <text x="242" y="79" fill="#92400E" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">11.5%</text>
+  </g>
+  <g transform="translate(1180 292)">
+    <rect width="324" height="126" rx="10" fill="#FFFFFF" stroke="#DCE3ED"/>
+    <text x="24" y="37" fill="#667085" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15">超额收益 &gt; 100</text>
+    <text x="24" y="88" fill="#991B1B" font-family="DIN Alternate, Arial, sans-serif" font-size="42" font-weight="700">43</text>
+    <rect x="200" y="60" width="88" height="28" rx="14" fill="#FEE2E2"/>
+    <text x="218" y="79" fill="#991B1B" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">3.3%</text>
+  </g>
+</svg>

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="220" viewBox="0 0 980 220">
+  <rect width="980" height="220" fill="#f6f8fb"/>
+  <text x="32" y="38" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="20" font-weight="700">方案 C：单行工具条型</text>
+  <text x="32" y="66" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">把折叠后的产品压成一行，接近任务调度列表；适合批量配置很多产品。</text>
+  <rect x="32" y="102" width="916" height="72" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <circle cx="64" cy="138" r="14" fill="#0d6efd"/>
+  <path d="M59 136l5 5 5-5" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="94" y="127" width="36" height="22" rx="11" fill="#e8f1ff"/>
+  <text x="112" y="142" text-anchor="middle" fill="#0d6efd" font-family="Arial, sans-serif" font-size="12" font-weight="700">C3</text>
+  <text x="146" y="143" fill="#172554" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">贵州茅台</text>
+  <text x="268" y="143" fill="#64748b" font-family="Arial, sans-serif" font-size="14">600519</text>
+  <circle cx="346" cy="138" r="3" fill="#cbd5e1"/>
+  <text x="366" y="143" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">A股 cn</text>
+  <circle cx="446" cy="138" r="3" fill="#cbd5e1"/>
+  <text x="466" y="143" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">比例</text>
+  <text x="504" y="143" fill="#0f172a" font-family="Arial, sans-serif" font-size="14" font-weight="700">50%</text>
+  <rect x="759" y="130" width="30" height="16" rx="8" fill="#dbe3ee"/>
+  <circle cx="767" cy="138" r="6" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="800" y="142" fill="#475569" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">固定</text>
+  <rect x="874" y="119" width="38" height="38" rx="6" fill="#ffffff" stroke="#e11d48"/>
+  <path d="M886 129h14m-12 2v14m4-14v14m4-14v14m-11-16h16m-10-3h4l1 3h-6z" fill="none" stroke="#e11d48" stroke-width="1.5" stroke-linecap="round"/>
+  <text x="32" y="202" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">特点：最省纵向空间，批量查看效率高；信息密度最大。</text>
+</svg>

@@ -66,7 +66,7 @@ def safe_delete(model_class, **filters):
         raise
 
 
-def safe_update(model_instance, commit=True, **updates):
+def safe_update(model_or_instance, instance_id=None, commit=True, **updates):
     """
     安全更新操作，包含重试逻辑
     
@@ -78,6 +78,17 @@ def safe_update(model_instance, commit=True, **updates):
     Returns:
         model_instance: 更新后的实例
     """
+    if isinstance(model_or_instance, type):
+        model_instance = model_or_instance.query.get(instance_id)
+        if model_instance is None:
+            raise ValueError(
+                f"{model_or_instance.__name__} record not found for id: {instance_id}"
+            )
+    else:
+        model_instance = model_or_instance
+        if isinstance(instance_id, bool):
+            commit = instance_id
+
     def update_operation():
         for key, value in updates.items():
             if hasattr(model_instance, key):

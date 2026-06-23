@@ -1,6 +1,6 @@
 {% extends "admin/base.html" %}
 
-{% block title %}仪表盘 - 任务管理系统{% endblock %}
+{% block title %}仪表盘 - Jaspil 任务管理系统{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
@@ -13,10 +13,10 @@
 </div>
 
 <div class="row g-3 mb-4" id="summary-cards">
-    <div class="col-xl-2 col-md-4 col-6"><div class="card stat-card h-100"><div class="card-body"><div class="small">总任务数</div><div class="h4 mb-0" id="summary-total">0</div></div></div></div>
-    <div class="col-xl-2 col-md-4 col-6"><div class="card stat-card success h-100"><div class="card-body"><div class="small">已完成</div><div class="h4 mb-0" id="summary-completed">0</div></div></div></div>
-    <div class="col-xl-2 col-md-4 col-6"><div class="card stat-card warning h-100"><div class="card-body"><div class="small">运行中</div><div class="h4 mb-0" id="summary-running">0</div></div></div></div>
-    <div class="col-xl-2 col-md-4 col-6"><div class="card stat-card danger h-100"><div class="card-body"><div class="small">错误</div><div class="h4 mb-0" id="summary-error">0</div></div></div></div>
+    <div class="col-xl-2 col-md-4 col-6"><div class="card text-bg-primary h-100 border-0"><div class="card-body"><div class="small text-white-50">总任务数</div><div class="h4 mb-0" id="summary-total">0</div></div></div></div>
+    <div class="col-xl-2 col-md-4 col-6"><div class="card text-bg-success h-100 border-0"><div class="card-body"><div class="small text-white-50">已完成</div><div class="h4 mb-0" id="summary-completed">0</div></div></div></div>
+    <div class="col-xl-2 col-md-4 col-6"><div class="card text-bg-warning h-100 border-0"><div class="card-body"><div class="small text-dark-emphasis">运行中</div><div class="h4 mb-0" id="summary-running">0</div></div></div></div>
+    <div class="col-xl-2 col-md-4 col-6"><div class="card text-bg-danger h-100 border-0"><div class="card-body"><div class="small text-white-50">错误</div><div class="h4 mb-0" id="summary-error">0</div></div></div></div>
     <div class="col-xl-2 col-md-4 col-6"><div class="card h-100"><div class="card-body"><div class="small text-muted">已取消</div><div class="h4 mb-0" id="summary-cancelled">0</div></div></div></div>
     <div class="col-xl-2 col-md-4 col-6"><div class="card h-100"><div class="card-body"><div class="small text-muted">待执行</div><div class="h4 mb-0" id="summary-pending">0</div></div></div></div>
 </div>
@@ -98,6 +98,59 @@
         }
         const ctx = document.getElementById(canvasId).getContext('2d');
         dashboardCharts[key] = new Chart(ctx, config);
+    }
+
+    function normalizeTaskType(taskType) {
+        const normalizedType = String(taskType || '').trim().toLowerCase();
+        if (['google_sheet', 'google_sheet_c3', 'google_sheet_c31'].includes(normalizedType)) {
+            return 'google_sheet';
+        }
+        if (normalizedType === 'google_sheet_c4') {
+            return 'google_sheet_c4';
+        }
+        if (normalizedType === 'google_sheet_c5') {
+            return 'google_sheet_c5';
+        }
+        if (['backtest_training', 'backtest'].includes(normalizedType)) {
+            return 'backtest_training';
+        }
+        if (['backtest_multi_product', 'multi_product_backtest', 'backtest_multi'].includes(normalizedType)) {
+            return 'backtest_multi_product';
+        }
+        return normalizedType;
+    }
+
+    function getGoogleSheetVersion(taskType) {
+        const normalizedType = normalizeTaskType(taskType);
+        if (normalizedType === 'google_sheet_c5') {
+            return 'c5';
+        }
+        if (normalizedType === 'google_sheet_c4') {
+            return 'c4';
+        }
+        if (normalizedType === 'google_sheet') {
+            return 'c3';
+        }
+        return '';
+    }
+
+    function buildTaskDetailUrl(task) {
+        const taskId = task && task.id ? task.id : '';
+        const normalizedType = normalizeTaskType(task && task.task_type);
+
+        if (normalizedType === 'backtest_training') {
+            return `/backtest-training/detail/${encodeURIComponent(taskId)}`;
+        }
+        if (normalizedType === 'backtest_multi_product') {
+            return `/backtest-multi-product/detail/${encodeURIComponent(taskId)}`;
+        }
+
+        const params = new URLSearchParams({ task_id: taskId });
+        const version = getGoogleSheetVersion(normalizedType);
+        if (version) {
+            params.set('version', version);
+        }
+        return `/google-sheet/detail?${params.toString()}`;
     }
 
     function renderSummary(summary) {
@@ -204,7 +257,7 @@
                     </div>
                     <div class="small mb-1">停止请求: ${task.stop_confirmation.stop_requested ? '<span class="text-warning">已发出</span>' : '<span class="text-muted">未发出</span>'}</div>
                     <div class="small mb-2">完全停止: ${task.stop_confirmation.stop_confirmed ? '<span class="text-success">是</span>' : '<span class="text-muted">否</span>'}</div>
-                    <a class="btn btn-sm btn-outline-primary" href="/google-sheet/detail?task_id=${task.id}">查看详情</a>
+                    <a class="btn btn-sm btn-outline-primary" href="${buildTaskDetailUrl(task)}">查看详情</a>
                 </div>
             </div>
         `).join('');
@@ -234,7 +287,7 @@
                 </td>
                 <td>${task.duration_seconds != null ? task.duration_seconds + 's' : '-'}</td>
                 <td>${formatTime(task.created_at)}</td>
-                <td><button class="btn btn-sm btn-outline-info" onclick="window.location.href='/admin/tasks';">查看</button></td>
+                <td><a class="btn btn-sm btn-outline-info" href="${buildTaskDetailUrl(task)}">查看</a></td>
             </tr>
         `).join('');
     }

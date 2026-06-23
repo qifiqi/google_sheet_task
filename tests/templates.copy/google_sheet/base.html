@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Google Sheet 参数批量校验{% endblock %}</title>
+    <!-- 使用Flask的url_for函数（在模板中） -->
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+<!--?    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">-->
+    <link href="{{ url_for('static', filename='font/bootstrap-icons.css') }}" rel="stylesheet">
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .navbar {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'google_sheet.index' and not request.args.get('version') %}active{% endif %}" 
+                           href="{{ url_for('google_sheet.index', version=request.args.get('version')) }}">
+                            <i class="bi bi-house"></i> 首页
+                        </a>
+                    </li>
+                    <!-- <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'google_sheet.create' and not request.args.get('version') %}active{% endif %}" 
+                           href="{{ url_for('google_sheet.create', version=request.args.get('version')) }}">
+                            <i class="bi bi-plus-circle"></i> 创建任务
+                        </a>
+                    </li> -->
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.args.get('version') == 'c3' %}active{% endif %}" 
+                           href="{{ url_for('google_sheet.index', version='c3') }}">
+                            <i class="bi bi-lightning-charge"></i> C3 模式
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.args.get('version') == 'c4' %}active{% endif %}" 
+                           href="{{ url_for('google_sheet.index', version='c4') }}">
+                            <i class="bi bi-lightning-charge"></i> C4 模式
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.args.get('version') == 'c5' %}active{% endif %}" 
+                           href="{{ url_for('google_sheet.index', version='c5') }}">
+                            <i class="bi bi-lightning-charge"></i> C5 模式
+                        </a>
+                    </li>
+                </ul>
+                <!-- 显示当前模式 -->
+                <div class="navbar-text me-3">
+                    {% set current_version = request.args.get('version') %}
+                    <span class="badge {% if current_version == 'c4' %}bg-warning{% elif current_version == 'c5' %}bg-danger{% elif current_version == 'c3' %}bg-success{% else %}bg-secondary{% endif %}">
+                        {% if current_version == 'c4' %}C4 模式
+                        {% elif current_version == 'c5' %}C5 模式
+                        {% elif current_version == 'c3' %}C3 模式
+                        {% else %}基础模式
+                        {% endif %}
+                    </span>
+                </div>
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('admin.dashboard') }}">
+                            <i class="bi bi-gear"></i> 管理面板
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容区域 -->
+    <div class="container mt-4">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+        // 辅助函数：清理JSON字符串中的NaN、Infinity等非法值
+        function sanitizeJSONString(jsonString) {
+            return jsonString
+                // 处理 NaN
+                .replace(/:\s*NaN\b/g, ': null')
+                // 处理 Infinity
+                .replace(/:\s*Infinity\b/g, ': "Infinity"')
+                .replace(/:\s*-Infinity\b/g, ': "-Infinity"')
+                // 处理 undefined（注意：JSON中undefined也会导致错误）
+                .replace(/:\s*undefined\b/g, ': null');
+        }
+
+        // 通用AJAX函数（增强版，处理NaN）
+        function ajaxRequest(url, method, data, callback) {
+            const xhr = new XMLHttpRequest();
+            xhr.open(method, url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState !== 4) {
+                    return;
+                }
+                    let response = null;
+                    try {
+                        const sanitizedResponse = sanitizeJSONString(xhr.responseText || '');
+                        response = sanitizedResponse ? JSON.parse(sanitizedResponse) : null;
+                    } catch (e) {
+                        response = null;
+                    }
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        callback(null, response);
+                    } else {
+                        const message = response && response.message
+                            ? response.message
+                            : `Request failed with status ${xhr.status}`;
+                        callback(new Error(message), response);
+                    }
+            };
+            xhr.send(data ? JSON.stringify(data) : null);
+        }
+
+        // 显示通知（统一为右下角弹窗样式）
+        function showNotification(message, type = 'info') {
+            const alertClass = type === 'error' ? 'alert-danger' : 
+                              type === 'success' ? 'alert-success' : 
+                              type === 'warning' ? 'alert-warning' : 'alert-info';
+
+            // 创建或获取右下角容器
+            let container = document.getElementById('notification-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'notification-container';
+                container.style.position = 'fixed';
+                container.style.right = '20px';
+                container.style.bottom = '20px';
+                container.style.zIndex = '2000';
+                container.style.display = 'flex';
+                container.style.flexDirection = 'column';
+                container.style.alignItems = 'flex-end';
+                document.body.appendChild(container);
+            }
+
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert ${alertClass} alert-dismissible fade show mb-2`;
+            alertDiv.style.minWidth = '260px';
+            alertDiv.style.boxShadow = '0 0.25rem 0.5rem rgba(0,0,0,0.15)';
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+
+            container.appendChild(alertDiv);
+
+            // 自动消失
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+
+        // 错误提示封装，保持与历史代码兼容
+        function showError(message) {
+            showNotification(message, 'error');
+        }
+
+        // 格式化时间
+        function formatTime(timestamp) {
+            if (!timestamp) return '-';
+            const date = new Date(timestamp);
+            return date.toLocaleString('zh-CN');
+        }
+
+        // 获取任务状态文本
+        function getStatusText(status) {
+            switch (status) {
+                case 'pending': return '待执行';
+                case 'running': return '执行中';
+                case 'completed': return '已完成';
+                case 'cancelled': return '已取消';
+                case 'error': return '执行出错';
+                default: return status;
+            }
+        }
+
+        // 获取任务状态类
+        function getStatusClass(status) {
+            switch (status) {
+                case 'pending': return 'badge bg-secondary';
+                case 'running': return 'badge bg-warning';
+                case 'completed': return 'badge bg-success';
+                case 'cancelled': return 'badge bg-info';
+                case 'error': return 'badge bg-danger';
+                default: return 'badge bg-secondary';
+            }
+        }
+
+        // 解析JSON数组
+        function parseJsonArray(text) {
+            try {
+                if (!text.trim()) {
+                    return [];
+                }
+                return JSON.parse(text);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // 从URL中提取Spreadsheet ID
+        function extractSpreadsheetId(url) {
+            const regex = /\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/;
+            const match = url.match(regex);
+            if (match && match[1]) {
+                return match[1];
+            }
+            return url;
+        }
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,6 +1,26 @@
 {% extends "admin/base.html" %}
 
-{% block title %}V1 Google Sheet 分析 - 任务管理系统{% endblock %}
+{% block title %}V1 Google Sheet 分析 - Jaspil 任务管理系统{% endblock %}
+
+{% block head %}
+<style>
+    html[data-bs-theme="dark"] #summary-cards .card,
+    html[data-bs-theme="dark"] #details-card,
+    html[data-bs-theme="dark"] .card.border-0.shadow-sm {
+        background-color: #182132;
+    }
+    html[data-bs-theme="dark"] #gs-meta {
+        color: #94a3b8 !important;
+    }
+    html[data-bs-theme="dark"] #summary-cards .card-subtitle,
+    html[data-bs-theme="dark"] #summary-cards .card-text {
+        color: #94a3b8 !important;
+    }
+    html[data-bs-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > * {
+        --bs-table-accent-bg: rgba(148, 163, 184, 0.05);
+    }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
@@ -20,7 +40,7 @@
             <div class="col-lg-7">
                 <input type="text" class="form-control" id="gs-url"
                        placeholder="Google Sheet URL：https://docs.google.com/spreadsheets/d/..." autocomplete="off"/>
-                <div class="small text-muted mt-1" id="gs-meta" style="min-height: 1.2em;"></div>
+                <div class="small text-body-secondary mt-1" id="gs-meta" style="min-height: 1.2em;"></div>
             </div>
             <div class="col-lg-3">
                 <select id="gs-sheet-name" class="form-select" disabled>
@@ -43,36 +63,36 @@
     <div class="col-md-3">
         <div class="card border-primary h-100">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">跑赢年份</h6>
+                <h6 class="card-subtitle mb-2 text-body-secondary">跑赢年份</h6>
                 <h2 class="card-title" id="v1-outperform-year">-</h2>
-                <p class="card-text text-muted small">outperform_year</p>
+                <p class="card-text text-body-secondary small">outperform_year</p>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card border-success h-100">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">月超额波动率</h6>
+                <h6 class="card-subtitle mb-2 text-body-secondary">月超额波动率</h6>
                 <h2 class="card-title" id="v1-monthly-excess-vol">-</h2>
-                <p class="card-text text-muted small">monthly_excess_volatility</p>
+                <p class="card-text text-body-secondary small">monthly_excess_volatility</p>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card border-warning h-100">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">超额回撤胜率</h6>
+                <h6 class="card-subtitle mb-2 text-body-secondary">超额回撤胜率</h6>
                 <h2 class="card-title" id="v1-excess-dd-win">-</h2>
-                <p class="card-text text-muted small">excess_drawdown_winning_rate</p>
+                <p class="card-text text-body-secondary small">excess_drawdown_winning_rate</p>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card border-danger h-100">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">年超额收益(整体)</h6>
+                <h6 class="card-subtitle mb-2 text-body-secondary">年超额收益(整体)</h6>
                 <h2 class="card-title" id="v1-excess-annual-all">-</h2>
-                <p class="card-text text-muted small">excess_returns[all]</p>
+                <p class="card-text text-body-secondary small">excess_returns[all]</p>
             </div>
         </div>
     </div>
@@ -80,43 +100,43 @@
     <div class="col-md-3">
         <div class="card border-secondary h-100">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">指数盈利年%</h6>
+                <h6 class="card-subtitle mb-2 text-body-secondary">指数盈利年%</h6>
                 <h2 class="card-title" id="v1-index-profit-annual">-</h2>
-                <p class="card-text text-muted small">index_profit_annual</p>
+                <p class="card-text text-body-secondary small">index_profit_annual</p>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card border-secondary h-100">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">模型盈利年%</h6>
+                <h6 class="card-subtitle mb-2 text-body-secondary">模型盈利年%</h6>
                 <h2 class="card-title" id="v1-start-profit-annual">-</h2>
-                <p class="card-text text-muted small">start_profit_annual</p>
+                <p class="card-text text-body-secondary small">start_profit_annual</p>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card border-secondary h-100">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">指数月波动率</h6>
+                <h6 class="card-subtitle mb-2 text-body-secondary">指数月波动率</h6>
                 <h2 class="card-title" id="v1-index-monthly-vol">-</h2>
-                <p class="card-text text-muted small">index_monthly_return_volatility</p>
+                <p class="card-text text-body-secondary small">index_monthly_return_volatility</p>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card border-secondary h-100">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">模型月波动率</h6>
+                <h6 class="card-subtitle mb-2 text-body-secondary">模型月波动率</h6>
                 <h2 class="card-title" id="v1-start-monthly-vol">-</h2>
-                <p class="card-text text-muted small">start_monthly_return_volatility</p>
+                <p class="card-text text-body-secondary small">start_monthly_return_volatility</p>
             </div>
         </div>
     </div>
 </div>
 
 <div class="card border-0 shadow-sm mb-4" id="details-card">
-    <div class="card-header bg-white border-0 py-2">
+    <div class="card-header bg-body-tertiary border-0 py-2">
         <div class="d-flex justify-content-between align-items-center">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
                     data-bs-target="#v1-details-collapse" aria-expanded="false" aria-controls="v1-details-collapse">
@@ -149,6 +169,12 @@
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-sharpe" type="button" role="tab">夏普比率
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-excess-metrics" type="button" role="tab">超额指标
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-repair-days" type="button" role="tab">回测修复天数
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-profit" type="button" role="tab">盈利统计
@@ -254,10 +280,10 @@
                                 <table class="table table-sm table-striped mb-0">
                                     <thead>
                                     <tr>
-                                        <th>Year-Month</th>
-                                        <th>index_monthly_return</th>
-                                        <th>start_monthly_return</th>
-                                        <th>diff</th>
+                                        <th>年月</th>
+                                        <th>指数月收益</th>
+                                        <th>模型月收益</th>
+                                        <th>超额差值</th>
                                     </tr>
                                     </thead>
                                     <tbody id="tbl-monthly-excess-returns"></tbody>
@@ -270,13 +296,13 @@
                                 <table class="table table-sm table-striped mb-0">
                                     <thead>
                                     <tr>
-                                        <th>Year</th>
-                                        <th>index_Kama</th>
-                                        <th>start_Kama</th>
-                                        <th>index_年化</th>
-                                        <th>start_年化</th>
-                                        <th>index_回撤</th>
-                                        <th>start_回撤</th>
+                                        <th>年份</th>
+                                        <th>指数卡玛比率</th>
+                                        <th>模型卡玛比率</th>
+                                        <th>指数年化</th>
+                                        <th>模型年化</th>
+                                        <th>指数回撤</th>
+                                        <th>模型回撤</th>
                                     </tr>
                                     </thead>
                                     <tbody id="tbl-kama"></tbody>
@@ -289,13 +315,13 @@
                                 <table class="table table-sm table-striped mb-0">
                                     <thead>
                                     <tr>
-                                        <th>Year</th>
-                                        <th>index_Sotino</th>
-                                        <th>start_Sotino</th>
-                                        <th>index_月均年化</th>
-                                        <th>start_月均年化</th>
-                                        <th>index_下行标准差</th>
-                                        <th>start_下行标准差</th>
+                                        <th>年份</th>
+                                        <th>指数索提诺</th>
+                                        <th>模型索提诺</th>
+                                        <th>指数月均年化</th>
+                                        <th>模型月均年化</th>
+                                        <th>指数下行标准差</th>
+                                        <th>模型下行标准差</th>
                                     </tr>
                                     </thead>
                                     <tbody id="tbl-sotino"></tbody>
@@ -308,20 +334,49 @@
                                 <table class="table table-sm table-striped mb-0">
                                     <thead>
                                     <tr>
-                                        <th>Key</th>
-                                        <th>index_Sharpe</th>
-                                        <th>start_Sharpe</th>
-                                        <th>index_Avg</th>
-                                        <th>start_Avg</th>
-                                        <th>index_月Std</th>
-                                        <th>start_月Std</th>
-                                        <th>index_年Std</th>
-                                        <th>start_年Std</th>
-                                        <th>Start</th>
-                                        <th>End</th>
+                                        <th>区间</th>
+                                        <th>指数夏普</th>
+                                        <th>模型夏普</th>
+                                        <th>指数平均月收益率</th>
+                                        <th>模型平均月收益率</th>
+                                        <th>指数月标准差</th>
+                                        <th>模型月标准差</th>
+                                        <th>指数年标准差</th>
+                                        <th>模型年标准差</th>
+                                        <th>开始</th>
+                                        <th>结束</th>
                                     </tr>
                                     </thead>
                                     <tbody id="tbl-sharpe"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-excess-metrics" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>Name</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-excess-metrics"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-repair-days" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Metric</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-repair-days"></tbody>
                                 </table>
                             </div>
                         </div>
@@ -513,6 +568,26 @@
                     </div>
                 </div>
             </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">超额指标（夏普 / 索提诺）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-excess-metrics"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">最大回测修复天数（index / start / excess）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-repair-days"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="col-lg-12">
                 <div class="card h-100">
                     <div class="card-header py-2"><h6 class="card-title mb-0">盈利月百分比（指数 vs 模型）</h6></div>
@@ -619,7 +694,7 @@
         const meta = document.getElementById('gs-meta');
         if (meta && meta.textContent) {
             meta.dataset.prev = meta.innerHTML;
-            meta.innerHTML = meta.innerHTML + ' <span class="text-muted">| 请求中...</span>';
+            meta.innerHTML = meta.innerHTML + ' <span class="text-body-secondary">| 请求中...</span>';
         }
     }
 
@@ -689,7 +764,7 @@
             meta.innerHTML = '<span class="text-danger">无法解析 spreadsheet_id</span>';
             return changed;
         }
-        meta.innerHTML = `<span class="text-muted">spreadsheet_id: </span><span class="fw-semibold">${spreadsheetId}</span>`;
+        meta.innerHTML = `<span class="text-body-secondary">spreadsheet_id: </span><span class="fw-semibold">${spreadsheetId}</span>`;
         return changed;
     }
 
@@ -742,7 +817,7 @@
             state.spreadsheetTitle = data.title || '';
 
             const meta = document.getElementById('gs-meta');
-            meta.innerHTML = `<span class="text-muted">spreadsheet_id: </span><span class="fw-semibold">${spreadsheetId}</span>` + (state.spreadsheetTitle ? ` <span class="text-muted">| 标题：</span><span class="fw-semibold">${escapeHtml(state.spreadsheetTitle)}</span>` : '');
+            meta.innerHTML = `<span class="text-body-secondary">spreadsheet_id: </span><span class="fw-semibold">${spreadsheetId}</span>` + (state.spreadsheetTitle ? ` <span class="text-body-secondary">| 标题：</span><span class="fw-semibold">${escapeHtml(state.spreadsheetTitle)}</span>` : '');
 
             const select = document.getElementById('gs-sheet-name');
             select.innerHTML = '';
@@ -941,6 +1016,11 @@
         return Number(v).toFixed(digits);
     }
 
+    function fmtInt(v) {
+        if (v === null || v === undefined || Number.isNaN(Number(v))) return '-';
+        return String(Math.round(Number(v)));
+    }
+
     function renderSummary(r) {
         document.getElementById('v1-outperform-year').textContent = r.outperform_year !== undefined ? fmtPct(r.outperform_year, 2) : '-';
         document.getElementById('v1-monthly-excess-vol').textContent = r.monthly_excess_volatility !== undefined ? fmtNum(r.monthly_excess_volatility, 4) : '-';
@@ -982,14 +1062,34 @@
         if (!tbody) return;
         tbody.innerHTML = '';
 
+        const scalarNameMap = {
+            outperform_year: '跑赢年份',
+            monthly_excess_volatility: '月超额波动率',
+            excess_drawdown_winning_rate: '超额回撤胜率',
+            excess_sharp: '超额夏普',
+            excess_of_promissory_note: '超额所提诺',
+            index_profit_annual: '指数盈利年百分比',
+            start_profit_annual: '策略盈利年百分比',
+            index_monthly_return_volatility: '指数月收益率波动率',
+            start_monthly_return_volatility: '策略月收益率波动率',
+            index_maximum_number_of_backtest_repair_days: '指数最大回测天数',
+            start_maximum_number_of_backtest_repair_days: '策略最大回测天数',
+            excess_maximum_number_of_backtest_repair_days: '超额最大回测天数'
+        };
+
         const scalarKeys = [
             'outperform_year',
             'monthly_excess_volatility',
             'excess_drawdown_winning_rate',
+            'excess_sharp',
+            'excess_of_promissory_note',
             'index_profit_annual',
             'start_profit_annual',
             'index_monthly_return_volatility',
-            'start_monthly_return_volatility'
+            'start_monthly_return_volatility',
+            'index_maximum_number_of_backtest_repair_days',
+            'start_maximum_number_of_backtest_repair_days',
+            'excess_maximum_number_of_backtest_repair_days'
         ];
 
         scalarKeys.forEach(k => {
@@ -998,10 +1098,12 @@
             let v = r[k];
             if (k.includes('profit_annual') || k.includes('outperform_year') || k.includes('winning_rate')) {
                 v = fmtPct(v, 2);
+            } else if (k.includes('maximum_number_of_backtest_repair_days')) {
+                v = fmtInt(v);
             } else if (typeof v === 'number') {
                 v = fmtNum(v, 6);
             }
-            tr.innerHTML = `<td><code>${k}</code></td><td>${v}</td>`;
+            tr.innerHTML = `<td><code>${k}</code></td><td>${scalarNameMap[k] || '-'}</td><td>${v}</td>`;
             tbody.appendChild(tr);
         });
     }
@@ -1012,13 +1114,13 @@
         tbody.innerHTML = '';
 
         if (!sheetResult || typeof sheetResult !== 'object' || Array.isArray(sheetResult)) {
-            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
         const keys = Object.keys(sheetResult).sort();
         if (keys.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
@@ -1037,7 +1139,7 @@
         tbody.innerHTML = '';
 
         if (!Array.isArray(list) || list.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
@@ -1132,6 +1234,14 @@
     }
 
     // 盈利统计 tab
+    function renderTabExcessMetrics(r) {
+        fillExcessMetricsTable(r);
+    }
+
+    function renderTabRepairDays(r) {
+        fillRepairDaysTable(r);
+    }
+
     function renderTabProfit(r) {
         fillProfitAnnualTable(r);
         fillProfitMonthlyTable(r.index_profit_monthly, 'tbl-index-profit-monthly');
@@ -1144,7 +1254,7 @@
         tbody.innerHTML = '';
 
         if (!Array.isArray(r.excess_returns)) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
@@ -1168,7 +1278,7 @@
         tbody.innerHTML = '';
 
         if (!Array.isArray(list)) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
@@ -1194,7 +1304,7 @@
         const years = Array.from(new Set([...idx.keys(), ...st.keys()])).filter(y => y !== 'all').sort();
 
         if (years.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
@@ -1221,7 +1331,7 @@
         tbody.innerHTML = '';
 
         if (!Array.isArray(list)) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
@@ -1247,7 +1357,7 @@
         const years = Array.from(new Set([...idx.keys(), ...st.keys()])).filter(y => y !== 'all').sort();
 
         if (years.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
@@ -1274,7 +1384,7 @@
         tbody.innerHTML = '';
 
         if (!obj || typeof obj !== 'object') {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
@@ -1296,7 +1406,7 @@
         });
 
         if (tbody.children.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">无可展示条目</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-body-secondary">无可展示条目</td></tr>';
         }
     }
 
@@ -1310,7 +1420,7 @@
         const keys = Array.from(new Set([...Object.keys(idx), ...Object.keys(st)])).sort();
 
         if (keys.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
 
@@ -1338,7 +1448,7 @@
         });
 
         if (tbody.children.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">无可展示条目</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-body-secondary">无可展示条目</td></tr>';
         }
     }
 
@@ -1351,12 +1461,71 @@
         tbody.appendChild(tr);
     }
 
+    function fillExcessMetricsTable(r) {
+        const tbody = document.getElementById('tbl-excess-metrics');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const rows = [
+            ['excess_sharp', r.excess_sharp],
+            ['excess_of_promissory_note', r.excess_of_promissory_note]
+        ];
+
+        rows.forEach(([key, value]) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><code>${key}</code></td><td>${value === undefined ? '-' : fmtNum(value, 6)}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function repairDaysValues(r) {
+        return [
+            ['index', r.index_maximum_number_of_backtest_repair_days],
+            ['start', r.start_maximum_number_of_backtest_repair_days],
+            ['excess', r.excess_maximum_number_of_backtest_repair_days]
+        ].filter(([, value]) => value !== undefined && value !== null && !Number.isNaN(Number(value)));
+    }
+
+    function fillRepairDaysTable(r) {
+        const tbody = document.getElementById('tbl-repair-days');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const rows = repairDaysValues(r);
+        if (rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-body-secondary">暂无数据</td></tr>';
+            return;
+        }
+
+        rows.forEach(([key, value]) => {
+            const tr = document.createElement('tr');
+            const isExcess = key === 'excess';
+            const colorClass = isExcess ? ((Number(value) || 0) >= 0 ? 'text-success' : 'text-danger') : '';
+            tr.innerHTML = `<td><code>${key}</code></td><td class="${colorClass}">${fmtInt(value)}</td>`;
+            tbody.appendChild(tr);
+        });
+        return;
+        
+
+        if (years.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-body-secondary">无数据</td></tr>';
+            return;
+        }
+
+        years.forEach(year => {
+            const tr = document.createElement('tr');
+            const excess = exMap.get(year);
+            tr.innerHTML = `<td>${year}</td><td>${idxMap.get(year) ?? '-'}</td><td>${stMap.get(year) ?? '-'}</td><td class="${(excess ?? 0) >= 0 ? 'text-success' : 'text-danger'}">${excess ?? '-'}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
     function fillProfitMonthlyTable(list, tbodyId) {
         const tbody = document.getElementById(tbodyId);
         if (!tbody) return;
         tbody.innerHTML = '';
         if (!Array.isArray(list)) {
-            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="2" class="text-center text-body-secondary">无数据</td></tr>';
             return;
         }
         list.forEach(item => {
@@ -1376,6 +1545,8 @@
         renderTabKama(r);
         renderTabSotino(r);
         renderTabSharpe(r);
+        renderTabExcessMetrics(r);
+        renderTabRepairDays(r);
         renderTabProfit(r);
     }
 
@@ -1618,6 +1789,8 @@
 
         renderMonthlyExcessReturnsChart(r);
         renderSharpeCompare(r);
+        renderExcessMetricsChart(r);
+        renderRepairDaysChart(r);
         renderProfitMonthly(r);
     }
 
@@ -1794,6 +1967,105 @@
                 maintainAspectRatio: false,
                 scales: {
                     y: {title: {display: true, text: 'Percentage (%)'}, beginAtZero: true, max: 100}
+                }
+            }
+        });
+    }
+
+    function renderExcessMetricsChart(r) {
+        const el = document.getElementById('chart-excess-metrics');
+        if (!el) return;
+        destroyChart('excessMetrics');
+        state.charts.excessMetrics = new Chart(el, {
+            type: 'bar',
+            data: {
+                labels: ['excess_sharp', 'excess_of_promissory_note'],
+                datasets: [{
+                    label: 'Value',
+                    data: [r.excess_sharp ?? null, r.excess_of_promissory_note ?? null],
+                    backgroundColor: ['rgba(13,110,253,0.5)', 'rgba(25,135,84,0.5)'],
+                    borderColor: ['#0d6efd', '#198754'],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: 'Metric Value'}}
+                }
+            }
+        });
+    }
+
+    function renderRepairDaysChart(r) {
+        const el = document.getElementById('chart-repair-days');
+        if (!el) return;
+        destroyChart('repairDays');
+
+        const rows = repairDaysValues(r);
+        if (rows.length === 0) return;
+
+        state.charts.repairDays = new Chart(el, {
+            type: 'bar',
+            data: {
+                labels: rows.map(([key]) => key),
+                datasets: [{
+                    label: 'Repair Days',
+                    data: rows.map(([, value]) => Number(value)),
+                    backgroundColor: ['rgba(13,110,253,0.45)', 'rgba(25,135,84,0.45)', 'rgba(253,126,20,0.45)'].slice(0, rows.length),
+                    borderColor: ['#0d6efd', '#198754', '#fd7e14'].slice(0, rows.length),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: 'Days'}}
+                }
+            }
+        });
+        return;
+
+        const idxMap = repairDaysEntries(r.index_maximum_number_of_backtest_repair_days);
+        const stMap = repairDaysEntries(r.start_maximum_number_of_backtest_repair_days);
+        const exMap = repairDaysEntries(r.excess_maximum_number_of_backtest_repair_days);
+        const labels = Array.from(new Set([...idxMap.keys(), ...stMap.keys(), ...exMap.keys()])).sort();
+
+        state.charts.repairDays = new Chart(el, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'index',
+                        data: labels.map(year => idxMap.get(year) ?? null),
+                        backgroundColor: 'rgba(13,110,253,0.45)',
+                        borderColor: '#0d6efd',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'start',
+                        data: labels.map(year => stMap.get(year) ?? null),
+                        backgroundColor: 'rgba(25,135,84,0.45)',
+                        borderColor: '#198754',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'excess',
+                        data: labels.map(year => exMap.get(year) ?? null),
+                        backgroundColor: 'rgba(253,126,20,0.45)',
+                        borderColor: '#fd7e14',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {title: {display: true, text: 'Days'}}
                 }
             }
         });

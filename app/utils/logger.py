@@ -96,29 +96,35 @@ class TaskLogger:
         self.logger = get_logger(logger_name or __name__)
         self.prefix = f"[Task-{task_id[:8]}]"  # 使用任务ID前8位作为前缀
     
-    def _format_message(self, message: str) -> str:
-        """格式化消息，添加任务ID前缀"""
+    def _format_message(self, message: str, *args) -> str:
+        """格式化消息，添加任务ID前缀，并兼容标准 logger 的 `%s` 占位写法。"""
+        if args:
+            try:
+                message = message % args
+            except Exception:
+                rendered_args = ", ".join(str(arg) for arg in args)
+                message = f"{message} | args={rendered_args}"
         return f"{self.prefix} {message}"
     
-    def debug(self, message: str):
+    def debug(self, message: str, *args, **kwargs):
         """记录debug级别日志"""
-        self.logger.debug(self._format_message(message))
+        self.logger.debug(self._format_message(message, *args), **kwargs)
     
-    def info(self, message: str):
+    def info(self, message: str, *args, **kwargs):
         """记录info级别日志"""
-        self.logger.info(self._format_message(message))
+        self.logger.info(self._format_message(message, *args), **kwargs)
     
-    def warning(self, message: str):
+    def warning(self, message: str, *args, **kwargs):
         """记录warning级别日志"""
-        self.logger.warning(self._format_message(message))
+        self.logger.warning(self._format_message(message, *args), **kwargs)
     
-    def error(self, message: str):
+    def error(self, message: str, *args, **kwargs):
         """记录error级别日志"""
-        self.logger.error(self._format_message(message))
+        self.logger.error(self._format_message(message, *args), **kwargs)
     
-    def exception(self, message: str):
+    def exception(self, message: str, *args, **kwargs):
         """记录异常信息"""
-        self.logger.exception(self._format_message(message))
+        self.logger.exception(self._format_message(message, *args), **kwargs)
     
     def step_info(self, step: int, total: int, message: str):
         """记录执行步骤信息"""

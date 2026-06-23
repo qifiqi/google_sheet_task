@@ -1,0 +1,643 @@
+{% extends "admin/base.html" %}
+
+{% block title %}数据回测{% endblock %}
+
+{% block head %}
+<style>
+    .backtest-shell { display: grid; gap: 1.5rem; }
+    .task-meta { font-size: 0.875rem; }
+    .time-sub { font-size: 0.75rem; }
+    .metric-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+        min-height: 10.375rem;
+    }
+    .metric-card__body {
+        display: grid;
+        grid-template-columns: 3rem minmax(0, 1fr);
+        gap: 1rem;
+        padding: 1.125rem;
+        height: 100%;
+    }
+    .metric-icon {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 0.5rem;
+        display: grid;
+        place-items: center;
+        font-size: 1.35rem;
+    }
+    .metric-value {
+        font-size: 2.875rem;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: 0;
+    }
+    .metric-progress {
+        grid-column: 1 / -1;
+        height: 0.375rem;
+        border-radius: 999px;
+        overflow: hidden;
+        align-self: end;
+        background: var(--bs-tertiary-bg);
+    }
+    .metric-progress__bar {
+        height: 100%;
+        min-width: 0.75rem;
+        border-radius: inherit;
+    }
+    .metric-card--total {
+        border-color: #e2e8f0;
+    }
+    .metric-card--total .metric-icon {
+        background: #f1f5f9;
+        color: #475569;
+    }
+    .metric-card--total .metric-progress {
+        background: #e2e8f0;
+    }
+    .metric-card--total .metric-progress__bar {
+        width: 100%;
+        background: #64748b;
+    }
+    .metric-card--running {
+        border-color: #dbeafe;
+    }
+    .metric-card--running .metric-icon {
+        background: #eff6ff;
+        color: #2563eb;
+    }
+    .metric-card--running .metric-progress {
+        background: #dbeafe;
+    }
+    .metric-card--running .metric-progress__bar {
+        width: 0%;
+        background: #2563eb;
+    }
+    .metric-card--completed {
+        border-color: #ccf0dc;
+    }
+    .metric-card--completed .metric-icon {
+        background: #ecfdf5;
+        color: #059669;
+    }
+    .metric-card--completed .metric-progress {
+        background: #d1fae5;
+    }
+    .metric-card--completed .metric-progress__bar {
+        width: 0%;
+        background: #059669;
+    }
+    .metric-card--failed {
+        border-color: #ffe4e6;
+    }
+    .metric-card--failed .metric-icon {
+        background: #fff1f2;
+        color: #e11d48;
+    }
+    .metric-card--failed .metric-progress {
+        background: #ffe4e6;
+    }
+    .metric-card--failed .metric-progress__bar {
+        width: 0%;
+        background: #e11d48;
+    }
+    .list-toolbar {
+        border-top: 1px solid var(--bs-border-color);
+        background: var(--bs-body-bg);
+    }
+    .page-size-select {
+        width: auto;
+        min-width: 5.25rem;
+    }
+    html[data-bs-theme="dark"] .backtest-shell h1,
+    html[data-bs-theme="dark"] .backtest-shell .text-body {
+        color: #e5e7eb !important;
+    }
+    html[data-bs-theme="dark"] .backtest-shell .card {
+        background-color: #182132;
+    }
+    html[data-bs-theme="dark"] .metric-card {
+        background-color: #182132;
+        border-color: rgba(148, 163, 184, 0.28);
+    }
+    html[data-bs-theme="dark"] .metric-card--total .metric-icon { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
+    html[data-bs-theme="dark"] .metric-card--running .metric-icon { background: rgba(37, 99, 235, 0.18); color: #93c5fd; }
+    html[data-bs-theme="dark"] .metric-card--completed .metric-icon { background: rgba(5, 150, 105, 0.18); color: #6ee7b7; }
+    html[data-bs-theme="dark"] .metric-card--failed .metric-icon { background: rgba(225, 29, 72, 0.18); color: #fda4af; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="backtest-shell pt-3">
+    <div class="row g-3">
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="metric-card metric-card--total h-100">
+                <div class="metric-card__body">
+                    <div class="metric-icon"><i class="bi bi-list-check"></i></div>
+                    <div>
+                        <div class="small fw-semibold text-body">任务总数</div>
+                        <div class="metric-value mt-3 mb-2" id="totalTasks">0</div>
+                        <div class="small text-body-secondary">当前全部数据回测任务</div>
+                    </div>
+                    <div class="metric-progress"><div class="metric-progress__bar" id="totalTasksBar"></div></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="metric-card metric-card--running h-100">
+                <div class="metric-card__body">
+                    <div class="metric-icon"><i class="bi bi-play-fill"></i></div>
+                    <div>
+                        <div class="small fw-semibold text-body">运行中</div>
+                        <div class="metric-value text-primary mt-3 mb-2" id="runningTasks">0</div>
+                        <div class="small text-body-secondary">正在排队或执行中的任务</div>
+                    </div>
+                    <div class="metric-progress"><div class="metric-progress__bar" id="runningTasksBar"></div></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="metric-card metric-card--completed h-100">
+                <div class="metric-card__body">
+                    <div class="metric-icon"><i class="bi bi-check2"></i></div>
+                    <div>
+                        <div class="small fw-semibold text-body">已完成</div>
+                        <div class="metric-value text-success mt-3 mb-2" id="completedTasks">0</div>
+                        <div class="small text-body-secondary">结果已落库，可直接查看</div>
+                    </div>
+                    <div class="metric-progress"><div class="metric-progress__bar" id="completedTasksBar"></div></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="metric-card metric-card--failed h-100">
+                <div class="metric-card__body">
+                    <div class="metric-icon"><i class="bi bi-exclamation-lg"></i></div>
+                    <div>
+                        <div class="small fw-semibold text-body">执行失败</div>
+                        <div class="metric-value text-danger mt-3 mb-2" id="failedTasks">0</div>
+                        <div class="small text-body-secondary">包含系统错误或执行异常</div>
+                    </div>
+                    <div class="metric-progress"><div class="metric-progress__bar" id="failedTasksBar"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="card-header bg-body-tertiary border-0 p-4 d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <h1 class="h4 mb-1 fw-bold text-body">数据回测中心</h1>
+                <div class="text-body-secondary">统一查看与管理 C3 / C5 回测任务，实时追踪任务执行状态。</div>
+            </div>
+            <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                <span class="badge text-bg-secondary rounded-pill px-3 py-2 fw-normal">
+                    最后刷新：<span class="ms-1" id="lastUpdated">-</span>
+                </span>
+                <a href="{{ url_for('backtest_training.create_page') }}" class="btn btn-primary rounded-pill px-4">
+                    <i class="bi bi-plus-lg me-1"></i> 创建新任务
+                </a>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">任务名称 & ID</th>
+                        <th>模型版本</th>
+                        <th>状态</th>
+                        <th>创建时间</th>
+                        <th>开始时间</th>
+                        <th>结束时间</th>
+                        <th class="pe-4 text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="taskTableBody"></tbody>
+            </table>
+        </div>
+        <div class="list-toolbar p-3 d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="small text-body-secondary" id="paginationSummary">共 0 条任务</span>
+                <select class="form-select form-select-sm page-size-select" id="pageSizeSelect" aria-label="每页任务数">
+                    <option value="10">10 / 页</option>
+                    <option value="20" selected>20 / 页</option>
+                    <option value="50">50 / 页</option>
+                    <option value="100">100 / 页</option>
+                </select>
+            </div>
+            <nav aria-label="回测任务分页">
+                <ul class="pagination pagination-sm mb-0" id="taskPagination"></ul>
+            </nav>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TASK_API_BASE = '/api/tasks';
+const BACKTEST_TASK_TYPE = 'backtest_training';
+const DEFAULT_PAGE_SIZE = 20;
+const LIST_PAGINATION_STORAGE_KEY = 'backtest_training:list_pagination';
+let paginationState = {
+    page: 1,
+    per_page: DEFAULT_PAGE_SIZE,
+    pages: 0,
+    total: 0,
+    has_prev: false,
+    has_next: false,
+    prev_num: null,
+    next_num: null
+};
+let isLoadingTasks = false;
+
+function parsePositiveInt(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readStoredListPaginationState() {
+    try {
+        return JSON.parse(localStorage.getItem(LIST_PAGINATION_STORAGE_KEY) || '{}') || {};
+    } catch (error) {
+        return {};
+    }
+}
+
+function getInitialListPaginationState() {
+    const params = new URLSearchParams(window.location.search);
+    const stored = readStoredListPaginationState();
+    return {
+        page: parsePositiveInt(params.get('page'), parsePositiveInt(stored.page, 1)),
+        per_page: parsePositiveInt(params.get('per_page'), parsePositiveInt(stored.per_page, DEFAULT_PAGE_SIZE))
+    };
+}
+
+function persistListPaginationState() {
+    const state = {
+        page: paginationState.page,
+        per_page: paginationState.per_page
+    };
+    localStorage.setItem(LIST_PAGINATION_STORAGE_KEY, JSON.stringify(state));
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('page', String(state.page));
+    url.searchParams.set('per_page', String(state.per_page));
+    window.history.replaceState({}, '', url);
+}
+
+function buildDetailHref(taskId) {
+    const params = new URLSearchParams({
+        list_page: String(paginationState.page || 1),
+        list_per_page: String(paginationState.per_page || DEFAULT_PAGE_SIZE)
+    });
+    return `/backtest-training/detail/${encodeURIComponent(taskId)}?${params.toString()}`;
+}
+
+function formatTime(value) {
+    if (!value) return '-';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return value;
+    }
+
+    return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+}
+
+function getStatusText(status) {
+    const labels = {
+        pending: '待执行',
+        running: '运行中',
+        completed: '已完成',
+        cancelled: '已取消',
+        error: '失败',
+        failed: '失败'
+    };
+    return labels[status] || status || '-';
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderTimeCell(value) {
+    if (!value) {
+        return '<span class="text-body-secondary">-</span>';
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return `<span class="fw-medium">${escapeHtml(value)}</span>`;
+    }
+
+    const main = date.toLocaleDateString('zh-CN');
+    const sub = date.toLocaleTimeString('zh-CN', { hour12: false });
+    return `<div class="fw-medium">${main}</div><div class="time-sub text-body-secondary">${sub}</div>`;
+}
+
+function renderStatus(status) {
+    const normalized = status || 'pending';
+    const classMap = {
+        pending: 'text-bg-secondary',
+        running: 'text-bg-primary',
+        completed: 'text-bg-success',
+        cancelled: 'text-bg-info',
+        error: 'text-bg-danger',
+        failed: 'text-bg-danger'
+    };
+    const badgeClass = classMap[normalized] || 'text-bg-secondary';
+    return `<span class="badge ${badgeClass} rounded-pill px-3 py-2">${escapeHtml(getStatusText(normalized))}</span>`;
+}
+
+function inferModelVersion(task) {
+    if (task.model_version) {
+        return String(task.model_version).toUpperCase();
+    }
+
+    const config = task.config || {};
+    const sheet = config.sheet || {};
+    const title = String(sheet.title || config.title || '').toUpperCase();
+    if (title.includes('C5')) {
+        return 'C5';
+    }
+    if (title.includes('C4')) {
+        return 'C4';
+    }
+
+    const parameters = Array.isArray(config.parameters) ? config.parameters : [];
+    const firstRow = Array.isArray(parameters[0]) ? parameters[0] : [];
+    if (firstRow.length === 2) {
+        return 'C5';
+    }
+    if (firstRow.length >= 7) {
+        return 'C3';
+    }
+    return '-';
+}
+
+function renderTaskCell(task) {
+    const shortId = String(task.id || '').slice(0, 8);
+    const taskName = task.name || '未命名任务';
+    const sheetName = task.config && task.config.sheet && task.config.sheet.sheet_name
+        ? task.config.sheet.sheet_name
+        : '-';
+
+    return `
+        <div class="fw-semibold" title="${escapeHtml(task.id || '')}">${escapeHtml(taskName)}</div>
+        <div class="task-meta text-body-secondary">ID: ${escapeHtml(shortId)} · Sheet: ${escapeHtml(sheetName)}</div>
+    `;
+}
+
+async function deleteTask(taskId) {
+    if (!confirm(`确认删除任务 ${taskId} 吗？`)) {
+        return;
+    }
+
+    const res = await fetch(`${TASK_API_BASE}/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+    const data = await res.json();
+
+    if (res.ok && data.status === 'success') {
+        const nextPage = paginationState.total > 1 && paginationState.page > 1 && document.querySelectorAll('#taskTableBody tr').length <= 1
+            ? paginationState.page - 1
+            : paginationState.page;
+        loadTasks({ page: nextPage });
+        return;
+    }
+
+    alert(`删除失败：${data.message || '未知错误'}`);
+}
+
+function buildPaginationPages(currentPage, totalPages) {
+    const pages = [];
+    if (totalPages <= 7) {
+        for (let page = 1; page <= totalPages; page += 1) {
+            pages.push(page);
+        }
+        return pages;
+    }
+
+    pages.push(1);
+    if (currentPage > 3) {
+        pages.push('ellipsis-left');
+    }
+
+    const start = Math.max(2, currentPage - 1);
+    const end = Math.min(totalPages - 1, currentPage + 1);
+    for (let page = start; page <= end; page += 1) {
+        pages.push(page);
+    }
+
+    if (currentPage < totalPages - 2) {
+        pages.push('ellipsis-right');
+    }
+    pages.push(totalPages);
+    return pages;
+}
+
+function renderPagination() {
+    const summary = document.getElementById('paginationSummary');
+    const pagination = document.getElementById('taskPagination');
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
+    if (!summary || !pagination || !pageSizeSelect) {
+        return;
+    }
+
+    const { page, per_page, pages, total, has_prev, has_next, prev_num, next_num } = paginationState;
+    pageSizeSelect.value = String(per_page || DEFAULT_PAGE_SIZE);
+
+    if (!total) {
+        summary.textContent = '共 0 条任务';
+        pagination.innerHTML = '';
+        return;
+    }
+
+    const start = (page - 1) * per_page + 1;
+    const end = Math.min(page * per_page, total);
+    summary.textContent = `显示 ${start}-${end} 条，共 ${total} 条任务`;
+
+    const items = [];
+    items.push(`
+        <li class="page-item ${has_prev ? '' : 'disabled'}">
+            <button class="page-link" type="button" data-page="${has_prev ? prev_num : ''}" ${has_prev ? '' : 'disabled'}>上一页</button>
+        </li>
+    `);
+
+    buildPaginationPages(page, pages).forEach((item) => {
+        if (typeof item !== 'number') {
+            items.push('<li class="page-item disabled"><span class="page-link">...</span></li>');
+            return;
+        }
+        items.push(`
+            <li class="page-item ${item === page ? 'active' : ''}">
+                <button class="page-link" type="button" data-page="${item}">${item}</button>
+            </li>
+        `);
+    });
+
+    items.push(`
+        <li class="page-item ${has_next ? '' : 'disabled'}">
+            <button class="page-link" type="button" data-page="${has_next ? next_num : ''}" ${has_next ? '' : 'disabled'}>下一页</button>
+        </li>
+    `);
+
+    pagination.innerHTML = items.join('');
+}
+
+function setMetricProgress(id, value, total) {
+    const bar = document.getElementById(id);
+    if (!bar) {
+        return;
+    }
+    const safeTotal = Math.max(Number(total) || 0, 0);
+    const safeValue = Math.max(Number(value) || 0, 0);
+    const percent = safeTotal ? Math.min((safeValue / safeTotal) * 100, 100) : 0;
+    bar.style.width = `${percent}%`;
+}
+
+function updateStatistics(statistics, fallbackTasks) {
+    const tasks = Array.isArray(fallbackTasks) ? fallbackTasks : [];
+    const total = Number(statistics?.total_tasks ?? paginationState.total ?? tasks.length);
+    const running = Number(statistics?.running_tasks ?? tasks.filter((task) => task.status === 'running').length);
+    const completed = Number(statistics?.completed_tasks ?? tasks.filter((task) => task.status === 'completed').length);
+    const failed = Number(statistics?.error_tasks ?? tasks.filter((task) => task.status === 'error' || task.status === 'failed').length);
+
+    document.getElementById('totalTasks').textContent = total;
+    document.getElementById('runningTasks').textContent = running;
+    document.getElementById('completedTasks').textContent = completed;
+    document.getElementById('failedTasks').textContent = failed;
+    setMetricProgress('totalTasksBar', total, total);
+    setMetricProgress('runningTasksBar', running, total);
+    setMetricProgress('completedTasksBar', completed, total);
+    setMetricProgress('failedTasksBar', failed, total);
+}
+
+async function loadTasks(options = {}) {
+    if (isLoadingTasks) {
+        return;
+    }
+
+    const nextPage = Math.max(Number(options.page || paginationState.page || 1), 1);
+    const nextPerPage = Math.max(Number(options.perPage || paginationState.per_page || DEFAULT_PAGE_SIZE), 1);
+    const query = new URLSearchParams({
+        task_type: BACKTEST_TASK_TYPE,
+        page: String(nextPage),
+        per_page: String(nextPerPage)
+    });
+    isLoadingTasks = true;
+    try {
+        const res = await fetch(`${TASK_API_BASE}?${query.toString()}`);
+        const data = await res.json();
+        const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+        const pagination = data.pagination || {};
+
+        const tbody = document.getElementById('taskTableBody');
+        tbody.innerHTML = '';
+
+        const total = Number(pagination.total || 0);
+        const totalPages = Number(pagination.pages || 0);
+        if (!tasks.length && total > 0 && nextPage > Math.max(totalPages, 1)) {
+            isLoadingTasks = false;
+            loadTasks({ page: Math.max(totalPages, 1), perPage: nextPerPage });
+            return;
+        }
+
+        tasks.forEach((task) => {
+            const detailHref = buildDetailHref(task.id);
+            const row = `
+                <tr>
+                    <td class="ps-4">${renderTaskCell(task)}</td>
+                    <td><span class="badge rounded-pill text-bg-light border">${escapeHtml(inferModelVersion(task))}</span></td>
+                    <td>${renderStatus(task.status)}</td>
+                    <td>${renderTimeCell(task.created_at)}</td>
+                    <td>${renderTimeCell(task.start_time)}</td>
+                    <td>${renderTimeCell(task.end_time)}</td>
+                    <td class="pe-4 text-end">
+                        <a href="${detailHref}" class="btn btn-sm btn-outline-primary">查看详情</a>
+                        <button type="button" class="btn btn-sm btn-outline-danger delete-task-btn ms-2" data-task-id="${escapeHtml(task.id)}">删除</button>
+                    </td>
+                </tr>
+            `;
+            tbody.insertAdjacentHTML('beforeend', row);
+        });
+
+        paginationState = {
+            page: Number(pagination.page || nextPage),
+            per_page: Number(pagination.per_page || nextPerPage),
+            pages: Number(pagination.pages || 0),
+            total: Number(pagination.total || tasks.length),
+            has_prev: Boolean(pagination.has_prev),
+            has_next: Boolean(pagination.has_next),
+            prev_num: pagination.prev_num || (pagination.has_prev ? Number(pagination.page || nextPage) - 1 : null),
+            next_num: pagination.next_num || (pagination.has_next ? Number(pagination.page || nextPage) + 1 : null)
+        };
+
+        if (!tasks.length) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="text-center text-body-secondary py-5">
+                        当前还没有数据回测任务，点击右上角“创建新任务”开始。
+                    </td>
+                </tr>
+            `;
+        }
+
+        updateStatistics(data.statistics, tasks);
+        renderPagination();
+        persistListPaginationState();
+        document.getElementById('lastUpdated').textContent = formatTime(new Date().toISOString());
+    } catch (error) {
+        console.error(error);
+    } finally {
+        isLoadingTasks = false;
+    }
+}
+
+document.addEventListener('click', (event) => {
+    const button = event.target.closest('.delete-task-btn');
+    if (!button) {
+        return;
+    }
+    deleteTask(button.dataset.taskId);
+});
+
+document.getElementById('taskPagination').addEventListener('click', (event) => {
+    const target = event.target.closest('[data-page]');
+    if (!target || target.disabled) {
+        return;
+    }
+    const nextPage = Number(target.getAttribute('data-page'));
+    if (!nextPage || nextPage === paginationState.page) {
+        return;
+    }
+    loadTasks({ page: nextPage });
+});
+
+document.getElementById('pageSizeSelect').addEventListener('change', (event) => {
+    const nextPerPage = Number(event.target.value) || DEFAULT_PAGE_SIZE;
+    loadTasks({ page: 1, perPage: nextPerPage });
+});
+
+const initialListPagination = getInitialListPaginationState();
+paginationState.page = initialListPagination.page;
+paginationState.per_page = initialListPagination.per_page;
+loadTasks();
+setInterval(loadTasks, 5000);
+</script>
+{% endblock %}

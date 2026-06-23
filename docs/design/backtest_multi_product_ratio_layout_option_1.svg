@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="360" viewBox="0 0 1180 360" role="img" aria-labelledby="title desc">
+  <title id="title">多品全局预览比例区方案一</title>
+  <desc id="desc">紧凑工具条布局，产品比例卡片横向滚动，计算按钮固定在右侧。</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+  <rect width="1180" height="360" fill="#f6f8fb"/>
+  <text x="40" y="42" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="22" font-weight="700">方案一：紧凑工具条</text>
+  <text x="40" y="72" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">适合 2-6 个产品；超过宽度时比例卡片横向滚动，右侧计算按钮始终可见。</text>
+
+  <rect x="40" y="104" width="1100" height="176" rx="18" fill="#ffffff" filter="url(#shadow)"/>
+  <rect x="64" y="128" width="220" height="96" rx="12" fill="#f8fafc" stroke="#dbe3ef"/>
+  <text x="84" y="158" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">参数方案</text>
+  <rect x="84" y="174" width="176" height="34" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="100" y="196" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">参数方案 1</text>
+  <path d="M240 187 l6 6 l6 -6" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round"/>
+
+  <text x="316" y="142" fill="#047857" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14" font-weight="700">当前比例合计：100%</text>
+  <text x="316" y="165" fill="#b45309" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">当前预览未保存</text>
+  <rect x="316" y="184" width="642" height="72" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="334" y="225" fill="#94a3b8" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">← 产品比例卡片横向滚动区域 →</text>
+
+  <g transform="translate(510 198)">
+    <rect width="178" height="44" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="14" y="18" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="12">纳斯达克100ETF</text>
+    <text x="14" y="35" fill="#2563eb" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">30%</text>
+  </g>
+  <g transform="translate(700 198)">
+    <rect width="178" height="44" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="14" y="18" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="12">谷歌-A</text>
+    <text x="14" y="35" fill="#2563eb" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">70%</text>
+  </g>
+
+  <rect x="988" y="164" width="124" height="56" rx="28" fill="#0d6efd"/>
+  <text x="1024" y="197" fill="#ffffff" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="700">计算预览</text>
+  <circle cx="1007" cy="192" r="10" fill="#ffffff" opacity="0.18"/>
+  <path d="M1002 188 h10 M1002 192 h10 M1002 196 h6" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>
+
+  <text x="64" y="316" fill="#334155" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">优点：占高最小，表格露出最多；适合当前页面主流程。</text>
+  <text x="64" y="340" fill="#334155" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">注意：产品很多时需要横向滚动，但按钮固定在右侧不会被挤走。</text>
+</svg>

@@ -1,8 +1,7 @@
 import json
 import time
 import traceback
-from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from flask import current_app
 from sqlalchemy import text
@@ -10,65 +9,30 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, TaskResult, db
+from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
-from app.utils.db_stock_api import StockAPIClient
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
-logger = get_logger(__name__)
+from app.utils.yf_api import YFApi
+from app.utils.task_error_utils import build_task_error_message, unwrap_exception
 
 
-class GoogleSheetService:
-    """Google Sheet服务"""
+class GoogleSheetService(BaseGoogleSheetService):
+    """Google Sheet服务 - C4"""
 
-    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
-        self.config = config
+    def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
-        self.api_client = StockAPIClient()
-        # 保存参数到实例变量
-        self.task_id = task_id
-        self.event_queue = event_queue
-        self.app = app
-        self.stop_event = stop_event
-        # 创建任务专用日志记录器 - 不使用TaskLogger的前缀功能，我们自己控制格式
-        self.task_logger = get_logger(f"{__name__}.{task_id}")
         self.xpl = xpl_analyzer
 
-    def _is_cancel_requested(self) -> bool:
-        if self.stop_event and self.stop_event.is_set():
-            return True
-        try:
-            task = Task.query.get(self.task_id)
-            return bool(task and task.status == 'cancelled')
-        except Exception:
-            return False
-
-    def _interruptible_sleep(self, seconds: float) -> bool:
-        if seconds <= 0:
-            return not self._is_cancel_requested()
-        if self.stop_event:
-            return not self.stop_event.wait(seconds)
-        time.sleep(seconds)
-        return not self._is_cancel_requested()
-
-    def error_dd(self, error_msg):
-        error_msg = self.app.notifier.error_google_task_templates(
-            f"{self.task_id} -- {self.task.name}",
-            error_msg,
-            f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}")
-        self.app.notifier.send_message(error_msg)
-
-    def task_ok_to_dd(self, result):
-        error_msg = self.app.notifier.google_task_ok_templates(
-            f"{self.task_id} -- {self.task.name}",
-            result,
-            f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
-        )
-        self.app.notifier.send_message(error_msg)
-
+    @alert_on_failure(
+        result_predicate=should_alert_execute_task_result,
+        message_builder=build_execute_task_alert,
+    )
     def execute_task(self):
         """执行Google Sheet任务"""
         try:
@@ -88,7 +52,7 @@ class GoogleSheetService:
                 except Exception:
                     # 非 Postgres 或锁不可用时忽略，继续执行（由上层状态原子更新兜底）
                     pass
-                task = Task.query.get(self.task_id)
+                task = db.session.get(Task, self.task_id)
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -125,6 +89,7 @@ class GoogleSheetService:
                     return 'error'
 
                 name = task.name
+                self.task_name = name
                 # 检查任务是否已被取消
                 if task.status == 'cancelled':
                     self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
@@ -140,21 +105,14 @@ class GoogleSheetService:
                     # self.task_ok_to_dd(f'任务已取消！成功执行: {success_count}, 失败: {failed_count}')
                     return 'cancelled'
                 elif task_status == 'error':
-                    # 任务执行出错
-                    # 推送错误通知
-                    error_details = f'任务执行出错！成功: {success_count}, 失败: {failed_count}'
-                    if task.error:
-                        error_details += f', 错误信息: {str(task.error)}'
-                    self.error_dd(error_details)
                     return 'error'
 
                 if success_count == 0 and failed_count == 0:
                     self._log_error('任务执行失败')
-                    # 推送无结果失败通知
-                    self.error_dd('任务执行失败！没有成功或失败的参数组合')
                     return 'error'
 
                 # 推送任务完成通知
+                self._refresh_model_summary_index()
                 self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
                 # 推送任务完成信息
                 completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'
@@ -165,7 +123,7 @@ class GoogleSheetService:
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = Task.query.get(self.task_id)
+                task = db.session.get(Task, self.task_id)
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -173,9 +131,12 @@ class GoogleSheetService:
                 pass
 
             # 其他异常情况
-            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(e)}"
+            root = unwrap_exception(e) or e
+            if self.task:
+                self.task.error_message = build_task_error_message(e)
+                db.session.commit()
+            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
-            self.error_dd(error_msg)
             return 'error'
         finally:
             # 释放 Advisory Lock（仅当成功获取时）
@@ -184,6 +145,93 @@ class GoogleSheetService:
                     db.session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": int(self.task_id)})
             except Exception:
                 pass
+
+    def _build_stock_param_result_payload(
+        self,
+        task_name: str,
+        task_index: int,
+        combination: Dict[str, Any],
+        result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        payload = self._build_stock_param_result_base_payload(
+            task_name,
+            task_index,
+            {
+                "stock_code": combination.get("stock_code"),
+                "kline_range": combination.get("year", ""),
+            },
+        )
+        model_result = result
+        if isinstance(result, dict):
+            first_value = next(iter(result.values()), None)
+            if isinstance(first_value, dict):
+                model_result = first_value
+        analyze_result = (
+            model_result.get("flat_result")
+            if isinstance(model_result.get("flat_result"), dict)
+            else model_result
+        )
+        payload.update({
+            "return_rate": model_result.get("D2", 0),
+            "annualized_rate": model_result.get("D3", 0),
+            "maxdd": model_result.get("D4", 0),
+            "index_rate": model_result.get("D5", 0),
+            "index_annualized_rate": model_result.get("D6", 0),
+            "max_index_dd": model_result.get("D7", 0),
+            "fee_total": model_result.get("D8", 0),
+            "fee_annualized": model_result.get("D9", 0),
+            "turnover_rate": model_result.get("D10", 0),
+            "return_beats": model_result.get("D11", 0),
+            "dd_beats": model_result.get("D12", 0),
+            "max_1y_beats": model_result.get("D13", 0),
+            "min_1y_beats": model_result.get("D14", 0),
+            "max_theoretical_leverage": model_result.get("D15", 0),
+            "avg_theoretical_leverage": model_result.get("D16", 0),
+            "unit_theoretical_leverage_return": model_result.get("D17", 0),
+            "max_actual_leverage": model_result.get("D18", 0),
+            "avg_actual_leverage": model_result.get("D19", 0),
+            "unit_actual_leverage_return": model_result.get("D20", 0),
+            "start_monthly_std_dev": analyze_result.get("start_monthly_std_dev", 0),
+            "index_monthly_std_dev": analyze_result.get("index_monthly_std_dev", 0),
+            "index_annualized_return": analyze_result.get("index_annualized_return", 0),
+            "start_annualized_return": analyze_result.get("start_annualized_return", 0),
+            "index_profit_annual": analyze_result.get("index_profit_annual", 0),
+            "start_profit_annual": analyze_result.get("start_profit_annual", 0),
+            "index_profit_monthly_percentage": analyze_result.get("index_profit_monthly_percentage", 0),
+            "start_profit_monthly_percentage": analyze_result.get("start_profit_monthly_percentage", 0),
+            "index_avg_monthly_return_common": analyze_result.get("index_avg_monthly_return_common", 0),
+            "start_avg_monthly_return_common": analyze_result.get("start_avg_monthly_return_common", 0),
+            "index_monthly_return_volatility": analyze_result.get("index_monthly_return_volatility", 0),
+            "start_monthly_return_volatility": analyze_result.get("start_monthly_return_volatility", 0),
+            "annualized_return_diff": analyze_result.get("annualized_return_diff", 0),
+            "outperform_year": analyze_result.get("outperform_year", 0),
+            "monthly_excess_return_percentage_last_return": analyze_result.get(
+                "monthly_excess_return_percentage_last_return",
+                0,
+            ),
+            "avg_monthly_excess_returns": analyze_result.get("avg_monthly_excess_returns", 0),
+            "monthly_excess_volatility": analyze_result.get("monthly_excess_volatility", 0),
+            "max_drawdown": analyze_result.get("max_drawdown", 0),
+            "excess_drawdown_winning_rate": analyze_result.get("excess_drawdown_winning_rate", 0),
+            "start_drawdown": analyze_result.get("start_drawdown", 0),
+            "start_maximum_number_of_backtest_repair_days": analyze_result.get(
+                "start_maximum_number_of_backtest_repair_days",
+                0,
+            ),
+            "excess_maximum_number_of_backtest_repair_days": analyze_result.get(
+                "excess_maximum_number_of_backtest_repair_days",
+                0,
+            ),
+            "index_sharpe_ratio": analyze_result.get("index_sharpe_ratio", 0),
+            "start_sharpe_ratio": analyze_result.get("start_sharpe_ratio", 0),
+            "index_kama_ratio": analyze_result.get("index_kama_ratio", 0),
+            "start_kama_ratio": analyze_result.get("start_kama_ratio", 0),
+            "index_sotino_ratio": analyze_result.get("index_sotino_ratio", 0),
+            "start_sotino_ratio": analyze_result.get("start_sotino_ratio", 0),
+            "excess_sharp": analyze_result.get("excess_sharp", 0),
+            "excess_of_promissory_note": analyze_result.get("excess_of_promissory_note", 0),
+        })
+        return payload
 
     def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""
@@ -196,6 +244,7 @@ class GoogleSheetService:
             end_date = config_data.get('end_date')
             start_date = config_data.get('start_date')
             market_type = config_data.get('market_type')
+            adjust_type = config_data.get('kline_adjustment')
             c4_input_column_a = config_data.get('c4_input_column_a').upper()
             c4_input_column_b = config_data.get('c4_input_column_b').upper()
 
@@ -204,7 +253,7 @@ class GoogleSheetService:
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
             for outer_param in parameters[0]:
                 combinations, column_A_length = self._get_all_parameters(
-                    outer_param, count_mode, end_date, start_date, market_type,date_range_mode
+                    outer_param, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type
                 )
                 precomputed_params.append((combinations, column_A_length))
                 total_combinations += len(combinations)
@@ -290,6 +339,14 @@ class GoogleSheetService:
                             'stock_code':combination['stock_code'],
                             'kline':[combination['kline'][0],combination['kline'][-1]]
                         }, result, success)
+                        self.send_stock_param_result_data(
+                            self._build_stock_param_result_payload(
+                                name,
+                                current_step - 1,
+                                combination,
+                                result,
+                            )
+                        )
 
                     except checkForErrors as e:
                         self._log_error(str(e))
@@ -300,7 +357,7 @@ class GoogleSheetService:
                         # 检查是否是任务被取消
                         task.error = e
                         try:
-                            task_check = Task.query.get(self.task_id)
+                            task_check = db.session.get(Task, self.task_id)
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
@@ -319,7 +376,7 @@ class GoogleSheetService:
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task_check = Task.query.get(self.task_id)
+                task_check = db.session.get(Task, self.task_id)
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
@@ -330,116 +387,36 @@ class GoogleSheetService:
             self._log_error(error_msg)
             return 0, 1, 'error'
 
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True  # 重试耗尽后重新抛出原始异常
-    )
-    def send_stock_template_param_data(self, payload: Dict, log) -> int:
-        """
-        发送股票模板参数数据
+    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
+        """保存任务结果到数据库，包含重试逻辑"""
 
-        Args:
-            payload: 参数数据字典
+        def save_result_operation():
+            _index_start_return_date = None
+            safe_parameters = self._sanitize_json_value(parameters)
+            safe_result = self._sanitize_json_value(result)
+            task_result = TaskResult(
+                task_id=self.task_id,
+                step_index=step_index,
+                parameters=json.dumps(safe_parameters, allow_nan=False),
+                result=json.dumps(safe_result, allow_nan=False),
+                success=success
+            )
+            db.session.add(task_result)
+            db.session.commit()
 
-        Returns:
-            返回的ID或0
-        """
         try:
-            self._log_api("发送股票模板参数数据", f"payload: {payload}")
-            result = self.api_client.insert_stock_template_param(payload)
-            self._log_api("发送股票模板参数数据成功", f"ID: {result}")
-            return result
+            if self.app:
+                with self.app.app_context():
+                    safe_db_operation(save_result_operation)
+            else:
+                from flask import current_app
+                with current_app.app_context():
+                    safe_db_operation(save_result_operation)
         except Exception as e:
-            self._log_api_error("发送股票模板参数数据", str(e))
-            log('error', f"发送股票模板参数数据失败: {str(e)}")
-            raise e
-
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True  # 重试耗尽后重新抛出原始异常
-    )
-    def get_single_stock_template_param(self, stock_no: str) -> Optional[Dict]:
-        """
-        获取单个股票模板参数
-        
-        Args:
-            stock_no: 股票编号
-            
-        Returns:
-            股票参数字典或None
-        """
-        try:
-            self._log_api("获取股票模板参数", f"stock_no: {stock_no}")
-            result = self.api_client.get_single_stock_template_param(stock_no)
-            self._log_api("获取股票模板参数成功", f"返回结果: {type(result)}")
-            return result
-        except Exception as e:
-            self._log_api_error("获取股票模板参数", str(e))
-            raise
-
-    def _init_google_sheet(self, config_data: Dict[str, Any]):
-        """初始化Google Sheet连接"""
-        try:
-            self._log_info("开始初始化Google Sheet连接")
-
-            sheets = config_data.get('sheets')
-
-            token_file = config_data.get('token_file', 'data/token.json')
-            proxy_url = config_data.get('proxy_url', None)
-
-            if not sheets:
-                error_msg = "缺少spreadsheet_id配置"
-                self._log_error(error_msg)
-                raise ValueError(error_msg)
-            self._log_info(f"连接参数 - sheets: {sheets},Token: {token_file}")
-            if proxy_url:
-                self._log_info(f"使用代理: {proxy_url}")
-            for sheet in sheets:
-                spreadsheet_id = sheet.get('spreadsheet_id')
-                sheet_name = sheet.get('sheet_name', 'data')
-                google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
-                if not google_sheet.worksheet:
-                    raise Exception("请先选择工作表")
-                self.google_sheets.append(google_sheet)
-                self._log_info(f"已连接工作表: {sheet}")
-
-        except Exception as e:
-            error_msg = f"初始化Google Sheet连接失败: {str(e)}"
+            error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
-            raise
 
-    @staticmethod
-    def get_worksheets(spreadsheet_id: str, token_file: str = "data/token.json", proxy_url: str = None) -> Dict[
-        str, Any]:
-        """
-        获取指定电子表格的基础信息
 
-        Args:
-            spreadsheet_id: 电子表格ID
-            token_file: 认证文件路径
-            proxy_url: 代理URL
-
-        Returns:
-            {
-                "title": 表格标题（spreadsheet 的名称）, 
-                "worksheets": 工作表名称列表
-            }
-        """
-        try:
-            # 使用上下文管理器确保连接被正确关闭
-            with GoogleSheet(spreadsheet_id, None, token_file, proxy_url) as google_sheet:
-                # 获取所有工作表名称
-                worksheets = google_sheet.get_all_worksheets()
-                if not worksheets:
-                    raise ValueError("未找到任何工作表")
-
-                title = google_sheet.sheet.title if google_sheet.sheet else ""
-                return {"title": title, "worksheets": worksheets}
-        except Exception as e:
-            logger.error(f"获取工作表列表失败: {str(e)}")
-            raise
 
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次
@@ -565,21 +542,30 @@ class GoogleSheetService:
                         )
                         _index_return_date = []
                         _start_return_date = []
+                        _return_data = []
                         for i in range(len(kline)):
-                            _index_return_date.append({
-                                'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _index_return[f"{c4_output_column_j}{i + 2}"]
-                            })
-                            _start_return_date.append({
-                                'stock_date': kline[i].get('stock_date'),
-                                'stock_val': _start_return[f"{c4_output_column_l}{i + 2}"]
+                            # _index_return_date.append({
+                            #     'stock_date': kline[i].get('stock_date'),
+                            #     'stock_val': _index_return[f"{c4_output_column_j}{i + 2}"]
+                            # })
+                            # _start_return_date.append({
+                            #     'stock_date': kline[i].get('stock_date'),
+                            #     'stock_val': _start_return[f"{c4_output_column_l}{i + 2}"]
+                            # })
+                            _return_data.append({
+                                'date': kline[i].get('stock_date'),
+                                'index_return': _index_return[f"{c4_output_column_j}{i + 2}"],
+                                'start_return': _start_return[f"{c4_output_column_l}{i + 2}"],
                             })
 
-                        _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
-                        _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
+                        # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
+                        # _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
+                        flat_result, analyze_result = self.xpl.get_return_analysis_v1(_return_data)
                         _result.update(_result_yearly)
-                        _result['index_return_xpl'] = _index_return_xpl
-                        _result['start_return_xpl'] = _start_return_xpl
+                        # _result['index_return_xpl'] = _index_return_xpl
+                        # _result['start_return_xpl'] = _start_return_xpl
+                        _result['analyze_result'] = analyze_result
+                        _result['flat_result'] = flat_result
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
                     else:
@@ -608,166 +594,9 @@ class GoogleSheetService:
         except Exception as e:
             error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
             self._log_error(error_msg)
-            raise e
-
-    def _log(self, level: str, message: str, log_type: str = 'general', **kwargs):
-        """
-        统一的日志记录接口 - 完整版，包含前端推送和数据库保存
-        
-        Args:
-            level: 日志级别 ('info', 'warning', 'error')
-            message: 日志消息
-            log_type: 日志类型 ('general', 'step', 'progress', 'api', 'api_error')
-            **kwargs: 额外参数，用于特定类型的日志
-        """
-        try:
-            # 根据日志类型格式化消息
-            formatted_message = self._format_log_message(message, log_type, **kwargs)
-
-            # 添加简洁的任务ID前缀
-            prefixed_message = f"[Task-{self.task_id[:8]}] {formatted_message}"
-
-            # 1. 记录到系统日志（现在已经不会重复了）
-            if level == 'error':
-                self.task_logger.error(prefixed_message)
-            elif level == 'warning':
-                self.task_logger.warning(prefixed_message)
-            else:
-                self.task_logger.info(prefixed_message)
-
-            # 2. 保存到数据库（TaskLog）
-            self._save_to_database(level, formatted_message)
-
-            # 3. 推送到前端（SSE）
-            self._push_to_frontend(level, formatted_message)
-
-        except Exception as e:
-            # 记录日志系统本身的错误，但不引起循环
-            pass
-
-    def _format_log_message(self, message: str, log_type: str, **kwargs) -> str:
-        """格式化日志消息"""
-        if log_type == 'step':
-            step = kwargs.get('step', 0)
-            total = kwargs.get('total', 0)
-            return f"[Step {step}/{total}] {message}"
-        elif log_type == 'progress':
-            percentage = kwargs.get('percentage', 0)
-            return f"[Progress {percentage:.1f}%] {message}"
-        elif log_type == 'api':
-            action = kwargs.get('action', '')
-            details = kwargs.get('details', '')
-            base_msg = f"[API] {action}"
-            return f"{base_msg} - {details}" if details else base_msg
-        elif log_type == 'api_error':
-            action = kwargs.get('action', '')
-            error = kwargs.get('error', '')
-            return f"[API_ERROR] {action} - {error}"
-        else:
-            return message
-
-    def _save_to_database(self, level: str, message: str):
-        """保存日志到数据库，包含重试逻辑"""
-        from app.models import TaskLog
-        from app.utils.database import safe_db_operation
-        from flask import current_app
-
-        def save_log_operation():
-            log = TaskLog(
-                task_id=self.task_id,
-                level=level,
-                message=message
-            )
-            db.session.add(log)
-            db.session.commit()
-
-        try:
-            if self.app:
-                with self.app.app_context():
-                    safe_db_operation(save_log_operation)
-            else:
-                with current_app.app_context():
-                    safe_db_operation(save_log_operation)
-        except Exception as e:
-            # 数据库保存失败时静默处理，不影响主流程
-            pass
-
-    def _push_to_frontend(self, level: str, message: str):
-        """推送日志到前端"""
-        try:
-            if self.event_queue:
-                self.event_queue.put({
-                    "type": "log_update",
-                    "data": {
-                        "level": level,
-                        "message": message,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                })
-        except Exception as e:
-            # 前端推送失败时静默处理，不影响主流程
-            pass
-
-    # 便捷的日志方法
-    def _log_info(self, message: str, log_type: str = 'general', **kwargs):
-        """记录info级别日志"""
-        self._log('info', message, log_type, **kwargs)
-
-    def _log_warning(self, message: str, log_type: str = 'general', **kwargs):
-        """记录warning级别日志"""
-        self._log('warning', message, log_type, **kwargs)
-
-    def _log_error(self, message: str, log_type: str = 'general', **kwargs):
-        """记录error级别日志"""
-        self._log('error', message, log_type, **kwargs)
-
-    def _log_step(self, step: int, total: int, message: str):
-        """记录步骤日志"""
-        self._log('info', message, 'step', step=step, total=total)
-
-    def _log_progress(self, percentage: float, message: str):
-        """记录进度日志"""
-        self._log('info', message, 'progress', percentage=percentage)
-
-    def _log_api(self, action: str, details: str = ''):
-        """记录API调用日志"""
-        self._log('info', '', 'api', action=action, details=details)
-
-    def _log_api_error(self, action: str, error: str):
-        """记录API错误日志"""
-        self._log('error', '', 'api_error', action=action, error=error)
-
-    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
-        """保存任务结果到数据库，包含重试逻辑"""
-
-        def save_result_operation():
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(parameters),
-                result=json.dumps(result),
-                success=success
-            )
-            db.session.add(task_result)
-            db.session.commit()
-
-        try:
-            if self.app:
-                # 在后台线程中使用传递的应用实例
-                with self.app.app_context():
-                    safe_db_operation(save_result_operation)
-            else:
-                # 在主线程中使用当前应用上下文
-                from flask import current_app
-                with current_app.app_context():
-                    safe_db_operation(save_result_operation)
-        except Exception as e:
-            error_msg = f"保存任务结果失败: {str(e)}"
-            self._log_error(error_msg)
-            # 注意：这里不能使用_push_log，因为可能导致循环调用
 
     @staticmethod
-    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode):
+    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None):
 
         def _get_kline(klines, year=None,_start_date=None, _end_date=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -796,22 +625,25 @@ class GoogleSheetService:
 
 
 
-        dfcf_api = DFCJStockApi()
-        stock_config = dfcf_api.get_search_list_by_stock_code(parameter, 10)
         if market_type == 'cn':
+            dfcf_api = DFCJStockApi()
+            stock_config = dfcf_api.get_search_list_by_stock_code(parameter, 10)
             stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
+            if stock_config:
+                stock_config = stock_config[0]
+            market = stock_config['market']
         else:
-            stock_config = [i for i in stock_config if i['securityTypeName'] =='美股']
+            yf_api = YFApi()
 
-        if stock_config:
-            stock_config = stock_config[0]
-        market = stock_config['market']
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 250
-        klines = dfcf_api.get_stock_kline_data(parameter, market, limit)
+        if market_type == 'cn':
+            klines = dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
+        else:
+            klines = yf_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
         all_kline = _get_kline(klines, _start_date=start_date, _end_date=end_date)
         data = [
             {'stock_code': parameter, 'kline': all_kline}

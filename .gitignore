@@ -102,6 +102,7 @@ dmypy.json
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -117,6 +118,7 @@ Thumbs.db
 
 # Project specific - Sensitive files
 data/token*.json
+data/google_sheet_tokens/*.json
 data/temp_token_*.json
 data/tasks.json
 logs/*.log
@@ -149,6 +151,11 @@ config/config.json
 *.tmp
 *.temp
 
+# Node.js dependencies
+node_modules/
+**/node_modules/
+
 # Docker
 docker-compose.override.yml
+dockers/postgres/data/
 test

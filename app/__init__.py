@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 
 from flask import Flask
@@ -10,6 +11,7 @@ except ImportError:
 
 from app.extensions import db, migrate
 from app.routes import register_blueprints
+from app.utils.auth import validate_auth_runtime_settings
 from app.utils.ding_talk_notifier import DingTalkNotifier
 
 
@@ -28,6 +30,7 @@ def load_app_environment():
 
 def create_app():
     load_app_environment()
+    validate_auth_runtime_settings()
 
     from app.config import get_config_class
 
@@ -45,6 +48,14 @@ def create_app():
     )
     app.config.from_object(config_class)
 
+    # 默认关闭 sqlalchemy.engine 的 SQL 语句日志，避免运行期日志被大量 SQL 输出淹没。
+    # 如需排查数据库问题，可通过 SQLALCHEMY_ENGINE_LOG_ENABLED=true 临时打开。
+    sqlalchemy_engine_logger = logging.getLogger("sqlalchemy.engine")
+    sqlalchemy_engine_logger.disabled = not app.config.get(
+        "SQLALCHEMY_ENGINE_LOG_ENABLED",
+        False,
+    )
+
     db.init_app(app)
     migrate.init_app(app, db)
 
@@ -52,6 +63,12 @@ def create_app():
     get_config_manager().init_app(app)
 
     register_blueprints(app)
+
+    @app.context_processor
+    def inject_template_auth_context():
+        return {
+            'auth_enabled': os.environ.get('AUTH_ENABLED', 'true').lower() == 'true',
+        }
 
     app.notifier = DingTalkNotifier(
         access_token=app.config.get('DING_TALK_ACCESS_TOKEN', ''),

@@ -12,12 +12,12 @@
                     <i class="bi bi-info-circle"></i> 任务概览
                 </h4>
                 <div class="btn-group" role="group">
-                    <button class="btn btn-warning btn-sm" id="cancel-task-btn" style="display:none;">
+                    <button class="btn btn-warning btn-sm d-none" id="cancel-task-btn">
                         <i class="bi bi-stop-circle"></i> 停止任务
                     </button>
                     <div class="btn-group" role="group">
                         <button type="button" class="btn btn-info btn-sm dropdown-toggle" data-bs-toggle="dropdown"
-                                id="restart-dropdown-btn" style="display:none;">
+                                id="restart-dropdown-btn" class="d-none">
                             <i class="bi bi-arrow-clockwise"></i> 重启任务
                         </button>
                         <ul class="dropdown-menu">
@@ -38,64 +38,60 @@
                     <button class="btn btn-outline-info btn-sm" id="check-status-btn" onclick="checkTaskStatus()">
                         <i class="bi bi-search"></i> 检查状态
                     </button>
-                    <a href="{{ url_for('google_sheet.index', version='c5') }}" class="btn btn-secondary btn-sm">
+                    <a href="{{ url_for('google_sheet.index', version=request.args.get('version', 'c5')) }}" class="btn btn-secondary btn-sm">
                         <i class="bi bi-arrow-left"></i> 返回首页
                     </a>
                 </div>
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-8">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <div class="card bg-light h-100">
-                                    <div class="card-body">
-                                        <h6 class="card-title text-muted mb-3">任务信息</h6>
-                                        <div class="row mb-2">
-                                            <div class="col-4"><strong>任务名称:</strong></div>
-                                            <div class="col-8 text-primary" id="task-name">-</div>
-                                        </div>
-                                        <div class="row mb-2">
-                                            <div class="col-4"><strong>任务ID:</strong></div>
-                                            <div class="col-8 text-muted small" id="task-id">-</div>
-                                        </div>
-                                        <div class="row mb-2">
-                                            <div class="col-4"><strong>状态:</strong></div>
-                                            <div class="col-8" id="task-status">-</div>
-                                        </div>
-                                        <div class="row mb-2">
-                                            <div class="col-4"><strong>进度:</strong></div>
-                                            <div class="col-8" id="task-progress">-</div>
-                                        </div>
-                                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-body-tertiary h-100 border-0">
+                            <div class="card-body">
+                                <h6 class="card-title text-muted mb-3">任务信息</h6>
+                                <div class="row mb-2">
+                                    <div class="col-4"><strong>任务名称:</strong></div>
+                                    <div class="col-8 text-primary" id="task-name">-</div>
                                 </div>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <div class="card bg-light h-100">
-                                    <div class="card-body">
-                                        <h6 class="card-title text-muted mb-3">时间信息</h6>
-                                        <div class="row mb-2">
-                                            <div class="col-4"><strong>开始时间:</strong></div>
-                                            <div class="col-8 text-success" id="start-time">-</div>
-                                        </div>
-                                        <div class="row mb-2">
-                                            <div class="col-4"><strong>结束时间:</strong></div>
-                                            <div class="col-8 text-info" id="end-time">-</div>
-                                        </div>
-                                        <div class="row mb-2">
-                                            <div class="col-4"><strong>执行时长:</strong></div>
-                                            <div class="col-8 text-warning" id="execution-duration">-</div>
-                                        </div>
-                                        <div class="row mb-2" id="error-info" style="display: none;">
-                                            <div class="col-4"><strong>错误信息:</strong></div>
-                                            <div class="col-8 text-danger" id="error-message">-</div>
-                                        </div>
-                                    </div>
+                                <div class="row mb-2">
+                                    <div class="col-4"><strong>任务ID:</strong></div>
+                                    <div class="col-8 text-muted small" id="task-id">-</div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-4"><strong>状态:</strong></div>
+                                    <div class="col-8" id="task-status">-</div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-4"><strong>进度:</strong></div>
+                                    <div class="col-8" id="task-progress">-</div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-body-tertiary h-100 border-0">
+                            <div class="card-body">
+                                <h6 class="card-title text-muted mb-3">时间信息</h6>
+                                <div class="row mb-2">
+                                    <div class="col-4"><strong>开始时间:</strong></div>
+                                    <div class="col-8 text-success" id="start-time">-</div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-4"><strong>结束时间:</strong></div>
+                                    <div class="col-8 text-info" id="end-time">-</div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-4"><strong>执行时长:</strong></div>
+                                    <div class="col-8 text-warning" id="execution-duration">-</div>
+                                </div>
+                                <div class="row mb-2 d-none" id="error-info">
+                                    <div class="col-4"><strong>错误信息:</strong></div>
+                                    <div class="col-8 text-danger" id="error-message">-</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
                         <div class="card bg-primary text-white h-100">
                             <div class="card-body text-center">
                                 <h5 class="card-title">执行统计</h5>
@@ -117,29 +113,6 @@
                                     <small class="mt-1 d-block">成功率</small>
                                 </div>
 
-                                <!-- 刷新控制区域 -->
-                                <div class="mt-4 pt-3 border-top border-light">
-                                    <div class="row g-2">
-                                        <div class="col-8">
-                                            <select class="form-select form-select-sm" id="refresh-frequency">
-                                                <option value="5000">5秒</option>
-                                                <option value="15000">15秒</option>
-                                                <option value="30000">30秒</option>
-                                                <option value="60000" selected>1分钟</option>
-                                                <option value="120000">2分钟</option>
-                                                <option value="300000">5分钟</option>
-                                                <option value="600000">10分钟</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-4">
-                                            <button class="btn btn-light btn-sm w-100" id="manual-refresh-btn"
-                                                    title="手动刷新">
-                                                <i class="bi bi-arrow-clockwise"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <small class="text-light mt-1 d-block">自动刷新</small>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -153,8 +126,7 @@
                 <h4 class="card-title mb-0">
                     <i class="bi bi-gear"></i> 配置信息
                 </h4>
-                <button class="btn btn-primary btn-sm" id="edit-config-btn" onclick="openEditConfigModal()"
-                        style="display:none;">
+                <button class="btn btn-primary btn-sm d-none" id="edit-config-btn" onclick="openEditConfigModal()">
                     <i class="bi bi-pencil"></i> 编辑配置
                 </button>
             </div>
@@ -205,7 +177,7 @@
                         <i class="bi bi-arrow-clockwise"></i> 刷新
                     </button>
                     <button type="button" class="btn btn-outline-success btn-sm" onclick="exportResultsToCSV()">
-                        <i class="bi bi-file-earmark-spreadsheet"></i> 导出 CSV
+                        <i class="bi bi-file-earmark-spreadsheet"></i> 导出 Excel
                     </button>
                     <div class="btn-group" role="group">
                         <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
@@ -422,7 +394,7 @@
                                             <input type="text" class="form-control" id="edit-token-file"
                                                    placeholder="如 data/token.json">
                                         </div>
-                                        <div class="col-md-6 mb-3" id="edit-token-json-container" style="display:none;">
+                                        <div class="col-md-6 mb-3 d-none" id="edit-token-json-container">
                                             <label for="edit-token-json" class="form-label">Token JSON 字符串
                                                 token_json</label>
                                             <textarea class="form-control" id="edit-token-json" rows="3"
@@ -637,7 +609,7 @@
     let resultsTotalSuccess = null;
     let resultsTotalFailed = null;
     let currentResultsFilter = 'all';
-    let currentRefreshFrequency = 60000; // 默认1分钟，将从配置加载
+    let currentRefreshFrequency = 60000; // 固定1分钟刷新
     let taskStartTime = null; // 存储任务开始时间
     let currentTaskData = null; // 存储当前任务数据
     let editConfigModal = null; // 编辑配置模态框实例
@@ -705,6 +677,11 @@
                 const list = document.getElementById('edit-sheets-list');
                 if (!list) return;
                 const rows = list.querySelectorAll('.edit-sheet-row');
+                // 导出排序规则：
+                // 1) 按 stock_code 降序
+                // 2) 按 kline_range 的完整日期区间排序：先结束日期，再开始日期，都是降序
+                // 3) 同一完整日期区间内按 xm 升序，空值和 0 排最前
+                // 4) 同一 xm 内按 ReturnBeats 降序
                 if (rows.length > 1) {
                     list.removeChild(rows[rows.length - 1]);
                 }
@@ -724,7 +701,6 @@
                 }
 
                 loadTaskDetail();
-                initializeRefreshControls();
                 // 启动自动刷新
                 startAutoRefresh();
             });
@@ -737,25 +713,6 @@
     window.addEventListener('beforeunload', function () {
         stopAutoRefresh();
     });
-
-    // 初始化刷新控制
-    function initializeRefreshControls() {
-        const frequencySelect = document.getElementById('refresh-frequency');
-        const manualRefreshBtn = document.getElementById('manual-refresh-btn');
-
-        // 刷新频率选择事件
-        frequencySelect.addEventListener('change', function () {
-            currentRefreshFrequency = parseInt(this.value);
-            console.log('刷新频率更改为:', currentRefreshFrequency + 'ms');
-            startAutoRefresh(); // 重新启动自动刷新
-            showNotification(`自动刷新频率已设置为 ${getFrequencyText(currentRefreshFrequency)}`, 'info');
-        });
-
-        // 手动刷新按钮事件
-        manualRefreshBtn.addEventListener('click', function () {
-            manualRefresh();
-        });
-    }
 
     // 获取频率文本
     function getFrequencyText(milliseconds) {
@@ -865,34 +822,34 @@
                 const errorInfo = document.getElementById('error-info');
                 if (task.error_message) {
                     document.getElementById('error-message').textContent = task.error_message;
-                    errorInfo.style.display = 'block';
+                    errorInfo.classList.remove('d-none');
                 } else {
-                    errorInfo.style.display = 'none';
+                    errorInfo.classList.add('d-none');
                 }
 
                 // 显示/隐藏取消按钮
                 const cancelBtn = document.getElementById('cancel-task-btn');
                 if (task.status === 'running') {
-                    cancelBtn.style.display = 'inline-block';
+                    cancelBtn.classList.remove('d-none');
                     cancelBtn.setAttribute('data-task-id', task.id);
                 } else {
-                    cancelBtn.style.display = 'none';
+                    cancelBtn.classList.add('d-none');
                 }
 
                 // 显示/隐藏重启按钮（包括pending状态）
                 const restartBtn = document.getElementById('restart-dropdown-btn');
                 if (task.status === 'pending' || task.status === 'completed' || task.status === 'error' || task.status === 'cancelled') {
-                    restartBtn.style.display = 'inline-block';
+                    restartBtn.classList.remove('d-none');
                 } else {
-                    restartBtn.style.display = 'none';
+                    restartBtn.classList.add('d-none');
                 }
 
                 // 显示/隐藏编辑按钮（只有非运行状态才能编辑）
                 const editBtn = document.getElementById('edit-config-btn');
                 if (task.status !== 'running') {
-                    editBtn.style.display = 'inline-block';
+                    editBtn.classList.remove('d-none');
                 } else {
-                    editBtn.style.display = 'none';
+                    editBtn.classList.add('d-none');
                 }
 
                 // 填充配置信息（兼容 config 为字符串或对象的情况）
@@ -1128,15 +1085,15 @@
             if (!tokenTypeSelect._bindedForToggle) {
                 tokenTypeSelect.addEventListener('change', function () {
                     const t = this.value || 'file';
-                    if (fileContainer) fileContainer.style.display = t === 'file' ? 'block' : 'none';
-                    if (jsonContainer) jsonContainer.style.display = t === 'json' ? 'block' : 'none';
+                    if (fileContainer) fileContainer.classList.toggle('d-none', t !== 'file');
+                    if (jsonContainer) jsonContainer.classList.toggle('d-none', t !== 'json');
                 });
                 tokenTypeSelect._bindedForToggle = true;
             }
         }
 
-        if (fileContainer) fileContainer.style.display = tokenType === 'file' ? 'block' : 'none';
-        if (jsonContainer) jsonContainer.style.display = tokenType === 'json' ? 'block' : 'none';
+        if (fileContainer) fileContainer.classList.toggle('d-none', tokenType !== 'file');
+        if (jsonContainer) jsonContainer.classList.toggle('d-none', tokenType !== 'json');
 
         const editTokenFileEl = document.getElementById('edit-token-file');
         if (editTokenFileEl) {
@@ -1196,6 +1153,14 @@
             full: '整年',
             recent: '近年'
         });
+    }
+
+    function formatExcludedYears(value) {
+        if (!value || !Array.isArray(value) || value.length === 0) {
+            return '<span class="text-muted">无</span>';
+        }
+        const years = value.map(y => `近${y}年`).join('、');
+        return `<span class="text-danger">${years}</span>`;
     }
 
     function formatTokenType(value) {
@@ -1301,6 +1266,7 @@
             {label: '市场类型', value: formatMarketType(config.market_type || 'cn'), icon: 'bi-graph-up-arrow'},
             {label: '时间范围类型', value: dateRangeModeDisplay, icon: 'bi-clock-history'},
             {label: '数据时间范围', value: dateRange, icon: 'bi-calendar-range'},
+            {label: '移除的近年区间', value: formatExcludedYears(config.exclude_recent_years), icon: 'bi-x-circle'},
             {label: '认证方式', value: formatTokenType(config.token_type || 'file'), icon: 'bi-shield-lock'},
             {label: 'Token \u540d\u79f0', value: config.token_name || '-', icon: 'bi-tag'},
             {label: 'Token \u9009\u62e9\u6a21\u5f0f', value: formatTokenSelectionMode(config.token_selection_mode), icon: 'bi-shuffle'},
@@ -1411,6 +1377,63 @@
         });
     }
 
+    function isPlainObject(value) {
+        return value != null && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    function getFlatResult(metrics) {
+        if (!isPlainObject(metrics)) {
+            return null;
+        }
+
+        return isPlainObject(metrics.flat_result) ? metrics.flat_result : null;
+    }
+
+    function getPreferredMetricValue(metrics, key) {
+        const flatResult = getFlatResult(metrics);
+        if (flatResult && flatResult[key] != null) {
+            return flatResult[key];
+        }
+        return metrics && metrics[key] != null ? metrics[key] : null;
+    }
+
+    function getFirstMetricValue(source, keys) {
+        if (!isPlainObject(source)) {
+            return null;
+        }
+
+        for (const key of keys) {
+            if (source[key] != null) {
+                return source[key];
+            }
+        }
+        return null;
+    }
+
+    function getModelSharpeValue(metrics, type) {
+        const flatResult = getFlatResult(metrics);
+
+        if (flatResult) {
+            if (type === 'index') {
+                return getFirstMetricValue(flatResult, ['index_sharpe_ratio', 'index_sharp', 'ixpl', 'i_xpl', 'index_xpl']);
+            }
+            return getFirstMetricValue(flatResult, ['start_sharpe_ratio', 'start_sharp', 'sxpl', 's_xpl', 'start_xpl']);
+        }
+
+        const legacyXpl = type === 'index'
+                ? (metrics.index_return_xpl || {})
+                : (metrics.start_return_xpl || {});
+        return legacyXpl.sharpe_ratio != null ? legacyXpl.sharpe_ratio : null;
+    }
+
+    function getDetailMetricSource(metrics) {
+        return isPlainObject(metrics) ? metrics : {};
+    }
+
+    function shouldShowDetailMetric(key) {
+        return !['start_return_xpl', 'index_return_xpl', 'analyze_result'].includes(String(key));
+    }
+
     // 按每条 result（参数组合）分组，内部包含多个模型结果
     function groupResults(resultsArray) {
         const list = [];
@@ -1445,18 +1468,15 @@
             Object.keys(resultObj).forEach((keyName) => {
                 const metrics = resultObj[keyName] || {};
 
-                const d2 = metrics.D2 != null ? metrics.D2 : null;
-                const d3 = metrics.D3 != null ? metrics.D3 : null;
-                const d4 = metrics.D4 != null ? metrics.D4 : null;
-                const d5 = metrics.D5 != null ? metrics.D5 : null;
-                const d6 = metrics.D6 != null ? metrics.D6 : null;
-                const d7 = metrics.D7 != null ? metrics.D7 : null;
+                const d2 = getPreferredMetricValue(metrics, 'D2');
+                const d3 = getPreferredMetricValue(metrics, 'D3');
+                const d4 = getPreferredMetricValue(metrics, 'D4');
+                const d5 = getPreferredMetricValue(metrics, 'D5');
+                const d6 = getPreferredMetricValue(metrics, 'D6');
+                const d7 = getPreferredMetricValue(metrics, 'D7');
 
-                const startReturn = metrics.start_return_xpl || {};
-                const indexReturn = metrics.index_return_xpl || {};
-
-                const startSharpe = startReturn.sharpe_ratio != null ? startReturn.sharpe_ratio : null;
-                const indexSharpe = indexReturn.sharpe_ratio != null ? indexReturn.sharpe_ratio : null;
+                const startSharpe = getModelSharpeValue(metrics, 'start');
+                const indexSharpe = getModelSharpeValue(metrics, 'index');
 
                 const keyParts = String(keyName).split('__');
                 const modelCode = keyParts[0] || String(keyName);
@@ -1525,14 +1545,11 @@
             const resultObj = item.result && typeof item.result === 'object' ? item.result : {};
             Object.keys(resultObj).forEach((keyName) => {
                 const metrics = resultObj[keyName] || {};
-                const d2 = metrics.D2 != null ? metrics.D2 : null;
-                const d3 = metrics.D3 != null ? metrics.D3 : null;
+                const d2 = getPreferredMetricValue(metrics, 'D2');
+                const d3 = getPreferredMetricValue(metrics, 'D3');
 
-                const startReturn = metrics.start_return_xpl || {};
-                const indexReturn = metrics.index_return_xpl || {};
-
-                const startSharpe = startReturn.sharpe_ratio != null ? startReturn.sharpe_ratio : null;
-                const indexSharpe = indexReturn.sharpe_ratio != null ? indexReturn.sharpe_ratio : null;
+                const startSharpe = getModelSharpeValue(metrics, 'start');
+                const indexSharpe = getModelSharpeValue(metrics, 'index');
 
                 const keyParts = String(keyName).split('__');
                 const modelCode = keyParts[0] || String(keyName);
@@ -1622,34 +1639,22 @@
                 const groupIndex = idx; // 当前页内的索引
 
                 const modelsRows = (group.models || []).map((model, mIndex) => {
-                    const d2Text = model.d2 != null
-                            ? (typeof model.d2 === 'number' ? model.d2.toFixed(4) : String(model.d2))
-                            : '-';
-                    const d3Text = model.d3 != null
-                            ? (typeof model.d3 === 'number' ? model.d3.toFixed(4) : String(model.d3))
-                            : '-';
-                    const d4Text = model.d4 != null
-                            ? (typeof model.d4 === 'number' ? model.d4.toFixed(4) : String(model.d4))
-                            : '-';
-                    const d5Text = model.d5 != null
-                            ? (typeof model.d5 === 'number' ? model.d5.toFixed(4) : String(model.d5))
-                            : '-';
-                    const d6Text = model.d6 != null
-                            ? (typeof model.d6 === 'number' ? model.d6.toFixed(4) : String(model.d6))
-                            : '-';
-                    const d7Text = model.d7 != null
-                            ? (typeof model.d7 === 'number' ? model.d7.toFixed(4) : String(model.d7))
-                            : '-';
+                    const d2Text = formatMetricText(model.d2, 6);
+                    const d3Text = formatMetricText(model.d3, 6);
+                    const d4Text = formatMetricText(model.d4, 6);
+                    const d5Text = formatMetricText(model.d5, 6);
+                    const d6Text = formatMetricText(model.d6, 6);
+                    const d7Text = formatMetricText(model.d7, 6);
                     let iXplText = '-';
                     if (model.indexSharpe != null) {
                         const v = Number(model.indexSharpe);
-                        iXplText = isNaN(v) ? String(model.indexSharpe) : v.toFixed(4);
+                        iXplText = Number.isFinite(v) ? v.toFixed(6) : String(model.indexSharpe);
                     }
 
                     let sXplText = '-';
                     if (model.startSharpe != null) {
                         const v2 = Number(model.startSharpe);
-                        sXplText = isNaN(v2) ? String(model.startSharpe) : v2.toFixed(4);
+                        sXplText = Number.isFinite(v2) ? v2.toFixed(6) : String(model.startSharpe);
                     }
 
                     const titleText = model.modelTitle && model.modelTitle.length > 0
@@ -1780,301 +1785,109 @@
             showNotification('结果列表已刷新', 'info');
         }
 
-        // 导出当前筛选条件下的所有结果为 CSV（按参数组合展开每个模型为一行）
-        function exportResultsToCSV() {
-            // 为了导出完整结果，这里单独请求一次不分页的结果集
-            ajaxRequest(`/api/tasks/${currentTaskId}/results`, 'GET', null, function (err, data) {
-                if (err || !data || !Array.isArray(data.results) || data.results.length === 0) {
-                    showNotification('暂无可导出的结果', 'warning');
-                    return;
-                }
-
-                const exportGroupedResults = groupResults(data.results);
-
-                const rows = [];
-
-                // 使用字段映射表中的 D2-D20 作为指标列，按统一排序
-                const metricKeys = sortMetricKeys(Object.keys(metricDisplayNameMap));
-                const exportMetricKeys = ['D11', 'D12', ...metricKeys.filter(key => key !== 'D11' && key !== 'D12')];
-
-                // 表头：尽量与前端展示列对应，并附加部分补充信息
-                const header = [
-                    'step_index',
-                    'success',
-                    'stock_code',
-                    'kline_range',
-                    'xm',
-                    'ml',
-                    'model_title'
-                ];
-
-                // D2-D20：使用映射表中的显示名
-                exportMetricKeys.forEach(key => {
-                    header.push(getMetricDisplayLabel(key));
-                });
-
-                // 追加 xpl 相关统计字段
-                header.push(
-                        'start_avg_monthly_return',
-                        'start_monthly_std_dev',
-                        'start_annual_std_dev',
-                        'start_xpl',
-                        'index_avg_monthly_return',
-                        'index_monthly_std_dev',
-                        'index_annual_std_dev',
-                        'index_xpl',
-                        'task_id',
-                        'timestamp',
-                        'error_message'
-                );
-                rows.push(header);
-
-                exportGroupedResults.forEach(group => {
-                    const baseInfo = {
-                        stepIndex: group.stepIndex != null ? group.stepIndex : '',
-                        success: group.success ? 'success' : 'failed',
-                        stockCode: group.stockCode != null ? group.stockCode : '',
-                        klineRange: group.klineRange != null ? group.klineRange : '',
-                        a1: group.a1 != null ? group.a1 : '',
-                        b1: group.b1 != null ? group.b1 : '',
-                        rowId: group.rowId != null ? group.rowId : '',
-                        taskId: group.taskId != null ? group.taskId : '',
-                        timestamp: group.timestamp != null ? formatTime(group.timestamp) : '',
-                        errorMessage: group.errorMessage != null ? group.errorMessage : ''
-                    };
-
-                    const models = Array.isArray(group.models) ? group.models : [];
-                    if (models.length === 0) {
-                        const emptyMetrics = exportMetricKeys.map(() => '');
-                        rows.push([
-                            baseInfo.stepIndex,   // step_index
-                            baseInfo.success,     // success
-                            baseInfo.stockCode,   // stock_code
-                            baseInfo.klineRange,  // kline_range
-                            baseInfo.a1,          // xm
-                            baseInfo.b1,          // ml
-                            '',                   // model_title
-                            ...emptyMetrics,      // D2-D20 指标列
-                            '',                   // start_avg_monthly_return
-                            '',                   // start_monthly_std_dev
-                            '',                   // start_annual_std_dev
-                            '',                   // start_xpl
-                            '',                   // index_avg_monthly_return
-                            '',                   // index_monthly_std_dev
-                            '',                   // index_annual_std_dev
-                            '',                   // index_xpl
-                            baseInfo.taskId,      // task_id
-                            baseInfo.timestamp,   // timestamp
-                            baseInfo.errorMessage // error_message
-                        ]);
-                        return;
-                    }
-
-                    models.forEach(model => {
-                        const iSharpe = model.indexSharpe != null ? model.indexSharpe : '';
-                        const sSharpe = model.startSharpe != null ? model.startSharpe : '';
-
-                        // 从 rawMetrics 中读取 start/index 的 xpl 统计字段
-                        const metrics = model.rawMetrics || {};
-                        const startXpl = metrics.start_return_xpl || {};
-                        const indexXpl = metrics.index_return_xpl || {};
-
-                        const startAvgRet = startXpl.avg_monthly_return != null ? startXpl.avg_monthly_return : '';
-                        const startStd = startXpl.monthly_std_dev != null ? startXpl.monthly_std_dev : '';
-                        const startAnnualStd = startXpl.annual_std_dev != null ? startXpl.annual_std_dev : '';
-
-                        const indexAvgRet = indexXpl.avg_monthly_return != null ? indexXpl.avg_monthly_return : '';
-                        const indexStd = indexXpl.monthly_std_dev != null ? indexXpl.monthly_std_dev : '';
-                        const indexAnnualStd = indexXpl.annual_std_dev != null ? indexXpl.annual_std_dev : '';
-
-                        const title = model.modelTitle && model.modelTitle.length > 0
-                                ? model.modelTitle
-                                : (model.modelKey || '');
-
-                        const toNumber = (value) => {
-                            const num = parseFloat(String(value != null ? value : '').replace('%', '').trim());
-                            return Number.isNaN(num) ? null : num;
-                        };
-
-                        const formatPercentDiff = (value) => {
-                            if (value == null || Number.isNaN(value)) {
-                                return '';
-                            }
-                            return `${value.toFixed(2)}%`;
-                        };
-
-                        const returnBeats = (() => {
-                            const ret = toNumber(metrics.D2);
-                            const indexRet = toNumber(metrics.D5);
-                            return ret != null && indexRet != null
-                                ? formatPercentDiff(ret - indexRet)
-                                : '';
-                        })();
-
-                        const ddBeats = (() => {
-                            const maxDd = toNumber(metrics.D4);
-                            const indexMaxDd = toNumber(metrics.D7);
-                            return maxDd != null && indexMaxDd != null
-                                ? formatPercentDiff(maxDd - indexMaxDd)
-                                : '';
-                        })();
-
-                        // 导出指标列：D11/D12 按指定公式输出，其余仍按原字段顺序取值
-                        const metricValues = exportMetricKeys.map(key => {
-                            if (key === 'D11') return returnBeats;
-                            if (key === 'D12') return ddBeats;
-                            return metrics[key] != null ? metrics[key] : '';
-                        });
-
-                        rows.push([
-                            baseInfo.stepIndex,
-                            baseInfo.success,
-                            baseInfo.stockCode,
-                            baseInfo.klineRange,
-                            baseInfo.a1,
-                            baseInfo.b1,
-                            title,
-                            ...metricValues,
-                            startAvgRet,
-                            startStd,
-                            startAnnualStd,
-                            sSharpe,
-                            indexAvgRet,
-                            indexStd,
-                            indexAnnualStd,
-                            iSharpe,
-                            baseInfo.taskId,
-                            baseInfo.timestamp,
-                            baseInfo.errorMessage
-                        ]);
-                    });
-                });
-                // 在导出前对 rows 进行排序：
-                // 1) 同一 stock_code 内
-                // 2) 按 kline_range 中 "~" 后的结束年份降序
-                // 3) 再按 Return 降序
-                // 表头始终保持在第一行
-
-                if (rows.length > 1) {
-                    const headerRow = rows[0];
-                    const dataRows = rows.slice(1);
-
-                    // stock_code 与 kline_range 的固定列索引
-                    const STOCK_CODE_COL = 2; // stock_code
-                    const KLINE_RANGE_COL = 3; // kline_range
-
-                    // 找到 Return 在导出字段中的列索引（D2 -> Return）
-                    const returnMetricIndex = exportMetricKeys.indexOf('D2');
-                    let RETURN_COL = null;
-                    if (returnMetricIndex !== -1) {
-                        // 前面 7 列是固定列，从第 8 列开始是指标列
-                        RETURN_COL = 7 + returnMetricIndex;
-                    }
-
-                    const parseEndYear = (range) => {
-                        if (!range) return -Infinity;
-                        const str = String(range);
-                        const parts = str.split('~');
-                        if (parts.length < 2) return -Infinity;
-                        const endPart = parts[1].trim();
-                        const yearStr = endPart.slice(0, 4);
-                        const year = parseInt(yearStr, 10);
-                        return Number.isNaN(year) ? -Infinity : year;
-                    };
-
-                    const parseReturn = (val) => {
-                        if (val == null || RETURN_COL === null) return -Infinity;
-                        const num = parseFloat(String(val).replace('%', '').trim());
-                        return Number.isNaN(num) ? -Infinity : num;
-                    };
-
-                    dataRows.sort((a, b) => {
-                        const stockA = (a[STOCK_CODE_COL] || '').toString();
-                        const stockB = (b[STOCK_CODE_COL] || '').toString();
-                        if (stockA !== stockB) {
-                            // stock_code 降序
-                            return stockB.localeCompare(stockA);
-                        }
-
-                        const yearA = parseEndYear(a[KLINE_RANGE_COL]);
-                        const yearB = parseEndYear(b[KLINE_RANGE_COL]);
-                        if (yearA !== yearB) {
-                            // 结束年份降序
-                            return yearB - yearA;
-                        }
-
-                        if (RETURN_COL !== null) {
-                            const retA = parseReturn(a[RETURN_COL]);
-                            const retB = parseReturn(b[RETURN_COL]);
-                            if (retA !== retB) {
-                                // Return 降序
-                                return retB - retA;
-                            }
-                        }
-
-                        return 0;
-                    });
-
-                    rows.length = 0;
-                    rows.push(headerRow, ...dataRows);
-                }
-
-                const csvContent = convertRowsToCSV(rows);
-                if (!csvContent) {
-                    showNotification('生成 CSV 内容失败', 'error');
-                    return;
-                }
-
-                const blob = new Blob([csvContent], {type: 'text/csv;charset=utf-8;'});
-                const url = URL.createObjectURL(blob);
-
-                const a = document.createElement('a');
-                a.href = url;
-                let task_name = currentTaskData.name || ''
-                let filename = null
-                if (task_name !== '') {
-                    filename = `${task_name}.csv`;
-                    // filename = `C5_results_${task_name}.csv`;
-                } else {
-                    const now = new Date();
-                    const pad = n => String(n).padStart(2, '0');
-                    filename = `c4_results_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
-
-                }
-
-
-                a.download = filename;
-
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                showNotification('CSV 导出已开始下载', 'success');
-            });
-        }
-
-        // 将二维数组转换为 CSV 文本
-        function convertRowsToCSV(rows) {
-            if (!Array.isArray(rows) || rows.length === 0) {
-                return '';
+        // 导出所有结果为 Excel：通过 fetch 走统一认证封装，确保携带 Authorization。
+        async function exportResultsToCSV() {
+            if (!currentTaskId) {
+                showNotification('任务ID为空，无法导出', 'error');
+                return;
             }
 
-            const escapeCell = (value) => {
-                if (value == null) {
-                    return '';
+            try {
+                const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
+                const saveTarget = await prepareExcelSaveTarget(defaultFilename);
+                const response = await fetch(`/api/tasks/${encodeURIComponent(currentTaskId)}/export`);
+                if (!response.ok) {
+                    const text = await response.text();
+                    let message = `导出失败，状态码 ${response.status}`;
+                    try {
+                        const payload = JSON.parse(text);
+                        message = payload.message || message;
+                    } catch (_error) {
+                        if (text) message = text;
+                    }
+                    showNotification(message, 'error');
+                    return;
                 }
-                let str = String(value);
-                if (str.includes('"')) {
-                    str = str.replace(/"/g, '""');
-                }
-                if (str.search(/[",\n\r]/) !== -1) {
-                    str = '"' + str + '"';
-                }
-                return str;
-            };
 
-            return rows.map(row => (Array.isArray(row) ? row.map(escapeCell).join(',') : '')).join('\r\n');
+                const blob = await response.blob();
+                await saveExcelBlob(blob, saveTarget, getExportFilenameFromResponse(response) || defaultFilename);
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    showNotification('已取消保存操作', 'info');
+                    return;
+                }
+                showNotification(`导出失败: ${error.message || error}`, 'error');
+            }
+        }
+
+        async function prepareExcelSaveTarget(defaultFilename) {
+            if (window.showSaveFilePicker && window.isSecureContext) {
+                try {
+                    const fileHandle = await window.showSaveFilePicker({
+                        suggestedName: defaultFilename,
+                        types: [{
+                            description: 'Excel 工作簿',
+                            accept: {
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
+                            }
+                        }]
+                    });
+                    return {type: 'fileHandle', fileHandle};
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        throw error;
+                    }
+                    console.warn('文件保存窗口不可用，回退到浏览器下载:', error);
+                }
+            }
+
+            const userFilename = prompt('请输入导出的 Excel 文件名:', defaultFilename);
+            if (userFilename === null) {
+                const abortError = new Error('用户取消了保存操作');
+                abortError.name = 'AbortError';
+                throw abortError;
+            }
+
+            return {type: 'download', filename: ensureExcelExtension(userFilename.trim() || defaultFilename)};
+        }
+
+        async function saveExcelBlob(blob, saveTarget, fallbackFilename) {
+            if (saveTarget?.type === 'fileHandle') {
+                const writable = await saveTarget.fileHandle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                showNotification('Excel 文件已保存', 'success');
+                return;
+            }
+
+            downloadBlob(blob, saveTarget?.filename || ensureExcelExtension(fallbackFilename));
+            showNotification('Excel 导出已开始下载', 'success');
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function ensureExcelExtension(filename) {
+            const safeName = String(filename || 'export.xlsx').trim() || 'export.xlsx';
+            return safeName.toLowerCase().endsWith('.xlsx') ? safeName : `${safeName}.xlsx`;
+        }
+
+        function getExportFilenameFromResponse(response) {
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            if (utf8Match) {
+                return decodeURIComponent(utf8Match[1]);
+            }
+            const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+            return asciiMatch ? asciiMatch[1] : '';
         }
 
         // 更新结果统计
@@ -2129,10 +1942,12 @@
             metaEl.textContent = `股票代码：${group.stockCode || '-'} · K线区间：${group.klineRange || '-'} · 步骤 ${group.stepIndex + 1} · A1：${group.a1 != null ? group.a1 : '-'} · B1：${group.b1 != null ? group.b1 : '-'} · 执行时间：${formatTime(group.timestamp) || '-'}`;
 
             const metrics = result.rawMetrics || {};
+            const detailMetrics = getDetailMetricSource(metrics);
+            const hasFlatResult = !!getFlatResult(metrics);
 
             // 专门处理 start_return_xpl 和 index_return_xpl，两者为字典，显示为卡片
-            const startReturn = metrics.start_return_xpl || null;
-            const indexReturn = metrics.index_return_xpl || null;
+            const startReturn = hasFlatResult ? null : (metrics.start_return_xpl || null);
+            const indexReturn = hasFlatResult ? null : (metrics.index_return_xpl || null);
 
             const cards = [];
 
@@ -2140,15 +1955,15 @@
                 cards.push(`
                 <div class="col-md-6 mb-2">
                     <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">start return xpl</div>
+                        <div class="card-header py-1 px-2 small fw-semibold">模型收益分析</div>
                         <div class="card-body py-2 px-2 small">
                             ${renderStatLine('起始日期', startReturn.start_date)}
                             ${renderStatLine('结束日期', startReturn.end_date)}
                             ${renderStatLine('月份数', startReturn.month_count)}
-                            ${renderStatLine('平均月收益', startReturn.avg_monthly_return.toFixed(6))}
-                            ${renderStatLine('月度波动率', startReturn.monthly_std_dev.toFixed(6))}
-                            ${renderStatLine('年化波动率', startReturn.annual_std_dev.toFixed(6))}
-                            ${renderStatLine('夏普率', startReturn.sharpe_ratio.toFixed(6))}
+                            ${renderStatLine('平均月收益', formatMetricRawValue(startReturn.avg_monthly_return, 6))}
+                            ${renderStatLine('月度波动率', formatMetricRawValue(startReturn.monthly_std_dev, 6))}
+                            ${renderStatLine('年化波动率', formatMetricRawValue(startReturn.annual_std_dev, 6))}
+                            ${renderStatLine('夏普率', formatMetricRawValue(startReturn.sharpe_ratio, 6))}
                         </div>
                     </div>
                 </div>
@@ -2159,15 +1974,15 @@
                 cards.push(`
                 <div class="col-md-6 mb-2">
                     <div class="card border-secondary">
-                        <div class="card-header py-1 px-2 small fw-semibold">index return xpl</div>
+                        <div class="card-header py-1 px-2 small fw-semibold">指数收益分析</div>
                         <div class="card-body py-2 px-2 small">
                             ${renderStatLine('起始日期', indexReturn.start_date)}
                             ${renderStatLine('结束日期', indexReturn.end_date)}
                             ${renderStatLine('月份数', indexReturn.month_count)}
-                            ${renderStatLine('平均月收益', indexReturn.avg_monthly_return.toFixed(6))}
-                            ${renderStatLine('月度波动率', indexReturn.monthly_std_dev.toFixed(6))}
-                            ${renderStatLine('年化波动率', indexReturn.annual_std_dev.toFixed(6))}
-                            ${renderStatLine('夏普率', indexReturn.sharpe_ratio.toFixed(6))}
+                            ${renderStatLine('平均月收益', formatMetricRawValue(indexReturn.avg_monthly_return, 6))}
+                            ${renderStatLine('月度波动率', formatMetricRawValue(indexReturn.monthly_std_dev, 6))}
+                            ${renderStatLine('年化波动率', formatMetricRawValue(indexReturn.annual_std_dev, 6))}
+                            ${renderStatLine('夏普率', formatMetricRawValue(indexReturn.sharpe_ratio, 6))}
                         </div>
                     </div>
                 </div>
@@ -2175,7 +1990,7 @@
             }
 
             // 剩余字段进入通用两列表格（剔除字典字段），并按排序规则排
-            const metricKeys = Object.keys(metrics).filter(k => k !== 'start_return_xpl' && k !== 'index_return_xpl');
+            const metricKeys = Object.keys(detailMetrics).filter(shouldShowDetailMetric);
             const keys = sortMetricKeys(metricKeys);
             const rows = [];
 
@@ -2183,8 +1998,8 @@
                 const k1 = keys[i];
                 const k2 = keys[i + 1];
 
-                const v1 = metrics[k1];
-                const v2 = k2 != null ? metrics[k2] : undefined;
+                const v1 = detailMetrics[k1];
+                const v2 = k2 != null ? detailMetrics[k2] : undefined;
 
                 const display1 = formatMetricDisplayValue(v1);
                 const display2 = k2 != null ? formatMetricDisplayValue(v2) : '<span class="text-muted small">-</span>';
@@ -2225,7 +2040,7 @@
             if (value == null || value === '') {
                 safeValue = '<span class="text-muted">-</span>';
             } else if (typeof value === 'number') {
-                safeValue = String(value);
+                safeValue = formatMetricRawValue(value, 6);
             } else {
                 safeValue = escapeHtml(String(value));
             }
@@ -2250,7 +2065,7 @@
 
         // D2-D20 显示名称映射
         const metricDisplayNameMap = {
-            D2: 'Return',
+            D2: 'Return%',
             D3: 'Annualized',
             D4: 'Max DD%',
             D5: 'Index Return',
@@ -2259,7 +2074,7 @@
             D8: 'Fee total',
             D9: 'Fee annualized',
             D10: '年换手率',
-            D11: 'ReturnBeats',
+            D11: 'return beats',
             D12: 'ddBeats',
             D13: 'max(1y beats%)',
             D14: 'min(1y beats%)',
@@ -2268,7 +2083,41 @@
             D17: '单位理论杠杆率收益',
             D18: '最大实际杠杆率',
             D19: '平均实际杠杆率',
-            D20: '单位实际杠杆率收益'
+            D20: '单位实际杠杆率收益',
+            annualized_return_diff: '年化超额收益',
+            avg_monthly_excess_returns: '平均月超额',
+            excess_drawdown_winning_rate: '超额回撤胜率',
+            excess_maximum_number_of_backtest_repair_days: '超额最大修复天数',
+            excess_of_promissory_note: '超额所提诺',
+            excess_sharp: '超额夏普',
+            index_annual_std_dev: '指数年化波动率',
+            index_annualized_return: '指数年化收益',
+            index_avg_monthly_return: '指数平均月收益率',
+            index_avg_monthly_return_common: '指数平均月收益率',
+            index_kama_ratio: '指数卡玛比率',
+            index_monthly_return_volatility: '指数月收益率波动率',
+            index_monthly_std_dev: '指数月度标准差',
+            index_profit_annual: '指数盈利年份百分比',
+            index_profit_monthly_percentage: '指数月盈利百分比',
+            index_sharpe_ratio: '指数夏普比率',
+            index_sotino_ratio: '指数所提诺比率',
+            max_drawdown: '年最大超额回撤',
+            monthly_excess_return_percentage_last_return: '月超额收益胜率',
+            monthly_excess_volatility: '月超额波动率',
+            outperform_year: '跑赢年份(百分比)',
+            start_annual_std_dev: '模型年化波动率',
+            start_annualized_return: '模型年化收益',
+            start_avg_monthly_return: '模型平均月收益率',
+            start_avg_monthly_return_common: '模型平均月收益率',
+            start_drawdown: '年最大回撤',
+            start_kama_ratio: '模型卡玛比率',
+            start_maximum_number_of_backtest_repair_days: '最大修复天数',
+            start_monthly_return_volatility: '模型月收益率波动率',
+            start_monthly_std_dev: '模型月度标准差',
+            start_profit_annual: '模型盈利年份百分比',
+            start_profit_monthly_percentage: '模型月盈利百分比',
+            start_sharpe_ratio: '模型夏普比率',
+            start_sotino_ratio: '模型所提诺比率'
         };
 
         function getMetricDisplayLabel(key) {
@@ -2308,18 +2157,45 @@
             return {prefix: String(key), num: null};
         }
 
+        function formatMetricRawValue(value, digits) {
+            if (value == null || value === '') {
+                return null;
+            }
+
+            const numericValue = Number(value);
+            if (Number.isFinite(numericValue)) {
+                return typeof digits === 'number' ? numericValue.toFixed(digits) : String(numericValue);
+            }
+            return value;
+        }
+
+        function formatMetricText(value, digits) {
+            const formatted = formatMetricRawValue(value, digits);
+            if (formatted == null) {
+                return '-';
+            }
+            return String(formatted);
+        }
+
         function formatMetricDisplayValue(value) {
             if (value == null) {
                 return '<span class="text-muted small">-</span>';
             }
-            if (typeof value === 'object') {
-                // 常规对象在表格里显示为 JSON（特殊的 start_return_xpl / index_return_xpl 已在上方卡片中处理，不会走到这里）
+            if (Array.isArray(value)) {
                 return `<pre class="mb-0 small text-muted">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
             }
-            if (typeof value === 'number') {
-                return String(value);
+            if (typeof value === 'object') {
+                const rows = sortMetricKeys(Object.keys(value).filter(shouldShowDetailMetric))
+                    .map(key => `
+                        <div class="d-flex justify-content-between gap-2 border-bottom py-1">
+                            <span class="text-muted">${getMetricDisplayLabel(key)}</span>
+                            <span class="text-end">${formatMetricDisplayValue(value[key])}</span>
+                        </div>
+                    `)
+                    .join('');
+                return rows ? `<div class="small">${rows}</div>` : '<span class="text-muted small">-</span>';
             }
-            return escapeHtml(String(value));
+            return escapeHtml(formatMetricText(value, 6));
         }
 
         // 取消任务
@@ -2468,7 +2344,7 @@
 
         // 跳转到创建重启任务页面（C5 模式）
         function goToCreateRestartTask() {
-            window.location.href = `/google-sheet/create?version=c5&restart_task_id=${encodeURIComponent(currentTaskId || '')}`;
+            window.location.href = `/google-sheet/create?version={{ version }}&restart_task_id=${encodeURIComponent(currentTaskId || '')}`;
         }
 
         // 创建新的重启任务
@@ -2483,7 +2359,7 @@
 
                     // 询问是否跳转到新任务
                     if (confirm('是否跳转到新任务的详情页面？')) {
-                        window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}&version=c4`;
+                        window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}&version={{ version }}`;
                     }
                 } else {
                     const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');
