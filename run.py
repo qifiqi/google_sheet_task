@@ -1,204 +1,21 @@
 #!/usr/bin/env python3
-"""
-应用启动文件
-"""
 import os
-import time
-from datetime import datetime
-from sqlalchemy import inspect, text
+
 from app import create_app
-from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, SystemConfig, ScheduledTask, GoogleSheetToken
-from app.config import init_config as init_config2
-from app.utils.logger import initialize_logging
+from app.startup import bootstrap_app, register_cli, register_shell_context
+from app.utils.logger import get_logger
+
+
 app = create_app()
+register_shell_context(app)
+register_cli(app)
 
-
-def ensure_google_sheet_token_schema():
-    inspector = inspect(db.engine)
-    tables = inspector.get_table_names()
-    if 'google_sheet_tokens' not in tables:
-        return
-
-    columns = {column['name'] for column in inspector.get_columns('google_sheet_tokens')}
-    if 'current_in_use_count' not in columns:
-        # 轻量补字段，避免线上已有库因为没有迁移脚本而启动失败。
-        db.session.execute(
-            text("ALTER TABLE google_sheet_tokens ADD COLUMN current_in_use_count INTEGER NOT NULL DEFAULT 0")
-        )
-        db.session.commit()
-
-
-def reset_google_sheet_token_occupancy():
-    # current_in_use_count 表示进程内”正在占用”的资源。
-    # 应用重启后原线程已经不存在，因此启动时统一清零,避免脏占用残留。
-    if GoogleSheetToken.query.filter(GoogleSheetToken.current_in_use_count != 0).count() > 0:
-        GoogleSheetToken.query.update({'current_in_use_count': 0}, synchronize_session=False)
-        db.session.commit()
-
-
-def reset_google_sheet_occupancy():
-    # 应用重启后原线程已经不存在，清理所有 Google Sheet 的占用状态
-    from app.models import GoogleSheet
-    if GoogleSheet.query.filter(GoogleSheet.is_in_use == True).count() > 0:
-        GoogleSheet.query.update({'is_in_use': False, 'current_task_id': None}, synchronize_session=False)
-        db.session.commit()
-
-@app.shell_context_processor
-def make_shell_context():
-    return {
-        'db': db,
-        'Task': Task,
-        'TaskLog': TaskLog,
-        'TaskResult': TaskResult,
-        'SystemConfig': SystemConfig,
-        'ScheduledTask': ScheduledTask,
-        'GoogleSheetToken': GoogleSheetToken
-    }
-
-@app.cli.command()
-def init_db():
-    """初始化数据库"""
-    db.create_all()
-    ensure_google_sheet_token_schema()
-    print("数据库初始化完成")
-
-@app.cli.command()
-def init_config():
-    """初始化默认配置"""
-    init_config2()
-    print("默认配置初始化完成")
-
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for
-@app.route('/sjhp')
-def sjhp():
-    return render_template('sjhp.html')
-@app.route('/2')
-def index2():
-    return render_template('index2.html')
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
-def check_and_cleanup_dead_tasks():
-    """启动时检查并清理挂死的任务"""
-    from app.services.task_manager import task_manager
-    from app.utils.logger import get_logger
-    
-    logger = get_logger('startup')
-    
-    with app.app_context():
-        try:
-            # 获取所有运行状态的任务
-            running_tasks = Task.query.filter_by(status='running').all()
-            
-            if not running_tasks:
-                logger.info("没有发现运行中的任务")
-                return
-            
-            logger.info(f"发现 {len(running_tasks)} 个运行中的任务，开始检查状态")
-             
-            for task in running_tasks:
-                status_check = task_manager.check_local_task_status(task.id)
-                
-                if status_check.get("can_restart", False):
-                    logger.info(f"发现中断的任务: {task.id} - {status_check.get('restart_reason')}")
-                    
-                    # 重置任务状态为pending，允许用户重新启动
-                    task.status = 'pending'
-                    task.error_message = None  # 清除之前的错误信息
-                    task.end_time = None  # 清除结束时间
-                    
-                    # 添加日志
-                    task_manager._add_task_log(
-                        task.id, 
-                        'info', 
-                        f"应用重启时检测到任务中断，已重置为待启动状态: {status_check.get('restart_reason')}"
-                    )
-                    
-                    logger.info(f"已将任务 {task.id} 重置为pending状态，用户可选择重新启动")
-
-                else:
-                    logger.info(f"任务 {task.id} 状态正常")
-            
-            db.session.commit()
-            logger.info("任务状态检查完成")
-            
-        except Exception as e:
-            logger.error(f"检查任务状态时出错: {str(e)}")
-
-def init_scheduler():
-    """初始化定时任务调度器"""
-    from app.services.scheduler_service import scheduler_service
-    from app.utils.logger import get_logger
-    
-    logger = get_logger('scheduler')
-    
-    with app.app_context():
-        try:
-            # 启动调度器（延时30秒），传递应用实例
-            scheduler_service.start(delay_seconds=30, app=app)
-            
-            # 创建默认定时任务
-            scheduler_service.create_default_tasks()
-            
-            logger.info("定时任务调度器初始化完成")
-            
-        except Exception as e:
-            logger.error(f"初始化定时任务调度器失败: {e}")
-
-
-def init_task_watchdog():
-    """初始化任务看门狗线程"""
-    from app.services.task_watchdog import task_watchdog
-    from app.utils.logger import get_logger
-
-    logger = get_logger('watchdog')
-
-    try:
-        task_watchdog.start(app)
-        logger.info("任务看门狗线程已启动")
-    except Exception as e:
-        logger.error(f"启动任务看门狗线程失败: {e}")
 
 if __name__ == '__main__':
-    from app.utils.logger import get_logger
-
     logger = get_logger('app')
-
     try:
-        # 确保必要的目录存在
-        os.makedirs('data', exist_ok=True)
-        os.makedirs('logs', exist_ok=True)
-
-        # 初始化日志系统（在应用上下文之前）
-        initialize_logging()
-
-        # 初始化数据库
-        with app.app_context():
-            db.create_all()
-            ensure_google_sheet_token_schema()
-            reset_google_sheet_token_occupancy()
-            reset_google_sheet_occupancy()
-            init_config2()
-
-        # 检查并清理挂死的任务
-        check_and_cleanup_dead_tasks()
-
-        # 初始化定时任务调度器
-        init_scheduler()
-
-        # 初始化任务看门狗线程
-        init_task_watchdog()
-
-        # 运行应用
-        debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes', 'on')
-        if debug_mode:
-            app.run(debug=True, host='0.0.0.0', port=5000)
-        else:
-            app.run(debug=False, host='0.0.0.0', port=5000)
-        # app.run(debug=True, host='127.0.0.1', port=5000)
-        # app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
-    except Exception as e:
-        logger.error(f"启动失败: {e}",exc_info=True)
+        bootstrap_app(app)
+        debug_mode = os.getenv('FLASK_DEBUG', 'true').lower() in ('true', '1', 'yes', 'on')
+        app.run(debug=debug_mode, host='0.0.0.0', port=os.getenv('PORT', 5000))
+    except Exception as exc:
+        logger.error(f'启动失败: {exc}', exc_info=True)

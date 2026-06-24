@@ -1,0 +1,43 @@
+<svg width="1540" height="240" viewBox="0 0 1540 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1540" height="240" fill="#F5F7FA"/>
+  <g font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+    <g transform="translate(24 28)">
+      <rect width="350" height="158" rx="14" fill="#FFFFFF" stroke="#E6EAF0"/>
+      <rect width="6" height="158" rx="3" fill="#64748B"/>
+      <path d="M296 31C314 49 319 73 308 98C298 122 277 135 251 134" stroke="#E2E8F0" stroke-width="10" stroke-linecap="round"/>
+      <text x="28" y="39" fill="#0F172A" font-size="15" font-weight="700">任务总数</text>
+      <text x="28" y="96" fill="#0F172A" font-size="48" font-weight="800">59</text>
+      <text x="28" y="126" fill="#334155" font-size="15">当前全部数据回测任务</text>
+      <text x="262" y="118" fill="#94A3B8" font-size="13" text-anchor="middle">TOTAL</text>
+    </g>
+    <g transform="translate(408 28)">
+      <rect width="350" height="158" rx="14" fill="#FFFFFF" stroke="#D8E6FF"/>
+      <rect width="6" height="158" rx="3" fill="#2563EB"/>
+      <path d="M267 47L304 76L267 105" stroke="#BFDBFE" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="252" cy="76" r="10" fill="#DBEAFE"/>
+      <text x="28" y="39" fill="#0F172A" font-size="15" font-weight="700">运行中</text>
+      <text x="28" y="96" fill="#2563EB" font-size="48" font-weight="800">1</text>
+      <text x="28" y="126" fill="#334155" font-size="15">正在排队或执行中的任务</text>
+      <text x="274" y="118" fill="#93C5FD" font-size="13" text-anchor="middle">LIVE</text>
+    </g>
+    <g transform="translate(792 28)">
+      <rect width="350" height="158" rx="14" fill="#FFFFFF" stroke="#D7F3E5"/>
+      <rect width="6" height="158" rx="3" fill="#059669"/>
+      <path d="M247 79L270 102L313 55" stroke="#A7F3D0" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="28" y="39" fill="#0F172A" font-size="15" font-weight="700">已完成</text>
+      <text x="28" y="96" fill="#047857" font-size="48" font-weight="800">39</text>
+      <text x="28" y="126" fill="#334155" font-size="15">结果已落库，可直接查看</text>
+      <text x="282" y="121" fill="#6EE7B7" font-size="13" text-anchor="middle">DONE</text>
+    </g>
+    <g transform="translate(1176 28)">
+      <rect width="340" height="158" rx="14" fill="#FFFFFF" stroke="#FFE0E0"/>
+      <rect width="6" height="158" rx="3" fill="#E11D48"/>
+      <path d="M260 53V91" stroke="#FECDD3" stroke-width="10" stroke-linecap="round"/>
+      <circle cx="260" cy="116" r="7" fill="#FECDD3"/>
+      <text x="28" y="39" fill="#0F172A" font-size="15" font-weight="700">执行失败</text>
+      <text x="28" y="96" fill="#E11D48" font-size="48" font-weight="800">0</text>
+      <text x="28" y="126" fill="#334155" font-size="15">包含系统错误或执行异常</text>
+      <text x="260" y="143" fill="#FDA4AF" font-size="13" text-anchor="middle">ERROR</text>
+    </g>
+  </g>
+</svg>

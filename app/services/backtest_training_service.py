@@ -1,9 +1,8 @@
 import json
-import math
 import time
 import traceback
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from flask import current_app
 from sqlalchemy import text
@@ -13,23 +12,25 @@ from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, TaskResult, db, TaskResultReturn
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
-from app.services.google_sheet_client import GoogleSheet
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
-from app.utils.db_stock_api import StockAPIClient
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.utils.task_error_utils import (
+    RetryableNetworkTaskError,
+    build_task_error_message,
+    is_retryable_network_error,
+    unwrap_exception,
+)
 
 
 class BacktestTrainingService(BaseGoogleSheetService):
     """回测数据服务 - backtest_training_service.py"""
 
-    def __init__(self, config: Dict[str, Any], task_id: str, event_queue=None, app=None, stop_event=None):
-        super().__init__(config, task_id, event_queue=event_queue, app=app, stop_event=stop_event)
-        self.api_client = StockAPIClient()
+    def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
@@ -46,16 +47,63 @@ class BacktestTrainingService(BaseGoogleSheetService):
             return 'en'
         return 'cn'
 
+    def _resolve_cn_stock_quote(self, stock_code):
+        stock_query = str(stock_code or '').strip()
+        stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_query, 10)
+        if isinstance(stock_config, dict):
+            raise ValueError(f"股票{stock_query}搜索失败: {stock_config.get('error') or stock_config}")
+        if not stock_config:
+            raise ValueError(f"未找到股票 {stock_query}")
+
+        query_upper = stock_query.upper()
+        selected = next(
+            (
+                item for item in stock_config
+                if str(item.get('code') or '').strip().upper() == query_upper
+            ),
+            stock_config[0],
+        )
+        resolved_code = str(selected.get('code') or '').strip().upper()
+        market = str(selected.get('market') or '').strip()
+        if not resolved_code or not market:
+            raise ValueError(f"股票{stock_query}搜索结果缺少 code 或 market: {selected}")
+        if resolved_code != stock_query:
+            self._log_info(f"股票 {stock_query} 已解析为代码 {resolved_code}, market={market}")
+        return resolved_code, market
+
     @staticmethod
-    def _sanitize_json_value(value):
-        """Convert NaN/Infinity values into JSON-safe nulls before persistence."""
-        if isinstance(value, float):
-            return value if math.isfinite(value) else None
-        if isinstance(value, dict):
-            return {key: BacktestTrainingService._sanitize_json_value(val) for key, val in value.items()}
-        if isinstance(value, list):
-            return [BacktestTrainingService._sanitize_json_value(item) for item in value]
-        return value
+    def _normalize_year_values(values, field_name):
+        normalized = []
+        for value in values or []:
+            if value is None or str(value).strip() == "":
+                continue
+            try:
+                normalized.append(int(value))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field_name} 包含无效年份值: {value}") from exc
+        return normalized
+
+    @staticmethod
+    def _require_kline_data(stock_code, kline_key, kline):
+        if not kline:
+            raise ValueError(f"股票{stock_code} 的K线区间 {kline_key} 没有可用数据，请检查年份或日期范围")
+        return kline
+
+    @staticmethod
+    def _parse_optional_end_date(value):
+        if value in (None, ""):
+            return None
+        normalized = str(value).strip()
+        try:
+            datetime.strptime(normalized, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError(f"end_date 格式无效，应为 YYYY-MM-DD: {value}") from exc
+        return normalized
+
+    def _raise_retryable_network_error(self, exc, context):
+        if is_retryable_network_error(exc):
+            root = unwrap_exception(exc) or exc
+            raise RetryableNetworkTaskError(f"{context}: {root}") from exc
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -68,7 +116,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
-                task = Task.query.get(self.task_id)
+                task = db.session.get(Task, self.task_id)
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -135,6 +183,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     return 'error'
 
                 # 推送任务完成通知
+                self._refresh_model_summary_index()
                 self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
                 # 推送任务完成信息
                 completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'
@@ -145,7 +194,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = Task.query.get(self.task_id)
+                task = db.session.get(Task, self.task_id)
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -187,6 +236,27 @@ class BacktestTrainingService(BaseGoogleSheetService):
             last_row = "D"
         return input_column_d, input_column_v, output_range_1, output_range_2, output_column_index, output_column_start, parameter_positions, check_positions,last_row
 
+    def _resolve_resume_start_index(self, task):
+        """Return the zero-based combination index to run next on checkpoint resume."""
+        checkpoint_index = task.current_step - 1 if task.current_step >= 1 else 0
+        if checkpoint_index < 0:
+            checkpoint_index = 0
+
+        saved_step_indexes = {
+            row.step_index
+            for row in TaskResult.query.with_entities(TaskResult.step_index)
+            .filter_by(task_id=self.task_id)
+            .all()
+            if row.step_index is not None and row.step_index >= 0
+        }
+        if not saved_step_indexes:
+            return checkpoint_index
+
+        next_missing_index = 0
+        while next_missing_index in saved_step_indexes:
+            next_missing_index += 1
+
+        return next_missing_index
 
     def get_bdl(self, task, name, parameters, config_data):
         """执行批量数据处理"""
@@ -198,7 +268,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
             recent_years = config_data.get('recent_years', [])
             parameters = config_data.get('parameters', [])
             stock_code = config_data.get('stock_code', '')
-            market_type = self._normalize_market_type(config_data.get('market_type', 'cn'))
+            market_type = self._normalize_market_type(
+                config_data.get('market_type', 'cn')
+            )
+            adjust_type = config_data.get('kline_adjustment')
+            include_full_year_range = bool(config_data.get('include_full_year_range'))
+            end_date = config_data.get('end_date')
 
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
@@ -208,7 +283,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 recent_years,
                 parameters,
                 stock_code,
-                market_type=market_type
+                market_type=market_type,
+                adjust_type=adjust_type,
+                include_full_year_range=include_full_year_range,
+                end_date=end_date,
             )
             precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
             total_combinations += len(combinations)
@@ -220,9 +298,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             self._log_info(f'将执行 {total_combinations} 个参数组合')
 
             # 检查是否从断点恢复（按组合级别）
-            start_index = task.current_step - 1 if task.current_step >= 1 else 0
-            if start_index < 0:
-                start_index = 0
+            start_index = self._resolve_resume_start_index(task)
             self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
 
             # 重置成功/失败计数器；如需精确恢复已完成组合数，可在外部通过历史结果统计
@@ -275,7 +351,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                     # 执行单个参数组合
                     try:
-                        success, result = self._execute_parameter_combination(column_A_length, combination,cache_parameters, config_data,KLINE_DATA_MAP)
+                        success, result, return_date = self._execute_parameter_combination(
+                            column_A_length,
+                            combination,
+                            cache_parameters,
+                            config_data,
+                            KLINE_DATA_MAP,
+                        )
 
                         if success:
                             success_count += 1
@@ -292,18 +374,19 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             **combination,
                             'stock_code':combination['stock_code'],
                             'kline':[kline[0],kline[-1]],
-                        }, result, success)
+                        }, result, success, return_date=return_date)
 
                     except checkForErrors as e:
                         self._log_error(str(e))
                         task.error = e
                         return success_count, failed_count, 'error'
                     except Exception as e:
+                        self._raise_retryable_network_error(e, f"第 {current_step} 个参数组合网络请求失败")
                         failed_count += 1
                         # 检查是否是任务被取消
                         task.error = e
                         try:
-                            task_check = Task.query.get(self.task_id)
+                            task_check = db.session.get(Task, self.task_id)
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
@@ -320,10 +403,11 @@ class BacktestTrainingService(BaseGoogleSheetService):
             return success_count, failed_count, 'completed'
 
         except Exception as e:
+            self._raise_retryable_network_error(e, "批量数据处理网络请求失败")
             # 检查是否是任务被取消导致的异常
             task.error = e
             try:
-                task_check = Task.query.get(self.task_id)
+                task_check = db.session.get(Task, self.task_id)
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
@@ -337,123 +421,11 @@ class BacktestTrainingService(BaseGoogleSheetService):
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次
         wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True  # 重试耗尽后重新抛出原始异常
-    )
-    def send_stock_template_param_data(self, payload: Dict, log) -> int:
-        """
-        发送股票模板参数数据
-
-        Args:
-            payload: 参数数据字典
-
-        Returns:
-            返回的ID或0
-        """
-        try:
-            self._log_api("发送股票模板参数数据", f"payload: {payload}")
-            result = self.api_client.insert_stock_template_param(payload)
-            self._log_api("发送股票模板参数数据成功", f"ID: {result}")
-            return result
-        except Exception as e:
-            self._log_api_error("发送股票模板参数数据", str(e))
-            log('error', f"发送股票模板参数数据失败: {str(e)}")
-            raise
-
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True  # 重试耗尽后重新抛出原始异常
-    )
-    def get_single_stock_template_param(self, stock_no: str) -> Optional[Dict]:
-        """
-        获取单个股票模板参数
-        
-        Args:
-            stock_no: 股票编号
-            
-        Returns:
-            股票参数字典或None
-        """
-        try:
-            self._log_api("获取股票模板参数", f"stock_no: {stock_no}")
-            result = self.api_client.get_single_stock_template_param(stock_no)
-            self._log_api("获取股票模板参数成功", f"返回结果: {type(result)}")
-            return result
-        except Exception as e:
-            self._log_api_error("获取股票模板参数", str(e))
-            raise
-
-    def _init_google_sheet(self, config_data: Dict[str, Any]):
-        """初始化Google Sheet连接"""
-        try:
-            self._log_info("开始初始化Google Sheet连接")
-            spreadsheet_id = config_data.get('spreadsheet_id')
-            sheet_name = config_data.get('sheet_name', 'data')
-            token_file = config_data.get('token_file', 'data/token.json')
-            proxy_url = config_data.get('proxy_url', None)
-
-            if 'sheet' in config_data:
-                sheet = config_data['sheet']
-                spreadsheet_id = sheet.get('spreadsheet_id')
-                sheet_name = sheet.get('sheet_name', 'data')
-
-            if not spreadsheet_id:
-                error_msg = "缺少spreadsheet_id配置"
-                self._log_error(error_msg)
-                raise ValueError(error_msg)
-
-            self._log_info(f"连接参数 - Spreadsheet ID: {spreadsheet_id}, Sheet: {sheet_name}, Token: {token_file}")
-            if proxy_url:
-                self._log_info(f"使用代理: {proxy_url}")
-
-            self.google_sheet = GoogleSheet(spreadsheet_id, sheet_name, token_file, proxy_url, task_id=self.task_id)
-            if not self.google_sheet.worksheet:
-                raise Exception("请先选择工作表")
-
-            self._log_info("Google Sheet连接初始化成功")
-        except Exception as e:
-            error_msg = f"初始化Google Sheet连接失败: {str(e)}"
-            self._log_error(error_msg)
-            raise
-
-    def get_worksheets(self,spreadsheet_id: str, token_file: str = "data/token.json", proxy_url: str = None) -> Dict[
-        str, Any]:
-        """
-        获取指定电子表格的基础信息
-
-        Args:
-            spreadsheet_id: 电子表格ID
-            token_file: 认证文件路径
-            proxy_url: 代理URL
-
-        Returns:
-            {
-                "title": 表格标题（spreadsheet 的名称）, 
-                "worksheets": 工作表名称列表
-            }
-        """
-        try:
-            # 使用上下文管理器确保连接被正确关闭
-            with GoogleSheet(spreadsheet_id, None, token_file, proxy_url) as google_sheet:
-                # 获取所有工作表名称
-                worksheets = google_sheet.get_all_worksheets()
-                if not worksheets:
-                    raise ValueError("未找到任何工作表")
-
-                title = google_sheet.sheet.title if google_sheet.sheet else ""
-                return {"title": title, "worksheets": worksheets}
-        except Exception as e:
-            self._log_error(f"获取工作表列表失败: {str(e)}")
-            raise
-
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
         reraise=True,  # 重试耗尽后重新抛出原始异常
         retry=retry_if_result(lambda result: result[0] is False)
     )
-    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> tuple[
-        bool, Dict[str, Any]]:
+    def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> \
+    tuple[bool, dict[Any, Any], list[Any]]:
         """执行单个参数组合"""
         try:
             # 获取参数位置配置
@@ -464,6 +436,14 @@ class BacktestTrainingService(BaseGoogleSheetService):
             results = {}
             cell_updates = {}
             parameter = combination['parameter']
+            Kline_key = combination['Kline_key']
+            kline = self._require_kline_data(
+                combination.get('stock_code', ''),
+                Kline_key,
+                KLINE_DATA_MAP.get(Kline_key),
+            )
+            parameter[0] = str(parameter[0]).replace('"', '').replace("'","")
+            parameter[1] = str(parameter[1]).replace('"', '').replace("'","")
             if len(parameter) == 2:
                 c5_parameter_1 = f"xm:{parameter[0]}"
                 c5_parameter_2 = f"ml:{parameter[1]}"
@@ -474,10 +454,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     cell_updates[parameter_positions[i]] = param
 
             def set_googl_val(initial_result_sleep=None):
-                Kline_key = combination['Kline_key']
                 _combination = cache_parameters['combination']
                 cache_Kline_key = _combination.get('Kline_key',"")
-                kline = KLINE_DATA_MAP.get(Kline_key,None)
                 _kline_len = len(kline)
 
                 if Kline_key != cache_Kline_key or initial_result_sleep is not None:
@@ -485,7 +463,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     A_num = column_A_length
                     self._log_info(f'{self.google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
                     self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
-
                     self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
                     if not self._interruptible_sleep(20):
                         raise RuntimeError("task cancelled")
@@ -517,8 +494,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 self.google_sheet.update_jumped_cells(cell_updates)
 
             set_googl_val()
-            Kline_key = combination['Kline_key']
-            kline = KLINE_DATA_MAP.get(Kline_key, None)
 
             merged_return_range_a1 = f"{output_column_index}2:{output_column_start}{len(kline) + 1}"
             sleep_num = 5
@@ -617,30 +592,51 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     for i in range(len(kline)):
                         _return_date.append({
                             'date': kline[i].get('stock_date'),
-                            'index_return': _index_return[f"{output_column_index}{i + 2}"],
-                            'start_return': _start_return[f"{output_column_start}{i + 2}"]
+                            'index_return': round(_index_return[f"{output_column_index}{i + 2}"],6),
+                            'start_return': round(_start_return[f"{output_column_start}{i + 2}"],6)
 
                         })
                     calculate_metrics = self.xpl.get_calculate_metrics_v1(_return_date)
                     _result['calculate_metrics'] = calculate_metrics
                     results[f"{self.google_sheet.spreadsheet_id}__{self.google_sheet.title}"] = _result
-                    return True, results
+                    return True, results, _return_date
                 else:
                     self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
                     self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
+                    
             self._log_warning("执行超时，未在规定时间内完成")
-            return False, {}
+            return False, {}, []
 
         except Exception as e:
             error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
             self._log_error(error_msg)
             raise
 
-    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
+    def _save_task_result(
+        self,
+        step_index: int,
+        parameters,
+        result: Dict,
+        success: bool,
+        return_date=None,
+    ):
         """保存任务结果到数据库，包含重试逻辑"""
 
+        def build_returns_json(return_rows):
+            dates = []
+            index_returns = []
+            start_returns = []
+            for item in return_rows or []:
+                dates.append(item.get('stock_date') or item.get('date'))
+                index_returns.append(item.get('index_return'))
+                start_returns.append(item.get('start_return'))
+            return json.dumps({
+                "dates": dates,
+                "index_returns": index_returns,
+                "start_returns": start_returns,
+            }, ensure_ascii=False, allow_nan=False)
+
         def save_result_operation():
-            _index_start_return_date = None
             safe_parameters = self._sanitize_json_value(parameters)
             safe_result = self._sanitize_json_value(result)
             task_result = TaskResult(
@@ -651,15 +647,14 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 success=success
             )
             db.session.add(task_result)
-            if _index_start_return_date:
-                for i in _index_start_return_date:
-                    task_result_return = TaskResultReturn(
-                        task_id=self.task_id,
-                        stock_date=i['stock_date'],
-                        index_return=i['index_return'],
-                        start_return=i['start_return']
-                    )
-                    db.session.add(task_result_return)
+            if return_date:
+                return_series = TaskResultReturn(
+                    task_id=self.task_id,
+                    returns_json=build_returns_json(return_date),
+                )
+                db.session.add(return_series)
+                db.session.flush()
+                task_result.return_series_id = return_series.id
             db.session.commit()
 
         try:
@@ -679,10 +674,19 @@ class BacktestTrainingService(BaseGoogleSheetService):
         full_years,
         recent_years,
         parameters,
-        stock_code,price_mode="sp_price",market_type="cn"
+        stock_code,price_mode="sp_price",market_type="cn",
+        adjust_type=None,
+        include_full_year_range=False,
+        end_date=None,
 
     ):
         market_type = self._normalize_market_type(market_type)
+        full_years = self._normalize_year_values(full_years, "full_years")
+        recent_years = self._normalize_year_values(recent_years, "recent_years")
+        end_date = self._parse_optional_end_date(end_date)
+        include_full_year_range = bool(include_full_year_range)
+        if include_full_year_range and not full_years:
+            raise ValueError("include_full_year_range=true 时必须传入 full_years")
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -714,16 +718,15 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
 
         end_dt = datetime.now() - timedelta(days=1)
-        end_date = end_dt.strftime("%Y-%m-%d")
-
+        effective_end_date = end_date or end_dt.strftime("%Y-%m-%d")
+        year_count = 1
         if recent_years:
-            year_count = max(int(year) for year in recent_years)
-        elif full_years:
+            year_count = max(year_count, max(int(year) for year in recent_years))
+        if full_years:
             earliest_full_year = min(int(year) for year in full_years)
-            year_count = max(1, int(end_date[:4]) - earliest_full_year + 1)
-        else:
-            year_count = 1
-        start_dt = end_dt - timedelta(days=365 * year_count)
+            year_count = max(year_count, int(effective_end_date[:4]) - earliest_full_year + 1)
+        effective_end_dt = datetime.strptime(effective_end_date, "%Y-%m-%d")
+        start_dt = effective_end_dt - timedelta(days=365 * year_count)
         start_date = start_dt.strftime("%Y-%m-%d")
 
         # A股按交易日粗略估算每年约 250 个交易日，美股按约 252 个交易日，额外留一点缓冲。
@@ -731,34 +734,45 @@ class BacktestTrainingService(BaseGoogleSheetService):
         limit = max(300, year_count * trading_days_per_year + 80)
 
         if market_type == 'cn':
-            stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_code, 10)
-            # stock_config = [i for i in stock_config if i['securityTypeName'] == '美股']
-
-            # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-            if stock_config:
-                stock_config = stock_config[0]
-            market = stock_config['market']
-
-            klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit)
+            resolved_code, market = self._resolve_cn_stock_quote(stock_code)
+            stock_code = resolved_code
+            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         else:
-            klines = self.YF_api.get_kline_data(stock_code, '10y')
+            klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
+
+        if not klines:
+            raise ValueError(f"股票{stock_code} 没有获取到K线数据")
 
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
-        
-        if end_dt.weekday() >= 5:
-            end_date = data_end_date
+
+        if not end_date and end_dt.weekday() >= 5:
+            effective_end_date = data_end_date
+        if effective_end_date > data_end_date:
+            raise ValueError(f"股票{stock_code} 指定 end_date {effective_end_date} 超出K线数据范围，最新日期为 {data_end_date}")
+
+        if recent_years and start_date < data_start_date:
+            self._log_info(
+                f"股票{stock_code} 近年区间起点 {start_date} 早于K线首日 {data_start_date}，"
+                f"将从K线首日开始执行"
+            )
+            start_date = data_start_date
 
         # 检查用户设定的区间是否在数据范围内
-        if start_date < data_start_date or end_date > data_end_date:
-            raise Exception(
-                f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
+        if start_date < data_start_date or effective_end_date > data_end_date:
+            if full_years and int(data_start_date[:4]) in full_years:
+                pass
+            elif full_years and int(full_years[0]) > int(data_start_date[:4]):
+                pass
+            else:
+                raise Exception(
+                    f"股票{stock_code} 设定区间 [{start_date}, {effective_end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
-        if len(klines) < 100:
-            raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于100条，无法在模型正确产生数据，或者联系开发")
+        if len(klines) < 30:
+            raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于30条，无法在模型正确产生数据，或者联系开发")
 
-        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
+        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=effective_end_date)
         data = []
 
         KLINE_DATA_MAP = {}
@@ -766,28 +780,49 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if recent_years:
             for year in recent_years:
 
-                _end_data = end_date
-                _start_data = f"{int(end_date[:4]) - year}{end_date[4:]}"
-                kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
+                _end_data = effective_end_date
+                _start_data = f"{int(effective_end_date[:4]) - year}{effective_end_date[4:]}"
                 Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
+                if _start_data < data_start_date:
+                    _start_data = data_start_date
+                kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
+                self._require_kline_data(stock_code, Kline_key, kline)
                 for item in parameters:
                     d = {"parameter": item, 'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
-                    if kline:
-                        if Kline_key not in KLINE_DATA_MAP:
-                            KLINE_DATA_MAP[Kline_key] = kline
+                    if Kline_key not in KLINE_DATA_MAP:
+                        KLINE_DATA_MAP[Kline_key] = kline
                     data.append(d)
 
-        if full_years:
-            _all_kline = [k for k in klines if start_date <= k['stock_date'] <= end_date]
+        if include_full_year_range:
+            range_start_year = min(full_years)
+            range_end_year = max(full_years)
+            range_start_prefix = f"{range_start_year}-"
+            range_kline = [
+                k for k in klines
+                if k['stock_date'].startswith(range_start_prefix)
+                and k['stock_date'] <= effective_end_date
+            ]
+            self._require_kline_data(stock_code, range_start_year, range_kline)
+            range_start_date = range_kline[0]['stock_date']
+            kline = _get_kline(klines, _start_date_1=range_start_date, _end_date_1=effective_end_date)
+            Kline_key = f'{range_start_year}-{range_end_year}'
+            self._require_kline_data(stock_code, Kline_key, kline)
+            for item in parameters:
+                d = {"parameter": item,  'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
+                if Kline_key not in KLINE_DATA_MAP:
+                    KLINE_DATA_MAP[Kline_key] = kline
+                data.append(d)
+        elif full_years:
+            _all_kline = [k for k in klines if start_date <= k['stock_date'] <= effective_end_date]
             for year in full_years:
                 kline = _get_kline(_all_kline, _year=year)
                 Kline_key = year
+                self._require_kline_data(stock_code, Kline_key, kline)
 
                 for item in parameters:
                     d = {"parameter": item,  'stock_code': stock_code, 'year': year,'Kline_key':Kline_key}
-                    if kline:
-                        if Kline_key not in KLINE_DATA_MAP:
-                            KLINE_DATA_MAP[Kline_key] = kline
+                    if Kline_key not in KLINE_DATA_MAP:
+                        KLINE_DATA_MAP[Kline_key] = kline
 
                     data.append(d)
 

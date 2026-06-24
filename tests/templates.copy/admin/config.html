@@ -1,0 +1,526 @@
+{% extends "admin/base.html" %}
+
+{% block title %}&#x7cfb;&#x7edf;&#x914d;&#x7f6e; - &#x4efb;&#x52a1;&#x7ba1;&#x7406;&#x7cfb;&#x7edf;{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">&#x7cfb;&#x7edf;&#x914d;&#x7f6e;</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="reloadAllData()">
+                <i class="bi bi-arrow-clockwise"></i> &#x5237;&#x65b0;
+            </button>
+        </div>
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-info" onclick="validateConfig()">
+                <i class="bi bi-check2-square"></i> &#x6821;&#x9a8c;&#x914d;&#x7f6e;
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="text-muted small">&#x5f53;&#x524d;&#x5360;&#x7528;&#x603b;&#x6570;</div>
+                <div class="fs-4 fw-semibold" id="token-summary-in-use">0</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="text-muted small">&#x7d2f;&#x8ba1;&#x4f7f;&#x7528;&#x603b;&#x6570;</div>
+                <div class="fs-4 fw-semibold" id="token-summary-usage">0</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="text-muted small">&#x5168;&#x5c40;&#x5360;&#x7528;&#x4e0a;&#x9650;</div>
+                <div class="fs-4 fw-semibold" id="token-summary-global-max">&#x65e0;&#x9650;</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="text-muted small">&#x53ef;&#x7528; Token &#x6570;</div>
+                <div class="fs-4 fw-semibold" id="token-summary-available">0</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-gear"></i> &#x914d;&#x7f6e;&#x5217;&#x8868;
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 25%">Key</th>
+                                <th style="width: 35%">Value</th>
+                                <th style="width: 30%">&#x8bf4;&#x660e;</th>
+                                <th style="width: 10%">&#x64cd;&#x4f5c;</th>
+                            </tr>
+                        </thead>
+                        <tbody id="configs-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-key"></i> Google Sheet Token &#x7ba1;&#x7406;
+                </h5>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="loadGoogleSheetTokens()">
+                    <i class="bi bi-arrow-clockwise"></i> &#x5237;&#x65b0; Token
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <label for="token-import-name" class="form-label">&#x540d;&#x79f0;</label>
+                        <input type="text" class="form-control" id="token-import-name" placeholder="&#x53ef;&#x9009;&#xff0c;&#x81ea;&#x5b9a;&#x4e49;&#x540d;&#x79f0;">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="token-import-max-usage" class="form-label">&#x5360;&#x7528;&#x4e0a;&#x9650;</label>
+                        <input type="number" class="form-control" id="token-import-max-usage" min="0" placeholder="0=&#x65e0;&#x9650;">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="token-import-task-type" class="form-label">Task Type</label>
+                        <select class="form-select" id="token-import-task-type">
+                            <option value="google_sheet">google_sheet</option>
+                            <option value="backtest_training">backtest_training</option>
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label for="token-import-context" class="form-label">Token JSON</label>
+                        <textarea class="form-control" id="token-import-context" rows="5" spellcheck="false" placeholder="&#x7c98;&#x8d34; token &#x7684; JSON &#x6587;&#x672c;"></textarea>
+                    </div>
+                    <div class="col-12 d-grid d-md-flex justify-content-md-end">
+                        <button type="button" class="btn btn-primary" id="token-import-btn">
+                            <i class="bi bi-plus-circle"></i> &#x65b0;&#x589e; Token
+                        </button>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>&#x540d;&#x79f0;</th>
+                                <th>Task Type</th>
+                                <th>JSON&#x5927;&#x5c0f;</th>
+                                <th>&#x5f53;&#x524d;&#x5360;&#x7528;</th>
+                                <th>&#x7d2f;&#x8ba1;&#x4f7f;&#x7528;</th>
+                                <th>&#x5360;&#x7528;&#x4e0a;&#x9650;</th>
+                                <th>&#x72b6;&#x6001;</th>
+                                <th>&#x6700;&#x540e;&#x4f7f;&#x7528;</th>
+                                <th>&#x64cd;&#x4f5c;</th>
+                            </tr>
+                        </thead>
+                        <tbody id="google-sheet-token-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editConfigModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">&#x7f16;&#x8f91;&#x914d;&#x7f6e;</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Key</label>
+                    <input type="text" class="form-control" id="edit-config-key" disabled>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Value</label>
+                    <textarea class="form-control" id="edit-config-value" rows="6"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">&#x8bf4;&#x660e;</label>
+                    <textarea class="form-control" id="edit-config-description" rows="4"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">&#x53d6;&#x6d88;</button>
+                <button type="button" class="btn btn-primary" id="edit-config-save-btn">&#x4fdd;&#x5b58;</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editTokenModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">&#x7f16;&#x8f91; Token</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-token-id">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">&#x540d;&#x79f0;</label>
+                        <input type="text" class="form-control" id="edit-token-name">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Task Type</label>
+                        <select class="form-select" id="edit-token-task-type">
+                            <option value="google_sheet">google_sheet</option>
+                            <option value="backtest_training">backtest_training</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">&#x5360;&#x7528;&#x4e0a;&#x9650;</label>
+                        <input type="number" class="form-control" id="edit-token-max-usage" min="0">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">&#x72b6;&#x6001;</label>
+                        <select class="form-select" id="edit-token-active">
+                            <option value="true">&#x542f;&#x7528;</option>
+                            <option value="false">&#x505c;&#x7528;</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Token &#x5185;&#x5bb9;</label>
+                        <textarea class="form-control" id="edit-token-context" rows="16" spellcheck="false"></textarea>
+                        <div class="form-text">&#x8bf7;&#x586b;&#x5199;&#x5408;&#x6cd5; JSON&#x3002;&#x4fdd;&#x5b58;&#x540e;&#x7cfb;&#x7edf;&#x4f1a;&#x81ea;&#x52a8;&#x540c;&#x6b65;&#x8fd0;&#x884c;&#x65f6;&#x51ed;&#x8bc1;&#x6587;&#x4ef6;&#x3002;</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger me-auto" id="delete-token-btn">&#x5220;&#x9664; Token</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">&#x53d6;&#x6d88;</button>
+                <button type="button" class="btn btn-primary" id="save-token-btn">&#x4fdd;&#x5b58;</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let googleSheetTokens = [];
+
+    document.addEventListener('DOMContentLoaded', function() {
+        bindEvents();
+        reloadAllData();
+    });
+
+    function bindEvents() {
+        document.getElementById('edit-config-save-btn')?.addEventListener('click', saveEditedConfig);
+        document.getElementById('token-import-btn')?.addEventListener('click', importGoogleSheetTokenFromAdmin);
+        document.getElementById('save-token-btn')?.addEventListener('click', saveEditedToken);
+        document.getElementById('delete-token-btn')?.addEventListener('click', deleteCurrentToken);
+    }
+
+    function reloadAllData() {
+        loadConfig();
+        loadGoogleSheetTokens();
+    }
+
+    function escapeHtml(text) {
+        if (text === null || text === undefined) {
+            return '';
+        }
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function formatLimit(value) {
+        const num = Number(value || 0);
+        return num > 0 ? String(num) : '\u65e0\u9650';
+    }
+
+    function formatTime(value) {
+        if (!value) {
+            return '-';
+        }
+        try {
+            return new Date(value).toLocaleString();
+        } catch (e) {
+            return value;
+        }
+    }
+
+    function loadConfig() {
+        ajaxRequest('/api/system-configs', 'GET', null, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                renderConfigTable(data.configs || []);
+            } else {
+                showNotification('\u52a0\u8f7d\u914d\u7f6e\u5931\u8d25: ' + (data ? data.message : '\u7f51\u7edc\u9519\u8bef'), 'error');
+            }
+        });
+    }
+
+    function renderConfigTable(configs) {
+        const tbody = document.getElementById('configs-table-body');
+        tbody.innerHTML = '';
+
+        configs.forEach(function(c) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><code>${escapeHtml(c.key)}</code></td>
+                <td style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(c.value)}</td>
+                <td style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(c.description)}</td>
+                <td><button type="button" class="btn btn-sm btn-primary">\u7f16\u8f91</button></td>
+            `;
+
+            const btn = tr.querySelector('button');
+            btn.dataset.key = c.key || '';
+            btn.dataset.value = c.value || '';
+            btn.dataset.description = c.description || '';
+            btn.addEventListener('click', function() {
+                openEditConfigModal(btn);
+            });
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function openEditConfigModal(btn) {
+        document.getElementById('edit-config-key').value = btn.dataset.key || '';
+        document.getElementById('edit-config-value').value = btn.dataset.value || '';
+        document.getElementById('edit-config-description').value = btn.dataset.description || '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('editConfigModal')).show();
+    }
+
+    function saveEditedConfig() {
+        const key = document.getElementById('edit-config-key').value;
+        const value = document.getElementById('edit-config-value').value;
+        const description = document.getElementById('edit-config-description').value;
+
+        ajaxRequest(`/api/system-configs/${encodeURIComponent(key)}`, 'PUT', {
+            value: value,
+            description: description
+        }, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('editConfigModal')).hide();
+                showNotification('\u914d\u7f6e\u66f4\u65b0\u6210\u529f', 'success');
+                loadConfig();
+            } else {
+                showNotification('\u914d\u7f6e\u66f4\u65b0\u5931\u8d25: ' + (data ? data.message : '\u672a\u77e5\u9519\u8bef'), 'error');
+            }
+        });
+    }
+
+    function loadGoogleSheetTokens() {
+        fetch('/api/google-sheet-tokens')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '\u52a0\u8f7d Token \u5931\u8d25');
+                }
+                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
+                renderTokenSummary(data.summary || {});
+                renderTokenTable(googleSheetTokens);
+            })
+            .catch(error => {
+                showNotification('\u52a0\u8f7d Token \u5931\u8d25: ' + error.message, 'error');
+            });
+    }
+
+    function renderTokenSummary(summary) {
+        document.getElementById('token-summary-in-use').textContent = summary.current_total_in_use ?? 0;
+        document.getElementById('token-summary-usage').textContent = summary.current_total_usage ?? 0;
+        document.getElementById('token-summary-global-max').textContent = formatLimit(summary.global_max_usage ?? 0);
+        document.getElementById('token-summary-available').textContent = summary.available_token_count ?? 0;
+    }
+
+    function renderTokenTable(tokens) {
+        const tbody = document.getElementById('google-sheet-token-table-body');
+        tbody.innerHTML = '';
+
+        tokens.forEach(function(token) {
+            const tr = document.createElement('tr');
+            const statusBadge = token.is_active
+                ? '<span class="badge bg-success">\u542f\u7528</span>'
+                : '<span class="badge bg-secondary">\u505c\u7528</span>';
+            const availableBadge = token.is_available
+                ? '<span class="badge bg-primary">\u53ef\u7528</span>'
+                : '<span class="badge bg-warning text-dark">\u5df2\u8fbe\u4e0a\u9650</span>';
+
+            tr.innerHTML = `
+                <td>${token.id}</td>
+                <td>${escapeHtml(token.name)}</td>
+                <td><code>${escapeHtml(token.task_type || 'google_sheet')}</code></td>
+                <td>${token.token_context_size || 0}</td>
+                <td>${token.current_in_use_count || 0}</td>
+                <td>${token.task_usage_count || 0}</td>
+                <td>${formatLimit(token.max_usage_count)}</td>
+                <td>${statusBadge} ${availableBadge}</td>
+                <td>${escapeHtml(formatTime(token.last_used_at))}</td>
+                <td><button type="button" class="btn btn-sm btn-primary">\u7f16\u8f91</button></td>
+            `;
+
+            tr.querySelector('button').addEventListener('click', function() {
+                openEditTokenModal(token.id);
+            });
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function importGoogleSheetTokenFromAdmin() {
+        const tokenContext = document.getElementById('token-import-context').value.trim();
+        const name = document.getElementById('token-import-name').value.trim();
+        const maxUsageCount = document.getElementById('token-import-max-usage').value.trim();
+        const taskType = document.getElementById('token-import-task-type').value;
+
+        if (!tokenContext) {
+            showNotification('\u8bf7\u8f93\u5165 Token JSON \u5185\u5bb9', 'warning');
+            return;
+        }
+
+        fetch('/api/google-sheet-tokens/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                token_context: tokenContext,
+                name: name || null,
+                max_usage_count: maxUsageCount === '' ? null : Number(maxUsageCount),
+                task_type: taskType || 'google_sheet'
+            })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '\u65b0\u589e Token \u5931\u8d25');
+                }
+                showNotification(data.message || 'Token \u65b0\u589e\u6210\u529f', 'success');
+                document.getElementById('token-import-name').value = '';
+                document.getElementById('token-import-max-usage').value = '';
+                document.getElementById('token-import-context').value = '';
+                loadGoogleSheetTokens();
+            })
+            .catch(error => {
+                showNotification('\u65b0\u589e Token \u5931\u8d25: ' + error.message, 'error');
+            });
+    }
+
+    function openEditTokenModal(tokenId) {
+        fetch(`/api/google-sheet-tokens/${encodeURIComponent(tokenId)}?include_context=1`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '\u52a0\u8f7d Token \u8be6\u60c5\u5931\u8d25');
+                }
+
+                const token = data.token || {};
+                document.getElementById('edit-token-id').value = token.id || '';
+                document.getElementById('edit-token-name').value = token.name || '';
+                document.getElementById('edit-token-task-type').value = token.task_type || 'google_sheet';
+                document.getElementById('edit-token-max-usage').value = token.max_usage_count || 0;
+                document.getElementById('edit-token-active').value = token.is_active ? 'true' : 'false';
+                document.getElementById('edit-token-context').value = token.token_context || '';
+
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('editTokenModal')).show();
+            })
+            .catch(error => {
+                showNotification('\u52a0\u8f7d Token \u8be6\u60c5\u5931\u8d25: ' + error.message, 'error');
+            });
+    }
+
+    function saveEditedToken() {
+        const tokenId = document.getElementById('edit-token-id').value;
+        const payload = {
+            name: document.getElementById('edit-token-name').value.trim(),
+            task_type: document.getElementById('edit-token-task-type').value || 'google_sheet',
+            max_usage_count: Number(document.getElementById('edit-token-max-usage').value || 0),
+            is_active: document.getElementById('edit-token-active').value === 'true',
+            token_context: document.getElementById('edit-token-context').value
+        };
+
+        fetch(`/api/google-sheet-tokens/${encodeURIComponent(tokenId)}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '\u4fdd\u5b58 Token \u5931\u8d25');
+                }
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('editTokenModal')).hide();
+                showNotification('Token \u66f4\u65b0\u6210\u529f', 'success');
+                loadGoogleSheetTokens();
+            })
+            .catch(error => {
+                showNotification('\u4fdd\u5b58 Token \u5931\u8d25: ' + error.message, 'error');
+            });
+    }
+
+    function deleteCurrentToken() {
+        const tokenId = document.getElementById('edit-token-id').value;
+        if (!tokenId) {
+            return;
+        }
+
+        if (!confirm('\u786e\u5b9a\u8981\u5220\u9664\u8fd9\u4e2a Token \u5417\uff1f')) {
+            return;
+        }
+
+        fetch(`/api/google-sheet-tokens/${encodeURIComponent(tokenId)}`, {
+            method: 'DELETE'
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    throw new Error(data.message || '\u5220\u9664 Token \u5931\u8d25');
+                }
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('editTokenModal')).hide();
+                showNotification('Token \u5220\u9664\u6210\u529f', 'success');
+                loadGoogleSheetTokens();
+            })
+            .catch(error => {
+                showNotification('\u5220\u9664 Token \u5931\u8d25: ' + error.message, 'error');
+            });
+    }
+
+    function validateConfig() {
+        ajaxRequest('/api/config/validate', 'GET', null, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                const validation = data.validation;
+                let message = '\u914d\u7f6e\u6821\u9a8c\u7ed3\u679c:\\n';
+                message += `\u6570\u636e\u5e93\u914d\u7f6e\u6570\u91cf: ${validation.db_size}\\n`;
+                message += `\u7f13\u5b58\u914d\u7f6e\u6570\u91cf: ${validation.cache_size}\\n`;
+                message += `Google Sheet \u914d\u7f6e: ${JSON.stringify(validation.google_sheet_config, null, 2)}`;
+                alert(message);
+                showNotification('\u914d\u7f6e\u6821\u9a8c\u5b8c\u6210\uff0c\u8bf7\u67e5\u770b\u5f39\u7a97\u8be6\u60c5', 'info');
+            } else {
+                showNotification('\u914d\u7f6e\u6821\u9a8c\u5931\u8d25: ' + (data ? data.message : '\u672a\u77e5\u9519\u8bef'), 'error');
+            }
+        });
+    }
+</script>
+{% endblock %}

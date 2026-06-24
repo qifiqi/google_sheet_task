@@ -1,0 +1,337 @@
+{% extends "admin/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-1">路由表管理</h2>
+        <p class="text-muted mb-0">维护后台侧边栏菜单、权限码和排序。</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" type="button" onclick="loadNavigationItems()">
+            <i class="bi bi-arrow-clockwise"></i> 刷新
+        </button>
+        <button class="btn btn-primary" type="button" data-permission="navigation:manage" onclick="openCreateNavigationModal()">
+            <i class="bi bi-plus-lg"></i> 新增路由
+        </button>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-5">
+                <label class="form-label" for="navigationKeyword">搜索</label>
+                <input id="navigationKeyword" class="form-control" type="text" placeholder="名称 / key / path / 权限码">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="navigationParentFilter">父级</label>
+                <select id="navigationParentFilter" class="form-select">
+                    <option value="">全部</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="navigationVisibleFilter">显示状态</label>
+                <select id="navigationVisibleFilter" class="form-select">
+                    <option value="">全部</option>
+                    <option value="1">显示</option>
+                    <option value="0">隐藏</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>菜单名称</th>
+                        <th>Key</th>
+                        <th>路径</th>
+                        <th>权限码</th>
+                        <th>父级</th>
+                        <th>排序</th>
+                        <th>显示</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="navigationTableBody">
+                    <tr>
+                        <td colspan="8" class="text-center text-muted py-4">正在加载...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="navigationModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="navigationModalTitle">新增路由</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="navigationRecordId">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" for="navigationLabel">菜单名称</label>
+                        <input id="navigationLabel" class="form-control" type="text" placeholder="例如：路由表管理">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="navigationKey">Key</label>
+                        <input id="navigationKey" class="form-control" type="text" placeholder="例如：navigation">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label" for="navigationPath">路径</label>
+                        <input id="navigationPath" class="form-control" type="text" placeholder="例如：/admin/navigation；父级菜单可留空">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="navigationSortOrder">排序</label>
+                        <input id="navigationSortOrder" class="form-control" type="number" step="1" value="0">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="navigationParentKey">父级菜单</label>
+                        <select id="navigationParentKey" class="form-select">
+                            <option value="">无</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="navigationPermission">权限码</label>
+                        <input id="navigationPermission" class="form-control" type="text" placeholder="例如：page:admin:navigation">
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="navigationVisible">
+                            <label class="form-check-label" for="navigationVisible">侧边栏显示</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-danger me-auto" type="button" id="navigationDeleteBtn" onclick="deleteCurrentNavigationItem()">删除</button>
+                <button class="btn btn-secondary" type="button" data-bs-dismiss="modal">取消</button>
+                <button class="btn btn-primary" type="button" onclick="submitNavigationForm()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let navigationItems = [];
+
+document.addEventListener('DOMContentLoaded', function() {
+    ['navigationKeyword', 'navigationParentFilter', 'navigationVisibleFilter'].forEach(function(id) {
+        document.getElementById(id)?.addEventListener('input', renderNavigationTable);
+        document.getElementById(id)?.addEventListener('change', renderNavigationTable);
+    });
+    loadNavigationItems();
+});
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function getParentOptions() {
+    return navigationItems.filter(function(item) {
+        return !item.path;
+    });
+}
+
+function parentLabel(parentKey) {
+    if (!parentKey) return '-';
+    const parent = navigationItems.find(function(item) {
+        return item.key === parentKey;
+    });
+    return parent ? parent.label : parentKey;
+}
+
+function refreshParentSelects() {
+    const options = ['<option value="">无</option>']
+        .concat(getParentOptions().map(function(item) {
+            return `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)} (${escapeHtml(item.key)})</option>`;
+        }))
+        .join('');
+    document.getElementById('navigationParentKey').innerHTML = options;
+
+    const filterOptions = ['<option value="">全部</option>']
+        .concat(getParentOptions().map(function(item) {
+            return `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`;
+        }))
+        .join('');
+    document.getElementById('navigationParentFilter').innerHTML = filterOptions;
+}
+
+function loadNavigationItems() {
+    fetch('/api/navigation-menu-items')
+        .then(function(response) {
+            return response.json();
+        })
+        .then(function(data) {
+            if (data.status !== 'success') {
+                throw new Error(data.message || '加载路由失败');
+            }
+            navigationItems = Array.isArray(data.items) ? data.items : [];
+            refreshParentSelects();
+            renderNavigationTable();
+        })
+        .catch(function(error) {
+            showError(error.message || '加载路由失败');
+        });
+}
+
+function renderNavigationTable() {
+    const keyword = document.getElementById('navigationKeyword').value.trim().toLowerCase();
+    const parentFilter = document.getElementById('navigationParentFilter').value;
+    const visibleFilter = document.getElementById('navigationVisibleFilter').value;
+    const tbody = document.getElementById('navigationTableBody');
+
+    const rows = navigationItems.filter(function(item) {
+        const matchKeyword = !keyword || [
+            item.label,
+            item.key,
+            item.path,
+            item.permission,
+            item.parent_key,
+        ].join(' ').toLowerCase().includes(keyword);
+        const matchParent = !parentFilter || item.parent_key === parentFilter;
+        const matchVisible = !visibleFilter || String(Number(Boolean(item.is_visible))) === visibleFilter;
+        return matchKeyword && matchParent && matchVisible;
+    });
+
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">暂无路由记录</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map(function(item) {
+        return `
+            <tr>
+                <td>${escapeHtml(item.label)}</td>
+                <td><code>${escapeHtml(item.key)}</code></td>
+                <td>${item.path ? `<code>${escapeHtml(item.path)}</code>` : '<span class="text-muted">分组</span>'}</td>
+                <td>${item.permission ? `<code>${escapeHtml(item.permission)}</code>` : '<span class="text-muted">无</span>'}</td>
+                <td>${escapeHtml(parentLabel(item.parent_key))}</td>
+                <td>${Number(item.sort_order || 0)}</td>
+                <td>${item.is_visible ? '<span class="badge bg-success">显示</span>' : '<span class="badge bg-secondary">隐藏</span>'}</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary" type="button" onclick="openEditNavigationModal(${item.id})" data-permission="navigation:manage">编辑</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function openCreateNavigationModal() {
+    refreshParentSelects();
+    document.getElementById('navigationModalTitle').textContent = '新增路由';
+    document.getElementById('navigationRecordId').value = '';
+    document.getElementById('navigationLabel').value = '';
+    document.getElementById('navigationKey').value = '';
+    document.getElementById('navigationPath').value = '';
+    document.getElementById('navigationPermission').value = '';
+    document.getElementById('navigationParentKey').value = '';
+    document.getElementById('navigationSortOrder').value = '0';
+    document.getElementById('navigationVisible').checked = false;
+    document.getElementById('navigationDeleteBtn').style.display = 'none';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('navigationModal')).show();
+}
+
+function openEditNavigationModal(id) {
+    const item = navigationItems.find(function(record) {
+        return record.id === id;
+    });
+    if (!item) {
+        showError('路由记录不存在');
+        return;
+    }
+    refreshParentSelects();
+    document.getElementById('navigationModalTitle').textContent = '编辑路由';
+    document.getElementById('navigationRecordId').value = item.id;
+    document.getElementById('navigationLabel').value = item.label || '';
+    document.getElementById('navigationKey').value = item.key || '';
+    document.getElementById('navigationPath').value = item.path || '';
+    document.getElementById('navigationPermission').value = item.permission || '';
+    document.getElementById('navigationParentKey').value = item.parent_key || '';
+    document.getElementById('navigationSortOrder').value = item.sort_order || 0;
+    document.getElementById('navigationVisible').checked = !!item.is_visible;
+    document.getElementById('navigationDeleteBtn').style.display = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('navigationModal')).show();
+}
+
+function collectNavigationPayload() {
+    return {
+        label: document.getElementById('navigationLabel').value.trim(),
+        key: document.getElementById('navigationKey').value.trim(),
+        path: document.getElementById('navigationPath').value.trim(),
+        permission: document.getElementById('navigationPermission').value.trim(),
+        parent_key: document.getElementById('navigationParentKey').value,
+        sort_order: Number(document.getElementById('navigationSortOrder').value || 0),
+        is_visible: document.getElementById('navigationVisible').checked
+    };
+}
+
+function submitNavigationForm() {
+    const id = document.getElementById('navigationRecordId').value;
+    const payload = collectNavigationPayload();
+    const url = id ? `/api/navigation-menu-items/${encodeURIComponent(id)}` : '/api/navigation-menu-items';
+    const method = id ? 'PUT' : 'POST';
+
+    fetch(url, {
+        method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                return {ok: response.ok, data};
+            });
+        })
+        .then(function(result) {
+            if (!result.ok || result.data.status !== 'success') {
+                throw new Error(result.data.message || '保存失败');
+            }
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('navigationModal')).hide();
+            showNotification(result.data.message || '保存成功', 'success');
+            loadNavigationItems();
+        })
+        .catch(function(error) {
+            showError(error.message || '保存失败');
+        });
+}
+
+function deleteCurrentNavigationItem() {
+    const id = document.getElementById('navigationRecordId').value;
+    if (!id || !confirm('确定删除这条路由记录吗？')) {
+        return;
+    }
+    fetch(`/api/navigation-menu-items/${encodeURIComponent(id)}`, { method: 'DELETE' })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                return {ok: response.ok, data};
+            });
+        })
+        .then(function(result) {
+            if (!result.ok || result.data.status !== 'success') {
+                throw new Error(result.data.message || '删除失败');
+            }
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('navigationModal')).hide();
+            showNotification(result.data.message || '删除成功', 'success');
+            loadNavigationItems();
+        })
+        .catch(function(error) {
+            showError(error.message || '删除失败');
+        });
+}
+</script>
+{% endblock %}

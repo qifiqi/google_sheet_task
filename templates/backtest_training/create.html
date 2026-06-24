@@ -96,6 +96,24 @@
         min-width: 8rem;
         text-align: center;
     }
+    .paste-parse-panel {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.95rem;
+        background: var(--bs-tertiary-bg);
+        padding: 1rem;
+    }
+    .paste-parse-input {
+        min-height: 7rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 0.875rem;
+    }
+    .param-help-popover { max-width: 24rem; }
+    .param-help-content {
+        display: grid;
+        gap: 0.55rem;
+        font-size: 0.875rem;
+        line-height: 1.55;
+    }
     .empty-hint {
         border: 1px dashed var(--bs-border-color);
         border-radius: 1rem;
@@ -181,7 +199,7 @@
                 <div class="config-grid">
                     <div class="config-box">
                         <label for="taskName" class="form-label">任务名称</label>
-                        <input type="text" class="form-control" id="taskName" placeholder="默认按股票代码和表格标题生成">
+                        <input type="text" class="form-control" id="taskName" placeholder="自动生成，例如 C3-NVDA">
                     </div>
                     <div class="config-box">
                         <label for="tokenId" class="form-label">回测 Token</label>
@@ -205,6 +223,26 @@
                                 <label class="form-check-label" for="market_type_en">en</label>
                             </div>
                         </div>
+                    </div>
+                    <div class="config-box">
+                        <label for="klineAdjustmentInput" class="form-label">K线复权</label>
+                        <select class="form-select" id="klineAdjustmentInput">
+                            <option value="forward" selected>前复权</option>
+                            <option value="back">后复权</option>
+                            <option value="none">不复权</option>
+                        </select>
+                    </div>
+                    <div class="config-box">
+                        <label for="priceModeInput" class="form-label">价格模式</label>
+                        <select class="form-select" id="priceModeInput">
+                            <option value="kp_price">开盘价</option>
+                            <option value="sp_price" selected>收盘价</option>
+                        </select>
+                    </div>
+                    <div class="config-box">
+                        <label for="endDateInput" class="form-label">K 线截至日期</label>
+                        <input type="date" class="form-control" id="endDateInput">
+                        <div class="form-text">留空时使用运行日前一天；近 N 年会按该日期向前计算。</div>
                     </div>
                 </div>
 
@@ -256,6 +294,15 @@
                     <input type="file" id="excelFileInput" class="d-none" accept=".xlsx,.xlsm">
                     <button type="button" class="btn btn-outline-secondary" id="importExcelBtn">
                         <i class="bi bi-file-earmark-excel me-1"></i>导入 Excel
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="paramHelpBtn" aria-label="查看粘贴与复制说明">
+                        <i class="bi bi-exclamation-circle"></i>
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="pasteClipboardBtn">
+                        <i class="bi bi-clipboard2-plus me-1"></i>粘贴追加
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="copyParamBtn">
+                        <i class="bi bi-copy me-1"></i>复制参数
                     </button>
                     <button type="button" class="btn btn-outline-primary" id="addParamBtn">
                         <i class="bi bi-plus-lg me-1"></i>添加参数
@@ -321,6 +368,13 @@ let selectedStockSuggestion = null;
 let taskNameTouched = false;
 
 const currentYear = new Date().getFullYear();
+const PARAMETER_HELP_HTML = `
+    <div class="param-help-content">
+        <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统自动补默认手续费；每行 7 列时第 1 列按手续费处理。</div>
+        <div><strong>C3 复制</strong>：复制当前表格为 Tab 分隔行，包含 <code>Commission</code> 和后续参数列，可直接贴到其他任务或 Excel。</div>
+        <div><strong>C5 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
+    </div>
+`;
 const modelUrlInput = document.getElementById('modelUrl');
 const stockCodeInput = document.getElementById('stockCode');
 const stockSearchResults = document.getElementById('stockSearchResults');
@@ -342,6 +396,7 @@ const recentYearsDisplay = document.getElementById('recentYearsDisplay');
 const fullYearsDisplay = document.getElementById('fullYearsDisplay');
 const recentYearsInfoDisplay = document.getElementById('recentYearsInfoDisplay');
 const fullYearsInfoDisplay = document.getElementById('fullYearsInfoDisplay');
+const endDateInput = document.getElementById('endDateInput');
 const yearsDisplay = document.getElementById('yearsDisplay');
 const sheetInfo = document.getElementById('sheetInfo');
 const modelVersionBadge = document.getElementById('modelVersionBadge');
@@ -352,6 +407,9 @@ const paramTableHead = document.getElementById('paramTableHead');
 const paramTableBody = document.getElementById('paramTableBody');
 const excelFileInput = document.getElementById('excelFileInput');
 const importExcelBtn = document.getElementById('importExcelBtn');
+const paramHelpBtn = document.getElementById('paramHelpBtn');
+const pasteClipboardBtn = document.getElementById('pasteClipboardBtn');
+const copyParamBtn = document.getElementById('copyParamBtn');
 const addParamBtn = document.getElementById('addParamBtn');
 const createBtn = document.getElementById('createBtn');
 const excelImportStatus = document.getElementById('excelImportStatus');
@@ -420,8 +478,8 @@ function sanitizeTaskTitlePart(value) {
 
 function buildDefaultTaskName() {
     const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());
-    const title = sanitizeTaskTitlePart(sheetTitle || sheetTitleEl.textContent || '');
-    return [stockCode, title].filter(Boolean).join('-');
+    const modelVersion = resolveModelVersion(currentModelVersion).toUpperCase();
+    return stockCode ? `${modelVersion}-${stockCode}` : '';
 }
 
 function syncTaskNameInput(force = false) {
@@ -563,6 +621,99 @@ function projectImportedRows(rows) {
         .filter((row) => Object.values(row).some(Boolean));
 }
 
+function splitPastedParameterLine(line) {
+    const value = String(line || '').trim();
+    if (!value) {
+        return [];
+    }
+    if (value.includes('\t')) {
+        return value.split('\t');
+    }
+    if (value.includes(',')) {
+        return value.split(',');
+    }
+    if (value.includes('，')) {
+        return value.split('，');
+    }
+    return value.split(/\s+/);
+}
+
+function normalizePastedCell(value) {
+    return String(value ?? '')
+        .replace(/\r/g, '')
+        .trim();
+}
+
+function normalizeHeaderToken(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_()（）:：/-]+/g, '');
+}
+
+function isCommissionCell(value) {
+    const normalized = normalizePastedCell(value).toLowerCase();
+    if (!normalized) {
+        return false;
+    }
+    return normalized.includes('%') || normalized === 'commission' || normalized === '手续费';
+}
+
+function isPastedHeaderRow(cells) {
+    const headerTokens = new Set([
+        'commission',
+        '手续费',
+        'xm',
+        'xmultiplier',
+        'ml',
+        'dbbh1',
+        'dbbh2',
+        'zlxc',
+        'zsgz',
+        'ywf1',
+        'ywf2',
+        '单边保护1',
+        '单边保护2',
+        '中立限仓',
+        '指数跟踪'
+    ]);
+    return cells.some((cell) => headerTokens.has(normalizeHeaderToken(cell)));
+}
+
+function parsePastedParameterRows(rawText) {
+    const rows = String(rawText || '')
+        .split(/\n+/)
+        .map((line) => splitPastedParameterLine(line).map(normalizePastedCell))
+        .filter((cells) => cells.some((cell) => cell !== ''));
+
+    if (!rows.length) {
+        return [];
+    }
+
+    const dataRows = isPastedHeaderRow(rows[0]) ? rows.slice(1) : rows;
+    const c3Mode = resolveModelVersion(currentModelVersion) === 'c3';
+    const expectedColumnCount = currentFields.length;
+    const firstDataRow = dataRows[0] || [];
+    const hasLeadingCommission = c3Mode
+        && firstDataRow.length > expectedColumnCount
+        && (isCommissionCell(firstDataRow[0]) || firstDataRow.length === expectedColumnCount + 1);
+
+    if (hasLeadingCommission && firstDataRow[0]) {
+        commissionInput.value = firstDataRow[0];
+    }
+
+    return dataRows
+        .map((cells) => {
+            const sourceCells = hasLeadingCommission ? cells.slice(1) : cells;
+            const projected = {};
+            currentFields.forEach((field, index) => {
+                projected[field.key] = sourceCells[index] || '';
+            });
+            return projected;
+        })
+        .filter((row) => Object.values(row).some(Boolean));
+}
+
 function resetParameterTable(rows = []) {
     updateTableHeader();
     paramTableBody.innerHTML = '';
@@ -581,6 +732,10 @@ function collectParameterDraftRows() {
     });
 }
 
+function hasParameterDraftValues() {
+    return collectParameterDraftRows().some((row) => row.some(Boolean));
+}
+
 function getCommissionValue() {
     const value = commissionInput.value.trim();
     return value || DEFAULT_C3_COMMISSION;
@@ -593,6 +748,144 @@ function collectParameters() {
         return rows.map((row) => [commission, ...row]);
     }
     return rows;
+}
+
+async function queryClipboardReadPermission() {
+    if (!navigator.permissions?.query) {
+        return '';
+    }
+    try {
+        const status = await navigator.permissions.query({ name: 'clipboard-read' });
+        return status.state || '';
+    } catch (error) {
+        return '';
+    }
+}
+
+function requestManualClipboardText(message) {
+    return new Promise((resolve) => {
+        if (!window.bootstrap?.Modal) {
+            resolve(window.prompt(`${message}\n请粘贴参数内容：`, '') || '');
+            return;
+        }
+
+        const modalEl = document.createElement('div');
+        modalEl.className = 'modal fade';
+        modalEl.tabIndex = -1;
+        modalEl.setAttribute('aria-hidden', 'true');
+        modalEl.innerHTML = `
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">粘贴参数</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning py-2 small"></div>
+                        <textarea class="form-control paste-parse-input" rows="8" placeholder="在这里粘贴从 Excel 或其他任务复制的参数"></textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="button" class="btn btn-primary confirm-manual-paste">追加参数</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalEl);
+        modalEl.querySelector('.alert').textContent = message;
+        const textarea = modalEl.querySelector('textarea');
+        const modal = new bootstrap.Modal(modalEl, { backdrop: 'static' });
+        let resolved = false;
+
+        modalEl.addEventListener('shown.bs.modal', () => textarea.focus(), { once: true });
+        modalEl.addEventListener('hidden.bs.modal', () => {
+            modal.dispose();
+            modalEl.remove();
+            if (!resolved) {
+                resolve('');
+            }
+        }, { once: true });
+        modalEl.querySelector('.confirm-manual-paste').addEventListener('click', () => {
+            resolved = true;
+            const value = textarea.value;
+            modal.hide();
+            resolve(value);
+        });
+        modal.show();
+    });
+}
+
+async function readClipboardText() {
+    const canUseClipboardApi = window.isSecureContext && navigator.clipboard?.readText;
+    if (!canUseClipboardApi) {
+        return requestManualClipboardText('当前页面不是 HTTPS，浏览器无法授予剪切板读取权限。请在下方粘贴参数后继续。');
+    }
+
+    const permissionState = await queryClipboardReadPermission();
+    if (permissionState === 'denied') {
+        return requestManualClipboardText('浏览器已拒绝剪切板读取权限。请在下方粘贴参数后继续。');
+    }
+
+    try {
+        return await navigator.clipboard.readText();
+    } catch (error) {
+        return requestManualClipboardText('未完成剪切板权限授权，或浏览器暂时无法读取剪切板。请在下方粘贴参数后继续。');
+    }
+}
+
+async function writeClipboardText(text) {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    textarea.remove();
+    if (!ok) {
+        throw new Error('复制失败，请检查浏览器剪切板权限');
+    }
+}
+
+function parameterRowsToClipboard() {
+    return collectParameters()
+        .filter((row) => Array.isArray(row) && row.some((value) => String(value ?? '').trim()))
+        .map((row) => row.join('\t'))
+        .join('\n');
+}
+
+async function pasteParametersFromClipboard() {
+    try {
+        const raw = await readClipboardText();
+        const rows = parsePastedParameterRows(raw);
+        if (!rows.length) {
+            setExcelImportStatus('剪切板中没有解析到有效参数', 'danger');
+            return;
+        }
+        rows.forEach((row) => addParameterRow(row));
+        syncEmptyState();
+        setExcelImportStatus(`已追加 ${rows.length} 行参数`, 'success');
+    } catch (error) {
+        alert(error.message || '读取剪切板失败');
+    }
+}
+
+async function copyParametersToClipboard() {
+    try {
+        const text = parameterRowsToClipboard();
+        if (!text) {
+            throw new Error('当前没有可复制的参数');
+        }
+        await writeClipboardText(text);
+        setExcelImportStatus('参数已复制，可直接粘贴到其他单产品回测或 Excel', 'success');
+    } catch (error) {
+        alert(error.message || '复制失败');
+    }
 }
 
 function setExcelImportStatus(message, tone = 'muted') {
@@ -762,6 +1055,16 @@ function padNumber(value) {
     return String(value).padStart(2, '0');
 }
 
+function formatDateInputValue(date) {
+    return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
+}
+
+function getDefaultEndDateValue() {
+    const date = new Date();
+    date.setDate(date.getDate() - 1);
+    return formatDateInputValue(date);
+}
+
 function buildMinuteTimestamp() {
     const now = new Date();
     return `${now.getFullYear()}${padNumber(now.getMonth() + 1)}${padNumber(now.getDate())}${padNumber(now.getHours())}${padNumber(now.getMinutes())}`;
@@ -783,11 +1086,7 @@ function buildRunYearLabel() {
 }
 
 function buildC3TaskName() {
-    const stockCode = stockCodeInput.value.trim().toUpperCase();
-    if (!stockCode) {
-        return '';
-    }
-    return `C3_${stockCode}_${buildRunYearLabel()}_${buildMinuteTimestamp()}`;
+    return buildDefaultTaskName();
 }
 
 async function analyzeSheetUrl() {
@@ -855,6 +1154,9 @@ async function importExcelFile(file) {
             });
             fullYearsCheck.checked = data.full_years.length > 0;
         }
+        if (data.end_date) {
+            endDateInput.value = String(data.end_date);
+        }
 
         syncYearsWrapper();
         syncYearsDisplay();
@@ -886,12 +1188,13 @@ async function createTask() {
         return;
     }
 
-    const taskName = taskNameInput.value.trim() || buildDefaultTaskName();
+    const taskName = buildDefaultTaskName();
     const stockCode = stockCodeInput.value.trim().toUpperCase();
     const tokenId = tokenIdSelect.value;
     const parameters = collectParameters();
     const recentYears = recentYearsCheck.checked ? getCheckedRecentYears() : [];
     const fullYears = fullYearsCheck.checked ? getCheckedFullYears() : [];
+    const endDate = endDateInput.value;
 
     if (!taskName) {
         alert('请填写任务名称');
@@ -939,11 +1242,14 @@ async function createTask() {
             },
             stock_code: stockCode,
             market_type: getSelectedMarketType(),
+            kline_adjustment: document.getElementById('klineAdjustmentInput')?.value || 'forward',
+            price_mode: document.getElementById('priceModeInput')?.value || 'sp_price',
             token_type: 'file',
             token_id: Number(tokenId),
             parameters,
             recent_years: recentYears,
-            full_years: fullYears
+            full_years: fullYears,
+            end_date: endDate || undefined
         };
         if (currentExcelImport) {
             config.excel_import = currentExcelImport;
@@ -973,6 +1279,7 @@ async function createTask() {
 }
 
 buildYearCheckboxes();
+endDateInput.value = getDefaultEndDateValue();
 ensureDefaultRecentYearsSelection();
 ensureDefaultFullYearsSelection();
 resetParameterTable();
@@ -1070,6 +1377,22 @@ document.addEventListener('change', (event) => {
 
 taskConfigCollapse.addEventListener('shown.bs.collapse', updateConfigToggleText);
 taskConfigCollapse.addEventListener('hidden.bs.collapse', updateConfigToggleText);
+
+if (paramHelpBtn && window.bootstrap?.Popover) {
+    paramHelpBtn.setAttribute('data-bs-content', PARAMETER_HELP_HTML);
+    new bootstrap.Popover(paramHelpBtn, {
+        container: 'body',
+        customClass: 'param-help-popover',
+        html: true,
+        placement: 'top',
+        sanitize: false,
+        title: '粘贴与复制说明',
+        trigger: 'focus'
+    });
+}
+
+pasteClipboardBtn.addEventListener('click', pasteParametersFromClipboard);
+copyParamBtn.addEventListener('click', copyParametersToClipboard);
 
 addParamBtn.addEventListener('click', () => addParameterRow());
 paramTableBody.addEventListener('click', (event) => {

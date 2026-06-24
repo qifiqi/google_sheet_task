@@ -1,22 +1,29 @@
+import json
+import subprocess
+import sys
+import threading
+import time
 from datetime import datetime, timedelta
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from croniter import croniter
-import json
-import threading
-import time
-import subprocess
-import sys
 from flask import current_app
+
 from app.extensions import db
 from app.models import ScheduledTask, TaskLog, TaskResult
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 class SchedulerService:
-    """定时任务调度服务"""
-    
+    """定时任务调度服务。
+
+    主进程只负责调度触发、数据库抢锁和启动子进程。
+    实际清理任务在 ``scheduled_task_worker.py`` 中执行，并由子进程负责释放锁。
+    """
+
     def __init__(self):
         # APScheduler 调度器实例
         self.scheduler = None
@@ -213,7 +220,7 @@ class SchedulerService:
         try:
             with self.app.app_context():
                 # 获取任务信息
-                scheduled_task = ScheduledTask.query.get(task_id)
+                scheduled_task = db.session.get(ScheduledTask, task_id)
                 if not scheduled_task or not scheduled_task.is_active:
                     logger.warning(f"定时任务 {task_id} 不存在或已禁用")
                     return
@@ -278,33 +285,13 @@ class SchedulerService:
         """释放任务锁"""
         try:
             with self.app.app_context():
-                task = ScheduledTask.query.get(task_id)
+                task = db.session.get(ScheduledTask, task_id)
                 if task and task.running_instance_id == self.instance_id:
                     task.is_running = False
                     task.running_instance_id = None
                     db.session.commit()
         except Exception as e:
             logger.error(f"释放任务锁失败: {e}")
-
-        """运行具体的任务函数"""
-        try:
-            function_name = scheduled_task.task_function
-            params = json.loads(scheduled_task.task_params) if scheduled_task.task_params else {}
-            
-            # 根据任务类型执行不同的函数
-            if function_name == 'cleanup_old_logs':
-                return self._cleanup_old_logs(params)
-            elif function_name == 'cleanup_old_results':
-                return self._cleanup_old_results(params)
-            elif function_name == 'cleanup_old_data':
-                return self._cleanup_old_data(params)
-            else:
-                logger.error(f"未知的任务函数: {function_name}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"执行任务函数失败: {e}")
-            return False
     
     def _cleanup_old_logs(self, params):
         """清理旧日志（批量处理优化）"""

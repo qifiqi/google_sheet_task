@@ -1,6 +1,26 @@
 {% extends "admin/base.html" %}
 
-{% block title %}V1 Google Sheet 分析 - 任务管理系统{% endblock %}
+{% block title %}V1 Google Sheet 分析 - Jaspil 任务管理系统{% endblock %}
+
+{% block head %}
+<style>
+    html[data-bs-theme="dark"] #summary-cards .card,
+    html[data-bs-theme="dark"] #details-card,
+    html[data-bs-theme="dark"] .card.border-0.shadow-sm {
+        background-color: #182132;
+    }
+    html[data-bs-theme="dark"] #gs-meta {
+        color: #94a3b8 !important;
+    }
+    html[data-bs-theme="dark"] #summary-cards .card-subtitle,
+    html[data-bs-theme="dark"] #summary-cards .card-text {
+        color: #94a3b8 !important;
+    }
+    html[data-bs-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > * {
+        --bs-table-accent-bg: rgba(148, 163, 184, 0.05);
+    }
+</style>
+{% endblock %}
 
 {% block head %}
 <style>

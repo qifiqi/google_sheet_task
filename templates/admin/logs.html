@@ -1,6 +1,43 @@
 {% extends "admin/base.html" %}
 
-{% block title %}系统日志 - 任务管理系统{% endblock %}
+{% block title %}系统日志 - Jaspil 任务管理系统{% endblock %}
+
+{% block head %}
+<style>
+    .log-container {
+        height: 600px;
+        overflow-y: auto;
+        overflow-x: auto;
+        background: #0b1220;
+        color: #dbeafe;
+        padding: 12px 14px;
+        border-radius: 0.75rem;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        line-height: 1.6;
+        white-space: pre;
+        word-break: normal;
+    }
+
+    .log-container > div {
+        white-space: pre;
+        word-break: normal;
+        margin-bottom: 0;
+    }
+
+    .log-line-info {
+        color: #93c5fd;
+    }
+
+    .log-line-warning {
+        color: #fcd34d;
+    }
+
+    .log-line-error {
+        color: #fca5a5;
+    }
+</style>
+{% endblock %}
 
 {% block head %}
 <style>

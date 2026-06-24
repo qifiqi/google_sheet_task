@@ -1,0 +1,128 @@
+:root {
+    --template-auth-primary: #2563eb;
+    --template-auth-primary-strong: #1d4ed8;
+    --template-auth-accent: #f59e0b;
+    --template-auth-surface: #ffffff;
+    --template-auth-surface-soft: #f8fafc;
+    --template-auth-border: #dbe3f0;
+    --template-auth-text: #0f172a;
+    --template-auth-text-soft: #64748b;
+    --template-auth-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+html[data-bs-theme="dark"] {
+    --template-auth-surface: #111827;
+    --template-auth-surface-soft: #0f172a;
+    --template-auth-border: #243041;
+    --template-auth-text: #e5e7eb;
+    --template-auth-text-soft: #94a3b8;
+    --template-auth-shadow: 0 18px 40px rgba(2, 6, 23, 0.34);
+}
+
+body.template-auth-pending {
+    visibility: hidden;
+}
+
+body.template-auth-ready,
+body.template-auth-login {
+    visibility: visible;
+}
+
+.template-auth-loading {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2200;
+    background: rgba(248, 250, 252, 0.78);
+    backdrop-filter: blur(4px);
+}
+
+html[data-bs-theme="dark"] .template-auth-loading {
+    background: rgba(15, 23, 42, 0.74);
+}
+
+.template-auth-loading.is-visible {
+    display: flex;
+}
+
+.template-auth-loading__card {
+    min-width: 220px;
+    padding: 20px 24px;
+    border: 1px solid var(--template-auth-border);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--template-auth-surface) 92%, transparent);
+    box-shadow: var(--template-auth-shadow);
+    text-align: center;
+    color: var(--template-auth-text);
+}
+
+.template-auth-loading__label {
+    margin-top: 12px;
+    font-size: 14px;
+    color: var(--template-auth-text-soft);
+}
+
+.template-auth-user__name {
+    color: var(--template-auth-text);
+}
+
+.template-auth-user__meta {
+    color: var(--template-auth-text-soft);
+}
+
+.template-auth-horizontal-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.template-auth-horizontal-nav .nav-link {
+    border-radius: 999px;
+    padding: 0.45rem 0.85rem;
+}
+
+.template-auth-empty-nav {
+    color: var(--template-auth-text-soft);
+    font-size: 0.92rem;
+}
+
+.template-auth-guard {
+    max-width: 520px;
+    margin: 56px auto;
+    padding: 24px;
+    border: 1px solid var(--template-auth-border);
+    border-radius: 20px;
+    background: var(--template-auth-surface);
+    box-shadow: var(--template-auth-shadow);
+    text-align: center;
+}
+
+.template-auth-floating-entry {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 1400;
+}
+
+.template-auth-floating-panel {
+    position: fixed;
+    top: 76px;
+    right: 16px;
+    width: min(360px, calc(100vw - 32px));
+    max-height: calc(100vh - 96px);
+    overflow: auto;
+    padding: 16px;
+    border: 1px solid var(--template-auth-border);
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--template-auth-surface) 95%, transparent);
+    box-shadow: var(--template-auth-shadow);
+    z-index: 1400;
+    display: none;
+}
+
+.template-auth-floating-panel.is-visible {
+    display: block;
+}

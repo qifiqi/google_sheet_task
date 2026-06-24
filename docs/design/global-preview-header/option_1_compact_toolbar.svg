@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="280" viewBox="0 0 1180 280" role="img" aria-labelledby="title desc">
+  <title id="title">顶部卡片方案一：紧凑工具栏</title>
+  <desc id="desc">标题与按钮同行，去掉卡片包裹，改为紧凑工具栏风格，节省纵向空间。</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="150%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+  <rect width="1180" height="280" fill="#f6f8fb"/>
+  <text x="40" y="42" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="22" font-weight="700">方案一：紧凑工具栏</text>
+  <text x="40" y="72" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">去掉卡片外壳，标题和操作按钮在同一行，最大化表格可视区域。</text>
+
+  <!-- toolbar bar -->
+  <rect x="40" y="100" width="1100" height="56" rx="14" fill="#ffffff" filter="url(#shadow)"/>
+  <g transform="translate(64 108)">
+    <!-- left: breadcrumb + title -->
+    <text x="0" y="16" fill="#64748b" font-family="Microsoft YaHei, Arial, sans-serif" font-size="12">多品数据回测</text>
+    <text x="0" y="36" fill="#0f172a" font-family="Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700">全局预览 · 纳斯达克+谷歌 · 2025-01-01 ~ 2025-05-01</text>
+
+    <!-- right: buttons -->
+    <rect x="740" y="6" width="90" height="32" rx="16" fill="#ffffff" stroke="#0d6efd"/>
+    <text x="756" y="27" fill="#0d6efd" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">保存比例</text>
+
+    <rect x="842" y="6" width="90" height="32" rx="16" fill="#ffffff" stroke="#198754"/>
+    <text x="854" y="27" fill="#198754" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">导出 XLSX</text>
+
+    <rect x="944" y="6" width="90" height="32" rx="16" fill="#ffffff" stroke="#6c757d"/>
+    <text x="956" y="27" fill="#6c757d" font-family="Microsoft YaHei, Arial, sans-serif" font-size="13">返回详情</text>
+  </g>
+
+  <text x="64" y="200" fill="#334155" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">优点：最省空间，页面打开后表格立即可见，适合频繁查看结果的场景。</text>
+  <text x="64" y="226" fill="#334155" font-family="Microsoft YaHei, Arial, sans-serif" font-size="14">注意：任务名较长时可能换行；移动端需堆叠为两行。</text>
+</svg>

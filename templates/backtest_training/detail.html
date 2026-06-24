@@ -176,7 +176,7 @@
                 </div>
             </div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
-                <a href="/backtest-training/list" class="btn btn-outline-secondary rounded-pill px-4">
+                <a href="/backtest-training/list" class="btn btn-outline-secondary rounded-pill px-4" id="backToListLink">
                     <i class="bi bi-arrow-left"></i> 返回列表
                 </a>
             </div>
@@ -201,11 +201,11 @@
                 </div>
             </div>
             <div class="d-flex flex-wrap gap-2 mt-4">
-                <a href="/backtest-training/global-preview/{{ task_id }}" class="btn btn-outline-success rounded-pill px-4">
+                <a href="/backtest-training/global-preview/{{ task_id }}" class="btn btn-outline-success rounded-pill px-4" id="globalPreviewLink">
                     <i class="bi bi-layout-text-window-reverse me-1"></i> 全局预览页
                 </a>
-                <button type="button" class="btn btn-outline-primary rounded-pill px-4" id="createRestartTaskBtn">
-                    <i class="bi bi-arrow-repeat me-1"></i> 任务重启
+                <button type="button" class="btn btn-warning rounded-pill px-4" id="stopTaskBtn" disabled>
+                    <i class="bi bi-stop-circle me-1"></i> 停止任务
                 </button>
                 <button type="button" class="btn btn-outline-warning rounded-pill px-4" id="resumeRestartTaskBtn">
                     <i class="bi bi-skip-forward-circle me-1"></i> 断点重启
@@ -254,6 +254,9 @@
                 <i class="bi bi-sliders text-success me-2"></i>
                 <span>任务输入参数</span>
                 <i class="bi bi-chevron-down ms-2" id="taskParamToggleIcon"></i>
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="copyTaskParamsBtn">
+                <i class="bi bi-copy me-1"></i>复制参数
             </button>
         </div>
         <div class="collapse show" id="taskParamCollapse">
@@ -382,6 +385,9 @@
     const currentTaskId = {{ task_id|tojson }};
     const AUTO_REFRESH_INTERVAL = 60 * 1000;
     const TASK_RESULT_PAGE_SIZE = 10;
+    const LIST_PAGINATION_STORAGE_KEY = 'backtest_training:list_pagination';
+    const RESULT_PAGINATION_STORAGE_KEY = `backtest_training:task_results:${currentTaskId}:pagination`;
+    let currentTaskConfig = {};
     const FIELD_MAP = {
         c5: [
             { key: 'xm', label: 'X Multiplier (xm)' },
@@ -460,6 +466,87 @@
         next_num: null
     };
 
+    function parsePositiveInt(value, fallback) {
+        const parsed = Number.parseInt(value, 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    }
+
+    function readJsonStorage(key) {
+        try {
+            return JSON.parse(localStorage.getItem(key) || '{}') || {};
+        } catch (error) {
+            return {};
+        }
+    }
+
+    function getListPaginationFromNavigation() {
+        const params = new URLSearchParams(window.location.search);
+        const stored = readJsonStorage(LIST_PAGINATION_STORAGE_KEY);
+        return {
+            page: parsePositiveInt(params.get('list_page'), parsePositiveInt(stored.page, 1)),
+            per_page: parsePositiveInt(params.get('list_per_page'), parsePositiveInt(stored.per_page, 20))
+        };
+    }
+
+    function persistListPaginationFromNavigation() {
+        const listState = getListPaginationFromNavigation();
+        localStorage.setItem(LIST_PAGINATION_STORAGE_KEY, JSON.stringify(listState));
+    }
+
+    function buildListHref() {
+        const listState = getListPaginationFromNavigation();
+        return `/backtest-training/list?page=${encodeURIComponent(listState.page)}&per_page=${encodeURIComponent(listState.per_page)}`;
+    }
+
+    function getInitialResultPaginationState() {
+        const params = new URLSearchParams(window.location.search);
+        const stored = readJsonStorage(RESULT_PAGINATION_STORAGE_KEY);
+        return {
+            page: parsePositiveInt(params.get('result_page'), parsePositiveInt(stored.page, 1)),
+            per_page: parsePositiveInt(params.get('result_per_page'), parsePositiveInt(stored.per_page, TASK_RESULT_PAGE_SIZE))
+        };
+    }
+
+    function persistResultPaginationState() {
+        const resultState = {
+            page: taskResultPaginationState.page,
+            per_page: taskResultPaginationState.per_page
+        };
+        localStorage.setItem(RESULT_PAGINATION_STORAGE_KEY, JSON.stringify(resultState));
+
+        const url = new URL(window.location.href);
+        url.searchParams.set('result_page', String(resultState.page));
+        url.searchParams.set('result_per_page', String(resultState.per_page));
+        window.history.replaceState({}, '', url);
+
+        const globalPreviewLink = document.getElementById('globalPreviewLink');
+        if (globalPreviewLink) {
+            globalPreviewLink.href = buildGlobalPreviewHref();
+        }
+    }
+
+    function buildResultHref(resultId) {
+        const listState = getListPaginationFromNavigation();
+        const params = new URLSearchParams({
+            list_page: String(listState.page),
+            list_per_page: String(listState.per_page),
+            result_page: String(taskResultPaginationState.page || 1),
+            result_per_page: String(taskResultPaginationState.per_page || TASK_RESULT_PAGE_SIZE)
+        });
+        return `/backtest-training/result/${encodeURIComponent(resultId)}?${params.toString()}`;
+    }
+
+    function buildGlobalPreviewHref() {
+        const listState = getListPaginationFromNavigation();
+        const params = new URLSearchParams({
+            list_page: String(listState.page),
+            list_per_page: String(listState.per_page),
+            result_page: String(taskResultPaginationState.page || 1),
+            result_per_page: String(taskResultPaginationState.per_page || TASK_RESULT_PAGE_SIZE)
+        });
+        return `/backtest-training/global-preview/${encodeURIComponent(currentTaskId)}?${params.toString()}`;
+    }
+
     function escapeHtml(value) {
         return String(value ?? '')
             .replace(/&/g, '&amp;')
@@ -487,6 +574,17 @@
         const badgeClass = statusClassMap[status] || 'bg-secondary';
         const statusText = statusTextMap[status] || status || '-';
         return `<span class="badge ${badgeClass} rounded-pill px-3 py-2">${escapeHtml(statusText)}</span>`;
+    }
+
+    function updateStopTaskButton(status) {
+        const button = document.getElementById('stopTaskBtn');
+        if (!button) {
+            return;
+        }
+
+        const canStop = status === 'pending' || status === 'running';
+        button.disabled = !canStop || taskActionInProgress;
+        button.title = canStop ? '停止当前回测任务' : '当前状态不可停止';
     }
 
     function renderValue(value) {
@@ -525,6 +623,46 @@
             return `<code>${escapeHtml(JSON.stringify(value))}</code>`;
         }
         return escapeHtml(value);
+    }
+
+    async function writeClipboardText(text) {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return;
+        }
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand('copy');
+        textarea.remove();
+        if (!ok) {
+            throw new Error('复制失败，请检查浏览器剪切板权限');
+        }
+    }
+
+    function taskParametersToClipboard(config) {
+        const rows = Array.isArray(config.parameters) ? config.parameters : [];
+        return rows
+            .filter((row) => Array.isArray(row) && row.some((value) => String(value ?? '').trim()))
+            .map((row) => row.join('\t'))
+            .join('\n');
+    }
+
+    async function copyTaskParameters() {
+        try {
+            const text = taskParametersToClipboard(currentTaskConfig);
+            if (!text) {
+                throw new Error('当前任务没有可复制的参数');
+            }
+            await writeClipboardText(text);
+            showNotification('参数已复制，可直接粘贴到单产品回测创建页', 'success');
+        } catch (error) {
+            showNotification(error.message || '复制参数失败', 'error');
+        }
     }
 
     function renderTaskConfig(config) {
@@ -854,7 +992,7 @@
         groups.forEach((group) => {
             const rowspan = group.rows.length;
             group.rows.forEach((row, rowIndex) => {
-                const resultLink = `/backtest-training/result/${encodeURIComponent(row.task_result_id)}`;
+                const resultLinkWithState = buildResultHref(row.task_result_id);
                 html.push('<tr>');
 
                 if (rowIndex === 0) {
@@ -872,7 +1010,7 @@
                     const className = getC3MetricCellClass(metricDef, row);
                     html.push(`<td class="${className}">${formatC3MetricValue(metricDef, row)}</td>`);
                 });
-                html.push(`<td class="pe-4 text-end"><a href="${resultLink}" class="btn btn-sm btn-outline-primary">查看结果</a></td>`);
+                html.push(`<td class="pe-4 text-end"><a href="${resultLinkWithState}" class="btn btn-sm btn-outline-primary">查看结果</a></td>`);
                 html.push('</tr>');
             });
         });
@@ -1010,7 +1148,7 @@
         }
 
         tbody.innerHTML = results.map((result) => {
-            const actionHref = `/backtest-training/result/${encodeURIComponent(result.id)}`;
+            const actionHref = buildResultHref(result.id);
             return `
                 <tr>
                     <td class="ps-4 fw-semibold">${escapeHtml(result.id)}</td>
@@ -1139,7 +1277,7 @@
     }
 
     function setTaskActionButtonsDisabled(disabled) {
-        ['createRestartTaskBtn', 'resumeRestartTaskBtn', 'restartFromScratchBtn'].forEach((id) => {
+        ['stopTaskBtn', 'resumeRestartTaskBtn', 'restartFromScratchBtn'].forEach((id) => {
             const button = document.getElementById(id);
             if (button) {
                 button.disabled = disabled;
@@ -1161,6 +1299,7 @@
             .finally(() => {
                 taskActionInProgress = false;
                 setTaskActionButtonsDisabled(false);
+                loadTaskDetail({ silent: true });
             });
     }
 
@@ -1173,22 +1312,6 @@
                 }
                 resolve(data);
             });
-        });
-    }
-
-    function handleCreateRestartTask() {
-        if (!confirm('确认基于当前任务创建一个新的“任务重启”任务并立即启动吗？')) {
-            return Promise.resolve();
-        }
-
-        return withTaskActionLock(async function() {
-            const data = await postTaskAction(`${TASK_API_BASE}/${currentTaskId}/create-restart`, {});
-            showNotification(data.message || '任务重启已创建', 'success');
-            if (data.new_task_id) {
-                window.location.href = `/backtest-training/detail/${encodeURIComponent(data.new_task_id)}`;
-                return;
-            }
-            refreshPageData();
         });
     }
 
@@ -1220,6 +1343,18 @@
         });
     }
 
+    function handleStopTask() {
+        if (!confirm('确认停止当前回测任务吗？已完成的结果会保留，任务状态会变为已取消。')) {
+            return Promise.resolve();
+        }
+
+        return withTaskActionLock(async function() {
+            const data = await postTaskAction(`${TASK_API_BASE}/${currentTaskId}/cancel`, {});
+            showNotification(data.message || '任务已停止', 'success');
+            refreshPageData();
+        });
+    }
+
     function loadTaskDetail(options = {}) {
         const { silent = false } = options;
         ajaxRequest(`${TASK_API_BASE}/${currentTaskId}`, 'GET', null, function(err, data) {
@@ -1231,14 +1366,16 @@
             }
 
             const task = data.task;
+            currentTaskConfig = task.config || {};
             document.getElementById('taskNameText').textContent = task.name || '任务详情';
             document.getElementById('taskStatus').innerHTML = formatStatus(task.status);
             document.getElementById('taskCreated').innerHTML = renderValue(formatTime(task.created_at));
             document.getElementById('taskStart').innerHTML = renderValue(formatTime(task.start_time));
             document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
-            renderTaskConfig(task.config || {});
-            renderParameterTable(task.config || {});
-            updateTaskResultSectionMode(task.config || {});
+            updateStopTaskButton(task.status);
+            renderTaskConfig(currentTaskConfig);
+            renderParameterTable(currentTaskConfig);
+            updateTaskResultSectionMode(currentTaskConfig);
             if (currentModelVersion === 'c3') {
                 loadC3Summary({ silent });
             } else {
@@ -1274,6 +1411,7 @@
             };
             renderSubTasks(data.results || []);
             renderTaskResultPagination();
+            persistResultPaginationState();
         });
     }
 
@@ -1325,6 +1463,17 @@
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+        persistListPaginationFromNavigation();
+        taskResultPaginationState.page = getInitialResultPaginationState().page;
+        taskResultPaginationState.per_page = getInitialResultPaginationState().per_page;
+        const backToListLink = document.getElementById('backToListLink');
+        if (backToListLink) {
+            backToListLink.href = buildListHref();
+        }
+        const globalPreviewLink = document.getElementById('globalPreviewLink');
+        if (globalPreviewLink) {
+            globalPreviewLink.href = buildGlobalPreviewHref();
+        }
         ensureC3MetricSelection();
         syncC3MetricSelector();
         renderC3SummaryHead();
@@ -1341,11 +1490,11 @@
             });
         }
 
-        const createRestartTaskBtn = document.getElementById('createRestartTaskBtn');
-        if (createRestartTaskBtn) {
-            createRestartTaskBtn.addEventListener('click', function() {
-                handleCreateRestartTask().catch(function(err) {
-                    showNotification(`任务重启失败：${err ? err.message : '未知错误'}`, 'error');
+        const stopTaskBtn = document.getElementById('stopTaskBtn');
+        if (stopTaskBtn) {
+            stopTaskBtn.addEventListener('click', function() {
+                handleStopTask().catch(function(err) {
+                    showNotification(`停止任务失败：${err ? err.message : '未知错误'}`, 'error');
                 });
             });
         }
@@ -1366,6 +1515,11 @@
                     showNotification(`重头开始失败：${err ? err.message : '未知错误'}`, 'error');
                 });
             });
+        }
+
+        const copyTaskParamsBtn = document.getElementById('copyTaskParamsBtn');
+        if (copyTaskParamsBtn) {
+            copyTaskParamsBtn.addEventListener('click', copyTaskParameters);
         }
 
         const logCollapse = document.getElementById('taskLogCollapse');

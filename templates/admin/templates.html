@@ -1,62 +1,234 @@
 {% extends "admin/base.html" %}
 
+{% block head %}
+<style>
+    .template-shell {
+        display: grid;
+        gap: 1.5rem;
+    }
+    .template-page-title {
+        border-bottom: 1px solid var(--bs-border-color);
+        padding-bottom: 1rem;
+    }
+    .template-stat-card,
+    .template-toolbar,
+    .template-card,
+    .template-create-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+    }
+    .template-stat-card {
+        min-height: 5.75rem;
+        padding: 1rem;
+    }
+    .template-stat-icon {
+        width: 2.125rem;
+        height: 2.125rem;
+        border-radius: 0.5rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.75rem;
+    }
+    .template-toolbar {
+        padding: 0.9rem 1rem;
+    }
+    .template-filter-btn.active {
+        color: #fff;
+        background: var(--bs-primary);
+        border-color: var(--bs-primary);
+    }
+    .template-create-card {
+        min-height: 10rem;
+        transition: transform 0.16s ease, box-shadow 0.16s ease;
+    }
+    .template-create-card:hover,
+    .template-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+    }
+    .template-create-icon {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 0.75rem;
+        display: grid;
+        place-items: center;
+        font-size: 1.8rem;
+    }
+    .template-card {
+        position: relative;
+        min-height: 11rem;
+        overflow: hidden;
+    }
+    .template-card::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0.3125rem;
+        background: var(--template-accent, #64748b);
+    }
+    .template-card-body {
+        padding: 1rem 1rem 0.9rem 1.25rem;
+    }
+    .template-card-title {
+        min-width: 0;
+    }
+    .template-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+    }
+    .template-summary-item {
+        border-radius: 0.5rem;
+        background: var(--bs-tertiary-bg);
+        padding: 0.55rem 0.65rem;
+        min-width: 0;
+    }
+    .template-summary-label {
+        color: var(--bs-secondary-color);
+        font-size: 0.75rem;
+        margin-bottom: 0.15rem;
+    }
+    .template-summary-value {
+        color: var(--bs-body-color);
+        font-size: 0.85rem;
+        font-weight: 600;
+        word-break: break-word;
+    }
+    .template-card-footer {
+        border-top: 1px solid var(--bs-border-color);
+        padding: 0.75rem 1rem 0.85rem 1.25rem;
+        background: var(--bs-body-bg);
+    }
+    html[data-bs-theme="dark"] .template-stat-card,
+    html[data-bs-theme="dark"] .template-toolbar,
+    html[data-bs-theme="dark"] .template-card,
+    html[data-bs-theme="dark"] .template-create-card {
+        background-color: #182132;
+        border-color: #2a3648;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container-fluid">
-    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-        <h1 class="h2">任务模板管理</h1>
-        <div class="btn-toolbar mb-2 mb-md-0">
-            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#createTemplateModal">
+<div class="container-fluid template-shell pt-3">
+    <div class="template-page-title d-flex justify-content-between flex-wrap align-items-start gap-3">
+        <div>
+            <h1 class="h2 mb-1">任务模板管理</h1>
+            <div class="text-body-secondary">集中维护 C3 / C4 / C5 模板，快速复用参数与表格配置。</div>
+        </div>
+        <div class="btn-toolbar">
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createTemplateModal">
                 <i class="bi bi-plus-lg"></i> 新建模板
             </button>
         </div>
     </div>
 
-    <!-- 模板列表 -->
-    <div class="row" id="templateList">
-        <!-- 新建普通模板卡片 -->
-        <div class="col-md-4 mb-4" data-template-placeholder="default">
-            <div class="card h-100 border-primary">
-                <div class="card-body d-flex flex-column justify-content-center align-items-center py-5" style="min-height: 200px;">
-                    <a href="{{ url_for('google_sheet.create') }}" class="text-decoration-none text-center">
-                        <i class="bi bi-plus-circle display-4 mb-3 text-primary"></i>
-                        <h5 class="card-title">新建模板</h5>
-                        <p class="card-text text-muted">创建一个新的任务模板</p>
-                    </a>
+    <div class="row g-3">
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="template-stat-card">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="small text-body-secondary">模板总数</div>
+                        <div class="display-6 fw-bold mb-0" id="templateTotalCount">0</div>
+                    </div>
+                    <span class="template-stat-icon bg-primary-subtle text-primary"><i class="bi bi-grid-3x3-gap"></i></span>
                 </div>
             </div>
         </div>
-        <!-- 新建 C4 模板卡片 -->
-        <div class="col-md-4 mb-4" data-template-placeholder="c4">
-            <div class="card h-100 border-info">
-                <div class="card-body d-flex flex-column justify-content-center align-items-center py-5" style="min-height: 200px;">
-                    <a href="{{ url_for('google_sheet.create', version='c4') }}" class="text-decoration-none text-center">
-                        <i class="bi bi-plus-circle display-4 mb-3 text-info"></i>
-                        <h5 class="card-title">新建 C4 模板</h5>
-                        <p class="card-text text-muted">为 Google Sheet C4 任务创建专用模板</p>
-                    </a>
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="template-stat-card">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="small text-body-secondary">C5 模板</div>
+                        <div class="display-6 fw-bold text-success mb-0" id="templateC5Count">0</div>
+                    </div>
+                    <span class="template-stat-icon bg-success-subtle text-success">C5</span>
                 </div>
             </div>
         </div>
-        <!-- 新建 C5 模板卡片 -->
-        <div class="col-md-4 mb-4" data-template-placeholder="c5">
-            <div class="card h-100 border-success">
-                <div class="card-body d-flex flex-column justify-content-center align-items-center py-5" style="min-height: 200px;">
-                    <a href="{{ url_for('google_sheet.create', version='c5') }}" class="text-decoration-none text-center">
-                        <i class="bi bi-plus-circle display-4 mb-3 text-success"></i>
-                        <h5 class="card-title">新建 C5 模板</h5>
-                        <p class="card-text text-muted">为 Google Sheet C5 任务创建专用模板</p>
-                    </a>
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="template-stat-card">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="small text-body-secondary">C4 模板</div>
+                        <div class="display-6 fw-bold text-info mb-0" id="templateC4Count">0</div>
+                    </div>
+                    <span class="template-stat-icon bg-info-subtle text-info">C4</span>
                 </div>
             </div>
         </div>
-        <!-- 模板列表将通过JavaScript动态加载 -->
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="template-stat-card">
+                <div class="small text-body-secondary">最近更新</div>
+                <div class="fw-bold fs-5 mt-2" id="templateLatestDate">-</div>
+                <div class="small text-body-secondary text-truncate" id="templateLatestName">暂无模板</div>
+            </div>
+        </div>
     </div>
 
-    <!-- 没有模板时的提示 -->
+    <div class="template-toolbar d-flex flex-wrap align-items-center justify-content-between gap-3">
+        <div class="input-group" style="max-width: 28rem;">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input type="search" class="form-control" id="templateSearchInput" placeholder="搜索模板名称、工作表、描述...">
+        </div>
+        <div class="d-flex flex-wrap gap-2" id="templateTypeFilters">
+            <button type="button" class="btn btn-sm btn-outline-secondary template-filter-btn active" data-template-filter="all">全部</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary template-filter-btn" data-template-filter="c3">C3</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary template-filter-btn" data-template-filter="c4">C4</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary template-filter-btn" data-template-filter="c5">C5</button>
+        </div>
+    </div>
+
+    <div class="row g-3" id="templateList">
+        <div class="col-md-4" data-template-placeholder="default">
+            <div class="template-create-card h-100">
+                <a href="{{ url_for('google_sheet.create') }}" class="text-decoration-none d-block h-100">
+                    <div class="p-4 h-100 d-flex align-items-center gap-3">
+                        <span class="template-create-icon bg-primary-subtle text-primary"><i class="bi bi-plus-lg"></i></span>
+                        <div>
+                            <h5 class="mb-1">新建普通模板</h5>
+                            <p class="text-body-secondary mb-0">适用于 Google Sheet C3 任务</p>
+                        </div>
+                    </div>
+                </a>
+            </div>
+        </div>
+        <div class="col-md-4" data-template-placeholder="c4">
+            <div class="template-create-card h-100">
+                <a href="{{ url_for('google_sheet.create', version='c4') }}" class="text-decoration-none d-block h-100">
+                    <div class="p-4 h-100 d-flex align-items-center gap-3">
+                        <span class="template-create-icon bg-info-subtle text-info"><i class="bi bi-plus-lg"></i></span>
+                        <div>
+                            <h5 class="mb-1">新建 C4 模板</h5>
+                            <p class="text-body-secondary mb-0">为 C4 任务保存专用参数</p>
+                        </div>
+                    </div>
+                </a>
+            </div>
+        </div>
+        <div class="col-md-4" data-template-placeholder="c5">
+            <div class="template-create-card h-100">
+                <a href="{{ url_for('google_sheet.create', version='c5') }}" class="text-decoration-none d-block h-100">
+                    <div class="p-4 h-100 d-flex align-items-center gap-3">
+                        <span class="template-create-icon bg-success-subtle text-success"><i class="bi bi-plus-lg"></i></span>
+                        <div>
+                            <h5 class="mb-1">新建 C5 模板</h5>
+                            <p class="text-body-secondary mb-0">为 C5 任务保存多组参数</p>
+                        </div>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </div>
+
     <div id="noTemplates" class="text-center py-5 d-none">
         <i class="bi bi-folder2-open display-4 text-muted mb-3"></i>
-        <h5 class="text-muted">暂无模板</h5>
-        <p class="text-muted">点击"新建模板"创建您的第一个模板</p>
+        <h5 class="text-muted" id="noTemplatesTitle">暂无模板</h5>
+        <p class="text-muted" id="noTemplatesText">点击“新建模板”创建您的第一个模板</p>
     </div>
 </div>
 
@@ -129,129 +301,186 @@
 
 {% block scripts %}
 <script>
+let allTemplates = [];
+let activeTemplateFilter = 'all';
+let templateSearchKeyword = '';
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function parseTemplateConfig(template) {
+    try {
+        return typeof template.config === 'string' ? JSON.parse(template.config) : (template.config || {});
+    } catch (e) {
+        console.warn('解析模板配置失败:', e);
+        return {};
+    }
+}
+
+function getTemplateMeta(template) {
+    const config = parseTemplateConfig(template);
+    const isC4 = config.task_type === 'google_sheet_C4';
+    const isC5 = config.task_type === 'google_sheet_C5';
+    const type = isC4 ? 'c4' : (isC5 ? 'c5' : 'c3');
+    const typeLabel = type.toUpperCase();
+    const firstSheetName = Array.isArray(config.sheets) && config.sheets.length > 0
+        ? (config.sheets[0].sheet_name || '默认')
+        : (config.sheet_name || '默认');
+
+    let parameterLabel = '参数组数';
+    let parameterValue = '0';
+    if (isC4) {
+        parameterLabel = '产品代码数';
+        parameterValue = String(Array.isArray(config.parameters && config.parameters[0]) ? config.parameters[0].length : 0);
+    } else if (isC5) {
+        const p1Count = Array.isArray(config.parameters && config.parameters[0]) ? config.parameters[0].length : 0;
+        const p2Count = Array.isArray(config.parameters && config.parameters[1]) ? config.parameters[1].length : 0;
+        const p3Count = Array.isArray(config.parameters && config.parameters[2]) ? config.parameters[2].length : 0;
+        parameterLabel = '参数1/2/3';
+        parameterValue = `${p1Count}/${p2Count}/${p3Count}`;
+    } else {
+        parameterValue = String(config.parameters ? config.parameters.filter(p => Array.isArray(p) && p.length > 0).length : 0);
+    }
+
+    return {
+        config,
+        type,
+        typeLabel,
+        mode: type === 'c3' ? '' : type,
+        sheetName: firstSheetName,
+        parameterLabel,
+        parameterValue,
+        accent: type === 'c5' ? '#059669' : (type === 'c4' ? '#0284c7' : '#64748b'),
+        badgeClass: type === 'c5' ? 'bg-success' : (type === 'c4' ? 'bg-info' : 'bg-secondary')
+    };
+}
+
 // 加载模板列表
 function loadTemplates() {
-
     fetch('/api/templates')
         .then(response => response.json())
         .then(data => {
-            const templateList = document.getElementById('templateList');
-            const noTemplates = document.getElementById('noTemplates');
-            
-            // 保留所有占位卡片（普通/C4 新建入口）
-            const placeholders = Array.from(templateList.querySelectorAll('[data-template-placeholder]'));
-            templateList.innerHTML = '';
-            placeholders.forEach(p => templateList.appendChild(p));
-            
-            if (!data.templates || data.templates.length === 0) {
-                noTemplates.classList.remove('d-none');
-                return;
-            }
-            
-            noTemplates.classList.add('d-none');
-            data.templates.forEach(template => {
-                // 获取配置信息
-                let configInfo = '';
-                let typeBadge = '';
-                let isC4 = false;
-                let isC5 = false;
-                try {
-                    const config = typeof template.config === 'string' ? JSON.parse(template.config) : template.config;
-                    isC4 = config.task_type === 'google_sheet_C4';
-                    isC5 = config.task_type === 'google_sheet_C5';
-                    if (isC4) {
-                        const codeCount = Array.isArray(config.parameters && config.parameters[0]) ? config.parameters[0].length : 0;
-                        const firstSheetName = Array.isArray(config.sheets) && config.sheets.length > 0
-                            ? (config.sheets[0].sheet_name || '默认')
-                            : (config.sheet_name || '默认');
-                        configInfo = `
-                            <div class="text-muted small mb-2">
-                                <i class="bi bi-table"></i> 工作表: ${firstSheetName}<br>
-                                <i class="bi bi-list-ul"></i> 产品代码数: ${codeCount}
-                            </div>
-                        `;
-                        typeBadge = '<span class="badge bg-info ms-2">C4</span>';
-                    } else if (isC5) {
-                        const firstSheetName = Array.isArray(config.sheets) && config.sheets.length > 0
-                            ? (config.sheets[0].sheet_name || '默认')
-                            : (config.sheet_name || '默认');
-                        const p1Count = Array.isArray(config.parameters && config.parameters[0]) ? config.parameters[0].length : 0;
-                        const p2Count = Array.isArray(config.parameters && config.parameters[1]) ? config.parameters[1].length : 0;
-                        const p3Count = Array.isArray(config.parameters && config.parameters[2]) ? config.parameters[2].length : 0;
-                        configInfo = `
-                            <div class="text-muted small mb-2">
-                                <i class="bi bi-table"></i> 工作表: ${firstSheetName}<br>
-                                <i class="bi bi-list-ul"></i> 参数1/2/3 组数: ${p1Count}/${p2Count}/${p3Count}
-                            </div>
-                        `;
-                        typeBadge = '<span class="badge bg-success ms-2">C5</span>';
-                    } else {
-                        const paramCount = config.parameters ? config.parameters.filter(p => Array.isArray(p) && p.length > 0).length : 0;
-                        configInfo = `
-                            <div class="text-muted small mb-2">
-                                <i class="bi bi-table"></i> 工作表: ${config.sheet_name || '默认'}<br>
-                                <i class="bi bi-list-ul"></i> 参数组数: ${paramCount}
-                            </div>
-                        `;
-                    }
-                } catch (e) {
-                    console.warn('解析模板配置失败:', e);
-                }
-                
-                const card = document.createElement('div');
-                card.className = 'col-md-4 mb-4';
-                const mode = isC4 ? 'c4' : (isC5 ? 'c5' : '');
-                card.innerHTML = `
-                    <div class="card h-100">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h6 class="mb-0">${template.name}${typeBadge}</h6>
-                            <div class="dropdown">
-                                <button class="btn btn-link text-muted p-0" type="button" data-bs-toggle="dropdown">
-                                    <i class="bi bi-three-dots-vertical"></i>
-                                </button>
-                                <ul class="dropdown-menu">
-                                    <li>
-                                        <a class="dropdown-item" href="#" onclick="editTemplate(${template.id})">
-                                            <i class="bi bi-pencil-square"></i> 编辑
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="dropdown-item" href="#" onclick="duplicateTemplate(${template.id})">
-                                            <i class="bi bi-copy"></i> 复制
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <hr class="dropdown-divider">
-                                    </li>
-                                    <li>
-                                        <a class="dropdown-item text-danger" href="#" onclick="deleteTemplate(${template.id})">
-                                            <i class="bi bi-trash"></i> 删除
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <p class="card-text text-muted small">${template.description || '无描述'}</p>
-                            ${configInfo}
-                            <div class="text-muted small">
-                                <i class="bi bi-clock-history"></i> 创建于: ${new Date(template.created_at).toLocaleString()}
-                            </div>
-                        </div>
-                        <div class="card-footer bg-transparent">
-                            <button class="btn btn-primary btn-sm w-100" onclick="useTemplate(${template.id}, '${mode}')">
-                                <i class="bi bi-play-fill"></i> 使用此模板
-                            </button>
-                        </div>
-                    </div>
-                `;
-                templateList.appendChild(card);
-            });
+            allTemplates = Array.isArray(data.templates) ? data.templates : [];
+            updateTemplateStats();
+            renderTemplateCards();
         })
         .catch(error => {
             console.error('Error:', error);
             showError('加载模板列表失败');
         });
+}
+
+function updateTemplateStats() {
+    const metas = allTemplates.map(getTemplateMeta);
+    const c4Count = metas.filter(meta => meta.type === 'c4').length;
+    const c5Count = metas.filter(meta => meta.type === 'c5').length;
+    const latest = [...allTemplates].sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))[0];
+
+    document.getElementById('templateTotalCount').textContent = allTemplates.length;
+    document.getElementById('templateC4Count').textContent = c4Count;
+    document.getElementById('templateC5Count').textContent = c5Count;
+    document.getElementById('templateLatestDate').textContent = latest ? new Date(latest.updated_at || latest.created_at).toLocaleDateString() : '-';
+    document.getElementById('templateLatestName').textContent = latest ? latest.name : '暂无模板';
+}
+
+function getFilteredTemplates() {
+    const keyword = templateSearchKeyword.trim().toLowerCase();
+    return allTemplates.filter(template => {
+        const meta = getTemplateMeta(template);
+        if (activeTemplateFilter !== 'all' && meta.type !== activeTemplateFilter) {
+            return false;
+        }
+        if (!keyword) {
+            return true;
+        }
+        const haystack = [
+            template.name,
+            template.description,
+            meta.sheetName,
+            meta.parameterValue,
+            meta.typeLabel
+        ].join(' ').toLowerCase();
+        return haystack.includes(keyword);
+    });
+}
+
+function renderTemplateCards() {
+    const templateList = document.getElementById('templateList');
+    const noTemplates = document.getElementById('noTemplates');
+    const placeholders = Array.from(templateList.querySelectorAll('[data-template-placeholder]'));
+    const filteredTemplates = getFilteredTemplates();
+
+    templateList.innerHTML = '';
+    placeholders.forEach(p => templateList.appendChild(p));
+
+    const shouldShowEmpty = filteredTemplates.length === 0;
+    noTemplates.classList.toggle('d-none', !shouldShowEmpty);
+    if (shouldShowEmpty) {
+        document.getElementById('noTemplatesTitle').textContent = allTemplates.length ? '暂无匹配模板' : '暂无模板';
+        document.getElementById('noTemplatesText').textContent = allTemplates.length
+            ? '请调整搜索关键词或类型筛选。'
+            : '点击“新建模板”创建您的第一个模板';
+    }
+    if (!filteredTemplates.length) {
+        return;
+    }
+
+    filteredTemplates.forEach(template => {
+        const meta = getTemplateMeta(template);
+        const card = document.createElement('div');
+        card.className = 'col-md-6 col-xl-4';
+        card.innerHTML = `
+            <div class="template-card h-100" style="--template-accent: ${meta.accent};">
+                <div class="template-card-body">
+                    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                        <div class="template-card-title">
+                            <div class="d-flex align-items-center gap-2">
+                                <h6 class="mb-0 text-truncate">${escapeHtml(template.name)}</h6>
+                                <span class="badge ${meta.badgeClass}">${meta.typeLabel}</span>
+                            </div>
+                            <div class="small text-body-secondary mt-2">${escapeHtml(template.description || '无描述')}</div>
+                        </div>
+                        <div class="dropdown flex-shrink-0">
+                            <button class="btn btn-link text-muted p-0" type="button" data-bs-toggle="dropdown" aria-label="模板操作">
+                                <i class="bi bi-three-dots-vertical"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="#" onclick="editTemplate(${template.id})"><i class="bi bi-pencil-square"></i> 编辑</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="duplicateTemplate(${template.id})"><i class="bi bi-copy"></i> 复制</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteTemplate(${template.id})"><i class="bi bi-trash"></i> 删除</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="template-summary-grid">
+                        <div class="template-summary-item">
+                            <div class="template-summary-label">工作表</div>
+                            <div class="template-summary-value">${escapeHtml(meta.sheetName)}</div>
+                        </div>
+                        <div class="template-summary-item">
+                            <div class="template-summary-label">${escapeHtml(meta.parameterLabel)}</div>
+                            <div class="template-summary-value">${escapeHtml(meta.parameterValue)}</div>
+                        </div>
+                    </div>
+                    <div class="small text-body-secondary mt-3">
+                        <i class="bi bi-clock-history"></i> 创建于: ${template.created_at ? new Date(template.created_at).toLocaleString() : '-'}
+                    </div>
+                </div>
+                <div class="template-card-footer">
+                    <button class="btn btn-primary btn-sm w-100" onclick="useTemplate(${template.id}, '${meta.mode}')">
+                        <i class="bi bi-play-fill"></i> 使用此模板
+                    </button>
+                </div>
+            </div>
+        `;
+        templateList.appendChild(card);
+    });
 }
 
 // 验证JSON格式
@@ -502,6 +731,25 @@ function useTemplate(id, mode) {
 }
 
 // 页面加载时获取模板列表
-document.addEventListener('DOMContentLoaded', loadTemplates);
+document.addEventListener('DOMContentLoaded', () => {
+    loadTemplates();
+
+    document.getElementById('templateSearchInput').addEventListener('input', (event) => {
+        templateSearchKeyword = event.target.value || '';
+        renderTemplateCards();
+    });
+
+    document.getElementById('templateTypeFilters').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-template-filter]');
+        if (!button) {
+            return;
+        }
+        activeTemplateFilter = button.dataset.templateFilter || 'all';
+        document.querySelectorAll('.template-filter-btn').forEach(item => {
+            item.classList.toggle('active', item === button);
+        });
+        renderTemplateCards();
+    });
+});
 </script>
 {% endblock %}

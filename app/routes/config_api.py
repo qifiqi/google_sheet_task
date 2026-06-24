@@ -1,13 +1,16 @@
 from flask import Blueprint, request, jsonify
 from app.services.config_manager import get_config_manager
-from app.models import SystemConfig, db
+from app.models import NavigationMenuItem, SystemConfig, db
 from app.utils.logger import get_logger
+from app.utils.auth import login_required, permission_required
 
 logger = get_logger(__name__)
 
 config_api_bp = Blueprint('config_api', __name__)
 
 @config_api_bp.route('/config', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def get_config():
     """获取系统配置"""
     try:
@@ -21,6 +24,8 @@ def get_config():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/config', methods=['POST'])
+@login_required
+@permission_required('config:manage')
 def update_config():
     """更新系统配置"""
     try:
@@ -42,6 +47,8 @@ def update_config():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/config/validate', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def validate_config():
     """验证配置状态"""
     try:
@@ -70,6 +77,8 @@ def validate_config():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/system-configs', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def list_system_configs():
     """获取 system_configs 配置列表"""
     try:
@@ -83,6 +92,8 @@ def list_system_configs():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/system-configs/<string:key>', methods=['PUT'])
+@login_required
+@permission_required('config:manage')
 def update_system_config(key):
     """更新单条配置"""
     try:
@@ -113,7 +124,183 @@ def update_system_config(key):
         logger.error(f"更新 system_config 失败: key={key}, err={str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+def _navigation_menu_payload(item):
+    return {
+        "id": item.id,
+        "key": item.key,
+        "label": item.label,
+        "path": item.path or "",
+        "permission": item.permission or "",
+        "parent_key": item.parent_key or "",
+        "sort_order": item.sort_order or 0,
+        "is_visible": bool(item.is_visible),
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+    }
+
+
+def _coerce_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _coerce_sort_order(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_blank(value):
+    text = str(value or "").strip()
+    return text or None
+
+
+def _validate_navigation_payload(data, item_id=None):
+    key = str(data.get("key") or "").strip()
+    label = str(data.get("label") or "").strip()
+    path = _normalize_blank(data.get("path"))
+    permission = _normalize_blank(data.get("permission"))
+    parent_key = _normalize_blank(data.get("parent_key"))
+
+    if not key:
+        return None, "缺少路由 key"
+    if not label:
+        return None, "缺少菜单名称"
+    if parent_key == key:
+        return None, "父级菜单不能选择自己"
+
+    duplicate = NavigationMenuItem.query.filter_by(key=key).first()
+    if duplicate and duplicate.id != item_id:
+        return None, "路由 key 已存在"
+
+    if parent_key:
+        parent = NavigationMenuItem.query.filter_by(key=parent_key).first()
+        if not parent:
+            return None, "父级菜单不存在"
+        if parent.path:
+            return None, "父级菜单不能是可跳转路由"
+
+    is_visible = _coerce_bool(data.get("is_visible"), default=False)
+    if is_visible and path and not permission:
+        return None, "开启显示的页面路由必须填写权限码"
+
+    return {
+        "key": key,
+        "label": label,
+        "path": path,
+        "permission": permission,
+        "parent_key": parent_key,
+        "sort_order": _coerce_sort_order(data.get("sort_order")),
+        "is_visible": is_visible,
+    }, None
+
+
+@config_api_bp.route('/navigation-menu-items', methods=['GET'])
+@login_required
+@permission_required('navigation:view')
+def list_navigation_menu_items():
+    """获取侧边栏路由表"""
+    try:
+        items = (
+            NavigationMenuItem.query
+            .order_by(NavigationMenuItem.parent_key.asc(), NavigationMenuItem.sort_order.asc(), NavigationMenuItem.id.asc())
+            .all()
+        )
+        return jsonify({
+            "status": "success",
+            "items": [_navigation_menu_payload(item) for item in items],
+        })
+    except Exception as e:
+        logger.error(f"获取导航菜单失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@config_api_bp.route('/navigation-menu-items', methods=['POST'])
+@login_required
+@permission_required('navigation:manage')
+def create_navigation_menu_item():
+    """新增侧边栏路由表记录，默认不可见，避免新页面直接暴露"""
+    try:
+        data = request.get_json() or {}
+        payload, error_message = _validate_navigation_payload(data)
+        if error_message:
+            return jsonify({"status": "error", "message": error_message}), 400
+
+        item = NavigationMenuItem(**payload)
+        db.session.add(item)
+        db.session.commit()
+        return jsonify({
+            "status": "success",
+            "message": "路由已新增，默认按可见开关和权限控制侧边栏展示",
+            "item": _navigation_menu_payload(item),
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"新增导航菜单失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['PUT'])
+@login_required
+@permission_required('navigation:manage')
+def update_navigation_menu_item(item_id):
+    """更新侧边栏路由表记录"""
+    try:
+        item = db.session.get(NavigationMenuItem, item_id)
+        if not item:
+            return jsonify({"status": "error", "message": "路由记录不存在"}), 404
+
+        data = request.get_json() or {}
+        payload, error_message = _validate_navigation_payload(data, item_id=item_id)
+        if error_message:
+            return jsonify({"status": "error", "message": error_message}), 400
+
+        for key, value in payload.items():
+            setattr(item, key, value)
+        db.session.commit()
+        return jsonify({
+            "status": "success",
+            "message": "路由已更新",
+            "item": _navigation_menu_payload(item),
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"更新导航菜单失败: item_id={item_id}, err={str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['DELETE'])
+@login_required
+@permission_required('navigation:manage')
+def delete_navigation_menu_item(item_id):
+    """删除侧边栏路由表记录"""
+    try:
+        item = db.session.get(NavigationMenuItem, item_id)
+        if not item:
+            return jsonify({"status": "error", "message": "路由记录不存在"}), 404
+
+        child_count = NavigationMenuItem.query.filter_by(parent_key=item.key).count()
+        if child_count:
+            return jsonify({"status": "error", "message": "请先删除或移动子菜单"}), 400
+
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({"status": "success", "message": "路由已删除"})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"删除导航菜单失败: item_id={item_id}, err={str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @config_api_bp.route('/logs', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def get_logs():
     """获取系统日志"""
     try:
@@ -189,6 +376,8 @@ def get_logs():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/logs/latest', methods=['GET'])
+@login_required
+@permission_required('config:view')
 def get_latest_logs():
     """获取最新的日志"""
     try:

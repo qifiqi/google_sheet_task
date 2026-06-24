@@ -1,0 +1,507 @@
+{% extends "admin/base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2">任务模板管理</h1>
+        <div class="btn-toolbar mb-2 mb-md-0">
+            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#createTemplateModal">
+                <i class="bi bi-plus-lg"></i> 新建模板
+            </button>
+        </div>
+    </div>
+
+    <!-- 模板列表 -->
+    <div class="row" id="templateList">
+        <!-- 新建普通模板卡片 -->
+        <div class="col-md-4 mb-4" data-template-placeholder="default">
+            <div class="card h-100 border-primary">
+                <div class="card-body d-flex flex-column justify-content-center align-items-center py-5" style="min-height: 200px;">
+                    <a href="{{ url_for('google_sheet.create') }}" class="text-decoration-none text-center">
+                        <i class="bi bi-plus-circle display-4 mb-3 text-primary"></i>
+                        <h5 class="card-title">新建模板</h5>
+                        <p class="card-text text-muted">创建一个新的任务模板</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+        <!-- 新建 C4 模板卡片 -->
+        <div class="col-md-4 mb-4" data-template-placeholder="c4">
+            <div class="card h-100 border-info">
+                <div class="card-body d-flex flex-column justify-content-center align-items-center py-5" style="min-height: 200px;">
+                    <a href="{{ url_for('google_sheet.create', version='c4') }}" class="text-decoration-none text-center">
+                        <i class="bi bi-plus-circle display-4 mb-3 text-info"></i>
+                        <h5 class="card-title">新建 C4 模板</h5>
+                        <p class="card-text text-muted">为 Google Sheet C4 任务创建专用模板</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+        <!-- 新建 C5 模板卡片 -->
+        <div class="col-md-4 mb-4" data-template-placeholder="c5">
+            <div class="card h-100 border-success">
+                <div class="card-body d-flex flex-column justify-content-center align-items-center py-5" style="min-height: 200px;">
+                    <a href="{{ url_for('google_sheet.create', version='c5') }}" class="text-decoration-none text-center">
+                        <i class="bi bi-plus-circle display-4 mb-3 text-success"></i>
+                        <h5 class="card-title">新建 C5 模板</h5>
+                        <p class="card-text text-muted">为 Google Sheet C5 任务创建专用模板</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+        <!-- 模板列表将通过JavaScript动态加载 -->
+    </div>
+
+    <!-- 没有模板时的提示 -->
+    <div id="noTemplates" class="text-center py-5 d-none">
+        <i class="bi bi-folder2-open display-4 text-muted mb-3"></i>
+        <h5 class="text-muted">暂无模板</h5>
+        <p class="text-muted">点击"新建模板"创建您的第一个模板</p>
+    </div>
+</div>
+
+<!-- 创建模板模态框 -->
+<div class="modal fade" id="createTemplateModal" tabindex="-1" aria-labelledby="createTemplateModalLabel">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createTemplateModalLabel">创建任务模板</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createTemplateForm">
+                    <div class="mb-3">
+                        <label for="templateName" class="form-label">模板名称</label>
+                        <input type="text" class="form-control" id="templateName" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="templateDescription" class="form-label">模板描述</label>
+                        <textarea class="form-control" id="templateDescription" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="templateConfig" class="form-label">配置信息 (JSON格式)</label>
+                        <textarea class="form-control" id="templateConfig" name="config" rows="10" required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveTemplate">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑模板模态框 -->
+<div class="modal fade" id="editTemplateModal" tabindex="-1" aria-labelledby="editTemplateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editTemplateModalLabel">编辑任务模板</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editTemplateForm">
+                    <input type="hidden" id="editTemplateId">
+                    <div class="mb-3">
+                        <label for="editTemplateName" class="form-label">模板名称</label>
+                        <input type="text" class="form-control" id="editTemplateName" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editTemplateDescription" class="form-label">模板描述</label>
+                        <textarea class="form-control" id="editTemplateDescription" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editTemplateConfig" class="form-label">配置信息 (JSON格式)</label>
+                        <textarea class="form-control" id="editTemplateConfig" name="config" rows="10" required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="updateTemplate">更新</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 加载模板列表
+function loadTemplates() {
+
+    fetch('/api/templates')
+        .then(response => response.json())
+        .then(data => {
+            const templateList = document.getElementById('templateList');
+            const noTemplates = document.getElementById('noTemplates');
+            
+            // 保留所有占位卡片（普通/C4 新建入口）
+            const placeholders = Array.from(templateList.querySelectorAll('[data-template-placeholder]'));
+            templateList.innerHTML = '';
+            placeholders.forEach(p => templateList.appendChild(p));
+            
+            if (!data.templates || data.templates.length === 0) {
+                noTemplates.classList.remove('d-none');
+                return;
+            }
+            
+            noTemplates.classList.add('d-none');
+            data.templates.forEach(template => {
+                // 获取配置信息
+                let configInfo = '';
+                let typeBadge = '';
+                let isC4 = false;
+                let isC5 = false;
+                try {
+                    const config = typeof template.config === 'string' ? JSON.parse(template.config) : template.config;
+                    isC4 = config.task_type === 'google_sheet_C4';
+                    isC5 = config.task_type === 'google_sheet_C5';
+                    if (isC4) {
+                        const codeCount = Array.isArray(config.parameters && config.parameters[0]) ? config.parameters[0].length : 0;
+                        const firstSheetName = Array.isArray(config.sheets) && config.sheets.length > 0
+                            ? (config.sheets[0].sheet_name || '默认')
+                            : (config.sheet_name || '默认');
+                        configInfo = `
+                            <div class="text-muted small mb-2">
+                                <i class="bi bi-table"></i> 工作表: ${firstSheetName}<br>
+                                <i class="bi bi-list-ul"></i> 产品代码数: ${codeCount}
+                            </div>
+                        `;
+                        typeBadge = '<span class="badge bg-info ms-2">C4</span>';
+                    } else if (isC5) {
+                        const firstSheetName = Array.isArray(config.sheets) && config.sheets.length > 0
+                            ? (config.sheets[0].sheet_name || '默认')
+                            : (config.sheet_name || '默认');
+                        const p1Count = Array.isArray(config.parameters && config.parameters[0]) ? config.parameters[0].length : 0;
+                        const p2Count = Array.isArray(config.parameters && config.parameters[1]) ? config.parameters[1].length : 0;
+                        const p3Count = Array.isArray(config.parameters && config.parameters[2]) ? config.parameters[2].length : 0;
+                        configInfo = `
+                            <div class="text-muted small mb-2">
+                                <i class="bi bi-table"></i> 工作表: ${firstSheetName}<br>
+                                <i class="bi bi-list-ul"></i> 参数1/2/3 组数: ${p1Count}/${p2Count}/${p3Count}
+                            </div>
+                        `;
+                        typeBadge = '<span class="badge bg-success ms-2">C5</span>';
+                    } else {
+                        const paramCount = config.parameters ? config.parameters.filter(p => Array.isArray(p) && p.length > 0).length : 0;
+                        configInfo = `
+                            <div class="text-muted small mb-2">
+                                <i class="bi bi-table"></i> 工作表: ${config.sheet_name || '默认'}<br>
+                                <i class="bi bi-list-ul"></i> 参数组数: ${paramCount}
+                            </div>
+                        `;
+                    }
+                } catch (e) {
+                    console.warn('解析模板配置失败:', e);
+                }
+                
+                const card = document.createElement('div');
+                card.className = 'col-md-4 mb-4';
+                const mode = isC4 ? 'c4' : (isC5 ? 'c5' : '');
+                card.innerHTML = `
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">${template.name}${typeBadge}</h6>
+                            <div class="dropdown">
+                                <button class="btn btn-link text-muted p-0" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li>
+                                        <a class="dropdown-item" href="#" onclick="editTemplate(${template.id})">
+                                            <i class="bi bi-pencil-square"></i> 编辑
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="#" onclick="duplicateTemplate(${template.id})">
+                                            <i class="bi bi-copy"></i> 复制
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <hr class="dropdown-divider">
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item text-danger" href="#" onclick="deleteTemplate(${template.id})">
+                                            <i class="bi bi-trash"></i> 删除
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text text-muted small">${template.description || '无描述'}</p>
+                            ${configInfo}
+                            <div class="text-muted small">
+                                <i class="bi bi-clock-history"></i> 创建于: ${new Date(template.created_at).toLocaleString()}
+                            </div>
+                        </div>
+                        <div class="card-footer bg-transparent">
+                            <button class="btn btn-primary btn-sm w-100" onclick="useTemplate(${template.id}, '${mode}')">
+                                <i class="bi bi-play-fill"></i> 使用此模板
+                            </button>
+                        </div>
+                    </div>
+                `;
+                templateList.appendChild(card);
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showError('加载模板列表失败');
+        });
+}
+
+// 验证JSON格式
+function validateJSON(str) {
+    try {
+        JSON.parse(str);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// 显示错误提示
+function showError(message) {
+    const container = document.querySelector('.container-fluid');
+    if (!container) return;
+
+    const alertDiv = document.createElement('div');
+    alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3 mb-3';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+
+    // 插入到第一个子元素之后
+    const firstChild = container.firstChild;
+    container.insertBefore(alertDiv, firstChild);
+    
+    // 3秒后自动消失
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 3000);
+}
+
+// 创建模板
+document.getElementById('saveTemplate').addEventListener('click', async function() {
+    try {
+        const name = document.getElementById('templateName').value.trim();
+        const description = document.getElementById('templateDescription').value.trim();
+        const configStr = document.getElementById('templateConfig').value.trim();
+        
+        // 验证表单
+        if (!name) {
+            showError('请输入模板名称');
+            return;
+        }
+        
+        if (!configStr) {
+            showError('请输入配置信息');
+            return;
+        }
+        
+        if (!validateJSON(configStr)) {
+            showError('配置信息不是有效的JSON格式');
+            return;
+        }
+        
+        const formData = {
+            name: name,
+            description: description,
+            config: configStr
+        };
+
+        const response = await fetch('/api/templates', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        });
+
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            const modal = document.getElementById('createTemplateModal');
+            const modalInstance = bootstrap.Modal.getInstance(modal);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+            document.getElementById('createTemplateForm').reset();
+            loadTemplates();
+            showNotification('模板创建成功', 'success');
+        } else {
+            showError(data.message || '创建模板失败');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showError('创建模板失败');
+    }
+});
+
+// 编辑模板
+async function editTemplate(id) {
+    try {
+        const response = await fetch(`/api/templates/${id}`);
+        const template = await response.json();
+        
+        if (template.status === 'error') {
+            showError(template.message || '获取模板详情失败');
+            return;
+        }
+
+        document.getElementById('editTemplateId').value = template.id;
+        document.getElementById('editTemplateName').value = template.name;
+        document.getElementById('editTemplateDescription').value = template.description || '';
+        document.getElementById('editTemplateConfig').value = JSON.stringify(template.config, null, 2);
+        
+        const modal = document.getElementById('editTemplateModal');
+        const modalInstance = bootstrap.Modal.getOrCreateInstance(modal);
+        modalInstance.show();
+    } catch (error) {
+        console.error('Error:', error);
+        showError('获取模板详情失败');
+    }
+}
+
+// 更新模板
+document.getElementById('updateTemplate').addEventListener('click', async function() {
+    try {
+        const id = document.getElementById('editTemplateId').value;
+        const name = document.getElementById('editTemplateName').value.trim();
+        const description = document.getElementById('editTemplateDescription').value.trim();
+        const configStr = document.getElementById('editTemplateConfig').value.trim();
+        
+        // 验证表单
+        if (!name) {
+            showError('请输入模板名称');
+            return;
+        }
+        
+        if (!configStr) {
+            showError('请输入配置信息');
+            return;
+        }
+        
+        if (!validateJSON(configStr)) {
+            showError('配置信息不是有效的JSON格式');
+            return;
+        }
+        
+        const formData = {
+            name: name,
+            description: description,
+            config: configStr
+        };
+
+        const response = await fetch(`/api/templates/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        });
+
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            const modal = document.getElementById('editTemplateModal');
+            const modalInstance = bootstrap.Modal.getInstance(modal);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+            loadTemplates();
+            showNotification('模板更新成功', 'success');
+        } else {
+            showError(data.message || '更新模板失败');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showError('更新模板失败');
+    }
+});
+
+// 删除模板
+async function deleteTemplate(id) {
+    if (confirm('确定要删除这个模板吗？')) {
+        try {
+            const response = await fetch(`/api/templates/${id}`, {
+                method: 'DELETE'
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                loadTemplates();
+                showNotification('模板已删除', 'success');
+            } else {
+                showError(data.message || '删除模板失败');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            showError('删除模板失败');
+        }
+    }
+}
+
+// 复制模板
+async function duplicateTemplate(id) {
+    try {
+        const response = await fetch(`/api/templates/${id}`);
+        const template = await response.json();
+        
+        if (template.status === 'error') {
+            showError(template.message || '获取模板详情失败');
+            return;
+        }
+
+        // 创建新模板
+        const newTemplate = {
+            name: template.name + ' (副本)',
+            description: template.description,
+            config: template.config
+        };
+
+        const createResponse = await fetch('/api/templates', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(newTemplate)
+        });
+
+        const result = await createResponse.json();
+        if (result.status === 'success') {
+            showNotification('模板复制成功', 'success');
+            loadTemplates();
+        } else {
+            showError(result.message || '复制模板失败');
+        }
+    } catch (error) {
+        console.error('复制模板失败:', error);
+        showError('复制模板失败: ' + error.message);
+    }
+}
+
+// 使用模板
+function useTemplate(id, mode) {
+    const baseUrl = "{{ url_for('google_sheet.create') }}";
+    if (mode === 'c4') {
+        window.location.href = `${baseUrl}?template_id=${id}&version=c4`;
+    } else if (mode === 'c5') {
+        window.location.href = `${baseUrl}?template_id=${id}&version=c5`;
+    } else {
+        window.location.href = `${baseUrl}?template_id=${id}`;
+    }
+}
+
+// 页面加载时获取模板列表
+document.addEventListener('DOMContentLoaded', loadTemplates);
+</script>
+{% endblock %}

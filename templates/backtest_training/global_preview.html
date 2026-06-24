@@ -6,17 +6,66 @@
 <style>
     .preview-layout {
         display: grid;
-        gap: 1.25rem;
+        gap: 1rem;
     }
-    .preview-summary {
+    .header-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        background: var(--bs-body-bg);
+        border-radius: 0.875rem;
+        padding: 0.6rem 1.25rem;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+    }
+    .header-toolbar-left {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+    }
+    .summary-panel {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-body-bg);
+    }
+    .summary-toggle {
+        list-style: none;
+        padding: 0.85rem 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--bs-body-color);
+        cursor: pointer;
+    }
+    .summary-toggle::-webkit-details-marker { display: none; }
+    .summary-toggle:focus { outline: none; }
+    .summary-toggle:focus-visible {
+        box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.16);
+        border-radius: 0.75rem;
+    }
+    .summary-panel[open] .summary-toggle-icon { transform: rotate(180deg); }
+    .summary-toggle-icon { transition: transform 0.15s ease; }
+    .summary-grid {
         display: grid;
-        gap: 0.9rem;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+        padding: 0 1rem 1rem;
     }
-    .preview-summary .card {
-        border: 0;
-        border-radius: 1rem;
-        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    .summary-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-tertiary-bg);
+        padding: 1rem;
+    }
+    .summary-card-label {
+        font-size: 0.78rem;
+        color: var(--bs-secondary-color);
+        margin-bottom: 0.2rem;
+    }
+    .summary-card-value {
+        font-weight: 700;
+        word-break: break-word;
     }
     .preview-table-wrap {
         overflow: auto;
@@ -27,6 +76,7 @@
     .preview-table {
         min-width: 960px;
         margin-bottom: 0;
+        font-size: 0.88rem;
     }
     .preview-table thead th {
         position: sticky;
@@ -43,15 +93,15 @@
     }
     .preview-table .sticky-col-1 {
         left: 0;
-        min-width: 120px;
+        min-width: 108px;
         background: #f7e1a1;
     }
     .preview-table .sticky-col-2 {
-        left: 120px;
-        min-width: 180px;
+        left: 108px;
+        min-width: 150px;
     }
     .preview-table .sticky-col-3 {
-        left: 300px;
+        left: 258px;
         min-width: 140px;
     }
     .preview-table thead .sticky-col {
@@ -60,6 +110,28 @@
     }
     .preview-table thead .sticky-col-1 {
         background: #f7e1a1;
+    }
+    html[data-bs-theme="dark"] .header-toolbar,
+    html[data-bs-theme="dark"] .summary-panel,
+    html[data-bs-theme="dark"] .preview-table-wrap {
+        background: #182132;
+    }
+    html[data-bs-theme="dark"] .summary-card {
+        background: #111827;
+        border-color: #334155;
+    }
+    html[data-bs-theme="dark"] .preview-table .sticky-col {
+        background: #182132;
+    }
+    html[data-bs-theme="dark"] .preview-table .sticky-col-1,
+    html[data-bs-theme="dark"] .preview-table thead .sticky-col-1 {
+        background: #3f341b;
+        color: #fde68a;
+    }
+    html[data-bs-theme="dark"] .preview-table thead th,
+    html[data-bs-theme="dark"] .preview-table thead .sticky-col {
+        background: #1f2937;
+        color: #e5e7eb;
     }
     .group-meta {
         display: flex;
@@ -84,50 +156,45 @@
 {% block content %}
 <div class="container-fluid py-4">
     <div class="preview-layout">
-        <div class="card border-0 shadow-sm rounded-4">
-            <div class="card-body p-4 d-flex justify-content-between align-items-start flex-wrap gap-3">
-                <div>
-                    <div class="text-body-secondary small mb-2">任务详情扩展视图</div>
-                    <h3 class="mb-1 fw-bold">全局预览页</h3>
-                    <div class="text-body-secondary" id="taskTitleText">加载中...</div>
-                </div>
-                <div class="d-flex gap-2 flex-wrap">
-                    <a href="/backtest-training/api/global-preview/{{ task_id }}/export" class="btn btn-outline-success rounded-pill px-4">
-                        <i class="bi bi-file-earmark-excel"></i> 导出 XLSX
-                    </a>
-                    <a href="/backtest-training/detail/{{ task_id }}" class="btn btn-outline-secondary rounded-pill px-4">
-                        <i class="bi bi-arrow-left"></i> 返回详情
-                    </a>
-                </div>
+        <div class="header-toolbar">
+            <div class="header-toolbar-left">
+                <div class="text-body-secondary small">单品数据回测</div>
+                <div class="fw-bold" id="taskTitleText">加载中...</div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                <button type="button" class="btn btn-outline-success rounded-pill px-3 btn-sm" id="exportGlobalPreviewBtn">
+                    <i class="bi bi-file-earmark-excel me-1"></i>导出 XLSX
+                </button>
+                <a href="/backtest-training/detail/{{ task_id }}" class="btn btn-outline-secondary rounded-pill px-3 btn-sm" id="backToDetailLink">
+                    <i class="bi bi-arrow-left me-1"></i>返回详情
+                </a>
             </div>
         </div>
 
-        <div class="preview-summary" id="summaryCards">
-            <div class="card">
-                <div class="card-body">
-                    <div class="text-body-secondary small">任务 ID</div>
-                    <div class="fw-semibold" id="summaryTaskId">{{ task_id }}</div>
+        <details class="summary-panel shadow-sm">
+            <summary class="summary-toggle">
+                <span class="fw-semibold">任务概要</span>
+                <span class="text-body-secondary small">点击展开 4 项信息 <i class="bi bi-chevron-down ms-1 summary-toggle-icon"></i></span>
+            </summary>
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <div class="summary-card-label">任务 ID</div>
+                    <div class="summary-card-value" id="summaryTaskId">{{ task_id }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-card-label">结果总数</div>
+                    <div class="summary-card-value" id="summaryTotal">-</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-card-label">成功结果</div>
+                    <div class="summary-card-value text-success" id="summarySuccess">-</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-card-label">年份分组</div>
+                    <div class="summary-card-value" id="summaryGroups">-</div>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-body">
-                    <div class="text-body-secondary small">结果总数</div>
-                    <div class="fw-semibold" id="summaryTotal">-</div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-body">
-                    <div class="text-body-secondary small">成功结果</div>
-                    <div class="fw-semibold text-success" id="summarySuccess">-</div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-body">
-                    <div class="text-body-secondary small">年份分组</div>
-                    <div class="fw-semibold" id="summaryGroups">-</div>
-                </div>
-            </div>
-        </div>
+        </details>
 
         <div class="card border-0 shadow-sm rounded-4">
             <div class="card-body p-4">
@@ -161,12 +228,30 @@
     let activeGroupKey = null;
 
     document.addEventListener('DOMContentLoaded', () => {
+        const backToDetailLink = document.getElementById('backToDetailLink');
+        if (backToDetailLink) {
+            backToDetailLink.href = buildDetailHref();
+        }
         loadGlobalPreview();
+        document.getElementById('exportGlobalPreviewBtn')?.addEventListener('click', exportGlobalPreview);
         document.getElementById('groupSelect')?.addEventListener('change', (event) => {
             activeGroupKey = event.target.value;
             renderActiveGroup();
         });
     });
+
+    function buildDetailHref() {
+        const currentParams = new URLSearchParams(window.location.search);
+        const detailParams = new URLSearchParams();
+        ['list_page', 'list_per_page', 'result_page', 'result_per_page'].forEach((key) => {
+            const value = currentParams.get(key);
+            if (value) {
+                detailParams.set(key, value);
+            }
+        });
+        const query = detailParams.toString();
+        return `/backtest-training/detail/${encodeURIComponent(TASK_ID)}${query ? `?${query}` : ''}`;
+    }
 
     async function loadGlobalPreview() {
         const container = document.getElementById('previewContainer');
@@ -186,10 +271,63 @@
         }
     }
 
+    async function exportGlobalPreview() {
+        const button = document.getElementById('exportGlobalPreviewBtn');
+        const originalHtml = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中';
+
+        try {
+            const response = await fetch(`/backtest-training/api/global-preview/${encodeURIComponent(TASK_ID)}/export`);
+            if (!response.ok) {
+                const text = await response.text();
+                let message = '导出失败';
+                try {
+                    const payload = JSON.parse(text);
+                    message = payload.message || message;
+                } catch (_error) {
+                    message = text || message;
+                }
+                throw new Error(message);
+            }
+
+            const blob = await response.blob();
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const filename = resolveDownloadFilename(disposition, `${TASK_ID}_global_preview.xlsx`);
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            alert(error.message || '导出失败');
+        } finally {
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+        }
+    }
+
+    function resolveDownloadFilename(contentDisposition, fallback) {
+        const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (encodedMatch) {
+            try {
+                return decodeURIComponent(encodedMatch[1]);
+            } catch (_error) {
+                return encodedMatch[1];
+            }
+        }
+
+        const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+        return plainMatch ? plainMatch[1] : fallback;
+    }
+
     function renderSummary() {
         const task = previewPayload.task || {};
         const summary = previewPayload.summary || {};
-        document.getElementById('taskTitleText').textContent = task.name || TASK_ID;
+        document.getElementById('taskTitleText').textContent = `全局预览 · ${task.name || TASK_ID}`;
         document.getElementById('summaryTaskId').textContent = task.id || TASK_ID;
         document.getElementById('summaryTotal').textContent = summary.total_results ?? 0;
         document.getElementById('summarySuccess').textContent = summary.success_results ?? 0;

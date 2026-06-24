@@ -313,6 +313,14 @@
                                                         <label class="btn btn-outline-primary flex-fill" for="market_type_cn">A股</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="kline_adjustment">K线复权</label>
+                                                    <select class="form-select" id="kline_adjustment">
+                                                        <option value="forward" selected>前复权</option>
+                                                        <option value="back">后复权</option>
+                                                        <option value="none">不复权</option>
+                                                    </select>
+                                                </div>
                                                 <div class="col-md-6">
                                                     <label class="form-label">数据时间范围</label>
                                                     <div class="row g-2 align-items-end">
@@ -397,7 +405,7 @@
                                 <button type="button" class="btn btn-outline-success me-md-2" onclick="saveAsTemplate()" title="将当前配置保存为模板">
                                     <i class="bi bi-save"></i> 保存为模板
                                 </button>
-                                <button type="submit" class="btn btn-primary btn-lg" id="execute-btn">
+                                <button type="button" class="btn btn-primary btn-lg" id="execute-btn">
                                     <i class="bi bi-play-circle"></i> 创建任务并执行
                                 </button>
                             </div>
@@ -620,6 +628,10 @@
                     if (mtInput) {
                         mtInput.checked = true;
                     }
+                }
+                if (config.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = config.kline_adjustment;
                 }
 
                 if (config.date_range_mode !== undefined) {
@@ -1152,6 +1164,10 @@
                         mtInput.checked = true;
                     }
                 }
+                if (config.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = config.kline_adjustment;
+                }
                 if (config.start_date) {
                     const sd = document.getElementById('start_date');
                     if (sd) sd.value = config.start_date;
@@ -1427,9 +1443,8 @@
             });
         }
 
-        // 表单提交事件
-        document.getElementById('parameter-form').addEventListener('submit', function(e) {
-            e.preventDefault();
+        // 创建任务按钮点击事件（不使用表单submit，防止回车键误触发）
+        document.getElementById('execute-btn').addEventListener('click', function() {
             submitTask();
         });
     }
@@ -1699,6 +1714,7 @@
         const proxyUrl = document.getElementById('proxy_url').value;
         const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
         const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+        const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         const dateRangeModes = getSelectedDateRangeModes();
         const startDate = document.getElementById('start_date')?.value || null;
         const endDate = document.getElementById('end_date')?.value || null;
@@ -1798,6 +1814,7 @@
             proxy_url: proxyUrl || null,
             count_mode: countMode,
             market_type: marketType,
+            kline_adjustment: klineAdjustment,
             date_range_mode: dateRangeModes,
             start_date: startDate,
             end_date: endDate,
@@ -1887,6 +1904,7 @@
             token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
+            kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             date_range_mode: getSelectedDateRangeModes(),
             param1: document.getElementById('param1').value
         };
@@ -1931,6 +1949,10 @@
                     if (mtInput) {
                         mtInput.checked = true;
                     }
+                }
+                if (formData.kline_adjustment) {
+                    const adjustSelect = document.getElementById('kline_adjustment');
+                    if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
                 }
 
                 if (formData.date_range_mode !== undefined) {
@@ -2003,6 +2025,7 @@
             const proxyUrl = document.getElementById('proxy_url').value;
             const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
             const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
+            const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
             const startDate = document.getElementById('start_date')?.value || null;
             const endDate = document.getElementById('end_date')?.value || null;
 
@@ -2090,6 +2113,7 @@
                 proxy_url: proxyUrl || null,
                 count_mode: countMode,
                 market_type: marketType,
+                kline_adjustment: klineAdjustment,
                 start_date: startDate,
                 end_date: endDate,
                 parameters: [param1],
@@ -2178,6 +2202,7 @@
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',
+            kline_adjustment: raw.kline_adjustment || 'forward',
             token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',

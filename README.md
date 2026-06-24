@@ -1,6 +1,6 @@
 # Google Sheet 参数批量校验系统
 
-一个基于 Flask 的 Google Sheet 参数批量校验系统，支持参数组合批量执行、任务管理、实时监控等功能。
+一个前后端分离（Flask + Vue 3）的任务平台，支持 Google Sheet 参数批量校验、任务调度、RBAC 权限控制与 JWT 登录鉴权。
 
 ## 功能特性
 
@@ -17,6 +17,9 @@
 - **配置管理**: 灵活的系统配置管理
 - **日志系统**: 完整的操作日志记录
 - **数据持久化**: 基于 SQLite 的数据存储
+- **登录鉴权**: 支持 JWT 登录、刷新令牌、接口鉴权
+- **权限控制**: 支持基于角色的 RBAC 权限控制
+- **单点登录**: 同账号新登录会使旧端登录状态失效
 
 ### 🎨 界面特性
 - **响应式设计**: 支持桌面和移动设备
@@ -133,27 +136,92 @@ MAX_CONCURRENT_TASKS=5
 TASK_TIMEOUT=3600
 LOG_LEVEL=INFO
 BASE_URL=http://localhost:5000
+PUBLIC_BASE_URL=
+DING_TALK_DETAIL_BASE_URL=
 SQLALCHEMY_ECHO=False
 FLASK_DEBUG=False
 DING_TALK_ACCESS_TOKEN=
 DING_TALK_SECRET=
 ```
 
+- `BASE_URL`：系统默认访问地址，未单独配置外链时会作为回退值使用。
+- `PUBLIC_BASE_URL`：系统对外访问地址，适合统一配置为浏览器真实访问域名或 IP。
+- `DING_TALK_DETAIL_BASE_URL`：钉钉详情跳转专用地址，优先级高于 `PUBLIC_BASE_URL` 和 `BASE_URL`。
+- 如果你平时通过 `127.0.0.1`、局域网 IP 或域名访问系统，不要让钉钉继续使用默认 `http://localhost:5000`，否则前端 `localStorage` 登录态会因为 origin 不一致而失效。
+
 开发环境 `.env.development`：
 ```bash
-DATABASE_URL=sqlite:///instance/app.db
+DATABASE_URL=postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator
 ```
 
 生产环境 `.env.production`：
 ```bash
 APP_ENV=production
-DATABASE_URL=postgresql://validator_user:123456@172.18.20.17:5432/googlesheet_validator
+DATABASE_URL=postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator
 ```
+
+本地开发数据库使用 Docker 启动：
+```bash
+docker compose -f dockers/postgres/docker-compose.yml up -d
+python scripts/migrate_db.py
+```
+
+## 登录与鉴权（前后端）
+
+### 1) 鉴权开关与密钥
+
+在环境变量中配置：
+
+```bash
+AUTH_ENABLED=true
+JWT_SECRET_KEY=请替换为生产随机密钥
+```
+
+- `AUTH_ENABLED=true`：启用 JWT 认证与权限校验（生产环境必须开启）
+- `AUTH_ENABLED=false`：仅用于本地调试，会跳过认证与权限拦截
+
+### 2) 默认账号
+
+首次启动会自动初始化管理员账号：
+
+- 用户名：`admin`
+- 密码：`admin123`
+
+首次登录后请立即在「个人密码修改」或后台用户管理中修改默认密码。
+
+### 3) 前端登录流程（Vue）
+
+1. 登录页调用 `POST /api/auth/login`
+2. 保存 `access_token` 和 `refresh_token` 到 `localStorage`
+3. 请求受保护接口时自动附带 `Authorization: Bearer <access_token>`
+4. 遇到 401 自动调用 `POST /api/auth/refresh` 换新 access_token 并重试
+5. refresh 失败则清理本地 token 并跳转 `/login`
+
+### 4) 后端鉴权流程（Flask）
+
+1. `@login_required`：校验 access_token、有无过期、用户是否有效
+2. `@permission_required(...)`：按权限码校验是否允许访问资源
+3. 登录成功后会递增用户 `token_version`，并写入 access/refresh token
+4. 每次访问接口与刷新 token 都会比对 `token_version`
+5. 任意端再次登录后，旧端 token 因版本不一致会失效（单点登录）
+
+### 5) 鉴权接口
+
+- `POST /api/auth/login`：登录，返回 `access_token`、`refresh_token`、用户信息
+- `POST /api/auth/refresh`：刷新 `access_token`
+- `GET /api/auth/me`：获取当前登录用户信息
+- `POST /api/auth/logout`：退出登录（服务端会使当前 token 失效）
+- `PUT /api/auth/password`：修改密码
+
+更多细节见：
+- `docs/登录与鉴权操作指南.md`
+- `docs/前端维护文档.md`
+- `docs/后端维护文档.md`
 
 ## 使用指南
 
 ### 1. 访问管理面板
-打开浏览器访问 `http://localhost:5000/admin/` 进入管理面板。
+打开浏览器访问 `http://localhost:5000/login` 登录系统，登录后进入管理面板。
 
 ### 2. 配置 Google Sheet
 1. 在管理面板中点击"系统配置"
@@ -190,11 +258,11 @@ export SECRET_KEY="your_secure_random_key_here"
 
 # 开发环境数据库
 export APP_ENV="development"
-export DATABASE_URL="sqlite:///instance/app.db"
+export DATABASE_URL="postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator"
 
 # 生产环境数据库
 export APP_ENV="production"
-export DATABASE_URL="postgresql://validator_user:123456@172.18.20.17:5432/googlesheet_validator"
+export DATABASE_URL="postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator"
 
 # 其他配置
 export MAX_CONCURRENT_TASKS=5
@@ -248,6 +316,13 @@ cp .env.example .env
 ```
 
 ## API 接口
+
+### 认证 API
+- `POST /api/auth/login` - 登录并获取 token
+- `POST /api/auth/refresh` - 刷新 access_token
+- `GET /api/auth/me` - 获取当前用户信息
+- `POST /api/auth/logout` - 退出登录
+- `PUT /api/auth/password` - 修改密码
 
 ### 任务管理 API
 - `GET /api/tasks` - 获取所有任务

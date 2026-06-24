@@ -8,6 +8,8 @@ from datetime import datetime
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+from app.utils.kline_adjustment import normalize_kline_adjustment
+
 
 
 class YFApi:
@@ -18,18 +20,77 @@ class YFApi:
         self.kline_data = []
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', proxy=None):
-        # 3. 下载数据
-        data = yf.download(stock_code, period=period,interval=interval,progress=False)
-        data = self.parse_multiple_tickers(data)
+    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', proxy=None, adjust_type=None):
+        # 先获取原始 OHLC + Adj Close，再在本地按统一口径处理前/后复权。
+        data = yf.download(
+            stock_code,
+            period=period,
+            interval=interval,
+            progress=False,
+            auto_adjust=False,
+            back_adjust=False,
+        )
+        data = self.parse_multiple_tickers(data, adjust_type=adjust_type, ticker_hint=stock_code)
         return data
 
-    def parse_multiple_tickers(self,df):
+    def _adjust_ticker_frame(self, ticker_data, adjust_type=None):
+        normalized_adjust_type = normalize_kline_adjustment(adjust_type)
+        if not isinstance(ticker_data, pd.DataFrame) or ticker_data.empty:
+            return ticker_data
+
+        adjusted = ticker_data.copy()
+        if 'Close' not in adjusted.columns:
+            return adjusted
+
+        close = pd.to_numeric(adjusted['Close'], errors='coerce')
+        adj_close = pd.to_numeric(adjusted['Adj Close'], errors='coerce') if 'Adj Close' in adjusted.columns else None
+        if adj_close is None:
+            return adjusted
+
+        if normalized_adjust_type == 'forward':
+            adjusted_close = adj_close.where(adj_close.notna(), close)
+            scale = adjusted_close.div(close.replace(0, pd.NA)).replace([float('inf'), float('-inf')], pd.NA).fillna(1.0)
+            for column in ('Open', 'High', 'Low'):
+                if column in adjusted.columns:
+                    adjusted[column] = pd.to_numeric(adjusted[column], errors='coerce') * scale
+            adjusted['Close'] = adjusted_close
+            adjusted['Adj Close'] = adjusted_close
+            return adjusted
+
+        if normalized_adjust_type == 'back':
+            factor = adj_close.div(close.replace(0, pd.NA)).replace([float('inf'), float('-inf')], pd.NA)
+            valid_factor = factor.dropna()
+            if valid_factor.empty:
+                return adjusted
+            base_factor = valid_factor.iloc[0]
+            if pd.isna(base_factor) or base_factor == 0:
+                return adjusted
+
+            scale = factor.div(base_factor).replace([float('inf'), float('-inf')], pd.NA).fillna(1.0)
+            for column in ('Open', 'High', 'Low'):
+                if column in adjusted.columns:
+                    adjusted[column] = pd.to_numeric(adjusted[column], errors='coerce') * scale
+            adjusted_close = close * scale
+            adjusted['Close'] = adjusted_close
+            adjusted['Adj Close'] = adjusted_close
+            return adjusted
+
+        return adjusted
+
+    def _normalize_ticker_hint(self, ticker_hint):
+        if isinstance(ticker_hint, (list, tuple, set)):
+            values = [str(item) for item in ticker_hint if item is not None]
+            return values[0] if len(values) == 1 else None
+        return str(ticker_hint) if ticker_hint is not None else None
+
+    def parse_multiple_tickers(self,df, adjust_type=None, ticker_hint=None):
         """
         处理包含多只股票的数据，转换为标准格式
 
         参数:
             df: 雅虎财经下载的多级索引DataFrame
+            adjust_type: 价格复权方式
+            ticker_hint: 单只股票下载时使用的股票代码
 
         返回:
             list: 包含所有股票K线数据的字典列表，格式与您的规范一致
@@ -47,7 +108,8 @@ class YFApi:
                     tickers = df.columns.get_level_values(2).unique()
             else:
                 # 如果只有单只股票，直接处理
-                tickers = [df.columns[0]] if len(df.columns) > 0 else []
+                ticker = self._normalize_ticker_hint(ticker_hint) or 'UNKNOWN'
+                tickers = [ticker] if len(df.columns) > 0 else []
 
             self.logger.info(f"发现 {len(tickers)} 只股票: {list(tickers)}")
 
@@ -62,6 +124,7 @@ class YFApi:
                                 ticker_data.columns = ticker_data.columns.droplevel('Price')
                     else:
                         ticker_data = df
+                    ticker_data = self._adjust_ticker_frame(ticker_data, adjust_type=adjust_type)
 
                     # 遍历每一行数据
                     for date_idx, row in ticker_data.iterrows():
@@ -88,8 +151,8 @@ class YFApi:
                             else:
                                 stock_zf = 0.0
 
-                            # 成交额（如果没有则使用收盘价*成交量估算）
-                            stock_cje = float(row.get('Adj Close', close_price)) * volume if volume > 0 else 0
+                            # Yahoo 没有直接成交额，这里使用当前选定复权口径的收盘价估算。
+                            stock_cje = close_price * volume if volume > 0 else 0
 
                             # 换手率%（雅虎数据通常没有，设为0）
                             stock_hsl = 0.0

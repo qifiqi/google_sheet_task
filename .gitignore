@@ -118,6 +118,7 @@ Thumbs.db
 
 # Project specific - Sensitive files
 data/token*.json
+data/google_sheet_tokens/*.json
 data/temp_token_*.json
 data/tasks.json
 logs/*.log
@@ -156,4 +157,5 @@ node_modules/
 
 # Docker
 docker-compose.override.yml
+dockers/postgres/data/
 test

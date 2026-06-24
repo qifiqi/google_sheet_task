@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}任务管理系统{% endblock %}</title>
+
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='font/bootstrap-icons.css') }}" rel="stylesheet">
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+
+<!--?    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">-->
+<!--?    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">-->
+<!--?    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>-->
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        html[data-bs-theme="dark"] body {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        .sidebar {
+            min-height: 100vh;
+            background: #ffffff;
+            overflow-y: scroll;
+            overflow-x: hidden;
+            border-right: 1px solid #e9ecef;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.04);
+            scrollbar-gutter: stable;
+            flex: 0 0 auto;
+        }
+        html[data-bs-theme="dark"] .sidebar {
+            background: #111827;
+            border-right-color: #243041;
+            box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+        }
+        .sidebar-brand-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.85rem;
+            background: linear-gradient(135deg, #0d6efd 0%, #4dabf7 100%);
+            color: #fff;
+            font-size: 1.1rem;
+            box-shadow: 0 10px 20px rgba(13, 110, 253, 0.18);
+        }
+        .sidebar .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: #495057;
+            padding: 0.65rem 0.85rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.2rem;
+            font-weight: 500;
+            transition: all 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link {
+            color: #d1d5db;
+        }
+        .sidebar .nav-link:hover {
+            color: #0d6efd;
+            background-color: #f1f5ff;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link:hover {
+            color: #93c5fd;
+            background-color: rgba(59, 130, 246, 0.14);
+        }
+        .sidebar .nav-link.active {
+            color: #0d6efd;
+            background-color: #e7f1ff;
+            box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.12);
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link.active {
+            color: #bfdbfe;
+            background-color: rgba(59, 130, 246, 0.18);
+            box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.2);
+        }
+        .sidebar .btn-toggle {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #343a40;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 0.8rem 0.85rem 0.55rem;
+            border-radius: 0.75rem;
+            transition: background-color 0.18s ease, color 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle {
+            color: #e5e7eb;
+        }
+        .sidebar .btn-toggle:hover {
+            background: #f8f9fa;
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle:hover {
+            background: rgba(255, 255, 255, 0.04);
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-icon {
+            transition: transform 0.2s ease;
+            color: #868e96;
+            font-size: 0.9rem;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle-icon {
+            color: #94a3b8;
+        }
+        .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            transform: rotate(90deg);
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-nav {
+            padding-left: 0;
+            margin: 0.1rem 0 0;
+            list-style: none;
+            padding-left: 0.15rem;
+        }
+        .sidebar .btn-toggle-nav li {
+            margin: 0;
+        }
+        .sidebar .btn-toggle-nav .nav-link {
+            margin-left: 0.25rem;
+            padding: 0.48rem 0.75rem 0.48rem 0.85rem;
+            white-space: nowrap;
+            font-size: 0.93rem;
+            font-weight: 500;
+            border-radius: 0.7rem;
+        }
+        .sidebar .btn-toggle-nav .nav-link i {
+            font-size: 0.92rem;
+            opacity: 0.9;
+        }
+        .sidebar .btn-toggle-nav .nav-link span {
+            font-size: 0.93rem;
+        }
+        .main-content {
+            min-width: 0;
+        }
+
+        /* 固定侧边栏：让主内容区滚动时侧边栏不跟随滚动（仅 md 及以上生效） */
+        @media (min-width: 768px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 1000;
+                width: 25%;
+                max-width: 25%;
+            }
+
+            /* md: sidebar = col-md-3 (25%) */
+            .main-content {
+                margin-left: 25%;
+            }
+        }
+
+        @media (min-width: 992px) {
+            /* lg: sidebar = col-lg-2 (16.6667%) */
+            .sidebar {
+                width: 16.666667%;
+                max-width: 16.666667%;
+            }
+            .main-content {
+                margin-left: 16.666667%;
+            }
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 10px;
+        }
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: #ced4da;
+            border-radius: 999px;
+            border: 2px solid #ffffff;
+        }
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: #adb5bd;
+        }
+        .sidebar-user-avatar {
+            width: 2.75rem;
+            height: 2.75rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 1rem;
+            background: linear-gradient(135deg, #fb7185 0%, #8b5cf6 100%);
+            box-shadow: 0 10px 20px rgba(139, 92, 246, 0.18);
+            flex-shrink: 0;
+        }
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        html[data-bs-theme="dark"] .card {
+            background-color: #182132;
+            border-color: #2a3648;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table {
+            --bs-table-color: #e5e7eb;
+            --bs-table-bg: transparent;
+            --bs-table-border-color: #334155;
+            --bs-table-striped-color: #e5e7eb;
+            --bs-table-striped-bg: rgba(148, 163, 184, 0.05);
+            --bs-table-active-color: #f8fafc;
+            --bs-table-active-bg: rgba(59, 130, 246, 0.12);
+            --bs-table-hover-color: #f8fafc;
+            --bs-table-hover-bg: rgba(59, 130, 246, 0.08);
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table > :not(caption) > * > * {
+            color: inherit;
+        }
+        html[data-bs-theme="dark"] .table thead,
+        html[data-bs-theme="dark"] .table-light,
+        html[data-bs-theme="dark"] .bg-white {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .table-light > :not(caption) > * > *,
+        html[data-bs-theme="dark"] .table > thead > tr > th {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+            border-bottom-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .table code {
+            color: #f9a8d4;
+        }
+        html[data-bs-theme="dark"] .table .text-dark {
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .bg-light,
+        html[data-bs-theme="dark"] .alert-light {
+            background-color: #1f2937 !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .dropdown-menu {
+            background-color: #182132;
+            border-color: #2a3648;
+        }
+        html[data-bs-theme="dark"] .dropdown-item {
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .dropdown-item:hover,
+        html[data-bs-theme="dark"] .dropdown-item:focus {
+            color: #f8fafc;
+            background-color: rgba(59, 130, 246, 0.12);
+        }
+        html[data-bs-theme="dark"] .dropdown-divider {
+            border-top-color: #334155;
+        }
+        html[data-bs-theme="dark"] .text-muted {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .form-control,
+        html[data-bs-theme="dark"] .form-select,
+        html[data-bs-theme="dark"] .input-group-text,
+        html[data-bs-theme="dark"] textarea.form-control {
+            background-color: #111827 !important;
+            border-color: #334155 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .form-control:focus,
+        html[data-bs-theme="dark"] .form-select:focus,
+        html[data-bs-theme="dark"] textarea.form-control:focus {
+            background-color: #0f172a !important;
+            border-color: #3b82f6 !important;
+            color: #f8fafc !important;
+            box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18) !important;
+        }
+        html[data-bs-theme="dark"] .form-control::placeholder,
+        html[data-bs-theme="dark"] textarea.form-control::placeholder {
+            color: #7c8aa0 !important;
+        }
+        html[data-bs-theme="dark"] .form-select option {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .input-group-text {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .text-bg-light,
+        html[data-bs-theme="dark"] .badge.text-bg-light {
+            background-color: #1e293b !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .list-group-item {
+            background-color: #111827;
+            color: #e5e7eb;
+            border-color: #334155;
+        }
+        html[data-bs-theme="dark"] .list-group-item.active {
+            background-color: rgba(59, 130, 246, 0.18);
+            border-color: #3b82f6;
+            color: #f8fafc;
+        }
+        html[data-bs-theme="dark"] .card-header.border-0 {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            overflow-x: auto;
+            background-color: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            border-radius: 0.375rem;
+            font-size: 14px;
+            white-space: pre;
+            word-break: normal;
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- 侧边栏 -->
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+                <div class="position-sticky d-flex flex-column min-vh-100 px-3 pt-4 pb-3">
+                    <div class="d-flex align-items-center gap-3 px-2 pb-3 mb-3 border-bottom">
+                        <div class="sidebar-brand-icon">
+                            <i class="bi bi-grid-1x2-fill"></i>
+                        </div>
+                        <div>
+                            <p class="mb-0 fw-bold text-body">任务管理系统</p>
+                            <p class="mb-0 mt-1 small text-muted">Bootstrap Sidebar Style</p>
+                        </div>
+                    </div>
+                    <div class="nav flex-column flex-grow-1">
+                        <div>
+                            <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}" href="{{ url_for('admin.dashboard') }}">
+                                <i class="bi bi-speedometer2"></i>
+                                <span>仪表盘</span>
+                            </a>
+                        </div>
+
+                        <div class="mt-3">
+                            <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#taskGroup" aria-expanded="false">
+                                <span><i class="bi bi-list-task me-2"></i>任务模块</span>
+                                <i class="bi bi-chevron-right btn-toggle-icon"></i>
+                            </button>
+                            <div class="collapse" id="taskGroup">
+                                <ul class="btn-toggle-nav">
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'admin.tasks' %}active{% endif %}" href="{{ url_for('admin.tasks') }}">
+                                            <i class="bi bi-play-circle"></i>
+                                            <span>任务管理</span>
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'admin.templates' %}active{% endif %}" href="{{ url_for('admin.templates') }}">
+                                            <i class="bi bi-file-earmark-text"></i>
+                                            <span>任务模板</span>
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'admin.results' %}active{% endif %}" href="{{ url_for('admin.results') }}">
+                                            <i class="bi bi-clipboard-data"></i>
+                                            <span>任务结果</span>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#schedulerGroup" aria-expanded="false">
+                                <span><i class="bi bi-clock me-2"></i>调度模块</span>
+                                <i class="bi bi-chevron-right btn-toggle-icon"></i>
+                            </button>
+                            <div class="collapse" id="schedulerGroup">
+                                <ul class="btn-toggle-nav">
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'admin.scheduler' %}active{% endif %}" href="{{ url_for('admin.scheduler') }}">
+                                            <i class="bi bi-calendar-event"></i>
+                                            <span>定时任务</span>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#systemGroup" aria-expanded="false">
+                                <span><i class="bi bi-gear me-2"></i>系统模块</span>
+                                <i class="bi bi-chevron-right btn-toggle-icon"></i>
+                            </button>
+                            <div class="collapse" id="systemGroup">
+                                <ul class="btn-toggle-nav">
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'admin.config' %}active{% endif %}" href="{{ url_for('admin.config') }}">
+                                            <i class="bi bi-sliders"></i>
+                                            <span>系统配置</span>
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'admin.google_sheets' %}active{% endif %}" href="{{ url_for('admin.google_sheets') }}">
+                                            <i class="bi bi-table"></i>
+                                            <span>Google Sheet 管理</span>
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'admin.logs' %}active{% endif %}" href="{{ url_for('admin.logs') }}">
+                                            <i class="bi bi-journal-text"></i>
+                                            <span>系统日志</span>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#businessGroup" aria-expanded="false">
+                                <span><i class="bi bi-briefcase me-2"></i>业务模块</span>
+                                <i class="bi bi-chevron-right btn-toggle-icon"></i>
+                            </button>
+                            <div class="collapse" id="businessGroup">
+                                <ul class="btn-toggle-nav">
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'google_sheet.index' and request.args.get('version', 'c3') == 'c3' %}active{% endif %}" href="{{ url_for('google_sheet.index',version='c3') }}">
+                                            <i class="bi bi-table"></i>
+                                            <span>Google Sheet C3</span>
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'google_sheet.index' and request.args.get('version') == 'c4' %}active{% endif %}" href="{{ url_for('google_sheet.index', version='c4') }}">
+                                            <i class="bi bi-table"></i>
+                                            <span>Google Sheet C4</span>
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'google_sheet.index' and request.args.get('version') == 'c5' %}active{% endif %}" href="{{ url_for('google_sheet.index', version='c5') }}">
+                                            <i class="bi bi-table"></i>
+                                            <span>Google Sheet C5</span>
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint in ['backtest_training.list_page', 'backtest_training.create_page', 'backtest_training.parameter_create_page', 'backtest_training.detail_page', 'backtest_training.result_page'] %}active{% endif %}" href="{{ url_for('backtest_training.list_page') }}">
+                                            <i class="bi bi-graph-up"></i>
+                                            <span>数据回测</span>
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'xpl.index' %}active{% endif %}" href="{{ url_for('xpl.index') }}">
+                                            <i class="bi bi-table"></i>
+                                            <span>夏普率计算</span>
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="nav-link {% if request.endpoint == 'xpl.index_v1' %}active{% endif %}" href="{{ url_for('xpl.index_v1') }}">
+                                            <i class="bi bi-table"></i>
+                                            <span>V1 回测数据分析</span>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3 pt-3 border-top flex-shrink-0">
+                        <div class="dropup">
+                            <button class="btn btn-link dropdown-toggle d-flex align-items-center gap-2 w-100 px-0 py-1 text-start text-decoration-none text-reset border-0 shadow-none" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <div class="sidebar-user-avatar">AI</div>
+                                <div class="flex-grow-1 min-w-0">
+                                    <div class="fw-semibold text-truncate">占位用户</div>
+                                    <div class="small text-muted text-truncate">Sidebar Placeholder</div>
+                                </div>
+                            </button>
+                            <ul class="dropdown-menu w-100 shadow">
+                                <li><button type="button" class="dropdown-item" id="sidebarSettingsBtn">Settings</button></li>
+                                <li>
+                                    <button type="button" class="dropdown-item d-flex align-items-center gap-2" id="themeToggleBtn">
+                                        <i class="bi bi-circle-half" id="themeToggleIcon"></i>
+                                        <span id="themeToggleText">切换主题</span>
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="visually-hidden" aria-hidden="true">
+                            <small id="themeToggleHint">当前浅色模式</small>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- 主内容区域 -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // 侧边栏折叠功能
+        document.addEventListener('DOMContentLoaded', function() {
+            const themeStorageKey = 'adminTheme';
+            const sidebarGroupIds = ['taskGroup', 'schedulerGroup', 'systemGroup', 'businessGroup'];
+            const collapseElements = sidebarGroupIds
+                .map(id => document.getElementById(id))
+                .filter(Boolean);
+            const themeToggleBtn = document.getElementById('themeToggleBtn');
+            const sidebarSettingsBtn = document.getElementById('sidebarSettingsBtn');
+            const themeToggleText = document.getElementById('themeToggleText');
+            const themeToggleHint = document.getElementById('themeToggleHint');
+            const themeToggleIcon = document.getElementById('themeToggleIcon');
+
+            const applyTheme = (theme) => {
+                const normalizedTheme = theme === 'dark' ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-bs-theme', normalizedTheme);
+                localStorage.setItem(themeStorageKey, normalizedTheme);
+                if (themeToggleText) {
+                    themeToggleText.textContent = normalizedTheme === 'dark' ? '切换到浅色' : '切换到深色';
+                }
+                if (themeToggleHint) {
+                    themeToggleHint.textContent = normalizedTheme === 'dark' ? '当前深色模式' : '当前浅色模式';
+                }
+                if (themeToggleIcon) {
+                    themeToggleIcon.className = normalizedTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+                }
+                if (themeToggleBtn) {
+                    themeToggleBtn.setAttribute('title', normalizedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式');
+                }
+            };
+
+            const savedTheme = localStorage.getItem(themeStorageKey) || document.documentElement.getAttribute('data-bs-theme') || 'light';
+            applyTheme(savedTheme);
+
+            if (themeToggleBtn) {
+                themeToggleBtn.addEventListener('click', function() {
+                    const currentTheme = document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light';
+                    applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+                });
+            }
+
+            if (sidebarSettingsBtn) {
+                sidebarSettingsBtn.addEventListener('click', function() {
+                    showNotification('设置功能暂未开放', 'info');
+                });
+            }
+
+            const syncToggleState = (element, expanded) => {
+                if (!element) {
+                    return;
+                }
+                const toggle = document.querySelector(`[data-bs-target="#${element.id}"]`);
+                if (toggle) {
+                    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                }
+            };
+
+            const saveCollapseState = () => {
+                const collapseState = {};
+                collapseElements.forEach(element => {
+                    collapseState[element.id] = element.classList.contains('show');
+                });
+                localStorage.setItem('sidebarCollapseState', JSON.stringify(collapseState));
+            };
+
+            const restoreCollapseState = () => {
+                const savedState = localStorage.getItem('sidebarCollapseState');
+                if (savedState) {
+                    const collapseState = JSON.parse(savedState);
+                    Object.keys(collapseState).forEach(elementId => {
+                        const element = document.getElementById(elementId);
+                        if (!element) return;
+                        if (collapseState[elementId]) {
+                            element.classList.add('show');
+                            syncToggleState(element, true);
+                        } else {
+                            element.classList.remove('show');
+                            syncToggleState(element, false);
+                        }
+                    });
+                    return;
+                }
+
+                collapseElements.forEach(element => {
+                    const hasActiveLink = element.querySelector('.nav-link.active');
+                    const shouldShow = Boolean(hasActiveLink);
+                    element.classList.toggle('show', shouldShow);
+                    syncToggleState(element, shouldShow);
+                });
+            };
+
+            collapseElements.forEach(element => {
+                element.addEventListener('shown.bs.collapse', saveCollapseState);
+                element.addEventListener('hidden.bs.collapse', saveCollapseState);
+                syncToggleState(element, element.classList.contains('show'));
+            });
+
+            restoreCollapseState();
+        });
+
+        // 通用AJAX函数
+        function ajaxRequest(url, method, data, callback) {
+            const xhr = new XMLHttpRequest();
+            xhr.open(method, url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState !== 4) {
+                    return;
+                }
+
+                let response = null;
+                try {
+                    response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                } catch (e) {
+                    response = null;
+                }
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    callback(null, response);
+                    return;
+                }
+
+                const message = response && response.message
+                    ? response.message
+                    : `Request failed with status ${xhr.status}`;
+                callback(new Error(message), response);
+            };
+            xhr.send(data ? JSON.stringify(data) : null);
+        }
+
+        // 显示通知（统一为右下角弹窗样式）
+        function showNotification(message, type = 'info') {
+            const alertClass = type === 'error' ? 'alert-danger' : 
+                              type === 'success' ? 'alert-success' : 
+                              type === 'warning' ? 'alert-warning' : 'alert-info';
+
+            // 创建或获取右下角容器
+            let container = document.getElementById('notification-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'notification-container';
+                container.style.position = 'fixed';
+                container.style.right = '20px';
+                container.style.bottom = '20px';
+                container.style.zIndex = '2000';
+                container.style.display = 'flex';
+                container.style.flexDirection = 'column';
+                container.style.alignItems = 'flex-end';
+                document.body.appendChild(container);
+            }
+
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert ${alertClass} alert-dismissible fade show mb-2`;
+            alertDiv.style.minWidth = '260px';
+            alertDiv.style.boxShadow = '0 0.25rem 0.5rem rgba(0,0,0,0.15)';
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+
+            container.appendChild(alertDiv);
+
+            // 自动消失
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+
+        // 格式化时间
+        function formatTime(timestamp) {
+            if (!timestamp) return '-';
+            const date = new Date(timestamp);
+            return date.toLocaleString('zh-CN');
+        }
+
+        // 获取任务状态文本
+        function getStatusText(status) {
+            switch (status) {
+                case 'pending': return '待执行';
+                case 'running': return '执行中';
+                case 'completed': return '已完成';
+                case 'cancelled': return '已取消';
+                case 'error': return '执行出错';
+                default: return status;
+            }
+        }
+
+        // 获取任务状态类
+        function getStatusClass(status) {
+            switch (status) {
+                case 'pending': return 'badge bg-secondary';
+                case 'running': return 'badge bg-warning';
+                case 'completed': return 'badge bg-success';
+                case 'cancelled': return 'badge bg-info';
+                case 'error': return 'badge bg-danger';
+                default: return 'badge bg-secondary';
+            }
+        }
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

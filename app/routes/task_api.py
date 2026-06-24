@@ -1,15 +1,72 @@
-from flask import Blueprint, request, jsonify, Response
+import csv
 import json
-import queue
-from app.services.task_manager import task_manager
+import time
+from datetime import datetime
+from io import BytesIO
+
+from flask import Blueprint, g, jsonify, request, send_file
+
+from app.extensions import db
 from app.models import Task
+from app.services.export_file_service import (
+    EXCEL_MIMETYPE,
+    BatchExportFile,
+    build_batch_export_file,
+    build_c3_worksheets,
+    build_task_export,
+    build_workbook,
+    sanitize_export_filename,
+)
+from app.services.task import TaskRuntimeViewService, task_manager
+from app.utils.auth import login_required, permission_required
 from app.utils.logger import get_logger
+from app.utils.task_authorization import (
+    authorize_task_type_action,
+    filter_task_dicts_by_action,
+    filter_task_types_by_action,
+)
 
 logger = get_logger(__name__)
 
 task_api_bp = Blueprint('task_api', __name__)
+runtime_view_service = TaskRuntimeViewService(task_manager)
+
+TASK_ACTION_LABELS = {
+    "view": "查看",
+    "create": "创建",
+    "delete": "删除",
+    "cancel": "取消",
+    "restart": "重启",
+}
+
+
+def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None):
+    action_label = TASK_ACTION_LABELS.get(action, action)
+    normalized_type = decision.get("task_type") or str(task_type or "全部")
+    missing_permissions = decision.get("missing_permissions") or []
+    missing_text = "、".join(missing_permissions) if missing_permissions else "未知"
+    message = f"权限不足，无法{action_label}{normalized_type}任务；当前缺少: {missing_text}"
+
+    return jsonify({
+        "status": "error",
+        "message": message,
+        "task_id": task_id,
+        "task_type": normalized_type,
+        "action": action,
+        "required_permissions": decision.get("required_permissions") or [],
+        "missing_permissions": missing_permissions,
+    }), 403
+
+
+def _get_task_or_404(task_id: str):
+    task = db.session.get(Task, task_id)
+    if not task:
+        return None, jsonify({"status": "error", "message": "任务不存在"}), 404
+    return task, None, None
 
 @task_api_bp.route('/tasks', methods=['GET', 'POST'])
+@login_required
+@permission_required('task:view', 'task:create')
 def tasks():
     """获取任务列表 / 创建任务"""
     try:
@@ -19,25 +76,65 @@ def tasks():
             per_page = request.args.get('per_page', type=int)
             task_status = request.args.get('status')
             keyword = request.args.get('keyword', '', type=str)
+            current_user = getattr(g, "current_user", None)
+            allowed_task_types = None
 
-            use_pagination = page is not None or per_page is not None or bool(task_status) or bool(keyword)
-            if use_pagination:
-                data = task_manager.get_tasks_paginated(
-                    page=page or 1,
-                    per_page=per_page or 10,
-                    task_type=task_type,
-                    status=task_status,
-                    keyword=keyword,
-                )
+            if task_type:
+                decision = authorize_task_type_action(current_user, "view", task_type)
+                if not decision["allowed"]:
+                    return _task_permission_denied("view", task_type, decision)
+            else:
+                base_view_decision = authorize_task_type_action(current_user, "view", None)
+                if not base_view_decision["allowed"]:
+                    return _task_permission_denied("view", "全部", base_view_decision)
+                distinct_task_types = [item[0] for item in Task.query.with_entities(Task.task_type).distinct().all()]
+                allowed_task_types = filter_task_types_by_action(current_user, "view", distinct_task_types)
+
+            default_page = page or 1
+            default_per_page = per_page or 10
+
+            if not task_type and not allowed_task_types:
                 return jsonify({
                     "status": "success",
-                    "tasks": data["tasks"],
-                    "pagination": data["pagination"],
-                    "statistics": data["statistics"],
+                    "tasks": [],
+                    "pagination": {
+                        "page": default_page,
+                        "per_page": default_per_page,
+                        "total": 0,
+                        "pages": 0,
+                        "has_prev": False,
+                        "has_next": False,
+                        "prev_num": None,
+                        "next_num": None,
+                    },
+                    "statistics": {
+                        "total_tasks": 0,
+                        "completed_tasks": 0,
+                        "running_tasks": 0,
+                        "error_tasks": 0,
+                        "pending_tasks": 0,
+                        "today_new_tasks": 0,
+                        "success_rate": 0,
+                        "error_rate": 0,
+                        "avg_duration_minutes": 0,
+                    },
                 })
 
-            tasks = task_manager.get_all_tasks(task_type=task_type)
-            return jsonify({"status": "success", "tasks": tasks})
+            data = task_manager.get_tasks_paginated(
+                page=default_page,
+                per_page=default_per_page,
+                task_type=task_type,
+                task_types=allowed_task_types if not task_type else None,
+                status=task_status,
+                keyword=keyword,
+            )
+            data["tasks"] = filter_task_dicts_by_action(current_user, "view", data.get("tasks", []))
+            return jsonify({
+                "status": "success",
+                "tasks": data["tasks"],
+                "pagination": data["pagination"],
+                "statistics": data["statistics"],
+            })
 
         data = request.get_json() or {}
         config = data.get('config')
@@ -45,7 +142,17 @@ def tasks():
             name = data.get('name', '未命名任务')
             description = data.get('description', '')
             task_type = data.get('task_type', 'google_sheet')
-            response, status_code = task_manager.create_and_start_task(name, description, task_type, config)
+            current_user = getattr(g, "current_user", None)
+            decision = authorize_task_type_action(current_user, "create", task_type)
+            if not decision["allowed"]:
+                return _task_permission_denied("create", task_type, decision)
+            response, status_code = task_manager.create_and_start_task(
+                name,
+                description,
+                task_type,
+                config,
+                created_by_user_id=getattr(current_user, "id", None),
+            )
             return jsonify(response), status_code
 
         return jsonify({"status": "error", "message": "任务配置为空"}), 400
@@ -58,13 +165,22 @@ def tasks():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/batch-create', methods=['POST'])
+@login_required
+@permission_required('task:create')
 def batch_create_tasks():
     """C31 批量创建接口"""
     try:
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "create", "google_sheet")
+        if not decision["allowed"]:
+            return _task_permission_denied("create", "google_sheet", decision)
+
         data = request.get_json() or {}
         logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
 
-        response, status_code = task_manager.batch_create_and_start_task(data)
+        response, status_code = task_manager.batch_create_and_start_task(
+            data,
+            created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
+        )
         if status_code == 200:
             response["debug_message"] = "已调用原有 C3 创建流程；当前仍为占位版批量接口"
         return jsonify(response), status_code
@@ -77,9 +193,20 @@ def batch_create_tasks():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>', methods=['GET', 'DELETE'])
+@login_required
+@permission_required('task:view', 'task:delete')
 def task_detail(task_id):
     """获取/删除任务详情"""
     try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        action = "view" if request.method == 'GET' else "delete"
+        decision = authorize_task_type_action(getattr(g, "current_user", None), action, task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied(action, task_obj.task_type, decision, task_id=task_id)
+
         if request.method == 'GET':
             task = task_manager.get_task_status(task_id)
             if not task:
@@ -95,9 +222,19 @@ def task_detail(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/config', methods=['PUT'])
+@login_required
+@permission_required('task:create')
 def update_task_config(task_id):
     """更新任务配置"""
     try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "create", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("create", task_obj.task_type, decision, task_id=task_id)
+
         data = request.get_json()
         if not data:
             return jsonify({"status": "error", "message": "请求数据为空"}), 400
@@ -106,7 +243,13 @@ def update_task_config(task_id):
         if not config:
             return jsonify({"status": "error", "message": "配置信息不能为空"}), 400
 
-        result = task_manager.update_task_config(task_id, config, data.get('name'), data.get('description'))
+        result = task_manager.update_task_config(
+            task_id,
+            config,
+            data.get('name'),
+            data.get('description'),
+            data.get('status'),
+        )
 
         if result["status"] == "success":
             return jsonify(result)
@@ -117,9 +260,19 @@ def update_task_config(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/cancel', methods=['POST'])
+@login_required
+@permission_required('task:cancel')
 def cancel_task(task_id):
     """取消任务"""
     try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "cancel", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("cancel", task_obj.task_type, decision, task_id=task_id)
+
         success = task_manager.cancel_task(task_id)
         if success:
             return jsonify({"status": "success", "message": "任务已取消"})
@@ -129,9 +282,19 @@ def cancel_task(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/logs', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_task_logs(task_id):
     """获取任务日志"""
     try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
+
         logs = task_manager.get_task_logs(task_id)
         return jsonify({"status": "success", "logs": logs})
     except Exception as e:
@@ -139,9 +302,19 @@ def get_task_logs(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/results', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_task_results(task_id):
     """获取任务结果"""
     try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
+
         page = request.args.get('page', type=int)
         per_page = request.args.get('per_page', type=int)
 
@@ -164,10 +337,252 @@ def get_task_results(task_id):
         logger.error(f"获取任务结果失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@task_api_bp.route('/tasks/<task_id>/export', methods=['GET'])
+@login_required
+@permission_required('task:view')
+def export_task_results(task_id):
+    """导出任务结果。"""
+    try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
+
+        results = task_manager.get_task_results(task_id)
+        export_file = build_task_export(task_obj, results)
+        buffer = BytesIO()
+        export_file.workbook.save(buffer)
+        buffer.seek(0)
+
+        return send_file(
+            buffer,
+            mimetype=export_file.mimetype,
+            as_attachment=True,
+            download_name=export_file.filename,
+        )
+    except ValueError as e:
+        logger.warning(f"导出任务结果校验失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        logger.error(f"导出任务结果失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ── 批量导出配置 ───────────────────────────────────────────────
+# 单次合并导出允许的最大任务数；超过此值直接拒绝请求，
+# 避免单次生成过大的 Excel 导致内存压力和响应超时。
+BATCH_EXPORT_MAX_TASKS = 10
+
+
+@task_api_bp.route('/tasks/batch-export', methods=['POST'])
+@login_required
+@permission_required('task:view')
+def batch_export_task_results():
+    """批量合并导出多个 C3 任务结果。
+
+    流程概览：
+      1. 参数校验（数量上限、任务存在性、用户权限）
+      2. 一次 SQL 批量查询所有 TaskResult（替代原来的 N+1 循环）
+      3. 按 task_name 排序后组装 merged_results
+      4. 调用 build_batch_export_file 生成 Excel
+      5. 返回带 Content-Length 的 send_file 响应（前端可展示进度条）
+
+    请求体: {"task_ids": ["id1", "id2", ...]}
+    最多支持 BATCH_EXPORT_MAX_TASKS 个任务，超出返回 400。
+    """
+    try:
+        _t_total = time.time()
+
+        # ① 参数校验：至少一个任务且不超过上限
+        data = request.get_json() or {}
+        task_ids = data.get('task_ids', [])
+
+        if not task_ids or not isinstance(task_ids, list):
+            return jsonify({"status": "error", "message": "请选择至少一个任务"}), 400
+
+        if len(task_ids) > BATCH_EXPORT_MAX_TASKS:
+            return jsonify({
+                "status": "error",
+                "message": f"合并导出最多支持 {BATCH_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个",
+            }), 400
+
+        # ② 查询任务对象并逐条校验权限
+        tasks = Task.query.filter(Task.id.in_(task_ids)).all()
+        if not tasks:
+            return jsonify({"status": "error", "message": "未找到匹配任务"}), 404
+
+        current_user = getattr(g, "current_user", None)
+        for t in tasks:
+            decision = authorize_task_type_action(current_user, "view", t.task_type)
+            if not decision["allowed"]:
+                return _task_permission_denied("view", t.task_type, decision, task_id=t.id)
+
+        # ③ 批量查询 TaskResult
+        #    只选择导出需要的列（task_id, step_index, result），跳过 parameters（巨大JSON，
+        #    包含 kline 数据，单行 ~10KB）、return_series_id、error_message、timestamp 等无关列。
+        #    导出场景数据量大（~100MB/万行），覆盖全局 30s statement_timeout 为 120s。
+        _t_query = time.time()
+        from app.models import TaskResult
+        _slim_stmt = (
+            db.session.query(
+                TaskResult.task_id,
+                TaskResult.step_index,
+                TaskResult.result,
+            )
+            .filter(TaskResult.task_id.in_(task_ids))
+            .order_by(TaskResult.task_id, TaskResult.step_index.asc())
+            .statement
+        )
+        with db.engine.connect() as conn:
+            with conn.begin():
+                conn.execute(db.text("SET LOCAL statement_timeout = '120s'"))
+                raw_rows = conn.execute(_slim_stmt).fetchall()
+        logger.info(f"[batch-export] DB query: {time.time()-_t_query:.2f}s, {len(raw_rows)} rows")
+
+        # ④ 按 task_name 排序后组装 merged_results
+        #    将原始行转为导出所需的 dict 格式（不含 parameters，kline_range 默认为 "-"）
+        tasks.sort(key=lambda t: t.name or "")
+        result_map: dict[str, list] = {}
+        for task_id, step_index, result_json in raw_rows:
+            parsed_result = json.loads(result_json) if result_json else {}
+            result_map.setdefault(task_id, []).append({
+                "task_id": task_id,
+                "step_index": step_index,
+                "result": parsed_result,
+            })
+
+        merged_results = []
+        for t in tasks:
+            task_name = t.name or ""
+            for r in result_map.get(t.id, []):
+                r["task_name"] = task_name
+                merged_results.append(r)
+
+        # ⑤ CSV 导出（当前使用，性能优先）
+        _t_excel = time.time()
+        worksheets = build_c3_worksheets(merged_results)
+
+        from io import StringIO
+        csv_buffer = StringIO()
+        writer = csv.writer(csv_buffer)
+        if worksheets:
+            writer.writerow(worksheets[0].header)
+            for ws in worksheets:
+                writer.writerows(ws.rows)
+
+        csv_bytes = csv_buffer.getvalue().encode("utf-8-sig")
+        csv_buffer = BytesIO(csv_bytes)
+        csv_buffer.seek(0)
+        csv_size = len(csv_bytes)
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_filename = sanitize_export_filename(f"C3_合并导出_{stamp}") + ".csv"
+        logger.info(f"[batch-export] CSV build: {time.time()-_t_excel:.2f}s, {csv_size/1024/1024:.2f}MB")
+
+        response = send_file(
+            csv_buffer,
+            mimetype="text/csv; charset=utf-8",
+            as_attachment=True,
+            download_name=csv_filename,
+        )
+        response.headers['Content-Length'] = csv_size
+        logger.info(f"[batch-export] Total: {time.time()-_t_total:.2f}s")
+        return response
+
+        # ── xlsxwriter Excel 导出（备用，切换时取消注释并注释上方 CSV 部分） ──
+        # _t_excel = time.time()
+        # import xlsxwriter
+        # worksheets = build_c3_worksheets(merged_results)
+        # stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # filename = sanitize_export_filename(f"C3_合并导出_{stamp}") + ".xlsx"
+        # buf = BytesIO()
+        # wb = xlsxwriter.Workbook(buf, {"in_memory": True, "constant_memory": True})
+        #
+        # # 预定义格式
+        # header_fmt = wb.add_format({"bold": True, "bg_color": "#D9E1F2", "border": 1})
+        # num_fmt    = wb.add_format({"num_format": "0.00"})
+        # pct_fmt    = wb.add_format({"num_format": "0.00"})
+        # default_fmt = wb.add_format()
+        #
+        # from app.services.export_file_service import (
+        #     C3_EXPORT_COLUMNS, C3_NUMBER_COLUMN_NAMES, c3_display_header,
+        # )
+        # display_header = c3_display_header(C3_EXPORT_COLUMNS)
+        # col_format_map = {name: num_fmt for name in C3_NUMBER_COLUMN_NAMES}
+        #
+        # for ws_data in worksheets:
+        #     ws = wb.add_worksheet(ws_data.name[:31])
+        #     # 表头
+        #     for col_idx, hdr in enumerate(display_header):
+        #         ws.write(0, col_idx, hdr, header_fmt)
+        #     # 数据行
+        #     for row_idx, row in enumerate(ws_data.rows, start=1):
+        #         for col_idx, val in enumerate(row):
+        #             col_name = C3_EXPORT_COLUMNS[col_idx] if col_idx < len(C3_EXPORT_COLUMNS) else ""
+        #             fmt = col_format_map.get(col_name, default_fmt)
+        #             ws.write(row_idx, col_idx, val if val != "" else None, fmt)
+        #     # 列宽
+        #     for col_idx, col_name in enumerate(C3_EXPORT_COLUMNS):
+        #         from app.services.export_file_service import C3_COLUMN_WIDTHS
+        #         width = C3_COLUMN_WIDTHS.get(col_name, 12)
+        #         ws.set_column(col_idx, col_idx, width)
+        #
+        # wb.close()
+        # buf.seek(0)
+        # file_size = buf.getbuffer().nbytes
+        # logger.info(f"[batch-export] xlsxwriter build: {time.time()-_t_excel:.2f}s, {file_size/1024/1024:.2f}MB")
+        #
+        # response = send_file(
+        #     buf,
+        #     mimetype=EXCEL_MIMETYPE,
+        #     as_attachment=True,
+        #     download_name=filename,
+        # )
+        # response.headers['Content-Length'] = file_size
+        # logger.info(f"[batch-export] Total: {time.time()-_t_total:.2f}s")
+        # return response
+
+        # ── openpyxl Excel 导出（原始方案，已弃用） ──
+        # _t_excel = time.time()
+        # export_file: BatchExportFile = build_batch_export_file(merged_results)
+        # logger.info(f"[batch-export] Excel build: {time.time()-_t_excel:.2f}s, {export_file.file_size/1024/1024:.2f}MB")
+        # response = send_file(
+        #     export_file.buffer,
+        #     mimetype=EXCEL_MIMETYPE,
+        #     as_attachment=True,
+        #     download_name=export_file.filename,
+        # )
+        # response.headers['Content-Length'] = export_file.file_size
+        # logger.info(f"[batch-export] Total: {time.time()-_t_total:.2f}s")
+        # return response
+
+    except ValueError as e:
+        # 业务校验失败（如 merged_results 为空）
+        logger.warning(f"批量导出校验失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        logger.error(f"批量导出失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @task_api_bp.route('/tasks/<task_id>/status-check', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def check_task_status(task_id):
     """检查任务本地状态"""
     try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
+
         status_check = task_manager.check_local_task_status(task_id)
         return jsonify({"status": "success", "status_check": status_check})
     except Exception as e:
@@ -175,42 +590,52 @@ def check_task_status(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/stop-confirmation', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_task_stop_confirmation(task_id):
     """确认任务是否已经完全停止"""
     try:
-        import time
-        task = Task.query.get(task_id)
-        if not task:
-            return jsonify({"status": "error", "message": "任务不存在"}), 404
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
 
-        status_check = task_manager.check_local_task_status(task_id)
-        thread = task_manager.running_tasks.get(task_id)
-        stop_event = task_manager.task_stop_events.get(task_id)
-        thread_alive = bool(thread and thread.is_alive())
-        stop_requested = bool(stop_event and stop_event.is_set())
-        stop_confirmed = (task.status != 'running') and (not thread_alive)
+        decision = authorize_task_type_action(
+            getattr(g, "current_user", None),
+            "view",
+            task_obj.task_type,
+        )
+        if not decision["allowed"]:
+            return _task_permission_denied(
+                "view",
+                task_obj.task_type,
+                decision,
+                task_id=task_id,
+            )
+
+        stop_confirmation = runtime_view_service.build_stop_confirmation(task_id)
 
         return jsonify({
             "status": "success",
-            "task_id": task_id,
-            "db_status": task.status,
-            "thread_alive": thread_alive,
-            "memory_running": status_check.get("memory_running", thread_alive),
-            "stop_requested": stop_requested,
-            "stop_confirmed": stop_confirmed,
-            "current_step": task.current_step,
-            "total_steps": task.total_steps,
-            "status_check": status_check,
-            "checked_at": time.time(),
+            **stop_confirmation,
         })
     except Exception as e:
         logger.error(f"获取任务停止确认失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/restart', methods=['POST'])
+@login_required
+@permission_required('task:restart')
 def restart_task(task_id):
     """重启任务"""
     try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "restart", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("restart", task_obj.task_type, decision, task_id=task_id)
+
         data = request.get_json() or {}
         resume_from_checkpoint = data.get('resume_from_checkpoint', True)
 
@@ -223,9 +648,19 @@ def restart_task(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/create-restart', methods=['POST'])
+@login_required
+@permission_required('task:restart')
 def create_restart_task_api(task_id):
     """基于原任务创建新的重启任务"""
     try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "restart", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("restart", task_obj.task_type, decision, task_id=task_id)
+
         new_task_id = task_manager.create_restart_task(task_id)
 
         if task_manager.start_task(new_task_id):
@@ -234,65 +669,38 @@ def create_restart_task_api(task_id):
                 "new_task_id": new_task_id,
                 "message": "重启任务创建并启动成功"
             })
+        start_error = task_manager.get_start_error(new_task_id)
+        if task_obj.task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
+            return jsonify({
+                "status": "success",
+                "new_task_id": new_task_id,
+                "message": start_error,
+                "queued": True,
+            })
         return jsonify({
-            "status": "success",
+            "status": "error",
             "new_task_id": new_task_id,
-            "message": "重启任务创建成功，但启动失败"
-        })
+            "message": f"重启任务创建成功，但启动失败: {start_error}",
+            "start_error": start_error,
+        }), 400
     except Exception as e:
         logger.error(f"创建重启任务失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@task_api_bp.route('/tasks/<task_id>/events')
-def task_events_stream(task_id):
-    """SSE事件流，用于任务状态更新和确认请求"""
-    def event_stream():
-        if task_id not in task_manager.task_events:
-            yield f"data: {json.dumps({'type': 'error', 'data': 'Task not found'})}\n\n"
-            return
-
-        event_queue = task_manager.task_events[task_id]
-
-        try:
-            while True:
-                try:
-                    event = event_queue.get(timeout=1)
-                    yield f"data: {json.dumps(event)}\n\n"
-                except queue.Empty:
-                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-
-                if task_id not in task_manager.task_events:
-                    break
-
-        except GeneratorExit:
-            pass
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'data': str(e)})}\n\n"
-
-    return Response(event_stream(), mimetype='text/event-stream')
-
-@task_api_bp.route('/tasks/<task_id>/confirm', methods=['POST'])
-def confirm_task(task_id):
-    """确认任务继续执行"""
-    try:
-        data = request.get_json()
-        confirmed = data.get('confirmed', False) if data else False
-
-        if task_id in task_manager.task_events:
-            task_manager.task_events[task_id].put({
-                "type": "confirmation",
-                "data": {"confirmed": confirmed}
-            })
-            return jsonify({"status": "success", "message": "确认已发送"})
-        return jsonify({"status": "error", "message": "任务事件队列不存在"}), 400
-    except Exception as e:
-        logger.error(f"确认任务失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
 @task_api_bp.route('/tasks/<task_id>/system-logs', methods=['GET'])
+@login_required
+@permission_required('task:view')
 def get_task_system_logs(task_id):
     """获取任务相关的系统日志"""
     try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
+
         import os
         import re
         from app.config import Config

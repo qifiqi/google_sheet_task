@@ -1,15 +1,18 @@
 from flask import Blueprint, jsonify
 from app.utils.logger import get_logger
+from app.utils.auth import login_required, permission_required
+from app.utils.db_monitor import DatabaseMonitor
 
 logger = get_logger(__name__)
 
 database_api_bp = Blueprint('database_api', __name__)
 
 @database_api_bp.route('/database/status', methods=['GET'])
+@login_required
+@permission_required('database:manage')
 def get_database_status():
     """获取数据库状态"""
     try:
-        from app.utils.db_monitor import DatabaseMonitor
         report = DatabaseMonitor.get_full_report()
         return jsonify({"status": "success", "report": report})
     except Exception as e:
@@ -17,10 +20,11 @@ def get_database_status():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @database_api_bp.route('/database/vacuum', methods=['POST'])
+@login_required
+@permission_required('database:manage')
 def vacuum_database():
     """压缩数据库"""
     try:
-        from app.utils.db_monitor import DatabaseMonitor
         result = DatabaseMonitor.vacuum_database()
         if result.get('success'):
             return jsonify({"status": "success", "result": result})
@@ -30,10 +34,11 @@ def vacuum_database():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @database_api_bp.route('/database/suggestions', methods=['GET'])
+@login_required
+@permission_required('database:manage')
 def get_optimization_suggestions():
     """获取数据库优化建议"""
     try:
-        from app.utils.db_monitor import DatabaseMonitor
         suggestions = DatabaseMonitor.suggest_optimizations()
         return jsonify({"status": "success", "suggestions": suggestions})
     except Exception as e:

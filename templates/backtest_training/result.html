@@ -1,6 +1,6 @@
 {% extends "admin/base.html" %}
 
-{% block title %}回测结果 - 任务管理系统{% endblock %}
+{% block title %}回测结果 - Jaspil 任务管理系统{% endblock %}
 
 {% block head %}
 <meta charset="UTF-8">
@@ -48,7 +48,7 @@
             <div class="d-flex align-items-center gap-2 flex-wrap">
                 <button class="btn btn-outline-primary" id="btn-reload-result" type="button">
                     <i class="bi bi-arrow-clockwise me-1"></i>刷新</button>
-                <a class="btn btn-outline-secondary" href="/backtest-training/detail/{{ task_id }}">
+                <a class="btn btn-outline-secondary" href="/backtest-training/detail/{{ task_id }}" id="backToDetailLink">
                     <i class="bi bi-arrow-left"></i> 返回</a>
             </div>
         </div>
@@ -608,11 +608,28 @@
     };
 
     document.addEventListener('DOMContentLoaded', () => {
+        const backToDetailLink = document.getElementById('backToDetailLink');
+        if (backToDetailLink) {
+            backToDetailLink.href = buildDetailHref();
+        }
         document.getElementById('btn-reload-result')?.addEventListener('click', loadBacktestResult);
         document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         loadBacktestResult();
     });
+
+    function buildDetailHref() {
+        const currentParams = new URLSearchParams(window.location.search);
+        const detailParams = new URLSearchParams();
+        ['list_page', 'list_per_page', 'result_page', 'result_per_page'].forEach((key) => {
+            const value = currentParams.get(key);
+            if (value) {
+                detailParams.set(key, value);
+            }
+        });
+        const query = detailParams.toString();
+        return `/backtest-training/detail/${encodeURIComponent(state.taskId)}${query ? `?${query}` : ''}`;
+    }
 
     async function copyRawJson() {
         const pre = document.getElementById('pre-raw-json');

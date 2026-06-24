@@ -5,6 +5,131 @@ import json
 from app.extensions import db
 
 
+def _json_object_or_empty(raw):
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalize_summary_metrics(metrics):
+    if not isinstance(metrics, dict):
+        return {}
+    normalized = dict(metrics)
+    if "start_sharpe_ratio" not in normalized and "sharpe_ratio" in normalized:
+        normalized["start_sharpe_ratio"] = normalized["sharpe_ratio"]
+    return normalized
+
+
+# ==================== RBAC ====================
+
+role_permissions = db.Table('role_permissions',
+    db.Column('role_id', db.Integer, db.ForeignKey('role.id'), primary_key=True),
+    db.Column('permission_id', db.Integer, db.ForeignKey('permission.id'), primary_key=True),
+)
+
+user_roles = db.Table('user_roles',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+    db.Column('role_id', db.Integer, db.ForeignKey('role.id'), primary_key=True),
+)
+
+
+class User(db.Model):
+    """用户模型"""
+
+    __tablename__ = 'user'
+    __table_args__ = {'comment': '用户表'}
+
+    id = db.Column(db.Integer, primary_key=True, comment='用户ID')
+    username = db.Column(db.String(80), unique=True, nullable=False, comment='用户名')
+    password_hash = db.Column(db.String(256), nullable=False, comment='密码哈希')
+    mobile = db.Column(db.String(32), comment='手机号')
+    is_active = db.Column(db.Boolean, default=True, comment='是否启用')
+    is_alert_oncall = db.Column(db.Boolean, default=False, nullable=False, comment='是否参与告警值班')
+    token_version = db.Column(db.Integer, default=0, nullable=False, comment='JWT 会话版本号')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
+    last_login = db.Column(db.DateTime, comment='最后登录时间')
+    roles = db.relationship('Role', secondary=user_roles, backref='users')
+
+    def get_permissions(self):
+        perms = set()
+        for role in self.roles:
+            for p in role.permissions:
+                perms.add(p.code)
+        return perms
+
+    def to_dict(self, include_permissions=False):
+        d = {
+            'id': self.id,
+            'username': self.username,
+            'mobile': self.mobile,
+            'is_active': self.is_active,
+            'is_alert_oncall': self.is_alert_oncall,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'roles': [r.to_dict() for r in self.roles],
+        }
+        if include_permissions:
+            d['permissions'] = sorted(self.get_permissions())
+        return d
+
+
+class Role(db.Model):
+    """角色模型"""
+
+    __tablename__ = 'role'
+    __table_args__ = {'comment': '角色表'}
+
+    id = db.Column(db.Integer, primary_key=True, comment='角色ID')
+    name = db.Column(db.String(50), nullable=False, comment='角色名称')
+    code = db.Column(db.String(50), unique=True, nullable=False, comment='角色编码，如 admin/operator')
+    description = db.Column(db.String(200), comment='角色描述')
+    is_system = db.Column(db.Boolean, default=False, comment='是否系统内置角色（不可删除）')
+    permissions = db.relationship('Permission', secondary=role_permissions, backref='roles')
+
+    def to_dict(self, include_permissions=False):
+        d = {
+            'id': self.id,
+            'name': self.name,
+            'code': self.code,
+            'description': self.description,
+            'is_system': self.is_system,
+        }
+        if include_permissions:
+            d['permissions'] = [p.to_dict() for p in self.permissions]
+        return d
+
+
+class Permission(db.Model):
+    """权限模型"""
+
+    __tablename__ = 'permission'
+    __table_args__ = {'comment': '权限表'}
+
+    id = db.Column(db.Integer, primary_key=True, comment='权限ID')
+    name = db.Column(db.String(100), nullable=False, comment='权限名称，如"创建任务"')
+    code = db.Column(db.String(100), unique=True, nullable=False, comment='权限编码，格式为 资源:操作，如 task:create')
+    group = db.Column(db.String(50), nullable=False, comment='权限分组，如 task/config/admin')
+    description = db.Column(db.String(200), comment='权限描述')
+    route_path = db.Column(db.String(200), comment='关联前端路由路径，如 /admin/config，仅供展示')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'code': self.code,
+            'group': self.group,
+            'description': self.description,
+            'route_path': self.route_path,
+        }
+
+
+# ==================== Enums ====================
+
+
 class GoogleSheetTableType(str, Enum):
     C3 = "c3"
     C4 = "c4"
@@ -45,6 +170,85 @@ class GoogleSheetTokenTaskType(str, Enum):
         ]
 
 
+class TaskStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    ERROR = "error"
+
+    @classmethod
+    def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        raw = (value or "").strip().lower()
+        valid_values = {item.value for item in cls}
+        if raw in valid_values:
+            return raw
+        return default
+
+    @classmethod
+    def choices(cls):
+        labels = {
+            cls.PENDING: "待执行",
+            cls.RUNNING: "运行中",
+            cls.COMPLETED: "已完成",
+            cls.CANCELLED: "已取消",
+            cls.ERROR: "错误",
+        }
+        return [{"value": item.value, "label": labels[item]} for item in cls]
+
+    @classmethod
+    def editable_choices(cls):
+        return [
+            item for item in cls.choices()
+            if item["value"] in {cls.PENDING.value, cls.COMPLETED.value, cls.CANCELLED.value, cls.ERROR.value}
+        ]
+
+
+class TaskType(str, Enum):
+    GOOGLE_SHEET = "google_sheet"
+    GOOGLE_SHEET_C4 = "google_sheet_C4"
+    GOOGLE_SHEET_C5 = "google_sheet_C5"
+    BACKTEST_TRAINING = "backtest_training"
+    BACKTEST_MULTI_PRODUCT = "backtest_multi_product"
+    MODEL_SUMMARY_REBUILD = "model_summary_rebuild"
+
+    @classmethod
+    def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        raw = (value or "").strip()
+        normalized = raw.lower()
+        aliases = {
+            "google_sheet": cls.GOOGLE_SHEET.value,
+            "google_sheet_c3": cls.GOOGLE_SHEET.value,
+            "google_sheet_c31": cls.GOOGLE_SHEET.value,
+            "google_sheet_c4": cls.GOOGLE_SHEET_C4.value,
+            "google_sheet_c5": cls.GOOGLE_SHEET_C5.value,
+            "backtest": cls.BACKTEST_TRAINING.value,
+            "backtest_training": cls.BACKTEST_TRAINING.value,
+            "backtest_multi": cls.BACKTEST_MULTI_PRODUCT.value,
+            "multi_product_backtest": cls.BACKTEST_MULTI_PRODUCT.value,
+            "backtest_multi_product": cls.BACKTEST_MULTI_PRODUCT.value,
+            "model_summary_rebuild": cls.MODEL_SUMMARY_REBUILD.value,
+        }
+        return aliases.get(normalized, default)
+
+    @classmethod
+    def choices(cls, include_system=False):
+        labels = {
+            cls.GOOGLE_SHEET: "Google Sheet C3",
+            cls.GOOGLE_SHEET_C4: "Google Sheet C4",
+            cls.GOOGLE_SHEET_C5: "Google Sheet C5",
+            cls.BACKTEST_TRAINING: "单品回测",
+            cls.BACKTEST_MULTI_PRODUCT: "多品回测",
+            cls.MODEL_SUMMARY_REBUILD: "汇总索引重建",
+        }
+        system_types = {cls.MODEL_SUMMARY_REBUILD}
+        return [
+            {"value": item.value, "label": labels[item]}
+            for item in cls
+            if include_system or item not in system_types
+        ]
+
+
 class Task(db.Model):
     """任务模型"""
 
@@ -61,6 +265,7 @@ class Task(db.Model):
     status = db.Column(db.String(20), default="pending", index=True, comment="任务状态")
     task_type = db.Column(db.String(50), default="google_sheet", index=True, comment="任务类型")
     config = db.Column(db.Text, comment="任务配置JSON")
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True, comment="创建人用户ID")
     start_time = db.Column(db.DateTime, comment="开始时间")
     end_time = db.Column(db.DateTime, comment="结束时间")
     current_step = db.Column(db.Integer, default=0, comment="当前步骤")
@@ -77,6 +282,7 @@ class Task(db.Model):
         lazy="dynamic",
         cascade="all, delete-orphan",
     )
+    created_by = db.relationship("User", foreign_keys=[created_by_user_id])
 
     def to_dict(self):
         return {
@@ -86,6 +292,7 @@ class Task(db.Model):
             "status": self.status,
             "task_type": self.task_type,
             "config": json.loads(self.config) if self.config else {},
+            "created_by_user_id": self.created_by_user_id,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "current_step": self.current_step,
@@ -154,6 +361,13 @@ class TaskResult(db.Model):
     step_index = db.Column(db.Integer, nullable=False, index=True, comment="步骤序号")
     parameters = db.Column(db.Text, comment="参数JSON")
     result = db.Column(db.Text, comment="结果JSON")
+    return_series_id = db.Column(
+        db.Integer,
+        db.ForeignKey("task_results_return.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="收益曲线ID",
+    )
     success = db.Column(db.Boolean, default=True, index=True, comment="是否成功")
     error_message = db.Column(db.Text, comment="错误信息")
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="结果时间")
@@ -165,6 +379,7 @@ class TaskResult(db.Model):
             "step_index": self.step_index,
             "parameters": json.loads(self.parameters) if self.parameters else {},
             "result": json.loads(self.result) if self.result else {},
+            "return_series_id": self.return_series_id,
             "success": self.success,
             "error_message": self.error_message,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
@@ -203,6 +418,7 @@ class TaskResultReturn(db.Model):
     stock_date = db.Column(db.String(50), comment="日期")
     index_return = db.Column(db.Float, comment="指数收益")
     start_return = db.Column(db.Float, comment="策略起始收益")
+    returns_json = db.Column(db.Text, comment="收益曲线JSON，按列存储 dates/index_returns/start_returns")
 
     def to_dict(self):
         return {
@@ -211,6 +427,183 @@ class TaskResultReturn(db.Model):
             "stock_date": self.stock_date,
             "index_return": self.index_return,
             "start_return": self.start_return,
+            "returns_json": self.returns_json,
+        }
+
+
+class BacktestProductResultCache(db.Model):
+    """Same-batch reusable result for fixed multi-product backtest products."""
+
+    __tablename__ = "backtest_product_result_cache"
+    __table_args__ = (
+        db.UniqueConstraint("batch_id", "cache_key", name="uk_backtest_product_cache_batch_key"),
+        {"comment": "多品回测固定产品同批结果缓存表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    batch_id = db.Column(db.String(64), nullable=False, index=True, comment="同批创建ID")
+    cache_key = db.Column(db.String(64), nullable=False, index=True, comment="固定产品结果缓存键")
+    result_json = db.Column(db.Text, nullable=False, comment="结果JSON")
+    returns_json = db.Column(db.Text, comment="收益曲线JSON")
+    source_task_id = db.Column(db.String(36), index=True, comment="来源任务ID")
+    source_step_index = db.Column(db.Integer, comment="来源步骤序号")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "batch_id": self.batch_id,
+            "cache_key": self.cache_key,
+            "result_json": self.result_json,
+            "returns_json": self.returns_json,
+            "source_task_id": self.source_task_id,
+            "source_step_index": self.source_step_index,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class BacktestSheetRunLock(db.Model):
+    """Database-backed per-spreadsheet run lock for backtest tasks."""
+
+    __tablename__ = "backtest_sheet_run_locks"
+    __table_args__ = (
+        db.UniqueConstraint("spreadsheet_id", name="uk_backtest_sheet_run_locks_spreadsheet_id"),
+        {"comment": "回测任务 Google Sheet 运行锁表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    spreadsheet_id = db.Column(db.String(255), nullable=False, index=True, comment="Google Sheet 表ID")
+    task_id = db.Column(db.String(36), nullable=False, index=True, comment="持锁任务ID")
+    task_type = db.Column(db.String(50), nullable=False, comment="任务类型")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.now,
+        onupdate=datetime.now,
+        nullable=False,
+        comment="更新时间",
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "spreadsheet_id": self.spreadsheet_id,
+            "task_id": self.task_id,
+            "task_type": self.task_type,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class TaskResultSummaryIndex(db.Model):
+    """任务结果汇总查询索引表。"""
+
+    __tablename__ = "task_result_summary_index"
+    __table_args__ = (
+        db.UniqueConstraint("task_result_id", "model_key", name="uk_result_summary_result_model"),
+        db.Index("idx_result_summary_type_stock_best", "task_type", "stock_code", "is_best"),
+        db.Index("idx_result_summary_task_best", "task_id", "is_best"),
+        db.Index("idx_result_summary_best_metric", "best_metric_value"),
+        db.Index("idx_result_summary_created_at", "created_at"),
+        db.Index("idx_result_summary_period_key", "period_key"),
+        {"comment": "任务结果汇总查询索引表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    task_id = db.Column(
+        db.String(36),
+        db.ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联任务ID",
+    )
+    task_result_id = db.Column(
+        db.Integer,
+        db.ForeignKey("task_results.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联任务结果ID",
+    )
+    task_type = db.Column(db.String(50), nullable=False, index=True, comment="任务类型")
+    task_name = db.Column(db.String(255), comment="任务名称")
+    stock_code = db.Column(db.String(64), index=True, comment="股票代码/产品代码")
+    stock_name = db.Column(db.String(255), index=True, comment="股票名称/产品名称")
+    model_key = db.Column(db.String(255), nullable=False, default="default", comment="模型键")
+    model_name = db.Column(db.String(255), comment="模型名称")
+    year_label = db.Column(db.String(64), index=True, comment="年份或区间标签")
+    period_key = db.Column(db.String(32), comment="标准化年份/区间筛选键")
+    kline_range = db.Column(db.String(128), comment="K线区间")
+    parameter_summary = db.Column(db.Text, comment="参数摘要")
+    best_metric_name = db.Column(db.String(100), comment="最优指标名称")
+    best_metric_value = db.Column(db.Float, index=True, comment="最优指标值")
+    metrics_json = db.Column(db.Text, comment="汇总指标JSON")
+    is_best = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否当前分组最优")
+    result_timestamp = db.Column(db.DateTime, index=True, comment="原始结果时间")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
+
+    task = db.relationship("Task", backref=db.backref("summary_indexes", lazy="dynamic"))
+    task_result = db.relationship("TaskResult", backref=db.backref("summary_indexes", lazy="dynamic"))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "task_result_id": self.task_result_id,
+            "task_type": self.task_type,
+            "task_name": self.task_name,
+            "stock_code": self.stock_code,
+            "stock_name": self.stock_name,
+            "model_key": self.model_key,
+            "model_name": self.model_name,
+            "year_label": self.year_label,
+            "period_key": self.period_key,
+            "kline_range": self.kline_range,
+            "parameter_summary": _json_object_or_empty(self.parameter_summary),
+            "best_metric_name": self.best_metric_name,
+            "best_metric_value": self.best_metric_value,
+            "metrics": _normalize_summary_metrics(_json_object_or_empty(self.metrics_json)),
+            "is_best": self.is_best,
+            "result_timestamp": self.result_timestamp.isoformat() if self.result_timestamp else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class StockMetadata(db.Model):
+    """股票元数据表。"""
+
+    __tablename__ = "stock_metadata"
+    __table_args__ = (
+        db.UniqueConstraint("stock_code", "market_type", name="uk_stock_metadata_code_market_type"),
+        db.Index("idx_stock_metadata_name", "stock_name"),
+        db.Index("idx_stock_metadata_exchange_market", "exchange_market"),
+        {"comment": "股票元数据表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    stock_code = db.Column(db.String(64), nullable=False, index=True, comment="股票代码")
+    stock_name = db.Column(db.String(255), nullable=False, default="", comment="股票名称")
+    market_type = db.Column(db.String(20), nullable=False, default="", index=True, comment="业务市场类型 cn/us")
+    exchange_market = db.Column(db.String(50), comment="交易市场/东方财富 market")
+    security_type_name = db.Column(db.String(100), comment="证券类型名称")
+    source = db.Column(db.String(50), comment="数据来源")
+    raw_json = db.Column(db.Text, comment="原始搜索结果 JSON")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "stock_code": self.stock_code,
+            "stock_name": self.stock_name,
+            "market_type": self.market_type,
+            "exchange_market": self.exchange_market,
+            "security_type_name": self.security_type_name,
+            "source": self.source,
+            "raw": _json_object_or_empty(self.raw_json),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -259,6 +652,44 @@ class SystemConfig(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class NavigationMenuItem(db.Model):
+    """侧边栏导航菜单项"""
+
+    __tablename__ = "navigation_menu_items"
+    __table_args__ = (
+        db.Index("idx_navigation_menu_parent_sort", "parent_key", "sort_order"),
+        {"comment": "侧边栏导航菜单表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="菜单ID")
+    key = db.Column(db.String(100), unique=True, nullable=False, comment="菜单唯一键")
+    label = db.Column(db.String(100), nullable=False, comment="菜单名称")
+    path = db.Column(db.String(255), comment="前端路由路径")
+    permission = db.Column(db.String(100), comment="访问该菜单所需权限编码")
+    parent_key = db.Column(db.String(100), index=True, comment="父级菜单key，空表示顶级")
+    sort_order = db.Column(db.Integer, default=0, nullable=False, comment="排序值")
+    is_visible = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否显示")
+    created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+
+    def to_dict(self, include_children=False):
+        data = {
+            "id": self.id,
+            "key": self.key,
+            "label": self.label,
+            "path": self.path,
+            "permission": self.permission,
+            "parent_key": self.parent_key,
+            "sort_order": self.sort_order,
+            "is_visible": self.is_visible,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_children:
+            data["children"] = []
+        return data
 
 
 class GoogleSheetToken(db.Model):
