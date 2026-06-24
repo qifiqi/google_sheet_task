@@ -225,12 +225,16 @@ class BaseGoogleSheetService:
         task_index: int,
         config_data: Dict[str, Any],
     ) -> Dict[str, Any]:
-        stock_code = (
-            config_data.get("stock_code",None)
-            or str(task_name or "").strip()
-            # or str(task_name or "").split("-", 1)[0].strip()
-            or ""
-        )
+        # stock_code = (
+        #     config_data.get("stock_code",None)
+        #     or str(task_name or "").strip()
+        #     # or str(task_name or "").split("-", 1)[0].strip()
+        #     or ""
+        # )
+        if config_data.get("stock_code",None) in (None, ""):
+            stock_code = str(task_name or "").strip()
+        else:
+            stock_code = f'{config_data.get("stock_code",None)}-{task_name}'
 
         return {
             "task_id": self.task_id,
