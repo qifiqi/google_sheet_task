@@ -86,6 +86,9 @@ class TaskWatchdog:
                 reason,
             )
             task_manager.cancel_task(task_id)
+
+            time.sleep(10)
+
             result = task_manager.restart_task(task_id, resume_from_checkpoint=True)
             logger.warning(
                 "watchdog restart result: task_id=%s, reason=%s, result=%s",
