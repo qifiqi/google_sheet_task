@@ -553,7 +553,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             start_date = data_start_date
 
         # 检查结束日期是否超出K线数据范围
-        if end_date > data_end_date:
+        if end_date < data_end_date:
             raise Exception(
                 f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
