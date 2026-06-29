@@ -249,6 +249,20 @@ class TaskRuntimeMixin:
         db.session.delete(lock)
         db.session.commit()
 
+    def release_backtest_sheet_locks(self, task_id: str) -> None:
+        """Release every per-sheet backtest run lock held by this task.
+
+        Public entry point for collaborators (e.g. watchdog) that need to free
+        backtest locks without reaching into private helpers. No-op for tasks
+        that are not backtest types or no longer exist.
+        """
+        task = db.session.get(Task, task_id)
+        if not task or not self._is_backtest_task_type(task.task_type):
+            return
+        config_data = self._get_task_config_dict(task)
+        for spreadsheet_id in self._extract_backtest_spreadsheet_ids(config_data):
+            self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
+
     def _start_next_pending_backtest_task(self, finished_task_id: str, app) -> None:
         """Start the oldest pending backtest task that uses the finished task's sheet."""
         finished_task = db.session.get(Task, finished_task_id)
@@ -665,6 +679,13 @@ class TaskRuntimeMixin:
     ) -> None:
         """统一执行后台任务服务。"""
         task_logger = get_task_logger(task_id, logger_name)
+        current_thread = threading.current_thread()
+
+        def _is_active_generation() -> bool:
+            # Why: watchdog 强制重启会把本线程踢出 running_tasks 并起新线程接管。
+            # 老线程若在网络 IO 解开后醒来，不应再覆盖任务状态或释放新一代占用。
+            return self.running_tasks.get(task_id) is current_thread
+
         try:
             with app.app_context():
                 task = db.session.get(Task, task_id)
@@ -685,21 +706,38 @@ class TaskRuntimeMixin:
                 )
                 task_logger.info(business_message)
                 task_result = service.execute_task()
-                self._finalize_task_execution(task_id, app, task_logger, task_result)
+                if not _is_active_generation():
+                    task_logger.warning(
+                        "本线程已被 watchdog 强制重启替换，跳过状态收尾"
+                    )
+                else:
+                    self._finalize_task_execution(task_id, app, task_logger, task_result)
         except Exception as exc:
             root = unwrap_exception(exc) or exc
             task_logger.exception("%s: %s", failure_label, root)
-            try:
-                self._record_task_exception(task_id, exc, app)
-            except Exception as update_error:
-                task_logger.error("更新任务状态失败: %s", update_error)
-            self.add_task_log(
-                task_id,
-                "error",
-                f"任务执行失败: {build_task_error_message(exc)}",
-                app,
-            )
+            if _is_active_generation():
+                try:
+                    self._record_task_exception(task_id, exc, app)
+                except Exception as update_error:
+                    task_logger.error("更新任务状态失败: %s", update_error)
+                self.add_task_log(
+                    task_id,
+                    "error",
+                    f"任务执行失败: {build_task_error_message(exc)}",
+                    app,
+                )
+            else:
+                task_logger.warning(
+                    "本线程已被 watchdog 强制重启替换，跳过异常态写入"
+                )
         finally:
+            if not _is_active_generation():
+                task_logger.warning(
+                    "本线程已被替换，跳过 finally 清理以保护新一代任务"
+                )
+                task_logger.info("任务执行器退出")
+                return
+
             should_start_next_backtest = False
             with app.app_context():
                 finished_task = db.session.get(Task, task_id)

@@ -8,6 +8,7 @@ from tenacity import RetryError
 from urllib3.exceptions import ProtocolError
 
 NETWORK_ERROR_PREFIX = "[NETWORK_RETRYABLE]"
+WATCHDOG_RESTART_PREFIX = "[WATCHDOG_FORCE_RESTART]"
 
 
 class RetryableNetworkTaskError(Exception):
