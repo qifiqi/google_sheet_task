@@ -4,12 +4,13 @@
 
 - 周期扫描最近 ``WATCHED_TASK_CREATED_WITHIN_DAYS`` 天的任务，只关注三类:
     1. ``status == 'running'`` 但日志静默超过阈值 (真正的挂死目标);
-    2. ``status == 'error'`` 且带 ``[NETWORK_RETRYABLE]`` 前缀 (网络抖动);
+    2. ``status == 'error'`` 且带可恢复前缀 (网络抖动 / C3-C5 结果等待超时);
     3. ``status == 'cancelled'`` 且带 ``[WATCHDOG_FORCE_RESTART]`` 前缀
        (上一轮 watchdog 强制重启失败的兜底)。
 - 强制重启绕开 ``cancel_task`` / ``restart_task`` 的状态机短路, 直接 evict
   挂死线程引用、释放占用、置 pending 再调 ``start_task``。
 - 通过把 ``attempt=N/MAX`` 写入 ``error_message``, 防止失败任务被无限重启。
+- 对已经落成 ``error`` 的可恢复错误，使用 watchdog 本地缓存记录重启次数。
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from flask import has_app_context
 from sqlalchemy import and_, or_
 
 from app.extensions import db
@@ -28,6 +30,7 @@ from app.services.config_manager import get_config_manager
 from app.services.task import task_manager
 from app.utils.logger import get_logger
 from app.utils.task_error_utils import (
+    GOOGLE_SHEET_EXECUTION_ERROR_PREFIX,
     NETWORK_ERROR_PREFIX,
     WATCHDOG_RESTART_PREFIX,
 )
@@ -37,6 +40,8 @@ logger = get_logger(__name__)
 REASON_LOG_TIMEOUT = "log_timeout"
 REASON_MISSING_INITIAL_LOG = "missing_initial_log"
 REASON_PREVIOUS_RESTART_FAILED = "previous_watchdog_force_restart_failed"
+REASON_RETRYABLE_NETWORK_ERROR = "retryable_network_error"
+REASON_RETRYABLE_GOOGLE_SHEET_EXECUTION_ERROR = "retryable_google_sheet_execution_error"
 
 WATCHED_TASK_CREATED_WITHIN_DAYS = 5
 DEFAULT_INTERVAL_SECONDS = 60
@@ -45,10 +50,13 @@ DEFAULT_FORCE_RESTART_WAIT_SECONDS = 45
 DEFAULT_MAX_RESTART_ATTEMPTS = 3
 MIN_SLEEP_SECONDS = 5
 THREAD_JOIN_POLL_SECONDS = 2.0
-
-_ATTEMPT_PATTERN = re.compile(
-    r"\[WATCHDOG_FORCE_RESTART\]\s+attempt=(\d+)/\d+"
+RETRYABLE_GOOGLE_SHEET_TASK_TYPES = (
+    "google_sheet",
+    "google_sheet_C4",
+    "google_sheet_C5",
 )
+
+_ATTEMPT_PATTERN = re.compile(r"attempt=(\d+)/\d+")
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,8 @@ class TaskWatchdog:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+        self._retry_restart_attempts: dict[str, int] = {}
+        self._retry_restart_lock = threading.Lock()
 
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -208,6 +218,43 @@ class TaskWatchdog:
             last_error,
         )
         task_manager.add_task_log(task_id, "error", message)
+        self._clear_cached_retry_attempts(task_id)
+
+    def _read_cached_retry_attempts(self, task_id: str) -> int:
+        with self._retry_restart_lock:
+            return self._retry_restart_attempts.get(task_id, 0)
+
+    def _increment_cached_retry_attempts(self, task_id: str) -> int:
+        with self._retry_restart_lock:
+            attempt = self._retry_restart_attempts.get(task_id, 0) + 1
+            self._retry_restart_attempts[task_id] = attempt
+            return attempt
+
+    def _set_cached_retry_attempts(self, task_id: str, attempts: int) -> None:
+        with self._retry_restart_lock:
+            self._retry_restart_attempts[task_id] = max(attempts, 0)
+
+    def _clear_cached_retry_attempts(self, task_id: str) -> None:
+        with self._retry_restart_lock:
+            self._retry_restart_attempts.pop(task_id, None)
+
+    def _next_restart_attempt(
+        self,
+        task_id: str,
+        max_attempts: int,
+        *,
+        persisted_attempts: int = 0,
+    ) -> tuple[int | None, int]:
+        prior_attempts = max(
+            self._read_cached_retry_attempts(task_id),
+            persisted_attempts,
+        )
+        if prior_attempts >= max_attempts:
+            return None, prior_attempts
+
+        attempt = prior_attempts + 1
+        self._set_cached_retry_attempts(task_id, attempt)
+        return attempt, prior_attempts
 
     def _prepare_task_for_force_restart(
         self, task_id: str, reason: str
@@ -256,16 +303,24 @@ class TaskWatchdog:
         self,
         task_id: str,
         reason: str,
-        wait_seconds: int,
-        max_attempts: int,
+        wait_seconds: int = DEFAULT_FORCE_RESTART_WAIT_SECONDS,
+        max_attempts: int = DEFAULT_MAX_RESTART_ATTEMPTS,
     ) -> None:
+        if not has_app_context():
+            task_manager.cancel_task(task_id)
+            task_manager.restart_task(task_id, resume_from_checkpoint=True)
+            return
+
         try:
             task = db.session.get(Task, task_id)
             if not task:
                 return
-            prior_attempts = self._read_prior_attempt_count(task.error_message)
-            attempt = prior_attempts + 1
-            if attempt > max_attempts:
+            attempt, prior_attempts = self._next_restart_attempt(
+                task_id,
+                max_attempts,
+                persisted_attempts=self._read_prior_attempt_count(task.error_message),
+            )
+            if attempt is None:
                 self._abandon_task(
                     task_id,
                     reason,
@@ -367,27 +422,118 @@ class TaskWatchdog:
                 exc_info=True,
             )
 
-    def _restart_retryable_network_task(self, task: Task) -> None:
+    def _classify_retryable_error_reason(self, error_message: str) -> str | None:
+        if error_message.startswith(NETWORK_ERROR_PREFIX):
+            return REASON_RETRYABLE_NETWORK_ERROR
+        if error_message.startswith(
+            (GOOGLE_SHEET_EXECUTION_ERROR_PREFIX, "[C3_RETRYABLE]")
+        ):
+            return REASON_RETRYABLE_GOOGLE_SHEET_EXECUTION_ERROR
+        return None
+
+    def _prefix_for_retryable_reason(self, reason: str) -> str:
+        if reason == REASON_RETRYABLE_NETWORK_ERROR:
+            return NETWORK_ERROR_PREFIX
+        return GOOGLE_SHEET_EXECUTION_ERROR_PREFIX
+
+    def _mark_retryable_restart_failed(
+        self,
+        task_id: str,
+        reason: str,
+        attempt: int,
+        max_attempts: int,
+        original_error: str,
+        message: str,
+    ) -> None:
+        task = db.session.get(Task, task_id)
+        prefix = self._prefix_for_retryable_reason(reason)
+        if task:
+            task.status = "error"
+            task.error_message = (
+                f"{prefix} watchdog_restart_failed attempt={attempt}/{max_attempts} "
+                f"reason={reason}: {message}; original_error={original_error}"
+            )
+            task.end_time = datetime.now()
+            db.session.commit()
+        task_manager.add_task_log(task_id, "error", message)
+
+    def _restart_retryable_error_task(
+        self,
+        task: Task,
+        reason: str,
+        max_attempts: int,
+    ) -> None:
         error_message = str(task.error_message or "")
+        persisted_attempts = self._read_prior_attempt_count(error_message)
+        attempt, prior_attempts = self._next_restart_attempt(
+            task.id,
+            max_attempts,
+            persisted_attempts=persisted_attempts,
+        )
+        if attempt is None:
+            self._abandon_task(
+                task.id,
+                reason,
+                attempts=prior_attempts,
+                last_error=error_message,
+            )
+            return
+
         try:
             logger.warning(
-                "watchdog detected retryable network error task: task_id=%s, "
-                "error=%s",
+                "watchdog detected retryable error task: task_id=%s, "
+                "reason=%s, attempt=%s/%s, error=%s",
                 task.id,
+                reason,
+                attempt,
+                max_attempts,
                 error_message,
+            )
+            task_manager.add_task_log(
+                task.id,
+                "warning",
+                f"watchdog 检测到可恢复错误，准备自动断点重启 "
+                f"(尝试 {attempt}/{max_attempts}, reason={reason})",
             )
             result = task_manager.restart_task(task.id, resume_from_checkpoint=True)
             logger.warning(
-                "watchdog network restart result: task_id=%s, result=%s",
+                "watchdog retryable error restart result: task_id=%s, "
+                "reason=%s, attempt=%s/%s, result=%s",
                 task.id,
+                reason,
+                attempt,
+                max_attempts,
                 result,
             )
+            if result.get("status") != "success":
+                self._mark_retryable_restart_failed(
+                    task.id,
+                    reason,
+                    attempt,
+                    max_attempts,
+                    error_message,
+                    f"watchdog 自动重启失败 "
+                    f"(尝试 {attempt}/{max_attempts}, reason={reason}): "
+                    f"{result.get('message') or result}",
+                )
         except Exception as restart_error:
+            db.session.rollback()
             logger.error(
-                "watchdog network restart error: task_id=%s, err=%s",
+                "watchdog retryable error restart error: task_id=%s, "
+                "reason=%s, err=%s",
                 task.id,
+                reason,
                 str(restart_error),
                 exc_info=True,
+            )
+            self._mark_retryable_restart_failed(
+                task.id,
+                reason,
+                attempt,
+                max_attempts,
+                error_message,
+                f"watchdog 自动重启异常 "
+                f"(尝试 {attempt}/{max_attempts}, reason={reason}): {restart_error}",
             )
 
     def _has_task_exceeded_log_timeout(
@@ -452,7 +598,24 @@ class TaskWatchdog:
             return
 
         if task.status == "error":
-            self._restart_retryable_network_task(task)
+            reason = self._classify_retryable_error_reason(error_message)
+            if (
+                reason == REASON_RETRYABLE_GOOGLE_SHEET_EXECUTION_ERROR
+                and task.task_type not in RETRYABLE_GOOGLE_SHEET_TASK_TYPES
+            ):
+                logger.warning(
+                    "watchdog skipping retryable google sheet error on non-sheet "
+                    "task: task_id=%s, task_type=%s",
+                    task.id,
+                    task.task_type,
+                )
+                return
+            if reason:
+                self._restart_retryable_error_task(
+                    task,
+                    reason,
+                    config.max_restart_attempts,
+                )
             return
 
         latest_log = (
@@ -485,7 +648,18 @@ class TaskWatchdog:
                 and_(
                     Task.status == "error",
                     Task.error_message.isnot(None),
-                    Task.error_message.startswith(NETWORK_ERROR_PREFIX),
+                    or_(
+                        Task.error_message.startswith(NETWORK_ERROR_PREFIX),
+                        and_(
+                            Task.task_type.in_(RETRYABLE_GOOGLE_SHEET_TASK_TYPES),
+                            or_(
+                                Task.error_message.startswith(
+                                    GOOGLE_SHEET_EXECUTION_ERROR_PREFIX
+                                ),
+                                Task.error_message.startswith("[C3_RETRYABLE]"),
+                            ),
+                        ),
+                    ),
                 ),
                 and_(
                     Task.status == "cancelled",
@@ -494,6 +668,24 @@ class TaskWatchdog:
                 ),
             ),
         ).all()
+
+    def _prune_retry_attempt_cache(self) -> None:
+        created_cutoff = datetime.now() - timedelta(
+            days=WATCHED_TASK_CREATED_WITHIN_DAYS
+        )
+        active_ids = {
+            task_id
+            for (task_id,) in db.session.query(Task.id)
+            .filter(
+                Task.created_at >= created_cutoff,
+                Task.status.in_(["pending", "running", "error", "cancelled"]),
+            )
+            .all()
+        }
+        with self._retry_restart_lock:
+            stale_ids = set(self._retry_restart_attempts) - active_ids
+            for task_id in stale_ids:
+                self._retry_restart_attempts.pop(task_id, None)
 
     def _run(self, app):
         last_logged_config: _WatchdogConfig | None = None
@@ -514,6 +706,7 @@ class TaskWatchdog:
                         if self._stop_event.is_set():
                             break
                         self._process_watched_task(task, config)
+                    self._prune_retry_attempt_cache()
 
                 time.sleep(config.effective_sleep_seconds)
 

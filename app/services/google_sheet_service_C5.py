@@ -19,6 +19,7 @@ from app.utils.result_validator import is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.utils.kline_validation import require_kline_rows
 
 
 class GoogleSheetService(BaseGoogleSheetService):
@@ -391,7 +392,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                         except:
                             pass
 
-                        error_msg = f'第 {current_step} 个参数组合执行出错: {str(e)}'
+                        error_summary = self._record_execution_error_message(e)
+                        error_msg = f'第 {current_step} 个参数组合执行出错: {error_summary}'
                         self._log_error(error_msg)
                         return success_count, failed_count, 'error'
 
@@ -445,12 +447,18 @@ class GoogleSheetService(BaseGoogleSheetService):
             c5_parameter_2 = f"ml:{combination[c5_parameter_positions[1]]}"
             cell_updates[c5_parameter_positions[0]] = c5_parameter_1
             cell_updates[c5_parameter_positions[1]] = c5_parameter_2
+            Kline_key = combination['Kline_key']
+            current_kline = require_kline_rows(
+                combination.get('stock_code', ''),
+                config_data.get('market_type', ''),
+                KLINE_DATA_MAP.get(Kline_key),
+                context=f"K线区间 {Kline_key}",
+            )
 
             def set_googl_val(initial_result_sleep=None):
-                Kline_key = combination['Kline_key']
                 _combination = cache_parameters['combination']
                 cache_Kline_key = _combination.get('Kline_key',"")
-                kline = KLINE_DATA_MAP.get(Kline_key,None)
+                kline = current_kline
                 _kline_len = len(kline)
 
                 if Kline_key != cache_Kline_key or initial_result_sleep is not None:
@@ -489,8 +497,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     google_sheet.update_jumped_cells(cell_updates)
 
             set_googl_val()
-            Kline_key = combination['Kline_key']
-            kline = KLINE_DATA_MAP.get(Kline_key, None)
+            kline = current_kline
 
             def check_result(check_values):
                 _check_values = {}
@@ -734,6 +741,15 @@ class GoogleSheetService(BaseGoogleSheetService):
             klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
         else:
             klines = self.YF_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
+        price_field = 'stock_kp' if price_mode == 'kp_price' else 'stock_sp'
+        klines = require_kline_rows(
+            parameter,
+            market_type,
+            klines,
+            context="原始K线",
+            min_rows=30,
+            price_field=price_field,
+        )
 
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']
@@ -758,10 +774,16 @@ class GoogleSheetService(BaseGoogleSheetService):
                 raise Exception(
                     f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
-        if len(klines) < 30:
-            raise Exception(f"股票{parameter} 数据量不足,k线数据量小于60条，无法在模型正确产生数据，或者联系开发")
-
         all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
+        all_kline = require_kline_rows(
+            parameter,
+            market_type,
+            all_kline,
+            context="写入Sheet K线",
+            start_date=start_date,
+            end_date=end_date,
+            latest_date=data_end_date,
+        )
         data = []
 
         KLINE_DATA_MAP = {}
@@ -826,14 +848,15 @@ class GoogleSheetService(BaseGoogleSheetService):
                 _end_data = f"{_end_year_1}{end_date[4:]}"
                 _start_data = f"{_end_year_1 - year}{end_date[4:]}"
                 kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
+                if not kline:
+                    continue
                 Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
                 # Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
-                        if kline:
-                            if Kline_key not in KLINE_DATA_MAP:
-                                KLINE_DATA_MAP[Kline_key] = kline
+                        if Kline_key not in KLINE_DATA_MAP:
+                            KLINE_DATA_MAP[Kline_key] = kline
 
                         data.append(d)
 
@@ -842,6 +865,8 @@ class GoogleSheetService(BaseGoogleSheetService):
             for year in range(_start_date, _end_year_1 + 1):
                 kline = _get_kline(_all_kline, _year=year)
                 Kline_key = year
+                if not kline:
+                    continue
 
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
@@ -851,11 +876,16 @@ class GoogleSheetService(BaseGoogleSheetService):
                         #         d['kline'] = kline
                         #     else:
                         #         continue
-                        if kline:
-                            if Kline_key not in KLINE_DATA_MAP:
-                                KLINE_DATA_MAP[Kline_key] = kline
+                        if Kline_key not in KLINE_DATA_MAP:
+                            KLINE_DATA_MAP[Kline_key] = kline
 
                         data.append(d)
+
+        if not data:
+            raise ValueError(
+                f"股票{parameter}({market_type}) 在配置区间内没有可执行K线组合，"
+                f"请检查 start_date={start_date}, end_date={end_date}, date_range_mode={date_range_mode}"
+            )
 
         return data, len(all_kline) + 20,KLINE_DATA_MAP
 

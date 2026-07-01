@@ -11,6 +11,7 @@ from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.logger import get_logger
+from app.utils.task_error_utils import build_task_error_message
 
 
 logger = get_logger(__name__)
@@ -181,6 +182,25 @@ class BaseGoogleSheetService:
 
     def _log_error(self, message: str, log_type: str = 'general', **kwargs):
         self._log('error', message, log_type, **kwargs)
+
+    def _record_execution_error_message(self, exc: Exception) -> str:
+        error_message = build_task_error_message(exc)
+        try:
+            def update_task_operation():
+                task = db.session.get(Task, self.task_id)
+                if task:
+                    task.error_message = error_message
+                    db.session.commit()
+
+            if self.app:
+                with self.app.app_context():
+                    safe_db_operation(update_task_operation)
+            else:
+                with current_app.app_context():
+                    safe_db_operation(update_task_operation)
+        except Exception as update_error:
+            logger.warning("记录 Google Sheet 任务错误摘要失败: %s", update_error)
+        return error_message
 
     def _log_step(self, step: int, total: int, message: str):
         self._log('info', message, 'step', step=step, total=total)

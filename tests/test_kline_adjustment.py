@@ -83,6 +83,9 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
                 "adjust_type": adjust_type,
             }
             return [
+                {"stock_date": f"2023-12-{day:02d}", "stock_sp": 9, "stock_kp": 8}
+                for day in range(1, 31)
+            ] + [
                 {"stock_date": "2024-01-01", "stock_sp": 10, "stock_kp": 9},
                 {"stock_date": "2024-01-02", "stock_sp": 11, "stock_kp": 10},
             ]

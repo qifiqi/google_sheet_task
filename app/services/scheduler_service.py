@@ -245,6 +245,7 @@ class SchedulerService:
                     logger.warning(f"定时任务 {scheduled_task.name} 已被其他实例获取，跳过")
                     return
 
+                db.session.refresh(scheduled_task)
                 logger.info(f"[实例 {self.instance_id}] 开始执行定时任务: {scheduled_task.name}")
 
                 # 更新执行次数和下次执行时间
@@ -285,11 +286,14 @@ class SchedulerService:
         """释放任务锁"""
         try:
             with self.app.app_context():
-                task = db.session.get(ScheduledTask, task_id)
-                if task and task.running_instance_id == self.instance_id:
-                    task.is_running = False
-                    task.running_instance_id = None
-                    db.session.commit()
+                ScheduledTask.query.filter(
+                    ScheduledTask.id == task_id,
+                    ScheduledTask.running_instance_id == self.instance_id,
+                ).update({
+                    "is_running": False,
+                    "running_instance_id": None,
+                }, synchronize_session=False)
+                db.session.commit()
         except Exception as e:
             logger.error(f"释放任务锁失败: {e}")
     
