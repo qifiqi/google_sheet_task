@@ -370,7 +370,7 @@ let taskNameTouched = false;
 const currentYear = new Date().getFullYear();
 const PARAMETER_HELP_HTML = `
     <div class="param-help-content">
-        <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统自动补默认手续费；每行 7 列时第 1 列按手续费处理。</div>
+        <div><strong>C3 粘贴</strong>：每行 6 个业务参数时顺序为 <code>xm</code>、<code>单边保护 1</code>、<code>中立限仓</code>、<code>指数跟踪</code>、<code>一窝蜂 S</code>、<code>一窝蜂 B</code>，系统自动计算 <code>单边保护 2 = 2 - 单边保护 1</code>；每行 7 个业务参数时按完整字段处理。</div>
         <div><strong>C3 复制</strong>：复制当前表格为 Tab 分隔行，包含 <code>Commission</code> 和后续参数列，可直接贴到其他任务或 Excel。</div>
         <div><strong>C5 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
     </div>
@@ -680,6 +680,42 @@ function isPastedHeaderRow(cells) {
     return cells.some((cell) => headerTokens.has(normalizeHeaderToken(cell)));
 }
 
+function formatDerivedProtectionValue(value) {
+    if (!Number.isFinite(value)) {
+        return '';
+    }
+    const fixed = value.toFixed(12).replace(/0+$/, '').replace(/\.$/, '');
+    return fixed === '-0' ? '0' : fixed;
+}
+
+function deriveSingleSideProtection2(value) {
+    const normalized = normalizePastedCell(value).replace(/,/g, '');
+    if (!normalized) {
+        return '';
+    }
+    const numericValue = Number(normalized);
+    if (!Number.isFinite(numericValue)) {
+        return '';
+    }
+    return formatDerivedProtectionValue(2 - numericValue);
+}
+
+function normalizeC3BusinessCells(cells) {
+    const sourceCells = cells.slice();
+    if (sourceCells.length === 6) {
+        return [
+            sourceCells[0],
+            sourceCells[1],
+            deriveSingleSideProtection2(sourceCells[1]),
+            sourceCells[2],
+            sourceCells[3],
+            sourceCells[4],
+            sourceCells[5]
+        ];
+    }
+    return sourceCells;
+}
+
 function parsePastedParameterRows(rawText) {
     const rows = String(rawText || '')
         .split(/\n+/)
@@ -695,7 +731,7 @@ function parsePastedParameterRows(rawText) {
     const expectedColumnCount = currentFields.length;
     const firstDataRow = dataRows[0] || [];
     const hasLeadingCommission = c3Mode
-        && firstDataRow.length > expectedColumnCount
+        && firstDataRow.length > expectedColumnCount - 1
         && (isCommissionCell(firstDataRow[0]) || firstDataRow.length === expectedColumnCount + 1);
 
     if (hasLeadingCommission && firstDataRow[0]) {
@@ -704,7 +740,9 @@ function parsePastedParameterRows(rawText) {
 
     return dataRows
         .map((cells) => {
-            const sourceCells = hasLeadingCommission ? cells.slice(1) : cells;
+            const sourceCells = c3Mode
+                ? normalizeC3BusinessCells(hasLeadingCommission ? cells.slice(1) : cells)
+                : (hasLeadingCommission ? cells.slice(1) : cells);
             const projected = {};
             currentFields.forEach((field, index) => {
                 projected[field.key] = sourceCells[index] || '';
@@ -734,6 +772,14 @@ function collectParameterDraftRows() {
 
 function hasParameterDraftValues() {
     return collectParameterDraftRows().some((row) => row.some(Boolean));
+}
+
+function clearPlaceholderRowsBeforeAppend() {
+    if (hasParameterDraftValues()) {
+        return;
+    }
+    paramTableBody.innerHTML = '';
+    syncEmptyState();
 }
 
 function getCommissionValue() {
@@ -867,6 +913,7 @@ async function pasteParametersFromClipboard() {
             setExcelImportStatus('剪切板中没有解析到有效参数', 'danger');
             return;
         }
+        clearPlaceholderRowsBeforeAppend();
         rows.forEach((row) => addParameterRow(row));
         syncEmptyState();
         setExcelImportStatus(`已追加 ${rows.length} 行参数`, 'success');

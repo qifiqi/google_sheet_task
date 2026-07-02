@@ -235,6 +235,39 @@ class GoogleSheet:
 
         self._retry_network_operation(_clear_operation, f"clear_range({range_a1})")
 
+    def clear_jumped_cells(self, cell_refs):
+        """清空非连续 A1 单元格列表（带网络重试）"""
+        self._ensure_worksheet()
+
+        if not cell_refs:
+            logger.warning(f"{self._log_ctx()}cell_refs为空，跳过清空操作")
+            return None
+
+        valid_refs = []
+        for cell_ref in cell_refs:
+            if not cell_ref or not isinstance(cell_ref, str):
+                logger.warning(f"{self._log_ctx()}无效的单元格地址: {cell_ref}")
+                continue
+
+            try:
+                a1_to_rowcol(cell_ref)
+            except Exception:
+                logger.warning(f"{self._log_ctx()}无效的单元格地址: {cell_ref}")
+                continue
+
+            valid_refs.append(cell_ref)
+
+        if not valid_refs:
+            logger.warning(f"{self._log_ctx()}没有有效的单元格需要清空")
+            return None
+
+        logger.info(f"{self._log_ctx()}清空非连续单元格: {valid_refs}")
+
+        def _clear_operation():
+            self.worksheet.batch_clear(valid_refs)
+
+        return self._retry_network_operation(_clear_operation, "clear_jumped_cells")
+
     @staticmethod
     def col_letter_to_num(col_letter):
         """将Excel列字母转换为数字"""

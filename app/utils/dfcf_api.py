@@ -3,6 +3,7 @@ import json
 import os
 import random
 import time
+from datetime import datetime
 from urllib.parse import quote
 
 import requests
@@ -174,11 +175,27 @@ class DFCJStockApi:
             if len(data) < 10:
                 logger.warning(f"K线原始数据字段数量不足: {line}")
                 return None
+
+            stock_cjl = float(data[5])
+            if str(stock_code).isdigit():
+                stock_cjl *= 100
+
+            stock_cje = float(data[6]) if len(data) > 6 else 0
             return {
                 "stock_code": stock_code,
                 "stock_date": data[0],
                 "stock_kp": float(data[1]),
                 "stock_sp": float(data[2]),
+                "stock_zg": float(data[3]),
+                "stock_zd": float(data[4]),
+                "stock_cjl": stock_cjl,
+                "stock_cje": stock_cje,
+                "stock_vwap": round(stock_cje / stock_cjl, 2) if stock_cjl > 0 else 0.0,
+                "stock_zf": float(data[7]) if len(data) > 7 else 0,
+                "stock_zdf": float(data[8]) if len(data) > 8 else 0,
+                "stock_zde": float(data[9]) if len(data) > 9 else 0,
+                "stock_hsl": float(data[10]) if len(data) > 10 else 0,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
         except Exception:
             logger.exception("解析K线数据失败")

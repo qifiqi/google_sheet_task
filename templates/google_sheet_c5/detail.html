@@ -1144,7 +1144,8 @@
     function formatPriceMode(value) {
         return formatConfigDisplayValue(value, {
             kp_price: '开盘价',
-            sp_price: '收盘价'
+            sp_price: '收盘价',
+            vwap_price: '加权平均价'
         });
     }
 
@@ -1262,7 +1263,7 @@
 
         const configItems = [
             {label: '统计方式', value: formatCountMode(config.count_mode || 'total'), icon: 'bi-calculator'},
-            {label: '价格类型', value: formatPriceMode(config.price_mode || 'kp_price'), icon: 'bi-currency-exchange'},
+            {label: '价格类型', value: formatPriceMode(config.price_mode || 'vwap_price'), icon: 'bi-currency-exchange'},
             {label: '市场类型', value: formatMarketType(config.market_type || 'cn'), icon: 'bi-graph-up-arrow'},
             {label: '时间范围类型', value: dateRangeModeDisplay, icon: 'bi-clock-history'},
             {label: '数据时间范围', value: dateRange, icon: 'bi-calendar-range'},

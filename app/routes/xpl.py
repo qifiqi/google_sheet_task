@@ -25,8 +25,7 @@ def analyze_data():
     请求体 (JSON):
     {
         "data": "2023-01-01 0.01\n2023-01-02 0.02\n...",
-        "time_format": "YYYY-MM-DD",
-        "return_col": 2
+        "time_format": "YYYY-MM-DD"
     }
     
     返回 (JSON):
@@ -40,7 +39,6 @@ def analyze_data():
     try:
         # 获取请求数据
         data = request.get_json()
-        print(data)
         if not data:
             return jsonify({
                 'status': 'error',
@@ -52,13 +50,12 @@ def analyze_data():
         # 获取参数
         input_data = data.get('data', '')
         time_format = data.get('time_format', 'auto')
-        return_col = int(data.get('return_col', 2))
+        logger.debug("收到XPL分析请求: time_format=%s, data_length=%s", time_format, len(input_data))
         
         # 调用服务层进行分析
         result = xpl_analyzer.analyze(
             data=input_data,
-            time_format=time_format,
-            return_col=return_col
+            time_format=time_format
         )
         
         return jsonify(result)
@@ -152,4 +149,3 @@ def analyze_data_v1():
             'results': [],
             'metrics': {}
         }), 500
-

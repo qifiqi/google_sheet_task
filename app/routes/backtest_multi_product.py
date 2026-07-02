@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from io import BytesIO
 import json
 import math
 import re
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from flask import Blueprint, current_app, g, jsonify, render_template, request, send_file
 from openpyxl import Workbook
@@ -34,6 +36,8 @@ TASK_ACTION_LABELS = {
     "view": "查看",
     "create": "创建",
 }
+
+BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS = 10
 
 
 def _sanitize_json_value(value):
@@ -99,6 +103,40 @@ def _build_excel_download_name(task_name, fallback_id: str) -> str:
     safe_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(task_name or "").strip())
     safe_name = safe_name.rstrip(" .")
     return f"{safe_name or fallback_id}.xlsx"
+
+
+def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: set[str]) -> str:
+    filename = _build_excel_download_name(task_name, fallback_id)
+    if filename not in used_names:
+        used_names.add(filename)
+        return filename
+
+    stem = filename[:-5]
+    index = 2
+    while True:
+        candidate = f"{stem}_{index}.xlsx"
+        if candidate not in used_names:
+            used_names.add(candidate)
+            return candidate
+        index += 1
+
+
+def _validate_batch_global_preview_task_ids(raw_task_ids):
+    if not isinstance(raw_task_ids, list) or not raw_task_ids:
+        return None, (jsonify({"status": "error", "message": "请选择至少一个任务"}), 400)
+
+    task_ids = [str(task_id).strip() for task_id in raw_task_ids if str(task_id).strip()]
+    task_ids = list(dict.fromkeys(task_ids))
+    if not task_ids:
+        return None, (jsonify({"status": "error", "message": "请选择至少一个任务"}), 400)
+
+    if len(task_ids) > BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS:
+        return None, (jsonify({
+            "status": "error",
+            "message": f"批量导出最多支持 {BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个",
+        }), 400)
+
+    return task_ids, None
 
 
 def _parse_excel_percent_text(value: str) -> float | None:
@@ -511,4 +549,54 @@ def export_global_preview(task_id):
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
         download_name=_build_excel_download_name(task_name, task_id),
+    )
+
+
+@bp.route("/api/global-preview/batch-export", methods=["POST"])
+@login_required
+@permission_required("backtest:view")
+def batch_export_global_preview():
+    data = request.get_json(silent=True) or {}
+    task_ids, error_response = _validate_batch_global_preview_task_ids(data.get("task_ids"))
+    if error_response:
+        return error_response
+
+    zip_buffer = BytesIO()
+    used_names: set[str] = set()
+    with ZipFile(zip_buffer, "w", ZIP_DEFLATED) as archive:
+        for task_id in task_ids:
+            task, task_error_response = _load_multi_product_task_or_response(task_id, action="view")
+            if task_error_response:
+                return task_error_response
+            if task.status != "completed":
+                return jsonify({
+                    "status": "error",
+                    "message": f"任务 {task.name or task_id} 尚未完成，不能导出",
+                    "task_id": task_id,
+                    "task_status": task.status,
+                }), 400
+
+            payload = build_multi_product_global_preview_payload(task_id)
+            if payload is None:
+                return jsonify({
+                    "status": "error",
+                    "message": "任务不存在",
+                    "task_id": task_id,
+                }), 404
+
+            workbook = _build_global_preview_workbook(payload)
+            workbook_buffer = BytesIO()
+            workbook.save(workbook_buffer)
+            archive.writestr(
+                _build_zip_member_name(task.name, task_id, used_names),
+                workbook_buffer.getvalue(),
+            )
+
+    zip_buffer.seek(0)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return send_file(
+        zip_buffer,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"backtest_multi_product_global_preview_batch_{stamp}.zip",
     )

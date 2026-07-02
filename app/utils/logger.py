@@ -53,7 +53,7 @@ def get_logger(name: str) -> logging.Logger:
             file_handler = ConcurrentRotatingFileHandler(
                 filename=str(Config.LOG_FILE),
                 mode='a',
-                maxBytes=10 * 1024 * 1024,  # 10MB
+                maxBytes=30 * 1024 * 1024,  # 10MB
                 backupCount=30,
                 encoding='utf-8'
             )

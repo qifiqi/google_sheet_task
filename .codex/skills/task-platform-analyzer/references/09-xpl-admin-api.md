@@ -17,8 +17,7 @@
 ```json
 {
   "data": "2023-01-01 0.01\n2023-01-02 0.02\n...",
-  "time_format": "YYYY-MM-DD",
-  "return_col": 2
+  "time_format": "YYYY-MM-DD"
 }
 ```
 
@@ -26,23 +25,26 @@
 |------|------|------|------|
 | data | string | "" | 制表符/空格分隔的收益数据文本 |
 | time_format | string | "auto" | 时间格式 |
-| return_col | int | 2 | 收益率列序号（从 1 开始） |
+
+输入列自动识别：
+
+- 两列：`日期 + 收益率`
+- 三列：`日期 + 指数收益率 + 模型收益率`，会同时计算指数和模型两套指标
 
 **响应**：
 ```json
 {
   "status": "success",
-  "results": [
-    { "date": "2023-01-01", "return": 0.01 }
-  ],
-  "metrics": {
-    "total_return": 0.15,
-    "annual_return": 0.12,
-    "sharpe_ratio": 1.5,
-    "max_drawdown": -0.08
+  "results": {
+    "analysis_mode": "single",
+    "maximum_drawdown": {},
+    "returns_rate": [],
+    "sharpe_ratios": {}
   }
 }
 ```
+
+三列输入时 `analysis_mode` 为 `dual`，响应包含 `index_*` 与 `start_*` 两套指标，例如 `index_sharpe_ratios`、`start_sharpe_ratios`。
 
 ### 2. POST `/xpl/export`
 

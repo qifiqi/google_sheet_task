@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820" role="img" aria-labelledby="title desc">
+  <title id="title">Option B - Information Card Batch Export Modal</title>
+  <desc id="desc">A batch export modal using richer task information cards.</desc>
+  <defs>
+    <filter id="shadow" x="-18%" y="-18%" width="136%" height="145%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#0f172a" flood-opacity=".2"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="820" fill="#f7f9fc"/>
+  <rect x="70" y="70" width="1140" height="140" rx="18" fill="#fff" stroke="#e2e8f0"/>
+  <text x="104" y="126" fill="#101827" font-family="Microsoft YaHei, sans-serif" font-size="26" font-weight="700">数据回测中心</text>
+  <text x="104" y="162" fill="#64748b" font-family="Microsoft YaHei, sans-serif" font-size="16">单品回测 / 多品回测都使用同一套批量导出入口。</text>
+  <rect x="784" y="109" width="126" height="44" rx="22" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="814" y="136" fill="#475569" font-family="Microsoft YaHei, sans-serif" font-size="14">14:28</text>
+  <rect x="926" y="109" width="132" height="44" rx="22" fill="#f0fdf4" stroke="#22c55e"/>
+  <text x="956" y="136" fill="#15803d" font-family="Microsoft YaHei, sans-serif" font-size="15" font-weight="700">批量导出</text>
+  <rect x="1074" y="109" width="116" height="44" rx="22" fill="#2563eb"/>
+  <text x="1103" y="136" fill="#fff" font-family="Microsoft YaHei, sans-serif" font-size="15" font-weight="700">创建新任务</text>
+  <rect width="1280" height="820" fill="#0f172a" opacity=".4"/>
+
+  <g filter="url(#shadow)">
+    <rect x="258" y="88" width="764" height="652" rx="20" fill="#ffffff"/>
+    <rect x="258" y="88" width="764" height="96" rx="20" fill="#102a43"/>
+    <text x="300" y="138" fill="#ffffff" font-family="Microsoft YaHei, sans-serif" font-size="24" font-weight="700">选择要导出的回测任务</text>
+    <text x="300" y="164" fill="#b6c2cf" font-family="Microsoft YaHei, sans-serif" font-size="14">当前页 · 已完成任务可导出 · ZIP 打包下载</text>
+    <rect x="842" y="121" width="132" height="34" rx="17" fill="#1f6f50"/>
+    <text x="870" y="143" fill="#ffffff" font-family="Microsoft YaHei, sans-serif" font-size="13" font-weight="700">已选 4 个任务</text>
+
+    <rect x="300" y="210" width="682" height="42" rx="21" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="326" y="236" fill="#334155" font-family="Microsoft YaHei, sans-serif" font-size="14">全选当前页</text>
+    <line x1="430" y1="218" x2="430" y2="244" stroke="#e2e8f0"/>
+    <text x="456" y="236" fill="#15803d" font-family="Microsoft YaHei, sans-serif" font-size="14" font-weight="700">仅已完成任务</text>
+    <line x1="584" y1="218" x2="584" y2="244" stroke="#e2e8f0"/>
+    <text x="610" y="236" fill="#64748b" font-family="Microsoft YaHei, sans-serif" font-size="14">清空</text>
+    <text x="850" y="236" fill="#94a3b8" font-family="Microsoft YaHei, sans-serif" font-size="13">最多 10 个</text>
+
+    <g font-family="Microsoft YaHei, sans-serif">
+      <rect x="300" y="276" width="318" height="132" rx="12" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
+      <rect x="326" y="302" width="22" height="22" rx="6" fill="#16a34a"/>
+      <path d="M331 313l5 5 10-12" fill="none" stroke="#fff" stroke-width="2"/>
+      <text x="364" y="319" fill="#0f172a" font-size="16" font-weight="700">C3-贵州茅台-五年回测</text>
+      <text x="326" y="354" fill="#64748b" font-size="13">ID: 8f2a6c11</text>
+      <text x="326" y="378" fill="#64748b" font-size="13">模型版本：C3</text>
+      <rect x="502" y="360" width="76" height="28" rx="14" fill="#dcfce7"/>
+      <text x="518" y="379" fill="#15803d" font-size="13">已完成</text>
+
+      <rect x="642" y="276" width="318" height="132" rx="12" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
+      <rect x="668" y="302" width="22" height="22" rx="6" fill="#16a34a"/>
+      <path d="M673 313l5 5 10-12" fill="none" stroke="#fff" stroke-width="2"/>
+      <text x="706" y="319" fill="#0f172a" font-size="16" font-weight="700">C5-NVDA-季度窗口</text>
+      <text x="668" y="354" fill="#64748b" font-size="13">ID: 21ab09de</text>
+      <text x="668" y="378" fill="#64748b" font-size="13">模型版本：C5</text>
+      <rect x="844" y="360" width="76" height="28" rx="14" fill="#dcfce7"/>
+      <text x="860" y="379" fill="#15803d" font-size="13">已完成</text>
+
+      <rect x="300" y="430" width="318" height="132" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+      <rect x="326" y="456" width="22" height="22" rx="6" fill="#e2e8f0"/>
+      <text x="364" y="473" fill="#64748b" font-size="16" font-weight="700">C3-AAPL-重跑任务</text>
+      <text x="326" y="508" fill="#94a3b8" font-size="13">ID: 1ac442d0</text>
+      <text x="326" y="532" fill="#94a3b8" font-size="13">运行中，完成后可导出</text>
+      <rect x="502" y="514" width="76" height="28" rx="14" fill="#dbeafe"/>
+      <text x="518" y="533" fill="#1d4ed8" font-size="13">运行中</text>
+
+      <rect x="642" y="430" width="318" height="132" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+      <rect x="668" y="456" width="22" height="22" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+      <text x="706" y="473" fill="#0f172a" font-size="16" font-weight="700">C4-腾讯控股-组合测试</text>
+      <text x="668" y="508" fill="#64748b" font-size="13">ID: d9927bc1</text>
+      <text x="668" y="532" fill="#64748b" font-size="13">创建时间：2026/06/28 16:20</text>
+      <rect x="844" y="514" width="76" height="28" rx="14" fill="#dcfce7"/>
+      <text x="860" y="533" fill="#15803d" font-size="13">已完成</text>
+    </g>
+
+    <rect x="258" y="636" width="764" height="104" rx="0" fill="#f8fafc"/>
+    <text x="300" y="678" fill="#475569" font-family="Microsoft YaHei, sans-serif" font-size="14">导出内容：每个任务一个全局预览 XLSX，最终打包为 ZIP。</text>
+    <rect x="740" y="660" width="82" height="40" rx="20" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="765" y="685" fill="#334155" font-family="Microsoft YaHei, sans-serif" font-size="14">取消</text>
+    <rect x="838" y="660" width="122" height="40" rx="20" fill="#16a34a"/>
+    <text x="865" y="685" fill="#ffffff" font-family="Microsoft YaHei, sans-serif" font-size="14" font-weight="700">导出 ZIP</text>
+  </g>
+</svg>

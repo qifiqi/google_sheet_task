@@ -43,6 +43,19 @@ def test_eastmoney_url_uses_selected_fqt():
     assert params["fqt"] == ["2"]
 
 
+def test_eastmoney_parse_kline_calculates_vwap_for_numeric_stock_code():
+    api = DFCJStockApi()
+
+    row = api._parse_kline_data(
+        "2024-01-02,10,11,12,9,500,110000,3,10,1,0.5",
+        "600000",
+    )
+
+    assert row["stock_cjl"] == 50000
+    assert row["stock_cje"] == 110000
+    assert row["stock_vwap"] == 2.2
+
+
 def test_multi_product_normalize_preserves_product_kline_adjustment():
     config = {
         "start_date": "2024-01-01",
@@ -83,6 +96,9 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
                 "adjust_type": adjust_type,
             }
             return [
+                {"stock_date": f"2023-12-{day:02d}", "stock_sp": 9, "stock_kp": 8}
+                for day in range(1, 31)
+            ] + [
                 {"stock_date": "2024-01-01", "stock_sp": 10, "stock_kp": 9},
                 {"stock_date": "2024-01-02", "stock_sp": 11, "stock_kp": 10},
             ]
@@ -194,6 +210,7 @@ def test_yahoo_parse_single_ticker_uses_ticker_hint_and_adjusted_close_for_cje()
             "stock_zd": 18.0,
             "stock_cjl": 5,
             "stock_cje": 100.0,
+            "stock_vwap": 20.0,
             "stock_zf": 22.22,
             "stock_zdf": 0.0,
             "stock_zde": 0.0,

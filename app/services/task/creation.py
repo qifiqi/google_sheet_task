@@ -17,6 +17,7 @@ from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
 )
+from app.services.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
 from app.utils.database import safe_create, transaction_required
 from app.utils.logger import get_logger, get_task_logger
@@ -104,6 +105,8 @@ class TaskCreationMixin:
             )
 
             normalized = normalize_multi_product_config(normalized)
+        elif task_type == "backtest_training":
+            normalized = normalize_backtest_training_config(normalized)
 
         if task_type in ("backtest_training", "backtest_multi_product") and not normalized.get("token_id"):
             token_id = (

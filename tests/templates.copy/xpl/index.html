@@ -86,12 +86,8 @@
                             </select>
                         </div>
                         
-                        <div class="mb-4">
-                            <label for="return-col" class="form-label small fw-bold text-uppercase text-muted mb-1">收益率列</label>
-                            <select class="form-select form-select-sm" id="return-col">
-                                <option value="1">第一列</option>
-                                <option value="2" selected>第二列</option>
-                            </select>
+                        <div class="mb-4 small text-muted">
+                            两列数据按“日期 + 收益率”计算；三列数据按“日期 + 指数收益率 + 模型收益率”同时计算。
                         </div>
                         
                         <button class="btn btn-primary w-100 py-2" onclick="parseExcelData()">
@@ -133,7 +129,7 @@
                                 </div>
                                 <div>
                                     <div class="fw-medium">调整设置</div>
-                                    <small class="text-muted">选择时间格式和收益率列</small>
+                                    <small class="text-muted">选择时间格式；收益率列自动识别</small>
                                 </div>
                             </div>
                             <div class="d-flex">
@@ -639,8 +635,7 @@
         // 准备请求数据
         const requestData = {
             data: inputText,
-            time_format: document.getElementById('time-format').value,
-            return_col: parseInt(document.getElementById('return-col').value)
+            time_format: document.getElementById('time-format').value
         };
 
         // 创建新的AbortController

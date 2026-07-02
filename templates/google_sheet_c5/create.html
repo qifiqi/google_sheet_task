@@ -347,15 +347,12 @@
                                                         </div>
                                                     </div>
                                                     <div class="col-md-3">
-                                                        <label class="form-label d-block">开盘/收盘</label>
-                                                        <div class="btn-group d-flex" role="group" aria-label="Price mode">
-                                                            <input type="radio" class="btn-check" name="price_mode" id="kp_price" value="kp_price" autocomplete="off">
-                                                            <label class="btn btn-outline-primary flex-fill" for="kp_price">开盘</label>
-
-                                                            <input type="radio" class="btn-check" name="price_mode" id="sp_price" value="sp_price" autocomplete="off" checked>
-                                                            <label class="btn btn-outline-primary flex-fill"
-                                                                   for="sp_price">收盘</label>
-                                                        </div>
+                                                        <label class="form-label" for="price_mode">价格类型</label>
+                                                        <select class="form-select" id="price_mode">
+                                                            <option value="vwap_price" selected>加权平均价</option>
+                                                            <option value="kp_price">开盘价</option>
+                                                            <option value="sp_price">收盘价</option>
+                                                        </select>
                                                     </div>
                                                     <div class="col-md-3">
                                                         <label class="form-label d-block">市场类型</label>
@@ -1330,6 +1327,10 @@
         if (normalized.date_range_mode !== undefined) {
             applyDateRangeModes(normalized.date_range_mode);
         }
+        const priceModeSelect = document.getElementById('price_mode');
+        if (priceModeSelect) {
+            priceModeSelect.value = normalized.price_mode || 'vwap_price';
+        }
         if (normalized.market_type) {
             const mtInput = document.querySelector(`input[name="market_type"][value="${normalized.market_type}"]`);
             if (mtInput) {
@@ -1615,7 +1616,7 @@
         // 为所有输入字段添加自动保存
         const inputFields = [
             'token_file', 'token_json', 'proxy_url',
-            'start_date', 'end_date'
+            'start_date', 'end_date', 'price_mode', 'kline_adjustment'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -1628,6 +1629,10 @@
 
         document.querySelectorAll('#sheet-config-list .sheet-config-item').forEach(function(item) {
             bindSheetConfigItemEvents(item, debouncedSaveFormData);
+        });
+
+        document.querySelectorAll('input[name="market_type"]').forEach(function(field) {
+            field.addEventListener('change', debouncedSaveFormData);
         });
 
         // 添加一组表格配置（仅用于前端展示，实际提交仍使用第一组带有固定ID的配置）
@@ -1938,7 +1943,7 @@
         const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
         const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
-        const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'sp_price';
+        const priceMode = document.getElementById('price_mode')?.value || 'vwap_price';
         const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
         const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         const dateRangeModes = getSelectedDateRangeModes();
@@ -2108,7 +2113,7 @@
             token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
             count_mode: document.querySelector('input[name="count_mode"]:checked')?.value || 'total',
-            price_mode: document.querySelector('input[name="price_mode"]:checked')?.value || 'sp_price',
+            price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             date_range_mode: getSelectedDateRangeModes(),
@@ -2174,10 +2179,8 @@
                 }
 
                 if (formData.price_mode) {
-                    const pmInput = document.querySelector(`input[name="price_mode"][value="${formData.price_mode}"]`);
-                    if (pmInput) {
-                        pmInput.checked = true;
-                    }
+                    const priceModeSelect = document.getElementById('price_mode');
+                    if (priceModeSelect) priceModeSelect.value = formData.price_mode;
                 }
 
                 if (formData.date_range_mode !== undefined) {
@@ -2246,7 +2249,7 @@
             const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
             const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
-            const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'sp_price';
+            const priceMode = document.getElementById('price_mode')?.value || 'vwap_price';
             const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
             const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
             const dateRangeModes = getSelectedDateRangeModes();
@@ -2421,7 +2424,7 @@
 
         return {
             count_mode: raw.count_mode || 'total',
-            price_mode: raw.price_mode || 'sp_price',
+            price_mode: raw.price_mode || 'vwap_price',
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',

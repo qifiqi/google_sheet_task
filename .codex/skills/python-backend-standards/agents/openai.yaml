@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Backend Standards"
+  short_description: "Python 后端分层、异常、配置、测试与安全规范"
+  default_prompt: "Use $python-backend-standards to review or implement Python backend code with clean layering and production safeguards."

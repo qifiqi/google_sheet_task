@@ -153,6 +153,7 @@ class YFApi:
 
                             # Yahoo 没有直接成交额，这里使用当前选定复权口径的收盘价估算。
                             stock_cje = close_price * volume if volume > 0 else 0
+                            stock_vwap = stock_cje / volume if volume > 0 else 0
 
                             # 换手率%（雅虎数据通常没有，设为0）
                             stock_hsl = 0.0
@@ -167,6 +168,7 @@ class YFApi:
                                 'stock_zd': round(low_price,2),  # 最低价
                                 'stock_cjl': volume,  # 成交量
                                 'stock_cje': round(stock_cje, 2),  # 成交额
+                                'stock_vwap': round(stock_vwap, 2),  # 加权平均价
                                 'stock_zf': round(stock_zf, 2),  # 振幅%
                                 'stock_zdf': round(stock_zdf, 2),  # 涨跌幅%
                                 'stock_zde': round(stock_zde, 2),  # 涨跌额

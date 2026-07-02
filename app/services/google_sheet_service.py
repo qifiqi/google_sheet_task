@@ -1,6 +1,5 @@
 import json
 import random
-import traceback
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional,Tuple
 
@@ -20,7 +19,9 @@ from app.utils.dfcf_api import DFCJStockApi
 from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, validate_google_sheet_result, is_valid_result_value
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.utils.task_error_utils import unwrap_exception
+from app.utils.kline_validation import require_kline_rows
 
 logger = get_logger(__name__)
 
@@ -30,6 +31,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
+        self.klines_map = None
         self.kline = None
         self.len_kline = None
         self.YF_api = YFApi()
@@ -50,28 +52,63 @@ class GoogleSheetService(BaseGoogleSheetService):
             results[position] = value
         return cell_updates, results
 
-    def _write_parameter_cells(self, cell_updates: Dict[str, Any], attempt: int = 0):
+    def _write_parameter_cells(self, cell_updates: Dict[str, Any], attempt: int = 0,config_data=None):
         if attempt <= 0:
             self._log_info(f"向Google Sheet写入参数: {cell_updates}")
             self.google_sheet.update_jumped_cells(cell_updates)
             return
 
-        random_key = random.choice(list(cell_updates.keys()))
-        random_value = cell_updates[random_key]
         self._log_info(
-            f"防止模型卡顿，在随机位置写入：{random_key} = {random_value} "
-            f"(类型: {type(random_value)}),当前是第{attempt + 1}轮检查"
+            "模型可能卡死，直接清空参数，等待20s后重新写入参数，请稍等..."
         )
 
-        if random_value is None or str(random_value).strip() == "":
-            self._log_warning(f"跳过写入空值到位置 {random_key}")
+        if attempt >= 10 and not self.klines_map:
+            c3_input_column_d = config_data.get('c3_input_column_d').upper()
+            c3_input_column_e = config_data.get('c3_input_column_e').upper()
+            A_num = self.len_kline + random.randint(5, 10)
+            self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
+            self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num + 2}")
+
+            self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+            if not self._interruptible_sleep(20):
+                raise RuntimeError("task cancelled")
+
+            for i in range(self.len_kline):
+                item = self.klines_map[i]
+                cell_num = i + 2
+                cell_A = f"{c3_input_column_d}{cell_num}"
+                cell_B = f"{c3_input_column_e}{cell_num}"
+                stock_date = item.get('stock_date', "")
+                stock_val = item.get('stock_val', "")
+                cell_updates[cell_A] = stock_date
+                cell_updates[cell_B] = stock_val
+            self.google_sheet.update_jumped_cells(cell_updates)
             return
 
-        try:
-            self.google_sheet.update_cell(random_key, str(random_value))
-        except Exception as err:
-            self._log_error(f"更新单元格 {random_key} 失败，值: {random_value}, 错误: {err}")
-            raise
+        self.google_sheet.clear_jumped_cells(cell_updates.keys())
+        if not self._interruptible_sleep(20):
+            raise RuntimeError("task cancelled")
+
+        self.google_sheet.update_jumped_cells(cell_updates)
+
+        
+
+        # random_key = random.choice(list(cell_updates.keys()))
+        # random_value = cell_updates[random_key]
+        # self._log_info(
+        #     f"防止模型卡顿，在随机位置写入：{random_key} = {random_value} "
+        #     f"(类型: {type(random_value)}),当前是第{attempt + 1}轮检查"
+        # )
+
+        # if random_value is None or str(random_value).strip() == "":
+        #     self._log_warning(f"跳过写入空值到位置 {random_key}")
+        #     return
+
+        # try:
+        #     self.google_sheet.update_cell(random_key, str(random_value))
+        # except Exception as err:
+        #     self._log_error(f"更新单元格 {random_key} 失败，值: {random_value}, 错误: {err}")
+        #     raise
 
     def _normalize_result_value(self, position: str, value: Any) -> float:
         if not value or not is_valid_result_value(value):
@@ -459,11 +496,15 @@ class GoogleSheetService(BaseGoogleSheetService):
             
             # 其他异常情况
             root = unwrap_exception(e) or e
-            if self.task:
-                self.task.error_message = build_task_error_message(e)
-                db.session.commit()
+            try:
+                record = record_task_exception(self.task_id, e, "execute_task", self.app)
+                error_summary = format_task_error_message(record)
+            except Exception as record_error:
+                logger.warning("记录任务异常失败: %s", record_error)
+                error_summary = f"{root.__class__.__name__}: {root}"
             error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
+            self._log_error(f"任务异常摘要: {error_summary}")
             return 'error'
 
     def cell_kline_data(self,config_data):
@@ -483,28 +524,31 @@ class GoogleSheetService(BaseGoogleSheetService):
 
         def _get_kline(klines, _year=None, _start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            # 根据price_mode决定使用开盘价还是收盘价
-            price_field = 'stock_kp' if price_mode == 'kp_price' else 'stock_sp'
+            # 根据price_mode决定使用开盘价、收盘价或加权平均价
+            price_field = {
+                'kp_price': 'stock_kp',
+                'vwap_price': 'stock_vwap',
+            }.get(price_mode, 'stock_sp')
 
             if market_type == 'cn':
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                        {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                    {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
             else:
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                        {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                    {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
@@ -540,6 +584,15 @@ class GoogleSheetService(BaseGoogleSheetService):
         else:
             klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
 
+        klines = require_kline_rows(
+            stock_code,
+            market_type,
+            klines,
+            context="原始K线",
+            min_rows=100,
+            price_field='stock_kp' if price_mode == 'kp_price' else 'stock_sp',
+        )
+
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
@@ -557,16 +610,24 @@ class GoogleSheetService(BaseGoogleSheetService):
             raise Exception(
                 f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
-        if len(klines) < 100:
-            raise Exception(f"股票{stock_code} 数据量不足,k线数据量小于100条，无法在模型正确产生数据，或者联系开发")
-
         all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
+        all_kline = require_kline_rows(
+            stock_code,
+            market_type,
+            all_kline,
+            context="写入Sheet K线",
+            start_date=start_date,
+            end_date=end_date,
+            latest_date=data_end_date,
+            min_rows=1,
+        )
 
         sxf = '0.035%' if market_type == 'cn' else '0.002%'
         cell_updates = {C3_commission_cell: sxf}
         len_kline = len(all_kline)
         self.len_kline = len_kline
         self.kline = [all_kline[0],all_kline[-1]]
+        self.klines_map = all_kline
         for i in range(len_kline):
             item = all_kline[i]
             cell_num = i + 2
@@ -613,7 +674,6 @@ class GoogleSheetService(BaseGoogleSheetService):
             c3_input_column_e = config_data.get('c3_input_column_e').upper()
             stock_code = config_data.get("stock_code",'')
             if stock_code:
-
                 A_num = self.google_sheet.get_last_row('D')
                 if A_num > 10:
                     self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
@@ -704,7 +764,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                     except:
                         pass
 
-                    error_msg = f'第 {i + 1} 个参数组合执行出错: {str(e)}'
+                    error_summary = self._record_execution_error_message(
+                        e,
+                        "execute_parameter_combination",
+                    )
+                    error_msg = f'第 {i + 1} 个参数组合执行出错: {error_summary}'
                     self._log_error(error_msg)
                     return success_count, failed_count, 'error'
 
@@ -723,8 +787,8 @@ class GoogleSheetService(BaseGoogleSheetService):
             except:
                 pass
             
-            error_msg = f"批量数据处理失败: {traceback.format_exc()}"
-            self._log_error(error_msg)
+            error_summary = self._record_execution_error_message(e, "get_bdl")
+            self._log_error(f"批量数据处理失败: {error_summary}")
             return 0, 1, 'error'
 
     @retry(
@@ -741,7 +805,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             check_positions = config_data.get('check_positions', [])
             result_positions = config_data.get('result_positions', [])
             cell_updates, input_results = self._build_parameter_cell_updates(combination, param_positions)
-            self._write_parameter_cells(cell_updates)
+            self._write_parameter_cells(cell_updates,config_data=config_data)
 
             sleep_num = 5
             batch_error_count = 0
@@ -812,9 +876,15 @@ class GoogleSheetService(BaseGoogleSheetService):
             self._log_warning("执行超时，未在规定时间内完成")
             return False, {}
 
-        except Exception:
-            error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
-            self._log_error(error_msg)
+        except Exception as exc:
+            record = record_task_exception(
+                self.task_id,
+                exc,
+                "execute_parameter_combination",
+                self.app,
+                mark_error=False,
+            )
+            self._log_error(f"执行参数组合时出错: {format_task_error_message(record)}")
             raise
 
     def _save_task_result(self, step_index: int, parameters: List, result: Dict, success: bool):

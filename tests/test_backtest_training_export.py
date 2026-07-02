@@ -1,11 +1,103 @@
 import pytest
+from io import BytesIO
+from zipfile import ZipFile
 
+from openpyxl import Workbook
+
+from app.extensions import db
+from app.models import Task
 from app.routes.backtest_training import (
     _build_global_preview_workbook,
     _extract_summary_rows,
     _negative_percent_display,
     _with_excess_return_preview_row,
 )
+
+
+def _add_backtest_task(task_id, name="单品回测", status="completed", task_type="backtest_training"):
+    db.session.add(Task(
+        id=task_id,
+        name=name,
+        task_type=task_type,
+        status=status,
+        config="{}",
+    ))
+    db.session.commit()
+
+
+def test_batch_export_global_preview_returns_zip(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        _add_backtest_task("single-batch-1", name="单品:回测/1")
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        monkeypatch.setattr(
+            "app.routes.backtest_training.authorize_task_type_action",
+            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
+        )
+        monkeypatch.setattr(
+            "app.routes.backtest_training._build_global_preview_payload",
+            lambda task_id: {"task": {"name": task_id}, "groups": []},
+        )
+
+        def fake_workbook(_payload):
+            workbook = Workbook()
+            workbook.active["A1"] = "ok"
+            return workbook
+
+        monkeypatch.setattr("app.routes.backtest_training._build_global_preview_workbook", fake_workbook)
+        response = app.test_client().post(
+            "/backtest-training/api/global-preview/batch-export",
+            json={"task_ids": ["single-batch-1"]},
+        )
+
+        assert response.status_code == 200
+        assert response.mimetype == "application/zip"
+        with ZipFile(BytesIO(response.data)) as archive:
+            assert archive.namelist() == ["单品_回测_1_global_preview.xlsx"]
+
+
+def test_batch_export_global_preview_rejects_empty_selection(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        response = app.test_client().post(
+            "/backtest-training/api/global-preview/batch-export",
+            json={"task_ids": []},
+        )
+
+        assert response.status_code == 400
+        assert response.get_json()["message"] == "请选择至少一个任务"
+
+
+def test_batch_export_global_preview_rejects_unfinished_task(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        _add_backtest_task("single-running", status="running")
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        monkeypatch.setattr(
+            "app.routes.backtest_training.authorize_task_type_action",
+            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
+        )
+        response = app.test_client().post(
+            "/backtest-training/api/global-preview/batch-export",
+            json={"task_ids": ["single-running"]},
+        )
+
+        assert response.status_code == 400
+        assert response.get_json()["task_status"] == "running"
+
+
+def test_batch_export_global_preview_rejects_too_many_tasks(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        response = app.test_client().post(
+            "/backtest-training/api/global-preview/batch-export",
+            json={"task_ids": [f"task-{index}" for index in range(11)]},
+        )
+
+        assert response.status_code == 400
+        assert "最多支持 10 个任务" in response.get_json()["message"]
 
 
 def test_global_preview_workbook_adds_summary_sheet_first():

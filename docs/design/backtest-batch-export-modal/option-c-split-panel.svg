@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820" role="img" aria-labelledby="title desc">
+  <title id="title">Option C - Split Panel Batch Export Modal</title>
+  <desc id="desc">A wide batch export modal with a left selection panel and task grid.</desc>
+  <defs>
+    <filter id="shadow" x="-16%" y="-16%" width="132%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#0f172a" flood-opacity=".22"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="820" fill="#f6f8fb"/>
+  <rect x="70" y="68" width="1140" height="138" rx="18" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="104" y="123" fill="#111827" font-family="Microsoft YaHei, sans-serif" font-size="26" font-weight="700">数据回测中心</text>
+  <text x="104" y="158" fill="#64748b" font-family="Microsoft YaHei, sans-serif" font-size="16">批量导出入口与创建入口并列，适合高频运营操作。</text>
+  <rect x="776" y="106" width="144" height="44" rx="22" fill="#64748b"/>
+  <text x="802" y="133" fill="#fff" font-family="Microsoft YaHei, sans-serif" font-size="14">最后刷新 14:28</text>
+  <rect x="936" y="106" width="132" height="44" rx="22" fill="#f0fdf4" stroke="#16a34a"/>
+  <text x="966" y="133" fill="#15803d" font-family="Microsoft YaHei, sans-serif" font-size="15" font-weight="700">批量导出</text>
+  <rect x="1084" y="106" width="116" height="44" rx="22" fill="#2563eb"/>
+  <text x="1113" y="133" fill="#fff" font-family="Microsoft YaHei, sans-serif" font-size="15" font-weight="700">创建新任务</text>
+  <rect width="1280" height="820" fill="#0f172a" opacity=".42"/>
+
+  <g filter="url(#shadow)">
+    <rect x="190" y="82" width="900" height="664" rx="22" fill="#ffffff"/>
+    <rect x="190" y="82" width="900" height="78" rx="22" fill="#ffffff"/>
+    <text x="226" y="130" fill="#111827" font-family="Microsoft YaHei, sans-serif" font-size="24" font-weight="700">批量导出</text>
+    <text x="1018" y="128" fill="#64748b" font-family="Arial, sans-serif" font-size="24">×</text>
+    <line x1="190" y1="160" x2="1090" y2="160" stroke="#e5e7eb"/>
+
+    <rect x="190" y="160" width="250" height="586" rx="0" fill="#f8fafc"/>
+    <text x="226" y="206" fill="#0f172a" font-family="Microsoft YaHei, sans-serif" font-size="18" font-weight="700">当前页任务</text>
+    <text x="226" y="232" fill="#64748b" font-family="Microsoft YaHei, sans-serif" font-size="13">已选 3 个，可导出 5 个。</text>
+    <rect x="226" y="264" width="178" height="38" rx="19" fill="#16a34a"/>
+    <text x="272" y="288" fill="#fff" font-family="Microsoft YaHei, sans-serif" font-size="14" font-weight="700">全选已完成</text>
+    <rect x="226" y="314" width="178" height="38" rx="19" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="286" y="338" fill="#334155" font-family="Microsoft YaHei, sans-serif" font-size="14">清空</text>
+    <line x1="226" y1="384" x2="404" y2="384" stroke="#e2e8f0"/>
+    <text x="226" y="420" fill="#64748b" font-family="Microsoft YaHei, sans-serif" font-size="13">导出限制</text>
+    <text x="226" y="448" fill="#0f172a" font-family="Microsoft YaHei, sans-serif" font-size="15" font-weight="700">最多 10 个任务</text>
+    <text x="226" y="476" fill="#64748b" font-family="Microsoft YaHei, sans-serif" font-size="13">非完成态会自动禁用。</text>
+    <rect x="226" y="526" width="178" height="78" rx="12" fill="#ecfdf5" stroke="#bbf7d0"/>
+    <text x="248" y="558" fill="#166534" font-family="Microsoft YaHei, sans-serif" font-size="14" font-weight="700">ZIP 多 XLSX</text>
+    <text x="248" y="582" fill="#15803d" font-family="Microsoft YaHei, sans-serif" font-size="12">保留现有全局预览格式</text>
+
+    <text x="476" y="208" fill="#111827" font-family="Microsoft YaHei, sans-serif" font-size="18" font-weight="700">任务卡片</text>
+    <text x="476" y="234" fill="#64748b" font-family="Microsoft YaHei, sans-serif" font-size="13">点击卡片即可选择或取消。</text>
+    <g font-family="Microsoft YaHei, sans-serif">
+      <rect x="476" y="264" width="260" height="112" rx="12" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
+      <rect x="500" y="288" width="22" height="22" rx="6" fill="#16a34a"/>
+      <path d="M505 299l5 5 10-12" fill="none" stroke="#fff" stroke-width="2"/>
+      <text x="536" y="306" fill="#0f172a" font-size="15" font-weight="700">C3-贵州茅台</text>
+      <text x="500" y="340" fill="#64748b" font-size="12">ID: 8f2a6c11 · C3</text>
+      <rect x="638" y="324" width="68" height="26" rx="13" fill="#dcfce7"/>
+      <text x="653" y="342" fill="#15803d" font-size="12">已完成</text>
+
+      <rect x="760" y="264" width="260" height="112" rx="12" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
+      <rect x="784" y="288" width="22" height="22" rx="6" fill="#16a34a"/>
+      <path d="M789 299l5 5 10-12" fill="none" stroke="#fff" stroke-width="2"/>
+      <text x="820" y="306" fill="#0f172a" font-size="15" font-weight="700">C5-NVDA</text>
+      <text x="784" y="340" fill="#64748b" font-size="12">ID: 21ab09de · C5</text>
+      <rect x="922" y="324" width="68" height="26" rx="13" fill="#dcfce7"/>
+      <text x="937" y="342" fill="#15803d" font-size="12">已完成</text>
+
+      <rect x="476" y="400" width="260" height="112" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+      <rect x="500" y="424" width="22" height="22" rx="6" fill="#e2e8f0"/>
+      <text x="536" y="442" fill="#64748b" font-size="15" font-weight="700">C3-AAPL 重跑</text>
+      <text x="500" y="476" fill="#94a3b8" font-size="12">运行中，不可导出</text>
+      <rect x="638" y="460" width="68" height="26" rx="13" fill="#dbeafe"/>
+      <text x="653" y="478" fill="#1d4ed8" font-size="12">运行中</text>
+
+      <rect x="760" y="400" width="260" height="112" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+      <rect x="784" y="424" width="22" height="22" rx="6" fill="#fff" stroke="#94a3b8"/>
+      <text x="820" y="442" fill="#0f172a" font-size="15" font-weight="700">多品-ETF 组合</text>
+      <text x="784" y="476" fill="#64748b" font-size="12">ID: d9927bc1 · 多品 x 4</text>
+      <rect x="922" y="460" width="68" height="26" rx="13" fill="#dcfce7"/>
+      <text x="937" y="478" fill="#15803d" font-size="12">已完成</text>
+
+      <rect x="476" y="536" width="260" height="112" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+      <rect x="500" y="560" width="22" height="22" rx="6" fill="#fff" stroke="#94a3b8"/>
+      <text x="536" y="578" fill="#0f172a" font-size="15" font-weight="700">C4-腾讯控股</text>
+      <text x="500" y="612" fill="#64748b" font-size="12">ID: 6ee727a1 · C4</text>
+      <rect x="638" y="596" width="68" height="26" rx="13" fill="#dcfce7"/>
+      <text x="653" y="614" fill="#15803d" font-size="12">已完成</text>
+    </g>
+
+    <line x1="440" y1="662" x2="1090" y2="662" stroke="#e5e7eb"/>
+    <text x="476" y="704" fill="#64748b" font-family="Microsoft YaHei, sans-serif" font-size="13">当前页选择，不拉取全量历史任务。</text>
+    <rect x="850" y="684" width="82" height="40" rx="20" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="875" y="709" fill="#334155" font-family="Microsoft YaHei, sans-serif" font-size="14">取消</text>
+    <rect x="948" y="684" width="110" height="40" rx="20" fill="#16a34a"/>
+    <text x="973" y="709" fill="#ffffff" font-family="Microsoft YaHei, sans-serif" font-size="14" font-weight="700">导出 ZIP</text>
+  </g>
+</svg>

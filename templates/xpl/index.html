@@ -86,12 +86,8 @@
                             </select>
                         </div>
                         
-                        <div class="mb-4">
-                            <label for="return-col" class="form-label small fw-bold text-uppercase text-muted mb-1">收益率列</label>
-                            <select class="form-select form-select-sm" id="return-col">
-                                <option value="1">第一列</option>
-                                <option value="2" selected>第二列</option>
-                            </select>
+                        <div class="mb-4 small text-muted">
+                            两列数据按“日期 + 收益率”计算；三列数据按“日期 + 指数收益率 + 模型收益率”同时计算。
                         </div>
                         
                         <button class="btn btn-primary w-100 py-2" onclick="parseExcelData()">
@@ -133,7 +129,7 @@
                                 </div>
                                 <div>
                                     <div class="fw-medium">调整设置</div>
-                                    <small class="text-muted">选择时间格式和收益率列</small>
+                                    <small class="text-muted">选择时间格式；收益率列自动识别</small>
                                 </div>
                             </div>
                             <div class="d-flex">
@@ -158,18 +154,18 @@
     <div class="col-md-3">
         <div class="card border-primary">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">平均收益率</h6>
+                <h6 class="card-subtitle mb-2 text-muted">累计收益率</h6>
                 <h2 class="card-title" id="total-return">-</h2>
-                <p class="card-text text-muted small">总收益表现</p>
+                <p class="card-text text-muted small">按最新净值计算</p>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card border-success">
             <div class="card-body text-center">
-                <h6 class="card-subtitle mb-2 text-muted">年化收益率</h6>
+                <h6 class="card-subtitle mb-2 text-muted">最新年度收益率</h6>
                 <h2 class="card-title" id="annual-return">-</h2>
-                <p class="card-text text-muted small">年化收益表现</p>
+                <p class="card-text text-muted small">最新年度区间收益</p>
             </div>
         </div>
     </div>
@@ -405,7 +401,7 @@
                             <tr>
                                 <th>日期</th>
                                 <th>年份</th>
-                                <th>收益率</th>
+                                <th>年度收益率</th>
                                 <th>净值</th>
                             </tr>
                         </thead>
@@ -555,6 +551,75 @@
     let processedData = [];
     let currentResults = null;
 
+    function formatPercent(value, digits = 2) {
+        if (value === undefined || value === null || value === '') {
+            return '-';
+        }
+        const num = Number(value);
+        return Number.isFinite(num) ? `${(num * 100).toFixed(digits)}%` : '-';
+    }
+
+    function formatNumber(value, digits = 4) {
+        if (value === undefined || value === null || value === '') {
+            return '-';
+        }
+        const num = Number(value);
+        return Number.isFinite(num) ? num.toFixed(digits) : '-';
+    }
+
+    function getReturnRateValue(item) {
+        return item?.annual_return ?? item?.monthly_return ?? item?.daily_return ?? item?.return;
+    }
+
+    function isDualResults(results) {
+        return results?.analysis_mode === 'dual'
+            || Boolean(results?.start_returns_rate || results?.index_returns_rate);
+    }
+
+    function getPrimaryResults(results) {
+        if (!isDualResults(results)) {
+            return results;
+        }
+
+        return {
+            maximum_drawdown: results.start_maximum_drawdown,
+            returns_rate: results.start_returns_rate,
+            sharpe_ratios: results.start_sharpe_ratios,
+            analysis_mode: results.analysis_mode
+        };
+    }
+
+    function getSecondaryResults(results) {
+        if (!isDualResults(results)) {
+            return null;
+        }
+
+        return {
+            maximum_drawdown: results.index_maximum_drawdown,
+            returns_rate: results.index_returns_rate,
+            sharpe_ratios: results.index_sharpe_ratios,
+            analysis_mode: results.analysis_mode
+        };
+    }
+
+    function formatSharpePeriodLabel(key) {
+        if (key === 'all') {
+            return '全部';
+        }
+
+        const pastMatch = key.match(/^past_(\d+)_years_since_(\d{4})$/);
+        if (pastMatch) {
+            return `近${pastMatch[1]}年（${pastMatch[2]}起）`;
+        }
+
+        const yearMatch = key.match(/^year_(\d+)_(\d{4})$/);
+        if (yearMatch) {
+            return `第${yearMatch[1]}年（${yearMatch[2]}）`;
+        }
+
+        return key;
+    }
+
     // 页面加载完成
     document.addEventListener('DOMContentLoaded', () => {
         initEventListeners();
@@ -632,6 +697,7 @@
             showAlert('请输入有效的分析数据', 'warning');
             return;
         }
+        rawData = nonEmptyLines;
 
         // 显示加载中
         showLoading();
@@ -639,8 +705,7 @@
         // 准备请求数据
         const requestData = {
             data: inputText,
-            time_format: document.getElementById('time-format').value,
-            return_col: parseInt(document.getElementById('return-col').value)
+            time_format: document.getElementById('time-format').value
         };
 
         // 创建新的AbortController
@@ -732,49 +797,21 @@
     // 更新指标
     function updateMetrics(results) {
         if (!results) return;
+        const primaryResults = getPrimaryResults(results);
 
         // 更新核心指标
-        if (results.returns_rate !== undefined) {
-            const averageReturn = results.returns_rate.reduce((sum, item) => sum + item.monthly_return, 0) / results.returns_rate.length;
-            document.getElementById('total-return').textContent = (averageReturn * 100).toFixed(2) + '%';
-            
-            // // 更新数据预览表格
-            // const tbody = document.getElementById('results-tbody');
-            // tbody.innerHTML = '';
-            
-            // // 显示最近12个月的数据或全部数据（如果少于12个月）
-            // const displayData = results.returns_rate.slice(-12).reverse(); // 显示最近12个月，最新的在前面
-            
-            // if (displayData.length === 0) {
-            //     tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">没有可用的收益率数据</td></tr>';
-            //     return;
-            // }
-                
-            // displayData.forEach(item => {
-            //     const row = document.createElement('tr');
-            //     const date = new Date(item.date);
-            //     const year = date.getFullYear();
-            //     const month = String(date.getMonth() + 1).padStart(2, '0');
-            //     const formattedDate = `${year}-${month}`;
-                
-            //     row.innerHTML = `
-            //         <td>${formattedDate}</td>
-            //         <td>${year}</td>
-            //         <td>${month}月</td>
-            //         <td class="${item.monthly_return >= 0 ? 'text-success' : 'text-danger'}">
-            //             ${(item.monthly_return * 100).toFixed(2)}%
-            //         </td>
-            //         <td>${(item.net_value || 1).toFixed(4)}</td>
-            //     `;
-            //     tbody.appendChild(row);
-            // });
+        if (Array.isArray(primaryResults.returns_rate) && primaryResults.returns_rate.length > 0) {
+            const latestReturn = primaryResults.returns_rate[primaryResults.returns_rate.length - 1];
+            const totalReturn = latestReturn.net_value !== undefined ? latestReturn.net_value - 1 : getReturnRateValue(latestReturn);
+            document.getElementById('total-return').textContent = formatPercent(totalReturn);
+            document.getElementById('annual-return').textContent = formatPercent(latestReturn.annual_return);
         }
         
-        if (results.maximum_drawdown !== undefined) {
-            document.getElementById('max-drawdown').textContent = (results.maximum_drawdown.total_maximum_drawdown.drawdown * 100).toFixed(2) + '%';
+        if (primaryResults.maximum_drawdown !== undefined) {
+            document.getElementById('max-drawdown').textContent = formatPercent(primaryResults.maximum_drawdown.total_maximum_drawdown?.drawdown);
         }
-        if (results.sharpe_ratios !== undefined) {
-            document.getElementById('sharpe-ratio').textContent = results.sharpe_ratios.all.sharpe_ratio.toFixed(4);
+        if (primaryResults.sharpe_ratios !== undefined) {
+            document.getElementById('sharpe-ratio').textContent = formatNumber(primaryResults.sharpe_ratios.all?.sharpe_ratio);
         }
         
         // // 更新其他指标
@@ -965,35 +1002,42 @@
 
         tbody.innerHTML = ''; // 清空现有内容
 
-        if (!data.maximum_drawdown || !data.maximum_drawdown.year_maximum_drawdown) {
+        const primaryResults = getPrimaryResults(data);
+        const secondaryResults = getSecondaryResults(data);
+        if (!primaryResults.maximum_drawdown || !primaryResults.maximum_drawdown.year_maximum_drawdown) {
             tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">没有可用的回撤数据</td></tr>';
             return;
         }
 
         // 添加数据行
-        data.maximum_drawdown.year_maximum_drawdown.forEach(item => {
+        primaryResults.maximum_drawdown.year_maximum_drawdown.forEach((item, index) => {
+            const secondaryItem = secondaryResults?.maximum_drawdown?.year_maximum_drawdown?.[index];
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${item.date}</td>
                 <td>${item.year}</td>
                 <td class="${item.drawdown >= 0 ? 'text-danger' : 'text-success'}">
-                    ${(item.drawdown * 100).toFixed(2)}%
+                    ${isDualResults(data) ? '模型 ' : ''}${formatPercent(item.drawdown)}
+                    ${secondaryItem ? `<div class="small text-muted">指数 ${formatPercent(secondaryItem.drawdown)}</div>` : ''}
                 </td>
-                <td>${(item.daily_return * 100).toFixed(2)}%</td>
-                <td>${(item.net_value || 1).toFixed(4)}</td>
+                <td>${formatPercent(item.daily_return)}${secondaryItem ? `<div class="small text-muted">指数 ${formatPercent(secondaryItem.daily_return)}</div>` : ''}</td>
+                <td>${formatNumber(item.net_value)}${secondaryItem ? `<div class="small text-muted">指数 ${formatNumber(secondaryItem.net_value)}</div>` : ''}</td>
             `;
             tbody.appendChild(row);
         });
     }
 
     // 更新主收益率曲线图表
-    function updateMainReturnsChart(returnsData) {
+    function updateMainReturnsChart(results) {
         const ctx = document.getElementById('return-chart');
         if (!ctx) {
             console.error('Main return chart canvas not found');
             return;
         }
 
+        const primaryResults = Array.isArray(results) ? { returns_rate: results } : getPrimaryResults(results);
+        const secondaryResults = Array.isArray(results) ? null : getSecondaryResults(results);
+        const returnsData = primaryResults?.returns_rate;
         if (!returnsData || !Array.isArray(returnsData)) {
             console.error('Invalid returns data for main chart');
             return;
@@ -1005,27 +1049,39 @@
             return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         });
 
-        const data = returnsData.map(item => item.monthly_return * 100);
+        const data = returnsData.map(item => getReturnRateValue(item) * 100);
+        const datasets = [{
+            label: isDualResults(results) ? '模型年度收益率 (%)' : '年度收益率 (%)',
+            data: data,
+            borderColor: '#007bff',
+            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.1
+        }];
+        if (secondaryResults?.returns_rate) {
+            datasets.push({
+                label: '指数年度收益率 (%)',
+                data: secondaryResults.returns_rate.map(item => getReturnRateValue(item) * 100),
+                borderColor: '#6c757d',
+                backgroundColor: 'rgba(108, 117, 125, 0.08)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.1
+            });
+        }
 
         // 创建或更新图表
         if (chart) {
             chart.data.labels = labels;
-            chart.data.datasets[0].data = data;
+            chart.data.datasets = datasets;
             chart.update();
         } else {
             chart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
-                    datasets: [{
-                        label: '累计收益率 (%)',
-                        data: data,
-                        borderColor: '#007bff',
-                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.1
-                    }]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -1071,13 +1127,16 @@
 
         tbody.innerHTML = ''; // 清空现有内容
 
-        if (!data.returns_rate || !Array.isArray(data.returns_rate)) {
+        const primaryResults = getPrimaryResults(data);
+        const secondaryResults = getSecondaryResults(data);
+        if (!primaryResults.returns_rate || !Array.isArray(primaryResults.returns_rate)) {
             tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">没有可用的收益率数据</td></tr>';
             return;
         }
 
         // 添加数据行
-        data.returns_rate.forEach(item => {
+        primaryResults.returns_rate.forEach((item, index) => {
+            const secondaryItem = secondaryResults?.returns_rate?.[index];
             const row = document.createElement('tr');
             // const date = new Date(item.date);
             // const year = date.getFullYear();
@@ -1086,17 +1145,18 @@
             row.innerHTML = `
                 <td>${item.date}</td>
                 <td>${item.year}</td>
-                <td class="${item.monthly_return >= 0 ? 'text-success' : 'text-danger'}">
-                    ${(item.monthly_return * 100).toFixed(2)}%
+                <td class="${getReturnRateValue(item) >= 0 ? 'text-success' : 'text-danger'}">
+                    ${formatPercent(getReturnRateValue(item))}
+                    ${secondaryItem ? `<div class="small text-muted">指数 ${formatPercent(getReturnRateValue(secondaryItem))}</div>` : ''}
                 </td>
-                <td>${(item.net_value || 1).toFixed(4)}</td>
+                <td>${formatNumber(item.net_value)}</td>
             `;
             tbody.appendChild(row);
         });
 
         // 更新图表到主收益率曲线区域
-        if (data.returns_rate && Array.isArray(data.returns_rate)) {
-            updateMainReturnsChart(data.returns_rate);
+        if (primaryResults.returns_rate && Array.isArray(primaryResults.returns_rate)) {
+            updateMainReturnsChart(data);
         }
     }
 
@@ -1116,40 +1176,26 @@
 
         tbody.innerHTML = ''; // 清空现有内容
 
-        if (!data.sharpe_ratios) {
+        const primaryResults = getPrimaryResults(data);
+        const secondaryResults = getSecondaryResults(data);
+        if (!primaryResults.sharpe_ratios) {
             tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">没有可用的夏普比率数据</td></tr>';
             return;
         }
 
         // 添加数据行
-        Object.entries(data.sharpe_ratios).forEach(([key, value]) => {
+        Object.entries(primaryResults.sharpe_ratios).forEach(([key, value]) => {
             if (typeof value === 'object' && value !== null) {
+                const secondaryValue = secondaryResults?.sharpe_ratios?.[key];
                 const row = document.createElement('tr');
-                let _key = key;
-                if (key.includes('past')) {
-                    // 处理格式: past_1_years_since_2025 → 前一年（2025）
-                    const parts = key.split('_');
-                    console.log(parts)
-                    const year = parts[4]; // 获取年份
-                    const number = parts[1]; // 获取数字（1=前一年，2=前两年...）
-                    _key = `前${number}年（${year}）`;
-
-                } else if (key.includes('year')) {
-                    // 处理格式: year_1_2020 → 第1年（2025）
-                    const parts = key.split('_');
-                    const yearIndex = parts[1]; // 获取数字索引
-
-                    // 无论原始数据中的年份是多少，都使用2025
-                    _key = `第${yearIndex}年（2025）`;
-                }
                 row.innerHTML = `
-                    <td>${_key}</td>
-                    <td>${value.sharpe_ratio.toFixed(4)}</td>
-                    <td>${(value.avg_monthly_return * 100).toFixed(2)}%</td>
-                    <td>${(value.monthly_std_dev * 100).toFixed(2)}%</td>
-                    <td>${(value.annual_std_dev * 100).toFixed(2)}%</td>
-                    <td>${value.start_date}</td>
-                    <td>${value.end_date}</td>
+                    <td>${formatSharpePeriodLabel(key)}</td>
+                    <td>${formatNumber(value.sharpe_ratio)}${secondaryValue ? `<div class="small text-muted">指数 ${formatNumber(secondaryValue.sharpe_ratio)}</div>` : ''}</td>
+                    <td>${formatPercent(value.avg_monthly_return)}${secondaryValue ? `<div class="small text-muted">指数 ${formatPercent(secondaryValue.avg_monthly_return)}</div>` : ''}</td>
+                    <td>${formatPercent(value.monthly_std_dev)}${secondaryValue ? `<div class="small text-muted">指数 ${formatPercent(secondaryValue.monthly_std_dev)}</div>` : ''}</td>
+                    <td>${formatPercent(value.annual_std_dev)}${secondaryValue ? `<div class="small text-muted">指数 ${formatPercent(secondaryValue.annual_std_dev)}</div>` : ''}</td>
+                    <td>${value.start_date || '-'}</td>
+                    <td>${value.end_date || '-'}</td>
                 `;
                 tbody.appendChild(row);
             }
@@ -1164,33 +1210,47 @@
             return;
         }
 
-        if (!data || !data.maximum_drawdown || !data.maximum_drawdown.year_maximum_drawdown) {
+        const primaryResults = getPrimaryResults(data);
+        const secondaryResults = getSecondaryResults(data);
+        if (!primaryResults || !primaryResults.maximum_drawdown || !primaryResults.maximum_drawdown.year_maximum_drawdown) {
             console.error('Invalid drawdown data for chart');
             return;
         }
 
-        const drawdownData = data.maximum_drawdown.year_maximum_drawdown;
+        const drawdownData = primaryResults.maximum_drawdown.year_maximum_drawdown;
         const labels = drawdownData.map(item => item.year);
         const drawdownValues = drawdownData.map(item => item.drawdown * 100);
+        const datasets = [{
+            label: isDualResults(data) ? '模型最大回撤 (%)' : '最大回撤 (%)',
+            data: drawdownValues,
+            borderColor: '#dc3545',
+            backgroundColor: 'rgba(220, 53, 69, 0.1)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.1
+        }];
+        if (secondaryResults?.maximum_drawdown?.year_maximum_drawdown) {
+            datasets.push({
+                label: '指数最大回撤 (%)',
+                data: secondaryResults.maximum_drawdown.year_maximum_drawdown.map(item => item.drawdown * 100),
+                borderColor: '#6c757d',
+                backgroundColor: 'rgba(108, 117, 125, 0.08)',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.1
+            });
+        }
 
         if (drawdownChart) {
             drawdownChart.data.labels = labels;
-            drawdownChart.data.datasets[0].data = drawdownValues;
+            drawdownChart.data.datasets = datasets;
             drawdownChart.update();
         } else {
             drawdownChart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
-                    datasets: [{
-                        label: '最大回撤 (%)',
-                        data: drawdownValues,
-                        borderColor: '#dc3545',
-                        backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.1
-                    }]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -1223,38 +1283,51 @@
             return;
         }
 
-        if (!data || !data.sharpe_ratios) {
+        const primaryResults = getPrimaryResults(data);
+        const secondaryResults = getSecondaryResults(data);
+        if (!primaryResults || !primaryResults.sharpe_ratios) {
             console.error('Invalid sharpe data for past chart');
             return;
         }
 
         // 过滤出past_开头的数据
-        const pastData = Object.entries(data.sharpe_ratios)
+        const pastData = Object.entries(primaryResults.sharpe_ratios)
             .filter(([key]) => key.includes('past_'))
             .map(([key, value]) => ({
-                label: `前${key.split('_')[1]}年`,
+                key,
+                label: formatSharpePeriodLabel(key),
                 sharpe: value.sharpe_ratio
             }));
 
         const labels = pastData.map(item => item.label);
         const sharpeValues = pastData.map(item => item.sharpe);
+        const datasets = [{
+            label: isDualResults(data) ? '模型夏普比率' : '夏普比率',
+            data: sharpeValues,
+            backgroundColor: sharpeValues.map(value => value >= 1 ? 'rgba(40, 167, 69, 0.5)' : 'rgba(255, 193, 7, 0.5)'),
+            borderColor: sharpeValues.map(value => value >= 1 ? '#28a745' : '#ffc107'),
+            borderWidth: 1
+        }];
+        if (secondaryResults?.sharpe_ratios) {
+            datasets.push({
+                label: '指数夏普比率',
+                data: pastData.map(item => secondaryResults.sharpe_ratios[item.key]?.sharpe_ratio ?? null),
+                backgroundColor: 'rgba(108, 117, 125, 0.35)',
+                borderColor: '#6c757d',
+                borderWidth: 1
+            });
+        }
 
         if (sharpePastChart) {
             sharpePastChart.data.labels = labels;
-            sharpePastChart.data.datasets[0].data = sharpeValues;
+            sharpePastChart.data.datasets = datasets;
             sharpePastChart.update();
         } else {
             sharpePastChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: labels,
-                    datasets: [{
-                        label: '夏普比率',
-                        data: sharpeValues,
-                        backgroundColor: sharpeValues.map(value => value >= 1 ? 'rgba(40, 167, 69, 0.5)' : 'rgba(255, 193, 7, 0.5)'),
-                        borderColor: sharpeValues.map(value => value >= 1 ? '#28a745' : '#ffc107'),
-                        borderWidth: 1
-                    }]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -1281,38 +1354,51 @@
             return;
         }
 
-        if (!data || !data.sharpe_ratios) {
+        const primaryResults = getPrimaryResults(data);
+        const secondaryResults = getSecondaryResults(data);
+        if (!primaryResults || !primaryResults.sharpe_ratios) {
             console.error('Invalid sharpe data for year chart');
             return;
         }
 
         // 过滤出year_开头的数据
-        const yearData = Object.entries(data.sharpe_ratios)
+        const yearData = Object.entries(primaryResults.sharpe_ratios)
             .filter(([key]) => key.includes('year_'))
             .map(([key, value]) => ({
-                label: `第${key.split('_')[1]}年`,
+                key,
+                label: formatSharpePeriodLabel(key),
                 sharpe: value.sharpe_ratio
             }));
 
         const labels = yearData.map(item => item.label);
         const sharpeValues = yearData.map(item => item.sharpe);
+        const datasets = [{
+            label: isDualResults(data) ? '模型夏普比率' : '夏普比率',
+            data: sharpeValues,
+            backgroundColor: sharpeValues.map(value => value >= 1 ? 'rgba(40, 167, 69, 0.5)' : 'rgba(220, 53, 69, 0.5)'),
+            borderColor: sharpeValues.map(value => value >= 1 ? '#28a745' : '#dc3545'),
+            borderWidth: 1
+        }];
+        if (secondaryResults?.sharpe_ratios) {
+            datasets.push({
+                label: '指数夏普比率',
+                data: yearData.map(item => secondaryResults.sharpe_ratios[item.key]?.sharpe_ratio ?? null),
+                backgroundColor: 'rgba(108, 117, 125, 0.35)',
+                borderColor: '#6c757d',
+                borderWidth: 1
+            });
+        }
 
         if (sharpeYearChart) {
             sharpeYearChart.data.labels = labels;
-            sharpeYearChart.data.datasets[0].data = sharpeValues;
+            sharpeYearChart.data.datasets = datasets;
             sharpeYearChart.update();
         } else {
             sharpeYearChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: labels,
-                    datasets: [{
-                        label: '夏普比率',
-                        data: sharpeValues,
-                        backgroundColor: sharpeValues.map(value => value >= 1 ? 'rgba(40, 167, 69, 0.5)' : 'rgba(220, 53, 69, 0.5)'),
-                        borderColor: sharpeValues.map(value => value >= 1 ? '#28a745' : '#dc3545'),
-                        borderWidth: 1
-                    }]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -1338,7 +1424,7 @@
         updateSharpeTable(results);
         
         // 更新所有图表
-        updateMainReturnsChart(results.returns_rate);
+        updateMainReturnsChart(results);
         updateDrawdownChart(results);
         updateSharpePastChart(results);
         updateSharpeYearChart(results);
