@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flask import current_app
+from flask import current_app, has_app_context
 
 from app.extensions import db
 from app.models import TaskLog
@@ -26,6 +26,12 @@ class TaskLogMixin:
         后台线程必须显式传入 app，以确保拥有稳定的应用上下文。
         """
         try:
+            if has_app_context():
+                log = TaskLog(task_id=task_id, level=level, message=message)
+                db.session.add(log)
+                db.session.commit()
+                return
+
             if app:
                 with app.app_context():
                     log = TaskLog(task_id=task_id, level=level, message=message)

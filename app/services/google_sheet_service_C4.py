@@ -1,6 +1,5 @@
 import json
 import time
-import traceback
 from typing import Dict, Any
 
 from flask import current_app
@@ -17,8 +16,9 @@ from app.utils.db_retry import safe_db_operation, db_retry_manager
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import validate_result_dict, is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
+from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
 
 
@@ -133,11 +133,15 @@ class GoogleSheetService(BaseGoogleSheetService):
 
             # 其他异常情况
             root = unwrap_exception(e) or e
-            if self.task:
-                self.task.error_message = build_task_error_message(e)
-                db.session.commit()
+            try:
+                record = record_task_exception(self.task_id, e, "execute_task", self.app)
+                error_summary = format_task_error_message(record)
+            except Exception as record_error:
+                self._log_warning(f"记录任务异常失败: {record_error}")
+                error_summary = f"{root.__class__.__name__}: {root}"
             error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
+            self._log_error(f"任务异常摘要: {error_summary}")
             return 'error'
         finally:
             # 释放 Advisory Lock（仅当成功获取时）
@@ -365,7 +369,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                         except:
                             pass
 
-                        error_summary = self._record_execution_error_message(e)
+                        error_summary = self._record_execution_error_message(
+                            e,
+                            "execute_parameter_combination",
+                        )
                         error_msg = f'第 {current_step} 个参数组合执行出错: {error_summary}'
                         self._log_error(error_msg)
                         return success_count, failed_count, 'error'
@@ -385,8 +392,8 @@ class GoogleSheetService(BaseGoogleSheetService):
             except:
                 pass
 
-            error_msg = f"批量数据处理失败: {traceback.format_exc()}"
-            self._log_error(error_msg)
+            error_summary = self._record_execution_error_message(e, "get_bdl")
+            self._log_error(f"批量数据处理失败: {error_summary}")
             return 0, 1, 'error'
 
     def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
@@ -594,8 +601,14 @@ class GoogleSheetService(BaseGoogleSheetService):
             return False, {}
 
         except Exception as e:
-            error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
-            self._log_error(error_msg)
+            record = record_task_exception(
+                self.task_id,
+                e,
+                "execute_parameter_combination",
+                self.app,
+                mark_error=False,
+            )
+            self._log_error(f"执行参数组合时出错: {format_task_error_message(record)}")
             raise
 
     @staticmethod

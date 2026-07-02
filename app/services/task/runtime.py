@@ -19,8 +19,9 @@ from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_service_C4 import GoogleSheetService as GoogleSheetServiceC4
 from app.services.google_sheet_service_C5 import GoogleSheetService as GoogleSheetServiceC5
 from app.services.google_sheet_token_service import get_google_sheet_token_service
+from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger, get_task_logger
-from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.utils.task_error_utils import unwrap_exception
 
 logger = get_logger(__name__)
 
@@ -310,15 +311,8 @@ class TaskRuntimeMixin:
         return config_manager.get_config(key, default)
 
     def _record_task_exception(self, task_id: str, exc: Exception, app):
-        error_message = build_task_error_message(exc)
-        with app.app_context():
-            task = db.session.get(Task, task_id)
-            if task:
-                task.status = "error"
-                task.error_message = error_message
-                task.end_time = datetime.now()
-                db.session.commit()
-        return error_message
+        record = record_task_exception(task_id, exc, "task_runtime", app)
+        return format_task_error_message(record)
 
     def _get_task_fresh(self, task_id: str):
         """重新读取任务状态，避免会话缓存影响最终收尾判断。"""
@@ -720,12 +714,6 @@ class TaskRuntimeMixin:
                     self._record_task_exception(task_id, exc, app)
                 except Exception as update_error:
                     task_logger.error("更新任务状态失败: %s", update_error)
-                self.add_task_log(
-                    task_id,
-                    "error",
-                    f"任务执行失败: {build_task_error_message(exc)}",
-                    app,
-                )
             else:
                 task_logger.warning(
                     "本线程已被 watchdog 强制重启替换，跳过异常态写入"

@@ -8,11 +8,7 @@ from requests.exceptions import ProxyError
 from app.services.backtest_training_service import BacktestTrainingService
 import app.services.backtest_training_service as backtest_training_service
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.task_error_utils import (
-    GOOGLE_SHEET_EXECUTION_ERROR_PREFIX,
-    RetryableNetworkTaskError,
-    build_task_error_message,
-)
+from app.utils.task_error_utils import RetryableNetworkTaskError
 
 
 class _FixedDatetime(real_datetime):
@@ -33,24 +29,6 @@ def _kline_rows(start_date: str, end_date: str):
         })
         current += timedelta(days=1)
     return rows
-
-
-def test_build_task_error_message_marks_proxy_error_retryable():
-    err = ProxyError("Unable to connect to proxy")
-
-    message = build_task_error_message(err)
-
-    assert message.startswith("[NETWORK_RETRYABLE]")
-    assert "ProxyError" in message
-
-
-def test_build_task_error_message_marks_google_sheet_timeout_retryable():
-    err = RuntimeError("执行超时，未在规定时间内完成")
-
-    message = build_task_error_message(err)
-
-    assert message.startswith(GOOGLE_SHEET_EXECUTION_ERROR_PREFIX)
-    assert "执行超时" in message
 
 
 def test_backtest_resolves_cn_stock_name_to_code(monkeypatch):

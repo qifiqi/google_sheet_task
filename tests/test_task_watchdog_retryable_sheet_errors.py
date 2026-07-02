@@ -35,6 +35,7 @@ def _create_retryable_google_sheet_task(task_id: str = "sheet-retryable-task") -
 def test_watchdog_limits_retryable_google_sheet_restarts(app_factory, monkeypatch):
     with app_factory.app_context():
         task = _create_retryable_google_sheet_task()
+        task_id = task.id
         restart_calls = []
 
         def fake_restart(task_id, resume_from_checkpoint=True):
@@ -49,7 +50,7 @@ def test_watchdog_limits_retryable_google_sheet_restarts(app_factory, monkeypatc
             "app.services.task_watchdog.task_manager.restart_task",
             fake_restart,
         )
-        task_watchdog._clear_cached_retry_attempts(task.id)
+        task_watchdog._clear_cached_retry_attempts(task_id)
 
         for _ in range(DEFAULT_MAX_RESTART_ATTEMPTS):
             task_watchdog._restart_retryable_error_task(
@@ -67,12 +68,12 @@ def test_watchdog_limits_retryable_google_sheet_restarts(app_factory, monkeypatc
         )
 
         assert len(restart_calls) == DEFAULT_MAX_RESTART_ATTEMPTS
-        refreshed = db.session.get(Task, task.id)
+        refreshed = db.session.get(Task, task_id)
         assert refreshed.status == "error"
         assert "watchdog 已放弃自动重启" in refreshed.error_message
 
         abandon_log = (
-            TaskLog.query.filter_by(task_id=task.id, level="error")
+            TaskLog.query.filter_by(task_id=task_id, level="error")
             .order_by(TaskLog.timestamp.desc())
             .first()
         )

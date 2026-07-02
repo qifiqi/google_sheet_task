@@ -126,15 +126,3 @@ def is_retryable_google_sheet_execution_error(exc: BaseException | None) -> bool
 
 def is_retryable_c3_execution_error(exc: BaseException | None) -> bool:
     return is_retryable_google_sheet_execution_error(exc)
-
-
-def build_task_error_message(exc: BaseException | None) -> str:
-    root = unwrap_exception(exc)
-    if root is None:
-        return "未知错误"
-    message = f"{root.__class__.__name__}: {root}"
-    if is_retryable_network_error(exc):
-        return f"{NETWORK_ERROR_PREFIX} {message}"
-    if is_retryable_google_sheet_execution_error(exc):
-        return f"{GOOGLE_SHEET_EXECUTION_ERROR_PREFIX} {message}"
-    return message

@@ -791,7 +791,6 @@ class XPLAnalyzer:
         Args:
             data: 输入的文本数据
             time_format: 时间格式，默认为'auto'自动检测
-            return_col: 收益率所在列（从1开始）
 
         Returns:
             Dict[str, Any]: 包含分析结果和指标的字典
@@ -807,7 +806,13 @@ class XPLAnalyzer:
                 raise ValueError("无法解析输入数据")
 
             # 计算指标
-            metrics = self._calculate_metrics(parsed_data)
+            if self._has_dual_return_columns(parsed_data):
+                metrics = self._calculate_metrics_v1(parsed_data)
+                metrics["analysis_mode"] = "dual"
+            else:
+                metrics = self._calculate_metrics(parsed_data)
+                metrics["analysis_mode"] = "single"
+            metrics = self._sanitize_for_json(metrics)
 
             # 准备返回结果
             return {
@@ -830,7 +835,6 @@ class XPLAnalyzer:
 
         Args:
             data: 输入的文本数据 Input text data
-            return_col: 收益率所在列（从1开始） Return column index (1-based)
 
         Returns:
             List[Dict[str, Any]]: 解析后的数据列表 Parsed data list
@@ -849,29 +853,22 @@ class XPLAnalyzer:
                 # 解析日期和收益率
                 # Parse date and return value
                 date_str = parts[0]
-                val = parts[1]
-                if '%' in val:
-                    val = float(val.replace('%', '')) / 100
-                index_return = float(val) if isinstance(val, str) else val
-                index_return = round(index_return, 4)
 
                 if len(parts) == 2:
                     results.append({
                         'date': date_str,  # 日期 Date
-                        'daily_return': index_return,  # 每天收益率 Daily return
+                        'daily_return': self._parse_return_value(parts[1]),  # 每天收益率 Daily return
                     })
                     continue
 
-                val = parts[2]
-                if '%' in val:
-                    val = float(val.replace('%', '')) / 100
-                start_return = float(val) if isinstance(val, str) else val
-                start_return = round(start_return, 4)
+                index_return = self._parse_return_value(parts[1])
+                start_return = self._parse_return_value(parts[2])
 
                 # 添加到结果
                 # Add to results
                 results.append({
                     'date': date_str,  # 日期 Date
+                    'daily_return': start_return,  # 每天收益率 Daily return
                     'index_return': index_return,  # 指数收益率 Index return
                     "start_return": start_return,  # 模型收益率 Start return
                 })
@@ -881,6 +878,38 @@ class XPLAnalyzer:
                 continue
 
         return results
+
+    @staticmethod
+    def _has_dual_return_columns(data: List[Dict[str, Any]]) -> bool:
+        return any(
+            "index_return" in row and "start_return" in row
+            for row in data
+            if isinstance(row, dict)
+        )
+
+    @staticmethod
+    def _parse_return_value(value: Any) -> float:
+        if isinstance(value, str):
+            value = value.strip()
+            if '%' in value:
+                value = float(value.replace('%', '')) / 100
+            else:
+                value = float(value)
+        return round(float(value), 4)
+
+    @classmethod
+    def _sanitize_for_json(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: cls._sanitize_for_json(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [cls._sanitize_for_json(item) for item in value]
+        if isinstance(value, tuple):
+            return [cls._sanitize_for_json(item) for item in value]
+        if isinstance(value, np.generic):
+            value = value.item()
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
+        return value
 
     def _calculate_metrics(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """

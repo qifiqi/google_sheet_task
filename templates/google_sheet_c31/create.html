@@ -168,6 +168,15 @@
                                             <div class="form-text">选择回测市场</div>
                                         </div>
                                         <div class="col-md-3 mb-3">
+                                            <label class="form-label" for="price_mode">价格类型</label>
+                                            <select class="form-select" id="price_mode">
+                                                <option value="vwap_price" selected>加权平均价</option>
+                                                <option value="kp_price">开盘价</option>
+                                                <option value="sp_price">收盘价</option>
+                                            </select>
+                                            <div class="form-text">写入 K 线价格列的数据口径</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
                                             <label class="form-label" for="kline_adjustment">K线复权</label>
                                             <select class="form-select" id="kline_adjustment">
                                                 <option value="forward" selected>前复权</option>
@@ -1297,6 +1306,7 @@
         const currentMarketType = normalizeMarketTypeValue(
             document.querySelector('input[name="market_type"]:checked')?.value
         );
+        const currentPriceMode = document.getElementById('price_mode')?.value || 'vwap_price';
         const currentAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         if (marketTypeCnInput) {
             const marketTypeCol = marketTypeCnInput.closest('.col-md-2');
@@ -1316,6 +1326,25 @@
                     targetMarketInput.checked = true;
                 }
             }
+        }
+        if (!document.getElementById('price_mode')) {
+            const marketTypeCol = document.getElementById('market_type_cn')?.closest('.col-md-2');
+            const priceModeCol = document.createElement('div');
+            priceModeCol.className = 'col-md-3 mb-3';
+            priceModeCol.innerHTML = `
+                <label class="form-label" for="price_mode">价格类型</label>
+                <select class="form-select" id="price_mode">
+                    <option value="vwap_price">加权平均价</option>
+                    <option value="kp_price">开盘价</option>
+                    <option value="sp_price">收盘价</option>
+                </select>
+                <div class="form-text">写入 K 线价格列的数据口径</div>
+            `;
+            if (marketTypeCol && marketTypeCol.parentElement) {
+                marketTypeCol.parentElement.insertBefore(priceModeCol, marketTypeCol.nextSibling);
+            }
+            const priceModeSelect = priceModeCol.querySelector('#price_mode');
+            if (priceModeSelect) priceModeSelect.value = currentPriceMode;
         }
         if (!document.getElementById('kline_adjustment')) {
             const marketTypeCol = document.getElementById('market_type_cn')?.closest('.col-md-2');
@@ -1537,6 +1566,10 @@
                 mtInput.checked = true;
             }
         }
+        const priceModeSelect = document.getElementById('price_mode');
+        if (priceModeSelect) {
+            priceModeSelect.value = normalized.price_mode || 'vwap_price';
+        }
         if (normalized.kline_adjustment) {
             const adjustSelect = document.getElementById('kline_adjustment');
             if (adjustSelect) adjustSelect.value = normalized.kline_adjustment;
@@ -1752,7 +1785,7 @@
 
         // 为所有输入字段添加自动保存
         const inputFields = [
-            'task_name', 'task_description', 'stock_code_input', 'end_date'
+            'task_name', 'task_description', 'stock_code_input', 'end_date', 'price_mode', 'kline_adjustment'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -2040,6 +2073,7 @@
 
         const taskDescription = document.getElementById('task_description').value.trim();
         const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+        const priceMode = document.getElementById('price_mode')?.value || 'vwap_price';
         const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         const endDate = document.getElementById('end_date')?.value?.trim() || '';
 
@@ -2068,6 +2102,7 @@
             task_description: taskDescription,
             stock_codes: [stockCodeValue],
             market_type: marketType,
+            price_mode: priceMode,
             kline_adjustment: klineAdjustment,
             // token_type: tokenType,
             // token_id: tokenType === 'file' ? tokenId : null,
@@ -2161,6 +2196,7 @@
             stock_code: getStockCode(),
             end_date: document.getElementById('end_date')?.value || '',
             market_type: normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value),
+            price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             sheets: sheets,
             param1: document.getElementById('param1').value,
@@ -2219,6 +2255,10 @@
                     if (mtInput) {
                         mtInput.checked = true;
                     }
+                }
+                if (formData.price_mode) {
+                    const priceModeSelect = document.getElementById('price_mode');
+                    if (priceModeSelect) priceModeSelect.value = formData.price_mode;
                 }
                 if (formData.kline_adjustment) {
                     const adjustSelect = document.getElementById('kline_adjustment');
@@ -2291,6 +2331,7 @@
             const taskDescription = document.getElementById('task_description').value.trim();
             const stockCodeValue = getStockCode();
             const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+            const priceMode = document.getElementById('price_mode')?.value || 'vwap_price';
             const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
             const endDate = document.getElementById('end_date')?.value?.trim() || '';
 
@@ -2326,6 +2367,7 @@
                 task_description: taskDescription,
                 stock_codes: [stockCodeValue],
                 market_type: marketType,
+                price_mode: priceMode,
                 kline_adjustment: klineAdjustment,
                 // “更多配置”目前不参与模板保存；注释保留供后续恢复。
                 // token_type: tokenType,
@@ -2430,7 +2472,7 @@
             base_task_name: raw.base_task_name || raw.task_name || '',
             task_description: raw.task_description || '',
             count_mode: raw.count_mode || 'total',
-            price_mode: raw.price_mode || 'sp_price',
+            price_mode: raw.price_mode || 'vwap_price',
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: normalizeMarketTypeValue(raw.market_type),

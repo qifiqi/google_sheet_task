@@ -13,6 +13,11 @@ from openpyxl.utils import column_index_from_string
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
+from app.services.backtest_parameter_utils import (
+    C3_PARAMETER_KEYS,
+    normalize_c3_parameter_row,
+)
+
 
 class BacktestExcelService:
     """Import fixed-template backtest tasks from Excel files."""
@@ -26,19 +31,17 @@ class BacktestExcelService:
         saved_path = self._save_uploaded_file(file)
         imported_rows, imported_sources, stock_code, years_value, sheet_name = self._load_tasks_from_excel_file(saved_path)
 
-        parameters = [
-            {
-                "commission": "0.0350%",
-                "xm": row[0],
-                "dbbh1": row[1],
-                "dbbh2": row[2],
-                "zlxc": row[3],
-                "zsgz": row[4],
-                "ywf1": row[5],
-                "ywf2": row[6],
-            }
-            for row in imported_rows
-        ]
+        parameters = []
+        for row in imported_rows:
+            normalized_row = normalize_c3_parameter_row(row)
+            business_values = normalized_row[1:] if len(normalized_row) == 8 else row
+            parameters.append({
+                "commission": normalized_row[0] if len(normalized_row) == 8 else "0.0350%",
+                **{
+                    key: business_values[index] if index < len(business_values) else ""
+                    for index, key in enumerate(C3_PARAMETER_KEYS)
+                },
+            })
 
         return {
             "model_version": "c3",

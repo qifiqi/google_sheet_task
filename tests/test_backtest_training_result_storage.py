@@ -3,6 +3,7 @@ import json
 from app.extensions import db
 from app.models import Task, TaskResult
 from app.routes.backtest_training import _extract_task_result_payload
+from app.services.backtest_parameter_utils import normalize_c3_parameter_row
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.task.facade import TaskManager
 
@@ -102,3 +103,52 @@ def test_backtest_training_keeps_price_mode_in_config(app_factory):
 
         assert normalized_default["price_mode"] == "sp_price"
         assert normalized_custom["price_mode"] == "kp_price"
+
+
+def test_c3_six_business_parameters_derives_second_protection():
+    assert normalize_c3_parameter_row(["4", "0.8", "1", "0", "0.6", "0.4"]) == [
+        "0.0350%",
+        "4",
+        "0.8",
+        "1.2",
+        "1",
+        "0",
+        "0.6",
+        "0.4",
+    ]
+
+
+def test_backtest_training_normalizes_six_parameter_rows_on_create(app_factory):
+    app = app_factory
+    with app.app_context():
+        manager = TaskManager()
+
+        normalized = manager._normalize_task_config_for_type("backtest_training", {
+            "sheet": {"spreadsheet_id": "sheet-1", "title": "C3"},
+            "parameters": [["4", "0.8", "1", "0", "0.6", "0.4"]],
+        })
+
+        assert normalized["parameters"] == [[
+            "0.0350%",
+            "4",
+            "0.8",
+            "1.2",
+            "1",
+            "0",
+            "0.6",
+            "0.4",
+        ]]
+
+
+def test_backtest_training_preserves_complete_c3_parameter_rows(app_factory):
+    app = app_factory
+    with app.app_context():
+        manager = TaskManager()
+        complete_row = ["0.02%", "4", "0.8", "1.1", "1", "0", "0.6", "0.4"]
+
+        normalized = manager._normalize_task_config_for_type("backtest_training", {
+            "sheet": {"spreadsheet_id": "sheet-1", "title": "C3"},
+            "parameters": [complete_row],
+        })
+
+        assert normalized["parameters"] == [complete_row]

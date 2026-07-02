@@ -1,9 +1,133 @@
 import json
 
 from app.extensions import db
-from app.models import Task
+from app.models import Task, TaskLog
 from app.services.google_sheet_service_C5 import GoogleSheetService as C5GoogleSheetService
+from app.services.task.error_handling import (
+    TASK_ERROR_MESSAGE_MAX_LENGTH,
+    format_task_error_message,
+    record_task_exception,
+)
 from app.services.task.facade import TaskManager
+
+
+def test_record_task_exception_stores_trace_id_summary_and_full_log(app_factory):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="trace-task",
+            name="trace task",
+            task_type="google_sheet_C5",
+            status="running",
+            config="{}",
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        try:
+            raise ValueError("bad cell")
+        except ValueError as exc:
+            record = record_task_exception(task.id, exc, "unit_phase")
+
+        refreshed = db.session.get(Task, task.id)
+        assert refreshed.status == "error"
+        assert refreshed.error_message == format_task_error_message(record)
+        assert refreshed.error_message.startswith("trace_id=")
+        assert "ValueError: bad cell" in refreshed.error_message
+        assert "Traceback" not in refreshed.error_message
+
+        log = TaskLog.query.filter_by(task_id=task.id, level="error").first()
+        assert log is not None
+        assert f"trace_id={record.trace_id}" in log.message
+        assert "phase=unit_phase" in log.message
+        assert "Traceback" in log.message
+
+
+def test_record_task_exception_truncates_summary_but_keeps_full_log(app_factory):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="long-error-task",
+            name="long error task",
+            task_type="google_sheet_C5",
+            status="running",
+            config="{}",
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        long_message = f"first line\n{'x' * 1000}"
+        try:
+            raise RuntimeError(long_message)
+        except RuntimeError as exc:
+            record = record_task_exception(task.id, exc, "unit_phase")
+
+        refreshed = db.session.get(Task, task.id)
+        assert refreshed.error_message == format_task_error_message(record)
+        assert "\n" not in refreshed.error_message
+        assert len(record.message) == TASK_ERROR_MESSAGE_MAX_LENGTH
+        assert record.message.endswith("...")
+
+        log = TaskLog.query.filter_by(task_id=task.id, level="error").first()
+        assert log is not None
+        assert "x" * 1000 in log.message
+
+
+def test_record_task_exception_reuses_trace_id_and_avoids_duplicate_tasklog(app_factory):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="reuse-trace-task",
+            name="reuse trace task",
+            task_type="google_sheet_C5",
+            status="running",
+            config="{}",
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        try:
+            raise RuntimeError("same failure")
+        except RuntimeError as exc:
+            inner_record = record_task_exception(
+                task.id,
+                exc,
+                "execute_parameter_combination",
+                mark_error=False,
+            )
+            outer_record = record_task_exception(task.id, exc, "get_bdl")
+
+        refreshed = db.session.get(Task, task.id)
+        assert outer_record.trace_id == inner_record.trace_id
+        assert refreshed.error_message == format_task_error_message(inner_record)
+        assert TaskLog.query.filter_by(task_id=task.id, level="error").count() == 1
+
+
+def test_record_task_exception_does_not_raise_when_db_write_fails(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="db-failure-task",
+            name="db failure task",
+            task_type="google_sheet_C5",
+            status="running",
+            config="{}",
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        def fail_commit():
+            raise RuntimeError("db unavailable")
+
+        monkeypatch.setattr(db.session, "commit", fail_commit)
+
+        try:
+            raise ValueError("still return record")
+        except ValueError as exc:
+            record = record_task_exception(task.id, exc, "unit_phase")
+
+        assert record.trace_id
+        assert record.exception_type == "ValueError"
 
 
 def test_c31_batch_create_transfers_market_end_date_and_adjustment(app_factory, monkeypatch):
@@ -142,3 +266,116 @@ def test_c5_same_kline_source_only_writes_parameters_on_second_combination(monke
     assert sheet.clear_calls == []
     assert "A2" not in sheet.update_payloads[0]
     assert sheet.update_payloads[0]["A1"] == "xm:1"
+
+
+def test_c5_parameter_combination_exception_records_trace_id(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="c5-error-task",
+            name="c5 error task",
+            task_type="google_sheet_C5",
+            status="running",
+            current_step=1,
+            config=json.dumps({
+                "c5_input_column_a": "A",
+                "c5_input_column_b": "B",
+            }),
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        service = C5GoogleSheetService({}, task.id, app=app)
+
+        class BrokenSheet:
+            title = "sheet"
+            spreadsheet_id = "spreadsheet"
+
+            def get_last_row(self, _column):
+                return 0
+
+        service.google_sheets = [BrokenSheet()]
+        monkeypatch.setattr(
+            service,
+            "_get_all_parameters",
+            lambda *_args, **_kwargs: (
+                [{"stock_code": "600000", "Kline_key": "2026-2025"}],
+                10,
+                {
+                    "2026-2025": [
+                        {"stock_date": "2025-01-01", "stock_val": 10},
+                        {"stock_date": "2025-01-02", "stock_val": 11},
+                    ],
+                },
+            ),
+        )
+        monkeypatch.setattr(service, "_interruptible_sleep", lambda _seconds: True)
+        monkeypatch.setattr(
+            service,
+            "_execute_parameter_combination",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("sheet write failed")),
+        )
+
+        success_count, failed_count, status = service.get_bdl(
+            task,
+            task.name,
+            [[["outer"]]],
+            {
+                "c5_input_column_a": "A",
+                "c5_input_column_b": "B",
+                "market_type": "cn",
+            },
+        )
+
+        refreshed = db.session.get(Task, task.id)
+        assert (success_count, failed_count, status) == (0, 1, "error")
+        assert refreshed.status == "error"
+        assert refreshed.error_message.startswith("trace_id=")
+        assert "RuntimeError: sheet write failed" in refreshed.error_message
+        assert "Traceback" not in refreshed.error_message
+
+        log = TaskLog.query.filter(
+            TaskLog.task_id == task.id,
+            TaskLog.level == "error",
+            TaskLog.message.contains("RuntimeError: sheet write failed"),
+        ).first()
+        assert log is not None
+        assert "trace_id=" in log.message
+        assert "phase=execute_parameter_combination" in log.message
+        assert "RuntimeError: sheet write failed" in log.message
+        assert "Traceback" in log.message
+
+
+def test_runtime_cancelled_result_does_not_mark_error(app_factory):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="runtime-cancelled-task",
+            name="runtime cancelled task",
+            task_type="google_sheet",
+            status="running",
+            config="{}",
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        manager = TaskManager()
+
+        class TaskLogger:
+            def info(self, *_args, **_kwargs):
+                pass
+
+            def warning(self, *_args, **_kwargs):
+                pass
+
+        manager._finalize_task_execution(
+            task.id,
+            app,
+            TaskLogger(),
+            "cancelled",
+        )
+
+        refreshed = db.session.get(Task, task.id)
+        assert refreshed.status == "cancelled"
+        assert refreshed.error_message is None
+        assert TaskLog.query.filter_by(task_id=task.id, level="error").count() == 0

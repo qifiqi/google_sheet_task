@@ -6,7 +6,9 @@ from app.services import task_watchdog as watchdog_module
 from app.services.task_watchdog import (
     REASON_LOG_TIMEOUT,
     REASON_RETRYABLE_NETWORK_ERROR,
+    REASON_TASK_ERROR,
     TaskWatchdog,
+    WATCHDOG_ABANDON_PREFIX,
     _WatchdogConfig,
 )
 from app.utils.task_error_utils import NETWORK_ERROR_PREFIX, WATCHDOG_RESTART_PREFIX
@@ -74,15 +76,21 @@ def test_watchdog_fetches_only_recent_relevant_tasks(app_factory):
         db.session.add_all([
             _task("running-recent", status="running"),
             _task("network-recent", status="error", error_message=f"{NETWORK_ERROR_PREFIX} timeout"),
+            _task("plain-error", status="error", error_message="plain"),
             _task("watchdog-cancelled", status="cancelled", error_message=f"{WATCHDOG_RESTART_PREFIX} attempt=1/3"),
             _task("old-running", status="running", created_at=datetime.now() - timedelta(days=10)),
-            _task("plain-error", status="error", error_message="plain"),
+            _task("abandoned-error", status="error", error_message=f"{WATCHDOG_ABANDON_PREFIX} (尝试 3 次): plain"),
         ])
         db.session.commit()
 
         ids = {task.id for task in TaskWatchdog()._fetch_watched_tasks()}
 
-        assert ids == {"running-recent", "network-recent", "watchdog-cancelled"}
+        assert ids == {
+            "running-recent",
+            "network-recent",
+            "plain-error",
+            "watchdog-cancelled",
+        }
 
 
 def test_watchdog_running_task_log_timeout_triggers_force_restart(app_factory, monkeypatch):
@@ -168,6 +176,26 @@ def test_watchdog_retryable_network_error_uses_checkpoint_restart(app_factory, m
         assert watchdog._read_cached_retry_attempts("network") == 1
 
 
+def test_watchdog_plain_error_uses_checkpoint_restart(app_factory, monkeypatch):
+    app = app_factory
+    fake_manager = _FakeTaskManager()
+    with app.app_context():
+        task = _task("plain-error", status="error", error_message="ValueError: bad config")
+        db.session.add(task)
+        db.session.commit()
+
+        watchdog = TaskWatchdog()
+        monkeypatch.setattr(watchdog_module, "task_manager", fake_manager)
+
+        watchdog._process_watched_task(
+            task,
+            _WatchdogConfig(True, 60, 30, 0, 3),
+        )
+
+        assert fake_manager.restarts == [("plain-error", True)]
+        assert watchdog._read_cached_retry_attempts("plain-error") == 1
+
+
 def test_watchdog_retryable_attempt_limit_abandons_task(app_factory, monkeypatch):
     app = app_factory
     fake_manager = _FakeTaskManager()
@@ -189,6 +217,30 @@ def test_watchdog_retryable_attempt_limit_abandons_task(app_factory, monkeypatch
         task = db.session.get(Task, "network")
         assert task.status == "error"
         assert "watchdog 已放弃自动重启" in task.error_message
+        assert fake_manager.restarts == []
+
+
+def test_watchdog_plain_error_attempt_limit_abandons_task(app_factory, monkeypatch):
+    app = app_factory
+    fake_manager = _FakeTaskManager()
+    with app.app_context():
+        task = _task("plain-error", status="error", error_message="ValueError: bad config")
+        db.session.add(task)
+        db.session.commit()
+
+        watchdog = TaskWatchdog()
+        monkeypatch.setattr(watchdog_module, "task_manager", fake_manager)
+        watchdog._retry_restart_attempts["plain-error"] = 3
+
+        watchdog._restart_error_task(
+            task,
+            REASON_TASK_ERROR,
+            max_attempts=3,
+        )
+
+        task = db.session.get(Task, "plain-error")
+        assert task.status == "error"
+        assert task.error_message.startswith(WATCHDOG_ABANDON_PREFIX)
         assert fake_manager.restarts == []
 
 

@@ -7,7 +7,6 @@ import hashlib
 import json
 import math
 import re
-import traceback
 from collections import OrderedDict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -21,9 +20,10 @@ from app.extensions import db
 from app.models import BacktestProductResultCache, Task, TaskResult, TaskResultReturn
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
+from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.services.xpl_service import xpl_analyzer
 from app.utils.db_retry import db_retry_manager, safe_db_operation
-from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.utils.task_error_utils import unwrap_exception
 
 
 BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
@@ -759,10 +759,14 @@ class BacktestMultiProductService(BacktestTrainingService):
                 return result
         except Exception as exc:
             root = unwrap_exception(exc) or exc
-            if self.task:
-                self.task.error_message = build_task_error_message(exc)
-                db.session.commit()
+            try:
+                record = record_task_exception(self.task_id, exc, "execute_task", self.app)
+                error_summary = format_task_error_message(record)
+            except Exception as record_error:
+                self._log_warning(f"记录任务异常失败: {record_error}")
+                error_summary = f"{root.__class__.__name__}: {root}"
             self._log_error(f"执行多品数据回测任务失败: {self.task_id}, 错误: {root}")
+            self._log_error(f"任务异常摘要: {error_summary}")
             return "error"
 
     def _execute_products(self, task: Task, config_data: dict[str, Any]) -> str:
@@ -892,7 +896,15 @@ class BacktestMultiProductService(BacktestTrainingService):
                 except Exception as exc:
                     self._raise_retryable_network_error(exc, f"第 {current_step} 步网络请求失败")
                     failed_count += 1
-                    self._log_error(f"第 {current_step} 步执行出错: {traceback.format_exc()}")
+                    record = record_task_exception(
+                        self.task_id,
+                        exc,
+                        "execute_product_step",
+                        self.app,
+                    )
+                    self._log_error(
+                        f"第 {current_step} 步执行出错: {format_task_error_message(record)}"
+                    )
                     return "error"
                 processed_index += 1
 

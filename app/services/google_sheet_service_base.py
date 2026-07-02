@@ -3,7 +3,7 @@ import math
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from flask import current_app
+from flask import current_app, has_app_context
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.models import Task, TaskLog, db
@@ -11,7 +11,7 @@ from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.logger import get_logger
-from app.utils.task_error_utils import build_task_error_message
+from app.services.task.error_handling import format_task_error_message, record_task_exception
 
 
 logger = get_logger(__name__)
@@ -165,7 +165,9 @@ class BaseGoogleSheetService:
             db.session.commit()
 
         try:
-            if self.app:
+            if has_app_context():
+                safe_db_operation(save_log_operation)
+            elif self.app:
                 with self.app.app_context():
                     safe_db_operation(save_log_operation)
             else:
@@ -183,24 +185,22 @@ class BaseGoogleSheetService:
     def _log_error(self, message: str, log_type: str = 'general', **kwargs):
         self._log('error', message, log_type, **kwargs)
 
-    def _record_execution_error_message(self, exc: Exception) -> str:
-        error_message = build_task_error_message(exc)
+    def _record_execution_error_message(
+        self,
+        exc: Exception,
+        phase: str = "google_sheet_service",
+    ) -> str:
         try:
-            def update_task_operation():
-                task = db.session.get(Task, self.task_id)
-                if task:
-                    task.error_message = error_message
-                    db.session.commit()
-
-            if self.app:
-                with self.app.app_context():
-                    safe_db_operation(update_task_operation)
-            else:
-                with current_app.app_context():
-                    safe_db_operation(update_task_operation)
+            record = record_task_exception(
+                self.task_id,
+                exc,
+                phase,
+                self.app,
+            )
+            return format_task_error_message(record)
         except Exception as update_error:
             logger.warning("记录 Google Sheet 任务错误摘要失败: %s", update_error)
-        return error_message
+            return f"{exc.__class__.__name__}: {exc}"
 
     def _log_step(self, step: int, total: int, message: str):
         self._log('info', message, 'step', step=step, total=total)

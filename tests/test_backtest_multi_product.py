@@ -1,7 +1,10 @@
 import json
 from datetime import datetime
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
+from openpyxl import Workbook
 
 from app.extensions import db
 from app.models import (
@@ -94,6 +97,96 @@ def test_normalize_multi_product_config_validates_parameter_alignment():
 def test_build_excel_download_name_uses_task_name_only():
     assert _build_excel_download_name("test-2", "task-id") == "test-2.xlsx"
     assert _build_excel_download_name("任务:多品/回测", "task-id") == "任务_多品_回测.xlsx"
+
+
+def _add_multi_product_task(task_id, name="多品回测", status="completed", task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE):
+    db.session.add(Task(
+        id=task_id,
+        name=name,
+        task_type=task_type,
+        status=status,
+        config=json.dumps({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "products": [_base_product(0, "100")],
+        }, ensure_ascii=False),
+    ))
+    db.session.commit()
+
+
+def test_multi_product_batch_export_global_preview_returns_zip(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        _add_multi_product_task("multi-batch-1", name="多品:组合/1")
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        monkeypatch.setattr(
+            "app.routes.backtest_multi_product.authorize_task_type_action",
+            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
+        )
+        monkeypatch.setattr(
+            "app.routes.backtest_multi_product.build_multi_product_global_preview_payload",
+            lambda task_id: {"task": {"name": task_id}, "products": [], "groups": []},
+        )
+
+        def fake_workbook(_payload):
+            workbook = Workbook()
+            workbook.active["A1"] = "ok"
+            return workbook
+
+        monkeypatch.setattr("app.routes.backtest_multi_product._build_global_preview_workbook", fake_workbook)
+        response = app.test_client().post(
+            "/backtest-multi-product/api/global-preview/batch-export",
+            json={"task_ids": ["multi-batch-1"]},
+        )
+
+        assert response.status_code == 200
+        assert response.mimetype == "application/zip"
+        with ZipFile(BytesIO(response.data)) as archive:
+            assert archive.namelist() == ["多品_组合_1.xlsx"]
+
+
+def test_multi_product_batch_export_global_preview_rejects_empty_selection(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        response = app.test_client().post(
+            "/backtest-multi-product/api/global-preview/batch-export",
+            json={"task_ids": []},
+        )
+
+        assert response.status_code == 400
+        assert response.get_json()["message"] == "请选择至少一个任务"
+
+
+def test_multi_product_batch_export_global_preview_rejects_unfinished_task(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        _add_multi_product_task("multi-running", status="running")
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        monkeypatch.setattr(
+            "app.routes.backtest_multi_product.authorize_task_type_action",
+            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
+        )
+        response = app.test_client().post(
+            "/backtest-multi-product/api/global-preview/batch-export",
+            json={"task_ids": ["multi-running"]},
+        )
+
+        assert response.status_code == 400
+        assert response.get_json()["task_status"] == "running"
+
+
+def test_multi_product_batch_export_global_preview_rejects_too_many_tasks(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        response = app.test_client().post(
+            "/backtest-multi-product/api/global-preview/batch-export",
+            json={"task_ids": [f"task-{index}" for index in range(11)]},
+        )
+
+        assert response.status_code == 400
+        assert "最多支持 10 个任务" in response.get_json()["message"]
 
 
 def test_multi_product_kline_source_requires_same_stock_and_signature():

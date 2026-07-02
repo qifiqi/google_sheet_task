@@ -1,6 +1,5 @@
 import json
 import random
-import traceback
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional,Tuple
 
@@ -20,7 +19,8 @@ from app.utils.dfcf_api import DFCJStockApi
 from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, validate_google_sheet_result, is_valid_result_value
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
 
 logger = get_logger(__name__)
@@ -472,11 +472,15 @@ class GoogleSheetService(BaseGoogleSheetService):
             
             # 其他异常情况
             root = unwrap_exception(e) or e
-            if self.task:
-                self.task.error_message = build_task_error_message(e)
-                db.session.commit()
+            try:
+                record = record_task_exception(self.task_id, e, "execute_task", self.app)
+                error_summary = format_task_error_message(record)
+            except Exception as record_error:
+                logger.warning("记录任务异常失败: %s", record_error)
+                error_summary = f"{root.__class__.__name__}: {root}"
             error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
+            self._log_error(f"任务异常摘要: {error_summary}")
             return 'error'
 
     def cell_kline_data(self,config_data):
@@ -496,28 +500,31 @@ class GoogleSheetService(BaseGoogleSheetService):
 
         def _get_kline(klines, _year=None, _start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            # 根据price_mode决定使用开盘价还是收盘价
-            price_field = 'stock_kp' if price_mode == 'kp_price' else 'stock_sp'
+            # 根据price_mode决定使用开盘价、收盘价或加权平均价
+            price_field = {
+                'kp_price': 'stock_kp',
+                'vwap_price': 'stock_vwap',
+            }.get(price_mode, 'stock_sp')
 
             if market_type == 'cn':
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                        {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                    {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
             else:
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                        {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                    {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
@@ -732,7 +739,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                     except:
                         pass
 
-                    error_summary = self._record_execution_error_message(e)
+                    error_summary = self._record_execution_error_message(
+                        e,
+                        "execute_parameter_combination",
+                    )
                     error_msg = f'第 {i + 1} 个参数组合执行出错: {error_summary}'
                     self._log_error(error_msg)
                     return success_count, failed_count, 'error'
@@ -752,8 +762,8 @@ class GoogleSheetService(BaseGoogleSheetService):
             except:
                 pass
             
-            error_msg = f"批量数据处理失败: {traceback.format_exc()}"
-            self._log_error(error_msg)
+            error_summary = self._record_execution_error_message(e, "get_bdl")
+            self._log_error(f"批量数据处理失败: {error_summary}")
             return 0, 1, 'error'
 
     @retry(
@@ -841,9 +851,15 @@ class GoogleSheetService(BaseGoogleSheetService):
             self._log_warning("执行超时，未在规定时间内完成")
             return False, {}
 
-        except Exception:
-            error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
-            self._log_error(error_msg)
+        except Exception as exc:
+            record = record_task_exception(
+                self.task_id,
+                exc,
+                "execute_parameter_combination",
+                self.app,
+                mark_error=False,
+            )
+            self._log_error(f"执行参数组合时出错: {format_task_error_message(record)}")
             raise
 
     def _save_task_result(self, step_index: int, parameters: List, result: Dict, success: bool):
