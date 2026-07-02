@@ -31,6 +31,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
+        self.klines_map = None
         self.kline = None
         self.len_kline = None
         self.YF_api = YFApi()
@@ -51,7 +52,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             results[position] = value
         return cell_updates, results
 
-    def _write_parameter_cells(self, cell_updates: Dict[str, Any], attempt: int = 0):
+    def _write_parameter_cells(self, cell_updates: Dict[str, Any], attempt: int = 0,config_data=None):
         if attempt <= 0:
             self._log_info(f"向Google Sheet写入参数: {cell_updates}")
             self.google_sheet.update_jumped_cells(cell_updates)
@@ -60,6 +61,29 @@ class GoogleSheetService(BaseGoogleSheetService):
         self._log_info(
             "模型可能卡死，直接清空参数，等待20s后重新写入参数，请稍等..."
         )
+
+        if attempt >= 10 and not self.klines_map:
+            c3_input_column_d = config_data.get('c3_input_column_d').upper()
+            c3_input_column_e = config_data.get('c3_input_column_e').upper()
+            A_num = self.len_kline + random.randint(5, 10)
+            self._log_info(f'{self.google_sheet.title} 当前D列行数: {A_num},准备滞空 D列 E列')
+            self.google_sheet.clear_range(f"{c3_input_column_d}2:{c3_input_column_e}{A_num + 2}")
+
+            self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+            if not self._interruptible_sleep(20):
+                raise RuntimeError("task cancelled")
+
+            for i in range(self.len_kline):
+                item = self.klines_map[i]
+                cell_num = i + 2
+                cell_A = f"{c3_input_column_d}{cell_num}"
+                cell_B = f"{c3_input_column_e}{cell_num}"
+                stock_date = item.get('stock_date', "")
+                stock_val = item.get('stock_val', "")
+                cell_updates[cell_A] = stock_date
+                cell_updates[cell_B] = stock_val
+            self.google_sheet.update_jumped_cells(cell_updates)
+            return
 
         self.google_sheet.clear_jumped_cells(cell_updates.keys())
         if not self._interruptible_sleep(20):
@@ -603,6 +627,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         len_kline = len(all_kline)
         self.len_kline = len_kline
         self.kline = [all_kline[0],all_kline[-1]]
+        self.klines_map = all_kline
         for i in range(len_kline):
             item = all_kline[i]
             cell_num = i + 2
@@ -780,7 +805,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             check_positions = config_data.get('check_positions', [])
             result_positions = config_data.get('result_positions', [])
             cell_updates, input_results = self._build_parameter_cell_updates(combination, param_positions)
-            self._write_parameter_cells(cell_updates)
+            self._write_parameter_cells(cell_updates,config_data=config_data)
 
             sleep_num = 5
             batch_error_count = 0
