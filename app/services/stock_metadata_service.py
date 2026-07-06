@@ -57,11 +57,23 @@ def upsert_stock_metadata_in_session(stock_item: Any) -> StockMetadata | None:
     if not payload:
         return None
 
+    stock_code = payload["stock_code"]
     market_type = payload["market_type"]
-    query = StockMetadata.query.filter(StockMetadata.stock_code == payload["stock_code"])
+
+    for pending in db.session.new:
+        if not isinstance(pending, StockMetadata):
+            continue
+        if pending.stock_code == stock_code and pending.market_type == market_type:
+            for key, value in payload.items():
+                setattr(pending, key, value)
+            logger.debug("已同步待提交股票元数据: %s %s", stock_code, payload["stock_name"])
+            return pending
+
+    query = StockMetadata.query.filter(StockMetadata.stock_code == stock_code)
     query = query.filter(StockMetadata.market_type == market_type)
 
-    record = query.order_by(StockMetadata.updated_at.desc(), StockMetadata.id.desc()).first()
+    with db.session.no_autoflush:
+        record = query.order_by(StockMetadata.updated_at.desc(), StockMetadata.id.desc()).first()
     if record is None:
         record = StockMetadata(**payload)
         db.session.add(record)

@@ -509,7 +509,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
             set_googl_val()
 
             merged_return_range_a1 = f"{output_column_index}2:{output_column_start}{len(kline) + 1}"
-            sleep_num = 5
             output_cell_list = [output_range_2,merged_return_range_a1] if len(parameter) == 2 else [merged_return_range_a1]
 
             def check_result(check_values):
@@ -551,27 +550,15 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 return True
 
-
-            def get_sell_sleep(min_sleep: int, max_sleep: int) -> int:
-                nonlocal sleep_num
-                if sleep_num <= 0:
-                    sleep_num = 5
-                _ = min(min_sleep + sleep_num * 5, max_sleep)  # 最多60秒
-                sleep_num -= 1
-                return int(_)
-
             # 定时检查是否完成（最多检查60次，20-30秒）
+            delay_min, delay_max = self._get_execution_poll_delay_bounds()
             for attempt in range(60):
                 # 定期刷新参数，防止模型卡顿
                 if attempt != 0 and (attempt % 10 == 0 or attempt in [5,15,25,35]):
                     self._log_info(f"刷新参数")
                     set_googl_val(20)
 
-                # 从配置获取执行延迟时间
-                config_manager = get_config_manager()
-                delay_min = int(config_manager.get_config('execution_delay_min', 20))
-                delay_max = int(config_manager.get_config('execution_delay_max', 30))
-                _ = get_sell_sleep(delay_min, delay_max)
+                _ = self._get_execution_poll_delay(attempt, delay_min, delay_max)
                 self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
                 if not self._interruptible_sleep(_):
                     raise RuntimeError("task cancelled")

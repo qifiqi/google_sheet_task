@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="620" viewBox="0 0 1180 620">
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .title { font: 700 28px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #172033; }
+      .small { font: 13px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #475467; }
+      .state { fill: #ffffff; stroke: #4a5568; stroke-width: 2; rx: 16; ry: 16; }
+      .pending { fill: #e8f3ff; stroke: #4a90e2; }
+      .running { fill: #fff5e6; stroke: #f59e0b; }
+      .ok { fill: #ecfdf3; stroke: #22a06b; }
+      .bad { fill: #fff1f2; stroke: #e11d48; }
+      .cancel { fill: #f2f4f7; stroke: #667085; }
+      .label { font: 700 18px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #1f2937; text-anchor: middle; }
+      .desc { font: 13px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #475467; text-anchor: middle; }
+      .arrow { stroke: #667085; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .dash { stroke-dasharray: 8 6; }
+      .edge { font: 13px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #344054; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667085"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1180" height="620"/>
+  <text class="title" x="48" y="58">XPL Analysis Job 状态机</text>
+  <text class="small" x="48" y="86">所有状态持久化到数据库，worker 崩溃后可恢复，任务取消/重启时可作废未完成 job。</text>
+
+  <rect class="state pending" x="80" y="240" width="170" height="86"/>
+  <text class="label" x="165" y="276">pending</text>
+  <text class="desc" x="165" y="302">等待领取</text>
+
+  <rect class="state running" x="365" y="240" width="170" height="86"/>
+  <text class="label" x="450" y="276">running</text>
+  <text class="desc" x="450" y="302">worker 已锁定</text>
+
+  <rect class="state ok" x="650" y="120" width="170" height="86"/>
+  <text class="label" x="735" y="156">completed</text>
+  <text class="desc" x="735" y="182">结果已回写</text>
+
+  <rect class="state running" x="650" y="360" width="170" height="86"/>
+  <text class="label" x="735" y="396">retrying</text>
+  <text class="desc" x="735" y="422">等待重试</text>
+
+  <rect class="state bad" x="930" y="360" width="170" height="86"/>
+  <text class="label" x="1015" y="396">error</text>
+  <text class="desc" x="1015" y="422">超过重试次数</text>
+
+  <rect class="state cancel" x="930" y="120" width="170" height="86"/>
+  <text class="label" x="1015" y="156">cancelled</text>
+  <text class="desc" x="1015" y="182">任务取消/重启/删除</text>
+
+  <path class="arrow" d="M250 283 L365 283"/>
+  <text class="edge" x="284" y="266">claim</text>
+
+  <path class="arrow" d="M535 260 C582 230 603 176 650 163"/>
+  <text class="edge" x="575" y="214">success</text>
+
+  <path class="arrow" d="M535 306 C585 329 604 391 650 403"/>
+  <text class="edge" x="575" y="362">fail 可重试</text>
+
+  <path class="arrow" d="M820 403 L930 403"/>
+  <text class="edge" x="854" y="386">超过 max_attempts</text>
+
+  <path class="arrow" d="M650 430 C520 520 250 440 165 326"/>
+  <text class="edge" x="352" y="496">下轮重新领取</text>
+
+  <path class="arrow dash" d="M250 250 C520 80 705 80 930 145"/>
+  <text class="edge" x="505" y="118">取消 / 删除 / 重启作废</text>
+
+  <path class="arrow dash" d="M535 250 C710 72 850 78 930 145"/>
+  <path class="arrow dash" d="M820 390 C890 305 930 232 960 206"/>
+</svg>

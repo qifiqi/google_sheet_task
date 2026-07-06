@@ -553,17 +553,8 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                 return True
 
-            sleep_num = 5
-
-            def get_sell_sleep(min_sleep: int, max_sleep: int) -> int:
-                nonlocal sleep_num
-                if sleep_num <= 0:
-                    sleep_num = 5
-                _ = min(min_sleep + sleep_num * 5, max_sleep)  # 最多60秒
-                sleep_num -= 1
-                return int(_)
-
             # 定时检查是否完成（最多检查60次，20-30秒）
+            delay_min, delay_max = self._get_execution_poll_delay_bounds()
             for attempt in range(60):
 
                 # 定期刷新参数，防止模型卡顿
@@ -571,11 +562,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     self._log_info(f"刷新参数")
                     set_googl_val(20)
 
-                # 从配置获取执行延迟时间
-                config_manager = get_config_manager()
-                delay_min = int(config_manager.get_config('execution_delay_min', 20))
-                delay_max = int(config_manager.get_config('execution_delay_max', 30))
-                _ = get_sell_sleep(delay_min, delay_max)
+                _ = self._get_execution_poll_delay(attempt, delay_min, delay_max)
                 self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
                 if not self._interruptible_sleep(_):
                     raise RuntimeError("task cancelled")
@@ -768,6 +755,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         "source": stock_config.get("source") or "google_sheet_c5",
                     })
                 except Exception as metadata_error:
+                    db.session.rollback()
                     logger.warning("同步 C5 股票元数据失败: %s", metadata_error)
             market = stock_config['market']
             stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()

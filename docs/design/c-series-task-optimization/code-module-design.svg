@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1380" height="780" viewBox="0 0 1380 780">
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .title { font: 700 28px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #172033; }
+      .small { font: 13px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #475467; }
+      .group { fill: #ffffff; stroke: #d7dce5; stroke-width: 1.5; rx: 16; ry: 16; }
+      .group-title { font: 700 17px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #344054; }
+      .module { fill: #ffffff; stroke-width: 2; rx: 12; ry: 12; }
+      .existing { fill: #e8f3ff; stroke: #4a90e2; }
+      .new { fill: #ecfdf3; stroke: #22a06b; }
+      .worker { fill: #fff5e6; stroke: #f59e0b; }
+      .model { fill: #f4f0ff; stroke: #7c3aed; }
+      .text { font: 15px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #1f2937; }
+      .file { font: 700 14px Consolas, "Microsoft YaHei", monospace; fill: #172033; }
+      .desc { font: 13px "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill: #475467; }
+      .arrow { stroke: #667085; stroke-width: 2.1; fill: none; marker-end: url(#arrow); }
+      .dash { stroke-dasharray: 8 6; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667085"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1380" height="780"/>
+  <text class="title" x="48" y="58">C3/XPL 优化代码模块设计</text>
+  <text class="small" x="48" y="86">C3 服务生产可分析数据；收益序列服务负责快照；job 服务负责状态；worker 独立执行 CPU 计算。</text>
+
+  <rect class="group" x="42" y="125" width="300" height="560"/>
+  <text class="group-title" x="72" y="162">现有 C3 主链路</text>
+
+  <rect class="group" x="382" y="125" width="300" height="560"/>
+  <text class="group-title" x="412" y="162">新增服务层</text>
+
+  <rect class="group" x="722" y="125" width="300" height="560"/>
+  <text class="group-title" x="752" y="162">模型与持久化</text>
+
+  <rect class="group" x="1062" y="125" width="280" height="560"/>
+  <text class="group-title" x="1092" y="162">独立进程与运维</text>
+
+  <rect class="module existing" x="72" y="205" width="240" height="94"/>
+  <text class="file" x="92" y="233">google_sheet_service.py</text>
+  <text class="desc" x="92" y="258">_execute_parameter_combination</text>
+  <text class="desc" x="92" y="280">驱动 Sheet，读取基础结果</text>
+
+  <rect class="module existing" x="72" y="350" width="240" height="94"/>
+  <text class="file" x="92" y="378">google_sheet_service.py</text>
+  <text class="desc" x="92" y="403">_build_return_analysis_input</text>
+  <text class="desc" x="92" y="425">读取收益序列快照</text>
+
+  <rect class="module existing" x="72" y="495" width="240" height="94"/>
+  <text class="file" x="92" y="523">google_sheet_service.py</text>
+  <text class="desc" x="92" y="548">_save_task_result</text>
+  <text class="desc" x="92" y="570">保存基础结果，关联收益序列</text>
+
+  <rect class="module new" x="412" y="205" width="240" height="94"/>
+  <text class="file" x="432" y="233">return_series_service.py</text>
+  <text class="desc" x="432" y="258">build_payload / load_rows</text>
+  <text class="desc" x="432" y="280">行式与列式 JSON 转换</text>
+
+  <rect class="module new" x="412" y="350" width="240" height="94"/>
+  <text class="file" x="432" y="378">return_series_service.py</text>
+  <text class="desc" x="432" y="403">create_for_task_result</text>
+  <text class="desc" x="432" y="425">保存 TaskResultReturn</text>
+
+  <rect class="module new" x="412" y="495" width="240" height="94"/>
+  <text class="file" x="432" y="523">xpl_analysis_job_service.py</text>
+  <text class="desc" x="432" y="548">create / claim / complete / fail</text>
+  <text class="desc" x="432" y="570">job 状态流转与幂等</text>
+
+  <rect class="module model" x="752" y="205" width="240" height="94"/>
+  <text class="file" x="772" y="233">TaskResult</text>
+  <text class="desc" x="772" y="258">result</text>
+  <text class="desc" x="772" y="280">return_series_id</text>
+
+  <rect class="module model" x="752" y="350" width="240" height="94"/>
+  <text class="file" x="772" y="378">TaskResultReturn</text>
+  <text class="desc" x="772" y="403">returns_json</text>
+  <text class="desc" x="772" y="425">收益序列快照</text>
+
+  <rect class="module model" x="752" y="495" width="240" height="94"/>
+  <text class="file" x="772" y="523">XplAnalysisJob</text>
+  <text class="desc" x="772" y="548">pending / running / completed</text>
+  <text class="desc" x="772" y="570">attempts / locked_by / error</text>
+
+  <rect class="module worker" x="1092" y="245" width="220" height="94"/>
+  <text class="file" x="1112" y="273">xpl_analysis_worker.py</text>
+  <text class="desc" x="1112" y="298">worker 主循环</text>
+  <text class="desc" x="1112" y="320">ProcessPoolExecutor</text>
+
+  <rect class="module worker" x="1092" y="420" width="220" height="94"/>
+  <text class="file" x="1112" y="448">run_xpl_analysis_worker.py</text>
+  <text class="desc" x="1112" y="473">独立启动入口</text>
+  <text class="desc" x="1112" y="495">Windows 本地部署</text>
+
+  <path class="arrow" d="M312 397 L412 252"/>
+  <path class="arrow" d="M312 542 L412 397"/>
+  <path class="arrow" d="M652 397 L752 397"/>
+  <path class="arrow" d="M652 542 L752 542"/>
+  <path class="arrow" d="M992 542 C1048 542 1052 292 1092 292"/>
+  <path class="arrow" d="M1092 292 C1048 292 1032 542 992 542"/>
+  <path class="arrow dash" d="M652 252 C706 252 706 252 752 252"/>
+  <path class="arrow dash" d="M1202 420 L1202 339"/>
+
+  <text class="small" x="72" y="650">原则：C3 主链路不直接管理 worker；worker 不读取 Google Sheet；跨进程只传普通 JSON 数据。</text>
+</svg>

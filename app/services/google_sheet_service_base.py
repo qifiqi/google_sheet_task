@@ -7,6 +7,7 @@ from flask import current_app, has_app_context
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.models import Task, TaskLog, db
+from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation
 from app.utils.db_stock_api import StockAPIClient
@@ -15,6 +16,9 @@ from app.services.task.error_handling import format_task_error_message, record_t
 
 
 logger = get_logger(__name__)
+
+DEFAULT_EXECUTION_DELAY_MIN = 20
+DEFAULT_EXECUTION_DELAY_MAX = 30
 
 
 def should_alert_execute_task_result(result):
@@ -98,6 +102,27 @@ class BaseGoogleSheetService:
         import time
         time.sleep(seconds)
         return not self._is_cancel_requested()
+
+    def _get_execution_poll_delay_bounds(self) -> tuple[int, int]:
+        try:
+            config_manager = get_config_manager()
+            delay_min = int(config_manager.get_config('execution_delay_min', DEFAULT_EXECUTION_DELAY_MIN))
+            delay_max = int(config_manager.get_config('execution_delay_max', DEFAULT_EXECUTION_DELAY_MAX))
+        except (TypeError, ValueError) as exc:
+            self._log_warning(f"执行等待配置无效，使用默认值 20-30 秒: {exc}")
+            return DEFAULT_EXECUTION_DELAY_MIN, DEFAULT_EXECUTION_DELAY_MAX
+
+        if delay_min < 0 or delay_max < 0 or delay_min > delay_max:
+            self._log_warning(
+                f"执行等待配置无效，使用默认值 20-30 秒: min={delay_min}, max={delay_max}"
+            )
+            return DEFAULT_EXECUTION_DELAY_MIN, DEFAULT_EXECUTION_DELAY_MAX
+
+        return delay_min, delay_max
+
+    @staticmethod
+    def _get_execution_poll_delay(attempt: int, delay_min: int, delay_max: int) -> int:
+        return int(min(delay_min + max(attempt, 0) * 5, delay_max))
 
     def _task_display_name(self) -> str:
         return self.task_name or self.task_id

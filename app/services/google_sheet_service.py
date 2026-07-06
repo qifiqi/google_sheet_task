@@ -688,6 +688,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         "source": stock_config.get("source") or "google_sheet_c3",
                     })
                 except Exception as metadata_error:
+                    db.session.rollback()
                     logger.warning("同步 C3 股票元数据失败: %s", metadata_error)
             market = stock_config['market']
 
@@ -936,21 +937,15 @@ class GoogleSheetService(BaseGoogleSheetService):
             cell_updates, input_results = self._build_parameter_cell_updates(combination, param_positions)
             self._write_parameter_cells(cell_updates,config_data=config_data)
 
-            sleep_num = 5
             batch_error_count = 0
             max_batch_error_count = 3
+            delay_min, delay_max = self._get_execution_poll_delay_bounds()
             for attempt in range(60):
                 if attempt != 0 and (attempt % 10 == 0 or attempt in [3, 5, 8]):
                     self._log_info(f"第 {attempt + 1} 次检查执行状态前，刷新表格")
                     self._write_parameter_cells(cell_updates, attempt)
 
-                config_manager = get_config_manager()
-                delay_min = int(config_manager.get_config('execution_delay_min', 20))
-                delay_max = int(config_manager.get_config('execution_delay_max', 30))
-                if sleep_num <= 0:
-                    sleep_num = 5
-                delay = int(min(delay_min + sleep_num * 5, delay_max))
-                sleep_num -= 1
+                delay = self._get_execution_poll_delay(attempt, delay_min, delay_max)
                 self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {delay} 秒")
                 if not self._interruptible_sleep(delay):
                     self._log_warning("task cancelled during wait")

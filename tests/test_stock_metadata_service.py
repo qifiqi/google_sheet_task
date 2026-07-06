@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from app.extensions import db
 from app.models import StockMetadata, Task
 from app.services.google_sheet_service_C4 import GoogleSheetService as C4GoogleSheetService
-from app.services.stock_metadata_service import upsert_stock_metadata
+from app.services.stock_metadata_service import upsert_stock_metadata, upsert_stock_metadata_in_session
 from app.services.task.facade import TaskManager
 
 
@@ -44,6 +44,31 @@ def test_create_task_hydrates_stock_name_from_metadata(app_factory, monkeypatch)
         task = db.session.get(Task, task_id)
         config = json.loads(task.config)
         assert config["stock_name"] == "贵州茅台"
+
+
+def test_upsert_stock_metadata_reuses_pending_record_before_autoflush(app_factory):
+    app = app_factory
+    with app.app_context():
+        first = upsert_stock_metadata_in_session({
+            "code": "688188",
+            "name": "柏楚电子",
+            "market_type": "cn",
+            "market": "1",
+            "source": "first",
+        })
+        second = upsert_stock_metadata_in_session({
+            "code": "688188",
+            "name": "柏楚电子",
+            "market_type": "cn",
+            "market": "1",
+            "source": "second",
+        })
+        db.session.commit()
+
+        assert first.id == second.id
+        item = StockMetadata.query.filter_by(stock_code="688188", market_type="cn").one()
+        assert item.stock_name == "柏楚电子"
+        assert item.source == "second"
 
 
 def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, monkeypatch):
