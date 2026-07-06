@@ -11,15 +11,20 @@ from app.models import Task, TaskResult, db, TaskResultReturn
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
+
+
+logger = get_logger(__name__)
 
 
 class GoogleSheetService(BaseGoogleSheetService):
@@ -374,9 +379,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                             )
                         )
                         # 保存结果到数据库
+                        stock_name = str(combination.get('stock_name') or '').strip()
                         self._save_task_result(current_step - 1, {
                             **combination,
                             'stock_code':combination['stock_code'],
+                            **({'stock_name': stock_name} if stock_name else {}),
                         }, result, success)
 
 
@@ -752,11 +759,23 @@ class GoogleSheetService(BaseGoogleSheetService):
             # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
             if stock_config:
                 stock_config = stock_config[0]
+                try:
+                    upsert_stock_metadata_in_session({
+                        **stock_config,
+                        "stock_code": parameter,
+                        "stock_name": stock_config.get("shortName") or stock_config.get("name"),
+                        "market_type": market_type,
+                        "source": stock_config.get("source") or "google_sheet_c5",
+                    })
+                except Exception as metadata_error:
+                    logger.warning("同步 C5 股票元数据失败: %s", metadata_error)
             market = stock_config['market']
+            stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()
 
             klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
         else:
             klines = self.YF_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
+            stock_name = ""
         price_field = 'stock_kp' if price_mode == 'kp_price' else 'stock_sp'
         klines = require_kline_rows(
             parameter,
@@ -842,6 +861,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 for j, v2 in enumerate(parameters[2]):
                     Kline_key = f'{_end_year}-{_start_date}'
                     d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
+                    if stock_name:
+                        d['stock_name'] = stock_name
                     if Kline_key not in KLINE_DATA_MAP:
                         KLINE_DATA_MAP[Kline_key] = all_kline
 
@@ -871,6 +892,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
+                        if stock_name:
+                            d['stock_name'] = stock_name
                         if Kline_key not in KLINE_DATA_MAP:
                             KLINE_DATA_MAP[Kline_key] = kline
 
@@ -887,6 +910,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year,'Kline_key':Kline_key}
+                        if stock_name:
+                            d['stock_name'] = stock_name
                         # if i == 0 and j == 0:
                         #     if kline and len(kline) > 30:
                         #         d['kline'] = kline

@@ -13,6 +13,7 @@ from app.models import Task, TaskResult, db
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.services.xpl_service import xpl_analyzer
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
@@ -678,6 +679,16 @@ class GoogleSheetService(BaseGoogleSheetService):
             # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
             if stock_config:
                 stock_config = stock_config[0]
+                try:
+                    upsert_stock_metadata_in_session({
+                        **stock_config,
+                        "stock_code": stock_code,
+                        "stock_name": stock_config.get("shortName") or stock_config.get("name"),
+                        "market_type": market_type,
+                        "source": stock_config.get("source") or "google_sheet_c3",
+                    })
+                except Exception as metadata_error:
+                    logger.warning("同步 C3 股票元数据失败: %s", metadata_error)
             market = stock_config['market']
 
             klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit, adjust_type=adjust_type)

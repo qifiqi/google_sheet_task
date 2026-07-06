@@ -11,15 +11,20 @@ from app.models import Task, TaskResult, db
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import validate_result_dict, is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
+
+
+logger = get_logger(__name__)
 
 
 class GoogleSheetService(BaseGoogleSheetService):
@@ -340,10 +345,14 @@ class GoogleSheetService(BaseGoogleSheetService):
                             return success_count, failed_count, 'error'
 
                         # 保存结果到数据库
-                        self._save_task_result(current_step - 1, {
+                        stock_name = str(combination.get('stock_name') or '').strip()
+                        result_parameters = {
                             'stock_code':combination['stock_code'],
                             'kline':[combination['kline'][0],combination['kline'][-1]]
-                        }, result, success)
+                        }
+                        if stock_name:
+                            result_parameters['stock_name'] = stock_name
+                        self._save_task_result(current_step - 1, result_parameters, result, success)
                         self.send_stock_param_result_data(
                             self._build_stock_param_result_payload(
                                 name,
@@ -648,9 +657,21 @@ class GoogleSheetService(BaseGoogleSheetService):
             stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
             if stock_config:
                 stock_config = stock_config[0]
+                try:
+                    upsert_stock_metadata_in_session({
+                        **stock_config,
+                        "stock_code": parameter,
+                        "stock_name": stock_config.get("shortName") or stock_config.get("name"),
+                        "market_type": market_type,
+                        "source": stock_config.get("source") or "google_sheet_c4",
+                    })
+                except Exception as metadata_error:
+                    logger.warning("同步 C4 股票元数据失败: %s", metadata_error)
             market = stock_config['market']
+            stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()
         else:
             yf_api = YFApi()
+            stock_name = ""
 
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
@@ -686,7 +707,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             latest_date=data_end_date,
         )
         data = [
-            {'stock_code': parameter, 'kline': all_kline}
+            {'stock_code': parameter, 'stock_name': stock_name, 'kline': all_kline}
         ]
 
         if count_mode != 'n_plus_1':
@@ -705,6 +726,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                     kline = _get_kline(klines, _start_data, _end_data)
                     if kline:
                         d['stock_code'] = parameter
+                        if stock_name:
+                            d['stock_name'] = stock_name
                         d['kline'] = kline
 
                         data.append(d)
@@ -716,6 +739,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 kline = _get_kline(all_kline,year=i)
                 if kline and len(kline) > 30:
                     d['stock_code'] = parameter
+                    if stock_name:
+                        d['stock_name'] = stock_name
                     d['year'] = i
                     d['kline'] = kline
 
