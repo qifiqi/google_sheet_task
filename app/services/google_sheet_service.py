@@ -1,7 +1,8 @@
 import json
 import random
+import time
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional,Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
 from flask import current_app
 from sqlalchemy import text
@@ -38,6 +39,83 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.dfcf_api = DFCJStockApi()
         self.google_sheet:Optional[GoogleSheet] = None
         self.xpl = xpl_analyzer
+        self._return_date_cache: Dict[Tuple[str, int], Dict[str, Any]] = {}
+
+    @staticmethod
+    def _format_elapsed(seconds: float) -> str:
+        return f"{seconds:.3f}s"
+
+    def _summarize_result_for_log(self, result: Dict[str, Any]) -> str:
+        if not isinstance(result, dict):
+            return str(result)
+
+        preferred_keys = [
+            "B6", "B7", "B9", "B10", "B11", "B12",
+            "I15", "I16", "I17", "I18", "I19", "I20", "I21", "I22", "I23",
+        ]
+        summary = {
+            key: result.get(key)
+            for key in preferred_keys
+            if key in result
+        }
+
+        flat_result = result.get("flat_result")
+        if isinstance(flat_result, dict):
+            summary["flat_result"] = {
+                key: flat_result.get(key)
+                for key in [
+                    "index_annualized_return",
+                    "start_annualized_return",
+                    "annualized_return_diff",
+                    "index_sharpe_ratio",
+                    "start_sharpe_ratio",
+                    "start_drawdown",
+                ]
+                if key in flat_result
+            }
+
+        analyze_result = result.get("analyze_result")
+        if isinstance(analyze_result, dict):
+            summary["analyze_result_keys"] = len(analyze_result)
+
+        return json.dumps(
+            self._sanitize_json_value(summary),
+            ensure_ascii=False,
+            default=str,
+        )
+
+    def _summarize_return_analysis_for_log(
+        self,
+        flat_result: Dict[str, Any],
+        analyze_result: Dict[str, Any],
+        row_count: int,
+        read_elapsed: float,
+        xpl_elapsed: float,
+    ) -> str:
+        summary = {
+            "rows": row_count,
+            "read": self._format_elapsed(read_elapsed),
+            "xpl": self._format_elapsed(xpl_elapsed),
+            "analyze_result_keys": len(analyze_result) if isinstance(analyze_result, dict) else 0,
+        }
+        if isinstance(flat_result, dict):
+            summary["flat_result"] = {
+                key: flat_result.get(key)
+                for key in [
+                    "index_annualized_return",
+                    "start_annualized_return",
+                    "annualized_return_diff",
+                    "index_sharpe_ratio",
+                    "start_sharpe_ratio",
+                    "start_drawdown",
+                ]
+                if key in flat_result
+            }
+        return json.dumps(
+            self._sanitize_json_value(summary),
+            ensure_ascii=False,
+            default=str,
+        )
 
     def _build_parameter_cell_updates(
         self,
@@ -254,8 +332,17 @@ class GoogleSheetService(BaseGoogleSheetService):
         index_range = f"{index_column}2:{index_column}{end_row}"
         start_range = f"{start_column}2:{start_column}{end_row}"
 
-        batch_values = self.google_sheet.get_ranges([date_range, index_range, start_range])
-        date_values = batch_values.get(date_range, {})
+        date_cache_key = (date_column, end_row)
+        date_values = self._return_date_cache.get(date_cache_key)
+        ranges = [index_range, start_range]
+        if date_values is None:
+            ranges.insert(0, date_range)
+
+        batch_values = self.google_sheet.get_ranges(ranges)
+        if date_values is None:
+            date_values = batch_values.get(date_range, {})
+            self._return_date_cache[date_cache_key] = date_values
+
         index_values = batch_values.get(index_range, {})
         start_values = batch_values.get(start_range, {})
 
@@ -282,13 +369,26 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     def _attach_return_analysis(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
         try:
+            read_started = time.perf_counter()
             return_data = self._build_return_analysis_input(config_data)
+            read_elapsed = time.perf_counter() - read_started
             if not return_data or not self.xpl:
                 return {}
 
+            xpl_started = time.perf_counter()
             flat_result, analyze_result = self.xpl.get_return_analysis_v1(return_data)
-            progress_msg = f'收益率分析执行完成，结果如下：{analyze_result}'
-            self._log_info(progress_msg)
+            xpl_elapsed = time.perf_counter() - xpl_started
+            analysis_summary = self._summarize_return_analysis_for_log(
+                flat_result,
+                analyze_result,
+                len(return_data),
+                read_elapsed,
+                xpl_elapsed,
+            )
+            self._log_info(
+                "收益率分析执行完成，摘要: "
+                f"{analysis_summary}"
+            )
             return {
                 "analyze_result": analyze_result,
                 "flat_result": flat_result,
@@ -628,6 +728,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.len_kline = len_kline
         self.kline = [all_kline[0],all_kline[-1]]
         self.klines_map = all_kline
+        self._return_date_cache.clear()
         for i in range(len_kline):
             item = all_kline[i]
             cell_num = i + 2
@@ -684,12 +785,14 @@ class GoogleSheetService(BaseGoogleSheetService):
                         return success_count, failed_count, 'cancelled'
 
                 self.cell_kline_data(config_data)
+                self._return_date_cache.clear()
             else:
                 A_num = self.google_sheet.get_last_row('D')
                 _result = self.google_sheet.get_range(f"D2:E{A_num}")
                 self.kline = [{"stock_date": _result.get("D2"), "stock_val": _result.get("E2")},
                               {"stock_date": _result.get(f"D{A_num}"), "stock_val": _result.get(f"E{A_num}")}]
                 self.len_kline = A_num
+                self._return_date_cache.clear()
                 self._log_info(f'获取表格数据成功，行数: {A_num},开始执行后续逻辑 K线范围：{self.kline}')
 
             for i in range(start_index, total_combinations):
@@ -725,11 +828,17 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                 # 执行单个参数组合
                 try:
+                    execute_started = time.perf_counter()
                     success, result = self._execute_parameter_combination(combination, config_data)
+                    execute_elapsed = time.perf_counter() - execute_started
 
                     if success:
                         success_count += 1
-                        self._log_info(f'第 {i + 1} 个参数组合执行成功，{result}')
+                        self._log_info(
+                            f"第 {i + 1} 个参数组合执行成功，"
+                            f"execute={self._format_elapsed(execute_elapsed)}，"
+                            f"结果摘要: {self._summarize_result_for_log(result)}"
+                        )
                     else:
                         self._log_warning(f'第 {i + 1} 个参数组合执行失败')
                         failed_count += 1
@@ -744,9 +853,18 @@ class GoogleSheetService(BaseGoogleSheetService):
                     )
 
                     # 保存结果到数据库
+                    save_started = time.perf_counter()
                     self._save_task_result(i, combination, result, success)
+                    save_elapsed = time.perf_counter() - save_started
                     # 推送结果到 StockParamResult
+                    push_started = time.perf_counter()
                     self.send_stock_param_result_data(param_load)
+                    push_elapsed = time.perf_counter() - push_started
+                    self._log_info(
+                        f"第 {i + 1} 个参数组合后处理耗时: "
+                        f"save={self._format_elapsed(save_elapsed)}, "
+                        f"stock_param_push={self._format_elapsed(push_elapsed)}"
+                    )
 
                 except checkForErrors as e:
                     self._log_error(str(e))
@@ -850,7 +968,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                         if not success:
                             continue
 
-                        self._log_info(f"参数组合执行成功，结果: {final_results}")
+                        self._log_info(
+                            "参数组合执行成功，结果摘要: "
+                            f"{self._summarize_result_for_log(final_results)}"
+                        )
                         return True, final_results
 
                     except checkForErrors:
@@ -869,7 +990,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                             config_data,
                         )
                         if fallback_success:
-                            self._log_info(f"参数组合执行成功，结果: {final_results}")
+                            self._log_info(
+                                "参数组合执行成功，结果摘要: "
+                                f"{self._summarize_result_for_log(final_results)}"
+                            )
                             return True, final_results
                         return False, {}
 
