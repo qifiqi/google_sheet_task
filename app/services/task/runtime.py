@@ -665,6 +665,7 @@ class TaskRuntimeMixin:
         duplicate_map = {
             "google_sheet_C4": "任务已在运行，拒绝并发启动 (C4)",
             "google_sheet_C5": "任务已在运行，拒绝并发启动 (C5)",
+            "google_sheet_C7": "任务已在运行，拒绝并发启动 (C7)",
         }
         return duplicate_map.get(task_type, "任务已在运行，拒绝并发启动")
 

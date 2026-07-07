@@ -70,6 +70,10 @@
                             <div class="card-body">
                                 <h6 class="card-title text-muted mb-3">时间信息</h6>
                                 <div class="row mb-2">
+                                    <div class="col-4"><strong>创建时间:</strong></div>
+                                    <div class="col-8 text-success" id="create-time">-</div>
+                                </div>
+                                <div class="row mb-2">
                                     <div class="col-4"><strong>开始时间:</strong></div>
                                     <div class="col-8 text-success" id="start-time">-</div>
                                 </div>
@@ -613,7 +617,8 @@
                 // 更新时间信息
                 document.getElementById('start-time').textContent = formatTime(task.start_time);
                 document.getElementById('end-time').textContent = formatTime(task.end_time);
-                
+                document.getElementById('create-time').textContent = formatTime(task.created_at);
+
                 // 保存任务开始时间用于计算耗时
                 if (task.start_time) {
                     taskStartTime = new Date(task.start_time);
@@ -621,10 +626,10 @@
                 
                 // 计算执行时长
                 let duration = 0;
-                if (task.start_time) {
-                    const startTime = new Date(task.start_time);
+                if (task.created_at) {
+                    const cTime = new Date(task.created_at);
                     const endTime = task.end_time ? new Date(task.end_time) : new Date();
-                    duration = Math.max(0, Math.round((endTime - startTime) / 1000)); // 确保不为负数
+                    duration = Math.max(0, Math.round((endTime - cTime) / 1000)); // 确保不为负数
                 }
                 document.getElementById('execution-duration').textContent = formatDuration(duration);
                 

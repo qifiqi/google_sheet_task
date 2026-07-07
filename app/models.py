@@ -209,7 +209,7 @@ class TaskType(str, Enum):
     GOOGLE_SHEET = "google_sheet"
     GOOGLE_SHEET_C4 = "google_sheet_C4"
     GOOGLE_SHEET_C5 = "google_sheet_C5"
-    GOOGLE_SHEET_C7 = "google_sheet_c7"
+    GOOGLE_SHEET_C7 = "google_sheet_C7"
     BACKTEST_TRAINING = "backtest_training"
     BACKTEST_MULTI_PRODUCT = "backtest_multi_product"
     MODEL_SUMMARY_REBUILD = "model_summary_rebuild"
@@ -827,7 +827,7 @@ class GoogleSheet(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
     name = db.Column(db.String(255), nullable=False, index=True, comment="显示名称")
     spreadsheet_id = db.Column(db.String(255), nullable=False, unique=True, index=True, comment="Google Sheet表ID")
-    table_type = db.Column(db.String(20), nullable=False, default=GoogleSheetTableType.C3.value, index=True, comment="表类型：c3/c4/c5")
+    table_type = db.Column(db.String(20), nullable=False, default=GoogleSheetTableType.C3.value, index=True, comment="表类型：c3/c4/c5/c7")
     remark = db.Column(db.Text, comment="备注")
     is_active = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否启用")
     is_in_use = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否使用中")

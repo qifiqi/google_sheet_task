@@ -71,7 +71,7 @@ def tasks():
     """获取任务列表 / 创建任务"""
     try:
         if request.method == 'GET':
-            task_type = request.args.get('task_type').lower()
+            task_type = request.args.get('task_type')
             page = request.args.get('page', type=int)
             per_page = request.args.get('per_page', type=int)
             task_status = request.args.get('status')
