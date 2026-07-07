@@ -27,6 +27,7 @@ DEFAULT_NAVIGATION_MENU = [
         {"key": "c3", "label": "Google Sheet C3", "path": "/google-sheet/?version=c3", "permission": "page:google_sheet:c3"},
         {"key": "c4", "label": "Google Sheet C4", "path": "/google-sheet/?version=c4", "permission": "page:google_sheet:c4"},
         {"key": "c5", "label": "Google Sheet C5", "path": "/google-sheet/?version=c5", "permission": "page:google_sheet:c5"},
+        {"key": "c7", "label": "Google Sheet C7", "path": "/google-sheet/?version=c7", "permission": "page:google_sheet:c7"},
         {"key": "backtest", "label": "单品数据回测", "path": "/backtest-training/list", "permission": "page:backtest:list"},
         {"key": "backtest_multi_product", "label": "多品数据回测", "path": "/backtest-multi-product/list", "permission": "page:backtest_multi_product:list"},
         {"key": "xpl", "label": "夏普率计算", "path": "/xpl"},
@@ -49,6 +50,49 @@ def flatten_navigation_items(items, parent_key=None):
         rows.append(row)
         rows.extend(flatten_navigation_items(item.get("children") or [], item.get("key")))
     return rows
+
+
+NAV_LEGACY_PATH_MAP = {
+    "/task/list?version=c3": "/google-sheet/?version=c3",
+    "/task/list?version=c4": "/google-sheet/?version=c4",
+    "/task/list?version=c5": "/google-sheet/?version=c5",
+    "/task/list?version=c7": "/google-sheet/?version=c7",
+    "/task/create": "/google-sheet/create",
+    "/task/create/c3": "/google-sheet/?version=c3",
+    "/task/create/c4": "/google-sheet/?version=c4",
+    "/task/create/c5": "/google-sheet/?version=c5",
+    "/task/create/c7": "/google-sheet/?version=c7",
+    "/backtest/list": "/backtest-training/list",
+    "/backtest/create": "/backtest-training/create",
+    "/backtest-multi/list": "/backtest-multi-product/list",
+    "/backtest-multi/create": "/backtest-multi-product/create",
+}
+
+
+def normalize_nav_path(path):
+    return NAV_LEGACY_PATH_MAP.get(path, path)
+
+
+def normalize_nav_label(key, label):
+    if key == "backtest" and label == "数据回测":
+        return "单品数据回测"
+    return label
+
+
+def build_nav_permission_map(items=None):
+    permission_map = {}
+    for row in flatten_navigation_items(items or DEFAULT_NAVIGATION_MENU):
+        path = normalize_nav_path(row.get("path"))
+        permission = row.get("permission")
+        if path and permission:
+            permission_map[path] = permission
+
+    for legacy_path, normalized_path in NAV_LEGACY_PATH_MAP.items():
+        permission = permission_map.get(normalized_path)
+        if permission:
+            permission_map[legacy_path] = permission
+
+    return permission_map
 
 
 def build_navigation_tree(rows):

@@ -1,6 +1,6 @@
 {% extends "google_sheet/base.html" %}
 
-{% block title %}创建任务 - Google Sheet C5 参数批量校验{% endblock %}
+{% block title %}创建任务 - Google Sheet C7 参数批量校验{% endblock %}
 
 {% block styles %}
 <style>
@@ -1168,7 +1168,7 @@
         fetch('/api/templates?task_type=google_sheet_c7')
             .then(response => response.json())
             .then(data => {
-                if (!data || !data.status === 'success' || !Array.isArray(data.templates)) {
+                if (!data || data.status !== 'success' || !Array.isArray(data.templates)) {
                     console.error('Invalid response format:', data);
                     return;
                 }

@@ -65,13 +65,16 @@ Vue 前端通过 Vite dev server 代理 `/api`、`/admin/api`、`/backtest-train
 - `db.create_all()`
 - `ensure_google_sheet_token_schema()` / `ensure_user_schema()` / `ensure_task_schema()` — 运行时 ALTER TABLE 补列
 - `reset_google_sheet_token_occupancy()` / `reset_google_sheet_occupancy()`
-- `init_config2()` — 种子默认 SystemConfig
-- `init_rbac()` — 初始化角色/权限/默认管理员
-- `init_navigation_menu()` — 初始化导航菜单
 - `check_and_cleanup_dead_tasks()`
 - `init_scheduler()` / `init_task_watchdog()`
 
-任何影响任务状态、token 占用、RBAC、用户字段、看门狗行为的修改，都要同时评估 `run.py` 和 `app/startup.py`。
+启动入口不再写入默认 SystemConfig、RBAC、导航菜单或默认定时任务。需要同步这些种子数据时，显式执行：
+
+```powershell
+python scripts/seed_default_data.py
+```
+
+任何影响任务状态、token 占用、用户字段、看门狗行为的修改，都要同时评估 `run.py` 和 `app/startup.py`。
 
 ## 任务系统核心
 

@@ -107,18 +107,31 @@ pytest tests/test_specific.py::test_name
 - `ensure_google_sheet_token_schema()`
 - `ensure_user_schema()`
 - `ensure_task_schema()`
+- `ensure_*_schema()` 启动期兼容修补
 - `reset_google_sheet_token_occupancy()`
 - `reset_google_sheet_occupancy()`
-- `init_config2()`
-- `init_rbac()`
 - `check_and_cleanup_dead_tasks()`
 - `init_scheduler()`
 - `init_task_watchdog()`
 
-任何影响任务状态、token 占用、RBAC、用户字段、看门狗行为的修改，都要同时评估：
+启动入口不再写入默认配置、权限、导航菜单或默认定时任务。这些种子数据统一通过独立脚本执行：
+
+```powershell
+python scripts/seed_default_data.py
+```
+
+任何影响任务状态、token 占用、用户字段、看门狗行为的修改，都要同时评估：
 
 - `run.py`
 - `app/startup.py`
+
+任何影响默认配置、RBAC 权限、侧边栏导航菜单、默认定时任务的修改，要同时评估：
+
+- `app/config.py`
+- `app/navigation.py`
+- `app/seed_data.py`
+- `scripts/seed_default_data.py`
+- `docs/后端/页面权限配置维护说明.md`
 
 ## 路由与前端页面
 

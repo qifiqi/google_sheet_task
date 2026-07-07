@@ -404,19 +404,19 @@ def init_config():
 
         'c7_parameter_positions': {
             'value': ['A1', 'B1'],
-            'description': 'C5 模板参数输入单元格位置列表。',
+            'description': 'C7 模板参数输入单元格位置列表。',
         },
         'c7_check_positions': {
             'value': ['D2', 'D3'],
-            'description': 'C5 模板勾选/触发单元格位置列表。',
+            'description': 'C7 模板勾选/触发单元格位置列表。',
         },
         'c7_input_column_a': {
             'value': 'A',
-            'description': 'C5 模板输入列 A 的列标识。',
+            'description': 'C7 模板输入列 A 的列标识。',
         },
         'c7_input_column_b': {
             'value': 'B',
-            'description': 'C5 模板输入列 B 的列标识。',
+            'description': 'C7 模板输入列 B 的列标识。',
         },
         # 'c7_output_range_1': {
         #     'value': 'D2:F4',
@@ -424,19 +424,19 @@ def init_config():
         # },
         'c7_output_range_1': {
             'value': 'D8:D26',
-            'description': 'C5 模板第一段结果读取区域。',
+            'description': 'C7 模板第一段结果读取区域。',
         },
         'c7_output_range_2': {
             'value': 'D28:F31',
-            'description': 'C5 模板第二段结果读取区域。',
+            'description': 'C7 模板第二段结果读取区域。',
         },
         'c7_output_column_j': {
             'value': 'J',
-            'description': 'C5 模板输出列 J 的列标识。',
+            'description': 'C7 模板输出列 J 的列标识。',
         },
         'c7_output_column_l': {
             'value': 'L',
-            'description': 'C5 模板输出列 L 的列标识。',
+            'description': 'C7 模板输出列 L 的列标识。',
         },
 
     }
@@ -458,7 +458,7 @@ def init_config():
 
 # RBAC 权限定义，格式：(group, code, name, route_path)
 # route_path 仅供后台展示，标记该权限对应的前端路由入口
-# run.py 启动时幂等插入到数据库
+# scripts/seed_default_data.py 显式执行时幂等插入到数据库
 PERMISSIONS = [
     ('task',         'task:view',           '查看任务/日志/结果',    '/admin/tasks'),
     ('task',         'task:create',         '创建任务',              '/task/create'),
@@ -472,7 +472,7 @@ PERMISSIONS = [
     ('google_sheet', 'google_sheet:c3',     '访问 Google Sheet C3',  '/task/list?version=c3'),
     ('google_sheet', 'google_sheet:c4',     '访问 Google Sheet C4',  '/task/list?version=c4'),
     ('google_sheet', 'google_sheet:c5',     '访问 Google Sheet C5',  '/task/list?version=c5'),
-    ('google_sheet', 'google_sheet:c7',     '访问 Google Sheet c7',  '/task/list?version=c7'),
+    ('google_sheet', 'google_sheet:c7',     '访问 Google Sheet C7',  '/google-sheet/?version=c7'),
     ('config',       'config:view',         '查看系统配置',          '/admin/config'),
     ('config',       'config:manage',       '修改系统配置',          '/admin/config'),
     ('navigation',   'navigation:view',     '查看路由表',            '/admin/navigation'),
@@ -501,6 +501,7 @@ PERMISSIONS = [
     ('page',         'page:google_sheet:c3',    '访问 Google Sheet C3 页面', '/google-sheet/?version=c3'),
     ('page',         'page:google_sheet:c4',    '访问 Google Sheet C4 页面', '/google-sheet/?version=c4'),
     ('page',         'page:google_sheet:c5',    '访问 Google Sheet C5 页面', '/google-sheet/?version=c5'),
+    ('page',         'page:google_sheet:c7',    '访问 Google Sheet C7 页面', '/google-sheet/?version=c7'),
     ('page',         'page:backtest:list',      '访问回测列表页面',       '/backtest-training/list'),
     ('page',         'page:backtest:create',    '访问回测创建页面',       '/backtest-training/create'),
     ('page',         'page:backtest_multi_product:list',   '访问多品数据回测列表页面',   '/backtest-multi-product/list'),

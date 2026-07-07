@@ -1,3 +1,4 @@
+import hashlib
 import json
 import time
 from typing import Dict, Any
@@ -25,6 +26,11 @@ from app.utils.kline_validation import require_kline_rows
 
 
 logger = get_logger(__name__)
+
+
+def _advisory_lock_key(task_id: str) -> int:
+    digest = hashlib.sha256(str(task_id).encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
 
 
 class GoogleSheetService(BaseGoogleSheetService):
@@ -67,9 +73,10 @@ class GoogleSheetService(BaseGoogleSheetService):
             with context_app.app_context():
                 # 尝试获取 Postgres Advisory Lock，防止并发执行同一任务
                 lock_acquired = False
+                lock_key = _advisory_lock_key(self.task_id)
                 try:
                     lock_acquired = db.session.execute(
-                        text("SELECT pg_try_advisory_lock(:k)"), {"k": int(self.task_id)}
+                        text("SELECT pg_try_advisory_lock(:k)"), {"k": lock_key}
                     ).scalar()
                     if not lock_acquired:
                         self._log_warning(f"任务 {self.task_id} 已在运行（获取锁失败），拒绝并发执行 (c7)")
@@ -171,7 +178,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 释放 Advisory Lock（仅当成功获取时）
             try:
                 if 'lock_acquired' in locals() and lock_acquired:
-                    db.session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": int(self.task_id)})
+                    db.session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": lock_key})
             except Exception:
                 pass
 
@@ -547,7 +554,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 _check_values = initial_results[spreadsheet_id]
 
                 if (_check_values[f'{c7_output_range_1[0]}8'] == check_values[f'{c7_output_range_1[0]}8']
-                        and _check_values[f'{c7_output_range_1[0]}9'] == check_values[f'{c7_output_range_1[0]}8']):
+                        and _check_values[f'{c7_output_range_1[0]}9'] == check_values[f'{c7_output_range_1[0]}9']):
                 # if _check_values['D2'] == check_values['D2'] and _check_values['D3'] == check_values['D3']:
                     return False
 

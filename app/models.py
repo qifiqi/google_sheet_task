@@ -209,6 +209,7 @@ class TaskType(str, Enum):
     GOOGLE_SHEET = "google_sheet"
     GOOGLE_SHEET_C4 = "google_sheet_C4"
     GOOGLE_SHEET_C5 = "google_sheet_C5"
+    GOOGLE_SHEET_C7 = "google_sheet_c7"
     BACKTEST_TRAINING = "backtest_training"
     BACKTEST_MULTI_PRODUCT = "backtest_multi_product"
     MODEL_SUMMARY_REBUILD = "model_summary_rebuild"
@@ -223,6 +224,7 @@ class TaskType(str, Enum):
             "google_sheet_c31": cls.GOOGLE_SHEET.value,
             "google_sheet_c4": cls.GOOGLE_SHEET_C4.value,
             "google_sheet_c5": cls.GOOGLE_SHEET_C5.value,
+            "google_sheet_c7": cls.GOOGLE_SHEET_C7.value,
             "backtest": cls.BACKTEST_TRAINING.value,
             "backtest_training": cls.BACKTEST_TRAINING.value,
             "backtest_multi": cls.BACKTEST_MULTI_PRODUCT.value,
@@ -238,6 +240,7 @@ class TaskType(str, Enum):
             cls.GOOGLE_SHEET: "Google Sheet C3",
             cls.GOOGLE_SHEET_C4: "Google Sheet C4",
             cls.GOOGLE_SHEET_C5: "Google Sheet C5",
+            cls.GOOGLE_SHEET_C7: "Google Sheet C7",
             cls.BACKTEST_TRAINING: "单品回测",
             cls.BACKTEST_MULTI_PRODUCT: "多品回测",
             cls.MODEL_SUMMARY_REBUILD: "汇总索引重建",
