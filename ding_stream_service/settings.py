@@ -21,6 +21,8 @@ class DingStreamSettings:
     @classmethod
     def from_env(cls) -> "DingStreamSettings":
         load_dotenv(PROJECT_ROOT / ".env")
+        app_env = os.getenv("APP_ENV", "development").strip().lower() or "development"
+        load_dotenv(PROJECT_ROOT / f".env.{app_env}", override=True)
 
         client_id = os.getenv("DING_STREAM_CLIENT_ID", "").strip()
         client_secret = os.getenv("DING_STREAM_CLIENT_SECRET", "").strip()

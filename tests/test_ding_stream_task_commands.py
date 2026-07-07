@@ -1,5 +1,7 @@
 from ding_stream_service.task_commands import (
+    TaskCommandService,
     extract_task_id,
+    parse_cached_restart_index,
     parse_batch_restart_command,
     parse_list_command,
     parse_restart_command,
@@ -87,3 +89,45 @@ def test_parse_batch_restart_error_tasks_command_caps_limit():
 
     assert command is not None
     assert command.limit == 20
+
+
+def test_parse_cached_restart_index_command():
+    assert parse_cached_restart_index("重启第1个") == 1
+    assert parse_cached_restart_index("重启1") == 1
+
+
+def test_cached_index_restart_resolves_task_id():
+    service = TaskCommandService()
+    service.cache_list_result("conversation-1", [{"id": "task-1"}, {"id": "task-2"}])
+
+    command = service.parse_cached_index_restart_command("重启第2个", "conversation-1")
+
+    assert command is not None
+    assert command.target == "task-2"
+    assert command.target_type == "id"
+    assert command.source == "cached_index"
+
+
+def test_cached_index_restart_has_priority_over_task_name_restart():
+    service = TaskCommandService()
+    service.cache_list_result("conversation-1", [{"id": "task-1"}])
+
+    captured = {}
+
+    def fake_restart_task(command):
+        captured["command"] = command
+        return {
+            "status": "success",
+            "message": "任务重启成功",
+            "task_id": command.target,
+            "task_name": "测试任务",
+        }
+
+    service.restart_task = fake_restart_task
+
+    result = service.handle_message("重启第1个", "符青", "conversation-1")
+
+    assert result.handled is True
+    assert captured["command"].target == "task-1"
+    assert captured["command"].target_type == "id"
+    assert captured["command"].source == "cached_index"

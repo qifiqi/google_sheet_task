@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import parse_qs, urlparse
@@ -32,6 +33,7 @@ DIRECT_RESTART_RE = re.compile(
     r"^\s*(?:断点重启|重启任务|任务重启|重启|restart)\s*(?:任务)?\s*(.+?)\s*$",
     re.I | re.S,
 )
+INDEX_RESTART_RE = re.compile(r"^\s*(?:重启第?\s*(\d+)\s*个?|重启\s*(\d+))\s*$", re.I)
 RUNNING_TASK_RE = re.compile(r"(?:查看)?(?:当前)?(?:运行中|运行)(?:的)?(?:任务|项目)", re.I)
 STOPPED_TASK_RE = re.compile(r"(?:查看)?(?:停止|已停止|结束)(?:的)?(?:任务|项目)", re.I)
 PAGE_RE = re.compile(r"第\s*(\d+)\s*页")
@@ -40,6 +42,7 @@ LIMIT_RE = re.compile(r"(?:数量|最多|前)\s*(\d+)\s*(?:条|个)?")
 STOPPED_STATUSES = ["completed", "cancelled", "error",'pending']
 DEFAULT_BATCH_RESTART_LIMIT = 5
 MAX_BATCH_RESTART_LIMIT = 20
+LIST_CACHE_TTL_SECONDS = 600
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,7 @@ class ParsedRestartCommand:
     target: str
     target_type: Literal["id", "name"]
     resume_from_checkpoint: bool = True
+    source: Literal["direct", "cached_index"] = "direct"
 
 
 @dataclass(frozen=True)
@@ -75,8 +79,15 @@ class TaskCommandService:
     def __init__(self):
         self._app = None
         self._app_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
+        self._list_cache: dict[str, tuple[float, list[dict]]] = {}
 
-    def handle_message(self, text: str, sender_nick: str) -> TaskCommandResult:
+    def handle_message(
+        self,
+        text: str,
+        sender_nick: str,
+        conversation_id: str = "default",
+    ) -> TaskCommandResult:
         batch_restart_command = parse_batch_restart_command(text)
         if batch_restart_command:
             logger.info(
@@ -106,6 +117,7 @@ class TaskCommandService:
             )
             try:
                 result = self.list_tasks(list_command)
+                self.cache_list_result(conversation_id, result.get("tasks") or [])
             except Exception as exc:
                 logger.exception("执行钉钉任务查询指令失败: %s", exc)
                 result = {"status": "error", "message": str(exc)}
@@ -114,7 +126,9 @@ class TaskCommandService:
                 message=format_list_reply(result, list_command, sender_nick),
             )
 
-        restart_command = parse_restart_command(text)
+        restart_command = self.parse_cached_index_restart_command(text, conversation_id)
+        if not restart_command:
+            restart_command = parse_restart_command(text)
         if not restart_command:
             return TaskCommandResult(handled=False)
 
@@ -133,6 +147,78 @@ class TaskCommandService:
             handled=True,
             message=format_restart_reply(result, sender_nick),
             )
+
+    def cache_list_result(self, conversation_id: str, tasks: list[dict]) -> None:
+        key = _cache_key(conversation_id)
+        with self._cache_lock:
+            self._list_cache[key] = (time.time(), tasks)
+        logger.info(
+            "缓存任务查询结果: conversation_id=%s count=%s ttl_seconds=%s",
+            key,
+            len(tasks),
+            LIST_CACHE_TTL_SECONDS,
+        )
+
+    def parse_cached_index_restart_command(
+        self,
+        text: str,
+        conversation_id: str,
+    ) -> ParsedRestartCommand | None:
+        index = parse_cached_restart_index(text)
+        if index is None:
+            return None
+
+        key = _cache_key(conversation_id)
+        with self._cache_lock:
+            cached = self._list_cache.get(key)
+
+        if not cached:
+            logger.warning("未找到任务查询缓存: conversation_id=%s index=%s", key, index)
+            return ParsedRestartCommand(
+                target=f"最近查询结果已过期，请先发送“查看停止任务”或“查看运行任务”（序号 {index}）",
+                target_type="name",
+                source="cached_index",
+            )
+
+        cached_at, tasks = cached
+        if time.time() - cached_at > LIST_CACHE_TTL_SECONDS:
+            with self._cache_lock:
+                self._list_cache.pop(key, None)
+            logger.warning("任务查询缓存已过期: conversation_id=%s index=%s", key, index)
+            return ParsedRestartCommand(
+                target=f"最近查询结果已过期，请先发送“查看停止任务”或“查看运行任务”（序号 {index}）",
+                target_type="name",
+                source="cached_index",
+            )
+
+        if index < 1 or index > len(tasks):
+            logger.warning(
+                "任务查询缓存序号越界: conversation_id=%s index=%s count=%s",
+                key,
+                index,
+                len(tasks),
+            )
+            return ParsedRestartCommand(
+                target=f"序号 {index} 不在最近查询结果中，请重新查询后选择",
+                target_type="name",
+                source="cached_index",
+            )
+
+        task = tasks[index - 1]
+        task_id = str(task.get("id") or "").strip()
+        if not task_id:
+            return None
+        logger.info(
+            "通过查询缓存解析重启序号: conversation_id=%s index=%s task_id=%s",
+            key,
+            index,
+            task_id,
+        )
+        return ParsedRestartCommand(
+            target=task_id,
+            target_type="id",
+            source="cached_index",
+        )
 
     def restart_error_tasks(self, command: ParsedBatchRestartCommand) -> dict:
         app = self._get_app()
@@ -235,6 +321,9 @@ class TaskCommandService:
             }
 
     def restart_task(self, command: ParsedRestartCommand) -> dict:
+        if command.source == "cached_index" and command.target_type != "id":
+            return {"status": "error", "message": command.target}
+
         app = self._get_app()
         with app.app_context():
             task, error_message = self._resolve_task(command)
@@ -332,6 +421,19 @@ def parse_restart_command(text: str) -> ParsedRestartCommand | None:
             )
 
     return None
+
+
+def parse_cached_restart_index(text: str) -> int | None:
+    normalized_text = _strip_bot_mentions(text)
+    match = INDEX_RESTART_RE.match(normalized_text)
+    if not match:
+        return None
+    raw_index = match.group(1) or match.group(2)
+    try:
+        index = int(raw_index)
+    except (TypeError, ValueError):
+        return None
+    return index if index > 0 else None
 
 
 def parse_batch_restart_command(text: str) -> ParsedBatchRestartCommand | None:
@@ -521,7 +623,9 @@ def format_list_reply(result: dict, command: ParsedListCommand, sender_nick: str
                 f"   - **状态**：{task['status']}",
                 f"   - **类型**：{task['task_type']}",
                 f"   - **进度**：{progress}",
-                f"   - **任务ID**：{task['id']}",
+                f"   - **快捷操作**：重启第{index}个",
+                "   - **复制重启指令**：",
+                f"```text\n重启任务 {task['id']}\n```",
             ]
         )
 
@@ -588,3 +692,7 @@ def _format_progress(task: dict) -> str:
 
 def _list_title(command: ParsedListCommand) -> str:
     return "当前运行任务" if command.status_group == "running" else "已停止任务"
+
+
+def _cache_key(conversation_id: str) -> str:
+    return str(conversation_id or "default").strip() or "default"

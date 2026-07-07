@@ -79,20 +79,29 @@ class DingStreamEventHandler(dingtalk_stream.EventHandler):
             logger.info("消息内容为空，跳过处理")
             return dingtalk_stream.AckMessage.STATUS_OK, "OK"
 
-        reply_text = self.process_message(text_content, sender_nick)
+        reply_text = self.process_message(text_content, sender_nick, conversation_id)
         if reply_text:
             await self.send_reply_via_webhook(session_webhook, reply_text)
 
         return dingtalk_stream.AckMessage.STATUS_OK, "OK"
 
-    def process_message(self, text: str, sender_nick: str) -> str:
+    def process_message(
+        self,
+        text: str,
+        sender_nick: str,
+        conversation_id: str = "default",
+    ) -> str:
         text = re.sub(r"@[\u4e00-\u9fa5a-zA-Z0-9_]+", "", text).strip()
         logger.info("处理后消息: %s", text)
 
         if not text:
             return self.build_help_menu(sender_nick)
 
-        task_command_result = self.task_command_service.handle_message(text, sender_nick)
+        task_command_result = self.task_command_service.handle_message(
+            text,
+            sender_nick,
+            conversation_id,
+        )
         if task_command_result.handled:
             return task_command_result.message
 
