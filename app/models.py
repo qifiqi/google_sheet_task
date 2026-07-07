@@ -134,6 +134,7 @@ class GoogleSheetTableType(str, Enum):
     C3 = "c3"
     C4 = "c4"
     C5 = "c5"
+    C7 = "c7"
 
     @classmethod
     def normalize(cls, value: str | None, default: str | None = None) -> str | None:

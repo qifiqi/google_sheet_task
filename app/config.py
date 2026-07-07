@@ -377,6 +377,44 @@ def init_config():
             'value': 'L',
             'description': 'C5 模板输出列 L 的列标识。',
         },
+
+        'c7_parameter_positions': {
+            'value': ['A1', 'B1'],
+            'description': 'C5 模板参数输入单元格位置列表。',
+        },
+        'c7_check_positions': {
+            'value': ['D2', 'D3'],
+            'description': 'C5 模板勾选/触发单元格位置列表。',
+        },
+        'c7_input_column_a': {
+            'value': 'A',
+            'description': 'C5 模板输入列 A 的列标识。',
+        },
+        'c7_input_column_b': {
+            'value': 'B',
+            'description': 'C5 模板输入列 B 的列标识。',
+        },
+        # 'c7_output_range_1': {
+        #     'value': 'D2:F4',
+        #     'description': 'C5 模板第一段结果读取区域。',
+        # },
+        'c7_output_range_1': {
+            'value': 'D8:D26',
+            'description': 'C5 模板第一段结果读取区域。',
+        },
+        'c7_output_range_2': {
+            'value': 'D28:F31',
+            'description': 'C5 模板第二段结果读取区域。',
+        },
+        'c7_output_column_j': {
+            'value': 'J',
+            'description': 'C5 模板输出列 J 的列标识。',
+        },
+        'c7_output_column_l': {
+            'value': 'L',
+            'description': 'C5 模板输出列 L 的列标识。',
+        },
+
     }
 
     existing_configs = {
@@ -410,6 +448,7 @@ PERMISSIONS = [
     ('google_sheet', 'google_sheet:c3',     '访问 Google Sheet C3',  '/task/list?version=c3'),
     ('google_sheet', 'google_sheet:c4',     '访问 Google Sheet C4',  '/task/list?version=c4'),
     ('google_sheet', 'google_sheet:c5',     '访问 Google Sheet C5',  '/task/list?version=c5'),
+    ('google_sheet', 'google_sheet:c7',     '访问 Google Sheet c7',  '/task/list?version=c7'),
     ('config',       'config:view',         '查看系统配置',          '/admin/config'),
     ('config',       'config:manage',       '修改系统配置',          '/admin/config'),
     ('navigation',   'navigation:view',     '查看路由表',            '/admin/navigation'),

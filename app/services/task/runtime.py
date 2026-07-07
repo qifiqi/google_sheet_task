@@ -18,6 +18,7 @@ from app.services.config_manager import get_config_manager
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_service_C4 import GoogleSheetService as GoogleSheetServiceC4
 from app.services.google_sheet_service_C5 import GoogleSheetService as GoogleSheetServiceC5
+from app.services.google_sheet_service_C7 import GoogleSheetService as GoogleSheetServiceC7
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger, get_task_logger
@@ -543,36 +544,43 @@ class TaskRuntimeMixin:
         task_logger.info("开始启动任务 - 名称: %s, 类型: %s", task.name, task.task_type)
         self.task_stop_events[task_id] = threading.Event()
         app = current_app._get_current_object()
-
-        if task.task_type == "google_sheet":
+        task_type = task.task_type.lower()
+        if task_type == "google_sheet":
             new_thread = threading.Thread(
                 target=self._execute_google_sheet_task,
                 args=(task_id, app),
                 name=task_id,
             )
             task_logger.info("创建Google Sheet任务执行线程")
-        elif task.task_type == "google_sheet_C4":
+        elif task_type == "google_sheet_c4":
             new_thread = threading.Thread(
                 target=self._execute_google_sheet_c4_task,
                 args=(task_id, app),
                 name=task_id,
             )
             task_logger.info("创建Google Sheet C4 任务执行线程")
-        elif task.task_type == "google_sheet_C5":
+        elif task_type == "google_sheet_c5":
             new_thread = threading.Thread(
                 target=self._execute_google_sheet_c5_task,
                 args=(task_id, app),
                 name=task_id,
             )
             task_logger.info("创建Google Sheet C5 任务执行线程")
-        elif task.task_type == "backtest_training":
+        elif task_type == "google_sheet_c7":
+            new_thread = threading.Thread(
+                target=self._execute_google_sheet_c7_task,
+                args=(task_id, app),
+                name=task_id,
+            )
+            task_logger.info("创建Google Sheet C7 任务执行线程")
+        elif task_type == "backtest_training":
             new_thread = threading.Thread(
                 target=self._execute_backtest_training_task,
                 args=(task_id, app),
                 name=task_id,
             )
             task_logger.info("创建回测数据训练任务执行线程")
-        elif task.task_type == "backtest_multi_product":
+        elif task_type == "backtest_multi_product":
             new_thread = threading.Thread(
                 target=self._execute_backtest_multi_product_task,
                 args=(task_id, app),
@@ -580,13 +588,13 @@ class TaskRuntimeMixin:
             )
             task_logger.info("创建多品数据回测任务执行线程")
         else:
-            error_msg = f"不支持的任务类型: {task.task_type}"
+            error_msg = f"不支持的任务类型: {task_type}"
             self.start_errors[task_id] = error_msg
             self.task_stop_events.pop(task_id, None)
             self.release_task_token_occupancy(task_id)
             self.release_google_sheet_occupancy(task_id)
             task_logger.error(error_msg)
-            logger.error("不支持的任务类型: %s", task.task_type)
+            logger.error("不支持的任务类型: %s", task_type)
             return False
 
         self.running_tasks[task_id] = new_thread
@@ -599,7 +607,7 @@ class TaskRuntimeMixin:
             self.release_google_sheet_occupancy(task_id)
             for spreadsheet_id in reserved_backtest_spreadsheet_ids:
                 self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
-            if self._is_backtest_task_type(task.task_type):
+            if self._is_backtest_task_type(task_type):
                 Task.query.filter(Task.id == task_id, Task.status == "running").update(
                     {"status": "pending", "start_time": None},
                     synchronize_session=False,
@@ -780,6 +788,17 @@ class TaskRuntimeMixin:
             service_class=GoogleSheetServiceC5,
             business_message="开始执行 C5 任务业务逻辑",
             failure_label="执行 C5 任务失败",
+        )
+
+    def _execute_google_sheet_c7_task(self, task_id: str, app) -> None:
+        self._execute_service_task(
+            task_id,
+            app,
+            logger_name=f"{__name__}.C7.{task_id}",
+            start_message="开始执行Google Sheet C7 任务",
+            service_class=GoogleSheetServiceC7,
+            business_message="开始执行 C7 任务业务逻辑",
+            failure_label="执行 C7 任务失败",
         )
 
     def _execute_backtest_training_task(self, task_id: str, app) -> None:

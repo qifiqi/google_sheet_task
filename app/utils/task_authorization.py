@@ -13,6 +13,7 @@ KNOWN_SCOPED_TASK_TYPES = {
     "google_sheet",
     "google_sheet_c4",
     "google_sheet_c5",
+    "google_sheet_c7",
     "backtest_training",
     "backtest_multi_product",
     "model_summary_rebuild",

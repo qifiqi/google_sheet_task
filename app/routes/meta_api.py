@@ -21,6 +21,7 @@ def get_versions():
         {"value": "c3", "label": "C3", "create_url": "/google-sheet/create"},
         {"value": "c4", "label": "C4", "create_url": "/google-sheet/create?version=c4"},
         {"value": "c5", "label": "C5", "create_url": "/google-sheet/create?version=c5"},
+        {"value": "C7", "label": "C7", "create_url": "/google-sheet/create?version=c7"},
         {"value": "c31", "label": "C31 批量", "create_url": "/google-sheet/create?version=c31"},
         {"value": "backtest_training", "label": "回测训练", "create_url": "/backtest-training/create"},
         {"value": "backtest_multi_product", "label": "多品数据回测", "create_url": "/backtest-multi-product/create"},

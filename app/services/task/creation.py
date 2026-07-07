@@ -82,7 +82,7 @@ class TaskCreationMixin:
         if not isinstance(config, dict):
             return config
         normalized = dict(config)
-        if task_type in ("google_sheet", "google_sheet_C4", "google_sheet_C5"):
+        if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
         elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
@@ -95,7 +95,7 @@ class TaskCreationMixin:
                 else "sp_price"
             )
 
-        if task_type in ("google_sheet_C4", "google_sheet_C5"):
+        if task_type.lower() in ("google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
             normalized.pop("spreadsheet_id", None)
             normalized.pop("sheet_name", None)
 
