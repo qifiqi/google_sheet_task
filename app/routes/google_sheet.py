@@ -13,6 +13,8 @@ def _version_from_task_type(task_type):
     normalized_type = (task_type or '').lower()
     if normalized_type == 'google_sheet_c5':
         return 'c5'
+    if normalized_type == 'google_sheet_c7':
+        return 'c7'
     if normalized_type == 'google_sheet_c4':
         return 'c4'
     if normalized_type == 'google_sheet':
@@ -54,6 +56,8 @@ def create():
         return render_template('google_sheet_c31/create.html', version='c31')
     if version == 'c5':
         return render_template('google_sheet_c5/create.html', version='c5')
+    if version == 'c7':
+        return render_template('google_sheet_c7/create.html', version='c7')
     if version == 'c4':
         return render_template('google_sheet_c4/create.html', version='c4')
     return render_template('google_sheet/create.html', version=None)
@@ -71,6 +75,8 @@ def detail():
 
     if version == 'c5':
         return render_template('google_sheet_c5/detail.html', version='c5')
+    if version == 'c7':
+        return render_template('google_sheet_c7/detail.html', version='c7')
     if version == 'c4':
         return render_template('google_sheet_c4/detail.html', version='c4')
     return render_template('google_sheet/detail.html', version=None)
