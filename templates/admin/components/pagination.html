@@ -1,0 +1,16 @@
+{% macro admin_pagination(info_id='paginationInfo', page_size_id='pageSize', pagination_id='pagination', selected=50, label='分页') %}
+<div class="admin-pagination">
+    <div class="admin-pagination__meta">
+        <span class="admin-pagination__info" id="{{ info_id }}">暂无数据</span>
+        <label class="admin-pagination__size-label" for="{{ page_size_id }}">每页</label>
+        <select class="form-select form-select-sm admin-pagination__size" id="{{ page_size_id }}">
+            {% for size in [20, 50, 100, 200] %}
+            <option value="{{ size }}" {% if size == selected %}selected{% endif %}>{{ size }} / 页</option>
+            {% endfor %}
+        </select>
+    </div>
+    <nav aria-label="{{ label }}">
+        <ul class="pagination pagination-sm admin-pagination__pages mb-0" id="{{ pagination_id }}"></ul>
+    </nav>
+</div>
+{% endmacro %}

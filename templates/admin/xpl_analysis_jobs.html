@@ -1,0 +1,597 @@
+{% extends "admin/base.html" %}
+{% from "admin/components/pagination.html" import admin_pagination %}
+
+{% block title %}XPL Job 运维 - Jaspil 任务管理系统{% endblock %}
+
+{% block content %}
+<div class="xpl-page-header">
+    <div>
+        <h1 class="xpl-page-title">XPL Job 运维</h1>
+        <div class="xpl-page-subtitle">异步分析队列、失败重试和任务级积压排查</div>
+    </div>
+    <div class="xpl-page-actions">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="refreshBtn">
+            <i class="bi bi-arrow-clockwise"></i> 刷新
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" id="retryTaskBtn" data-permission="database:model_summary,database:manage">
+            <i class="bi bi-arrow-repeat"></i> 重试当前任务失败 Job
+        </button>
+    </div>
+</div>
+
+<div class="xpl-status-grid" id="statsCards">
+    <div class="xpl-status-card status-pending">
+        <div class="xpl-status-icon"><i class="bi bi-hourglass-split"></i></div>
+        <div>
+            <div class="xpl-status-label">待处理</div>
+            <div class="xpl-status-value" data-stat="pending">0</div>
+        </div>
+    </div>
+    <div class="xpl-status-card status-running">
+        <div class="xpl-status-icon"><i class="bi bi-cpu"></i></div>
+        <div>
+            <div class="xpl-status-label">运行中</div>
+            <div class="xpl-status-value" data-stat="running">0</div>
+        </div>
+    </div>
+    <div class="xpl-status-card status-retrying">
+        <div class="xpl-status-icon"><i class="bi bi-arrow-repeat"></i></div>
+        <div>
+            <div class="xpl-status-label">重试中</div>
+            <div class="xpl-status-value" data-stat="retrying">0</div>
+        </div>
+    </div>
+    <div class="xpl-status-card status-completed">
+        <div class="xpl-status-icon"><i class="bi bi-check2-circle"></i></div>
+        <div>
+            <div class="xpl-status-label">已完成</div>
+            <div class="xpl-status-value" data-stat="completed">0</div>
+        </div>
+    </div>
+    <div class="xpl-status-card status-error">
+        <div class="xpl-status-icon"><i class="bi bi-exclamation-triangle"></i></div>
+        <div>
+            <div class="xpl-status-label">失败</div>
+            <div class="xpl-status-value" data-stat="error">0</div>
+        </div>
+    </div>
+    <div class="xpl-status-card status-cancelled">
+        <div class="xpl-status-icon"><i class="bi bi-slash-circle"></i></div>
+        <div>
+            <div class="xpl-status-label">已取消</div>
+            <div class="xpl-status-value" data-stat="cancelled">0</div>
+        </div>
+    </div>
+</div>
+
+<div class="xpl-filter-panel">
+    <form class="xpl-filter-grid" id="filterForm">
+        <div class="xpl-filter-main">
+            <div>
+                <label class="form-label" for="taskIdFilter">任务 ID</label>
+                <input type="text" class="form-control" id="taskIdFilter" placeholder="精确 task_id，可从任务页复制">
+            </div>
+            <div>
+                <label class="form-label" for="statusFilter">Job 状态</label>
+                <select class="form-select" id="statusFilter">
+                    <option value="">全部</option>
+                    <option value="pending">待处理</option>
+                    <option value="running">运行中</option>
+                    <option value="retrying">重试中</option>
+                    <option value="completed">已完成</option>
+                    <option value="error">失败</option>
+                    <option value="cancelled">已取消</option>
+                </select>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary xpl-query-btn" id="queryBtn">
+            <i class="bi bi-search"></i> 查询
+        </button>
+    </form>
+    <div class="xpl-filter-status" id="statusText">等待加载</div>
+</div>
+
+<div class="xpl-table-panel">
+    <div class="xpl-table-header">
+        <div>
+            <h2 class="xpl-section-title">Job 列表</h2>
+            <div class="xpl-section-subtitle">按创建时间倒序展示，失败和重试中 job 可直接重新入队。</div>
+        </div>
+    </div>
+    <div class="table-responsive xpl-job-table-wrap">
+        <table class="table table-hover align-middle mb-0 xpl-job-table">
+            <thead>
+                <tr>
+                    <th>Job ID</th>
+                    <th>状态</th>
+                    <th>任务 ID</th>
+                    <th>结果 ID</th>
+                    <th>收益序列</th>
+                    <th>尝试次数</th>
+                    <th>Worker</th>
+                    <th>创建时间</th>
+                    <th>开始时间</th>
+                    <th>完成时间</th>
+                    <th>错误</th>
+                    <th class="text-end">操作</th>
+                </tr>
+            </thead>
+            <tbody id="jobsBody">
+                <tr><td colspan="12" class="text-center text-muted py-5">正在加载...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    {{ admin_pagination('paginationText', 'pageSize', 'jobPagination', 50, 'XPL Job 分页') }}
+</div>
+
+<style>
+    .xpl-page-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.55rem 0 1rem;
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .xpl-page-title {
+        margin: 0;
+        color: var(--bs-emphasis-color);
+        font-size: 1.55rem;
+        font-weight: 760;
+        line-height: 1.2;
+    }
+    .xpl-page-subtitle {
+        margin-top: 0.35rem;
+        color: var(--bs-secondary-color);
+        font-size: 0.88rem;
+    }
+    .xpl-page-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+    .xpl-status-grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 0.65rem;
+        margin: 0.9rem 0 0.75rem;
+    }
+    .xpl-status-card {
+        display: flex;
+        align-items: center;
+        gap: 0.72rem;
+        min-height: 4.35rem;
+        padding: 0.78rem 0.86rem;
+        border: 1px solid var(--bs-border-color);
+        border-left-width: 0.25rem;
+        border-radius: 0.5rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 0.08rem 0.24rem rgba(15, 23, 42, 0.04);
+    }
+    .xpl-status-icon {
+        width: 2.05rem;
+        height: 2.05rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.45rem;
+        background: #f8fafc;
+        color: var(--xpl-accent);
+        flex: 0 0 auto;
+    }
+    .xpl-status-label {
+        color: var(--bs-secondary-color);
+        font-size: 0.74rem;
+        font-weight: 700;
+    }
+    .xpl-status-value {
+        color: var(--bs-emphasis-color);
+        font-size: 1.45rem;
+        font-weight: 760;
+        line-height: 1.05;
+        font-variant-numeric: tabular-nums;
+    }
+    .status-pending { --xpl-accent: #64748b; border-left-color: #64748b; }
+    .status-running { --xpl-accent: #d97706; border-left-color: #f59e0b; }
+    .status-retrying { --xpl-accent: #0891b2; border-left-color: #06b6d4; }
+    .status-completed { --xpl-accent: #15803d; border-left-color: #22c55e; }
+    .status-error { --xpl-accent: #dc2626; border-left-color: #ef4444; }
+    .status-cancelled { --xpl-accent: #334155; border-left-color: #475569; }
+    .xpl-filter-panel,
+    .xpl-table-panel {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 0.08rem 0.24rem rgba(15, 23, 42, 0.04);
+    }
+    .xpl-filter-panel {
+        margin-bottom: 0.75rem;
+        padding: 0.78rem 0.95rem;
+    }
+    .xpl-filter-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.75rem;
+        align-items: end;
+    }
+    .xpl-filter-main {
+        display: grid;
+        grid-template-columns: minmax(18rem, 1.7fr) minmax(12rem, 0.8fr);
+        gap: 0.75rem;
+        align-items: end;
+    }
+    .xpl-filter-panel .form-label {
+        margin-bottom: 0.28rem;
+        color: var(--bs-secondary-color);
+        font-size: 0.76rem;
+        font-weight: 700;
+    }
+    .xpl-filter-panel .form-control,
+    .xpl-filter-panel .form-select,
+    .xpl-query-btn {
+        min-height: 2.35rem;
+    }
+    .xpl-query-btn {
+        min-width: 9rem;
+        white-space: nowrap;
+    }
+    .xpl-filter-status {
+        margin-top: 0.48rem;
+        color: var(--bs-secondary-color);
+        font-size: 0.78rem;
+    }
+    .xpl-table-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.85rem 1rem 0.78rem;
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .xpl-section-title {
+        margin: 0;
+        color: var(--bs-emphasis-color);
+        font-size: 1rem;
+        font-weight: 760;
+    }
+    .xpl-section-subtitle {
+        margin-top: 0.18rem;
+        color: var(--bs-secondary-color);
+        font-size: 0.78rem;
+    }
+    .xpl-job-table-wrap {
+        max-height: calc(100vh - 390px);
+        min-height: 25rem;
+    }
+    .xpl-job-table {
+        min-width: 1380px;
+        font-size: 0.82rem;
+    }
+    .xpl-job-table th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        padding: 0.62rem 0.72rem;
+        border-bottom-color: var(--bs-border-color);
+        background: #f8fafc;
+        color: #475569;
+        font-size: 0.74rem;
+        font-weight: 760;
+        white-space: nowrap;
+    }
+    .xpl-job-table td {
+        padding: 0.62rem 0.72rem;
+        white-space: nowrap;
+    }
+    .xpl-job-table tbody tr:hover td {
+        background: rgba(13, 110, 253, 0.035);
+    }
+    .xpl-job-error {
+        max-width: 260px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .xpl-job-id {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.78rem;
+    }
+    .xpl-empty-state {
+        display: grid;
+        place-items: center;
+        min-height: 9rem;
+        color: var(--bs-secondary-color);
+    }
+    .xpl-empty-state__icon {
+        width: 2.6rem;
+        height: 2.6rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 0.55rem;
+        border-radius: 0.5rem;
+        background: #f1f5f9;
+        color: #64748b;
+        font-size: 1.25rem;
+    }
+    html[data-bs-theme="dark"] .xpl-status-icon,
+    html[data-bs-theme="dark"] .xpl-job-table th,
+    html[data-bs-theme="dark"] .xpl-empty-state__icon {
+        background: #1e293b;
+    }
+    @media (max-width: 1199.98px) {
+        .xpl-status-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 767.98px) {
+        .xpl-page-header {
+            align-items: stretch;
+            flex-direction: column;
+        }
+        .xpl-page-actions {
+            justify-content: flex-start;
+        }
+        .xpl-status-grid,
+        .xpl-filter-main,
+        .xpl-filter-grid {
+            grid-template-columns: 1fr;
+        }
+        .xpl-query-btn {
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin-pagination.js') }}"></script>
+<script>
+    const state = {
+        page: 1,
+        perPage: 50,
+        total: 0,
+        pages: 0,
+        hasPrev: false,
+        hasNext: false,
+    };
+
+    const statusMeta = {
+        pending: { label: "待处理", className: "bg-secondary" },
+        running: { label: "运行中", className: "bg-warning text-dark" },
+        retrying: { label: "重试中", className: "bg-info text-dark" },
+        completed: { label: "已完成", className: "bg-success" },
+        error: { label: "失败", className: "bg-danger" },
+        cancelled: { label: "已取消", className: "bg-dark" },
+    };
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function formatTime(value) {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "-";
+        return date.toLocaleString("zh-CN", { hour12: false });
+    }
+
+    function formatStatus(status) {
+        const meta = statusMeta[status] || { label: status || "-", className: "bg-secondary" };
+        return `<span class="badge ${meta.className}">${escapeHtml(meta.label)}</span>`;
+    }
+
+    function shortId(value) {
+        const text = String(value || "");
+        return text.length > 12 ? `${text.slice(0, 8)}...${text.slice(-4)}` : text;
+    }
+
+    function hasAnyPermission(permissions) {
+        if (document.body?.dataset?.authEnabled === "false") {
+            return true;
+        }
+        if (!window.TemplateApp || typeof window.TemplateApp.hasPermission !== "function") {
+            return true;
+        }
+        return permissions.some((permission) => window.TemplateApp.hasPermission(permission));
+    }
+
+    function collectParams() {
+        const params = new URLSearchParams();
+        params.set("page", String(state.page));
+        params.set("per_page", String(state.perPage));
+        const taskId = document.getElementById("taskIdFilter").value.trim();
+        const status = document.getElementById("statusFilter").value;
+        if (taskId) params.set("task_id", taskId);
+        if (status) params.set("status", status);
+        return params;
+    }
+
+    async function requestJson(url, options = {}) {
+        const response = await fetch(url, options);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || (data.status && data.status !== "success")) {
+            throw new Error(data.message || data.error || `请求失败 ${response.status}`);
+        }
+        return data;
+    }
+
+    function renderStats(stats) {
+        ["pending", "running", "retrying", "completed", "error", "cancelled"].forEach((key) => {
+            const node = document.querySelector(`[data-stat="${key}"]`);
+            if (node) node.textContent = String(stats?.[key] || 0);
+        });
+    }
+
+    function renderJobs(items) {
+        const body = document.getElementById("jobsBody");
+        if (!items.length) {
+            body.innerHTML = `
+                <tr>
+                    <td colspan="12">
+                        <div class="xpl-empty-state">
+                            <div>
+                                <div class="xpl-empty-state__icon"><i class="bi bi-inbox"></i></div>
+                                <div class="fw-semibold text-body">暂无 XPL job</div>
+                                <div class="small mt-1">调整筛选条件，或启用异步 XPL 后等待任务入队。</div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        body.innerHTML = items.map((job) => {
+            const canManage = hasAnyPermission(["database:model_summary", "database:manage"]);
+            const canRetry = canManage && (job.status === "error" || job.status === "retrying");
+            const retryButton = canRetry
+                ? `<button type="button" class="btn btn-outline-primary btn-sm" onclick="retryJob(${Number(job.id)})"><i class="bi bi-arrow-repeat"></i> 重试</button>`
+                : "";
+            const taskLink = job.task_id
+                ? `<a class="xpl-job-id" href="/admin/tasks?keyword=${encodeURIComponent(job.task_id)}" title="${escapeHtml(job.task_id)}">${escapeHtml(shortId(job.task_id))}</a>`
+                : "-";
+            const resultLink = job.task_result_id
+                ? `<a href="/admin/results?task_id=${encodeURIComponent(job.task_id || "")}">${escapeHtml(job.task_result_id)}</a>`
+                : "-";
+            const errorMessage = job.error_message || "";
+            return `
+                <tr>
+                    <td>${escapeHtml(job.id)}</td>
+                    <td>${formatStatus(job.status)}</td>
+                    <td>${taskLink}</td>
+                    <td>${resultLink}</td>
+                    <td>${escapeHtml(job.return_series_id || "-")}</td>
+                    <td>${escapeHtml(job.attempts ?? 0)} / ${escapeHtml(job.max_attempts ?? "-")}</td>
+                    <td>${escapeHtml(job.locked_by || "-")}</td>
+                    <td>${formatTime(job.created_at)}</td>
+                    <td>${formatTime(job.started_at)}</td>
+                    <td>${formatTime(job.finished_at)}</td>
+                    <td><div class="xpl-job-error" title="${escapeHtml(errorMessage)}">${escapeHtml(errorMessage || "-")}</div></td>
+                    <td class="text-end">${retryButton || '<span class="text-muted">-</span>'}</td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    function renderPagination() {
+        window.AdminPagination.render({
+            infoId: "paginationText",
+            paginationId: "jobPagination",
+            pagination: {
+                page: state.page,
+                per_page: state.perPage,
+                total: state.total,
+                pages: state.pages,
+                has_prev: state.hasPrev,
+                has_next: state.hasNext,
+            },
+            noun: "个 job",
+            currentPage: state.page,
+            onPageChange: (page) => {
+                state.page = page;
+                loadJobs().catch((error) => {
+                    document.getElementById("statusText").textContent = error.message;
+                });
+            },
+        });
+    }
+
+    async function loadStats() {
+        const params = new URLSearchParams();
+        const taskId = document.getElementById("taskIdFilter").value.trim();
+        if (taskId) params.set("task_id", taskId);
+        const query = params.toString();
+        const data = await requestJson(`/admin/api/xpl-analysis/jobs/stats${query ? `?${query}` : ""}`);
+        renderStats(data.stats || {});
+    }
+
+    async function loadJobs() {
+        const queryButton = document.getElementById("queryBtn");
+        queryButton.disabled = true;
+        queryButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>查询中';
+        document.getElementById("statusText").textContent = "正在加载 job...";
+        try {
+            const data = await requestJson(`/admin/api/xpl-analysis/jobs?${collectParams().toString()}`);
+            const pagination = data.pagination || {};
+            state.page = pagination.page || state.page;
+            state.perPage = pagination.per_page || state.perPage;
+            state.total = pagination.total || 0;
+            state.pages = pagination.pages || 0;
+            state.hasPrev = Boolean(pagination.has_prev);
+            state.hasNext = Boolean(pagination.has_next);
+            renderJobs(data.items || []);
+            renderPagination();
+            document.getElementById("statusText").textContent = "已加载";
+        } finally {
+            queryButton.disabled = false;
+            queryButton.innerHTML = '<i class="bi bi-search"></i> 查询';
+        }
+    }
+
+    async function refreshAll() {
+        await Promise.all([loadStats(), loadJobs()]);
+    }
+
+    async function retryJob(jobId) {
+        if (!confirm(`确认重试 Job #${jobId}？`)) return;
+        await requestJson(`/admin/api/xpl-analysis/jobs/${jobId}/retry`, { method: "POST" });
+        document.getElementById("statusText").textContent = `Job #${jobId} 已重置为待处理`;
+        await refreshAll();
+    }
+
+    async function retryTaskFailedJobs() {
+        const taskId = document.getElementById("taskIdFilter").value.trim();
+        if (!taskId) {
+            alert("请先输入任务 ID");
+            return;
+        }
+        if (!confirm(`确认重试任务 ${taskId} 下全部失败 XPL Job？`)) return;
+        const data = await requestJson(`/admin/api/tasks/${encodeURIComponent(taskId)}/xpl-analysis/retry-failed`, { method: "POST" });
+        document.getElementById("statusText").textContent = `已重试 ${data.retried || 0} 个失败 job`;
+        await refreshAll();
+    }
+
+    document.getElementById("filterForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        state.page = 1;
+        refreshAll().catch((error) => {
+            document.getElementById("statusText").textContent = error.message;
+            alert(error.message || "查询失败");
+        });
+    });
+    document.getElementById("refreshBtn").addEventListener("click", () => {
+        refreshAll().catch((error) => {
+            document.getElementById("statusText").textContent = error.message;
+        });
+    });
+    document.getElementById("retryTaskBtn").addEventListener("click", () => {
+        retryTaskFailedJobs().catch((error) => {
+            document.getElementById("statusText").textContent = error.message;
+            alert(error.message || "重试失败");
+        });
+    });
+    document.getElementById("pageSize").addEventListener("change", (event) => {
+        state.perPage = Number(event.target.value);
+        state.page = 1;
+        refreshAll().catch((error) => {
+            document.getElementById("statusText").textContent = error.message;
+        });
+    });
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialTaskId = urlParams.get("task_id");
+    if (initialTaskId) {
+        document.getElementById("taskIdFilter").value = initialTaskId;
+    }
+    refreshAll().catch((error) => {
+        document.getElementById("statusText").textContent = error.message;
+        document.getElementById("jobsBody").innerHTML = `<tr><td colspan="12" class="text-center text-danger py-5">${escapeHtml(error.message)}</td></tr>`;
+    });
+</script>
+{% endblock %}

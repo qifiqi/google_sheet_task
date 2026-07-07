@@ -431,6 +431,68 @@ class TaskResultReturn(db.Model):
         }
 
 
+class XplAnalysisJob(db.Model):
+    """XPL异步分析任务表"""
+
+    __tablename__ = "xpl_analysis_jobs"
+    __table_args__ = (
+        db.UniqueConstraint("task_result_id", name="uk_xpl_analysis_jobs_task_result_id"),
+        db.Index("idx_xpl_jobs_status_created", "status", "created_at"),
+        db.Index("idx_xpl_jobs_task_status", "task_id", "status"),
+        {"comment": "XPL异步分析任务表"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    task_id = db.Column(
+        db.String(36),
+        db.ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="关联任务ID",
+    )
+    task_result_id = db.Column(
+        db.Integer,
+        db.ForeignKey("task_results.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="关联任务结果ID",
+    )
+    return_series_id = db.Column(
+        db.Integer,
+        db.ForeignKey("task_results_return.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="收益序列ID",
+    )
+    status = db.Column(db.String(20), default="pending", nullable=False, index=True, comment="任务状态")
+    attempts = db.Column(db.Integer, default=0, nullable=False, comment="已失败次数")
+    max_attempts = db.Column(db.Integer, default=3, nullable=False, comment="最大重试次数")
+    locked_by = db.Column(db.String(100), comment="领取worker")
+    locked_at = db.Column(db.DateTime, comment="领取时间")
+    started_at = db.Column(db.DateTime, comment="开始时间")
+    finished_at = db.Column(db.DateTime, comment="完成时间")
+    error_message = db.Column(db.Text, comment="错误信息")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "task_result_id": self.task_result_id,
+            "return_series_id": self.return_series_id,
+            "status": self.status,
+            "attempts": self.attempts,
+            "max_attempts": self.max_attempts,
+            "locked_by": self.locked_by,
+            "locked_at": self.locked_at.isoformat() if self.locked_at else None,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "error_message": self.error_message,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class BacktestProductResultCache(db.Model):
     """Same-batch reusable result for fixed multi-product backtest products."""
 

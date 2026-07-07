@@ -264,6 +264,30 @@ def init_config():
             'value': 3000,
             'description': '日志实时刷新间隔，单位毫秒。',
         },
+        'xpl_analysis_async_enabled': {
+            'value': False,
+            'description': '是否启用 C3 XPL 收益分析异步 worker。默认关闭，关闭时继续同步计算。',
+        },
+        'xpl_analysis_worker_processes': {
+            'value': 2,
+            'description': 'XPL 异步 worker 进程池并发数。',
+        },
+        'xpl_analysis_claim_batch_size': {
+            'value': 4,
+            'description': 'XPL 异步 worker 每轮领取 job 数量。',
+        },
+        'xpl_analysis_poll_interval_seconds': {
+            'value': 2,
+            'description': 'XPL 异步 worker 无 job 时轮询间隔，单位秒。',
+        },
+        'xpl_analysis_job_timeout_seconds': {
+            'value': 300,
+            'description': 'XPL 异步 running job stale 判定时间，单位秒。',
+        },
+        'xpl_analysis_max_attempts': {
+            'value': 3,
+            'description': 'XPL 异步分析 job 最大重试次数。',
+        },
         'tasks_admin_refresh_interval': {
             'value': 30000,
             'description': '管理页任务列表刷新间隔，单位毫秒。',
@@ -426,6 +450,7 @@ PERMISSIONS = [
     ('page',         'page:admin:tasks',        '访问任务管理页面',       '/admin/tasks'),
     ('page',         'page:admin:templates',    '访问任务模板页面',       '/admin/templates'),
     ('page',         'page:admin:results',      '访问任务结果页面',       '/admin/results'),
+    ('page',         'page:admin:xpl_analysis_jobs','访问 XPL Job 运维页面', '/admin/xpl-analysis-jobs'),
     ('page',         'page:admin:model_summary','访问单模型汇总页面',     '/admin/model-summary'),
     ('page',         'page:admin:scheduler',    '访问定时任务页面',       '/admin/scheduler'),
     ('page',         'page:admin:config',       '访问系统配置页面',       '/admin/config'),

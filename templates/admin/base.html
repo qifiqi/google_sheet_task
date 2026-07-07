@@ -349,6 +349,48 @@
             white-space: pre;
             word-break: normal;
         }
+        .admin-pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.72rem 1rem;
+            border-top: 1px solid var(--bs-border-color);
+            background: var(--bs-tertiary-bg);
+        }
+        .admin-pagination__meta {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            min-width: 0;
+        }
+        .admin-pagination__info {
+            color: var(--bs-secondary-color);
+            font-size: 0.8rem;
+            white-space: nowrap;
+        }
+        .admin-pagination__size-label {
+            color: var(--bs-secondary-color);
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+        .admin-pagination__size {
+            width: auto;
+            min-width: 6.2rem;
+        }
+        .admin-pagination__pages .page-link {
+            min-width: 2rem;
+            text-align: center;
+        }
+        @media (max-width: 767.98px) {
+            .admin-pagination {
+                align-items: stretch;
+                flex-direction: column;
+            }
+            .admin-pagination__meta {
+                flex-wrap: wrap;
+            }
+        }
     </style>
     {% block head %}{% endblock %}
 </head>

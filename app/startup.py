@@ -21,6 +21,7 @@ from app.models import (
     TaskResult,
     TaskResultSummaryIndex,
     User,
+    XplAnalysisJob,
 )
 from app.navigation import DEFAULT_NAVIGATION_MENU, flatten_navigation_items
 from app.utils.logger import get_logger, initialize_logging
@@ -157,6 +158,25 @@ def ensure_task_result_return_schema():
         db.session.commit()
 
 
+def ensure_xpl_analysis_job_schema():
+    inspector = inspect(db.engine)
+    if 'xpl_analysis_jobs' not in inspector.get_table_names():
+        XplAnalysisJob.__table__.create(db.engine)
+        return
+
+    indexes = {index['name'] for index in inspector.get_indexes('xpl_analysis_jobs')}
+    if 'idx_xpl_jobs_status_created' not in indexes:
+        db.session.execute(
+            text('CREATE INDEX idx_xpl_jobs_status_created ON xpl_analysis_jobs (status, created_at)')
+        )
+        db.session.commit()
+    if 'idx_xpl_jobs_task_status' not in indexes:
+        db.session.execute(
+            text('CREATE INDEX idx_xpl_jobs_task_status ON xpl_analysis_jobs (task_id, status)')
+        )
+        db.session.commit()
+
+
 def ensure_navigation_menu_schema():
     inspector = inspect(db.engine)
     if 'navigation_menu_items' not in inspector.get_table_names():
@@ -249,6 +269,7 @@ def register_cli(app):
         ensure_scheduled_task_schema()
         ensure_task_result_return_schema()
         ensure_task_result_summary_index_schema()
+        ensure_xpl_analysis_job_schema()
         ensure_stock_metadata_schema()
         ensure_backtest_runtime_schema()
         ensure_navigation_menu_schema()
@@ -409,6 +430,7 @@ def _build_nav_permission_map():
         '/admin/tasks': 'page:admin:tasks',
         '/admin/templates': 'page:admin:templates',
         '/admin/results': 'page:admin:results',
+        '/admin/xpl-analysis-jobs': 'page:admin:xpl_analysis_jobs',
         '/admin/model-summary': 'page:admin:model_summary',
         '/admin/scheduler': 'page:admin:scheduler',
         '/admin/config': 'page:admin:config',
@@ -522,6 +544,7 @@ def bootstrap_app(app):
         ensure_scheduled_task_schema()
         ensure_task_result_return_schema()
         ensure_task_result_summary_index_schema()
+        ensure_xpl_analysis_job_schema()
         ensure_stock_metadata_schema()
         ensure_backtest_runtime_schema()
         ensure_navigation_menu_schema()

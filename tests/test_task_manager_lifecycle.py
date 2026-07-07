@@ -3,8 +3,9 @@ import threading
 from datetime import datetime
 
 from app.extensions import db
-from app.models import GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
+from app.models import GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn, XplAnalysisJob
 from app.services.task.facade import TaskManager
+from app.services.xpl_analysis_job_service import XplAnalysisJobStatus
 
 
 class _FakeThread:
@@ -135,8 +136,25 @@ def test_restart_from_scratch_clears_results_and_starts(app_factory, monkeypatch
         task = _task(status="error")
         task.current_step = 7
         db.session.add(task)
-        db.session.add(TaskResult(task_id=task.id, step_index=0, parameters="{}", result="{}", success=True))
         db.session.add(TaskResultReturn(task_id=task.id, returns_json="{}"))
+        db.session.flush()
+        series = TaskResultReturn.query.filter_by(task_id=task.id).one()
+        result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters="{}",
+            result="{}",
+            success=True,
+            return_series_id=series.id,
+        )
+        db.session.add(result)
+        db.session.flush()
+        db.session.add(XplAnalysisJob(
+            task_id=task.id,
+            task_result_id=result.id,
+            return_series_id=series.id,
+            status=XplAnalysisJobStatus.PENDING,
+        ))
         db.session.commit()
 
         manager = TaskManager()
@@ -144,6 +162,11 @@ def test_restart_from_scratch_clears_results_and_starts(app_factory, monkeypatch
         monkeypatch.setattr(manager, "release_task_token_occupancy", lambda _task_id: None)
         monkeypatch.setattr(manager, "release_google_sheet_occupancy", lambda _task_id: None)
         monkeypatch.setattr(manager, "start_task", lambda _task_id: True)
+        deleted_archives = []
+        monkeypatch.setattr(
+            "app.services.return_series_service.ReturnSeriesService.delete_task_archive",
+            lambda _self, task_id: deleted_archives.append(task_id) or True,
+        )
 
         result = manager.restart_task(task.id, resume_from_checkpoint=False)
         task = db.session.get(Task, task.id)
@@ -153,6 +176,43 @@ def test_restart_from_scratch_clears_results_and_starts(app_factory, monkeypatch
         assert task.current_step == 0
         assert TaskResult.query.filter_by(task_id=task.id).count() == 0
         assert TaskResultReturn.query.filter_by(task_id=task.id).count() == 0
+        assert XplAnalysisJob.query.filter_by(task_id=task.id).count() == 0
+        assert deleted_archives == [task.id]
+
+
+def test_cancel_task_marks_pending_xpl_jobs_cancelled(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task = _task(status="running")
+        db.session.add(task)
+        db.session.add(TaskResultReturn(task_id=task.id, returns_json="{}"))
+        db.session.flush()
+        series = TaskResultReturn.query.filter_by(task_id=task.id).one()
+        result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters="{}",
+            result="{}",
+            success=True,
+            return_series_id=series.id,
+        )
+        db.session.add(result)
+        db.session.flush()
+        job = XplAnalysisJob(
+            task_id=task.id,
+            task_result_id=result.id,
+            return_series_id=series.id,
+            status=XplAnalysisJobStatus.PENDING,
+        )
+        db.session.add(job)
+        db.session.commit()
+
+        manager = TaskManager()
+        monkeypatch.setattr(manager, "release_task_token_occupancy", lambda _task_id: None)
+        monkeypatch.setattr(manager, "release_google_sheet_occupancy", lambda _task_id: None)
+
+        assert manager.cancel_task(task.id) is True
+        assert db.session.get(XplAnalysisJob, job.id).status == XplAnalysisJobStatus.CANCELLED
 
 
 def test_restart_running_task_rejected_when_local_status_disallows(app_factory, monkeypatch):
@@ -169,3 +229,26 @@ def test_restart_running_task_rejected_when_local_status_disallows(app_factory, 
 
         assert result["status"] == "error"
         assert "正在运行中" in result["message"]
+
+
+def test_delete_task_removes_return_series_archive(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task_id = "delete-archive-task"
+        task = _task(task_id=task_id, status="completed")
+        db.session.add(task)
+        db.session.add(TaskResultReturn(task_id=task_id, returns_json="{}"))
+        db.session.commit()
+
+        manager = TaskManager()
+        monkeypatch.setattr(manager, "release_task_token_occupancy", lambda _task_id: None)
+        monkeypatch.setattr(manager, "release_google_sheet_occupancy", lambda _task_id: None)
+        deleted_archives = []
+        monkeypatch.setattr(
+            "app.services.return_series_service.ReturnSeriesService.delete_task_archive",
+            lambda _self, task_id: deleted_archives.append(task_id) or True,
+        )
+
+        assert manager.delete_task(task_id) is True
+        assert db.session.get(Task, task_id) is None
+        assert deleted_archives == [task_id]

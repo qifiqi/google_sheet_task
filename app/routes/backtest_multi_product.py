@@ -23,6 +23,7 @@ from app.services.backtest_multi_product_service import (
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
 )
+from app.services.return_series_service import ReturnSeriesService
 from app.services.stock_metadata_service import bulk_upsert_stock_metadata
 from app.utils.auth import login_required, permission_required
 from app.utils.dfcf_api import DFCJStockApi
@@ -354,7 +355,7 @@ def get_task_result_detail(task_result_id):
     if task_result.return_series_id:
         return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
         if return_series and return_series.returns_json:
-            parsed_returns = _parse_json(return_series.returns_json, {})
+            parsed_returns = ReturnSeriesService().load_payload(return_series.returns_json)
             if isinstance(parsed_returns, dict):
                 daily_returns = parsed_returns
 

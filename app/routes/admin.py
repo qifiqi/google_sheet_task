@@ -6,7 +6,8 @@ from app.extensions import db
 from app.services.model_summary_service import model_summary_service
 from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
-from app.models import Task, GoogleSheetTableType, TaskStatus, TaskType
+from app.services.xpl_analysis_job_service import XplAnalysisJobService
+from app.models import Task, GoogleSheetTableType, TaskStatus, TaskType, XplAnalysisJob
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action
@@ -15,6 +16,7 @@ logger = get_logger(__name__)
 
 admin_bp = Blueprint('admin', __name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
+xpl_analysis_job_service = XplAnalysisJobService()
 
 TASK_ACTION_LABELS = {
     "view": "查看",
@@ -98,6 +100,11 @@ def results():
 def model_summary():
     """单模型汇总数据看板"""
     return render_template('admin/model_summary.html')
+
+@admin_bp.route('/xpl-analysis-jobs')
+def xpl_analysis_jobs():
+    """XPL异步分析job运维页面"""
+    return render_template('admin/xpl_analysis_jobs.html')
 
 @admin_bp.route('/google-sheets')
 def google_sheets():
@@ -254,6 +261,90 @@ def model_summary_rebuild_status_api():
     if not job:
         return jsonify({'status': 'success', 'job': None})
     return jsonify({'status': 'success', 'job': job})
+
+
+@admin_bp.route('/api/xpl-analysis/jobs/stats')
+@login_required
+@permission_required('task:view')
+def xpl_analysis_job_stats_api():
+    """XPL 异步分析 job 状态统计。"""
+    try:
+        task_id = request.args.get('task_id') or None
+        return jsonify({
+            'status': 'success',
+            'task_id': task_id,
+            'stats': xpl_analysis_job_service.stats(task_id=task_id),
+        })
+    except Exception as e:
+        logger.error(f"获取XPL异步分析job统计失败: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@admin_bp.route('/api/xpl-analysis/jobs')
+@login_required
+@permission_required('task:view')
+def xpl_analysis_jobs_api():
+    """分页查询 XPL 异步分析 job。"""
+    try:
+        page = max(1, int(request.args.get('page') or 1))
+        per_page = max(1, min(int(request.args.get('per_page') or 50), 200))
+        task_id = request.args.get('task_id') or None
+        status = request.args.get('status') or None
+
+        query = XplAnalysisJob.query
+        if task_id:
+            query = query.filter(XplAnalysisJob.task_id == task_id)
+        if status:
+            query = query.filter(XplAnalysisJob.status == status)
+        pagination = (
+            query.order_by(XplAnalysisJob.created_at.desc(), XplAnalysisJob.id.desc())
+            .paginate(page=page, per_page=per_page, error_out=False)
+        )
+        return jsonify({
+            'status': 'success',
+            'items': [item.to_dict() for item in pagination.items],
+            'pagination': {
+                'page': pagination.page,
+                'per_page': pagination.per_page,
+                'total': pagination.total,
+                'pages': pagination.pages,
+                'has_prev': pagination.has_prev,
+                'has_next': pagination.has_next,
+            },
+        })
+    except Exception as e:
+        logger.error(f"查询XPL异步分析job失败: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@admin_bp.route('/api/xpl-analysis/jobs/<int:job_id>/retry', methods=['POST'])
+@login_required
+@permission_required('database:model_summary', 'database:manage')
+def retry_xpl_analysis_job_api(job_id):
+    """重试单个失败的 XPL 异步分析 job。"""
+    try:
+        job = xpl_analysis_job_service.retry_job(job_id)
+        if not job:
+            return jsonify({'status': 'error', 'message': 'job not found'}), 404
+        return jsonify({'status': 'success', 'job': job.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"重试XPL异步分析job失败: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@admin_bp.route('/api/tasks/<task_id>/xpl-analysis/retry-failed', methods=['POST'])
+@login_required
+@permission_required('database:model_summary', 'database:manage')
+def retry_task_xpl_analysis_jobs_api(task_id):
+    """重试某个任务下所有失败的 XPL 异步分析 job。"""
+    try:
+        count = xpl_analysis_job_service.retry_failed_for_task(task_id)
+        return jsonify({'status': 'success', 'task_id': task_id, 'retried': count})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"批量重试任务XPL异步分析job失败: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @admin_bp.route('/api/tasks/<task_id>/runtime-detail')

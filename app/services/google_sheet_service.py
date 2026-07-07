@@ -13,8 +13,10 @@ from app.models import Task, TaskResult, db
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.services.return_series_service import ReturnSeriesService
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.services.xpl_service import xpl_analyzer
+from app.services.xpl_analysis_job_service import XplAnalysisJobService
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation, db_retry_manager
 from app.utils.dfcf_api import DFCJStockApi
@@ -26,6 +28,9 @@ from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
 
 logger = get_logger(__name__)
+
+_RETURN_SERIES_SNAPSHOT_KEY = "_return_series_snapshot"
+_RETURN_ANALYSIS_ASYNC_KEY = "_return_analysis_async"
 
 
 class GoogleSheetService(BaseGoogleSheetService):
@@ -40,11 +45,37 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.dfcf_api = DFCJStockApi()
         self.google_sheet:Optional[GoogleSheet] = None
         self.xpl = xpl_analyzer
+        self.return_series_service = ReturnSeriesService()
+        self.xpl_analysis_job_service = XplAnalysisJobService()
         self._return_date_cache: Dict[Tuple[str, int], Dict[str, Any]] = {}
 
     @staticmethod
     def _format_elapsed(seconds: float) -> str:
         return f"{seconds:.3f}s"
+
+    @staticmethod
+    def _to_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on", "y"}
+        return False
+
+    def _is_xpl_analysis_async_enabled(self, config_data: Dict[str, Any]) -> bool:
+        if "xpl_analysis_async_enabled" in config_data:
+            return self._to_bool(config_data.get("xpl_analysis_async_enabled"))
+        return self._to_bool(get_config_manager().get_config("xpl_analysis_async_enabled", False))
+
+    def _xpl_analysis_max_attempts(self, config_data: Dict[str, Any]) -> int:
+        raw_value = config_data.get("xpl_analysis_max_attempts")
+        if raw_value is None:
+            raw_value = get_config_manager().get_config("xpl_analysis_max_attempts", 3)
+        try:
+            return max(1, int(raw_value))
+        except (TypeError, ValueError):
+            return 3
 
     def _summarize_result_for_log(self, result: Dict[str, Any]) -> str:
         if not isinstance(result, dict):
@@ -78,6 +109,9 @@ class GoogleSheetService(BaseGoogleSheetService):
         analyze_result = result.get("analyze_result")
         if isinstance(analyze_result, dict):
             summary["analyze_result_keys"] = len(analyze_result)
+
+        if result.get("analysis_status"):
+            summary["analysis_status"] = result.get("analysis_status")
 
         return json.dumps(
             self._sanitize_json_value(summary),
@@ -318,13 +352,24 @@ class GoogleSheetService(BaseGoogleSheetService):
             return False, {}
         return True, final_results
 
+    def _get_return_analysis_source_columns(self, config_data: Dict[str, Any]) -> Dict[str, str]:
+        date_column = str(config_data.get('c3_input_column_d') or '').upper()
+        index_column = str(config_data.get('c3_output_column_K') or '').upper()
+        start_column = str(config_data.get('c3_output_column_O') or '').upper()
+        return {
+            "date": date_column,
+            "index_return": index_column,
+            "start_return": start_column,
+        }
+
     def _build_return_analysis_input(self, config_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not self.google_sheet or not self.len_kline:
             return []
 
-        date_column = str(config_data.get('c3_input_column_d') or '').upper()
-        index_column = str(config_data.get('c3_output_column_K') or '').upper()
-        start_column = str(config_data.get('c3_output_column_O') or '').upper()
+        source_columns = self._get_return_analysis_source_columns(config_data)
+        date_column = source_columns["date"]
+        index_column = source_columns["index_return"]
+        start_column = source_columns["start_return"]
         if not date_column or not index_column or not start_column:
             return []
 
@@ -373,7 +418,33 @@ class GoogleSheetService(BaseGoogleSheetService):
             read_started = time.perf_counter()
             return_data = self._build_return_analysis_input(config_data)
             read_elapsed = time.perf_counter() - read_started
-            if not return_data or not self.xpl:
+            if not return_data:
+                return {}
+
+            snapshot = {
+                "rows": return_data,
+                "source_columns": self._get_return_analysis_source_columns(config_data),
+            }
+            if self._is_xpl_analysis_async_enabled(config_data):
+                async_summary = {
+                    "rows": len(return_data),
+                    "read": self._format_elapsed(read_elapsed),
+                    "analysis_status": "pending",
+                }
+                self._log_info(
+                    "收益率分析已进入异步队列，摘要: "
+                    f"{json.dumps(async_summary, ensure_ascii=False)}"
+                )
+                snapshot[_RETURN_ANALYSIS_ASYNC_KEY] = True
+                snapshot["max_attempts"] = self._xpl_analysis_max_attempts(config_data)
+                return {
+                    "analysis_status": "pending",
+                    "flat_result": None,
+                    "analyze_result": None,
+                    _RETURN_SERIES_SNAPSHOT_KEY: snapshot,
+                }
+
+            if not self.xpl:
                 return {}
 
             xpl_started = time.perf_counter()
@@ -391,14 +462,23 @@ class GoogleSheetService(BaseGoogleSheetService):
                 f"{analysis_summary}"
             )
             return {
+                "analysis_status": "completed",
                 "analyze_result": analyze_result,
                 "flat_result": flat_result,
+                _RETURN_SERIES_SNAPSHOT_KEY: snapshot,
             }
         except checkForErrors:
             raise
         except Exception as err:
             self._log_warning(f"收益分析附加失败: {err}")
             return {}
+
+    def _handle_completed_task_postprocessing(self, config_data: Dict[str, Any]) -> None:
+        if self._is_xpl_analysis_async_enabled(config_data):
+            self._log_info("任务 Sheet 执行完成，XPL 异步分析由 worker 后台处理，汇总索引将在分析完成后刷新")
+        else:
+            self._refresh_model_summary_index()
+        self._archive_return_series_after_completion()
 
     def _build_stock_param_result_payload(
         self,
@@ -477,6 +557,23 @@ class GoogleSheetService(BaseGoogleSheetService):
             "excess_of_promissory_note": return_analysis.get("excess_of_promissory_note", 0),
         })
         return payload
+
+    def _archive_return_series_after_completion(self) -> None:
+        try:
+            archive_started = time.perf_counter()
+            archive_result = self.return_series_service.archive_task_series(self.task_id)
+            archive_elapsed = time.perf_counter() - archive_started
+            archived_count = archive_result.get("archived", 0)
+            if archived_count:
+                self._log_info(
+                    "收益序列归档完成: "
+                    f"count={archived_count}, "
+                    f"path={archive_result.get('path')}, "
+                    f"bytes={archive_result.get('bytes')}, "
+                    f"elapsed={self._format_elapsed(archive_elapsed)}"
+                )
+        except Exception as err:
+            self._log_warning(f"收益序列归档失败，不影响任务完成: {err}")
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -567,7 +664,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     if stock_param is not None and stock_param != "error":
                         final_status = 'completed' if success_count > 0 else 'error'
                         if final_status == 'completed':
-                            self._refresh_model_summary_index()
+                            self._handle_completed_task_postprocessing(config_data)
                             # 推送成功完成通知
                             self.task_ok_to_dd(f'任务成功完成！成功执行: {success_count}, 失败: {failed_count}')
                         return final_status
@@ -577,7 +674,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     return 'error'
                 
                 # 推送任务完成通知
-                self._refresh_model_summary_index()
+                self._handle_completed_task_postprocessing(config_data)
                 self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
                 # 推送任务完成信息
                 completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'
@@ -857,12 +954,15 @@ class GoogleSheetService(BaseGoogleSheetService):
                         return success_count, failed_count, 'error'
                     combination.append(self.kline)
                     config_data['kline'] = self.kline
-                    param_load = self._build_stock_param_result_payload(
-                        task_name=name,
-                        task_index=i,
-                        config_data=config_data,
-                        result=result,
-                    )
+                    async_xpl_enabled = self._is_xpl_analysis_async_enabled(config_data)
+                    param_load = None
+                    if not async_xpl_enabled:
+                        param_load = self._build_stock_param_result_payload(
+                            task_name=name,
+                            task_index=i,
+                            config_data=config_data,
+                            result=result,
+                        )
 
                     # 保存结果到数据库
                     save_started = time.perf_counter()
@@ -870,12 +970,15 @@ class GoogleSheetService(BaseGoogleSheetService):
                     save_elapsed = time.perf_counter() - save_started
                     # 推送结果到 StockParamResult
                     push_started = time.perf_counter()
-                    self.send_stock_param_result_data(param_load)
-                    push_elapsed = time.perf_counter() - push_started
+                    if param_load is not None:
+                        self.send_stock_param_result_data(param_load)
+                        push_elapsed_text = self._format_elapsed(time.perf_counter() - push_started)
+                    else:
+                        push_elapsed_text = "deferred"
                     self._log_info(
                         f"第 {i + 1} 个参数组合后处理耗时: "
                         f"save={self._format_elapsed(save_elapsed)}, "
-                        f"stock_param_push={self._format_elapsed(push_elapsed)}"
+                        f"stock_param_push={push_elapsed_text}"
                     )
 
                 except checkForErrors as e:
@@ -974,10 +1077,6 @@ class GoogleSheetService(BaseGoogleSheetService):
                         if not success:
                             continue
 
-                        self._log_info(
-                            "参数组合执行成功，结果摘要: "
-                            f"{self._summarize_result_for_log(final_results)}"
-                        )
                         return True, final_results
 
                     except checkForErrors:
@@ -996,10 +1095,6 @@ class GoogleSheetService(BaseGoogleSheetService):
                             config_data,
                         )
                         if fallback_success:
-                            self._log_info(
-                                "参数组合执行成功，结果摘要: "
-                                f"{self._summarize_result_for_log(final_results)}"
-                            )
                             return True, final_results
                         return False, {}
 
@@ -1021,7 +1116,9 @@ class GoogleSheetService(BaseGoogleSheetService):
         """保存任务结果到数据库，包含重试逻辑"""
         def save_result_operation():
             safe_parameters = self._sanitize_json_value(parameters)
-            safe_result = self._sanitize_json_value(result)
+            result_payload = dict(result) if isinstance(result, dict) else {}
+            return_series_snapshot = result_payload.pop(_RETURN_SERIES_SNAPSHOT_KEY, None)
+            safe_result = self._sanitize_json_value(result_payload)
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
@@ -1030,6 +1127,27 @@ class GoogleSheetService(BaseGoogleSheetService):
                 success=success
             )
             db.session.add(task_result)
+            db.session.flush()
+            if isinstance(return_series_snapshot, dict):
+                return_rows = return_series_snapshot.get("rows") or []
+                if return_rows:
+                    return_series = self.return_series_service.create_for_task(
+                        task_id=self.task_id,
+                        rows=return_rows,
+                        source_columns=return_series_snapshot.get("source_columns"),
+                        step_index=step_index,
+                    )
+                    db.session.add(return_series)
+                    db.session.flush()
+                    task_result.return_series_id = return_series.id
+                    if return_series_snapshot.get(_RETURN_ANALYSIS_ASYNC_KEY):
+                        self.xpl_analysis_job_service.create_pending_job(
+                            task_id=self.task_id,
+                            task_result_id=task_result.id,
+                            return_series_id=return_series.id,
+                            max_attempts=return_series_snapshot.get("max_attempts") or 3,
+                            commit=False,
+                        )
             db.session.commit()
         
         try:
