@@ -3,7 +3,7 @@ from __future__ import annotations
 import socket
 import time
 import json
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed,ThreadPoolExecutor
 from dataclasses import dataclass
 from os import getpid
 from typing import Any, Callable
@@ -40,8 +40,8 @@ class XplAnalysisWorker:
         worker_id: str | None = None,
         job_service: XplAnalysisJobService | None = None,
         return_series_service: ReturnSeriesService | None = None,
-        process_count: int = 2,
-        claim_batch_size: int = 4,
+        process_count: int = 6,
+        claim_batch_size: int = 12,
         stale_after_seconds: int = 300,
         poll_interval_seconds: float = 2.0,
         xpl_runner: Callable[[list[dict[str, Any]]], tuple[dict[str, Any], dict[str, Any]]] = run_xpl_analysis,
@@ -54,6 +54,8 @@ class XplAnalysisWorker:
         self.stale_after_seconds = max(1, int(stale_after_seconds or 300))
         self.poll_interval_seconds = max(0.1, float(poll_interval_seconds or 2.0))
         self.xpl_runner = xpl_runner
+        self.executor = ThreadPoolExecutor(max_workers=process_count)
+        # self.executor = ProcessPoolExecutor(max_workers=process_count)
 
     def run_forever(self, stop_event=None) -> None:
         logger.info("XPL异步分析worker启动: worker_id=%s", self.worker_id)
@@ -84,22 +86,21 @@ class XplAnalysisWorker:
         if not prepared_jobs:
             return result
 
-        with ProcessPoolExecutor(max_workers=self.process_count) as executor:
-            future_to_job_id = {
-                executor.submit(self.xpl_runner, rows): (job_id, time.perf_counter())
-                for job_id, rows in prepared_jobs
-            }
-            for future in as_completed(future_to_job_id):
-                job_id, started = future_to_job_id[future]
-                try:
-                    flat_result, analyze_result = future.result()
-                    elapsed = time.perf_counter() - started
-                    self.job_service.mark_completed(job_id, flat_result, analyze_result, elapsed)
-                    self._push_stock_param_result(job_id)
-                    result.completed += 1
-                except Exception as exc:
-                    self.job_service.mark_failed(job_id, exc)
-                    result.failed += 1
+        future_to_job_id = {
+            self.executor.submit(self.xpl_runner, rows): (job_id, time.perf_counter())
+            for job_id, rows in prepared_jobs
+        }
+        for future in as_completed(future_to_job_id):
+            job_id, started = future_to_job_id[future]
+            try:
+                flat_result, analyze_result = future.result()
+                elapsed = time.perf_counter() - started
+                self.job_service.mark_completed(job_id, flat_result, analyze_result, elapsed)
+                self._push_stock_param_result(job_id)
+                result.completed += 1
+            except Exception as exc:
+                self.job_service.mark_failed(job_id, exc)
+                result.failed += 1
 
         return result
 

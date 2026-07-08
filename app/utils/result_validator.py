@@ -45,6 +45,8 @@ def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ')):
                 # 检查字典中是否有任何空值或无效值
                 empty_keys = []
                 for key, value in result_dict.items():
+                    if key in ['flat_result','analyze_result']:
+                        continue
                     if value in none_values:
                         empty_keys.append([key,value])
                     elif isinstance(value, str) and value.strip() == '':
