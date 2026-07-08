@@ -834,9 +834,6 @@ class GoogleSheetService(BaseGoogleSheetService):
                 progress_msg = f'正在执行第 {i + 1}/{total_combinations} 个参数组合 {combination}'
                 self._log_info(progress_msg)
 
-                # 更新当前步数
-                task.current_step = i + 1
-                db_retry_manager.commit_with_retry(db.session)
 
                 # 执行单个参数组合
                 try:
@@ -863,6 +860,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                         config_data=config_data,
                         result=result,
                     )
+
+                    # 更新当前步数
+                    task.current_step = i + 1
+                    db_retry_manager.commit_with_retry(db.session)
+
 
                     # 保存结果到数据库
                     save_started = time.perf_counter()

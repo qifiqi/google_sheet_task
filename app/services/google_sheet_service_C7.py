@@ -350,9 +350,6 @@ class GoogleSheetService(BaseGoogleSheetService):
                     progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
                     self._log_info(progress_msg)
 
-                    # 更新当前步数为组合级别
-                    task.current_step = current_step
-                    db_retry_manager.commit_with_retry(db.session)
 
                     # 执行单个参数组合
                     try:
@@ -378,6 +375,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                                 result,
                             )
                         )
+
+                        # 更新当前步数为组合级别
+                        task.current_step = current_step
+                        db_retry_manager.commit_with_retry(db.session)
+
                         # 保存结果到数据库
                         stock_name = str(combination.get('stock_name') or '').strip()
                         self._save_task_result(current_step - 1, {
