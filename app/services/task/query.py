@@ -8,7 +8,29 @@ from typing import Any, Optional
 from sqlalchemy import or_, and_, func, case, text
 
 from app.extensions import db
-from app.models import Task, TaskResult
+from app.models import Task, TaskResult, TaskType
+
+
+def _task_type_filter_values(task_type: str | None) -> list[str]:
+    raw = str(task_type or "").strip()
+    if not raw:
+        return []
+
+    canonical = TaskType.normalize(raw, raw)
+    values = []
+    for value in (canonical, raw):
+        if value and value not in values:
+            values.append(value)
+
+    if canonical in {
+        TaskType.GOOGLE_SHEET_C4.value,
+        TaskType.GOOGLE_SHEET_C5.value,
+        TaskType.GOOGLE_SHEET_C7.value,
+    }:
+        legacy_lower = canonical.lower()
+        if legacy_lower not in values:
+            values.append(legacy_lower)
+    return values
 
 
 class TaskQueryService:
@@ -30,9 +52,14 @@ class TaskQueryService:
     ) -> list[dict[str, Any]]:
         query = Task.query
         if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
+            filter_values = []
+            for item in task_types:
+                for value in _task_type_filter_values(item):
+                    if value not in filter_values:
+                        filter_values.append(value)
+            query = query.filter(Task.task_type.in_(filter_values))
         elif task_type:
-            query = query.filter_by(task_type=task_type)
+            query = query.filter(Task.task_type.in_(_task_type_filter_values(task_type)))
 
         tasks = query.order_by(Task.created_at.desc()).all()
         return [task.to_dict() for task in tasks]
@@ -51,9 +78,14 @@ class TaskQueryService:
 
         query = Task.query
         if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
+            filter_values = []
+            for item in task_types:
+                for value in _task_type_filter_values(item):
+                    if value not in filter_values:
+                        filter_values.append(value)
+            query = query.filter(Task.task_type.in_(filter_values))
         elif task_type:
-            query = query.filter(Task.task_type == task_type)
+            query = query.filter(Task.task_type.in_(_task_type_filter_values(task_type)))
 
         if status and status != "all":
             if status == "pending":

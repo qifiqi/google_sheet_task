@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, g
 import json
 from sqlalchemy.orm import load_only
 
-from app.models import TaskTemplate, Task, TaskResult, db
+from app.models import TaskTemplate, Task, TaskResult, TaskType, db
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action, filter_task_types_by_action
@@ -42,6 +42,7 @@ def get_templates():
     """获取所有任务模板"""
     try:
         task_type = request.args.get('task_type')
+        normalized_task_type = TaskType.normalize(task_type, task_type)
         templates = TaskTemplate.query.order_by(TaskTemplate.created_at.desc()).all()
 
         if task_type:
@@ -51,7 +52,12 @@ def get_templates():
                     cfg = json.loads(t.config) if isinstance(t.config, str) else t.config
                 except Exception:
                     continue
-                if isinstance(cfg, dict) and cfg.get('task_type') == task_type:
+                template_task_type = (
+                    TaskType.normalize(cfg.get('task_type'), cfg.get('task_type'))
+                    if isinstance(cfg, dict)
+                    else None
+                )
+                if template_task_type == normalized_task_type:
                     filtered.append(t)
             templates = filtered
 
@@ -82,9 +88,14 @@ def create_template():
         try:
             if isinstance(data['config'], str):
                 config_json = json.loads(data['config'])
-                config_str = json.dumps(config_json)
             else:
-                config_str = json.dumps(data['config'])
+                config_json = data['config']
+            if isinstance(config_json, dict) and 'task_type' in config_json:
+                config_json['task_type'] = TaskType.normalize(
+                    config_json.get('task_type'),
+                    config_json.get('task_type'),
+                )
+            config_str = json.dumps(config_json)
         except json.JSONDecodeError:
             return jsonify({"status": "error", "message": "配置信息不是有效的JSON格式"}), 400
 

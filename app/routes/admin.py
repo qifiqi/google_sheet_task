@@ -1,6 +1,6 @@
 from urllib.parse import quote
 
-from flask import Blueprint, Response, current_app, g, jsonify, render_template, request
+from flask import Blueprint, Response, abort, current_app, g, jsonify, render_template, request
 
 from app.extensions import db
 from app.services.model_summary_service import model_summary_service
@@ -8,6 +8,7 @@ from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.services.xpl_analysis_job_service import XplAnalysisJobService
 from app.models import Task, GoogleSheetTableType, TaskStatus, TaskType, XplAnalysisJob
+from app.page_registry import PAGE_DEFS
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action
@@ -391,3 +392,20 @@ def cleanup_completed_tasks():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@admin_bp.route('/<path:page_path>')
+def registry_template_page(page_path):
+    """渲染 registry 中声明的普通后台模板页。"""
+    request_path = f"/admin/{page_path.strip('/')}"
+    page = next(
+        (
+            item
+            for item in PAGE_DEFS
+            if item.path == request_path and item.template and item.path.startswith('/admin/')
+        ),
+        None,
+    )
+    if not page:
+        abort(404)
+    return render_template(page.template)

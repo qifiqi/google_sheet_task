@@ -2,6 +2,8 @@ import os
 import secrets
 from pathlib import Path
 
+from app.page_registry import page_permissions
+
 
 def _get_bool(name, default=False):
     return os.environ.get(name, str(default)).lower() in ('true', '1', 'yes', 'on')
@@ -459,7 +461,7 @@ def init_config():
 # RBAC 权限定义，格式：(group, code, name, route_path)
 # route_path 仅供后台展示，标记该权限对应的前端路由入口
 # scripts/seed_default_data.py 显式执行时幂等插入到数据库
-PERMISSIONS = [
+BASE_PERMISSIONS = [
     ('task',         'task:view',           '查看任务/日志/结果',    '/admin/tasks'),
     ('task',         'task:create',         '创建任务',              '/task/create'),
     ('task',         'task:cancel',         '取消任务',              None),
@@ -485,26 +487,7 @@ PERMISSIONS = [
     ('user',         'user:manage',         '管理用户/角色/权限',    '/admin/users'),
     ('backtest',     'backtest:view',       '查看回测任务',          '/backtest/list'),
     ('backtest',     'backtest:create',     '创建回测任务',          '/backtest/create'),
-    ('page',         'page:admin:dashboard',    '访问仪表盘页面',         '/admin'),
-    ('page',         'page:admin:tasks',        '访问任务管理页面',       '/admin/tasks'),
-    ('page',         'page:admin:templates',    '访问任务模板页面',       '/admin/templates'),
-    ('page',         'page:admin:results',      '访问任务结果页面',       '/admin/results'),
-    ('page',         'page:admin:xpl_analysis_jobs','访问 XPL Job 运维页面', '/admin/xpl-analysis-jobs'),
-    ('page',         'page:admin:model_summary','访问单模型汇总页面',     '/admin/model-summary'),
-    ('page',         'page:admin:scheduler',    '访问定时任务页面',       '/admin/scheduler'),
-    ('page',         'page:admin:config',       '访问系统配置页面',       '/admin/config'),
-    ('page',         'page:admin:navigation',   '访问路由表页面',         '/admin/navigation'),
-    ('page',         'page:admin:google_sheets','访问 Google Sheet 管理页面', '/admin/google-sheets'),
-    ('page',         'page:admin:logs',         '访问系统日志页面',       '/admin/logs'),
-    ('page',         'page:admin:users',        '访问用户管理页面',       '/admin/users'),
-    ('page',         'page:admin:roles',        '访问角色管理页面',       '/admin/roles'),
-    ('page',         'page:google_sheet:c3',    '访问 Google Sheet C3 页面', '/google-sheet/?version=c3'),
-    ('page',         'page:google_sheet:c4',    '访问 Google Sheet C4 页面', '/google-sheet/?version=c4'),
-    ('page',         'page:google_sheet:c5',    '访问 Google Sheet C5 页面', '/google-sheet/?version=c5'),
-    ('page',         'page:google_sheet:c7',    '访问 Google Sheet C7 页面', '/google-sheet/?version=c7'),
-    ('page',         'page:backtest:list',      '访问回测列表页面',       '/backtest-training/list'),
-    ('page',         'page:backtest:create',    '访问回测创建页面',       '/backtest-training/create'),
-    ('page',         'page:backtest_multi_product:list',   '访问多品数据回测列表页面',   '/backtest-multi-product/list'),
-    ('page',         'page:backtest_multi_product:create', '访问多品数据回测创建页面',   '/backtest-multi-product/create'),
 ]
+
+PERMISSIONS = BASE_PERMISSIONS + page_permissions()
 

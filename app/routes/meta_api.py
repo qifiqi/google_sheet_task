@@ -7,7 +7,8 @@ from app.models import (
     TaskStatus,
     TaskType,
 )
-from app.navigation import build_navigation_tree
+from app.navigation import build_nav_permission_map, build_navigation_tree
+from app.page_registry import page_permission_map, page_permission_prefixes
 from app.utils.api_response import success
 from app.utils.auth import login_required
 
@@ -85,3 +86,25 @@ def get_nav():
         return result
 
     return success(data=filter_nav(all_nav))
+
+
+@meta_api_bp.route('/meta/page-permissions', methods=['GET'])
+@login_required
+def get_page_permissions():
+    """返回页面路径到页面权限的映射，供前端页面守卫使用。"""
+    permission_map = page_permission_map()
+    permission_map.update(build_nav_permission_map())
+    return success(data={
+        "paths": {
+            path: [permission]
+            for path, permission in sorted(permission_map.items())
+            if permission
+        },
+        "prefixes": [
+            {
+                "prefix": item["prefix"],
+                "permissions": [item["permission"]],
+            }
+            for item in page_permission_prefixes()
+        ],
+    })

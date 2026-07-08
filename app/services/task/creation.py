@@ -12,7 +12,7 @@ from itertools import product
 from typing import Any, Optional
 
 from app.extensions import db
-from app.models import GoogleSheetTokenTaskType, Task, TaskStatus
+from app.models import GoogleSheetTokenTaskType, Task, TaskStatus, TaskType
 from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
@@ -81,8 +81,13 @@ class TaskCreationMixin:
     def _normalize_task_config_for_type(self, task_type: str, config):
         if not isinstance(config, dict):
             return config
+        task_type = TaskType.normalize(task_type, task_type)
+        task_type_key = str(task_type or "").lower()
         normalized = dict(config)
-        if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
+        if "task_type" in normalized or task_type_key in ("google_sheet_c4", "google_sheet_c5", "google_sheet_c7"):
+            normalized["task_type"] = task_type
+
+        if task_type_key in ("google_sheet", "google_sheet_c4", "google_sheet_c5", "google_sheet_c7"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
         elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
@@ -95,7 +100,7 @@ class TaskCreationMixin:
                 else "sp_price"
             )
 
-        if task_type.lower() in ("google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
+        if task_type_key in ("google_sheet_c4", "google_sheet_c5", "google_sheet_c7"):
             normalized.pop("spreadsheet_id", None)
             normalized.pop("sheet_name", None)
 
@@ -130,6 +135,7 @@ class TaskCreationMixin:
     ) -> str:
         """创建新任务。"""
         task_id = str(uuid.uuid4())
+        task_type = TaskType.normalize(task_type, task_type)
         config = self._normalize_task_config_for_type(task_type, config)
 
         if isinstance(config, dict):

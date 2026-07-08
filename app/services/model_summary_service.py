@@ -20,7 +20,7 @@ from sqlalchemy.orm import Load
 from flask import has_app_context
 
 from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
+from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex, TaskType
 from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.xpl_service import xpl_analyzer
 from app.utils.logger import get_logger
@@ -29,7 +29,13 @@ from app.utils.task_authorization import filter_task_types_by_action, normalize_
 
 logger = get_logger(__name__)
 
-SUPPORTED_TASK_TYPES = ("google_sheet", "google_sheet_C4", "google_sheet_C5", "backtest_training")
+SUPPORTED_TASK_TYPES = (
+    TaskType.GOOGLE_SHEET.value,
+    TaskType.GOOGLE_SHEET_C4.value,
+    TaskType.GOOGLE_SHEET_C5.value,
+    TaskType.GOOGLE_SHEET_C7.value,
+    TaskType.BACKTEST_TRAINING.value,
+)
 MODEL_SUMMARY_REBUILD_TASK_TYPE = "model_summary_rebuild"
 FINISHED_TASK_STATUSES = ("completed", "cancelled", "error")
 ACTIVE_REBUILD_TASK_STATUSES = ("pending", "running")
@@ -162,8 +168,39 @@ TASK_TYPE_LABELS = {
     "google_sheet": "C3",
     "google_sheet_C4": "C4",
     "google_sheet_C5": "C5",
+    "google_sheet_C7": "C7",
     "backtest_training": "回测",
 }
+
+
+def _canonical_task_type(task_type: str | None) -> str | None:
+    if not task_type:
+        return None
+    return TaskType.normalize(task_type, task_type)
+
+
+def _task_type_filter_values(task_type: str | None) -> list[str]:
+    canonical = _canonical_task_type(task_type)
+    if not canonical:
+        return []
+
+    values = [canonical]
+    if canonical in {
+        TaskType.GOOGLE_SHEET_C4.value,
+        TaskType.GOOGLE_SHEET_C5.value,
+        TaskType.GOOGLE_SHEET_C7.value,
+    }:
+        values.append(canonical.lower())
+    return values
+
+
+def _task_type_collection_filter_values(task_types: tuple[str, ...] | list[str]) -> list[str]:
+    values: list[str] = []
+    for task_type in task_types:
+        for value in _task_type_filter_values(task_type):
+            if value not in values:
+                values.append(value)
+    return values
 
 
 @dataclass(frozen=True)
@@ -463,6 +500,8 @@ def _display_model_name(raw_name: Any, task_type: str | None = None) -> str:
     text = str(raw_name or "").strip()
     lower_text = text.lower()
     normalized = normalize_task_type(task_type)
+    if "c7" in lower_text or normalized == "google_sheet_c7":
+        return "C7"
     if "c5" in lower_text or normalized == "google_sheet_c5":
         return "C5"
     if "c4" in lower_text or normalized == "google_sheet_c4":
@@ -493,9 +532,9 @@ def _stock_code_from_task_name(task_type: str | None, task_name: str | None) -> 
 
     first = parts[0].upper()
     normalized = normalize_task_type(task_type)
-    if first in {"C3", "C4", "C5"} and len(parts) >= 2:
+    if first in {"C3", "C4", "C5", "C7"} and len(parts) >= 2:
         return parts[1].upper()
-    if normalized in {"google_sheet", "google_sheet_c4", "google_sheet_c5"}:
+    if normalized in {"google_sheet", "google_sheet_c4", "google_sheet_c5", "google_sheet_c7"}:
         if len(parts) == 1 and any(char.isspace() for char in parts[0]):
             return ""
         return parts[0].upper()
@@ -1024,6 +1063,8 @@ def extract_summary_records(task: Task, result: TaskResult) -> list[SummaryRecor
         return _extract_c4_c5(task, result)
     if normalized == "google_sheet_c5":
         return _extract_c5(task, result)
+    if normalized == "google_sheet_c7":
+        return _extract_c5(task, result)
     if normalized == "backtest_training":
         return _extract_backtest(task, result)
     return []
@@ -1112,12 +1153,15 @@ class ModelSummaryService:
         reset: bool = False,
         progress_task_id: str | None = None,
     ) -> dict[str, int]:
+        task_type = _canonical_task_type(task_type)
         if reset:
             delete_query = TaskResultSummaryIndex.query
             if task_id:
                 delete_query = delete_query.filter(TaskResultSummaryIndex.task_id == task_id)
             if task_type:
-                delete_query = delete_query.filter(TaskResultSummaryIndex.task_type == task_type)
+                delete_query = delete_query.filter(
+                    TaskResultSummaryIndex.task_type.in_(_task_type_filter_values(task_type))
+                )
             deleted = delete_query.delete(synchronize_session=False)
             db.session.commit()
         else:
@@ -1181,6 +1225,7 @@ class ModelSummaryService:
         reset: bool = False,
         created_by_user_id: int | None = None,
     ) -> dict[str, Any]:
+        task_type = _canonical_task_type(task_type)
         with self._jobs_lock:
             active_job = self._active_rebuild_job()
             if active_job:
@@ -1338,7 +1383,7 @@ class ModelSummaryService:
     def query(self, user: Any, filters: dict[str, Any]) -> dict[str, Any]:
         page = max(int(filters.get("page") or 1), 1)
         per_page = min(max(int(filters.get("per_page") or 50), 1), 200)
-        task_type = str(filters.get("task_type") or "").strip()
+        task_type = _canonical_task_type(str(filters.get("task_type") or "").strip()) or ""
         result_date_from = str(filters.get("result_date_from") or "").strip()
         result_date_to = str(filters.get("result_date_to") or "").strip()
         stock_code = str(filters.get("stock_code") or "").strip()
@@ -1359,7 +1404,7 @@ class ModelSummaryService:
         if task_type:
             if task_type not in allowed_types:
                 return self._empty_response(page, per_page, columns=self._columns_for_task_type(task_type))
-            query = query.filter(TaskResultSummaryIndex.task_type == task_type)
+            query = query.filter(TaskResultSummaryIndex.task_type.in_(_task_type_filter_values(task_type)))
         else:
             visible_types = [
                 allowed_type
@@ -1368,7 +1413,9 @@ class ModelSummaryService:
             ]
             if not visible_types:
                 return self._empty_response(page, per_page)
-            query = query.filter(TaskResultSummaryIndex.task_type.in_(visible_types))
+            query = query.filter(
+                TaskResultSummaryIndex.task_type.in_(_task_type_collection_filter_values(visible_types))
+            )
 
         query = self._apply_stock_keyword_filter(query, stock_code)
         query = self._apply_market_type_filter(query, market_type)
@@ -1488,7 +1535,7 @@ class ModelSummaryService:
     def _apply_record(self, item: TaskResultSummaryIndex, row: SummaryRecord) -> None:
         item.task_id = row.task_id
         item.task_result_id = row.task_result_id
-        item.task_type = row.task_type
+        item.task_type = _canonical_task_type(row.task_type) or row.task_type
         item.task_name = row.task_name
         item.stock_code = row.stock_code
         item.stock_name = row.stock_name
@@ -1536,6 +1583,7 @@ class ModelSummaryService:
         task_type: str,
         stock_code: str,
     ) -> dict[str, Any]:
+        task_type = _canonical_task_type(task_type) or ""
         columns = self._columns_for_task_type(task_type)
         market_type = _normalize_market_type(filters.get("market_type"))
         excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
@@ -1564,7 +1612,9 @@ class ModelSummaryService:
 
         task_id = str(filters.get("task_id") or "").strip()
         result_id = filters.get("result_id")
-        task_query = db.session.query(Task.id).filter(Task.task_type.in_(visible_types))
+        task_query = db.session.query(Task.id).filter(
+            Task.task_type.in_(_task_type_collection_filter_values(visible_types))
+        )
         if task_id:
             task_query = task_query.filter(Task.id == task_id)
         task_query = task_query.filter(or_(
@@ -1680,11 +1730,12 @@ class ModelSummaryService:
         task_type: str | None = None,
         task_id: str | None = None,
     ) -> list[str]:
+        task_type = _canonical_task_type(task_type)
         query = db.session.query(Task.id).filter(Task.status.in_(FINISHED_TASK_STATUSES))
         if task_type:
-            query = query.filter(Task.task_type == task_type)
+            query = query.filter(Task.task_type.in_(_task_type_filter_values(task_type)))
         else:
-            query = query.filter(Task.task_type.in_(SUPPORTED_TASK_TYPES))
+            query = query.filter(Task.task_type.in_(_task_type_collection_filter_values(SUPPORTED_TASK_TYPES)))
         if task_id:
             query = query.filter(Task.id == task_id)
         rows = (
@@ -1865,14 +1916,16 @@ class ModelSummaryService:
         }
 
     def _count_index_rows(self, task_type: str | None = None, task_id: str | None = None) -> int:
+        task_type = _canonical_task_type(task_type)
         query = TaskResultSummaryIndex.query
         if task_id:
             query = query.filter(TaskResultSummaryIndex.task_id == task_id)
         if task_type:
-            query = query.filter(TaskResultSummaryIndex.task_type == task_type)
+            query = query.filter(TaskResultSummaryIndex.task_type.in_(_task_type_filter_values(task_type)))
         return query.count()
 
     def _dedupe_best_per_task(self, task_type: str | None = None, task_id: str | None = None) -> int:
+        task_type = _canonical_task_type(task_type)
         group_expression = _summary_index_group_expression()
         ranked_query = db.session.query(
             TaskResultSummaryIndex.id.label("id"),
@@ -1888,7 +1941,9 @@ class ModelSummaryService:
         if task_id:
             ranked_query = ranked_query.filter(TaskResultSummaryIndex.task_id == task_id)
         if task_type:
-            ranked_query = ranked_query.filter(TaskResultSummaryIndex.task_type == task_type)
+            ranked_query = ranked_query.filter(
+                TaskResultSummaryIndex.task_type.in_(_task_type_filter_values(task_type))
+            )
         ranked = ranked_query.subquery()
         duplicate_ids = db.session.query(ranked.c.id).filter(ranked.c.row_number > 1)
         deleted = (

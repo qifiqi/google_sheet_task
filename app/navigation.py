@@ -1,39 +1,8 @@
 """Default sidebar navigation and helpers."""
 
+from app.page_registry import default_navigation_menu
 
-DEFAULT_NAVIGATION_MENU = [
-    {"key": "dashboard", "label": "仪表盘", "path": "/admin", "permission": "page:admin:dashboard"},
-    {"key": "task", "label": "任务模块", "children": [
-        {"key": "tasks", "label": "任务管理", "path": "/admin/tasks", "permission": "page:admin:tasks"},
-        {"key": "templates", "label": "任务模板", "path": "/admin/templates", "permission": "page:admin:templates"},
-        {"key": "results", "label": "任务结果", "path": "/admin/results", "permission": "page:admin:results"},
-        {"key": "xpl_analysis_jobs", "label": "XPL Job 运维", "path": "/admin/xpl-analysis-jobs", "permission": "page:admin:xpl_analysis_jobs"},
-    ]},
-    {"key": "data", "label": "数据模块", "children": [
-        {"key": "model_summary", "label": "单模型汇总", "path": "/admin/model-summary", "permission": "page:admin:model_summary"},
-    ]},
-    {"key": "scheduler_group", "label": "调度模块", "children": [
-        {"key": "scheduler", "label": "定时任务", "path": "/admin/scheduler", "permission": "page:admin:scheduler"},
-    ]},
-    {"key": "system", "label": "系统模块", "children": [
-        {"key": "config", "label": "系统配置", "path": "/admin/config", "permission": "page:admin:config"},
-        {"key": "sheets", "label": "Google Sheet 管理", "path": "/admin/google-sheets", "permission": "page:admin:google_sheets"},
-        {"key": "navigation", "label": "路由表管理", "path": "/admin/navigation", "permission": "page:admin:navigation"},
-        {"key": "logs", "label": "系统日志", "path": "/admin/logs", "permission": "page:admin:logs"},
-        {"key": "users", "label": "用户管理", "path": "/admin/users", "permission": "page:admin:users"},
-        {"key": "roles", "label": "角色管理", "path": "/admin/roles", "permission": "page:admin:roles"},
-    ]},
-    {"key": "business", "label": "业务模块", "children": [
-        {"key": "c3", "label": "Google Sheet C3", "path": "/google-sheet/?version=c3", "permission": "page:google_sheet:c3"},
-        {"key": "c4", "label": "Google Sheet C4", "path": "/google-sheet/?version=c4", "permission": "page:google_sheet:c4"},
-        {"key": "c5", "label": "Google Sheet C5", "path": "/google-sheet/?version=c5", "permission": "page:google_sheet:c5"},
-        {"key": "c7", "label": "Google Sheet C7", "path": "/google-sheet/?version=c7", "permission": "page:google_sheet:c7"},
-        {"key": "backtest", "label": "单品数据回测", "path": "/backtest-training/list", "permission": "page:backtest:list"},
-        {"key": "backtest_multi_product", "label": "多品数据回测", "path": "/backtest-multi-product/list", "permission": "page:backtest_multi_product:list"},
-        {"key": "xpl", "label": "夏普率计算", "path": "/xpl"},
-        {"key": "xpl_v1", "label": "V1 回测数据分析", "path": "/xpl/v1"},
-    ]},
-]
+DEFAULT_NAVIGATION_MENU = default_navigation_menu()
 
 
 def flatten_navigation_items(items, parent_key=None):

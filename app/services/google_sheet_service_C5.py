@@ -8,6 +8,10 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, TaskResult, db, TaskResultReturn
+from app.services.c_series_xpl_analysis import (
+    CSeriesXplAnalysisService,
+    RETURN_SERIES_SNAPSHOT_KEY,
+)
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -36,6 +40,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
+        self.xpl_analysis = CSeriesXplAnalysisService()
 
     @staticmethod
     def _to_decimal_ratio(value: Any) -> float:
@@ -137,7 +142,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                     return 'error'
 
                 # 推送任务完成通知
-                self._refresh_model_summary_index()
+                if self.xpl_analysis.is_async_enabled(config_data):
+                    self._log_info("任务 Sheet 执行完成，XPL 异步分析由 worker 后台处理，汇总索引将在分析完成后刷新")
+                else:
+                    self._refresh_model_summary_index()
                 self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
                 # 推送任务完成信息
                 completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'

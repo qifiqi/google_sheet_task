@@ -9,6 +9,10 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, TaskResult, db
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.c_series_xpl_analysis import (
+    CSeriesXplAnalysisService,
+    RETURN_SERIES_SNAPSHOT_KEY,
+)
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
@@ -34,6 +38,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
         self.xpl = xpl_analyzer
+        self.xpl_analysis = CSeriesXplAnalysisService()
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -118,7 +123,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                     return 'error'
 
                 # 推送任务完成通知
-                self._refresh_model_summary_index()
+                if self.xpl_analysis.is_async_enabled(config_data):
+                    self._log_info("任务 Sheet 执行完成，XPL 异步分析由 worker 后台处理，汇总索引将在分析完成后刷新")
+                else:
+                    self._refresh_model_summary_index()
                 self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
                 # 推送任务完成信息
                 completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'
@@ -352,15 +360,18 @@ class GoogleSheetService(BaseGoogleSheetService):
                         }
                         if stock_name:
                             result_parameters['stock_name'] = stock_name
-                        self._save_task_result(current_step - 1, result_parameters, result, success)
-                        self.send_stock_param_result_data(
-                            self._build_stock_param_result_payload(
+                        async_xpl_enabled = self.xpl_analysis.is_async_enabled(config_data)
+                        param_load = None
+                        if not async_xpl_enabled:
+                            param_load = self._build_stock_param_result_payload(
                                 name,
                                 current_step - 1,
                                 combination,
                                 result,
                             )
-                        )
+                        self._save_task_result(current_step - 1, result_parameters, result, success)
+                        if param_load is not None:
+                            self.send_stock_param_result_data(param_load)
 
                     except checkForErrors as e:
                         self._log_error(str(e))
@@ -409,9 +420,10 @@ class GoogleSheetService(BaseGoogleSheetService):
         """保存任务结果到数据库，包含重试逻辑"""
 
         def save_result_operation():
-            _index_start_return_date = None
             safe_parameters = self._sanitize_json_value(parameters)
-            safe_result = self._sanitize_json_value(result)
+            result_payload = dict(result) if isinstance(result, dict) else {}
+            return_series_snapshots = self._collect_return_series_snapshots(result_payload)
+            safe_result = self._sanitize_json_value(result_payload)
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
@@ -420,6 +432,14 @@ class GoogleSheetService(BaseGoogleSheetService):
                 success=success
             )
             db.session.add(task_result)
+            db.session.flush()
+            for snapshot in return_series_snapshots:
+                self.xpl_analysis.persist_snapshot_for_task_result(
+                    task_id=self.task_id,
+                    task_result=task_result,
+                    snapshot=snapshot,
+                    step_index=step_index,
+                )
             db.session.commit()
 
         try:
@@ -433,6 +453,22 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
+
+    def _collect_return_series_snapshots(self, result_payload: Dict[str, Any]) -> list[dict[str, Any]]:
+        snapshots: list[dict[str, Any]] = []
+        if not isinstance(result_payload, dict):
+            return snapshots
+
+        root_snapshot = result_payload.pop(RETURN_SERIES_SNAPSHOT_KEY, None)
+        if isinstance(root_snapshot, dict):
+            snapshots.append(root_snapshot)
+
+        for item in result_payload.values():
+            if isinstance(item, dict):
+                snapshot = item.pop(RETURN_SERIES_SNAPSHOT_KEY, None)
+                if isinstance(snapshot, dict):
+                    snapshots.append(snapshot)
+        return snapshots
 
 
 
@@ -563,14 +599,35 @@ class GoogleSheetService(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{c4_output_column_l}{i + 2}"],
                             })
 
-                        # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
-                        # _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
-                        flat_result, analyze_result = self.xpl.get_return_analysis_v1(_return_data)
                         _result.update(_result_yearly)
-                        # _result['index_return_xpl'] = _index_return_xpl
-                        # _result['start_return_xpl'] = _start_return_xpl
-                        _result['analyze_result'] = analyze_result
-                        _result['flat_result'] = flat_result
+                        source_columns = {
+                            "date": "kline.stock_date",
+                            "index_return": c4_output_column_j,
+                            "start_return": c4_output_column_l,
+                        }
+                        if self.xpl_analysis.is_async_enabled(config_data):
+                            _result.update(
+                                self.xpl_analysis.build_async_result(
+                                    _return_data,
+                                    source_columns=source_columns,
+                                    config_data=config_data,
+                                )
+                            )
+                            self._log_info(
+                                "收益率分析已进入异步队列，摘要: "
+                                f"{self.xpl_analysis.summarize_for_log(rows=len(_return_data), analysis_status='pending')}"
+                            )
+                        else:
+                            sync_result, xpl_elapsed = self.xpl_analysis.build_sync_result(
+                                self.xpl,
+                                _return_data,
+                                source_columns=source_columns,
+                            )
+                            _result.update(sync_result)
+                            self._log_info(
+                                "收益率分析执行完成，摘要: "
+                                f"{self.xpl_analysis.summarize_for_log(rows=len(_return_data), xpl_elapsed=xpl_elapsed, flat_result=sync_result.get('flat_result'), analyze_result=sync_result.get('analyze_result'))}"
+                            )
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
                     else:

@@ -1165,7 +1165,7 @@
     // 加载模板列表
     function loadTemplates() {
         // 只加载 c7 类型的模板
-        fetch('/api/templates?task_type=google_sheet_c7')
+        fetch('/api/templates?task_type=google_sheet_C7')
             .then(response => response.json())
             .then(data => {
                 if (!data || data.status !== 'success' || !Array.isArray(data.templates)) {
@@ -2327,7 +2327,7 @@
 
             // 构造配置对象（c7 结构，包含 task_type，供模板过滤）
             return {
-                task_type: 'google_sheet_c7',
+                task_type: 'google_sheet_C7',
                 token_type: tokenType,
                 token_id: tokenType === 'file' ? tokenId : null,
                 token_file: tokenFile,

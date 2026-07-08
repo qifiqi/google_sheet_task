@@ -3,7 +3,7 @@ from datetime import datetime
 import json
 from croniter import croniter
 from app.extensions import db
-from app.models import ScheduledTask
+from app.models import ScheduledTask, TaskType
 from app.services.scheduler_service import scheduler_service
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
@@ -113,11 +113,12 @@ def create_scheduled_task():
                 }), 400
         
         # 创建任务
+        task_type = TaskType.normalize(data['task_type'], data['task_type'])
         task = ScheduledTask(
             name=data['name'],
             description=data.get('description', ''),
             cron_expression=data['cron_expression'],
-            task_type=data['task_type'],
+            task_type=task_type,
             task_function=data['task_function'],
             task_params=task_params,
             is_active=data.get('is_active', True)
@@ -178,7 +179,8 @@ def update_scheduled_task(task_id):
         # 更新任务字段
         for field in ['name', 'description', 'cron_expression', 'task_type', 'task_function', 'task_params', 'is_active']:
             if field in data:
-                setattr(task, field, data[field])
+                value = TaskType.normalize(data[field], data[field]) if field == 'task_type' else data[field]
+                setattr(task, field, value)
         
         task.updated_at = datetime.now()
         db.session.commit()

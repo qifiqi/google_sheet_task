@@ -11,7 +11,7 @@ from flask import current_app
 from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
-from app.models import BacktestSheetRunLock, Task
+from app.models import BacktestSheetRunLock, Task, TaskType
 from app.services.backtest_multi_product_service import BacktestMultiProductService
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
@@ -544,29 +544,29 @@ class TaskRuntimeMixin:
         task_logger.info("开始启动任务 - 名称: %s, 类型: %s", task.name, task.task_type)
         self.task_stop_events[task_id] = threading.Event()
         app = current_app._get_current_object()
-        task_type = task.task_type.lower()
-        if task_type == "google_sheet":
+        task_type = TaskType.normalize(task.task_type, task.task_type)
+        if task_type == TaskType.GOOGLE_SHEET.value:
             new_thread = threading.Thread(
                 target=self._execute_google_sheet_task,
                 args=(task_id, app),
                 name=task_id,
             )
             task_logger.info("创建Google Sheet任务执行线程")
-        elif task_type == "google_sheet_c4":
+        elif task_type == TaskType.GOOGLE_SHEET_C4.value:
             new_thread = threading.Thread(
                 target=self._execute_google_sheet_c4_task,
                 args=(task_id, app),
                 name=task_id,
             )
             task_logger.info("创建Google Sheet C4 任务执行线程")
-        elif task_type == "google_sheet_c5":
+        elif task_type == TaskType.GOOGLE_SHEET_C5.value:
             new_thread = threading.Thread(
                 target=self._execute_google_sheet_c5_task,
                 args=(task_id, app),
                 name=task_id,
             )
             task_logger.info("创建Google Sheet C5 任务执行线程")
-        elif task_type == "google_sheet_c7":
+        elif task_type == TaskType.GOOGLE_SHEET_C7.value:
             new_thread = threading.Thread(
                 target=self._execute_google_sheet_c7_task,
                 args=(task_id, app),

@@ -1,0 +1,210 @@
+
+# 目标：重构页面、权限、菜单配置，简化新增页面流程
+
+请使用目标模式直到完成。当前仓库是：
+
+`D:\Users\Administrator\Desktop\谷歌参数批量校验`
+
+## 背景
+
+当前项目的权限、页面、菜单配置比较分散：
+
+- 权限定义在 `app/config.py` 的 `PERMISSIONS`
+- 默认菜单定义在 `app/navigation.py` 的 `DEFAULT_NAVIGATION_MENU`
+- 后台页面路由写在 `app/routes/admin.py`
+- 前端页面权限硬编码在 `static/js/template-auth.js` 的 `pagePermissionMatchers`
+- 种子数据同步在 `app/seed_data.py`
+- 维护说明在 `docs/后端/页面权限配置维护说明.md`
+
+当前新增一个后台页面至少要改多处，容易漏配置。希望改成“新增页面简单、权限添加清晰、逻辑简单化”。
+
+## 目标
+
+设计并实现一个统一的页面/权限 registry，让新增普通后台页面尽量只需要：
+
+1. 在一个 registry 中新增页面声明
+2. 新增模板文件
+3. 执行 `python scripts/seed_default_data.py --skip-schema`
+
+不再需要分别手动维护页面权限、导航菜单、前端页面权限 matcher。
+
+## 成功标准
+
+完成后需要满足：
+
+1. 普通后台页面的页面权限和菜单来自统一声明。
+2. `app/config.py` 不再手写重复的后台 `page:*` 权限，改为从 registry 合并生成。
+3. `app/navigation.py` 不再手写重复后台菜单，改为从 registry 生成默认菜单。
+4. `static/js/template-auth.js` 尽量不再维护后台页面路径到权限的硬编码 matcher。
+5. 现有页面和菜单行为保持兼容。
+6. 现有 `scripts/seed_default_data.py --skip-schema` 仍可同步权限和菜单。
+7. 添加或更新测试，覆盖 registry 生成权限、生成菜单、兼容旧路径映射。
+8. 不做大规模无关重构，不改动任务执行链路。
+
+## 设计要求
+
+### 1. 新增 registry 文件
+
+建议新增：
+
+`app/page_registry.py`
+
+定义轻量数据结构，例如：
+
+```python
+from dataclasses import dataclass
+from typing import Callable, Optional
+
+
+@dataclass(frozen=True)
+class PageDef:
+    key: str
+    label: str
+    path: str
+    template: str
+    permission: str
+    parent_key: str | None = None
+    sort_order: int = 0
+    visible: bool = True
+    endpoint: str | None = None
+```
+
+然后集中声明后台页面，例如：
+
+```python
+ADMIN_PAGE_GROUPS = [
+    PageDef(key="dashboard", label="仪表盘", path="/admin", template="admin/dashboard.html", permission="page:admin:dashboard"),
+    PageDef(key="tasks", label="任务管理", path="/admin/tasks", template="admin/tasks.html", permission="page:admin:tasks", parent_key="task"),
+]
+```
+
+如果某些页面需要特殊模板上下文，可以先不自动注册路由，只用 registry 生成权限和菜单。不要为了这次优化引入复杂插件机制。
+
+### 2. 菜单生成
+
+`app/navigation.py` 应保留：
+
+- `NAV_LEGACY_PATH_MAP`
+- `normalize_nav_path`
+- `normalize_nav_label`
+- `build_nav_permission_map`
+- `build_navigation_tree`
+
+但 `DEFAULT_NAVIGATION_MENU` 应尽量由 registry 生成。
+
+顶级菜单分组建议仍保持现有结构：
+
+- 仪表盘
+- 任务模块
+- 数据模块
+- 调度模块
+- 系统模块
+- 业务模块
+
+业务模块中 Google Sheet、回测、XPL 等菜单也可以继续放在 registry 或保留显式配置。优先保证改动小、逻辑清晰。
+
+### 3. 权限生成
+
+`app/config.py` 中保留业务/API 权限，例如：
+
+- `task:view`
+- `task:create`
+- `template:view`
+- `config:manage`
+- `google_sheet:c3`
+- `backtest:view`
+- `user:manage`
+
+页面权限 `page:*` 尽量由 `app/page_registry.py` 统一生成后合并到 `PERMISSIONS`。
+
+建议结构：
+
+```python
+BASE_PERMISSIONS = [
+    ...
+]
+
+PERMISSIONS = BASE_PERMISSIONS + page_permissions()
+```
+
+### 4. 页面权限前端逻辑
+
+当前 `static/js/template-auth.js` 有 `pagePermissionMatchers`，容易和后端配置不一致。
+
+优先方案：
+
+- 后端提供页面权限映射接口，例如 `/api/meta/page-permissions`
+- 前端启动时读取一次映射
+- `getPagePermissions()` 优先使用后端返回的 path 映射
+- 保留少量特殊兜底，例如 Google Sheet 根据 `version` 判断权限
+
+如果这样改动较大，可以先把后台 `/admin/*` 页面 matcher 替换成后端注入或接口数据，保留业务页面 matcher，后续再完全统一。
+
+### 5. 服务端页面保护
+
+注意：当前页面认证主要依赖前端 JWT，因为页面 GET 请求不会自动携带 `Authorization` header。
+
+这次不要强行把登录态改成 Cookie 或 Session，避免扩大改动范围。可以在文档中说明：
+
+- 当前阶段：API 是强权限边界，页面权限用于菜单和前端页面拦截。
+- 后续增强：可将 JWT 改为 HttpOnly Cookie，让页面路由也能服务端强校验。
+
+### 6. 种子逻辑保持兼容
+
+`app/seed_data.py` 应继续使用 `PERMISSIONS` 和 `DEFAULT_NAVIGATION_MENU`。
+
+执行：
+
+```powershell
+python scripts/seed_default_data.py --skip-schema
+```
+
+应能补齐新权限和新菜单。
+
+### 7. 测试
+
+添加或更新测试，优先覆盖：
+
+- registry 生成的 `page:*` 权限存在
+- `DEFAULT_NAVIGATION_MENU` 中关键菜单仍存在
+- `build_nav_permission_map()` 能返回关键路径权限
+- 旧路径映射仍兼容，例如 `/task/list?version=c7`
+- C7 相关现有测试不回退
+
+可参考现有：
+
+`tests/test_c7_registration.py`
+
+## 修改约束
+
+请遵守项目 `AGENTS.md`：
+
+- Windows PowerShell 读写中文文件必须使用 UTF-8
+- 只做和当前目标直接相关的修改
+- 不做无关重构
+- 不删除历史注释或无关代码
+- 保持现有代码风格
+- 用最少代码解决问题
+- 如果发现现有逻辑矛盾，先说明再做保守处理
+
+## 验证方式
+
+完成后至少运行：
+
+```powershell
+pytest tests/test_c7_registration.py
+```
+
+如果新增了专门测试，也运行对应测试文件。
+
+如果全量测试因为历史外部依赖失败，不要误判为本次改动导致；请说明已运行的定向测试结果。
+
+## 最终输出
+
+完成后请输出：
+
+1. 改了哪些文件
+2. 新增页面以后怎么做
+3. 权限和菜单现在从哪里来
+4. 运行了哪些测试，结果如何
+5. 如果有遗留风险，简短说明

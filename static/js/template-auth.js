@@ -11,34 +11,30 @@
     let isRefreshing = false;
     let refreshPromise = null;
     let navItems = [];
+    let pagePermissionMap = new Map();
+    let pagePermissionPrefixes = [];
 
     const legacyPathMap = new Map([
         ["/admin", "/admin/"],
         ["/task/list?version=c3", "/google-sheet/?version=c3"],
         ["/task/list?version=c4", "/google-sheet/?version=c4"],
         ["/task/list?version=c5", "/google-sheet/?version=c5"],
+        ["/task/list?version=c7", "/google-sheet/?version=c7"],
         ["/task/create", "/google-sheet/create"],
+        ["/task/create/c3", "/google-sheet/?version=c3"],
+        ["/task/create/c4", "/google-sheet/?version=c4"],
+        ["/task/create/c5", "/google-sheet/?version=c5"],
+        ["/task/create/c7", "/google-sheet/?version=c7"],
         ["/backtest/list", "/backtest-training/list"],
         ["/backtest/create", "/backtest-training/create"],
+        ["/backtest-multi/list", "/backtest-multi-product/list"],
+        ["/backtest-multi/create", "/backtest-multi-product/create"],
         ["/xpl", "/xpl/"],
     ]);
 
     const templateUnsupportedPaths = new Set([]);
 
     const pagePermissionMatchers = [
-        { test: /^\/admin\/?$/, permissions: ["page:admin:dashboard"] },
-        { test: /^\/admin\/tasks\/?$/, permissions: ["page:admin:tasks"] },
-        { test: /^\/admin\/config\/?$/, permissions: ["page:admin:config"] },
-        { test: /^\/admin\/navigation\/?$/, permissions: ["page:admin:navigation"] },
-        { test: /^\/admin\/logs\/?$/, permissions: ["page:admin:logs"] },
-        { test: /^\/admin\/templates\/?$/, permissions: ["page:admin:templates"] },
-        { test: /^\/admin\/results\/?$/, permissions: ["page:admin:results"] },
-        { test: /^\/admin\/xpl-analysis-jobs\/?$/, permissions: ["page:admin:xpl_analysis_jobs"] },
-        { test: /^\/admin\/model-summary\/?$/, permissions: ["page:admin:model_summary"] },
-        { test: /^\/admin\/google-sheets\/?$/, permissions: ["page:admin:google_sheets"] },
-        { test: /^\/admin\/scheduler\/?$/, permissions: ["page:admin:scheduler"] },
-        { test: /^\/admin\/users\/?$/, permissions: ["page:admin:users"] },
-        { test: /^\/admin\/roles\/?$/, permissions: ["page:admin:roles"] },
         { test: /^\/backtest-training\/list\/?$/, permissions: ["page:backtest:list"] },
         { test: /^\/backtest-training\/create\/?$/, permissions: ["page:backtest:create"] },
         { test: /^\/backtest-training\/detail\/.+$/, permissions: ["page:backtest:list"] },
@@ -242,10 +238,57 @@
         if (version === "c5") {
             return "page:google_sheet:c5";
         }
+        if (version === "c7") {
+            return "page:google_sheet:c7";
+        }
         if (version === "c31") {
             return "page:google_sheet:c3";
         }
         return "page:google_sheet:c3";
+    }
+
+    function normalizePermissionList(value) {
+        if (Array.isArray(value)) {
+            return value.filter(Boolean);
+        }
+        return value ? [value] : [];
+    }
+
+    function pagePathCandidates() {
+        const currentPath = `${window.location.pathname}${window.location.search}`;
+        const values = [
+            currentPath,
+            window.location.pathname,
+            resolveLegacyPath(currentPath),
+            resolveLegacyPath(window.location.pathname),
+            normalizePath(currentPath),
+            normalizePath(window.location.pathname),
+            normalizePath(resolveLegacyPath(currentPath)),
+            normalizePath(resolveLegacyPath(window.location.pathname)),
+        ];
+        return [...new Set(values.filter(Boolean))];
+    }
+
+    function getMappedPagePermissions() {
+        for (const path of pagePathCandidates()) {
+            const permissions = normalizePermissionList(pagePermissionMap.get(path));
+            if (permissions.length) {
+                return permissions;
+            }
+        }
+
+        const pathname = window.location.pathname;
+        const normalizedPathname = normalizePath(pathname);
+        const resolvedPathname = normalizePath(resolveLegacyPath(pathname));
+        const matchedPrefix = pagePermissionPrefixes.find((item) => {
+            const prefix = item.prefix || "";
+            return prefix && (
+                pathname.startsWith(prefix) ||
+                normalizedPathname.startsWith(prefix) ||
+                resolvedPathname.startsWith(prefix)
+            );
+        });
+        return matchedPrefix ? normalizePermissionList(matchedPrefix.permissions) : [];
     }
 
     function getPagePermissions() {
@@ -255,6 +298,11 @@
             .filter(Boolean);
         if (datasetValue.length) {
             return datasetValue;
+        }
+
+        const mappedPermissions = getMappedPagePermissions();
+        if (mappedPermissions.length) {
+            return mappedPermissions;
         }
 
         const pathname = window.location.pathname;
@@ -573,6 +621,21 @@
         renderTopMenu(navItems);
     }
 
+    async function loadPagePermissions() {
+        const payload = await requestJson("/api/meta/page-permissions", { method: "GET" });
+        const data = payload?.data || {};
+        const paths = data.paths || {};
+        pagePermissionMap = new Map(
+            Object.entries(paths).map(([path, permissions]) => [path, normalizePermissionList(permissions)]),
+        );
+        pagePermissionPrefixes = Array.isArray(data.prefixes)
+            ? data.prefixes.map((item) => ({
+                prefix: item.prefix,
+                permissions: normalizePermissionList(item.permissions),
+            }))
+            : [];
+    }
+
     function applyPermissionNodes() {
         const nodes = document.querySelectorAll("[data-permission]");
         nodes.forEach((node) => {
@@ -755,7 +818,7 @@
         setLoading(true, "正在恢复登录状态...");
         try {
             await fetchCurrentUser();
-            await loadNav();
+            await Promise.all([loadNav(), loadPagePermissions()]);
             bindLogoutButtons();
 
             const permissions = getPagePermissions();
