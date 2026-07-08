@@ -379,8 +379,8 @@ class XPLAnalyzer:
         end_date = df['date'].max()
         total_months = len(monthly_df)
 
-        logger.info(f"数据时间范围/Data time range: {start_date.date()} 到/to {end_date.date()}")
-        logger.info(f"总数据月份数/Total months of data: {total_months}个月/months")
+        logger.debug(f"数据时间范围/Data time range: {start_date.date()} 到/to {end_date.date()}")
+        logger.debug(f"总数据月份数/Total months of data: {total_months}个月/months")
         # 计算全部数据的夏普比率
         # Calculate Sharpe ratio for all data
         res = self.calculate_sharpe_for_period(monthly_df, "all", 12)

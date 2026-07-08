@@ -72,7 +72,7 @@ class XplAnalysisWorker:
         )
         if not jobs:
             return XplWorkerRunResult()
-
+        print(f"pull batch jobs len :{len(jobs)}")
         prepared_jobs = []
         result = XplWorkerRunResult(claimed=len(jobs))
         for job in jobs:
