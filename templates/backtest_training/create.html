@@ -476,10 +476,25 @@ function sanitizeTaskTitlePart(value) {
         .replace(/^-|-$/g, '');
 }
 
+<!--?function buildDefaultTaskName() {-->
+<!--?    const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());-->
+<!--?    const modelVersion = resolveModelVersion(currentModelVersion).toUpperCase();-->
+<!--?    return stockCode ? `${modelVersion}-${stockCode}` : '';-->
+<!--?}-->
 function buildDefaultTaskName() {
-    const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());
+    // 优先使用选中的股票建议中的 name
+    const stockName = selectedStockSuggestion?.name
+            ? sanitizeTaskTitlePart(selectedStockSuggestion.name)
+            : '';
+
+    // 如果没有选中的建议，使用输入框的值（可能是手动输入的代码）
+    const fallbackCode = stockCodeInput.value.trim()
+            ? sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase())
+            : '';
+
+    const stockPart = stockName || fallbackCode;
     const modelVersion = resolveModelVersion(currentModelVersion).toUpperCase();
-    return stockCode ? `${modelVersion}-${stockCode}` : '';
+    return stockPart ? `${modelVersion}-${stockPart}` : '';
 }
 
 function syncTaskNameInput(force = false) {
