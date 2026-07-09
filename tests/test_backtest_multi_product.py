@@ -1164,6 +1164,30 @@ def test_multi_product_year_max_excess_drawdown_uses_zero_when_no_year_outperfor
     assert _fmt_value(metrics["year_max_excess_drawdown"], "percent") == "0.00%"
 
 
+def test_multi_product_derive_metrics_accepts_c7_flat_analyze_result():
+    metrics = _derive_metrics({
+        "index_annualized_return": 0.1,
+        "start_annualized_return": 0.2,
+        "annualized_return_diff": 0.1,
+        "index_profit_monthly_percentage": 0.5,
+        "start_profit_monthly_percentage": 0.6,
+        "index_avg_monthly_return_common": 0.01,
+        "start_avg_monthly_return_common": 0.02,
+        "monthly_excess_return_percentage_last_return": 0.7,
+        "avg_monthly_excess_returns": 0.03,
+        "start_drawdown": 0.12,
+        "index_sharpe_ratio": 1.1,
+        "start_sharpe_ratio": 1.2,
+    })
+
+    assert metrics["index_annualized_return"] == 0.1
+    assert metrics["start_annualized_return"] == 0.2
+    assert metrics["monthly_excess_return_percentage"] == 0.7
+    assert metrics["avg_monthly_excess_return"] == 0.03
+    assert metrics["start_max_drawdown"] == -0.12
+    assert metrics["start_sharpe_ratio"] == 1.2
+
+
 def test_multi_product_global_preview_workbook_writes_percentage_cells_as_numbers():
     payload = {
         "products": [

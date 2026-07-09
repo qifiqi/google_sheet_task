@@ -111,6 +111,31 @@ def test_backtest_training_short_listing_history_recent_years_is_allowed(monkeyp
     assert kline_map["2025-2020"][0]["stock_date"] == "2023-06-01"
 
 
+def test_backtest_sheet_config_supports_c7():
+    config = {
+        "sheet": {"title": "策略 C7 模型"},
+        "c7_input_column_a": "A",
+        "c7_input_column_b": "B",
+        "c7_output_range_1": "D8:D26",
+        "c7_output_range_2": "D28:F31",
+        "c7_output_column_j": "J",
+        "c7_output_column_l": "L",
+        "c7_parameter_positions": ["A1", "B1"],
+    }
+
+    assert BacktestTrainingService._c3_to_c5_get_config(config) == (
+        "A",
+        "B",
+        "D8:D26",
+        "D28:F31",
+        "J",
+        "L",
+        ["A1", "B1"],
+        ["D8", "D9"],
+        "A",
+    )
+
+
 def test_multi_product_normalize_rejects_parameter_count_mismatch():
     with pytest.raises(ValueError, match="参数行数必须一致"):
         normalize_multi_product_config({

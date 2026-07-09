@@ -217,27 +217,41 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _c3_to_c5_get_config(config_data):
-        sheet = config_data.get('sheet')
-        sheet_type = "C5" if "C5" in sheet.get('title','').upper() else "C3"
-        if 'C5' in sheet_type.upper():
-            input_column_d = config_data.get('c5_input_column_a').upper()
-            input_column_v = config_data.get('c5_input_column_b').upper()
-            output_range_1 = config_data.get('c5_output_range_1')
-            output_range_2 = config_data.get('c5_output_range_2')
-            output_column_index = config_data.get('c5_output_column_j')
-            output_column_start = config_data.get('c5_output_column_l')
-            parameter_positions = config_data.get('c5_parameter_positions')
-            check_positions = config_data.get('c5_check_positions')
+        def _get_config_value(key, default=None):
+            value = config_data.get(key)
+            return default if value is None else value
+
+        sheet = config_data.get('sheet') or {}
+        title = str(sheet.get('title') or config_data.get('title') or '').upper()
+        if 'C7' in title:
+            input_column_d = _get_config_value('c7_input_column_a', 'A').upper()
+            input_column_v = _get_config_value('c7_input_column_b', 'B').upper()
+            output_range_1 = _get_config_value('c7_output_range_1', 'D8:D26')
+            output_range_2 = _get_config_value('c7_output_range_2', 'D28:F31')
+            output_column_index = _get_config_value('c7_output_column_j', 'J')
+            output_column_start = _get_config_value('c7_output_column_l', 'L')
+            parameter_positions = _get_config_value('c7_parameter_positions', ['A1', 'B1'])
+            check_positions = [f"{output_range_1[0]}8", f"{output_range_1[0]}9"]
             last_row = "A"
-        if 'C3' in sheet_type.upper():
-            input_column_d = config_data.get('c3_input_column_d').upper()
-            input_column_v = config_data.get('c3_input_column_e').upper()
-            output_range_1 = config_data.get('c3_output_range_1')
-            output_range_2 = config_data.get('c3_output_range_2')
-            output_column_index = config_data.get('c3_output_column_K')
-            output_column_start = config_data.get('c3_output_column_O')
-            parameter_positions = config_data.get('c3_parameter_positions')
-            check_positions = config_data.get('c3_check_positions')
+        elif 'C5' in title:
+            input_column_d = _get_config_value('c5_input_column_a', 'A').upper()
+            input_column_v = _get_config_value('c5_input_column_b', 'B').upper()
+            output_range_1 = _get_config_value('c5_output_range_1', 'D2:D20')
+            output_range_2 = _get_config_value('c5_output_range_2', 'D22:F25')
+            output_column_index = _get_config_value('c5_output_column_j', 'J')
+            output_column_start = _get_config_value('c5_output_column_l', 'L')
+            parameter_positions = _get_config_value('c5_parameter_positions', ['A1', 'B1'])
+            check_positions = _get_config_value('c5_check_positions', ['D2', 'D3'])
+            last_row = "A"
+        else:
+            input_column_d = _get_config_value('c3_input_column_d', 'D').upper()
+            input_column_v = _get_config_value('c3_input_column_e', 'E').upper()
+            output_range_1 = _get_config_value('c3_output_range_1', 'I2:I23')
+            output_range_2 = _get_config_value('c3_output_range_2', 'I15:I23')
+            output_column_index = _get_config_value('c3_output_column_K', 'K')
+            output_column_start = _get_config_value('c3_output_column_O', 'O')
+            parameter_positions = _get_config_value('c3_parameter_positions', ['B5','B6', 'B7', 'B8','B9', 'B10', 'B11', 'B12'])
+            check_positions = _get_config_value('c3_check_positions', ["I15","I16"])
             last_row = "D"
         return input_column_d, input_column_v, output_range_1, output_range_2, output_column_index, output_column_start, parameter_positions, check_positions,last_row
 
