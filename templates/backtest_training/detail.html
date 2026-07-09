@@ -389,6 +389,10 @@
     const RESULT_PAGINATION_STORAGE_KEY = `backtest_training:task_results:${currentTaskId}:pagination`;
     let currentTaskConfig = {};
     const FIELD_MAP = {
+        c7: [
+            { key: 'xm', label: 'X Multiplier (xm)' },
+            { key: 'ml', label: 'ML (ml)' }
+        ],
         c5: [
             { key: 'xm', label: 'X Multiplier (xm)' },
             { key: 'ml', label: 'ML (ml)' }
@@ -601,9 +605,18 @@
     }
 
     function inferModelVersion(config) {
-        const title = config && config.sheet && config.sheet.title ? String(config.sheet.title) : '';
-        const upperTitle = title.toUpperCase();
-        if (upperTitle.includes('C5') || upperTitle.includes('C4')) {
+        const sheet = config && config.sheet ? config.sheet : {};
+        const text = [
+            config && config.model_version,
+            config && config.task_name,
+            config && config.title,
+            sheet.title,
+            sheet.sheet_name
+        ].filter(Boolean).join(' ').toUpperCase();
+        if (text.includes('C7')) {
+            return 'c7';
+        }
+        if (text.includes('C5') || text.includes('C4')) {
             return 'c5';
         }
         return 'c3';
@@ -1366,7 +1379,11 @@
             }
 
             const task = data.task;
-            currentTaskConfig = task.config || {};
+            currentTaskConfig = {
+                ...(task.config || {}),
+                task_name: task.name,
+                model_version: task.model_version || (task.config || {}).model_version
+            };
             document.getElementById('taskNameText').textContent = task.name || '任务详情';
             document.getElementById('taskStatus').innerHTML = formatStatus(task.status);
             document.getElementById('taskCreated').innerHTML = renderValue(formatTime(task.created_at));

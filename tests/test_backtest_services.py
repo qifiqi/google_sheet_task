@@ -5,6 +5,7 @@ import pytest
 
 from app.extensions import db
 from app.models import BacktestProductResultCache, TaskResult, TaskResultReturn
+from app.routes.backtest_training import _get_summary_derived_value
 from app.services.backtest_multi_product_service import (
     BacktestMultiProductService,
     normalize_multi_product_config,
@@ -134,6 +135,18 @@ def test_backtest_sheet_config_supports_c7():
         ["D8", "D9"],
         "A",
     )
+
+
+def test_c7_summary_excess_return_uses_shifted_c5_cells():
+    column = {
+        "model_name": "C7",
+        "raw_metrics": {
+            "D8": "32.47%",
+            "D11": "21.14%",
+        },
+    }
+
+    assert _get_summary_derived_value(column, "excess_return") == "11.33%"
 
 
 def test_multi_product_normalize_rejects_parameter_count_mismatch():

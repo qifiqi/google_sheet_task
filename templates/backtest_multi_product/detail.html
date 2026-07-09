@@ -433,6 +433,10 @@
     const RESULT_PAGINATION_STORAGE_KEY = `backtest_multi_product:task_results:${currentTaskId}:pagination`;
     let currentTaskConfig = {};
     const FIELD_MAP = {
+        c7: [
+            { key: 'xm', label: 'X Multiplier (xm)' },
+            { key: 'ml', label: 'ML (ml)' }
+        ],
         c5: [
             { key: 'xm', label: 'X Multiplier (xm)' },
             { key: 'ml', label: 'ML (ml)' }
@@ -650,8 +654,17 @@
 
     function inferProductModelVersion(product) {
         const sheet = product?.sheet || {};
-        const title = String(sheet.title || sheet.sheet_name || '').toUpperCase();
-        return title.includes('C5') || title.includes('C4') ? 'c5' : 'c3';
+        const text = [
+            product?.model_version,
+            product?.product_name,
+            product?.name,
+            sheet.title,
+            sheet.sheet_name
+        ].filter(Boolean).join(' ').toUpperCase();
+        if (text.includes('C7')) {
+            return 'c7';
+        }
+        return text.includes('C5') || text.includes('C4') ? 'c5' : 'c3';
     }
 
     function getProductParameterFields(product) {
@@ -1494,7 +1507,11 @@
             }
 
             const task = data.task;
-            currentTaskConfig = task.config || {};
+            currentTaskConfig = {
+                ...(task.config || {}),
+                task_name: task.name,
+                model_version: task.model_version || (task.config || {}).model_version
+            };
             document.getElementById('taskNameText').textContent = task.name || '任务详情';
             document.getElementById('taskStatus').innerHTML = formatStatus(task.status);
             document.getElementById('taskCreated').innerHTML = renderValue(formatTime(task.created_at));

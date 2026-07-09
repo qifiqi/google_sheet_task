@@ -58,6 +58,12 @@ SUMMARY_METRIC_CELL_MAP = {
         "index_max_drawdown": "D7",
         "max_drawdown": "D4",
     },
+    "C7": {
+        "index_return": "D11",
+        "return": "D8",
+        "index_max_drawdown": "D13",
+        "max_drawdown": "D10",
+    },
 }
 SUMMARY_METRIC_CELL_MAP["C4"] = SUMMARY_METRIC_CELL_MAP["C5"]
 
@@ -862,7 +868,7 @@ def _extract_raw_sheet_metrics(result_core):
     return {
         str(key): value
         for key, value in result_core.items()
-        if key != "calculate_metrics"
+        if key not in {"calculate_metrics", "analyze_result"}
     }
 
 
@@ -1272,7 +1278,11 @@ def _build_global_preview_payload(task_id):
             group["failed_results"] += 1
             continue
 
-        calculate_metrics = result_core.get("calculate_metrics") if isinstance(result_core, dict) else {}
+        calculate_metrics = (
+            (result_core.get("calculate_metrics") or result_core.get("analyze_result"))
+            if isinstance(result_core, dict)
+            else {}
+        )
         period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
         summary_rows = _with_excess_return_preview_row(summary_rows, column)
         if not summary_rows:
