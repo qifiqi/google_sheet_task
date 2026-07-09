@@ -176,11 +176,19 @@ BEGIN
         SELECT 1 FROM pg_constraint
         WHERE conname = 'fk_xpl_jobs_return_series_id'
     ) THEN
-        ALTER TABLE xpl_analysis_jobs
-            ADD CONSTRAINT fk_xpl_jobs_return_series_id
+ALTER TABLE xpl_analysis_jobs
+    ADD CONSTRAINT fk_xpl_jobs_return_series_id
             FOREIGN KEY (return_series_id) REFERENCES task_results_return(id) ON DELETE CASCADE;
     END IF;
 END $$;
+
+ALTER TABLE xpl_analysis_jobs
+    ADD COLUMN IF NOT EXISTS load_elapsed_seconds DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS compute_elapsed_seconds DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS save_elapsed_seconds DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS push_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS push_error_message TEXT;
 
 CREATE INDEX IF NOT EXISTS ix_xpl_analysis_jobs_task_id
     ON xpl_analysis_jobs (task_id);
@@ -197,8 +205,25 @@ CREATE INDEX IF NOT EXISTS ix_xpl_analysis_jobs_created_at
 CREATE INDEX IF NOT EXISTS idx_xpl_jobs_status_created
     ON xpl_analysis_jobs (status, created_at);
 
+CREATE INDEX IF NOT EXISTS idx_xpl_jobs_status_created_id
+    ON xpl_analysis_jobs (status, created_at, id);
+
+CREATE INDEX IF NOT EXISTS idx_xpl_jobs_status_locked_at
+    ON xpl_analysis_jobs (status, locked_at);
+
+CREATE INDEX IF NOT EXISTS idx_xpl_jobs_claimable_created_id
+    ON xpl_analysis_jobs (created_at, id)
+    WHERE status IN ('pending', 'retrying');
+
+CREATE INDEX IF NOT EXISTS idx_xpl_jobs_running_locked_at
+    ON xpl_analysis_jobs (locked_at)
+    WHERE status = 'running';
+
 CREATE INDEX IF NOT EXISTS idx_xpl_jobs_task_status
     ON xpl_analysis_jobs (task_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_xpl_jobs_push_status
+    ON xpl_analysis_jobs (push_status);
 
 DO $$
 BEGIN

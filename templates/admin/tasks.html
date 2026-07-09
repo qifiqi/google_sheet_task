@@ -378,7 +378,7 @@
                 </div>
 
                 <div class="row g-3">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="card bg-body-tertiary border-0">
                             <div class="card-body">
                                 <h6 class="card-title">参数摘要</h6>
@@ -386,11 +386,19 @@
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="card bg-body-tertiary border-0">
                             <div class="card-body">
                                 <h6 class="card-title">结果摘要</h6>
                                 <div id="detail-task-result-summary" class="small"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-body-tertiary border-0">
+                            <div class="card-body">
+                                <h6 class="card-title">XPL 后处理</h6>
+                                <div id="detail-task-xpl-summary" class="small"></div>
                             </div>
                         </div>
                     </div>
@@ -1142,6 +1150,23 @@
         `;
     }
 
+    function renderXplSummary(summary) {
+        if (!summary || !summary.total) {
+            return '<span class="text-muted">暂无异步 XPL job</span>';
+        }
+        const statusCounts = summary.status_counts || {};
+        const avgXpl = summary.avg_compute_elapsed_seconds == null ? '-' : `${Number(summary.avg_compute_elapsed_seconds).toFixed(3)}s`;
+        return `
+            <div>Job 总数: <strong>${summary.total || 0}</strong></div>
+            <div>已完成: <strong class="text-success">${summary.completed || 0}</strong></div>
+            <div>未完成: <strong class="text-warning">${summary.unfinished || 0}</strong></div>
+            <div>失败: <strong class="text-danger">${summary.error || 0}</strong></div>
+            <div>完成率: <strong>${summary.completion_rate || 0}%</strong></div>
+            <div>平均 XPL: <strong>${avgXpl}</strong></div>
+            <div class="text-muted mt-1">pending ${statusCounts.pending || 0} / running ${statusCounts.running || 0} / retrying ${statusCounts.retrying || 0}</div>
+        `;
+    }
+
     function renderTaskLogs(logs) {
         if (!Array.isArray(logs) || !logs.length) {
             return '<span class="text-muted">暂无日志</span>';
@@ -1172,6 +1197,7 @@
             document.getElementById('detail-task-config').textContent = JSON.stringify(task.config || {}, null, 2);
             document.getElementById('detail-task-parameter-summary').innerHTML = renderParameterSummary(task.config_summary);
             document.getElementById('detail-task-result-summary').innerHTML = renderResultSummary(task.result_summary);
+            document.getElementById('detail-task-xpl-summary').innerHTML = renderXplSummary(task.xpl_analysis_summary);
             document.getElementById('detail-task-logs').innerHTML = renderTaskLogs(task.recent_logs);
 
             updateTaskActionButtons(task.status);

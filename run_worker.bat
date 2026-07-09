@@ -33,8 +33,8 @@ if exist ".venv\Scripts\python.exe" (
     )
 )
 
-if not exist "scripts\run_xpl_analysis_worker.py" (
-    echo [ERROR] scripts\run_xpl_analysis_worker.py was not found.
+if not exist "xpl_worker\main.py" (
+    echo [ERROR] xpl_worker\main.py was not found.
     pause
     exit /b 1
 )
@@ -42,7 +42,8 @@ if not exist "scripts\run_xpl_analysis_worker.py" (
 if not exist "logs" mkdir "logs" >nul 2>nul
 if not exist "data" mkdir "data" >nul 2>nul
 
-if "%XPL_WORKER_PROCESSES%"=="" set "XPL_WORKER_PROCESSES=2"
+if "%XPL_WORKER_EXECUTOR%"=="" set "XPL_WORKER_EXECUTOR=process"
+if "%XPL_WORKER_CONCURRENCY%"=="" set "XPL_WORKER_CONCURRENCY=2"
 if "%XPL_WORKER_BATCH_SIZE%"=="" set "XPL_WORKER_BATCH_SIZE=4"
 if "%XPL_WORKER_POLL_INTERVAL%"=="" set "XPL_WORKER_POLL_INTERVAL=2"
 if "%XPL_WORKER_STALE_AFTER%"=="" set "XPL_WORKER_STALE_AFTER=300"
@@ -50,14 +51,15 @@ if "%XPL_WORKER_STALE_AFTER%"=="" set "XPL_WORKER_STALE_AFTER=300"
 echo [INFO] Workdir: %cd%
 echo [INFO] Python: %PYTHON_CMD%
 echo [INFO] APP_ENV=%APP_ENV%
-echo [INFO] XPL_WORKER_PROCESSES=%XPL_WORKER_PROCESSES%
+echo [INFO] XPL_WORKER_EXECUTOR=%XPL_WORKER_EXECUTOR%
+echo [INFO] XPL_WORKER_CONCURRENCY=%XPL_WORKER_CONCURRENCY%
 echo [INFO] XPL_WORKER_BATCH_SIZE=%XPL_WORKER_BATCH_SIZE%
 echo [INFO] XPL_WORKER_POLL_INTERVAL=%XPL_WORKER_POLL_INTERVAL%
 echo [INFO] XPL_WORKER_STALE_AFTER=%XPL_WORKER_STALE_AFTER%
 echo [INFO] Starting XPL analysis worker...
 echo.
 
-call %PYTHON_CMD% scripts\run_xpl_analysis_worker.py --processes %XPL_WORKER_PROCESSES% --batch-size %XPL_WORKER_BATCH_SIZE% --poll-interval %XPL_WORKER_POLL_INTERVAL% --stale-after %XPL_WORKER_STALE_AFTER% %*
+call %PYTHON_CMD% -m xpl_worker.main --executor %XPL_WORKER_EXECUTOR% --concurrency %XPL_WORKER_CONCURRENCY% --batch-size %XPL_WORKER_BATCH_SIZE% --poll-interval %XPL_WORKER_POLL_INTERVAL% --stale-after %XPL_WORKER_STALE_AFTER% %*
 set "EXIT_CODE=!ERRORLEVEL!"
 
 if not "!EXIT_CODE!"=="0" (

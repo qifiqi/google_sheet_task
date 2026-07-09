@@ -229,7 +229,11 @@ def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
     if not isinstance(payload, dict) or not payload:
         return {}
 
-    prioritized_keys = ("calculate_metrics", "weighted_calculate_metrics")
+    prioritized_keys = (
+        "calculate_metrics",
+        "weighted_calculate_metrics",
+        "analyze_result",
+    )
     for value in payload.values():
         if not isinstance(value, dict):
             continue
@@ -325,7 +329,7 @@ def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float
         start_drawdown = _safe_number(start_item.get("drawdown"))
         if index_drawdown is None or start_drawdown is None:
             continue
-        diffs.append(start_drawdown - index_drawdown)
+        diffs.append(index_drawdown - start_drawdown)
     return max(diffs) if diffs else None
 
 
@@ -497,6 +501,19 @@ def _build_weighted_product_metrics(
 
 
 def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
+    def _metric_value(*keys: str) -> Any:
+        for key in keys:
+            value = calculate_metrics.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    def _first_value(*values: Any) -> Any:
+        for value in values:
+            if value not in (None, ""):
+                return value
+        return None
+
     excess_all = _all_entry(calculate_metrics.get("excess_returns"))
     index_profit_monthly_all = _all_entry(calculate_metrics.get("index_profit_monthly"))
     start_profit_monthly_all = _all_entry(calculate_metrics.get("start_profit_monthly"))
@@ -526,32 +543,32 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
     )
     year_max_excess_drawdown = _derive_year_max_excess_drawdown(calculate_metrics)
     return {
-        "index_annualized_return": excess_all.get("index_annualized_return"),
-        "start_annualized_return": excess_all.get("start_annualized_return"),
-        "annualized_return_diff": excess_all.get("annualized_return_diff"),
+        "index_annualized_return": _first_value(excess_all.get("index_annualized_return"), _metric_value("index_annualized_return")),
+        "start_annualized_return": _first_value(excess_all.get("start_annualized_return"), _metric_value("start_annualized_return")),
+        "annualized_return_diff": _first_value(excess_all.get("annualized_return_diff"), _metric_value("annualized_return_diff")),
         "index_profit_annual": calculate_metrics.get("index_profit_annual"),
         "start_profit_annual": calculate_metrics.get("start_profit_annual"),
-        "index_profit_monthly_percentage": index_profit_monthly_all.get("profit_monthly_percentage"),
-        "start_profit_monthly_percentage": start_profit_monthly_all.get("profit_monthly_percentage"),
-        "index_avg_monthly_return": index_sharpe_all.get("avg_monthly_return"),
-        "start_avg_monthly_return": start_sharpe_all.get("avg_monthly_return"),
+        "index_profit_monthly_percentage": _first_value(index_profit_monthly_all.get("profit_monthly_percentage"), _metric_value("index_profit_monthly_percentage")),
+        "start_profit_monthly_percentage": _first_value(start_profit_monthly_all.get("profit_monthly_percentage"), _metric_value("start_profit_monthly_percentage")),
+        "index_avg_monthly_return": _first_value(index_sharpe_all.get("avg_monthly_return"), _metric_value("index_avg_monthly_return_common", "index_avg_monthly_return")),
+        "start_avg_monthly_return": _first_value(start_sharpe_all.get("avg_monthly_return"), _metric_value("start_avg_monthly_return_common", "start_avg_monthly_return")),
         "index_monthly_return_volatility": calculate_metrics.get("index_monthly_return_volatility"),
         "start_monthly_return_volatility": calculate_metrics.get("start_monthly_return_volatility"),
         "outperform_year": calculate_metrics.get("outperform_year"),
-        "monthly_excess_return_percentage": monthly_excess_percentage_all.get("excess_return"),
-        "avg_monthly_excess_return": avg_monthly_excess_return,
+        "monthly_excess_return_percentage": _first_value(monthly_excess_percentage_all.get("excess_return"), _metric_value("monthly_excess_return_percentage", "monthly_excess_return_percentage_last_return")),
+        "avg_monthly_excess_return": _first_value(avg_monthly_excess_return, _metric_value("avg_monthly_excess_returns", "avg_monthly_excess_return")),
         "monthly_excess_volatility": calculate_metrics.get("monthly_excess_volatility"),
-        "year_max_excess_drawdown": year_max_excess_drawdown,
+        "year_max_excess_drawdown": year_max_excess_drawdown if year_max_excess_drawdown is not None else _metric_value("max_drawdown", "year_max_excess_drawdown"),
         "excess_drawdown_winning_rate": _safe_number(calculate_metrics.get("excess_drawdown_winning_rate")),
-        "start_max_drawdown": _negative_number(total_max_drawdown.get("drawdown")),
+        "start_max_drawdown": _negative_number(_first_value(total_max_drawdown.get("drawdown"), _metric_value("start_drawdown", "start_max_drawdown"))),
         "start_maximum_number_of_backtest_repair_days": calculate_metrics.get("start_maximum_number_of_backtest_repair_days"),
         "excess_maximum_number_of_backtest_repair_days": calculate_metrics.get("excess_maximum_number_of_backtest_repair_days"),
-        "index_sharpe_ratio": index_sharpe_all.get("sharpe_ratio"),
-        "start_sharpe_ratio": start_sharpe_all.get("sharpe_ratio"),
-        "index_kama_ratio": index_kama_all.get("kama_ratio"),
-        "start_kama_ratio": start_kama_all.get("kama_ratio"),
-        "index_sotino_ratio": index_sotino_all.get("sotino_ratio"),
-        "start_sotino_ratio": start_sotino_all.get("sotino_ratio"),
+        "index_sharpe_ratio": _first_value(index_sharpe_all.get("sharpe_ratio"), _metric_value("index_sharpe_ratio")),
+        "start_sharpe_ratio": _first_value(start_sharpe_all.get("sharpe_ratio"), _metric_value("start_sharpe_ratio")),
+        "index_kama_ratio": _first_value(index_kama_all.get("kama_ratio"), _metric_value("index_kama_ratio")),
+        "start_kama_ratio": _first_value(start_kama_all.get("kama_ratio"), _metric_value("start_kama_ratio")),
+        "index_sotino_ratio": _first_value(index_sotino_all.get("sotino_ratio"), _metric_value("index_sotino_ratio")),
+        "start_sotino_ratio": _first_value(start_sotino_all.get("sotino_ratio"), _metric_value("start_sotino_ratio")),
         "excess_sharp": calculate_metrics.get("excess_sharp"),
         "excess_of_promissory_note": calculate_metrics.get("excess_of_promissory_note"),
     }
@@ -835,9 +852,10 @@ class BacktestMultiProductService(BacktestTrainingService):
 
                 input_column_d, input_column_v, output_range_1, output_range_2, output_column_index, output_column_start, parameter_positions, check_positions, last_row = self._c3_to_c5_get_config(
                     product_config)
-                A_num = self.google_sheet.get_last_row('A')
-                self._log_info(f'{self.google_sheet.title} 当前A列行数: {A_num}, 准备滞空 A列 B列')
-                self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
+                if hasattr(self, "google_sheet"):
+                    A_num = self.google_sheet.get_last_row('A')
+                    self._log_info(f'{self.google_sheet.title} 当前A列行数: {A_num}, 准备滞空 A列 B列')
+                    self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
 
                 combination = {
                     "parameter": parameter,
@@ -1112,7 +1130,11 @@ def build_multi_product_global_preview_payload(
             continue
         success_count += 1
         core = _extract_result_core(result)
-        calculate_metrics = core.get("calculate_metrics") if isinstance(core, dict) else {}
+        calculate_metrics = (
+            (core.get("calculate_metrics") or core.get("analyze_result"))
+            if isinstance(core, dict)
+            else {}
+        )
         weighted_calculate_metrics = core.get("weighted_calculate_metrics") if isinstance(core, dict) else {}
         group["product_results"][product_index] = {
             "result_id": result.id,

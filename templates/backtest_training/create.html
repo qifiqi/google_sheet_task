@@ -337,6 +337,10 @@ const BACKTEST_TASK_TYPE = 'backtest_training';
 const STOCK_SEARCH_DEBOUNCE_MS = 1000;
 const DEFAULT_C3_COMMISSION = '0.0350%';
 const FIELD_MAP = {
+    c7: [
+        { key: 'xm', label: 'X Multiplier (xm)' },
+        { key: 'ml', label: 'ML (ml)' }
+    ],
     c5: [
         { key: 'xm', label: 'X Multiplier (xm)' },
         { key: 'ml', label: 'ML (ml)' }
@@ -373,6 +377,7 @@ const PARAMETER_HELP_HTML = `
         <div><strong>C3 粘贴</strong>：每行 6 个业务参数时顺序为 <code>xm</code>、<code>单边保护 1</code>、<code>中立限仓</code>、<code>指数跟踪</code>、<code>一窝蜂 S</code>、<code>一窝蜂 B</code>，系统自动计算 <code>单边保护 2 = 2 - 单边保护 1</code>；每行 7 个业务参数时按完整字段处理。</div>
         <div><strong>C3 复制</strong>：复制当前表格为 Tab 分隔行，包含 <code>Commission</code> 和后续参数列，可直接贴到其他任务或 Excel。</div>
         <div><strong>C5 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
+        <div><strong>C7 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
     </div>
 `;
 const modelUrlInput = document.getElementById('modelUrl');
@@ -426,11 +431,14 @@ function escapeHtml(value) {
 
 function inferModelVersion(title) {
     const normalized = String(title || '').toUpperCase();
+    if (normalized.includes('C7')) {
+        return 'c7';
+    }
     return normalized.includes('C5') || normalized.includes('C4') ? 'c5' : 'c3';
 }
 
 function resolveModelVersion(version) {
-    return version === 'c5' ? 'c5' : 'c3';
+    return ['c5', 'c7'].includes(version) ? version : 'c3';
 }
 
 function extractSpreadsheetId(rawUrl) {

@@ -9,7 +9,7 @@ from typing import Any
 from app.extensions import db
 import json
 
-from app.models import Task, TaskLog, TaskResult, TaskResultReturn
+from app.models import Task, TaskLog, TaskResult, TaskResultReturn, XplAnalysisJob
 
 from app.services.return_series_service import ReturnSeriesService
 from app.services.task.dashboard_query import TaskDashboardQueryService
@@ -211,10 +211,46 @@ class TaskRuntimeViewService:
             "return_chart": return_chart,
         }
 
+    def build_xpl_analysis_summary(self, task_id: str) -> dict[str, Any]:
+        jobs = XplAnalysisJob.query.filter_by(task_id=task_id).all()
+        status_counts: dict[str, int] = {}
+        for job in jobs:
+            status_counts[job.status] = status_counts.get(job.status, 0) + 1
+
+        total = len(jobs)
+        completed = status_counts.get("completed", 0)
+        unfinished = sum(
+            count for status, count in status_counts.items()
+            if status not in {"completed", "error", "cancelled"}
+        )
+        compute_values = [
+            float(job.compute_elapsed_seconds)
+            for job in jobs
+            if job.compute_elapsed_seconds is not None
+        ]
+        latest_finished = max(
+            (job.finished_at for job in jobs if job.finished_at is not None),
+            default=None,
+        )
+        return {
+            "total": total,
+            "status_counts": status_counts,
+            "completed": completed,
+            "unfinished": unfinished,
+            "error": status_counts.get("error", 0),
+            "completion_rate": round((completed / total) * 100, 2) if total else 0,
+            "avg_compute_elapsed_seconds": (
+                round(sum(compute_values) / len(compute_values), 3)
+                if compute_values else None
+            ),
+            "latest_finished_at": latest_finished.isoformat() if latest_finished else None,
+        }
+
     def serialize_task_runtime(self, task: Task) -> dict[str, Any]:
         config_summary = self.build_config_summary(task)
         stop_confirmation = self.build_stop_confirmation(task.id)
         result_summary = self.build_result_summary(task.id)
+        xpl_analysis_summary = self.build_xpl_analysis_summary(task.id)
         recent_logs = (
             TaskLog.query.filter_by(task_id=task.id)
             .order_by(TaskLog.timestamp.desc())
@@ -239,6 +275,7 @@ class TaskRuntimeViewService:
                 "config_summary": config_summary,
                 "stop_confirmation": stop_confirmation,
                 "result_summary": result_summary,
+                "xpl_analysis_summary": xpl_analysis_summary,
                 "recent_logs": [log.to_dict() for log in recent_logs],
             }
         )

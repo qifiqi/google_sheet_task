@@ -192,6 +192,8 @@ def _infer_backtest_model_version(config):
 
     sheet = config.get("sheet") or {}
     title = str(sheet.get("title") or config.get("title") or "").upper()
+    if "C7" in title:
+        return "c7"
     if "C5" in title or "C4" in title:
         return "c5"
 
@@ -236,7 +238,9 @@ def _extract_task_result_payload(task_result):
             (
                 item
                 for item in result_payload.values()
-                if isinstance(item, dict) and "calculate_metrics" in item
+                if isinstance(item, dict) and (
+                    "calculate_metrics" in item or "analyze_result" in item
+                )
             ),
             next((item for item in result_payload.values() if isinstance(item, dict)), {}),
         )
@@ -245,11 +249,11 @@ def _extract_task_result_payload(task_result):
     if not isinstance(value, dict):
         return {}, {}
 
-    calculate_metrics = value.get("calculate_metrics")
+    calculate_metrics = value.get("calculate_metrics") or value.get("analyze_result")
     sheet_result = {
         key: item
         for key, item in value.items()
-        if key != "calculate_metrics"
+        if key not in {"calculate_metrics", "analyze_result"}
     }
     return (
         calculate_metrics if isinstance(calculate_metrics, dict) else {},
@@ -752,17 +756,23 @@ def get_task_result_detail(task_result_id):
             (
                 item
                 for item in result_payload.values()
-                if isinstance(item, dict) and "calculate_metrics" in item
+                if isinstance(item, dict) and (
+                    "calculate_metrics" in item or "analyze_result" in item
+                )
             ),
             next((item for item in result_payload.values() if isinstance(item, dict)), {}),
         )
     else:
         val = {}
-    calculate_metrics = val.get("calculate_metrics") if isinstance(val, dict) else {}
+    calculate_metrics = (
+        (val.get("calculate_metrics") or val.get("analyze_result"))
+        if isinstance(val, dict)
+        else {}
+    )
     sheet_result = {
         key: item
         for key, item in val.items()
-        if key != "calculate_metrics"
+        if key not in {"calculate_metrics", "analyze_result"}
     } if isinstance(val, dict) else {}
 
     return jsonify({
@@ -836,7 +846,7 @@ def _extract_result_core(task_result):
 
 def _detect_model_name(task_name, parameters):
     upper_name = (task_name or "").upper()
-    for model_name in ("C5", "C4", "C3"):
+    for model_name in ("C7", "C5", "C4", "C3"):
         if model_name in upper_name:
             return model_name
 

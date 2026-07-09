@@ -64,6 +64,29 @@
     </div>
 </div>
 
+<div class="xpl-metric-strip" id="metricStrip">
+    <div class="xpl-metric-item">
+        <span class="xpl-metric-label">最老待处理等待</span>
+        <strong class="xpl-metric-value" data-metric="oldest_pending_seconds">-</strong>
+    </div>
+    <div class="xpl-metric-item">
+        <span class="xpl-metric-label">活跃 Worker</span>
+        <strong class="xpl-metric-value" data-metric="running_worker_count">0</strong>
+    </div>
+    <div class="xpl-metric-item">
+        <span class="xpl-metric-label">平均读取</span>
+        <strong class="xpl-metric-value" data-metric="avg_load_elapsed_seconds">-</strong>
+    </div>
+    <div class="xpl-metric-item">
+        <span class="xpl-metric-label">平均 XPL</span>
+        <strong class="xpl-metric-value" data-metric="avg_compute_elapsed_seconds">-</strong>
+    </div>
+    <div class="xpl-metric-item">
+        <span class="xpl-metric-label">最近完成</span>
+        <strong class="xpl-metric-value" data-metric="latest_finished_at">-</strong>
+    </div>
+</div>
+
 <div class="xpl-filter-panel">
     <form class="xpl-filter-grid" id="filterForm">
         <div class="xpl-filter-main">
@@ -108,6 +131,10 @@
                     <th>结果 ID</th>
                     <th>收益序列</th>
                     <th>尝试次数</th>
+                    <th>读取</th>
+                    <th>XPL</th>
+                    <th>保存</th>
+                    <th>推送</th>
                     <th>Worker</th>
                     <th>创建时间</th>
                     <th>开始时间</th>
@@ -117,7 +144,7 @@
                 </tr>
             </thead>
             <tbody id="jobsBody">
-                <tr><td colspan="12" class="text-center text-muted py-5">正在加载...</td></tr>
+                <tr><td colspan="16" class="text-center text-muted py-5">正在加载...</td></tr>
             </tbody>
         </table>
     </div>
@@ -205,6 +232,33 @@
         background: var(--bs-body-bg);
         box-shadow: 0 0.08rem 0.24rem rgba(15, 23, 42, 0.04);
     }
+    .xpl-metric-strip {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0.65rem;
+        margin: 0 0 0.75rem;
+    }
+    .xpl-metric-item {
+        min-height: 3.15rem;
+        padding: 0.58rem 0.75rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        background: var(--bs-body-bg);
+    }
+    .xpl-metric-label {
+        display: block;
+        color: var(--bs-secondary-color);
+        font-size: 0.72rem;
+        font-weight: 700;
+    }
+    .xpl-metric-value {
+        display: block;
+        margin-top: 0.18rem;
+        color: var(--bs-emphasis-color);
+        font-size: 0.92rem;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.15;
+    }
     .xpl-filter-panel {
         margin-bottom: 0.75rem;
         padding: 0.78rem 0.95rem;
@@ -265,7 +319,7 @@
         min-height: 25rem;
     }
     .xpl-job-table {
-        min-width: 1380px;
+        min-width: 1580px;
         font-size: 0.82rem;
     }
     .xpl-job-table th {
@@ -324,6 +378,9 @@
         .xpl-status-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
+        .xpl-metric-strip {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
     }
     @media (max-width: 767.98px) {
         .xpl-page-header {
@@ -334,6 +391,7 @@
             justify-content: flex-start;
         }
         .xpl-status-grid,
+        .xpl-metric-strip,
         .xpl-filter-main,
         .xpl-filter-grid {
             grid-template-columns: 1fr;
@@ -365,6 +423,13 @@
         error: { label: "失败", className: "bg-danger" },
         cancelled: { label: "已取消", className: "bg-dark" },
     };
+    const pushStatusMeta = {
+        pending: { label: "待推送", className: "bg-secondary" },
+        running: { label: "推送中", className: "bg-warning text-dark" },
+        completed: { label: "已推送", className: "bg-success" },
+        error: { label: "推送失败", className: "bg-danger" },
+        skipped: { label: "跳过", className: "bg-dark" },
+    };
 
     function escapeHtml(value) {
         return String(value ?? "")
@@ -382,8 +447,21 @@
         return date.toLocaleString("zh-CN", { hour12: false });
     }
 
+    function formatDuration(value) {
+        if (value === null || value === undefined || value === "") return "-";
+        const number = Number(value);
+        if (!Number.isFinite(number)) return "-";
+        if (number >= 60) return `${(number / 60).toFixed(1)}m`;
+        return `${number.toFixed(3)}s`;
+    }
+
     function formatStatus(status) {
         const meta = statusMeta[status] || { label: status || "-", className: "bg-secondary" };
+        return `<span class="badge ${meta.className}">${escapeHtml(meta.label)}</span>`;
+    }
+
+    function formatPushStatus(status) {
+        const meta = pushStatusMeta[status] || { label: status || "-", className: "bg-secondary" };
         return `<span class="badge ${meta.className}">${escapeHtml(meta.label)}</span>`;
     }
 
@@ -427,6 +505,21 @@
             const node = document.querySelector(`[data-stat="${key}"]`);
             if (node) node.textContent = String(stats?.[key] || 0);
         });
+        renderMetrics(stats?._meta || {});
+    }
+
+    function renderMetrics(meta) {
+        const metricMap = {
+            oldest_pending_seconds: formatDuration(meta.oldest_pending_seconds),
+            running_worker_count: String(meta.running_worker_count || 0),
+            avg_load_elapsed_seconds: formatDuration(meta.avg_load_elapsed_seconds),
+            avg_compute_elapsed_seconds: formatDuration(meta.avg_compute_elapsed_seconds),
+            latest_finished_at: formatTime(meta.latest_finished_at),
+        };
+        Object.entries(metricMap).forEach(([key, value]) => {
+            const node = document.querySelector(`[data-metric="${key}"]`);
+            if (node) node.textContent = value;
+        });
     }
 
     function renderJobs(items) {
@@ -434,7 +527,7 @@
         if (!items.length) {
             body.innerHTML = `
                 <tr>
-                    <td colspan="12">
+                    <td colspan="16">
                         <div class="xpl-empty-state">
                             <div>
                                 <div class="xpl-empty-state__icon"><i class="bi bi-inbox"></i></div>
@@ -469,6 +562,10 @@
                     <td>${resultLink}</td>
                     <td>${escapeHtml(job.return_series_id || "-")}</td>
                     <td>${escapeHtml(job.attempts ?? 0)} / ${escapeHtml(job.max_attempts ?? "-")}</td>
+                    <td>${formatDuration(job.load_elapsed_seconds)}</td>
+                    <td>${formatDuration(job.compute_elapsed_seconds)}</td>
+                    <td>${formatDuration(job.save_elapsed_seconds)}</td>
+                    <td>${formatPushStatus(job.push_status)}</td>
                     <td>${escapeHtml(job.locked_by || "-")}</td>
                     <td>${formatTime(job.created_at)}</td>
                     <td>${formatTime(job.started_at)}</td>
@@ -591,7 +688,7 @@
     }
     refreshAll().catch((error) => {
         document.getElementById("statusText").textContent = error.message;
-        document.getElementById("jobsBody").innerHTML = `<tr><td colspan="12" class="text-center text-danger py-5">${escapeHtml(error.message)}</td></tr>`;
+        document.getElementById("jobsBody").innerHTML = `<tr><td colspan="16" class="text-center text-danger py-5">${escapeHtml(error.message)}</td></tr>`;
     });
 </script>
 {% endblock %}

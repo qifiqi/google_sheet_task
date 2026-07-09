@@ -335,7 +335,7 @@ def get_task_result_detail(task_result_id):
 
     payload = _parse_json(task_result.result, {})
     if isinstance(payload, dict) and payload:
-        prioritized_keys = ("calculate_metrics", "weighted_calculate_metrics")
+        prioritized_keys = ("calculate_metrics", "weighted_calculate_metrics", "analyze_result")
         value = next(
             (
                 item
@@ -346,9 +346,15 @@ def get_task_result_detail(task_result_id):
         )
     else:
         value = {}
-    calculate_metrics = value.get("calculate_metrics") if isinstance(value, dict) else {}
+    calculate_metrics = (
+        (value.get("calculate_metrics") or value.get("analyze_result"))
+        if isinstance(value, dict)
+        else {}
+    )
     sheet_result = {
-        key: item for key, item in value.items() if key != "calculate_metrics"
+        key: item
+        for key, item in value.items()
+        if key not in {"calculate_metrics", "analyze_result"}
     } if isinstance(value, dict) else {}
 
     daily_returns = {}

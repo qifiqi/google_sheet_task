@@ -179,6 +179,8 @@ class XplAnalysisJobService:
         job.status = XplAnalysisJobStatus.COMPLETED
         job.finished_at = now
         job.locked_at = None
+        job.compute_elapsed_seconds = float(elapsed_seconds) if elapsed_seconds is not None else None
+        job.push_status = job.push_status or "pending"
         job.error_message = None
         job.updated_at = now
         db.session.add(TaskLog(
@@ -274,6 +276,12 @@ class XplAnalysisJobService:
         job.locked_at = None
         job.started_at = None
         job.finished_at = None
+        job.load_elapsed_seconds = None
+        job.compute_elapsed_seconds = None
+        job.save_elapsed_seconds = None
+        job.push_status = "pending"
+        job.pushed_at = None
+        job.push_error_message = None
         job.error_message = None
         job.updated_at = datetime.now()
         task_result = db.session.get(TaskResult, job.task_result_id)
@@ -302,6 +310,12 @@ class XplAnalysisJobService:
             job.locked_at = None
             job.started_at = None
             job.finished_at = None
+            job.load_elapsed_seconds = None
+            job.compute_elapsed_seconds = None
+            job.save_elapsed_seconds = None
+            job.push_status = "pending"
+            job.pushed_at = None
+            job.push_error_message = None
             job.error_message = None
             job.updated_at = datetime.now()
             task_result = db.session.get(TaskResult, job.task_result_id)
@@ -320,11 +334,52 @@ class XplAnalysisJobService:
             db.session.commit()
         return count
 
-    def stats(self, task_id: str | None = None) -> dict[str, int]:
+    def stats(self, task_id: str | None = None) -> dict[str, Any]:
         query = db.session.query(XplAnalysisJob.status, func.count(XplAnalysisJob.id))
         if task_id:
             query = query.filter(XplAnalysisJob.task_id == task_id)
-        return {status: int(count) for status, count in query.group_by(XplAnalysisJob.status).all()}
+        stats = {status: int(count) for status, count in query.group_by(XplAnalysisJob.status).all()}
+
+        meta_query = XplAnalysisJob.query
+        if task_id:
+            meta_query = meta_query.filter(XplAnalysisJob.task_id == task_id)
+
+        oldest_pending = (
+            meta_query
+            .filter(XplAnalysisJob.status.in_(CLAIMABLE_STATUSES))
+            .order_by(XplAnalysisJob.created_at.asc(), XplAnalysisJob.id.asc())
+            .first()
+        )
+        oldest_pending_seconds = None
+        if oldest_pending and oldest_pending.created_at:
+            oldest_pending_seconds = max(0, int((datetime.now() - oldest_pending.created_at).total_seconds()))
+
+        running_workers_query = db.session.query(func.count(func.distinct(XplAnalysisJob.locked_by))).filter(
+            XplAnalysisJob.status == XplAnalysisJobStatus.RUNNING,
+            XplAnalysisJob.locked_by.isnot(None),
+        )
+        if task_id:
+            running_workers_query = running_workers_query.filter(XplAnalysisJob.task_id == task_id)
+
+        avg_query = db.session.query(
+            func.avg(XplAnalysisJob.load_elapsed_seconds),
+            func.avg(XplAnalysisJob.compute_elapsed_seconds),
+            func.avg(XplAnalysisJob.save_elapsed_seconds),
+            func.max(XplAnalysisJob.finished_at),
+        ).filter(XplAnalysisJob.status == XplAnalysisJobStatus.COMPLETED)
+        if task_id:
+            avg_query = avg_query.filter(XplAnalysisJob.task_id == task_id)
+        avg_load, avg_compute, avg_save, latest_finished_at = avg_query.first() or (None, None, None, None)
+
+        stats["_meta"] = {
+            "oldest_pending_seconds": oldest_pending_seconds,
+            "running_worker_count": int(running_workers_query.scalar() or 0),
+            "avg_load_elapsed_seconds": float(avg_load) if avg_load is not None else None,
+            "avg_compute_elapsed_seconds": float(avg_compute) if avg_compute is not None else None,
+            "avg_save_elapsed_seconds": float(avg_save) if avg_save is not None else None,
+            "latest_finished_at": latest_finished_at.isoformat() if latest_finished_at else None,
+        }
+        return stats
 
     def has_unfinished_task_jobs(self, task_id: str) -> bool:
         return (
