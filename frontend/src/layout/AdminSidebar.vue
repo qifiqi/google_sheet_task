@@ -44,25 +44,25 @@ const defaultOpeneds = computed(() => props.items.map((item) => item.path || ite
 
 <style scoped>
 .admin-sidebar {
-  width: 230px;
+  width: var(--admin-sidebar-width);
   height: 100vh;
   flex: 0 0 auto;
-  background: #fff;
-  border-right: 1px solid #edf0f5;
+  background: var(--admin-sidebar-bg);
+  border-right: 1px solid var(--admin-border);
   transition: width 0.2s ease;
 }
 
 .admin-sidebar.is-collapsed {
-  width: 72px;
+  width: var(--admin-sidebar-collapsed-width);
 }
 
 .admin-sidebar__brand {
-  height: 60px;
+  height: var(--admin-header-height);
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 0 20px;
-  border-bottom: 1px solid #edf0f5;
+  border-bottom: 1px solid var(--admin-border);
 }
 
 .admin-sidebar__mark {
@@ -72,10 +72,10 @@ const defaultOpeneds = computed(() => props.items.map((item) => item.path || ite
   place-items: center;
   flex: 0 0 auto;
   border-radius: 8px;
-  background: linear-gradient(135deg, #5d7cff 0%, #42d3c6 100%);
+  background: linear-gradient(135deg, var(--admin-primary) 0%, #10b981 100%);
   color: #fff;
   font-weight: 800;
-  box-shadow: 0 10px 24px rgba(93, 124, 255, 0.24);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.2);
 }
 
 .admin-sidebar__brand-text {
@@ -85,19 +85,19 @@ const defaultOpeneds = computed(() => props.items.map((item) => item.path || ite
 }
 
 .admin-sidebar__brand-text strong {
-  color: #101828;
+  color: var(--admin-text);
   font-size: 17px;
   font-weight: 700;
 }
 
 .admin-sidebar__brand-text span {
   margin-top: 4px;
-  color: #98a2b3;
+  color: var(--admin-text-placeholder);
   font-size: 11px;
 }
 
 .admin-sidebar__scroll {
-  height: calc(100vh - 60px);
+  height: calc(100vh - var(--admin-header-height));
   padding: 10px 8px 14px;
 }
 
@@ -113,24 +113,24 @@ const defaultOpeneds = computed(() => props.items.map((item) => item.path || ite
 :deep(.el-sub-menu__title) {
   height: 44px;
   margin: 2px 0;
-  border-radius: 7px;
-  color: #303849;
+  border-radius: 6px;
+  color: var(--admin-text-regular);
 }
 
 :deep(.el-menu-item.is-active) {
-  background: #eef4ff;
-  color: #4f76ff;
+  background: var(--admin-primary-light);
+  color: var(--admin-primary);
 }
 
 :deep(.el-menu-item:hover),
 :deep(.el-sub-menu__title:hover) {
-  background: #f6f8fc;
-  color: #4f76ff;
+  background: var(--admin-bg);
+  color: var(--admin-primary);
 }
 
 :deep(.el-menu-item .el-icon),
 :deep(.el-sub-menu__title .el-icon) {
-  color: #667085;
+  color: var(--admin-text-muted);
 }
 
 @media (max-width: 900px) {

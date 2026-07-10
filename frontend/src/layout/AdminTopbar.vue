@@ -68,14 +68,14 @@ const emit = defineEmits<{
 
 <style scoped>
 .admin-topbar {
-  height: 60px;
+  height: var(--admin-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 0 22px;
-  background: #fff;
-  border-bottom: 1px solid #edf0f5;
+  background: var(--admin-header-bg);
+  border-bottom: 1px solid var(--admin-border);
 }
 
 .admin-topbar__left,
@@ -96,9 +96,9 @@ const emit = defineEmits<{
 
 .admin-topbar__kbd {
   padding: 1px 7px;
-  border: 1px solid #b9c7ff;
+  border: 1px solid var(--admin-primary-border);
   border-radius: 4px;
-  color: #5d72c4;
+  color: var(--admin-primary);
   font-size: 11px;
   line-height: 1.2;
 }
@@ -106,7 +106,7 @@ const emit = defineEmits<{
 .admin-icon-button {
   width: 32px;
   height: 32px;
-  color: #667085;
+  color: var(--admin-text-muted);
 }
 
 .admin-topbar__badge {
@@ -119,10 +119,10 @@ const emit = defineEmits<{
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  border: 1px solid #e7ebf2;
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: #fff;
-  color: #1d2939;
+  background: var(--admin-surface);
+  color: var(--admin-text);
   cursor: pointer;
 }
 
@@ -132,7 +132,7 @@ const emit = defineEmits<{
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6983ff, #42d3c6);
+  background: linear-gradient(135deg, var(--admin-primary), #10b981);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -147,7 +147,7 @@ const emit = defineEmits<{
 .admin-topbar__user-text strong {
   max-width: 90px;
   overflow: hidden;
-  color: #1d2939;
+  color: var(--admin-text);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -156,7 +156,7 @@ const emit = defineEmits<{
 .admin-topbar__user-text small {
   max-width: 90px;
   overflow: hidden;
-  color: #98a2b3;
+  color: var(--admin-text-placeholder);
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;

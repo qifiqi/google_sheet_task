@@ -14,8 +14,8 @@ export interface CurrentUser {
   id: number
   username: string
   is_active: boolean
-  roles?: UserRole[]
-  permissions?: string[]
+  roles?: readonly UserRole[]
+  permissions?: readonly string[]
   created_at?: string | null
   last_login?: string | null
 }
@@ -40,7 +40,7 @@ export interface NavItem {
   parent_key?: string | null
   sort_order?: number
   is_visible?: boolean
-  children?: NavItem[]
+  children?: readonly NavItem[]
 }
 
 export interface DashboardOverview {

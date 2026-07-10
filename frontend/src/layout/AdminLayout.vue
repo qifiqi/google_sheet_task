@@ -97,8 +97,8 @@ onMounted(async () => {
 .admin-shell {
   min-height: 100vh;
   display: flex;
-  background: #f6f8fc;
-  color: #1f2a44;
+  background: var(--admin-bg);
+  color: var(--admin-text);
 }
 
 .admin-shell__main {
@@ -107,14 +107,14 @@ onMounted(async () => {
 }
 
 .admin-tabs {
-  height: 38px;
+  height: var(--admin-tabs-height);
   display: flex;
   align-items: center;
   gap: 3px;
   padding: 0 16px;
   overflow: hidden;
-  background: #fff;
-  border-bottom: 1px solid #edf0f5;
+  background: var(--admin-surface);
+  border-bottom: 1px solid var(--admin-border);
 }
 
 .admin-tabs__item {
@@ -124,9 +124,9 @@ onMounted(async () => {
   gap: 5px;
   padding: 0 11px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
-  color: #667085;
+  color: var(--admin-text-muted);
   cursor: pointer;
   font-size: 13px;
   white-space: nowrap;
@@ -135,18 +135,18 @@ onMounted(async () => {
 
 .admin-tabs__item:hover,
 .admin-tabs__item.is-active {
-  background: #edf3ff;
-  color: #4f76ff;
+  background: var(--admin-primary-light);
+  color: var(--admin-primary);
 }
 
 .admin-tabs__close {
-  color: #c0c8d8;
+  color: var(--admin-text-placeholder);
   font-size: 12px;
 }
 
 .admin-shell__content {
-  height: calc(100vh - 98px);
-  padding: 20px;
+  height: calc(100vh - var(--admin-header-height) - var(--admin-tabs-height));
+  padding: var(--admin-content-padding);
   overflow: auto;
 }
 
@@ -158,10 +158,10 @@ onMounted(async () => {
   gap: 9px;
   margin-bottom: 20px;
   padding: 8px 14px;
-  border: 1px solid #9bb9ff;
+  border: 1px solid var(--admin-primary-border);
   border-radius: 7px;
-  background: #edf4ff;
-  color: #5d7cff;
+  background: var(--admin-primary-light);
+  color: var(--admin-primary);
   font-size: 14px;
 }
 
@@ -169,11 +169,11 @@ onMounted(async () => {
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  background: linear-gradient(135deg, #5d7cff, #42d3c6);
+  background: linear-gradient(135deg, var(--admin-primary), #10b981);
 }
 
 .admin-notice a {
-  color: #ff4d4f;
+  color: var(--admin-danger);
   font-weight: 600;
   text-decoration: none;
 }

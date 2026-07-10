@@ -82,16 +82,16 @@ async function submitLogin() {
   place-items: center;
   padding: 24px;
   background:
-    linear-gradient(135deg, rgba(93, 124, 255, 0.12), rgba(66, 211, 198, 0.14)),
-    #f6f8fc;
+    linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(16, 185, 129, 0.12)),
+    var(--admin-bg);
 }
 
 .login-card {
   width: min(420px, 100%);
   padding: 32px;
-  border: 1px solid #e3e8f3;
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface);
   box-shadow: 0 24px 70px rgba(31, 42, 68, 0.12);
 }
 
@@ -107,7 +107,7 @@ async function submitLogin() {
   display: grid;
   place-items: center;
   border-radius: 10px;
-  background: linear-gradient(135deg, #5d7cff, #42d3c6);
+  background: linear-gradient(135deg, var(--admin-primary), #10b981);
   color: #fff;
   font-size: 22px;
   font-weight: 900;
@@ -120,13 +120,13 @@ async function submitLogin() {
 }
 
 .login-card__brand strong {
-  color: #101828;
+  color: var(--admin-text);
   font-size: 18px;
 }
 
 .login-card__brand small,
 .login-card__copy p {
-  color: #7b879d;
+  color: var(--admin-text-muted);
 }
 
 .login-card__copy {
@@ -135,7 +135,7 @@ async function submitLogin() {
 
 .login-card__copy h1 {
   margin: 0;
-  color: #202744;
+  color: var(--admin-text);
   font-size: 28px;
   letter-spacing: 0;
 }

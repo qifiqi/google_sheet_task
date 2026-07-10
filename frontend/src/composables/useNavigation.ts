@@ -5,7 +5,7 @@ import type { NavItem } from '../types/api'
 const navItems = shallowRef<NavItem[]>([])
 const loading = shallowRef(false)
 
-function collectLeaves(items: NavItem[], result: NavItem[] = []) {
+function collectLeaves(items: readonly NavItem[], result: NavItem[] = []) {
   items.forEach((item) => {
     if (item.path) {
       result.push(item)
