@@ -1045,10 +1045,14 @@ class BacktestMultiProductService(BacktestTrainingService):
         start_date: str,
         end_date: str,
         *,
-        price_mode: str = "sp_price",
+        price_mode: str = "vwap_price",
         adjust_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        price_field = "stock_kp" if price_mode == "kp_price" else "stock_sp"
+        price_field = {
+            'kp_price': 'stock_kp',
+            'vwap_price': 'stock_vwap',
+        }.get(price_mode, 'stock_sp')
+
         market_type = normalize_market_type(market_type)
         start_year = int(start_date[:4])
         end_year = int(end_date[:4])

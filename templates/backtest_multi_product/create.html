@@ -564,6 +564,7 @@ function addProduct(defaults = {}) {
                 <div class="col-xl-2">
                     <label class="form-label">价格模式</label>
                     <select class="form-select price-mode">
+                        <option value="vwap_price" selected>加权平均价</option>
                         <option value="kp_price">开盘价</option>
                         <option value="sp_price">收盘价</option>
                     </select>
@@ -598,7 +599,7 @@ function addProduct(defaults = {}) {
     productsContainer.appendChild(card);
     card.querySelector('.market-type').value = defaults.market_type || 'cn';
     card.querySelector('.kline-adjustment').value = defaults.kline_adjustment || 'forward';
-    card.querySelector('.price-mode').value = defaults.price_mode || 'sp_price';
+    card.querySelector('.price-mode').value = defaults.price_mode || 'vwap_price';
     resetParameterTable(card, 'c3');
     initParameterHelpPopover(card);
     card.querySelector('.ratio-input').addEventListener('input', () => {
@@ -953,7 +954,7 @@ function collectProducts() {
         stock_code: card.querySelector('.stock-code').value.trim().toUpperCase(),
         market_type: card.querySelector('.market-type').value,
         kline_adjustment: card.querySelector('.kline-adjustment').value || 'forward',
-        price_mode: card.querySelector('.price-mode').value || 'sp_price',
+        price_mode: card.querySelector('.price-mode').value || 'vwap_price',
         ratio: card.querySelector('.ratio-input').value.trim(),
         is_fixed: Boolean(card.querySelector('.fixed-product')?.checked),
         sheet: {

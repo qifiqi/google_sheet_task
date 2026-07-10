@@ -708,11 +708,15 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if include_full_year_range and not full_years:
             raise ValueError("include_full_year_range=true 时必须传入 full_years")
 
+        price_field = {
+            'kp_price': 'stock_kp',
+            'vwap_price': 'stock_vwap',
+        }.get(price_mode, 'stock_sp')
+
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
             # 根据price_mode决定使用开盘价还是收盘价
-            price_field = 'stock_kp' if price_mode == 'kp_price' else 'stock_sp'
-            
+
             if market_type == 'cn':
                 if _year:
                     return [
