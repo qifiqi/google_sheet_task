@@ -243,6 +243,23 @@ class C5ExportRecord:
     row: list[Any]
 
 
+class C7TaskResultExporter:
+    """C7 专用导出：展开每个模型为一行，并按 K 线范围拆分 worksheet。"""
+
+    key = "google_sheet_C7"
+
+    def supports(self, task: Any) -> bool:
+        return _task_type(task) == "google_sheet_c7"
+
+    def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
+        worksheets = build_c5_worksheets(normalize_c7_export_results(results))
+        return GeneratedExport(
+            filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
+            mimetype=EXCEL_MIMETYPE,
+            workbook=build_workbook(worksheets),
+        )
+
+
 class C5TaskResultExporter:
     """C5 专用导出：展开每个模型为一行，并按 K 线范围拆分 worksheet。"""
 
@@ -375,12 +392,12 @@ def build_c5_model(model_key: Any, metrics: Any) -> dict[str, Any]:
         flat_result = raw_metrics.get("flat_result") if isinstance(raw_metrics.get("flat_result"), dict) else {}
         if not start_xpl:
             start_xpl = {
-                "annual_std_dev": flat_result.get("start_annual_std_dev", ""),
+                "annual_std_dev": flat_result.get("start_annual_std_dev", flat_result.get("start_monthly_std_dev", "")),
                 "sharpe_ratio": flat_result.get("start_sharpe_ratio", ""),
             }
         if not index_xpl:
             index_xpl = {
-                "annual_std_dev": flat_result.get("index_annual_std_dev", ""),
+                "annual_std_dev": flat_result.get("index_annual_std_dev", flat_result.get("index_monthly_std_dev", "")),
                 "sharpe_ratio": flat_result.get("index_sharpe_ratio", ""),
             }
 
@@ -433,6 +450,43 @@ def c5_metric_keys() -> list[str]:
     """分组 sheet 只导出业务需要的 D 指标，顺序与 C5_EXPORT_COLUMNS 对齐。"""
 
     return C5_EXPORT_METRIC_KEYS[:]
+
+
+def normalize_c7_export_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把 C7 的 D8:D26 结果键映射成 C5 导出函数使用的 D2:D20 键。"""
+
+    normalized_results = []
+    for item in results:
+        result = item.get("result")
+        if not isinstance(result, dict):
+            normalized_results.append(item)
+            continue
+
+        normalized_models = {}
+        for model_key, metrics in result.items():
+            normalized_models[model_key] = normalize_c7_model_metrics(metrics)
+
+        normalized_item = dict(item)
+        normalized_item["result"] = normalized_models
+        normalized_results.append(normalized_item)
+    return normalized_results
+
+
+def normalize_c7_model_metrics(metrics: Any) -> Any:
+    if not isinstance(metrics, dict):
+        return metrics
+
+    # 旧数据若已经是 D2:D20 结构，不做二次平移，避免把 D8 fee_total 当成 Return。
+    has_c7_shifted_keys = any(f"D{index}" in metrics for index in range(21, 27))
+    if not has_c7_shifted_keys:
+        return metrics
+
+    normalized = dict(metrics)
+    for c5_index in range(2, 21):
+        c7_key = f"D{c5_index + 6}"
+        if c7_key in metrics:
+            normalized[f"D{c5_index}"] = metrics[c7_key]
+    return normalized
 
 
 def metric_sort_key(key: str) -> tuple[bool, str, int]:
@@ -1129,6 +1183,7 @@ def build_batch_export_file(
 
 # 注册顺序很重要：专用导出器必须放在通用兜底导出器前面。
 EXPORTERS = (
+    C7TaskResultExporter(),
     C5TaskResultExporter(),
     C3TaskResultExporter(),
     GenericTaskResultExporter(),
