@@ -97,6 +97,25 @@ def test_analyze_replaces_non_finite_numbers_with_none():
     assert not _contains_non_finite_number(result)
 
 
+def test_export_file_handles_unavailable_sortino_ratios():
+    data = "\n".join(
+        [
+            "2025-10-31 1.00% 2.00%",
+            "2025-11-30 2.00% 3.00%",
+            "2025-12-31 3.00% 4.00%",
+            "2026-01-31 4.00% 5.00%",
+            "2026-02-28 5.00% 6.00%",
+            "2026-03-31 6.00% 7.00%",
+        ]
+    )
+
+    result = XPLAnalyzer().analyze(data=data, time_format="auto")
+
+    exported_file, _ = XPLAnalyzer().export_file({"analyze_result": result["results"]})
+
+    assert "所提诺比率,--,--" in exported_file.getvalue().decode("utf-8")
+
+
 def test_sanitize_for_json_replaces_numpy_and_python_non_finite_numbers():
     sanitized = XPLAnalyzer._sanitize_for_json(
         {

@@ -774,6 +774,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         else:
             klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
 
+        # from app.services.kline import get_d
+        # klines = get_d()
+
         klines = require_kline_rows(
             stock_code,
             market_type,
