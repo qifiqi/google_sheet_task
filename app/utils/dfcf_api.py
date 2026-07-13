@@ -184,17 +184,17 @@ class DFCJStockApi:
             return {
                 "stock_code": stock_code,
                 "stock_date": data[0],
-                "stock_kp": float(data[1]),
-                "stock_sp": float(data[2]),
-                "stock_zg": float(data[3]),
-                "stock_zd": float(data[4]),
+                "stock_kp": round(float(data[1]), 3),
+                "stock_sp": round(float(data[2]), 3),
+                "stock_zg": round(float(data[3]), 3),
+                "stock_zd": round(float(data[4]), 3),
                 "stock_cjl": stock_cjl,
-                "stock_cje": stock_cje,
-                "stock_vwap": round(stock_cje / stock_cjl, 2) if stock_cjl > 0 else 0.0,
-                "stock_zf": float(data[7]) if len(data) > 7 else 0,
-                "stock_zdf": float(data[8]) if len(data) > 8 else 0,
-                "stock_zde": float(data[9]) if len(data) > 9 else 0,
-                "stock_hsl": float(data[10]) if len(data) > 10 else 0,
+                "stock_cje": round(stock_cje, 3),
+                "stock_vwap": round(stock_cje / stock_cjl, 3) if stock_cjl > 0 else 0.0,
+                "stock_zf": round(float(data[7]), 3) if len(data) > 7 else 0,
+                "stock_zdf": round(float(data[8]), 3) if len(data) > 8 else 0,
+                "stock_zde": round(float(data[9]), 3) if len(data) > 9 else 0,
+                "stock_hsl": round(float(data[10]), 3) if len(data) > 10 else 0,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
         except Exception:
@@ -341,4 +341,4 @@ class DFCJStockApi:
 
 if __name__ == "__main__":
     api = DFCJStockApi()
-    print(api.get_search_list_by_stock_code("000001", 10))
+    print(api.get_search_list_by_stock_code("AMD", 10))

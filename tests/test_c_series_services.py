@@ -3,12 +3,67 @@ import json
 from app.extensions import db
 from app.models import Task, TaskLog
 from app.services.google_sheet_service_C5 import GoogleSheetService as C5GoogleSheetService
+from app.services.google_sheet_service_C7 import GoogleSheetService as C7GoogleSheetService
 from app.services.task.error_handling import (
     TASK_ERROR_MESSAGE_MAX_LENGTH,
     format_task_error_message,
     record_task_exception,
 )
 from app.services.task.facade import TaskManager
+
+
+def _kline_rows_with_vwap():
+    return [
+        {
+            "stock_date": f"2024-01-{day:02d}",
+            "stock_kp": 9,
+            "stock_sp": 10,
+            "stock_vwap": 12,
+        }
+        for day in range(1, 32)
+    ] + [
+        {
+            "stock_date": f"2024-02-{day:02d}",
+            "stock_kp": 9,
+            "stock_sp": 10,
+            "stock_vwap": 12,
+        }
+        for day in range(1, 16)
+    ]
+
+
+def _assert_cx_vwap_uses_dfcf_for_en_market(service):
+    service.YF_api.get_kline_data = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Yahoo should not be used for vwap_price")
+    )
+    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: [
+        {"market": "105", "shortName": "半导体ETF-iShares"}
+    ]
+    service.dfcf_api.get_stock_kline_data = lambda *_args, **_kwargs: _kline_rows_with_vwap()
+
+    _data, _column_length, kline_map = service._get_all_parameters(
+        "SOXX",
+        "total",
+        "vwap_price",
+        "2024-02-15",
+        "2024-01-01",
+        "en",
+        [],
+        [],
+        [["SOXX"], [1], [2]],
+    )
+
+    assert next(iter(kline_map.values()))[0]["stock_val"] == 12
+
+
+def test_c5_vwap_uses_dfcf_for_en_market(app_factory):
+    with app_factory.app_context():
+        _assert_cx_vwap_uses_dfcf_for_en_market(C5GoogleSheetService({}, "task-id"))
+
+
+def test_c7_vwap_uses_dfcf_for_en_market(app_factory):
+    with app_factory.app_context():
+        _assert_cx_vwap_uses_dfcf_for_en_market(C7GoogleSheetService({}, "task-id"))
 
 
 def test_record_task_exception_stores_trace_id_summary_and_full_log(app_factory):

@@ -24,6 +24,50 @@ from app.utils.logger import get_logger, get_task_logger
 
 logger = get_logger(__name__)
 
+KLINE_SOURCE_AUTO = "auto"
+KLINE_SOURCE_CUSTOM = "custom"
+VALID_KLINE_SOURCES = {KLINE_SOURCE_AUTO, KLINE_SOURCE_CUSTOM}
+
+
+def _is_empty_custom_kline_option(value: Any) -> bool:
+    return value in (None, "") or value == [] or value == ()
+
+
+def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    kline_source = str(normalized.get("kline_source") or KLINE_SOURCE_AUTO).strip().lower()
+    if kline_source not in VALID_KLINE_SOURCES:
+        raise ValueError("kline_source 仅支持 auto 或 custom")
+
+    normalized["kline_source"] = kline_source
+    if kline_source != KLINE_SOURCE_CUSTOM:
+        return normalized
+
+    if normalized.get("count_mode") not in (None, "", "total"):
+        raise ValueError("自定义K线模式不支持 N+1 或其它统计方式")
+    if not _is_empty_custom_kline_option(normalized.get("market_type")) and normalized.get("market_type") != "custom":
+        raise ValueError("自定义K线模式不支持选择 A股/美股市场")
+    if not _is_empty_custom_kline_option(normalized.get("price_mode")):
+        raise ValueError("自定义K线模式不支持选择价格类型")
+    if not _is_empty_custom_kline_option(normalized.get("kline_adjustment")):
+        raise ValueError("自定义K线模式不支持选择K线复权")
+    if not _is_empty_custom_kline_option(normalized.get("date_range_mode")):
+        raise ValueError("自定义K线模式不支持整年/近年选项")
+    if not _is_empty_custom_kline_option(normalized.get("exclude_recent_years")):
+        raise ValueError("自定义K线模式不支持近年排除选项")
+    if not _is_empty_custom_kline_option(normalized.get("start_date")) or not _is_empty_custom_kline_option(normalized.get("end_date")):
+        raise ValueError("自定义K线模式不支持开始日期/结束日期")
+
+    normalized["count_mode"] = "total"
+    normalized["market_type"] = "custom"
+    normalized["price_mode"] = None
+    normalized["kline_adjustment"] = None
+    normalized["date_range_mode"] = []
+    normalized["exclude_recent_years"] = []
+    normalized["start_date"] = None
+    normalized["end_date"] = None
+    return normalized
+
 
 def _stock_metadata_items_from_config(config: Any) -> list[dict[str, Any]]:
     if not isinstance(config, dict):
@@ -84,6 +128,8 @@ class TaskCreationMixin:
         normalized = dict(config)
         if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
+            if task_type.lower() in ("google_sheet_c5", "google_sheet_c7"):
+                normalized = _normalize_c_series_kline_source_config(normalized)
         elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
@@ -91,8 +137,8 @@ class TaskCreationMixin:
             normalized.pop("token_file", None)
             normalized["price_mode"] = (
                 normalized.get("price_mode")
-                if normalized.get("price_mode") in ("kp_price", "sp_price")
-                else "sp_price"
+                if normalized.get("price_mode") in ("kp_price", "sp_price", "vwap_price")
+                else "vwap_price"
             )
 
         if task_type.lower() in ("google_sheet_c4", "google_sheet_c5","google_sheet_c7"):

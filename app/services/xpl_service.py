@@ -1493,17 +1493,24 @@ class XPLAnalyzer:
             logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
             return {}
 
+    @staticmethod
+    def _resolve_export_model_name(data, analyze_result):
+        sheet_result = analyze_result.get('sheet_result', {}) if isinstance(analyze_result, dict) else {}
+        sources = [
+            data.get('model_name', ''),
+            data.get('filename_title', ''),
+            *(sheet_result.keys() if isinstance(sheet_result, dict) else []),
+        ]
+        for source in sources:
+            source = str(source).upper()
+            for model_name in ('C7', 'C5', 'C4', 'C3'):
+                if model_name in source:
+                    return model_name
+        return 'C3'
+
     def format_export_file_data(self, data):
         analyze_result = data.get('analyze_result')
-        filename_title = data.get('filename_title', "").upper()
-
-        model_name = ''
-        if "C5" in filename_title:
-            model_name = "C5"
-        elif "C4" in filename_title:
-            model_name = "C4"
-        else:
-            model_name = "C3"
+        model_name = self._resolve_export_model_name(data, analyze_result)
 
         excess_returns = analyze_result.get('excess_returns')
         excess_return = [i for i in excess_returns if i['year'] == 'all'][0]

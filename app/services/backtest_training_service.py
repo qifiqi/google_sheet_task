@@ -24,6 +24,7 @@ from app.utils.task_error_utils import (
     is_retryable_network_error,
     unwrap_exception,
 )
+from app.utils.kline_validation import require_kline_rows
 
 
 class BacktestTrainingService(BaseGoogleSheetService):
@@ -47,7 +48,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             return 'en'
         return 'cn'
 
-    def _resolve_cn_stock_quote(self, stock_code):
+    def _resolve_dfcf_stock_quote(self, stock_code):
         stock_query = str(stock_code or '').strip()
         stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_query, 10)
         if isinstance(stock_config, dict):
@@ -70,6 +71,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if resolved_code != stock_query:
             self._log_info(f"股票 {stock_query} 已解析为代码 {resolved_code}, market={market}")
         return resolved_code, market
+
+    def _resolve_cn_stock_quote(self, stock_code):
+        return self._resolve_dfcf_stock_quote(stock_code)
 
     @staticmethod
     def _normalize_year_values(values, field_name):
@@ -290,6 +294,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             market_type = self._normalize_market_type(
                 config_data.get('market_type', 'cn')
             )
+            price_mode = config_data.get('price_mode', 'vwap_price')
             adjust_type = config_data.get('kline_adjustment')
             include_full_year_range = bool(config_data.get('include_full_year_range'))
             end_date = config_data.get('end_date')
@@ -302,6 +307,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 recent_years,
                 parameters,
                 stock_code,
+                price_mode=price_mode,
                 market_type=market_type,
                 adjust_type=adjust_type,
                 include_full_year_range=include_full_year_range,
@@ -694,7 +700,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         full_years,
         recent_years,
         parameters,
-        stock_code,price_mode="sp_price",market_type="cn",
+        stock_code,price_mode="vwap_price",market_type="cn",
         adjust_type=None,
         include_full_year_range=False,
         end_date=None,
@@ -710,8 +716,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            # 根据price_mode决定使用开盘价还是收盘价
-            price_field = 'stock_kp' if price_mode == 'kp_price' else 'stock_sp'
+            # 根据price_mode决定使用开盘价、收盘价或加权平均价
+            price_field = {
+                'kp_price': 'stock_kp',
+                'sp_price': 'stock_sp',
+                'vwap_price': 'stock_vwap',
+            }.get(price_mode, 'stock_vwap')
             
             if market_type == 'cn':
                 if _year:
@@ -757,11 +767,25 @@ class BacktestTrainingService(BaseGoogleSheetService):
             resolved_code, market = self._resolve_cn_stock_quote(stock_code)
             stock_code = resolved_code
             klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
+        elif price_mode == 'vwap_price':
+            resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
+            stock_code = resolved_code
+            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         else:
             klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
 
-        if not klines:
-            raise ValueError(f"股票{stock_code} 没有获取到K线数据")
+        klines = require_kline_rows(
+            stock_code,
+            market_type,
+            klines,
+            context="原始K线",
+            min_rows=1,
+            price_field={
+                'kp_price': 'stock_kp',
+                'sp_price': 'stock_sp',
+                'vwap_price': 'stock_vwap',
+            }.get(price_mode, 'stock_vwap'),
+        )
 
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']

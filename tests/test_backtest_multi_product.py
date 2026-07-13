@@ -65,19 +65,35 @@ def test_normalize_multi_product_config_allows_ratio_total_not_equal_100():
     assert [product["price_mode"] for product in normalized["products"]] == ["sp_price", "sp_price"]
 
 
+def test_normalize_multi_product_config_defaults_to_vwap_price():
+    product_1 = _base_product(0, "60")
+    product_2 = _base_product(1, "30")
+    product_1.pop("price_mode")
+    product_2.pop("price_mode")
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [product_1, product_2],
+    }
+
+    normalized = normalize_multi_product_config(config)
+
+    assert [product["price_mode"] for product in normalized["products"]] == ["vwap_price", "vwap_price"]
+
+
 def test_normalize_multi_product_config_keeps_per_product_price_mode():
     config = {
         "start_date": "2024-01-01",
         "end_date": "2024-12-31",
         "products": [
             _base_product(0, "60") | {"price_mode": "kp_price"},
-            _base_product(1, "30") | {"price_mode": "sp_price"},
+            _base_product(1, "30") | {"price_mode": "vwap_price"},
         ],
     }
 
     normalized = normalize_multi_product_config(config)
 
-    assert [product["price_mode"] for product in normalized["products"]] == ["kp_price", "sp_price"]
+    assert [product["price_mode"] for product in normalized["products"]] == ["kp_price", "vwap_price"]
 
 
 def test_normalize_multi_product_config_validates_parameter_alignment():

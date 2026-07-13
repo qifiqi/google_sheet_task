@@ -22,6 +22,7 @@ def _kline_rows(start_date, end_date):
             "stock_date": current.strftime("%Y-%m-%d"),
             "stock_kp": 9,
             "stock_sp": 10,
+            "stock_vwap": 12,
         })
         current += timedelta(days=1)
     return rows
@@ -110,6 +111,31 @@ def test_backtest_training_short_listing_history_recent_years_is_allowed(monkeyp
 
     assert combinations[0]["Kline_key"] == "2025-2020"
     assert kline_map["2025-2020"][0]["stock_date"] == "2023-06-01"
+
+
+def test_backtest_training_vwap_uses_dfcf_for_en_market(monkeypatch):
+    service = BacktestTrainingService({}, "task-id")
+    service.YF_api.get_kline_data = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Yahoo should not be used for vwap_price")
+    )
+    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: [
+        {"code": "SOXX", "market": "105", "shortName": "半导体ETF-iShares"}
+    ]
+    service.dfcf_api.get_stock_kline_data = (
+        lambda *_args, **_kwargs: _kline_rows("2023-01-01", "2024-02-15")
+    )
+
+    _combinations, _column_length, kline_map = service._get_all_parameters(
+        [],
+        [1],
+        [["param-a"]],
+        "SOXX",
+        price_mode="vwap_price",
+        market_type="en",
+        end_date="2024-02-15",
+    )
+
+    assert kline_map["2024-2023"][0]["stock_val"] == 12
 
 
 def test_backtest_sheet_config_supports_c7():

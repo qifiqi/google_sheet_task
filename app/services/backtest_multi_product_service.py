@@ -64,9 +64,9 @@ def normalize_market_type(value: Any) -> str:
 
 def normalize_price_mode(value: Any) -> str:
     normalized = str(value or "").strip().lower()
-    if normalized in {"kp_price", "sp_price"}:
+    if normalized in {"kp_price", "sp_price", "vwap_price"}:
         return normalized
-    return "sp_price"
+    return "vwap_price"
 
 
 def parse_ratio(value: Any) -> Decimal:
@@ -1000,7 +1000,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             product["market_type"],
             config_data["start_date"],
             config_data["end_date"],
-            price_mode=product.get("price_mode") or config_data.get("price_mode", "sp_price"),
+            price_mode=product.get("price_mode") or config_data.get("price_mode", "vwap_price"),
             adjust_type=product.get("kline_adjustment", "forward"),
         )
         kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
@@ -1045,10 +1045,14 @@ class BacktestMultiProductService(BacktestTrainingService):
         start_date: str,
         end_date: str,
         *,
-        price_mode: str = "sp_price",
+        price_mode: str = "vwap_price",
         adjust_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        price_field = "stock_kp" if price_mode == "kp_price" else "stock_sp"
+        price_field = {
+            "kp_price": "stock_kp",
+            "sp_price": "stock_sp",
+            "vwap_price": "stock_vwap",
+        }.get(price_mode, "stock_vwap")
         market_type = normalize_market_type(market_type)
         start_year = int(start_date[:4])
         end_year = int(end_date[:4])
@@ -1057,6 +1061,9 @@ class BacktestMultiProductService(BacktestTrainingService):
 
         if market_type == "cn":
             resolved_code, market = self._resolve_cn_stock_quote(stock_code)
+            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
+        elif price_mode == "vwap_price":
+            resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
             klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         else:
             klines = self.YF_api.get_kline_data(stock_code, "10y", adjust_type=adjust_type)

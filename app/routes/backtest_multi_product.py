@@ -99,6 +99,19 @@ def _parse_json(raw, default):
         return default
 
 
+def _infer_product_export_model_name(product):
+    if not isinstance(product, dict):
+        return "C3"
+
+    sheet = product.get("sheet") or {}
+    for source in (product.get("model_name"), sheet.get("title"), product.get("model_version")):
+        title = str(source or "").upper()
+        for model_name in ("C7", "C5", "C4", "C3"):
+            if model_name in title:
+                return model_name
+    return "C3"
+
+
 def _build_excel_download_name(task_name, fallback_id: str) -> str:
     safe_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(task_name or "").strip())
     safe_name = safe_name.rstrip(" .")
@@ -328,7 +341,7 @@ def get_task_result_detail(task_result_id):
     task_result = db.session.get(TaskResult, task_result_id)
     if not task_result:
         return jsonify({"status": "error", "message": "任务结果不存在"}), 404
-    _, error_response = _load_multi_product_task_or_response(task_result.task_id, action="view")
+    task, error_response = _load_multi_product_task_or_response(task_result.task_id, action="view")
     if error_response:
         return error_response
 
@@ -364,12 +377,19 @@ def get_task_result_detail(task_result_id):
             if isinstance(parsed_returns, dict):
                 daily_returns = parsed_returns
 
+    task_config = _parse_json(task.config, {})
+    products = task_config.get("products") if isinstance(task_config, dict) else []
+    parameters = _parse_json(task_result.parameters, {})
+    product_index = parameters.get("product_index") if isinstance(parameters, dict) else None
+    product = products[product_index] if isinstance(product_index, int) and 0 <= product_index < len(products) else {}
+
     return jsonify({
         "status": "success",
         "result": _sanitize_json_value({
             **(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "sheet_result": sheet_result,
             "daily_returns": daily_returns,
+            "model_name": _infer_product_export_model_name(product),
         }),
     })
 

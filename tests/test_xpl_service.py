@@ -3,6 +3,38 @@ import math
 import pytest
 
 from app.services.xpl_service import XPLAnalyzer
+from app.routes.backtest_multi_product import _infer_product_export_model_name
+from app.routes.backtest_training import _infer_backtest_export_model_name
+
+
+@pytest.mark.parametrize(
+    ("analyze_result", "expected"),
+    [
+        ({"sheet_result": {"sheet-id__C5 单品回测": {}}}, "C5"),
+        ({"sheet_result": {"sheet-id__C7 多品回测": {}}}, "C7"),
+    ],
+)
+def test_export_model_name_uses_v1_sheet_result_title(analyze_result, expected):
+    assert XPLAnalyzer._resolve_export_model_name(
+        {"filename_title": "backtest_result_1"},
+        analyze_result,
+    ) == expected
+
+
+def test_export_model_name_prefers_explicit_model_name():
+    assert XPLAnalyzer._resolve_export_model_name(
+        {"model_name": "c4", "filename_title": "backtest_result_1"},
+        {},
+    ) == "C4"
+
+
+def test_single_backtest_result_uses_task_sheet_model_name():
+    assert _infer_backtest_export_model_name({"sheet": {"title": "C4 单品回测"}}) == "C4"
+    assert _infer_backtest_export_model_name({"model_version": "c7"}) == "C7"
+
+
+def test_multi_backtest_result_uses_product_sheet_model_name():
+    assert _infer_product_export_model_name({"sheet": {"title": "C7 多品回测"}}) == "C7"
 
 
 def test_analyze_uses_second_column_for_two_column_input():

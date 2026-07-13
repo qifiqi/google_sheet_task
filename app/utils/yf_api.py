@@ -162,16 +162,16 @@ class YFApi:
                             record = {
                                 'stock_code': str(ticker),  # 股票代码
                                 'stock_date': date_idx.strftime('%Y-%m-%d'),  # 日期
-                                'stock_kp': round(open_price,2),  # 开盘价
-                                'stock_sp': round(close_price,2),  # 收盘价
-                                'stock_zg': round(high_price,2),  # 最高价
-                                'stock_zd': round(low_price,2),  # 最低价
+                                'stock_kp': round(open_price,3),  # 开盘价
+                                'stock_sp': round(close_price,3),  # 收盘价
+                                'stock_zg': round(high_price,3),  # 最高价
+                                'stock_zd': round(low_price,3),  # 最低价
                                 'stock_cjl': volume,  # 成交量
-                                'stock_cje': round(stock_cje, 2),  # 成交额
-                                'stock_vwap': round(stock_vwap, 2),  # 加权平均价
-                                'stock_zf': round(stock_zf, 2),  # 振幅%
-                                'stock_zdf': round(stock_zdf, 2),  # 涨跌幅%
-                                'stock_zde': round(stock_zde, 2),  # 涨跌额
+                                'stock_cje': round(stock_cje, 3),  # 成交额
+                                'stock_vwap': round(stock_vwap, 3),  # 加权平均价
+                                'stock_zf': round(stock_zf, 3),  # 振幅%
+                                'stock_zdf': round(stock_zdf, 3),  # 涨跌幅%
+                                'stock_zde': round(stock_zde, 3),  # 涨跌额
                                 'stock_hsl': stock_hsl,  # 换手率%
                                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             }

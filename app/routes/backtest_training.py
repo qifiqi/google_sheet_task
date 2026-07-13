@@ -210,6 +210,25 @@ def _infer_backtest_model_version(config):
     return "c3"
 
 
+def _infer_backtest_export_model_name(config):
+    if not isinstance(config, dict):
+        return "C3"
+
+    sheet = config.get("sheet") or {}
+    sources = (
+        config.get("model_name"),
+        sheet.get("title"),
+        config.get("title"),
+        config.get("model_version"),
+    )
+    for source in sources:
+        title = str(source or "").upper()
+        for model_name in ("C7", "C5", "C4", "C3"):
+            if model_name in title:
+                return model_name
+    return _infer_backtest_model_version(config).upper()
+
+
 def _parse_percent_like_value(value):
     if value is None:
         return None
@@ -749,7 +768,7 @@ def get_task_result_detail(task_result_id):
             "message": "任务结果不存在",
         }), 404
 
-    _, error_response = _load_backtest_task_or_response(task_result.task_id, action="view", result_id=task_result_id)
+    task, error_response = _load_backtest_task_or_response(task_result.task_id, action="view", result_id=task_result_id)
     if error_response:
         return error_response
 
@@ -786,6 +805,7 @@ def get_task_result_detail(task_result_id):
         "result": _sanitize_json_value({
             **(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "sheet_result": sheet_result,
+            "model_name": _infer_backtest_export_model_name(task.to_dict().get("config") or {}),
         }),
     })
 

@@ -262,6 +262,7 @@ pytest tests/test_specific.py::test_name
 - `app/services/google_sheet_service.py`：C3
 - `app/services/google_sheet_service_C4.py`
 - `app/services/google_sheet_service_C5.py`
+- `app/services/google_sheet_service_C7.py`
 - `app/services/backtest_training_service.py`
 
 这些服务的共同模式：
@@ -278,6 +279,22 @@ pytest tests/test_specific.py::test_name
 - 这些服务都在后台线程中运行
 - 失败信息最终会回写到 `Task.error_message`
 - 网络异常已通过统一工具打标，可被看门狗自动识别
+
+### C5 / C7 自定义K线模式
+
+C5 / C7 支持 `config.kline_source`：
+
+- `auto`：默认模式，按 `market_type`、`price_mode`、`kline_adjustment`、日期区间等配置自动获取并转换K线。
+- `custom`：任务级开关，表示用户已经在 Google Sheet 输入列维护好K线。后端不再调用 `_get_all_parameters()` 的自动行情链路，不请求东方财富 / Yahoo，不做复权、日期区间拆分或K线转换。
+
+`custom` 模式的执行约束：
+
+- 只在 `get_bdl()` 预计算阶段读取一次现有 Sheet 输入列，构造 `Kline_key=custom` 的参数组合。
+- 执行参数组合时只写入 `xm` / `ml` 等参数，不清空、不重写K线输入列。
+- 仍会读取现有K线行数，用于确定收益序列读取范围和 `TaskResult.parameters.kline` 的首尾日期。
+- `TaskCreationMixin._normalize_task_config_for_type()` 会把 `market_type` 归一为 `custom`，并禁用 `price_mode`、`kline_adjustment`、`date_range_mode`、`exclude_recent_years`、`start_date`、`end_date` 等自动K线选项。
+
+修改 C5 / C7 K线相关逻辑时，不要把 `custom` 分支放进 `_get_all_parameters()` 的内部判断；那会重新进入自动K线获取/转换链路，违背自定义K线模式的任务级语义。
 
 ## 看门狗与自动恢复
 

@@ -612,7 +612,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         stock_code = config_data.get('stock_code', '')
         year_n = config_data.get('year_n', '1y')
         # count_mode = config_data.get('count_mode', 'n_plus_1')
-        price_mode = config_data.get('price_mode', 'sp_price')
+        price_mode = config_data.get('price_mode', 'vwap_price')
         end_date = config_data.get('end_date')
         market_type = config_data.get('market_type','cn')
         adjust_type = config_data.get('kline_adjustment')
@@ -634,22 +634,22 @@ class GoogleSheetService(BaseGoogleSheetService):
             if market_type == 'cn':
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
+                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
+                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
             else:
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
+                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
+                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
@@ -672,9 +672,13 @@ class GoogleSheetService(BaseGoogleSheetService):
         trading_days_per_year = 250 if market_type == 'cn' else 252
         limit = max(300, year_count * trading_days_per_year + 80)
 
-        if market_type == 'cn':
+        if market_type == 'cn' or price_mode == 'vwap_price':
             stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_code, 10)
-            # stock_config = [i for i in stock_config if i['securityTypeName'] == '美股']
+            if market_type in ('us', 'en'):
+                stock_config = [
+                    i for i in stock_config
+                    if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
+                ]
 
             # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
             if stock_config:
@@ -702,7 +706,11 @@ class GoogleSheetService(BaseGoogleSheetService):
             klines,
             context="原始K线",
             min_rows=100,
-            price_field='stock_kp' if price_mode == 'kp_price' else 'stock_sp',
+            price_field={
+                'kp_price': 'stock_kp',
+                'sp_price': 'stock_sp',
+                'vwap_price': 'stock_vwap',
+            }.get(price_mode, 'stock_vwap'),
         )
 
         # 获取K线数据的时间范围

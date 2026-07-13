@@ -100,9 +100,14 @@ def test_backtest_training_keeps_price_mode_in_config(app_factory):
             "sheet": {"spreadsheet_id": "sheet-1"},
             "price_mode": "kp_price",
         })
+        normalized_vwap = manager._normalize_task_config_for_type("backtest_training", {
+            "sheet": {"spreadsheet_id": "sheet-1"},
+            "price_mode": "vwap_price",
+        })
 
-        assert normalized_default["price_mode"] == "sp_price"
+        assert normalized_default["price_mode"] == "vwap_price"
         assert normalized_custom["price_mode"] == "kp_price"
+        assert normalized_vwap["price_mode"] == "vwap_price"
 
 
 def test_c3_six_business_parameters_derives_second_protection():

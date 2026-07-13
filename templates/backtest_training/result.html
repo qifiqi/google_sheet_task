@@ -42,8 +42,16 @@
     <div class="card-body p-3 p-md-4">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 border-bottom pb-3 mb-3">
             <div>
-                <h1 class="h2 mb-1">回测结果</h1>
-                <div class="text-body-secondary">查看并导出当前任务的 V1 回测分析结果</div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <h1 class="h2 mb-0" id="result-page-title">回测结果</h1>
+                    <span class="badge text-bg-primary d-none" id="result-model-badge" aria-live="polite"></span>
+                </div>
+                <div class="text-body-secondary" id="result-model-description">查看并导出当前任务的 V1 回测分析结果</div>
+                <div class="d-flex flex-wrap gap-3 mt-2 small text-body-secondary d-none" id="result-meta">
+                    <span><i class="bi bi-hash me-1"></i>结果 <span id="result-meta-id"></span></span>
+                    <span><i class="bi bi-list-task me-1"></i>任务 <span id="result-meta-task-id"></span></span>
+                    <span id="result-meta-period-wrap"><i class="bi bi-calendar-range me-1"></i><span id="result-meta-period"></span></span>
+                </div>
             </div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
                 <button class="btn btn-outline-primary" id="btn-reload-result" type="button">
@@ -709,11 +717,50 @@
                 : Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'calculate_metrics'));
             return {
                 ...payload.calculate_metrics,
-                sheet_result: sheetResult
+                sheet_result: sheetResult,
+                model_name: payload.model_name || ''
             };
         }
 
         return payload;
+    }
+
+    function renderModelIdentity(modelName, resultData) {
+        const normalizedModelName = String(modelName || '').trim().toUpperCase();
+        const displayModelName = ['C3', 'C4', 'C5', 'C7'].includes(normalizedModelName)
+            ? normalizedModelName
+            : '';
+        const badge = document.getElementById('result-model-badge');
+        const description = document.getElementById('result-model-description');
+        const pageTitle = document.getElementById('result-page-title');
+        const resultMeta = document.getElementById('result-meta');
+        const resultId = document.getElementById('result-meta-id');
+        const taskId = document.getElementById('result-meta-task-id');
+        const period = document.getElementById('result-meta-period');
+        const periodWrap = document.getElementById('result-meta-period-wrap');
+        const allPeriod = Array.isArray(resultData?.excess_returns)
+            ? resultData.excess_returns.find((item) => String(item?.year).toLowerCase() === 'all')?.start_end_date
+            : '';
+        if (badge) {
+            badge.textContent = displayModelName;
+            badge.classList.toggle('d-none', !displayModelName);
+        }
+        if (pageTitle) {
+            pageTitle.textContent = displayModelName ? `${displayModelName} 回测结果` : '回测结果';
+        }
+        if (description) {
+            description.textContent = displayModelName
+                ? `查看并导出当前任务的 ${displayModelName} V1 回测分析结果`
+                : '查看并导出当前任务的 V1 回测分析结果';
+        }
+        if (resultMeta) resultMeta.classList.remove('d-none');
+        if (resultId) resultId.textContent = state.resultId || '-';
+        if (taskId) taskId.textContent = state.taskId || '-';
+        if (period) period.textContent = allPeriod || '';
+        if (periodWrap) periodWrap.classList.toggle('d-none', !allPeriod);
+        document.title = displayModelName
+            ? `${displayModelName} 回测结果 - Jaspil 任务管理系统`
+            : '回测结果 - Jaspil 任务管理系统';
     }
 
     async function loadBacktestResult() {
@@ -739,6 +786,7 @@
 
             state.exportBaseName = `backtest_result_${state.resultId}`;
             state.lastResults = resultData;
+            renderModelIdentity(resultData.model_name, resultData);
             const exportBtn = document.getElementById('btn-export-v1');
             if (exportBtn) exportBtn.disabled = false;
             renderSummary(resultData);
@@ -779,6 +827,7 @@
                 body: JSON.stringify({
                     filename: defaultFilename,
                     filename_title: state.exportBaseName || 'backtest_result',
+                    model_name: state.lastResults.model_name || 'C3',
                     analyze_result: state.lastResults
                 })
             });
