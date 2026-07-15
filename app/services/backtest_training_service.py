@@ -458,7 +458,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         retry=retry_if_result(lambda result: result[0] is False)
     )
     def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> \
-    tuple[bool, dict[Any, Any], list[Any]]:
+            tuple[bool, dict[Any, Any], list[Any]]:
         """执行单个参数组合"""
         try:
             # 获取参数位置配置
@@ -485,6 +485,11 @@ class BacktestTrainingService(BaseGoogleSheetService):
             else:
                 for i, param in enumerate(parameter):
                     cell_updates[parameter_positions[i]] = param
+
+            is_c7 = 'C7' in str(
+                config_data.get('sheet', {}).get('title') or config_data.get('title') or ''
+            ).upper()
+            result_value_render_option = 'UNFORMATTED_VALUE' if is_c7 else 'FORMATTED_VALUE'
 
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
@@ -521,7 +526,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     if not self._interruptible_sleep(initial_result_sleep):
                         raise RuntimeError("task cancelled")
 
-                initial_results[self.google_sheet.spreadsheet_id] = self.google_sheet.get_range(output_range_1)
+                initial_results[self.google_sheet.spreadsheet_id] = self.google_sheet.get_range(
+                    output_range_1,
+                    value_render_option=result_value_render_option,
+                )
 
                 self._log_info(f"向Google Sheet写入参数: {self.google_sheet.title} 长度：{len(cell_updates)}")
                 self.google_sheet.update_jumped_cells(cell_updates)
@@ -583,7 +591,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 if not self._interruptible_sleep(_):
                     raise RuntimeError("task cancelled")
                 all_num = 0
-                _result = self.google_sheet.get_range(output_range_1)
+                _result = self.google_sheet.get_range(
+                    output_range_1,
+                    value_render_option=result_value_render_option,
+                )
                 if _validate_check_values(_result, self.google_sheet.spreadsheet_id):
                     # _result = check_result(_result)
                     batch_range_values = self.google_sheet.get_ranges(output_cell_list)

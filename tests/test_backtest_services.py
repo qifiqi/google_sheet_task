@@ -175,6 +175,15 @@ def test_c7_summary_excess_return_uses_shifted_c5_cells():
     assert _get_summary_derived_value(column, "excess_return") == "11.33%"
 
 
+def test_c7_summary_formats_raw_drawdown_as_percentage_points():
+    column = {
+        "model_name": "C7",
+        "raw_metrics": {"D10": "-0.88"},
+    }
+
+    assert _get_summary_derived_value(column, "max_drawdown") == "-88.00%"
+
+
 def test_multi_product_normalize_rejects_parameter_count_mismatch():
     with pytest.raises(ValueError, match="参数行数必须一致"):
         normalize_multi_product_config({

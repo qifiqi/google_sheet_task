@@ -85,6 +85,48 @@ def test_task_result_api_includes_configured_stock_code(app_factory, monkeypatch
         assert response.get_json()["result"]["stock_code"] == "QQQ"
 
 
+def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="bt-result-c7-units",
+            name="C7 units",
+            task_type="backtest_training",
+            status="completed",
+            config=json.dumps({"sheet": {"title": "C7 model"}}),
+        )
+        db.session.add(task)
+        task_result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters="{}",
+            result=json.dumps({"sheet__title": {
+                "calculate_metrics": {"excess_returns": []},
+                "D10": "-0.14",
+                "D18": "0.01",
+                "D22": "122.95%",
+            }}),
+            success=True,
+        )
+        db.session.add(task_result)
+        db.session.commit()
+
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        monkeypatch.setattr(
+            "app.routes.backtest_training.authorize_task_type_action",
+            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
+        )
+        response = app.test_client().get(
+            f"/backtest-training/api/task-result/{task_result.id}"
+        )
+
+        assert response.status_code == 200
+        sheet_result = response.get_json()["result"]["sheet_result"]
+        assert sheet_result["D10"] == "-14.00%"
+        assert sheet_result["D18"] == "1.00%"
+        assert sheet_result["D22"] == 1.2295
+
+
 def test_backtest_save_task_result_stores_returns_in_return_table_only(app_factory):
     app = app_factory
     with app.app_context():

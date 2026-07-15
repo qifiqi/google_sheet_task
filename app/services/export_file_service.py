@@ -11,6 +11,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.utils.c7_result_normalizer import normalize_c7_result_metrics
+
 
 EXCEL_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -35,6 +37,7 @@ C5_EXPORT_COLUMNS = [
 ]
 
 C5_EXPORT_METRIC_KEYS = ["D11", "D12", "D2", "D3", "D4", "D5", "D6", "D7", "D17", "D20"]
+C5_PERCENT_METRIC_KEYS = frozenset(C5_EXPORT_METRIC_KEYS)
 
 PERCENT_COLUMN_NAMES = {
     "ReturnBeats",
@@ -437,12 +440,8 @@ def c5_model_row(group: C5ResultGroup, model: dict[str, Any]) -> list[Any]:
 
 
 def c5_metric_value(metrics: dict[str, Any], key: str) -> Any:
-    """D11/D12 是导出时计算列，其它 D 指标直接读取原始结果。"""
+    """结果表已计算 D11/D12，导出直接保留原始指标。"""
 
-    if key == "D11":
-        return percent_diff(metrics.get("D2"), metrics.get("D5"))
-    if key == "D12":
-        return percent_diff(metrics.get("D4"), metrics.get("D7"))
     return metrics.get(key, "")
 
 
@@ -477,15 +476,23 @@ def normalize_c7_model_metrics(metrics: Any) -> Any:
         return metrics
 
     # 旧数据若已经是 D2:D20 结构，不做二次平移，避免把 D8 fee_total 当成 Return。
-    has_c7_shifted_keys = any(f"D{index}" in metrics for index in range(21, 27))
+    has_c7_shifted_keys = (
+        any(f"D{index}" in metrics for index in range(21, 27))
+        or ("D2" not in metrics and any(f"D{index}" in metrics for index in range(8, 21)))
+    )
     if not has_c7_shifted_keys:
         return metrics
 
-    normalized = dict(metrics)
+    source_metrics = normalize_c7_result_metrics(metrics)
+    normalized = dict(source_metrics)
     for c5_index in range(2, 21):
         c7_key = f"D{c5_index + 6}"
-        if c7_key in metrics:
-            normalized[f"D{c5_index}"] = metrics[c7_key]
+        if c7_key in source_metrics:
+            normalized_key = f"D{c5_index}"
+            value = source_metrics[c7_key]
+            if normalized_key in C5_PERCENT_METRIC_KEYS and isinstance(value, str) and "%" not in value:
+                value = f"{value}%"
+            normalized[normalized_key] = value
     return normalized
 
 
@@ -500,24 +507,6 @@ def metric_sort_key(key: str) -> tuple[bool, str, int]:
 
 def metric_label(key: str) -> str:
     return METRIC_DISPLAY_NAME_MAP.get(str(key), str(key))
-
-
-def percent_diff(left: Any, right: Any) -> str:
-    left_number = to_number(left)
-    right_number = to_number(right)
-    if left_number is None or right_number is None:
-        return ""
-    return f"{left_number - right_number:.2f}%"
-
-
-def to_number(value: Any) -> float | None:
-    if value is None:
-        return None
-    try:
-        number = float(str(value).replace("%", "").strip())
-    except (TypeError, ValueError):
-        return None
-    return None if number != number else number
 
 
 def sort_c5_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]:
@@ -742,7 +731,7 @@ def parse_percent_cell(value: str) -> float | None:
     if not text:
         return None
     if text.endswith("%"):
-        number = to_number(text)
+        number = parse_numeric_cell(text[:-1])
         return None if number is None else number / 100
     return parse_numeric_cell(text)
 
@@ -829,7 +818,7 @@ def parse_datetime_timestamp(value: str) -> float:
 
 
 def parse_percent(value: Any) -> float:
-    number = to_number(value)
+    number = parse_numeric_cell(str(value).replace("%", ""))
     return number if number is not None else float("-inf")
 
 

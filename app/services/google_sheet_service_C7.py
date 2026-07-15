@@ -22,6 +22,7 @@ from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
+from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
 logger = get_logger(__name__)
@@ -194,30 +195,35 @@ class GoogleSheetService(BaseGoogleSheetService):
         first_value = next(iter(result.values()), None) if isinstance(result, dict) else None
         if isinstance(first_value, dict):
             result = first_value
+        result = normalize_c7_result_metrics(result)
         analyze_result = result.get('flat_result') if isinstance(result.get('flat_result'), dict) else result
+
+        def metric_value(c5_cell: str) -> Any:
+            """C7 的汇总指标位于 C5 同名指标单元格下方 6 行。"""
+            return result.get(f"D{int(c5_cell[1:]) + 6}", 0)
 
         payload.update({
             "multiplier": combination.get("A1", 0),
             "ml": combination.get("B1"),
-            "return_rate": self._to_decimal_ratio(result.get("D2", 0)),
-            "annualized_rate": self._to_decimal_ratio(result.get("D3", 0)),
-            "maxdd": self._to_decimal_ratio(result.get("D4", 0)),
-            "index_rate": self._to_decimal_ratio(result.get("D5", 0)),
-            "index_annualized_rate": self._to_decimal_ratio(result.get("D6", 0)),
-            "max_index_dd": self._to_decimal_ratio(result.get("D7", 0)),
-            "fee_total": self._to_decimal_ratio(result.get("D8", 0)),
-            "fee_annualized": self._to_decimal_ratio(result.get("D9", 0)),
-            "turnover_rate": result.get("D10", 0),
-            "return_beats": self._to_decimal_ratio(result.get("D11", 0)),
-            "dd_beats": self._to_decimal_ratio(result.get("D12", 0)),
-            "max_1y_beats": self._to_decimal_ratio(result.get("D13", 0)),
-            "min_1y_beats": self._to_decimal_ratio(result.get("D14", 0)),
-            "max_theoretical_leverage": result.get("D15", 0),
-            "avg_theoretical_leverage": result.get("D16", 0),
-            "unit_theoretical_leverage_return": self._to_decimal_ratio(result.get("D17", 0)),
-            "max_actual_leverage": result.get("D18", 0),
-            "avg_actual_leverage": result.get("D19", 0),
-            "unit_actual_leverage_return": self._to_decimal_ratio(result.get("D20", 0)),
+            "return_rate": self._to_decimal_ratio(metric_value("D2")),
+            "annualized_rate": self._to_decimal_ratio(metric_value("D3")),
+            "maxdd": self._to_decimal_ratio(metric_value("D4")),
+            "index_rate": self._to_decimal_ratio(metric_value("D5")),
+            "index_annualized_rate": self._to_decimal_ratio(metric_value("D6")),
+            "max_index_dd": self._to_decimal_ratio(metric_value("D7")),
+            "fee_total": self._to_decimal_ratio(metric_value("D8")),
+            "fee_annualized": self._to_decimal_ratio(metric_value("D9")),
+            "turnover_rate": metric_value("D10"),
+            "return_beats": self._to_decimal_ratio(metric_value("D11")),
+            "dd_beats": self._to_decimal_ratio(metric_value("D12")),
+            "max_1y_beats": self._to_decimal_ratio(metric_value("D13")),
+            "min_1y_beats": self._to_decimal_ratio(metric_value("D14")),
+            "max_theoretical_leverage": metric_value("D15"),
+            "avg_theoretical_leverage": metric_value("D16"),
+            "unit_theoretical_leverage_return": self._to_decimal_ratio(metric_value("D17")),
+            "max_actual_leverage": metric_value("D18"),
+            "avg_actual_leverage": metric_value("D19"),
+            "unit_actual_leverage_return": self._to_decimal_ratio(metric_value("D20")),
             "start_monthly_std_dev": analyze_result.get("start_monthly_std_dev", 0),
             "index_monthly_std_dev": analyze_result.get("index_monthly_std_dev", 0),
             "index_annualized_return": analyze_result.get("index_annualized_return", 0),
@@ -524,7 +530,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                         raise RuntimeError("task cancelled")
 
                 for google_sheet in self.google_sheets:
-                    initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c7_output_range_1)
+                    initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(
+                        c7_output_range_1,
+                        # value_render_option="UNFORMATTED_VALUE",
+                    )
 
                 for google_sheet in self.google_sheets:
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title} 长度：{len(cell_updates)}")
@@ -588,7 +597,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                     raise RuntimeError("task cancelled")
                 all_num = 0
                 for google_sheet in self.google_sheets:
-                    _result = google_sheet.get_range(c7_output_range_1)
+                    _result = google_sheet.get_range(
+                        c7_output_range_1,
+                        # value_render_option="UNFORMATTED_VALUE",
+                    )
                     if _validate_check_values(_result, google_sheet.spreadsheet_id):
                         # # _result = check_result(_result)
                         # _result_yearly = google_sheet.get_range(c7_output_range_2)

@@ -23,6 +23,7 @@ from app.services.backtest_multi_product_service import (
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
 )
+from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 from app.services.stock_metadata_service import bulk_upsert_stock_metadata
 from app.utils.auth import login_required, permission_required
 from app.utils.dfcf_api import DFCJStockApi
@@ -382,6 +383,9 @@ def get_task_result_detail(task_result_id):
     parameters = _parse_json(task_result.parameters, {})
     product_index = parameters.get("product_index") if isinstance(parameters, dict) else None
     product = products[product_index] if isinstance(product_index, int) and 0 <= product_index < len(products) else {}
+    model_name = _infer_product_export_model_name(product)
+    if model_name == "C7":
+        sheet_result = normalize_c7_result_metrics(sheet_result)
 
     return jsonify({
         "status": "success",
@@ -389,7 +393,7 @@ def get_task_result_detail(task_result_id):
             **(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "sheet_result": sheet_result,
             "daily_returns": daily_returns,
-            "model_name": _infer_product_export_model_name(product),
+            "model_name": model_name,
         }),
     })
 

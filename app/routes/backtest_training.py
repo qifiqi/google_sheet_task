@@ -21,6 +21,10 @@ from app.models import Task, TaskResult
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.stock_metadata_service import bulk_upsert_stock_metadata
 from app.services.xpl_service import xpl_analyzer
+from app.utils.c7_result_normalizer import (
+    C7_RAW_PERCENT_CELLS,
+    normalize_c7_result_metrics,
+)
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
@@ -44,7 +48,6 @@ TASK_ACTION_LABELS = {
 }
 
 SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
-
 SUMMARY_METRIC_CELL_MAP = {
     "C3": {
         "index_return": "I18",
@@ -343,6 +346,8 @@ def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> d
     calculate_metrics, sheet_result = _extract_task_result_payload(task_result)
     task_config = task.to_dict().get("config") or {}
     model_name = _infer_backtest_export_model_name(task_config)
+    if model_name == "C7":
+        sheet_result = normalize_c7_result_metrics(sheet_result)
     analyze_result = {
         **calculate_metrics,
         "sheet_result": sheet_result,
@@ -1008,7 +1013,15 @@ def _get_summary_raw_metric(column, metric_key):
     cell_map = SUMMARY_METRIC_CELL_MAP.get(model_name, SUMMARY_METRIC_CELL_MAP["C3"])
     cell_key = cell_map.get(metric_key)
     raw_metrics = column.get("raw_metrics") or {}
-    return raw_metrics.get(cell_key) if cell_key else None
+    value = raw_metrics.get(cell_key) if cell_key else None
+    if (
+        model_name == "C7"
+        and cell_key in C7_RAW_PERCENT_CELLS
+        and value not in (None, "")
+        and not str(value).strip().endswith("%")
+    ):
+        return normalize_c7_result_metrics({cell_key: value}).get(cell_key)
+    return value
 
 
 def _get_summary_derived_value(column, metric_key):
