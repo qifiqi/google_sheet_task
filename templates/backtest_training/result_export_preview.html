@@ -1,0 +1,216 @@
+{% extends "admin/base.html" %}
+
+{% block title %}导出内容预览{% endblock %}
+
+{% block head %}
+<style>
+    .export-preview-toolbar {
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .export-preview-grid {
+        max-height: calc(100vh - 11rem);
+        overflow: auto;
+        border: 1px solid var(--bs-border-color);
+        background: var(--bs-body-bg);
+    }
+    .export-preview-table {
+        width: max-content;
+        min-width: 100%;
+        margin: 0;
+        table-layout: fixed;
+        font-family: Consolas, "Microsoft YaHei", monospace;
+        font-size: 0.78rem;
+    }
+    .export-preview-table td {
+        min-width: 7.5rem;
+        height: 1.9rem;
+        padding: 0.3rem 0.45rem;
+        white-space: pre-wrap;
+        vertical-align: middle;
+    }
+    .export-preview-table td:nth-child(1) {
+        min-width: 5.5rem;
+    }
+    .export-preview-table td:empty::after {
+        content: "\00a0";
+    }
+    .export-preview-empty {
+        padding: 4rem 1rem;
+        color: var(--bs-secondary-color);
+        text-align: center;
+    }
+    @media (max-width: 767.98px) {
+        .export-preview-grid {
+            max-height: calc(100vh - 13rem);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<main class="container-fluid py-3">
+    <div class="export-preview-toolbar d-flex flex-wrap align-items-center justify-content-between gap-3 pb-3 mb-3">
+        <div>
+            <h1 class="h4 mb-1">导出内容预览</h1>
+            <div class="small text-body-secondary" id="previewFilename">正在加载...</div>
+            <div class="small text-body-secondary mt-1" id="previewStatus" role="status" aria-live="polite"></div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-primary" type="button" id="copyAllButton" disabled>
+                <i class="bi bi-copy me-1"></i>复制全部</button>
+            <button class="btn btn-outline-success" type="button" id="downloadButton" disabled>
+                <i class="bi bi-download me-1"></i>下载 CSV</button>
+            <a class="btn btn-outline-secondary" id="backToResultLink" href="/backtest-training/result/{{ result_id }}">
+                <i class="bi bi-arrow-left me-1"></i>返回结果</a>
+        </div>
+    </div>
+
+    <div class="export-preview-grid" id="previewGrid" tabindex="0" aria-label="CSV 导出内容表格">
+        <div class="export-preview-empty">正在加载导出内容...</div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const RESULT_ID = {{ result_id|tojson }};
+    let exportRows = [];
+    let exportFilename = '';
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('backToResultLink').href = buildResultHref();
+        document.getElementById('copyAllButton').addEventListener('click', copyAllRows);
+        document.getElementById('downloadButton').addEventListener('click', downloadCsv);
+        loadPreview();
+    });
+
+    function buildResultHref() {
+        const currentParams = new URLSearchParams(window.location.search);
+        const resultParams = new URLSearchParams();
+        ['list_page', 'list_per_page', 'result_page', 'result_per_page'].forEach((key) => {
+            const value = currentParams.get(key);
+            if (value) {
+                resultParams.set(key, value);
+            }
+        });
+        const query = resultParams.toString();
+        return `/backtest-training/result/${encodeURIComponent(RESULT_ID)}${query ? `?${query}` : ''}`;
+    }
+
+    function setStatus(message) {
+        document.getElementById('previewStatus').textContent = message;
+    }
+
+    async function loadPreview() {
+        const grid = document.getElementById('previewGrid');
+        try {
+            const response = await fetch(`/backtest-training/api/task-result/${encodeURIComponent(RESULT_ID)}/export-preview`);
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || payload.status !== 'success') {
+                throw new Error(payload.message || '加载失败');
+            }
+
+            exportRows = Array.isArray(payload.rows) ? payload.rows : [];
+            exportFilename = payload.filename || `backtest_result_${RESULT_ID}_details.csv`;
+            document.getElementById('previewFilename').textContent = exportFilename;
+            document.getElementById('copyAllButton').disabled = !exportRows.length;
+            document.getElementById('downloadButton').disabled = !exportRows.length;
+            renderRows(grid, exportRows);
+            setStatus(`已加载 ${exportRows.length} 行导出内容`);
+        } catch (error) {
+            grid.innerHTML = '';
+            const message = document.createElement('div');
+            message.className = 'export-preview-empty text-danger';
+            message.textContent = error.message || '加载失败';
+            grid.appendChild(message);
+            setStatus(message.textContent);
+        }
+    }
+
+    function renderRows(grid, rows) {
+        grid.innerHTML = '';
+        const table = document.createElement('table');
+        table.className = 'table table-bordered export-preview-table';
+        table.setAttribute('aria-label', 'CSV 导出内容');
+        const caption = document.createElement('caption');
+        caption.className = 'visually-hidden';
+        caption.textContent = '当前回测结果的 CSV 导出内容';
+        table.appendChild(caption);
+        const tbody = document.createElement('tbody');
+        const fragment = document.createDocumentFragment();
+
+        rows.forEach((row) => {
+            const tr = document.createElement('tr');
+            row.forEach((value) => {
+                const td = document.createElement('td');
+                td.textContent = value == null ? '' : String(value);
+                tr.appendChild(td);
+            });
+            fragment.appendChild(tr);
+        });
+        tbody.appendChild(fragment);
+        table.appendChild(tbody);
+        grid.appendChild(table);
+    }
+
+    function buildClipboardText() {
+        return exportRows.map((row) => row.map((value) => value == null ? '' : String(value)).join('\t')).join('\n');
+    }
+
+    async function copyAllRows() {
+        const text = buildClipboardText();
+        if (!text) {
+            setStatus('暂无可复制内容');
+            return;
+        }
+
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'fixed';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                const copied = document.execCommand('copy');
+                textarea.remove();
+                if (!copied) {
+                    throw new Error('复制失败');
+                }
+            }
+            setStatus('已复制全部内容，可直接粘贴到 WPS 或 Excel');
+        } catch (error) {
+            setStatus(`复制失败：${error.message || '未知错误'}`);
+        }
+    }
+
+    async function downloadCsv() {
+        const button = document.getElementById('downloadButton');
+        button.disabled = true;
+        try {
+            const response = await fetch(`/backtest-training/api/task-result/${encodeURIComponent(RESULT_ID)}/export-preview/download`);
+            if (!response.ok) {
+                const payload = await response.json().catch(() => ({}));
+                throw new Error(payload.message || '下载失败');
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = exportFilename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            setStatus('已开始下载 CSV 文件');
+        } catch (error) {
+            setStatus(`下载失败：${error.message || '未知错误'}`);
+        } finally {
+            button.disabled = !exportRows.length;
+        }
+    }
+</script>
+{% endblock %}

@@ -47,6 +47,44 @@ def test_extract_task_result_payload_handles_metadata_outside_sheet_payload(app_
         assert sheet_result["D2"] == "12%"
 
 
+def test_task_result_api_includes_configured_stock_code(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="bt-result-stock-code",
+            name="C5 QQQ backtest",
+            task_type="backtest_training",
+            status="completed",
+            config=json.dumps({"stock_code": "QQQ", "model_name": "C5"}),
+        )
+        db.session.add(task)
+        task_result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters="{}",
+            result=json.dumps({
+                "sheet__title": {
+                    "calculate_metrics": {"excess_returns": []},
+                },
+            }),
+            success=True,
+        )
+        db.session.add(task_result)
+        db.session.commit()
+
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        monkeypatch.setattr(
+            "app.routes.backtest_training.authorize_task_type_action",
+            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
+        )
+        response = app.test_client().get(
+            f"/backtest-training/api/task-result/{task_result.id}"
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["result"]["stock_code"] == "QQQ"
+
+
 def test_backtest_save_task_result_stores_returns_in_return_table_only(app_factory):
     app = app_factory
     with app.app_context():

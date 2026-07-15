@@ -286,6 +286,86 @@ def _extract_task_result_payload(task_result):
     )
 
 
+def _load_backtest_task_result_or_response(task_result_id: int):
+    task_result = (
+        TaskResult.query
+        .options(load_only(TaskResult.id, TaskResult.task_id, TaskResult.result))
+        .filter(TaskResult.id == task_result_id)
+        .first()
+    )
+    if not task_result:
+        return None, None, (jsonify({
+            "status": "error",
+            "message": "任务结果不存在",
+        }), 404)
+
+    task, error_response = _load_backtest_task_or_response(
+        task_result.task_id,
+        action="view",
+        result_id=task_result_id,
+    )
+    if error_response:
+        return None, None, error_response
+
+    return task_result, task, None
+
+
+def _build_backtest_result_export_filename(result_id: int, analyze_result: dict) -> tuple[str, str]:
+    model_name = str(analyze_result.get("model_name") or "").strip().upper()
+    stock_code = str(analyze_result.get("stock_code") or "").strip().upper()
+    excess_returns = analyze_result.get("excess_returns")
+    all_period = ""
+    if isinstance(excess_returns, list):
+        all_period = next((
+            item.get("start_end_date")
+            for item in excess_returns
+            if isinstance(item, dict) and str(item.get("year")).lower() == "all"
+        ), "") or ""
+    years = [int(year) for year in re.findall(r"(?:19|20)\d{2}", str(all_period))]
+
+    if model_name and stock_code and years:
+        latest_year = max(years)
+        earliest_year = min(years)
+        period = str(latest_year) if latest_year == earliest_year else f"{latest_year}-{earliest_year}"
+        filename_title = f"{model_name}-{stock_code}-{period}"
+    else:
+        filename_title = f"backtest_result_{result_id}"
+
+    filename = (
+        f"{filename_title}_details.csv"
+        if filename_title.startswith("backtest_result_")
+        else f"{filename_title}.csv"
+    )
+    return filename, filename_title
+
+
+def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> dict:
+    calculate_metrics, sheet_result = _extract_task_result_payload(task_result)
+    task_config = task.to_dict().get("config") or {}
+    model_name = _infer_backtest_export_model_name(task_config)
+    analyze_result = {
+        **calculate_metrics,
+        "sheet_result": sheet_result,
+        "model_name": model_name,
+        "stock_code": task_config.get("stock_code"),
+    }
+    filename, filename_title = _build_backtest_result_export_filename(task_result.id, analyze_result)
+    return {
+        "filename": filename,
+        "filename_title": filename_title,
+        "model_name": model_name,
+        "analyze_result": analyze_result,
+    }
+
+
+def _build_backtest_result_export_rows(export_data: dict) -> list[list[str]]:
+    dataframe = xpl_analyzer.format_export_file_data(export_data)
+    return [
+        ["" if value is None else str(value) for value in row]
+        for row in dataframe.fillna("").values.tolist()
+    ]
+
+
 def _extract_year_drawdown_map(section):
     if not isinstance(section, dict):
         return {}
@@ -572,11 +652,20 @@ def result_page(result_id):
     return render_template("backtest_training/result.html", result_id=result_id, task_id=task_id)
 
 
+@bp.route("/result/<int:result_id>/export-preview")
+def result_export_preview_page(result_id):
+    return render_template(
+        "backtest_training/result_export_preview.html",
+        result_id=result_id,
+    )
+
+
 legacy_bp.add_url_rule("/create", view_func=create_page)
 legacy_bp.add_url_rule("/list", view_func=list_page)
 legacy_bp.add_url_rule("/detail/<task_id>", view_func=detail_page)
 legacy_bp.add_url_rule("/global-preview/<task_id>", view_func=global_preview_page)
 legacy_bp.add_url_rule("/result/<int:result_id>", view_func=result_page)
+legacy_bp.add_url_rule("/result/<int:result_id>/export-preview", view_func=result_export_preview_page)
 
 
 @bp.route("/api/import-excel", methods=["POST"])
@@ -751,63 +840,67 @@ def get_task_results_by_task_id(task_id):
 @permission_required('backtest:view')
 def get_task_result_detail(task_result_id):
     """Return the full task result payload for the result page."""
-    task_result = (
-        TaskResult.query
-        .options(
-            load_only(
-                TaskResult.task_id,
-                TaskResult.result
-            )
-        )
-        .filter(TaskResult.id == task_result_id)
-        .first()
-    )
-    if not task_result:
-        return jsonify({
-            "status": "error",
-            "message": "任务结果不存在",
-        }), 404
+    task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
+    if error_response:
+        return error_response
 
-    task, error_response = _load_backtest_task_or_response(task_result.task_id, action="view", result_id=task_result_id)
+    export_data = _build_backtest_result_export_data(task_result, task)
+
+    return jsonify({
+        "status": "success",
+        "result": _sanitize_json_value(export_data["analyze_result"]),
+    })
+
+
+@bp.route("/api/task-result/<int:task_result_id>/export-preview", methods=["GET"])
+@login_required
+@permission_required('backtest:view')
+def get_task_result_export_preview(task_result_id):
+    task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
     if error_response:
         return error_response
 
     try:
-        result_payload = json.loads(task_result.result) if task_result.result else {}
-    except (TypeError, json.JSONDecodeError):
-        result_payload = {}
-    if isinstance(result_payload, dict) and result_payload:
-        val = next(
-            (
-                item
-                for item in result_payload.values()
-                if isinstance(item, dict) and (
-                    "calculate_metrics" in item or "analyze_result" in item
-                )
-            ),
-            next((item for item in result_payload.values() if isinstance(item, dict)), {}),
-        )
-    else:
-        val = {}
-    calculate_metrics = (
-        (val.get("calculate_metrics") or val.get("analyze_result"))
-        if isinstance(val, dict)
-        else {}
-    )
-    sheet_result = {
-        key: item
-        for key, item in val.items()
-        if key not in {"calculate_metrics", "analyze_result"}
-    } if isinstance(val, dict) else {}
+        export_data = _build_backtest_result_export_data(task_result, task)
+        rows = _build_backtest_result_export_rows(export_data)
+    except Exception:
+        current_app.logger.exception("Failed to build backtest result export preview")
+        return jsonify({
+            "status": "error",
+            "message": "预览数据生成失败",
+        }), 500
 
     return jsonify({
         "status": "success",
-        "result": _sanitize_json_value({
-            **(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
-            "sheet_result": sheet_result,
-            "model_name": _infer_backtest_export_model_name(task.to_dict().get("config") or {}),
-        }),
+        "filename": export_data["filename"],
+        "rows": rows,
     })
+
+
+@bp.route("/api/task-result/<int:task_result_id>/export-preview/download", methods=["GET"])
+@login_required
+@permission_required('backtest:view')
+def download_task_result_export_preview(task_result_id):
+    task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
+    if error_response:
+        return error_response
+
+    try:
+        export_data = _build_backtest_result_export_data(task_result, task)
+        export_file, mimetype = xpl_analyzer.export_file(export_data)
+    except Exception:
+        current_app.logger.exception("Failed to export backtest result preview")
+        return jsonify({
+            "status": "error",
+            "message": "导出数据生成失败",
+        }), 500
+
+    return send_file(
+        export_file,
+        mimetype=mimetype,
+        as_attachment=True,
+        download_name=export_data["filename"],
+    )
 
 @bp.route("/api/task-summary/<task_id>", methods=["GET"])
 @login_required

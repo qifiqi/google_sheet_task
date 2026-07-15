@@ -567,7 +567,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 _check_values = initial_results[spreadsheet_id]
 
                 if (_check_values[f'{c7_output_range_1[0]}8'] == check_values[f'{c7_output_range_1[0]}8']
-                        and _check_values[f'{c7_output_range_1[0]}9'] == check_values[f'{c7_output_range_1[0]}8']):
+                        and _check_values[f'{c7_output_range_1[0]}9'] == check_values[f'{c7_output_range_1[0]}9']):
                 # if _check_values['D2'] == check_values['D2'] and _check_values['D3'] == check_values['D3']:
                     return False
 

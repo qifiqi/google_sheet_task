@@ -144,8 +144,12 @@
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
                     data-bs-target="#v1-details-collapse" aria-expanded="false" aria-controls="v1-details-collapse">
                 <i class="bi bi-layout-text-sidebar-reverse me-1"></i>V1 数据明细（展开/收起）</button>
-            <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
-                <i class="bi bi-download me-1"></i>导出并下载</button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" type="button" id="btn-preview-export" disabled>
+                    <i class="bi bi-table me-1"></i>预览导出内容</button>
+                <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
+                    <i class="bi bi-download me-1"></i>导出并下载</button>
+            </div>
         </div>
     </div>
     <div class="collapse" id="v1-details-collapse">
@@ -622,6 +626,7 @@
         }
         document.getElementById('btn-reload-result')?.addEventListener('click', loadBacktestResult);
         document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
+        document.getElementById('btn-preview-export')?.addEventListener('click', openExportPreview);
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         loadBacktestResult();
     });
@@ -637,6 +642,19 @@
         });
         const query = detailParams.toString();
         return `/backtest-training/detail/${encodeURIComponent(state.taskId)}${query ? `?${query}` : ''}`;
+    }
+
+    function openExportPreview() {
+        const currentParams = new URLSearchParams(window.location.search);
+        const previewParams = new URLSearchParams();
+        ['list_page', 'list_per_page', 'result_page', 'result_per_page'].forEach((key) => {
+            const value = currentParams.get(key);
+            if (value) {
+                previewParams.set(key, value);
+            }
+        });
+        const query = previewParams.toString();
+        window.location.href = `/backtest-training/result/${encodeURIComponent(state.resultId)}/export-preview${query ? `?${query}` : ''}`;
     }
 
     async function copyRawJson() {
@@ -672,8 +690,10 @@
         if (overlay) overlay.classList.remove('d-none');
         const reloadBtn = document.getElementById('btn-reload-result');
         const exportBtn = document.getElementById('btn-export-v1');
+        const previewBtn = document.getElementById('btn-preview-export');
         if (reloadBtn) reloadBtn.disabled = true;
         if (exportBtn) exportBtn.disabled = true;
+        if (previewBtn) previewBtn.disabled = true;
     }
 
     function hideLoading() {
@@ -681,8 +701,10 @@
         if (overlay) overlay.classList.add('d-none');
         const reloadBtn = document.getElementById('btn-reload-result');
         const exportBtn = document.getElementById('btn-export-v1');
+        const previewBtn = document.getElementById('btn-preview-export');
         if (reloadBtn) reloadBtn.disabled = false;
         if (exportBtn) exportBtn.disabled = !state.lastResults;
+        if (previewBtn) previewBtn.disabled = !state.lastResults;
    }
 
     function showAlert(message, type = 'info') {
@@ -763,6 +785,26 @@
             : '回测结果 - Jaspil 任务管理系统';
     }
 
+    function buildExportBaseName(resultData) {
+        const modelName = String(resultData?.model_name || '').trim().toUpperCase();
+        const stockCode = String(resultData?.stock_code || '').trim().toUpperCase();
+        const allPeriod = Array.isArray(resultData?.excess_returns)
+            ? resultData.excess_returns.find((item) => String(item?.year).toLowerCase() === 'all')?.start_end_date
+            : '';
+        const years = String(allPeriod || '').match(/(?:19|20)\d{2}/g) || [];
+
+        if (!modelName || !stockCode || !years.length) {
+            return `backtest_result_${state.resultId}`;
+        }
+
+        const latestYear = Math.max(...years.map(Number));
+        const earliestYear = Math.min(...years.map(Number));
+        const period = latestYear === earliestYear
+            ? String(latestYear)
+            : `${latestYear}-${earliestYear}`;
+        return `${modelName}-${stockCode}-${period}`;
+    }
+
     async function loadBacktestResult() {
         showLoading();
         abortController = new AbortController();
@@ -784,11 +826,13 @@
                 return;
             }
 
-            state.exportBaseName = `backtest_result_${state.resultId}`;
             state.lastResults = resultData;
+            state.exportBaseName = buildExportBaseName(resultData);
             renderModelIdentity(resultData.model_name, resultData);
             const exportBtn = document.getElementById('btn-export-v1');
             if (exportBtn) exportBtn.disabled = false;
+            const previewBtn = document.getElementById('btn-preview-export');
+            if (previewBtn) previewBtn.disabled = false;
             renderSummary(resultData);
             renderTables(resultData);
             renderCharts(resultData);
@@ -816,21 +860,12 @@
         if (btn) btn.disabled = true;
 
         try {
-            const defaultFilename = `${state.exportBaseName || 'backtest_result'}_details.csv`;
+            const exportBaseName = state.exportBaseName || 'backtest_result';
+            const defaultFilename = exportBaseName.startsWith('backtest_result_')
+                ? `${exportBaseName}_details.csv`
+                : `${exportBaseName}.csv`;
 
-            const resp = await fetch('/xpl/export', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
-                },
-                body: JSON.stringify({
-                    filename: defaultFilename,
-                    filename_title: state.exportBaseName || 'backtest_result',
-                    model_name: state.lastResults.model_name || 'C3',
-                    analyze_result: state.lastResults
-                })
-            });
+            const resp = await fetch(`/backtest-training/api/task-result/${encodeURIComponent(state.resultId)}/export-preview/download`);
 
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({}));
