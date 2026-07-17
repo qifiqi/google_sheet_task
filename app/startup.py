@@ -38,6 +38,32 @@ def ensure_google_sheet_token_schema():
         db.session.commit()
 
 
+def ensure_google_sheet_id_sequence():
+    """Align the PostgreSQL Google Sheet ID sequence with existing rows."""
+    if db.engine.dialect.name != 'postgresql':
+        return
+
+    sequence_name = db.session.execute(
+        text("SELECT pg_get_serial_sequence('google_sheet', 'id')")
+    ).scalar()
+    if not sequence_name:
+        return
+
+    db.session.execute(
+        text(
+            """
+            SELECT setval(
+                CAST(:sequence_name AS regclass),
+                COALESCE((SELECT MAX(id) FROM google_sheet), 1),
+                EXISTS(SELECT 1 FROM google_sheet)
+            )
+            """
+        ),
+        {'sequence_name': sequence_name},
+    )
+    db.session.commit()
+
+
 def ensure_user_schema():
     inspector = inspect(db.engine)
     if 'user' not in inspector.get_table_names():
@@ -243,6 +269,7 @@ def register_cli(app):
     def init_db():
         db.create_all()
         ensure_google_sheet_token_schema()
+        ensure_google_sheet_id_sequence()
         ensure_user_schema()
         ensure_task_schema()
         ensure_task_result_schema()
@@ -516,6 +543,7 @@ def bootstrap_app(app):
     with app.app_context():
         db.create_all()
         ensure_google_sheet_token_schema()
+        ensure_google_sheet_id_sequence()
         ensure_user_schema()
         ensure_task_schema()
         ensure_task_result_schema()

@@ -48,8 +48,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
             return 'en'
         return 'cn'
 
-    def _resolve_dfcf_stock_quote(self, stock_code):
+    def _resolve_dfcf_stock_quote(self, stock_code, exchange_market=None):
         stock_query = str(stock_code or '').strip()
+        market = str(exchange_market or '').strip()
+        if market:
+            return stock_query.upper(), market
+
         stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_query, 10)
         if isinstance(stock_config, dict):
             raise ValueError(f"股票{stock_query}搜索失败: {stock_config.get('error') or stock_config}")
@@ -72,8 +76,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
             self._log_info(f"股票 {stock_query} 已解析为代码 {resolved_code}, market={market}")
         return resolved_code, market
 
-    def _resolve_cn_stock_quote(self, stock_code):
-        return self._resolve_dfcf_stock_quote(stock_code)
+    def _resolve_cn_stock_quote(self, stock_code, exchange_market=None):
+        return self._resolve_dfcf_stock_quote(stock_code, exchange_market)
 
     @staticmethod
     def _normalize_year_values(values, field_name):
@@ -296,6 +300,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             )
             price_mode = config_data.get('price_mode', 'vwap_price')
             adjust_type = config_data.get('kline_adjustment')
+            exchange_market = config_data.get('exchange_market')
             include_full_year_range = bool(config_data.get('include_full_year_range'))
             end_date = config_data.get('end_date')
 
@@ -310,6 +315,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 price_mode=price_mode,
                 market_type=market_type,
                 adjust_type=adjust_type,
+                exchange_market=exchange_market,
                 include_full_year_range=include_full_year_range,
                 end_date=end_date,
             )
@@ -713,6 +719,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         parameters,
         stock_code,price_mode="vwap_price",market_type="cn",
         adjust_type=None,
+        exchange_market=None,
         include_full_year_range=False,
         end_date=None,
 
@@ -775,11 +782,17 @@ class BacktestTrainingService(BaseGoogleSheetService):
         limit = max(300, year_count * trading_days_per_year + 80)
 
         if market_type == 'cn':
-            resolved_code, market = self._resolve_cn_stock_quote(stock_code)
+            if exchange_market:
+                resolved_code, market = self._resolve_cn_stock_quote(stock_code, exchange_market)
+            else:
+                resolved_code, market = self._resolve_cn_stock_quote(stock_code)
             stock_code = resolved_code
             klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         elif price_mode == 'vwap_price':
-            resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
+            if exchange_market:
+                resolved_code, market = self._resolve_dfcf_stock_quote(stock_code, exchange_market)
+            else:
+                resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
             stock_code = resolved_code
             klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         else:

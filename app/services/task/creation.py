@@ -181,6 +181,8 @@ class TaskCreationMixin:
         if isinstance(config, dict):
             config = _hydrate_stock_name_from_metadata(config)
             config = get_google_sheet_token_service().prepare_task_config(config)
+            if task_type == "backtest_training":
+                self.validate_backtest_training_sheet(config)
             self.validate_google_sheet_available_for_task(
                 config,
                 task_id,
@@ -547,6 +549,8 @@ class TaskCreationMixin:
                     return {"status": "error", "message": f"不支持的任务状态: {next_status}"}
 
             new_config = self._normalize_task_config_for_type(task.task_type, new_config)
+            if task.task_type == "backtest_training":
+                self.validate_backtest_training_sheet(new_config)
             old_config = json.loads(task.config) if task.config else {}
             old_google_sheet_id = (
                 old_config.get("google_sheet_id") if isinstance(old_config, dict) else None

@@ -135,6 +135,7 @@ class GoogleSheetTableType(str, Enum):
     C4 = "c4"
     C5 = "c5"
     C7 = "c7"
+    BACKTEST_TRAINING = "backtest_training"
 
     @classmethod
     def normalize(cls, value: str | None, default: str | None = None) -> str | None:
@@ -148,7 +149,14 @@ class GoogleSheetTableType(str, Enum):
 
     @classmethod
     def choices(cls):
-        return [{"value": item.value, "label": item.value.upper()} for item in cls]
+        labels = {
+            cls.C3: "C3",
+            cls.C4: "C4",
+            cls.C5: "C5",
+            cls.C7: "C7",
+            cls.BACKTEST_TRAINING: "单品回测",
+        }
+        return [{"value": item.value, "label": labels[item]} for item in cls]
 
 
 class GoogleSheetTokenTaskType(str, Enum):

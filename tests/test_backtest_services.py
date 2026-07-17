@@ -118,9 +118,10 @@ def test_backtest_training_vwap_uses_dfcf_for_en_market(monkeypatch):
     service.YF_api.get_kline_data = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         AssertionError("Yahoo should not be used for vwap_price")
     )
-    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: [
-        {"code": "SOXX", "market": "105", "shortName": "半导体ETF-iShares"}
-    ]
+    search_calls = []
+    service.dfcf_api.get_search_list_by_stock_code = lambda *args, **_kwargs: (
+        search_calls.append(args[0]) or [{"code": "SOXX", "market": "105", "shortName": "半导体ETF-iShares"}]
+    )
     service.dfcf_api.get_stock_kline_data = (
         lambda *_args, **_kwargs: _kline_rows("2023-01-01", "2024-02-15")
     )
@@ -136,6 +137,53 @@ def test_backtest_training_vwap_uses_dfcf_for_en_market(monkeypatch):
     )
 
     assert kline_map["2024-2023"][0]["stock_val"] == 12
+    assert search_calls == ["SOXX"]
+
+
+def test_backtest_training_selected_cn_quote_skips_stock_search():
+    service = BacktestTrainingService({}, "task-id")
+    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("selected stock should not be searched again")
+    )
+    kline_calls = []
+    service.dfcf_api.get_stock_kline_data = lambda *args, **_kwargs: (
+        kline_calls.append(args) or _kline_rows("2023-01-01", "2024-02-15")
+    )
+
+    service._get_all_parameters(
+        [],
+        [1],
+        [["param-a"]],
+        "600000",
+        exchange_market="1",
+        end_date="2024-02-15",
+    )
+
+    assert kline_calls[0][:2] == ("600000", "1")
+
+
+def test_backtest_training_selected_en_vwap_quote_skips_stock_search():
+    service = BacktestTrainingService({}, "task-id")
+    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("selected stock should not be searched again")
+    )
+    kline_calls = []
+    service.dfcf_api.get_stock_kline_data = lambda *args, **_kwargs: (
+        kline_calls.append(args) or _kline_rows("2023-01-01", "2024-02-15")
+    )
+
+    service._get_all_parameters(
+        [],
+        [1],
+        [["param-a"]],
+        "SOXX",
+        market_type="en",
+        price_mode="vwap_price",
+        exchange_market="105",
+        end_date="2024-02-15",
+    )
+
+    assert kline_calls[0][:2] == ("SOXX", "105")
 
 
 def test_backtest_sheet_config_supports_c7():
