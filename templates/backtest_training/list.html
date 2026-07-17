@@ -474,7 +474,10 @@ function inferModelVersion(task) {
 
     const config = task.config || {};
     const sheet = config.sheet || {};
-    const title = String(sheet.title || config.title || '').toUpperCase();
+    const title = String(sheet.title || config.title || task.name || '').toUpperCase();
+    if (title.includes('C7')) {
+        return 'C7';
+    }
     if (title.includes('C5')) {
         return 'C5';
     }

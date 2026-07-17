@@ -65,19 +65,35 @@ def test_normalize_multi_product_config_allows_ratio_total_not_equal_100():
     assert [product["price_mode"] for product in normalized["products"]] == ["sp_price", "sp_price"]
 
 
+def test_normalize_multi_product_config_defaults_to_vwap_price():
+    product_1 = _base_product(0, "60")
+    product_2 = _base_product(1, "30")
+    product_1.pop("price_mode")
+    product_2.pop("price_mode")
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "products": [product_1, product_2],
+    }
+
+    normalized = normalize_multi_product_config(config)
+
+    assert [product["price_mode"] for product in normalized["products"]] == ["vwap_price", "vwap_price"]
+
+
 def test_normalize_multi_product_config_keeps_per_product_price_mode():
     config = {
         "start_date": "2024-01-01",
         "end_date": "2024-12-31",
         "products": [
             _base_product(0, "60") | {"price_mode": "kp_price"},
-            _base_product(1, "30") | {"price_mode": "sp_price"},
+            _base_product(1, "30") | {"price_mode": "vwap_price"},
         ],
     }
 
     normalized = normalize_multi_product_config(config)
 
-    assert [product["price_mode"] for product in normalized["products"]] == ["kp_price", "sp_price"]
+    assert [product["price_mode"] for product in normalized["products"]] == ["kp_price", "vwap_price"]
 
 
 def test_normalize_multi_product_config_validates_parameter_alignment():
@@ -389,6 +405,49 @@ def test_multi_product_result_detail_includes_daily_returns_from_return_series(a
             "index_returns": [0.11, 0.22],
             "start_returns": [0.33, 0.44],
         }
+
+
+def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="multi-c7-result-units",
+            name="multi-c7-result-units",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="completed",
+            config=json.dumps({"products": [{"sheet": {"title": "C7 model"}}]}),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        db.session.add_all([
+            Permission(name="查看任务2", code="task:view", group="task", description="查看任务", route_path="/admin/tasks"),
+            Permission(name="查看回测任务2", code="backtest:view", group="backtest", description="查看回测任务", route_path="/backtest/list"),
+        ])
+        task_result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters=json.dumps({"product_index": 0}),
+            result=json.dumps({"sheet__title": {
+                "calculate_metrics": {"excess_returns": []},
+                "D10": "-0.14",
+                "D18": "0.01",
+                "D22": "122.95%",
+            }}),
+            success=True,
+        )
+        db.session.add(task_result)
+        db.session.commit()
+
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        response = app.test_client().get(
+            f"/backtest-multi-product/api/task-result/{task_result.id}"
+        )
+
+        assert response.status_code == 200
+        sheet_result = response.get_json()["result"]["sheet_result"]
+        assert sheet_result["D10"] == "-14.00%"
+        assert sheet_result["D18"] == "1.00%"
+        assert sheet_result["D22"] == 1.2295
 
 
 def test_multi_product_execution_runs_all_parameters_per_product_first(app_factory, monkeypatch):

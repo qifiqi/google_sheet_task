@@ -23,6 +23,7 @@ from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
+from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
 logger = get_logger(__name__)
@@ -201,30 +202,35 @@ class GoogleSheetService(BaseGoogleSheetService):
         first_value = next(iter(result.values()), None) if isinstance(result, dict) else None
         if isinstance(first_value, dict):
             result = first_value
+        result = normalize_c7_result_metrics(result)
         analyze_result = result.get('flat_result') if isinstance(result.get('flat_result'), dict) else result
+
+        def metric_value(c5_cell: str) -> Any:
+            """C7 的汇总指标位于 C5 同名指标单元格下方 6 行。"""
+            return result.get(f"D{int(c5_cell[1:]) + 6}", 0)
 
         payload.update({
             "multiplier": combination.get("A1", 0),
             "ml": combination.get("B1"),
-            "return_rate": self._to_decimal_ratio(result.get("D2", 0)),
-            "annualized_rate": self._to_decimal_ratio(result.get("D3", 0)),
-            "maxdd": self._to_decimal_ratio(result.get("D4", 0)),
-            "index_rate": self._to_decimal_ratio(result.get("D5", 0)),
-            "index_annualized_rate": self._to_decimal_ratio(result.get("D6", 0)),
-            "max_index_dd": self._to_decimal_ratio(result.get("D7", 0)),
-            "fee_total": self._to_decimal_ratio(result.get("D8", 0)),
-            "fee_annualized": self._to_decimal_ratio(result.get("D9", 0)),
-            "turnover_rate": result.get("D10", 0),
-            "return_beats": self._to_decimal_ratio(result.get("D11", 0)),
-            "dd_beats": self._to_decimal_ratio(result.get("D12", 0)),
-            "max_1y_beats": self._to_decimal_ratio(result.get("D13", 0)),
-            "min_1y_beats": self._to_decimal_ratio(result.get("D14", 0)),
-            "max_theoretical_leverage": result.get("D15", 0),
-            "avg_theoretical_leverage": result.get("D16", 0),
-            "unit_theoretical_leverage_return": self._to_decimal_ratio(result.get("D17", 0)),
-            "max_actual_leverage": result.get("D18", 0),
-            "avg_actual_leverage": result.get("D19", 0),
-            "unit_actual_leverage_return": self._to_decimal_ratio(result.get("D20", 0)),
+            "return_rate": self._to_decimal_ratio(metric_value("D2")),
+            "annualized_rate": self._to_decimal_ratio(metric_value("D3")),
+            "maxdd": self._to_decimal_ratio(metric_value("D4")),
+            "index_rate": self._to_decimal_ratio(metric_value("D5")),
+            "index_annualized_rate": self._to_decimal_ratio(metric_value("D6")),
+            "max_index_dd": self._to_decimal_ratio(metric_value("D7")),
+            "fee_total": self._to_decimal_ratio(metric_value("D8")),
+            "fee_annualized": self._to_decimal_ratio(metric_value("D9")),
+            "turnover_rate": metric_value("D10"),
+            "return_beats": self._to_decimal_ratio(metric_value("D11")),
+            "dd_beats": self._to_decimal_ratio(metric_value("D12")),
+            "max_1y_beats": self._to_decimal_ratio(metric_value("D13")),
+            "min_1y_beats": self._to_decimal_ratio(metric_value("D14")),
+            "max_theoretical_leverage": metric_value("D15"),
+            "avg_theoretical_leverage": metric_value("D16"),
+            "unit_theoretical_leverage_return": self._to_decimal_ratio(metric_value("D17")),
+            "max_actual_leverage": metric_value("D18"),
+            "avg_actual_leverage": metric_value("D19"),
+            "unit_actual_leverage_return": self._to_decimal_ratio(metric_value("D20")),
             "start_monthly_std_dev": analyze_result.get("start_monthly_std_dev", 0),
             "index_monthly_std_dev": analyze_result.get("index_monthly_std_dev", 0),
             "index_annualized_return": analyze_result.get("index_annualized_return", 0),
@@ -273,8 +279,11 @@ class GoogleSheetService(BaseGoogleSheetService):
         failed_count = 0
         try:
             # 计算总参数组合数（按每个具体组合计数）
+            kline_source = str(config_data.get('kline_source') or 'auto').strip().lower()
+            if kline_source not in ('auto', 'custom'):
+                raise ValueError("kline_source 仅支持 auto 或 custom")
             count_mode = config_data.get('count_mode', 'n_plus_1')
-            price_mode = config_data.get('price_mode', 'sp_price')
+            price_mode = config_data.get('price_mode', 'vwap_price')
             date_range_mode = config_data.get('date_range_mode',[])
             exclude_recent_years = config_data.get(
                 'exclude_recent_years',
@@ -286,15 +295,24 @@ class GoogleSheetService(BaseGoogleSheetService):
             adjust_type = config_data.get('kline_adjustment')
             c7_input_column_a = config_data.get('c7_input_column_a').upper()
             c7_input_column_b = config_data.get('c7_input_column_b').upper()
+            custom_kline_map = None
+            if kline_source == 'custom':
+                custom_kline = self._get_custom_kline_data(c7_input_column_a, c7_input_column_b)
+                custom_kline_map = {'custom': custom_kline}
 
             # 仅使用 parameters[0] 作为外层参数列表，真实总组合数为所有 inner combinations 数量之和
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
 
             for outer_param in parameters[0]:
-                combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
-                    outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type
-                )
+                if kline_source == 'custom':
+                    combinations, column_A_length,KLINE_DATA_MAP = self._get_custom_parameters(
+                        outer_param, parameters, custom_kline_map
+                    )
+                else:
+                    combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
+                        outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type
+                    )
                 precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
                 total_combinations += len(combinations)
 
@@ -314,16 +332,19 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 重置成功/失败计数器；如需精确恢复已完成组合数，可在外部通过历史结果统计
             success_count = start_index
 
-            for google_sheet in self.google_sheets:
-                A_num = google_sheet.get_last_row('A')
-                if A_num < 10:
-                    continue
-                self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
-                google_sheet.clear_range(f"{c7_input_column_a}2:{c7_input_column_b}{A_num+2}")
+            if kline_source != 'custom':
+                for google_sheet in self.google_sheets:
+                    A_num = google_sheet.get_last_row('A')
+                    if A_num < 10:
+                        continue
+                    self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
+                    google_sheet.clear_range(f"{c7_input_column_a}2:{c7_input_column_b}{A_num+2}")
 
-            self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
-            if not self._interruptible_sleep(20):
-                return success_count, failed_count, 'cancelled'
+                self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
+                if not self._interruptible_sleep(20):
+                    return success_count, failed_count, 'cancelled'
+            else:
+                self._log_info('自定义K线模式：保留表格现有K线，仅写入参数')
 
             processed_index = 0  # 已处理的组合数量
             cache_parameters = {'combination': {}}
@@ -357,9 +378,6 @@ class GoogleSheetService(BaseGoogleSheetService):
                     progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
                     self._log_info(progress_msg)
 
-                    # 更新当前步数为组合级别
-                    task.current_step = current_step
-                    db_retry_manager.commit_with_retry(db.session)
 
                     # 执行单个参数组合
                     try:
@@ -385,6 +403,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                                 result,
                             )
                         )
+
+                        # 更新当前步数为组合级别
+                        task.current_step = current_step
+                        db_retry_manager.commit_with_retry(db.session)
+
                         # 保存结果到数据库
                         stock_name = str(combination.get('stock_name') or '').strip()
                         self._save_task_result(current_step - 1, {
@@ -469,6 +492,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             cell_updates[c7_parameter_positions[0]] = c7_parameter_1
             cell_updates[c7_parameter_positions[1]] = c7_parameter_2
             Kline_key = combination['Kline_key']
+            is_custom_kline = str(config_data.get('kline_source') or 'auto').strip().lower() == 'custom'
             current_kline = require_kline_rows(
                 combination.get('stock_code', ''),
                 config_data.get('market_type', ''),
@@ -482,7 +506,9 @@ class GoogleSheetService(BaseGoogleSheetService):
                 kline = current_kline
                 _kline_len = len(kline)
 
-                if Kline_key != cache_Kline_key or initial_result_sleep is not None:
+                if is_custom_kline:
+                    self._log_info(f"自定义K线模式，不修改K线列，只写入参数 combination:{combination}")
+                elif Kline_key != cache_Kline_key or initial_result_sleep is not None:
                     for google_sheet in self.google_sheets:
                         # A_num = google_sheet.get_last_row('A')
                         A_num = column_A_length
@@ -511,7 +537,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                         raise RuntimeError("task cancelled")
 
                 for google_sheet in self.google_sheets:
-                    initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c7_output_range_1)
+                    initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(
+                        c7_output_range_1,
+                        # value_render_option="UNFORMATTED_VALUE",
+                    )
 
                 for google_sheet in self.google_sheets:
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title} 长度：{len(cell_updates)}")
@@ -575,7 +604,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                     raise RuntimeError("task cancelled")
                 all_num = 0
                 for google_sheet in self.google_sheets:
-                    _result = google_sheet.get_range(c7_output_range_1)
+                    _result = google_sheet.get_range(
+                        c7_output_range_1,
+                        # value_render_option="UNFORMATTED_VALUE",
+                    )
                     if _validate_check_values(_result, google_sheet.spreadsheet_id):
                         # # _result = check_result(_result)
                         # _result_yearly = google_sheet.get_range(c7_output_range_2)
@@ -707,6 +739,53 @@ class GoogleSheetService(BaseGoogleSheetService):
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
 
+    def _get_custom_kline_data(self, input_column_a, input_column_b):
+        if not self.google_sheets:
+            raise ValueError("自定义K线模式缺少 Google Sheet")
+
+        google_sheet = self.google_sheets[0]
+        last_row = google_sheet.get_last_row(input_column_a)
+        if last_row < 2:
+            raise ValueError("自定义K线模式下输入列没有K线数据")
+
+        values = google_sheet.get_range(f"{input_column_a}2:{input_column_b}{last_row}")
+        rows = []
+        for row_num in range(2, last_row + 1):
+            stock_date = values.get(f"{input_column_a}{row_num}")
+            stock_val = values.get(f"{input_column_b}{row_num}")
+            if stock_date in (None, "") and stock_val in (None, ""):
+                continue
+            rows.append({
+                "stock_date": str(stock_date).strip() if stock_date is not None else "",
+                "stock_val": stock_val,
+            })
+
+        return require_kline_rows(
+            "custom",
+            "custom",
+            rows,
+            context="自定义K线",
+            min_rows=30,
+            price_field="stock_val",
+        )
+
+    def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
+        data = []
+        for v1 in parameters[1]:
+            for v2 in parameters[2]:
+                data.append({
+                    "stock_code": parameter,
+                    "A1": v1,
+                    "B1": v2,
+                    "year": "custom",
+                    "Kline_key": "custom",
+                })
+
+        if not data:
+            raise ValueError(f"股票{parameter} 自定义K线模式下没有可执行参数组合")
+
+        return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
+
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None):
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
@@ -720,22 +799,22 @@ class GoogleSheetService(BaseGoogleSheetService):
             if market_type == 'cn':
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
+                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
+                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
             else:
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
+                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k.get(price_field, k.get('stock_sp'))}
+                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
@@ -746,9 +825,13 @@ class GoogleSheetService(BaseGoogleSheetService):
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 300
 
-        if market_type == 'cn':
+        if market_type == 'cn' or price_mode == 'vwap_price':
             stock_config = self.dfcf_api.get_search_list_by_stock_code(parameter, 10)
-            # stock_config = [i for i in stock_config if i['securityTypeName'] == '美股']
+            if market_type in ('us', 'en'):
+                stock_config = [
+                    i for i in stock_config
+                    if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
+                ]
 
             # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
             if stock_config:
@@ -771,7 +854,12 @@ class GoogleSheetService(BaseGoogleSheetService):
         else:
             klines = self.YF_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
             stock_name = ""
-        price_field = 'stock_kp' if price_mode == 'kp_price' else 'stock_sp'
+
+        price_field = {
+            'kp_price': 'stock_kp',
+            'sp_price': 'stock_sp',
+            'vwap_price': 'stock_vwap',
+        }.get(price_mode, 'stock_vwap')
         klines = require_kline_rows(
             parameter,
             market_type,

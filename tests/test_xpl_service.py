@@ -3,6 +3,38 @@ import math
 import pytest
 
 from app.services.xpl_service import XPLAnalyzer
+from app.routes.backtest_multi_product import _infer_product_export_model_name
+from app.routes.backtest_training import _infer_backtest_export_model_name
+
+
+@pytest.mark.parametrize(
+    ("analyze_result", "expected"),
+    [
+        ({"sheet_result": {"sheet-id__C5 单品回测": {}}}, "C5"),
+        ({"sheet_result": {"sheet-id__C7 多品回测": {}}}, "C7"),
+    ],
+)
+def test_export_model_name_uses_v1_sheet_result_title(analyze_result, expected):
+    assert XPLAnalyzer._resolve_export_model_name(
+        {"filename_title": "backtest_result_1"},
+        analyze_result,
+    ) == expected
+
+
+def test_export_model_name_prefers_explicit_model_name():
+    assert XPLAnalyzer._resolve_export_model_name(
+        {"model_name": "c4", "filename_title": "backtest_result_1"},
+        {},
+    ) == "C4"
+
+
+def test_single_backtest_result_uses_task_sheet_model_name():
+    assert _infer_backtest_export_model_name({"sheet": {"title": "C4 单品回测"}}) == "C4"
+    assert _infer_backtest_export_model_name({"model_version": "c7"}) == "C7"
+
+
+def test_multi_backtest_result_uses_product_sheet_model_name():
+    assert _infer_product_export_model_name({"sheet": {"title": "C7 多品回测"}}) == "C7"
 
 
 def test_analyze_uses_second_column_for_two_column_input():
@@ -63,6 +95,25 @@ def test_analyze_replaces_non_finite_numbers_with_none():
 
     assert result["status"] == "success"
     assert not _contains_non_finite_number(result)
+
+
+def test_export_file_handles_unavailable_sortino_ratios():
+    data = "\n".join(
+        [
+            "2025-10-31 1.00% 2.00%",
+            "2025-11-30 2.00% 3.00%",
+            "2025-12-31 3.00% 4.00%",
+            "2026-01-31 4.00% 5.00%",
+            "2026-02-28 5.00% 6.00%",
+            "2026-03-31 6.00% 7.00%",
+        ]
+    )
+
+    result = XPLAnalyzer().analyze(data=data, time_format="auto")
+
+    exported_file, _ = XPLAnalyzer().export_file({"analyze_result": result["results"]})
+
+    assert "所提诺比率,--,--" in exported_file.getvalue().decode("utf-8")
 
 
 def test_sanitize_for_json_replaces_numpy_and_python_non_finite_numbers():

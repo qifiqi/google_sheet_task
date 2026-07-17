@@ -337,6 +337,16 @@
                                                 </h6>
                                                 <div class="row g-3 align-items-center">
                                                     <div class="col-md-3">
+                                                        <label class="form-label d-block">K线来源</label>
+                                                        <div class="btn-group d-flex" role="group" aria-label="Kline source">
+                                                            <input type="radio" class="btn-check" name="kline_source" id="kline_source_auto" value="auto" autocomplete="off" checked>
+                                                            <label class="btn btn-outline-primary flex-fill" for="kline_source_auto">自动K线</label>
+
+                                                            <input type="radio" class="btn-check" name="kline_source" id="kline_source_custom" value="custom" autocomplete="off">
+                                                            <label class="btn btn-outline-primary flex-fill" for="kline_source_custom">自定义K线</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
                                                         <label class="form-label d-block">统计方式</label>
                                                         <div class="btn-group d-flex" role="group" aria-label="Count mode">
                                                             <input type="radio" class="btn-check" name="count_mode" id="count_mode_total" value="total" autocomplete="off" checked>
@@ -707,6 +717,13 @@
                     document.getElementById('proxy_url').value = config.proxy_url;
                 }
 
+                if (config.kline_source) {
+                    const sourceInput = document.querySelector(`input[name="kline_source"][value="${config.kline_source}"]`);
+                    if (sourceInput) {
+                        sourceInput.checked = true;
+                    }
+                }
+
                 if (config.market_type) {
                     const mtInput = document.querySelector(`input[name="market_type"][value="${config.market_type}"]`);
                     if (mtInput) {
@@ -734,6 +751,7 @@
                 }
 
                 // 更新组合计算
+                updateCustomKlineModeAvailability();
                 calculateCombinations();
                 showNotification('已加载模板配置', 'success');
 
@@ -1092,6 +1110,7 @@
         // 初始化产品代码chips（基于隐藏的param1值）
         initProductCodeChipsFromParam1();
 
+        updateCustomKlineModeAvailability();
         calculateCombinations();
 
         // 创建防抖版本的函数
@@ -1310,6 +1329,13 @@
             document.getElementById('proxy_url').value = normalized.proxy_url;
         }
 
+        if (normalized.kline_source) {
+            const sourceInput = document.querySelector(`input[name="kline_source"][value="${normalized.kline_source}"]`);
+            if (sourceInput) {
+                sourceInput.checked = true;
+            }
+        }
+
         // count mode
         if (normalized.count_mode) {
             const modeInput = document.querySelector(`input[name="count_mode"][value="${normalized.count_mode}"]`);
@@ -1370,6 +1396,7 @@
             }
         }
 
+        updateCustomKlineModeAvailability();
         calculateCombinations();
 
         if (mode === 'restart') {
@@ -1407,6 +1434,9 @@
     }
 
     function getSelectedDateRangeModes() {
+        if (isCustomKlineMode()) {
+            return [];
+        }
         const modes = [];
         const fullEl = document.getElementById('date_range_full');
         const recentEl = document.getElementById('date_range_recent');
@@ -1426,6 +1456,9 @@
     }
 
     function getExcludedRecentYears() {
+        if (isCustomKlineMode()) {
+            return [];
+        }
         const recentEl = document.getElementById('date_range_recent');
         // 如果没有勾选"近年"，返回空数组
         if (!recentEl || !recentEl.checked) {
@@ -1456,6 +1489,72 @@
         }
         if (recentEl) {
             recentEl.checked = modes.includes('recent');
+        }
+    }
+
+    function isCustomKlineMode() {
+        return document.querySelector('input[name="kline_source"]:checked')?.value === 'custom';
+    }
+
+    function setControlDisabled(element, disabled) {
+        if (!element) {
+            return;
+        }
+        element.disabled = disabled;
+        if (element.id) {
+            const label = document.querySelector(`label[for="${element.id}"]`);
+            if (label) {
+                label.classList.toggle('disabled', disabled);
+            }
+        }
+    }
+
+    function updateCustomKlineModeAvailability() {
+        const customMode = isCustomKlineMode();
+        const countModeTotal = document.getElementById('count_mode_total');
+        const countModeRadios = document.querySelectorAll('input[name="count_mode"]');
+        const marketTypeRadios = document.querySelectorAll('input[name="market_type"]');
+        const dateRangeFull = document.getElementById('date_range_full');
+        const dateRangeRecent = document.getElementById('date_range_recent');
+        const recentYearsContainer = document.getElementById('recent_years_container');
+        const currentCountMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
+        const enableDateRange = !customMode && currentCountMode === 'n_plus_1';
+
+        if (customMode && countModeTotal) {
+            countModeTotal.checked = true;
+        }
+        countModeRadios.forEach(radio => setControlDisabled(radio, customMode));
+
+        marketTypeRadios.forEach(radio => {
+            if (customMode) {
+                radio.checked = false;
+            } else if (!document.querySelector('input[name="market_type"]:checked')) {
+                const cnInput = document.getElementById('market_type_cn');
+                if (cnInput) cnInput.checked = true;
+            }
+            setControlDisabled(radio, customMode);
+        });
+
+        ['price_mode', 'kline_adjustment', 'start_date', 'end_date'].forEach(id => {
+            setControlDisabled(document.getElementById(id), customMode);
+        });
+
+        [dateRangeFull, dateRangeRecent].forEach(input => {
+            setControlDisabled(input, !enableDateRange);
+            if (!enableDateRange && input) {
+                input.checked = false;
+            }
+        });
+
+        document.querySelectorAll('.recent-year-checkbox').forEach(checkbox => {
+            setControlDisabled(checkbox, customMode || !dateRangeRecent || !dateRangeRecent.checked);
+            if (customMode || !dateRangeRecent || !dateRangeRecent.checked) {
+                checkbox.checked = false;
+            }
+        });
+
+        if (recentYearsContainer) {
+            recentYearsContainer.classList.toggle('d-none', !dateRangeRecent || !dateRangeRecent.checked);
         }
     }
 
@@ -1512,25 +1611,13 @@
         const recentYearsContainer = document.getElementById('recent_years_container');
 
         function updateDateRangeModeAvailability() {
-            const current = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
-            const enable = current === 'n_plus_1';
-            if (drmFull) {
-                drmFull.disabled = !enable;
-                if (!enable) drmFull.checked = false;
-            }
-            if (drmRecent) {
-                drmRecent.disabled = !enable;
-                if (!enable) {
-                    drmRecent.checked = false;
-                    if (recentYearsContainer) recentYearsContainer.classList.add('d-none');
-                }
-            }
+            updateCustomKlineModeAvailability();
         }
 
         // 近年复选框变化时显示/隐藏年份选择
         if (drmRecent && recentYearsContainer) {
             drmRecent.addEventListener('change', function() {
-                recentYearsContainer.classList.toggle('d-none', !this.checked);
+                updateCustomKlineModeAvailability();
             });
         }
 
@@ -1538,6 +1625,14 @@
             r.addEventListener('change', updateDateRangeModeAvailability);
         });
         updateDateRangeModeAvailability();
+
+        document.querySelectorAll('input[name="kline_source"]').forEach(function(field) {
+            field.addEventListener('change', function() {
+                updateCustomKlineModeAvailability();
+                calculateCombinations();
+                debouncedSaveFormData();
+            });
+        });
 
         // 模板选择变化事件
         document.getElementById('task_template').addEventListener('change', function() {
@@ -1942,13 +2037,15 @@
         const tokenFile = document.getElementById('token_file').value;
         const tokenJson = document.getElementById('token_json').value;
         const proxyUrl = document.getElementById('proxy_url').value;
-        const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
-        const priceMode = document.getElementById('price_mode')?.value || 'vwap_price';
-        const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
-        const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
-        const dateRangeModes = getSelectedDateRangeModes();
-        const startDate = document.getElementById('start_date')?.value || null;
-        const endDate = document.getElementById('end_date')?.value || null;
+        const klineSource = document.querySelector('input[name="kline_source"]:checked')?.value || 'auto';
+        const isCustomKline = klineSource === 'custom';
+        const countMode = isCustomKline ? 'total' : (document.querySelector('input[name="count_mode"]:checked')?.value || 'total');
+        const priceMode = isCustomKline ? null : (document.getElementById('price_mode')?.value || 'vwap_price');
+        const marketType = isCustomKline ? null : (document.querySelector('input[name="market_type"]:checked')?.value || 'cn');
+        const klineAdjustment = isCustomKline ? null : (document.getElementById('kline_adjustment')?.value || 'forward');
+        const dateRangeModes = isCustomKline ? [] : getSelectedDateRangeModes();
+        const startDate = isCustomKline ? null : (document.getElementById('start_date')?.value || null);
+        const endDate = isCustomKline ? null : (document.getElementById('end_date')?.value || null);
 
         if (tokenType === 'file' && !tokenId) {
             showNotification('请选择Token', 'error');
@@ -2020,12 +2117,13 @@
             token_file: tokenFile,
             token_json: tokenJson,
             proxy_url: proxyUrl || null,
+            kline_source: klineSource,
             count_mode: countMode,
             price_mode: priceMode,
             market_type: marketType,
             kline_adjustment: klineAdjustment,
             date_range_mode: dateRangeModes,
-            exclude_recent_years: getExcludedRecentYears(),
+            exclude_recent_years: isCustomKline ? [] : getExcludedRecentYears(),
             start_date: startDate,
             end_date: endDate,
             parameters: parameters,
@@ -2112,6 +2210,7 @@
             token_file: document.getElementById('token_file').value,
             token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
+            kline_source: document.querySelector('input[name="kline_source"]:checked')?.value || 'auto',
             count_mode: document.querySelector('input[name="count_mode"]:checked')?.value || 'total',
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
@@ -2166,6 +2265,12 @@
                         mtInput.checked = true;
                     }
                 }
+                if (formData.kline_source) {
+                    const sourceInput = document.querySelector(`input[name="kline_source"][value="${formData.kline_source}"]`);
+                    if (sourceInput) {
+                        sourceInput.checked = true;
+                    }
+                }
                 if (formData.kline_adjustment) {
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
@@ -2190,6 +2295,7 @@
                 // 触发相关事件以更新UI状态
                 document.getElementById('token_type').dispatchEvent(new Event('change'));
                 initProductCodeChipsFromParam1();
+                updateCustomKlineModeAvailability();
 
                 console.log('表单数据已恢复');
 
@@ -2209,6 +2315,8 @@
             document.getElementById('parameter-form').reset();
             // 隐藏组合信息
             document.getElementById('combination-info').classList.add('d-none');
+            // 恢复自定义K线联动状态
+            updateCustomKlineModeAvailability();
             // 重新计算组合数量
             calculateCombinations();
             console.log('已清除 C5 表单缓存');
@@ -2248,13 +2356,15 @@
             const tokenFile = document.getElementById('token_file').value;
             const tokenJson = document.getElementById('token_json').value;
             const proxyUrl = document.getElementById('proxy_url').value;
-            const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
-            const priceMode = document.getElementById('price_mode')?.value || 'vwap_price';
-            const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
-            const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
-            const dateRangeModes = getSelectedDateRangeModes();
-            const startDate = document.getElementById('start_date')?.value || null;
-            const endDate = document.getElementById('end_date')?.value || null;
+            const klineSource = document.querySelector('input[name="kline_source"]:checked')?.value || 'auto';
+            const isCustomKline = klineSource === 'custom';
+            const countMode = isCustomKline ? 'total' : (document.querySelector('input[name="count_mode"]:checked')?.value || 'total');
+            const priceMode = isCustomKline ? null : (document.getElementById('price_mode')?.value || 'vwap_price');
+            const marketType = isCustomKline ? null : (document.querySelector('input[name="market_type"]:checked')?.value || 'cn');
+            const klineAdjustment = isCustomKline ? null : (document.getElementById('kline_adjustment')?.value || 'forward');
+            const dateRangeModes = isCustomKline ? [] : getSelectedDateRangeModes();
+            const startDate = isCustomKline ? null : (document.getElementById('start_date')?.value || null);
+            const endDate = isCustomKline ? null : (document.getElementById('end_date')?.value || null);
 
             // 验证必要字段
             if (!spreadsheetId) {
@@ -2333,12 +2443,13 @@
                 token_file: tokenFile,
                 token_json: tokenJson,
                 proxy_url: proxyUrl || null,
+                kline_source: klineSource,
                 count_mode: countMode,
                 price_mode: priceMode,
                 market_type: marketType,
                 kline_adjustment: klineAdjustment,
                 date_range_mode: dateRangeModes,
-                exclude_recent_years: getExcludedRecentYears(),
+                exclude_recent_years: isCustomKline ? [] : getExcludedRecentYears(),
                 start_date: startDate,
                 end_date: endDate,
                 parameters: parameters,
@@ -2409,7 +2520,10 @@
 
         // 已经是 C4 新结构（有 sheets 数组）则直接返回
         if (Array.isArray(raw.sheets) && raw.sheets.length > 0) {
-            return raw;
+            return {
+                ...raw,
+                kline_source: raw.kline_source || 'auto'
+            };
         }
 
         // 兼容旧结构：顶层有 spreadsheet_id / sheet_name
@@ -2423,6 +2537,7 @@
         }
 
         return {
+            kline_source: raw.kline_source || 'auto',
             count_mode: raw.count_mode || 'total',
             price_mode: raw.price_mode || 'vwap_price',
             start_date: raw.start_date || null,

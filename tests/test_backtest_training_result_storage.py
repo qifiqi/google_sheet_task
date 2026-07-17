@@ -47,6 +47,86 @@ def test_extract_task_result_payload_handles_metadata_outside_sheet_payload(app_
         assert sheet_result["D2"] == "12%"
 
 
+def test_task_result_api_includes_configured_stock_code(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="bt-result-stock-code",
+            name="C5 QQQ backtest",
+            task_type="backtest_training",
+            status="completed",
+            config=json.dumps({"stock_code": "QQQ", "model_name": "C5"}),
+        )
+        db.session.add(task)
+        task_result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters="{}",
+            result=json.dumps({
+                "sheet__title": {
+                    "calculate_metrics": {"excess_returns": []},
+                },
+            }),
+            success=True,
+        )
+        db.session.add(task_result)
+        db.session.commit()
+
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        monkeypatch.setattr(
+            "app.routes.backtest_training.authorize_task_type_action",
+            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
+        )
+        response = app.test_client().get(
+            f"/backtest-training/api/task-result/{task_result.id}"
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["result"]["stock_code"] == "QQQ"
+
+
+def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="bt-result-c7-units",
+            name="C7 units",
+            task_type="backtest_training",
+            status="completed",
+            config=json.dumps({"sheet": {"title": "C7 model"}}),
+        )
+        db.session.add(task)
+        task_result = TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters="{}",
+            result=json.dumps({"sheet__title": {
+                "calculate_metrics": {"excess_returns": []},
+                "D10": "-0.14",
+                "D18": "0.01",
+                "D22": "122.95%",
+            }}),
+            success=True,
+        )
+        db.session.add(task_result)
+        db.session.commit()
+
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        monkeypatch.setattr(
+            "app.routes.backtest_training.authorize_task_type_action",
+            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
+        )
+        response = app.test_client().get(
+            f"/backtest-training/api/task-result/{task_result.id}"
+        )
+
+        assert response.status_code == 200
+        sheet_result = response.get_json()["result"]["sheet_result"]
+        assert sheet_result["D10"] == "-14.00%"
+        assert sheet_result["D18"] == "1.00%"
+        assert sheet_result["D22"] == 1.2295
+
+
 def test_backtest_save_task_result_stores_returns_in_return_table_only(app_factory):
     app = app_factory
     with app.app_context():
@@ -100,9 +180,14 @@ def test_backtest_training_keeps_price_mode_in_config(app_factory):
             "sheet": {"spreadsheet_id": "sheet-1"},
             "price_mode": "kp_price",
         })
+        normalized_vwap = manager._normalize_task_config_for_type("backtest_training", {
+            "sheet": {"spreadsheet_id": "sheet-1"},
+            "price_mode": "vwap_price",
+        })
 
-        assert normalized_default["price_mode"] == "sp_price"
+        assert normalized_default["price_mode"] == "vwap_price"
         assert normalized_custom["price_mode"] == "kp_price"
+        assert normalized_vwap["price_mode"] == "vwap_price"
 
 
 def test_c3_six_business_parameters_derives_second_protection():

@@ -47,13 +47,21 @@ def test_eastmoney_parse_kline_calculates_vwap_for_numeric_stock_code():
     api = DFCJStockApi()
 
     row = api._parse_kline_data(
-        "2024-01-02,10,11,12,9,500,110000,3,10,1,0.5",
+        "2024-01-02,10.1234,11.5678,12.4444,9.2222,500,110000,3.4567,10.5555,1.9876,0.5555",
         "600000",
     )
 
+    assert row["stock_kp"] == 10.123
+    assert row["stock_sp"] == 11.568
+    assert row["stock_zg"] == 12.444
+    assert row["stock_zd"] == 9.222
     assert row["stock_cjl"] == 50000
     assert row["stock_cje"] == 110000
     assert row["stock_vwap"] == 2.2
+    assert row["stock_zf"] == 3.457
+    assert row["stock_zdf"] == 10.556
+    assert row["stock_zde"] == 1.988
+    assert row["stock_hsl"] == 0.555
 
 
 def test_multi_product_normalize_preserves_product_kline_adjustment():
@@ -211,7 +219,7 @@ def test_yahoo_parse_single_ticker_uses_ticker_hint_and_adjusted_close_for_cje()
             "stock_cjl": 5,
             "stock_cje": 100.0,
             "stock_vwap": 20.0,
-            "stock_zf": 22.22,
+            "stock_zf": 22.222,
             "stock_zdf": 0.0,
             "stock_zde": 0.0,
             "stock_hsl": 0.0,

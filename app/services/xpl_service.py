@@ -1493,17 +1493,28 @@ class XPLAnalyzer:
             logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
             return {}
 
+    @staticmethod
+    def _resolve_export_model_name(data, analyze_result):
+        sheet_result = analyze_result.get('sheet_result', {}) if isinstance(analyze_result, dict) else {}
+        sources = [
+            data.get('model_name', ''),
+            data.get('filename_title', ''),
+            *(sheet_result.keys() if isinstance(sheet_result, dict) else []),
+        ]
+        for source in sources:
+            source = str(source).upper()
+            for model_name in ('C7', 'C5', 'C4', 'C3'):
+                if model_name in source:
+                    return model_name
+        return 'C3'
+
+    @staticmethod
+    def _format_export_metric(value, format_spec):
+        return '--' if value is None else f"{value:{format_spec}}"
+
     def format_export_file_data(self, data):
         analyze_result = data.get('analyze_result')
-        filename_title = data.get('filename_title', "").upper()
-
-        model_name = ''
-        if "C5" in filename_title:
-            model_name = "C5"
-        elif "C4" in filename_title:
-            model_name = "C4"
-        else:
-            model_name = "C3"
+        model_name = self._resolve_export_model_name(data, analyze_result)
 
         excess_returns = analyze_result.get('excess_returns')
         excess_return = [i for i in excess_returns if i['year'] == 'all'][0]
@@ -1628,11 +1639,14 @@ class XPLAnalyzer:
             ["回撤", "年最大回撤", "", f"-{start_drawdown:.2%}"],
             ["回撤", "最大修复天数", "", f"{start_maximum_number_of_backtest_repair_days}"],
             ["回撤", "超额最大修复天数", "", f"{excess_maximum_number_of_backtest_repair_days}"],
-            ["比率", "夏普比率", f"{index_sharpe_ratio:.2}", f"{start_sharpe_ratio:.2}"],  # 注意：数字后面有空格
-            ["比率", "卡玛比率", f"{index_kama_ratio:.2}", f"{start_kama_ratio:.2}"],
-            ["比率", "所提诺比率", f"{index_sotino_ratio:.2}", f"{start_sotino_ratio:.2}"],
-            ["夏普", "超额夏普", f"", f"{excess_sharp:.2}"],
-            ["所提诺", "超额所提诺比率", f"", f"{excess_of_promissory_note:.2}"]
+            ["比率", "夏普比率", self._format_export_metric(index_sharpe_ratio, '.2'),
+             self._format_export_metric(start_sharpe_ratio, '.2')],  # 注意：数字后面有空格
+            ["比率", "卡玛比率", self._format_export_metric(index_kama_ratio, '.2'),
+             self._format_export_metric(start_kama_ratio, '.2')],
+            ["比率", "所提诺比率", self._format_export_metric(index_sotino_ratio, '.2'),
+             self._format_export_metric(start_sotino_ratio, '.2')],
+            ["夏普", "超额夏普", f"", self._format_export_metric(excess_sharp, '.2')],
+            ["所提诺", "超额所提诺比率", f"", self._format_export_metric(excess_of_promissory_note, '.2')]
         ]
 
         data_2_2d = [

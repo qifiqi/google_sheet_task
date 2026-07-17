@@ -1,507 +1,69 @@
 import json
-from datetime import datetime, timedelta
 
 from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, TaskResultReturn, XplAnalysisJob
-from app.services.google_sheet_service import GoogleSheetService
+from app.models import Task, TaskLog
 from app.services.google_sheet_service_C5 import GoogleSheetService as C5GoogleSheetService
-from app.services.return_series_service import ReturnSeriesService
+from app.services.google_sheet_service_C7 import GoogleSheetService as C7GoogleSheetService
 from app.services.task.error_handling import (
     TASK_ERROR_MESSAGE_MAX_LENGTH,
     format_task_error_message,
     record_task_exception,
 )
 from app.services.task.facade import TaskManager
-from app.services.task.runtime_view import TaskRuntimeViewService
-from app.services.xpl_analysis_job_service import XplAnalysisJobService, XplAnalysisJobStatus
-from app.services.xpl_analysis_worker import XplAnalysisWorker
 
 
-def test_return_series_service_builds_columnar_payload():
-    service = ReturnSeriesService()
-
-    payload = service.build_payload(
-        [
-            {"date": "2024-01-01", "index_return": 0.1, "start_return": 0.2},
-            {"stock_date": "2024-01-02", "index_return": 0.3, "start_return": 0.4},
-        ],
-        source_columns={"date": "D", "index_return": "K", "start_return": "O"},
-        step_index=3,
-    )
-
-    assert payload["version"] == 1
-    assert payload["row_count"] == 2
-    assert payload["dates"] == ["2024-01-01", "2024-01-02"]
-    assert payload["index_returns"] == [0.1, 0.3]
-    assert payload["start_returns"] == [0.2, 0.4]
-    assert payload["source_columns"] == {"date": "D", "index_return": "K", "start_return": "O"}
-    assert payload["created_from_step_index"] == 3
-
-    rows = service.load_rows(json.dumps(payload))
-    assert rows == [
-        {"date": "2024-01-01", "index_return": 0.1, "start_return": 0.2},
-        {"date": "2024-01-02", "index_return": 0.3, "start_return": 0.4},
+def _kline_rows_with_vwap():
+    return [
+        {
+            "stock_date": f"2024-01-{day:02d}",
+            "stock_kp": 9,
+            "stock_sp": 10,
+            "stock_vwap": 12,
+        }
+        for day in range(1, 32)
+    ] + [
+        {
+            "stock_date": f"2024-02-{day:02d}",
+            "stock_kp": 9,
+            "stock_sp": 10,
+            "stock_vwap": 12,
+        }
+        for day in range(1, 16)
     ]
 
 
-def test_c3_save_task_result_persists_return_series_snapshot(app_factory):
-    app = app_factory
-    with app.app_context():
-        task_id = "c3-return-series-task"
-        task = Task(
-            id=task_id,
-            name="c3 return series task",
-            task_type="google_sheet",
-            status="running",
-            config="{}",
-        )
-        db.session.add(task)
-        db.session.commit()
+def _assert_cx_vwap_uses_dfcf_for_en_market(service):
+    service.YF_api.get_kline_data = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Yahoo should not be used for vwap_price")
+    )
+    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: [
+        {"market": "105", "shortName": "半导体ETF-iShares"}
+    ]
+    service.dfcf_api.get_stock_kline_data = lambda *_args, **_kwargs: _kline_rows_with_vwap()
 
-        service = GoogleSheetService({}, task_id, app=app)
-        service._save_task_result(
-            4,
-            [1, 2, 3],
-            {
-                "I15": 0.12,
-                "flat_result": {"start_drawdown": 0.3},
-                "_return_series_snapshot": {
-                    "rows": [
-                        {"date": "2024-01-01", "index_return": 0.1, "start_return": 0.2},
-                        {"date": "2024-01-02", "index_return": 0.3, "start_return": 0.4},
-                    ],
-                    "source_columns": {"date": "D", "index_return": "K", "start_return": "O"},
-                },
-            },
-            True,
-        )
+    _data, _column_length, kline_map = service._get_all_parameters(
+        "SOXX",
+        "total",
+        "vwap_price",
+        "2024-02-15",
+        "2024-01-01",
+        "en",
+        [],
+        [],
+        [["SOXX"], [1], [2]],
+    )
 
-        stored = TaskResult.query.filter_by(task_id=task_id).one()
-        assert stored.return_series_id is not None
-
-        stored_result = json.loads(stored.result)
-        assert "_return_series_snapshot" not in stored_result
-        assert stored_result["I15"] == 0.12
-        assert stored_result["flat_result"] == {"start_drawdown": 0.3}
-
-        series = db.session.get(TaskResultReturn, stored.return_series_id)
-        payload = json.loads(series.returns_json)
-        assert payload["row_count"] == 2
-        assert payload["created_from_step_index"] == 4
-        assert payload["source_columns"] == {"date": "D", "index_return": "K", "start_return": "O"}
-        assert payload["dates"] == ["2024-01-01", "2024-01-02"]
-        assert payload["index_returns"] == [0.1, 0.3]
-        assert payload["start_returns"] == [0.2, 0.4]
+    assert next(iter(kline_map.values()))[0]["stock_val"] == 12
 
 
-def test_xpl_analysis_job_service_claims_and_completes_job(app_factory):
-    app = app_factory
-    with app.app_context():
-        task = Task(
-            id="xpl-job-task",
-            name="xpl job task",
-            task_type="google_sheet",
-            status="running",
-            config="{}",
-        )
-        db.session.add(task)
-        db.session.add(TaskResultReturn(task_id=task.id, returns_json="{}"))
-        db.session.flush()
-        series = TaskResultReturn.query.filter_by(task_id=task.id).one()
-        result = TaskResult(
-            task_id=task.id,
-            step_index=0,
-            parameters=json.dumps([1, 2, 3, ["2024-01-01", "2024-01-02"]]),
-            result=json.dumps({"I15": 0.1, "I19": 0.05, "analysis_status": "pending"}),
-            success=True,
-            return_series_id=series.id,
-        )
-        db.session.add(result)
-        db.session.commit()
-
-        service = XplAnalysisJobService()
-        first = service.create_pending_job(task.id, result.id, series.id)
-        second = service.create_pending_job(task.id, result.id, series.id)
-
-        assert first.id == second.id
-        assert XplAnalysisJob.query.filter_by(task_result_id=result.id).count() == 1
-
-        claimed = service.claim_jobs("worker-1", limit=1)
-        assert [job.id for job in claimed] == [first.id]
-        assert claimed[0].status == XplAnalysisJobStatus.RUNNING
-        assert claimed[0].locked_by == "worker-1"
-
-        service.mark_completed(
-            first.id,
-            {"start_drawdown": 0.2, "annualized_return_diff": 0.3},
-            {"monthly_excess_returns": []},
-            1.25,
-        )
-
-        refreshed_job = db.session.get(XplAnalysisJob, first.id)
-        refreshed_result = db.session.get(TaskResult, result.id)
-        payload = json.loads(refreshed_result.result)
-
-        assert refreshed_job.status == XplAnalysisJobStatus.COMPLETED
-        assert payload["analysis_status"] == XplAnalysisJobStatus.COMPLETED
-        assert payload["flat_result"]["start_drawdown"] == 0.2
-        assert payload["analyze_result"] == {"monthly_excess_returns": []}
-        assert payload["analysis_elapsed_seconds"] == 1.25
+def test_c5_vwap_uses_dfcf_for_en_market(app_factory):
+    with app_factory.app_context():
+        _assert_cx_vwap_uses_dfcf_for_en_market(C5GoogleSheetService({}, "task-id"))
 
 
-def test_xpl_analysis_job_service_retries_then_errors(app_factory):
-    app = app_factory
-    with app.app_context():
-        task = Task(id="xpl-fail-task", name="xpl fail task", task_type="google_sheet", status="running", config="{}")
-        db.session.add(task)
-        db.session.add(TaskResultReturn(task_id=task.id, returns_json="{}"))
-        db.session.flush()
-        series = TaskResultReturn.query.filter_by(task_id=task.id).one()
-        result = TaskResult(
-            task_id=task.id,
-            step_index=0,
-            parameters="{}",
-            result=json.dumps({"analysis_status": "pending"}),
-            success=True,
-            return_series_id=series.id,
-        )
-        db.session.add(result)
-        db.session.flush()
-        service = XplAnalysisJobService()
-        job = service.create_pending_job(task.id, result.id, series.id, max_attempts=2, commit=False)
-        db.session.commit()
-
-        service.mark_failed(job.id, RuntimeError("first failure"))
-        first = db.session.get(XplAnalysisJob, job.id)
-        assert first.status == XplAnalysisJobStatus.RETRYING
-        assert first.attempts == 1
-
-        service.mark_failed(job.id, RuntimeError("second failure"))
-        second = db.session.get(XplAnalysisJob, job.id)
-        payload = json.loads(db.session.get(TaskResult, result.id).result)
-
-        assert second.status == XplAnalysisJobStatus.ERROR
-        assert second.attempts == 2
-        assert payload["analysis_status"] == XplAnalysisJobStatus.ERROR
-        assert "second failure" in payload["analysis_error"]
-
-
-def test_xpl_analysis_job_service_cancels_task_jobs(app_factory):
-    app = app_factory
-    with app.app_context():
-        task = Task(id="xpl-cancel-task", name="xpl cancel task", task_type="google_sheet", status="running", config="{}")
-        db.session.add(task)
-        db.session.add(TaskResultReturn(task_id=task.id, returns_json="{}"))
-        db.session.flush()
-        series = TaskResultReturn.query.filter_by(task_id=task.id).one()
-        result = TaskResult(task_id=task.id, step_index=0, parameters="{}", result="{}", success=True, return_series_id=series.id)
-        db.session.add(result)
-        db.session.flush()
-        service = XplAnalysisJobService()
-        job = service.create_pending_job(task.id, result.id, series.id, commit=False)
-        db.session.commit()
-
-        assert service.cancel_jobs_for_task(task.id) == 1
-        assert db.session.get(XplAnalysisJob, job.id).status == XplAnalysisJobStatus.CANCELLED
-
-
-def test_xpl_analysis_job_service_recovers_stale_running_jobs(app_factory):
-    app = app_factory
-    with app.app_context():
-        task = Task(id="xpl-stale-task", name="xpl stale task", task_type="google_sheet", status="running", config="{}")
-        db.session.add(task)
-        db.session.add(TaskResultReturn(task_id=task.id, returns_json="{}"))
-        db.session.flush()
-        series = TaskResultReturn.query.filter_by(task_id=task.id).one()
-        result = TaskResult(task_id=task.id, step_index=0, parameters="{}", result="{}", success=True, return_series_id=series.id)
-        db.session.add(result)
-        db.session.flush()
-        job = XplAnalysisJob(
-            task_id=task.id,
-            task_result_id=result.id,
-            return_series_id=series.id,
-            status=XplAnalysisJobStatus.RUNNING,
-            locked_by="dead-worker",
-            locked_at=datetime.now() - timedelta(seconds=600),
-        )
-        db.session.add(job)
-        db.session.commit()
-
-        service = XplAnalysisJobService()
-        assert service.recover_stale_running(stale_after_seconds=300) == 1
-
-        refreshed = db.session.get(XplAnalysisJob, job.id)
-        assert refreshed.status == XplAnalysisJobStatus.RETRYING
-        assert refreshed.locked_by is None
-        assert refreshed.locked_at is None
-
-
-def test_xpl_analysis_admin_apis_list_stats_and_retry(app_factory, monkeypatch):
-    app = app_factory
-    with app.app_context():
-        monkeypatch.setenv("AUTH_ENABLED", "false")
-        task = Task(id="xpl-admin-task", name="xpl admin task", task_type="google_sheet", status="completed", config="{}")
-        db.session.add(task)
-        db.session.add(TaskResultReturn(task_id=task.id, returns_json="{}"))
-        db.session.flush()
-        series = TaskResultReturn.query.filter_by(task_id=task.id).one()
-        result = TaskResult(
-            task_id=task.id,
-            step_index=0,
-            parameters="{}",
-            result=json.dumps({"analysis_status": "error", "analysis_error": "boom"}),
-            success=True,
-            return_series_id=series.id,
-        )
-        db.session.add(result)
-        db.session.flush()
-        job = XplAnalysisJob(
-            task_id=task.id,
-            task_result_id=result.id,
-            return_series_id=series.id,
-            status=XplAnalysisJobStatus.ERROR,
-            attempts=3,
-            max_attempts=3,
-            error_message="boom",
-        )
-        db.session.add(job)
-        db.session.commit()
-
-        client = app.test_client()
-        stats_response = client.get(f"/admin/api/xpl-analysis/jobs/stats?task_id={task.id}")
-        assert stats_response.status_code == 200
-        assert stats_response.get_json()["stats"] == {XplAnalysisJobStatus.ERROR: 1}
-
-        list_response = client.get(f"/admin/api/xpl-analysis/jobs?task_id={task.id}&status=error")
-        assert list_response.status_code == 200
-        payload = list_response.get_json()
-        assert payload["pagination"]["total"] == 1
-        assert payload["items"][0]["id"] == job.id
-
-        retry_response = client.post(f"/admin/api/xpl-analysis/jobs/{job.id}/retry")
-        assert retry_response.status_code == 200
-        assert retry_response.get_json()["job"]["status"] == XplAnalysisJobStatus.PENDING
-
-        refreshed_result = db.session.get(TaskResult, result.id)
-        result_payload = json.loads(refreshed_result.result)
-        assert result_payload["analysis_status"] == XplAnalysisJobStatus.PENDING
-        assert "analysis_error" not in result_payload
-
-
-def test_c3_save_task_result_async_creates_xpl_job(app_factory):
-    app = app_factory
-    with app.app_context():
-        task_id = "c3-async-xpl-task"
-        task = Task(
-            id=task_id,
-            name="c3 async xpl task",
-            task_type="google_sheet",
-            status="running",
-            config="{}",
-        )
-        db.session.add(task)
-        db.session.commit()
-
-        service = GoogleSheetService({}, task_id, app=app)
-        service._save_task_result(
-            2,
-            [1, 2, 3],
-            {
-                "I15": 0.12,
-                "analysis_status": "pending",
-                "_return_series_snapshot": {
-                    "rows": [
-                        {"date": "2024-01-01", "index_return": 0.1, "start_return": 0.2},
-                    ],
-                    "source_columns": {"date": "D", "index_return": "K", "start_return": "O"},
-                    "_return_analysis_async": True,
-                    "max_attempts": 4,
-                },
-            },
-            True,
-        )
-
-        stored = TaskResult.query.filter_by(task_id=task_id).one()
-        stored_result = json.loads(stored.result)
-        job = XplAnalysisJob.query.filter_by(task_result_id=stored.id).one()
-
-        assert stored.return_series_id is not None
-        assert stored_result["analysis_status"] == "pending"
-        assert job.status == XplAnalysisJobStatus.PENDING
-        assert job.return_series_id == stored.return_series_id
-        assert job.max_attempts == 4
-
-
-def test_xpl_worker_processes_archived_return_series_inline(app_factory, tmp_path, monkeypatch):
-    app = app_factory
-    with app.app_context():
-        task = Task(
-            id="xpl-worker-archive-task",
-            name="xpl worker archive task",
-            task_type="google_sheet",
-            status="completed",
-            config="{}",
-        )
-        db.session.add(task)
-        series_service = ReturnSeriesService(archive_dir=tmp_path / "return_series_archives")
-        return_series = series_service.create_for_task(
-            task_id=task.id,
-            rows=[
-                {"date": "2024-01-01", "index_return": 0.1, "start_return": 0.2},
-                {"date": "2024-01-02", "index_return": 0.3, "start_return": 0.4},
-            ],
-            source_columns={"date": "D", "index_return": "K", "start_return": "O"},
-            step_index=0,
-        )
-        db.session.add(return_series)
-        db.session.flush()
-        task_result = TaskResult(
-            task_id=task.id,
-            step_index=0,
-            parameters=json.dumps([1, 2, 3, ["2024-01-01", "2024-01-02"]]),
-            result=json.dumps({"I15": 0.1, "I19": 0.05, "analysis_status": "pending"}),
-            success=True,
-            return_series_id=return_series.id,
-        )
-        db.session.add(task_result)
-        db.session.flush()
-        job_service = XplAnalysisJobService()
-        job = job_service.create_pending_job(task.id, task_result.id, return_series.id, commit=False)
-        db.session.commit()
-
-        series_service.archive_task_series(task.id)
-        claimed = job_service.claim_jobs("worker-inline", limit=1)
-        assert [item.id for item in claimed] == [job.id]
-
-        seen_rows = []
-        pushed_payloads = []
-
-        monkeypatch.setattr(
-            "app.services.google_sheet_service.GoogleSheetService.send_stock_param_result_data",
-            lambda _self, payload: pushed_payloads.append(payload) or {},
-        )
-
-        def fake_xpl_runner(rows):
-            seen_rows.extend(rows)
-            return {"start_drawdown": 0.4}, {"monthly_excess_returns": [{"year": "all"}]}
-
-        worker = XplAnalysisWorker(
-            job_service=job_service,
-            return_series_service=series_service,
-            xpl_runner=fake_xpl_runner,
-        )
-
-        assert worker.run_job_inline(job.id) is True
-        refreshed = db.session.get(TaskResult, task_result.id)
-        payload = json.loads(refreshed.result)
-
-        assert seen_rows == [
-            {"date": "2024-01-01", "index_return": 0.1, "start_return": 0.2},
-            {"date": "2024-01-02", "index_return": 0.3, "start_return": 0.4},
-        ]
-        assert payload["analysis_status"] == XplAnalysisJobStatus.COMPLETED
-        assert payload["flat_result"] == {"start_drawdown": 0.4}
-        assert pushed_payloads
-        assert pushed_payloads[0]["task_id"] == task.id
-        assert pushed_payloads[0]["start_drawdown"] == 0.4
-
-
-def test_return_series_service_archives_task_series_to_local_gzip(app_factory, tmp_path):
-    app = app_factory
-    with app.app_context():
-        task = Task(
-            id="archive-series-task",
-            name="archive series task",
-            task_type="google_sheet",
-            status="completed",
-            config="{}",
-        )
-        db.session.add(task)
-        service = ReturnSeriesService(archive_dir=tmp_path / "return_series_archives")
-        first_series = service.create_for_task(
-            task_id=task.id,
-            rows=[
-                {"date": "2024-01-01", "index_return": 0.1, "start_return": 0.2},
-                {"date": "2024-01-02", "index_return": 0.3, "start_return": 0.4},
-            ],
-            source_columns={"date": "D", "index_return": "K", "start_return": "O"},
-            step_index=0,
-        )
-        second_series = service.create_for_task(
-            task_id=task.id,
-            rows=[
-                {"date": "2024-01-03", "index_return": 0.5, "start_return": 0.6},
-            ],
-            source_columns={"date": "D", "index_return": "K", "start_return": "O"},
-            step_index=1,
-        )
-        db.session.add_all([first_series, second_series])
-        db.session.commit()
-
-        result = service.archive_task_series(task.id)
-
-        assert result["archived"] == 2
-        archive_path = tmp_path / "return_series_archives" / f"{task.id}.json.gz"
-        assert archive_path.exists()
-        assert result["bytes"] > 0
-
-        refreshed = TaskResultReturn.query.filter_by(task_id=task.id).order_by(TaskResultReturn.id.asc()).all()
-        pointers = [json.loads(item.returns_json) for item in refreshed]
-        assert [pointer["storage"] for pointer in pointers] == ["local_gzip", "local_gzip"]
-        assert [pointer["row_count"] for pointer in pointers] == [2, 1]
-        assert pointers[0]["series_id"] == refreshed[0].id
-        assert pointers[1]["series_id"] == refreshed[1].id
-
-        assert service.load_rows(refreshed[0].returns_json) == [
-            {"date": "2024-01-01", "index_return": 0.1, "start_return": 0.2},
-            {"date": "2024-01-02", "index_return": 0.3, "start_return": 0.4},
-        ]
-        assert service.load_rows(refreshed[1].returns_json) == [
-            {"date": "2024-01-03", "index_return": 0.5, "start_return": 0.6},
-        ]
-
-
-def test_runtime_view_reads_return_chart_from_archived_series(app_factory, tmp_path):
-    app = app_factory
-    with app.app_context():
-        task = Task(
-            id="runtime-archived-series-task",
-            name="runtime archived series task",
-            task_type="google_sheet",
-            status="completed",
-            config="{}",
-        )
-        db.session.add(task)
-        series_service = ReturnSeriesService(archive_dir=tmp_path / "return_series_archives")
-        return_series = series_service.create_for_task(
-            task_id=task.id,
-            rows=[
-                {"date": "2024-01-01", "index_return": 0.1, "start_return": 0.2},
-                {"date": "2024-01-02", "index_return": 0.3, "start_return": 0.4},
-            ],
-            source_columns={"date": "D", "index_return": "K", "start_return": "O"},
-            step_index=0,
-        )
-        db.session.add(return_series)
-        db.session.flush()
-        db.session.add(TaskResult(
-            task_id=task.id,
-            step_index=0,
-            parameters="{}",
-            result=json.dumps({"I15": 0.12, "I16": 0.34, "I17": 0.56}),
-            success=True,
-            return_series_id=return_series.id,
-        ))
-        db.session.commit()
-
-        series_service.archive_task_series(task.id)
-
-        summary = TaskRuntimeViewService(TaskManager()).build_result_summary(task.id)
-
-        assert summary["return_chart"] == [
-            {"date": "2024-01-01", "index_return": 0.1, "strategy_return": 0.2},
-            {"date": "2024-01-02", "index_return": 0.3, "strategy_return": 0.4},
-        ]
+def test_c7_vwap_uses_dfcf_for_en_market(app_factory):
+    with app_factory.app_context():
+        _assert_cx_vwap_uses_dfcf_for_en_market(C7GoogleSheetService({}, "task-id"))
 
 
 def test_record_task_exception_stores_trace_id_summary_and_full_log(app_factory):

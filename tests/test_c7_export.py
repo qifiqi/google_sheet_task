@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.export_file_service import build_task_export
+from app.services.google_sheet_service_C7 import GoogleSheetService
+from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
 def test_c7_export_reads_shifted_metric_cells():
@@ -30,6 +32,8 @@ def test_c7_export_reads_shifted_metric_cells():
                     "D11": "7%",
                     "D12": "8%",
                     "D13": "-6%",
+                    "D17": "4%",
+                    "D18": "-1%",
                     "D21": "unused",
                     "D23": "1.23%",
                     "D26": "2.34%",
@@ -51,8 +55,8 @@ def test_c7_export_reads_shifted_metric_cells():
     assert row[:10] == [
         2,
         "ml-a",
-        0.03,
-        0.01,
+        0.04,
+        -0.01,
         0.1,
         0.11,
         -0.05,
@@ -68,3 +72,116 @@ def test_c7_export_reads_shifted_metric_cells():
         1.5,
         2.5,
     ])
+
+
+def test_c5_export_uses_sheet_calculated_beats():
+    task = SimpleNamespace(id="task-c5", name="C5 导出", task_type="google_sheet_C5")
+    results = [{
+        "task_id": "task-c5",
+        "success": True,
+        "parameters": {"A1": "3", "B1": "ml-a"},
+        "result": {"模型A": {
+            "D2": "60.62%",
+            "D3": "9.95%",
+            "D4": "-33.78%",
+            "D5": "40.45%",
+            "D6": "7.03%",
+            "D7": "-32.00%",
+            "D11": "2.91%",
+            "D12": "-1.78%",
+            "D17": "3.90%",
+            "D20": "12.83%",
+        }},
+    }]
+
+    row = [cell.value for cell in build_task_export(task, results).workbook.active[2]]
+
+    assert row[2:4] == pytest.approx([0.0291, -0.0178])
+
+
+def test_c7_export_preserves_shifted_beats_and_unformatted_percentages():
+    task = SimpleNamespace(id="task-c7", name="C7 导出", task_type="google_sheet_C7")
+    results = [{
+        "task_id": "task-c7",
+        "success": True,
+        "parameters": {"A1": "4", "B1": "ml-a"},
+        "result": {"模型A": {
+            "D8": "-3.39%",
+            "D9": "-1.14%",
+            "D10": "-0.78",
+            "D11": "192.05%",
+            "D12": "42.89%",
+            "D13": "-47.78%",
+            "D17": "-44.04%",
+            "D18": "-0.30",
+            "D23": "-0.32%",
+            "D26": "-1.02%",
+        }},
+    }]
+
+    row = [cell.value for cell in build_task_export(task, results).workbook.active[2]]
+
+    assert row[2:12] == pytest.approx([
+        -0.4404,
+        -0.3,
+        -0.0339,
+        -0.0114,
+        -0.78,
+        1.9205,
+        0.4289,
+        -0.4778,
+        -0.0032,
+        -0.0102,
+    ])
+
+
+def test_c7_result_payload_reads_d8_to_d26_and_normalizes_percentages():
+    service = object.__new__(GoogleSheetService)
+    service.task_id = "task-c7"
+    result = {
+        "模型A": {
+            "D8": "-3.39%", "D9": "-1.14%", "D10": "-0.78",
+            "D11": "192.05%", "D12": "42.89%", "D13": "-47.78%",
+            "D14": "0.67%", "D15": "0.00", "D16": "55.49",
+            "D17": "-44.04%", "D18": "-0.30", "D19": "0.21",
+            "D20": "-71.95%", "D21": "4.00", "D22": "358.65%",
+            "D23": "-0.32%", "D24": "400.29%", "D25": "112.51%", "D26": "-1.02%",
+        }
+    }
+
+    payload = service._build_stock_param_result_payload(
+        "C7 测试", 0, {"A1": "4", "B1": "ml-a", "kline": []}, result,
+    )
+
+    assert payload["return_rate"] == pytest.approx(-0.0339)
+    assert payload["maxdd"] == pytest.approx(-0.78)
+    assert payload["return_beats"] == pytest.approx(-0.4404)
+    assert payload["dd_beats"] == pytest.approx(-0.3)
+    assert payload["fee_annualized"] == pytest.approx(0)
+    assert payload["max_1y_beats"] == pytest.approx(0.21)
+    assert payload["max_theoretical_leverage"] == "4.00"
+    assert payload["avg_theoretical_leverage"] == pytest.approx(3.5865)
+    assert payload["max_actual_leverage"] == pytest.approx(4.0029)
+    assert payload["avg_actual_leverage"] == pytest.approx(1.1251)
+
+
+def test_normalize_c7_result_metrics_matches_c5_units():
+    result = normalize_c7_result_metrics({
+        "D10": "-0.88",
+        "D15": "0.00",
+        "D18": "-0.06",
+        "D19": "0.48",
+        "D21": "3.50",
+        "D22": "295.34%",
+        "D24": "350.24%",
+        "D25": "93.62%",
+    })
+
+    assert result["D10"] == "-88.00%"
+    assert result["D15"] == "0.00%"
+    assert result["D18"] == "-6.00%"
+    assert result["D19"] == "48.00%"
+    assert result["D21"] == "3.50"
+    assert result["D22"] == pytest.approx(2.9534)
+    assert result["D24"] == pytest.approx(3.5024)
+    assert result["D25"] == pytest.approx(0.9362)

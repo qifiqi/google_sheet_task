@@ -8,6 +8,25 @@ from app.extensions import db
 from app.models import GoogleSheet, GoogleSheetTableType
 
 
+_C_SERIES_TABLE_TYPES = (
+    GoogleSheetTableType.C3.value,
+    GoogleSheetTableType.C4.value,
+    GoogleSheetTableType.C5.value,
+    GoogleSheetTableType.C7.value,
+)
+
+
+def _find_duplicate_sheet(spreadsheet_id: str, table_type: str, exclude_id: int | None = None):
+    query = GoogleSheet.query.filter_by(spreadsheet_id=spreadsheet_id)
+    if table_type in _C_SERIES_TABLE_TYPES:
+        query = query.filter(GoogleSheet.table_type.in_(_C_SERIES_TABLE_TYPES))
+    else:
+        query = query.filter_by(table_type=table_type)
+    if exclude_id is not None:
+        query = query.filter(GoogleSheet.id != exclude_id)
+    return query.first()
+
+
 class GoogleSheetRegistryService:
     def list_sheets(self, include_inactive: bool = False, only_available: bool = False, task_id: str | None = None,
                     table_type: str | None = None):
@@ -40,9 +59,9 @@ class GoogleSheetRegistryService:
         if not normalized_table_type:
             raise ValueError("table_type 无效")
 
-        existing = GoogleSheet.query.filter_by(spreadsheet_id=spreadsheet_id).first()
+        existing = _find_duplicate_sheet(spreadsheet_id, normalized_table_type)
         if existing:
-            raise ValueError("该 spreadsheet_id 已存在")
+            raise ValueError("该 spreadsheet_id 已存在于同类表类型中")
 
         sheet = GoogleSheet(
             spreadsheet_id=spreadsheet_id,
@@ -60,25 +79,27 @@ class GoogleSheetRegistryService:
         if not sheet:
             raise ValueError("Google Sheet 不存在")
 
+        spreadsheet_id = sheet.spreadsheet_id
         if 'spreadsheet_id' in payload:
             spreadsheet_id = (payload.get('spreadsheet_id') or '').strip()
             if not spreadsheet_id:
                 raise ValueError("spreadsheet_id 不能为空")
-            existing = GoogleSheet.query.filter(
-                GoogleSheet.spreadsheet_id == spreadsheet_id,
-                GoogleSheet.id != sheet.id
-            ).first()
-            if existing:
-                raise ValueError("该 spreadsheet_id 已存在")
-            sheet.spreadsheet_id = spreadsheet_id
+
+        table_type = sheet.table_type
+        if 'table_type' in payload:
+            table_type = GoogleSheetTableType.normalize(payload.get('table_type'))
+            if not table_type:
+                raise ValueError("table_type 无效")
+
+        existing = _find_duplicate_sheet(spreadsheet_id, table_type, exclude_id=sheet.id)
+        if existing:
+            raise ValueError("该 spreadsheet_id 已存在于同类表类型中")
+
+        sheet.spreadsheet_id = spreadsheet_id
+        sheet.table_type = table_type
 
         if 'name' in payload:
             sheet.name = (payload.get('name') or '').strip() or sheet.spreadsheet_id
-        if 'table_type' in payload:
-            normalized_table_type = GoogleSheetTableType.normalize(payload.get('table_type'))
-            if not normalized_table_type:
-                raise ValueError("table_type 无效")
-            sheet.table_type = normalized_table_type
         if 'remark' in payload:
             sheet.remark = (payload.get('remark') or '').strip() or None
         if 'is_active' in payload:

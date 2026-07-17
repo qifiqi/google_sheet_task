@@ -5,6 +5,7 @@ import pytest
 
 from app.extensions import db
 from app.models import BacktestProductResultCache, TaskResult, TaskResultReturn
+from app.routes.backtest_training import _get_summary_derived_value
 from app.services.backtest_multi_product_service import (
     BacktestMultiProductService,
     normalize_multi_product_config,
@@ -21,6 +22,7 @@ def _kline_rows(start_date, end_date):
             "stock_date": current.strftime("%Y-%m-%d"),
             "stock_kp": 9,
             "stock_sp": 10,
+            "stock_vwap": 12,
         })
         current += timedelta(days=1)
     return rows
@@ -111,6 +113,79 @@ def test_backtest_training_short_listing_history_recent_years_is_allowed(monkeyp
     assert kline_map["2025-2020"][0]["stock_date"] == "2023-06-01"
 
 
+def test_backtest_training_vwap_uses_dfcf_for_en_market(monkeypatch):
+    service = BacktestTrainingService({}, "task-id")
+    service.YF_api.get_kline_data = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Yahoo should not be used for vwap_price")
+    )
+    search_calls = []
+    service.dfcf_api.get_search_list_by_stock_code = lambda *args, **_kwargs: (
+        search_calls.append(args[0]) or [{"code": "SOXX", "market": "105", "shortName": "半导体ETF-iShares"}]
+    )
+    service.dfcf_api.get_stock_kline_data = (
+        lambda *_args, **_kwargs: _kline_rows("2023-01-01", "2024-02-15")
+    )
+
+    _combinations, _column_length, kline_map = service._get_all_parameters(
+        [],
+        [1],
+        [["param-a"]],
+        "SOXX",
+        price_mode="vwap_price",
+        market_type="en",
+        end_date="2024-02-15",
+    )
+
+    assert kline_map["2024-2023"][0]["stock_val"] == 12
+    assert search_calls == ["SOXX"]
+
+
+def test_backtest_training_selected_cn_quote_skips_stock_search():
+    service = BacktestTrainingService({}, "task-id")
+    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("selected stock should not be searched again")
+    )
+    kline_calls = []
+    service.dfcf_api.get_stock_kline_data = lambda *args, **_kwargs: (
+        kline_calls.append(args) or _kline_rows("2023-01-01", "2024-02-15")
+    )
+
+    service._get_all_parameters(
+        [],
+        [1],
+        [["param-a"]],
+        "600000",
+        exchange_market="1",
+        end_date="2024-02-15",
+    )
+
+    assert kline_calls[0][:2] == ("600000", "1")
+
+
+def test_backtest_training_selected_en_vwap_quote_skips_stock_search():
+    service = BacktestTrainingService({}, "task-id")
+    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("selected stock should not be searched again")
+    )
+    kline_calls = []
+    service.dfcf_api.get_stock_kline_data = lambda *args, **_kwargs: (
+        kline_calls.append(args) or _kline_rows("2023-01-01", "2024-02-15")
+    )
+
+    service._get_all_parameters(
+        [],
+        [1],
+        [["param-a"]],
+        "SOXX",
+        market_type="en",
+        price_mode="vwap_price",
+        exchange_market="105",
+        end_date="2024-02-15",
+    )
+
+    assert kline_calls[0][:2] == ("SOXX", "105")
+
+
 def test_backtest_sheet_config_supports_c7():
     config = {
         "sheet": {"title": "策略 C7 模型"},
@@ -134,6 +209,27 @@ def test_backtest_sheet_config_supports_c7():
         ["D8", "D9"],
         "A",
     )
+
+
+def test_c7_summary_excess_return_uses_shifted_c5_cells():
+    column = {
+        "model_name": "C7",
+        "raw_metrics": {
+            "D8": "32.47%",
+            "D11": "21.14%",
+        },
+    }
+
+    assert _get_summary_derived_value(column, "excess_return") == "11.33%"
+
+
+def test_c7_summary_formats_raw_drawdown_as_percentage_points():
+    column = {
+        "model_name": "C7",
+        "raw_metrics": {"D10": "-0.88"},
+    }
+
+    assert _get_summary_derived_value(column, "max_drawdown") == "-88.00%"
 
 
 def test_multi_product_normalize_rejects_parameter_count_mismatch():

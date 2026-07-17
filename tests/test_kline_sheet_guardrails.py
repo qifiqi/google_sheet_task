@@ -16,6 +16,7 @@ def _kline_rows(start_date, end_date):
             "stock_date": current.strftime("%Y-%m-%d"),
             "stock_kp": 9,
             "stock_sp": 10,
+            "stock_vwap": 12,
         })
         current += timedelta(days=1)
     return rows
@@ -58,6 +59,26 @@ def test_c3_allows_historical_end_date_before_latest_kline():
     assert updated["D2"] == "2023-04-24"
     assert updated["E2"] == 10
     assert service.kline[-1]["stock_date"] == "2024-04-23"
+
+
+def test_c3_vwap_uses_dfcf_for_en_market_and_writes_vwap():
+    service = C3GoogleSheetService({}, "task-id")
+    service.google_sheet = _FakeSheet()
+    service.YF_api.get_kline_data = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Yahoo should not be used for vwap_price")
+    )
+    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: [{"market": "105"}]
+    service.dfcf_api.get_stock_kline_data = (
+        lambda *_args, **_kwargs: _kline_rows("2023-01-01", "2025-12-31")
+    )
+    config = _c3_config("2024-04-23")
+    config["market_type"] = "en"
+    config["price_mode"] = "vwap_price"
+
+    service.cell_kline_data(config)
+
+    updated = service.google_sheet.updates[0]
+    assert updated["E2"] == 12
 
 
 def test_c3_rejects_end_date_after_latest_kline_without_writing_sheet():

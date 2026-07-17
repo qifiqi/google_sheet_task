@@ -40,6 +40,32 @@
     .stock-search-item.active {
         background: rgba(var(--bs-primary-rgb), 0.08);
     }
+    .sheet-selector-shell {
+        position: relative;
+    }
+    .sheet-selector-results {
+        position: absolute;
+        inset: calc(100% + 0.35rem) 0 auto 0;
+        z-index: 30;
+        max-height: 18rem;
+        overflow-y: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.9rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+    }
+    .sheet-selector-item {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        padding: 0.7rem 0.85rem;
+        text-align: left;
+        white-space: normal;
+    }
+    .sheet-selector-item:hover,
+    .sheet-selector-item:focus {
+        background: rgba(var(--bs-primary-rgb), 0.08);
+    }
     .config-toggle {
         border: 0;
         background: transparent;
@@ -147,7 +173,12 @@
             <div class="row g-3 align-items-end">
                 <div class="col-xl-6">
                     <label for="modelUrl" class="form-label">Google Sheet 链接</label>
-                    <input type="text" class="form-control" id="modelUrl" placeholder="粘贴完整 Google Sheet URL">
+                    <div class="sheet-selector-shell">
+                        <input type="text" class="form-control" id="modelUrl" placeholder="输入 Google Sheet 链接或 Sheet ID" autocomplete="off">
+                        <div class="sheet-selector-results d-none" id="googleSheetMenuList">
+                            <div class="px-3 py-3 small text-body-secondary">加载中...</div>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-xl-4">
                     <label for="stockCode" class="form-label">股票代码</label>
@@ -235,9 +266,9 @@
                     <div class="config-box">
                         <label for="priceModeInput" class="form-label">价格模式</label>
                         <select class="form-select" id="priceModeInput">
-                            <option value="sp_price">收盘价</option>
-                            <option value="kp_price">开盘价</option>
                             <option value="vwap_price" selected>加权平均价</option>
+                            <option value="kp_price">开盘价</option>
+                            <option value="sp_price">收盘价</option>
                         </select>
                     </div>
                     <div class="config-box">
@@ -265,7 +296,7 @@
                         <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
                             <label class="form-label mb-0" for="fullYearsCheck">完整年份</label>
                             <div class="form-check form-switch mb-0">
-                                <input class="form-check-input" type="checkbox" id="fullYearsCheck" checked>
+                                <input class="form-check-input" type="checkbox" id="fullYearsCheck">
                             </div>
                         </div>
                         <div id="fullYearsOptions" class="d-none">
@@ -362,6 +393,8 @@ let sheetTitle = '';
 let selectedWorksheetName = '';
 let currentModelVersion = 'c3';
 let currentFields = FIELD_MAP.c3;
+let backtestGoogleSheets = [];
+let selectedGoogleSheetId = null;
 let importedParameterRows = [];
 let currentExcelImport = null;
 let backtestTokens = [];
@@ -373,6 +406,12 @@ let selectedStockSuggestion = null;
 let taskNameTouched = false;
 
 const currentYear = new Date().getFullYear();
+const BACKTEST_GOOGLE_SHEETS_CACHE_KEY = 'backtest_training_google_sheets';
+const BACKTEST_GOOGLE_SHEETS_CACHE_TTL = 5 * 60 * 1000;
+const MARKET_COMMISSION_VALUES = {
+    cn: '0.0350%',
+    en: '0.002%'
+};
 const PARAMETER_HELP_HTML = `
     <div class="param-help-content">
         <div><strong>C3 粘贴</strong>：每行 6 个业务参数时顺序为 <code>xm</code>、<code>单边保护 1</code>、<code>中立限仓</code>、<code>指数跟踪</code>、<code>一窝蜂 S</code>、<code>一窝蜂 B</code>，系统自动计算 <code>单边保护 2 = 2 - 单边保护 1</code>；每行 7 个业务参数时按完整字段处理。</div>
@@ -385,6 +424,7 @@ const modelUrlInput = document.getElementById('modelUrl');
 const stockCodeInput = document.getElementById('stockCode');
 const stockSearchResults = document.getElementById('stockSearchResults');
 const analyzeBtn = document.getElementById('analyzeBtn');
+const googleSheetMenuList = document.getElementById('googleSheetMenuList');
 const configToggleBtn = document.getElementById('configToggleBtn');
 const taskConfigCollapse = document.getElementById('taskConfigCollapse');
 const taskNameInput = document.getElementById('taskName');
@@ -442,18 +482,22 @@ function resolveModelVersion(version) {
     return ['c5', 'c7'].includes(version) ? version : 'c3';
 }
 
-function extractSpreadsheetId(rawUrl) {
-    const value = String(rawUrl || '').trim();
-    if (!value) {
-        return '';
-    }
-    const match = value.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    return match ? match[1] : '';
-}
-
 function normalizeMarketTypeValue(value) {
     const normalized = String(value || '').trim().toLowerCase();
     return normalized === 'en' ? 'en' : 'cn';
+}
+
+function extractSpreadsheetId(value) {
+    const rawValue = String(value || '').trim();
+    const urlMatch = rawValue.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (urlMatch) {
+        return urlMatch[1];
+    }
+    return /^[a-zA-Z0-9-_]+$/.test(rawValue) ? rawValue : '';
+}
+
+function buildGoogleSheetUrl(spreadsheetId) {
+    return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(spreadsheetId)}/edit`;
 }
 
 function resolveMarketTypeBySecurityTypeName(securityTypeName) {
@@ -470,22 +514,15 @@ function setMarketTypeSelection(value) {
     if (target) {
         target.checked = true;
     }
+    syncCommissionWithMarketType(normalized);
+}
+
+function syncCommissionWithMarketType(value = getSelectedMarketType()) {
+    commissionInput.value = MARKET_COMMISSION_VALUES[normalizeMarketTypeValue(value)];
 }
 
 function updateStockMeta() {
     return;
-}
-
-function getSelectedStockRawName() {
-    const stockCode = stockCodeInput.value.trim().toUpperCase();
-    if (!selectedStockSuggestion || String(selectedStockSuggestion.code || '').trim().toUpperCase() !== stockCode) {
-        return '';
-    }
-    return String(selectedStockSuggestion.name || '').trim();
-}
-
-function getSelectedStockName() {
-    return sanitizeTaskTitlePart(getSelectedStockRawName());
 }
 
 function sanitizeTaskTitlePart(value) {
@@ -497,11 +534,20 @@ function sanitizeTaskTitlePart(value) {
         .replace(/^-|-$/g, '');
 }
 
+<!--?function buildDefaultTaskName() {-->
+<!--?    const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());-->
+<!--?    const modelVersion = resolveModelVersion(currentModelVersion).toUpperCase();-->
+<!--?    return stockCode ? `${modelVersion}-${stockCode}` : '';-->
+<!--?}-->
 function buildDefaultTaskName() {
-    const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());
-    const stockName = getSelectedStockName();
+    const fallbackCode = stockCodeInput.value.trim()
+            ? sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase())
+            : '';
+    const stockPart = selectedStockSuggestion && getSelectedMarketType() === 'cn'
+        ? sanitizeTaskTitlePart(selectedStockSuggestion.name) || fallbackCode
+        : fallbackCode;
     const modelVersion = resolveModelVersion(currentModelVersion).toUpperCase();
-    return stockName ? `${modelVersion}-${stockName}` : (stockCode ? `${modelVersion}-${stockCode}` : '');
+    return stockPart ? `${modelVersion}-${stockPart}` : '';
 }
 
 function syncTaskNameInput(force = false) {
@@ -962,7 +1008,8 @@ function setExcelImportStatus(message, tone = 'muted') {
     excelImportStatus.textContent = message || '';
 }
 
-function setAnalyzeButtonState(isLoading) {
+function setGoogleSheetLoading(isLoading) {
+    modelUrlInput.disabled = isLoading;
     analyzeBtn.disabled = isLoading;
     analyzeBtn.innerHTML = isLoading
         ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>识别中'
@@ -1099,13 +1146,6 @@ async function fetchStockSuggestions(keyword, options = {}) {
             throw new Error(data.message || '股票搜索失败');
         }
         renderStockSearchResults(data.results || [], trimmedKeyword);
-        const exact = (data.results || []).find((item) => String(item.code || '').trim().toUpperCase() === trimmedKeyword.toUpperCase());
-        if (exact && stockCodeInput.value.trim().toUpperCase() === trimmedKeyword.toUpperCase()) {
-            selectedStockSuggestion = exact;
-            setMarketTypeSelection(resolveMarketTypeBySecurityTypeName(exact.security_type_name));
-            syncTaskNameInput();
-            updateStockMeta();
-        }
         if (options.keepOpen) {
             showStockSearchResults();
         }
@@ -1117,35 +1157,6 @@ async function fetchStockSuggestions(keyword, options = {}) {
         stockSearchResults.innerHTML = `<div class="px-3 py-2 text-danger small">${escapeHtml(error.message || '股票搜索失败')}</div>`;
         showStockSearchResults();
         return [];
-    }
-}
-
-async function resolveExactStockSuggestion() {
-    const stockCode = stockCodeInput.value.trim().toUpperCase();
-    if (!stockCode || stockCode.includes(',') || stockCode.includes('，')) {
-        return;
-    }
-    if (selectedStockSuggestion && String(selectedStockSuggestion.code || '').trim().toUpperCase() === stockCode) {
-        return;
-    }
-
-    try {
-        const response = await fetch(`/api/search-stocks?q=${encodeURIComponent(stockCode)}&page_size=5`);
-        const data = await response.json();
-        if (data.status !== 'success') {
-            return;
-        }
-        const results = Array.isArray(data.results) ? data.results : [];
-        const exact = results.find((item) => String(item.code || '').trim().toUpperCase() === stockCode);
-        if (!exact) {
-            return;
-        }
-        selectedStockSuggestion = exact;
-        setMarketTypeSelection(resolveMarketTypeBySecurityTypeName(exact.security_type_name));
-        syncTaskNameInput();
-        updateStockMeta();
-    } catch (error) {
-        console.warn('股票名称精确匹配失败', error);
     }
 }
 
@@ -1194,15 +1205,109 @@ function buildC3TaskName() {
     return buildDefaultTaskName();
 }
 
-async function analyzeSheetUrl() {
-    const url = modelUrlInput.value.trim();
-    spreadsheetId = extractSpreadsheetId(url);
-    if (!spreadsheetId) {
-        alert('请填写有效的 Google Sheet 链接');
+function clearSelectedSheetInfo() {
+    spreadsheetId = '';
+    sheetTitle = '';
+    selectedWorksheetName = '';
+    sheetInfo.classList.remove('is-visible');
+    sheetTitleEl.textContent = '-';
+    sheetNamesEl.textContent = '-';
+}
+
+function showGoogleSheetOptions() {
+    googleSheetMenuList.classList.remove('d-none');
+}
+
+function hideGoogleSheetOptions() {
+    googleSheetMenuList.classList.add('d-none');
+}
+
+function getCachedBacktestGoogleSheets() {
+    try {
+        const cached = JSON.parse(sessionStorage.getItem(BACKTEST_GOOGLE_SHEETS_CACHE_KEY) || 'null');
+        if (cached && cached.expires_at > Date.now() && Array.isArray(cached.items)) {
+            return cached.items;
+        }
+    } catch (error) {
+        sessionStorage.removeItem(BACKTEST_GOOGLE_SHEETS_CACHE_KEY);
+    }
+    return null;
+}
+
+function cacheBacktestGoogleSheets(items) {
+    try {
+        sessionStorage.setItem(BACKTEST_GOOGLE_SHEETS_CACHE_KEY, JSON.stringify({
+            expires_at: Date.now() + BACKTEST_GOOGLE_SHEETS_CACHE_TTL,
+            items
+        }));
+    } catch (error) {
+        return;
+    }
+}
+
+function renderBacktestGoogleSheetOptions(items) {
+    googleSheetMenuList.innerHTML = '';
+    if (!items.length) {
+        googleSheetMenuList.innerHTML = '<div class="px-3 py-3 small text-body-secondary">暂无可用预设 Sheet</div>';
+        return;
+    }
+    items.forEach((sheet) => {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.className = 'sheet-selector-item';
+        option.dataset.sheetId = String(sheet.id);
+        option.innerHTML = `<div class="fw-semibold">${escapeHtml(sheet.name || '未命名 Sheet')} <span class="text-body-secondary">ID: ${escapeHtml(sheet.spreadsheet_id || '-')}</span></div>${sheet.remark ? `<div class="small text-body-secondary">${escapeHtml(sheet.remark)}</div>` : ''}`;
+        googleSheetMenuList.appendChild(option);
+    });
+}
+
+async function loadBacktestGoogleSheets() {
+    const cachedItems = getCachedBacktestGoogleSheets();
+    if (cachedItems) {
+        backtestGoogleSheets = cachedItems;
+        renderBacktestGoogleSheetOptions(backtestGoogleSheets);
+        showGoogleSheetOptions();
         return;
     }
 
-    setAnalyzeButtonState(true);
+    googleSheetMenuList.innerHTML = '<div class="px-3 py-3 small text-body-secondary">加载中...</div>';
+    showGoogleSheetOptions();
+    try {
+        const response = await fetch('/api/google-sheets?table_type=backtest_training&only_available=1');
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '加载单品回测 Sheet 失败');
+        }
+        backtestGoogleSheets = Array.isArray(data.items) ? data.items : [];
+        cacheBacktestGoogleSheets(backtestGoogleSheets);
+        renderBacktestGoogleSheetOptions(backtestGoogleSheets);
+    } catch (error) {
+        backtestGoogleSheets = [];
+        googleSheetMenuList.innerHTML = '<div class="px-3 py-3 small text-danger">加载单品回测 Sheet 失败</div>';
+    }
+}
+
+async function selectBacktestGoogleSheet(googleSheetId) {
+    const selectedSheet = backtestGoogleSheets.find((sheet) => String(sheet.id) === String(googleSheetId));
+    if (!selectedSheet) {
+        return;
+    }
+
+    selectedGoogleSheetId = Number(selectedSheet.id);
+    modelUrlInput.value = buildGoogleSheetUrl(selectedSheet.spreadsheet_id);
+    hideGoogleSheetOptions();
+    await analyzeSheetInput();
+}
+
+async function analyzeSheetInput() {
+    spreadsheetId = extractSpreadsheetId(modelUrlInput.value);
+    if (!spreadsheetId) {
+        clearSelectedSheetInfo();
+        alert('请输入有效的 Google Sheet 链接或 Sheet ID');
+        return;
+    }
+
+    setGoogleSheetLoading(true);
     try {
         const response = await fetch('/api/google-sheet/worksheets', {
             method: 'POST',
@@ -1215,9 +1320,10 @@ async function analyzeSheetUrl() {
         }
         renderSheetInfo(data.title || '', data.worksheets || []);
     } catch (error) {
+        clearSelectedSheetInfo();
         alert(error.message || '识别链接失败');
     } finally {
-        setAnalyzeButtonState(false);
+        setGoogleSheetLoading(false);
     }
 }
 
@@ -1243,7 +1349,6 @@ async function importExcelFile(file) {
         currentModelVersion = inferModelVersion(data.model_version || 'c3');
         importedParameterRows = Array.isArray(data.parameters) ? data.parameters : [];
         currentExcelImport = data.excel_import || null;
-        spreadsheetId = spreadsheetId || extractSpreadsheetId(modelUrlInput.value.trim());
         if (data.stock_code) {
             stockCodeInput.value = String(data.stock_code).trim().toUpperCase();
         }
@@ -1293,11 +1398,8 @@ async function createTask() {
         return;
     }
 
-    await resolveExactStockSuggestion();
-
-    const taskName = taskNameInput.value.trim() || buildDefaultTaskName();
+    const taskName = buildDefaultTaskName();
     const stockCode = stockCodeInput.value.trim().toUpperCase();
-    const stockName = getSelectedStockRawName();
     const tokenId = tokenIdSelect.value;
     const parameters = collectParameters();
     const recentYears = recentYearsCheck.checked ? getCheckedRecentYears() : [];
@@ -1309,10 +1411,7 @@ async function createTask() {
         return;
     }
     if (!spreadsheetId) {
-        spreadsheetId = extractSpreadsheetId(modelUrlInput.value.trim());
-    }
-    if (!spreadsheetId) {
-        alert('请先识别有效的 Google Sheet 链接');
+        alert('请选择并识别单品回测 Google Sheet');
         return;
     }
     if (!stockCode) {
@@ -1342,14 +1441,17 @@ async function createTask() {
 
     setCreateButtonState(true);
     try {
+        const sheetConfig = {
+            spreadsheet_id: spreadsheetId,
+            sheet_name: selectedWorksheetName,
+            title: sheetTitle
+        };
+        if (selectedGoogleSheetId) {
+            sheetConfig.google_sheet_id = selectedGoogleSheetId;
+        }
         const config = {
-            sheet: {
-                spreadsheet_id: spreadsheetId,
-                sheet_name: selectedWorksheetName,
-                title: sheetTitle
-            },
+            sheet: sheetConfig,
             stock_code: stockCode,
-            stock_name: stockName || undefined,
             market_type: getSelectedMarketType(),
             kline_adjustment: document.getElementById('klineAdjustmentInput')?.value || 'forward',
             price_mode: document.getElementById('priceModeInput')?.value || 'vwap_price',
@@ -1360,6 +1462,12 @@ async function createTask() {
             full_years: fullYears,
             end_date: endDate || undefined
         };
+        if (selectedStockSuggestion) {
+            config.stock_name = selectedStockSuggestion.name || undefined;
+            config.exchange_market = selectedStockSuggestion.market || undefined;
+            config.security_type_name = selectedStockSuggestion.security_type_name || undefined;
+            config.stock_source = selectedStockSuggestion.source || undefined;
+        }
         if (currentExcelImport) {
             config.excel_import = currentExcelImport;
         }
@@ -1398,11 +1506,27 @@ updateConfigToggleText();
 updateStockMeta();
 loadBacktestTokens();
 
-analyzeBtn.addEventListener('click', analyzeSheetUrl);
+analyzeBtn.addEventListener('click', analyzeSheetInput);
+modelUrlInput.addEventListener('focus', loadBacktestGoogleSheets);
+modelUrlInput.addEventListener('click', () => {
+    if (googleSheetMenuList.classList.contains('d-none')) {
+        loadBacktestGoogleSheets();
+    }
+});
+modelUrlInput.addEventListener('input', () => {
+    selectedGoogleSheetId = null;
+    clearSelectedSheetInfo();
+});
 modelUrlInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
         event.preventDefault();
-        analyzeSheetUrl();
+        analyzeSheetInput();
+    }
+});
+googleSheetMenuList.addEventListener('click', (event) => {
+    const target = event.target.closest('.sheet-selector-item');
+    if (target) {
+        selectBacktestGoogleSheet(target.dataset.sheetId);
     }
 });
 
@@ -1450,6 +1574,9 @@ document.addEventListener('click', (event) => {
     if (!event.target.closest('.stock-search-shell')) {
         hideStockSearchResults();
     }
+    if (!event.target.closest('.sheet-selector-shell')) {
+        hideGoogleSheetOptions();
+    }
 });
 
 marketTypeInputs.forEach((input) => {
@@ -1460,6 +1587,7 @@ marketTypeInputs.forEach((input) => {
                 selectedStockSuggestion = null;
             }
         }
+        syncCommissionWithMarketType(input.value);
         updateStockMeta();
     });
 });

@@ -627,6 +627,36 @@
         charts: {}
     };
 
+    function normalizeApiResponse(payload) {
+        const isStandard = payload
+            && typeof payload === 'object'
+            && Object.prototype.hasOwnProperty.call(payload, 'code')
+            && Object.prototype.hasOwnProperty.call(payload, 'data');
+        const body = isStandard && payload.data && typeof payload.data === 'object'
+            ? payload.data
+            : payload;
+        return {
+            ok: isStandard ? payload.code === 0 : body?.status === 'success',
+            message: payload?.message || body?.message || '',
+            body,
+            data: isStandard ? payload.data : body
+        };
+    }
+
+    function getWorksheetsPayload(api) {
+        if (api.body?.worksheets !== undefined || api.body?.title !== undefined) {
+            return api.body;
+        }
+        if (api.data && typeof api.data === 'object') {
+            return api.data;
+        }
+        return {worksheets: Array.isArray(api.data) ? api.data : []};
+    }
+
+    function getAnalyzeResults(api) {
+        return api.body?.results ?? api.data?.results ?? api.data;
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('btn-fetch-sheets').addEventListener('click', fetchWorksheets);
         document.getElementById('btn-analyze-v1').addEventListener('click', runAnalyzeV1);
@@ -809,12 +839,14 @@
                 signal: abortController.signal
             });
             const data = await resp.json().catch(() => ({}));
-            if (!resp.ok || data.status !== 'success') {
-                throw new Error(data.message || `HTTP error! status: ${resp.status}`);
+            const api = normalizeApiResponse(data);
+            if (!resp.ok || !api.ok) {
+                throw new Error(api.message || `HTTP error! status: ${resp.status}`);
             }
 
-            state.worksheets = Array.isArray(data.worksheets) ? data.worksheets : [];
-            state.spreadsheetTitle = data.title || '';
+            const worksheetsPayload = getWorksheetsPayload(api);
+            state.worksheets = Array.isArray(worksheetsPayload.worksheets) ? worksheetsPayload.worksheets : [];
+            state.spreadsheetTitle = worksheetsPayload.title || '';
 
             const meta = document.getElementById('gs-meta');
             meta.innerHTML = `<span class="text-body-secondary">spreadsheet_id: </span><span class="fw-semibold">${spreadsheetId}</span>` + (state.spreadsheetTitle ? ` <span class="text-body-secondary">| 标题：</span><span class="fw-semibold">${escapeHtml(state.spreadsheetTitle)}</span>` : '');
@@ -880,7 +912,8 @@
 
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({}));
-                throw new Error(err.message || `HTTP error! status: ${resp.status}`);
+                const api = normalizeApiResponse(err);
+                throw new Error(api.message || `HTTP error! status: ${resp.status}`);
             }
 
             const blob = await resp.blob();
@@ -976,23 +1009,25 @@
                 signal: abortController.signal
             });
             const data = await resp.json().catch(() => ({}));
-            if (!resp.ok || data.status !== 'success') {
-                throw new Error(data.message || `HTTP error! status: ${resp.status}`);
+            const api = normalizeApiResponse(data);
+            if (!resp.ok || !api.ok) {
+                throw new Error(api.message || `HTTP error! status: ${resp.status}`);
             }
 
-            if (!data.results) {
+            const results = getAnalyzeResults(api);
+            if (!results) {
                 showAlert('后端未返回 results', 'warning');
                 return;
             }
 
-            state.lastResults = data.results;
+            state.lastResults = results;
             state.lastSheetName = sheetName;
             const exportBtn = document.getElementById('btn-export-v1');
             if (exportBtn) exportBtn.disabled = false;
 
-            renderSummary(data.results);
-            renderTables(data.results);
-            renderCharts(data.results);
+            renderSummary(results);
+            renderTables(results);
+            renderCharts(results);
             showAlert('V1 分析完成', 'success');
         } catch (e) {
             if (e.name === 'AbortError') {

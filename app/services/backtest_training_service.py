@@ -24,6 +24,7 @@ from app.utils.task_error_utils import (
     is_retryable_network_error,
     unwrap_exception,
 )
+from app.utils.kline_validation import require_kline_rows
 
 
 class BacktestTrainingService(BaseGoogleSheetService):
@@ -47,8 +48,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
             return 'en'
         return 'cn'
 
-    def _resolve_cn_stock_quote(self, stock_code):
+    def _resolve_dfcf_stock_quote(self, stock_code, exchange_market=None):
         stock_query = str(stock_code or '').strip()
+        market = str(exchange_market or '').strip()
+        if market:
+            return stock_query.upper(), market
+
         stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_query, 10)
         if isinstance(stock_config, dict):
             raise ValueError(f"股票{stock_query}搜索失败: {stock_config.get('error') or stock_config}")
@@ -70,6 +75,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if resolved_code != stock_query:
             self._log_info(f"股票 {stock_query} 已解析为代码 {resolved_code}, market={market}")
         return resolved_code, market
+
+    def _resolve_cn_stock_quote(self, stock_code, exchange_market=None):
+        return self._resolve_dfcf_stock_quote(stock_code, exchange_market)
 
     @staticmethod
     def _normalize_year_values(values, field_name):
@@ -290,7 +298,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
             market_type = self._normalize_market_type(
                 config_data.get('market_type', 'cn')
             )
+            price_mode = config_data.get('price_mode', 'vwap_price')
             adjust_type = config_data.get('kline_adjustment')
+            exchange_market = config_data.get('exchange_market')
             include_full_year_range = bool(config_data.get('include_full_year_range'))
             end_date = config_data.get('end_date')
 
@@ -302,8 +312,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 recent_years,
                 parameters,
                 stock_code,
+                price_mode=price_mode,
                 market_type=market_type,
                 adjust_type=adjust_type,
+                exchange_market=exchange_market,
                 include_full_year_range=include_full_year_range,
                 end_date=end_date,
             )
@@ -452,7 +464,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         retry=retry_if_result(lambda result: result[0] is False)
     )
     def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> \
-    tuple[bool, dict[Any, Any], list[Any]]:
+            tuple[bool, dict[Any, Any], list[Any]]:
         """执行单个参数组合"""
         try:
             # 获取参数位置配置
@@ -479,6 +491,11 @@ class BacktestTrainingService(BaseGoogleSheetService):
             else:
                 for i, param in enumerate(parameter):
                     cell_updates[parameter_positions[i]] = param
+
+            is_c7 = 'C7' in str(
+                config_data.get('sheet', {}).get('title') or config_data.get('title') or ''
+            ).upper()
+            result_value_render_option = 'UNFORMATTED_VALUE' if is_c7 else 'FORMATTED_VALUE'
 
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
@@ -515,7 +532,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     if not self._interruptible_sleep(initial_result_sleep):
                         raise RuntimeError("task cancelled")
 
-                initial_results[self.google_sheet.spreadsheet_id] = self.google_sheet.get_range(output_range_1)
+                initial_results[self.google_sheet.spreadsheet_id] = self.google_sheet.get_range(
+                    output_range_1,
+                    value_render_option=result_value_render_option,
+                )
 
                 self._log_info(f"向Google Sheet写入参数: {self.google_sheet.title} 长度：{len(cell_updates)}")
                 self.google_sheet.update_jumped_cells(cell_updates)
@@ -577,7 +597,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 if not self._interruptible_sleep(_):
                     raise RuntimeError("task cancelled")
                 all_num = 0
-                _result = self.google_sheet.get_range(output_range_1)
+                _result = self.google_sheet.get_range(
+                    output_range_1,
+                    value_render_option=result_value_render_option,
+                )
                 if _validate_check_values(_result, self.google_sheet.spreadsheet_id):
                     # _result = check_result(_result)
                     batch_range_values = self.google_sheet.get_ranges(output_cell_list)
@@ -694,8 +717,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         full_years,
         recent_years,
         parameters,
-        stock_code,price_mode="sp_price",market_type="cn",
+        stock_code,price_mode="vwap_price",market_type="cn",
         adjust_type=None,
+        exchange_market=None,
         include_full_year_range=False,
         end_date=None,
 
@@ -708,15 +732,15 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if include_full_year_range and not full_years:
             raise ValueError("include_full_year_range=true 时必须传入 full_years")
 
-        price_field = {
-            'kp_price': 'stock_kp',
-            'vwap_price': 'stock_vwap',
-        }.get(price_mode, 'stock_sp')
-
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            # 根据price_mode决定使用开盘价还是收盘价
-
+            # 根据price_mode决定使用开盘价、收盘价或加权平均价
+            price_field = {
+                'kp_price': 'stock_kp',
+                'sp_price': 'stock_sp',
+                'vwap_price': 'stock_vwap',
+            }.get(price_mode, 'stock_vwap')
+            
             if market_type == 'cn':
                 if _year:
                     return [
@@ -758,14 +782,37 @@ class BacktestTrainingService(BaseGoogleSheetService):
         limit = max(300, year_count * trading_days_per_year + 80)
 
         if market_type == 'cn':
-            resolved_code, market = self._resolve_cn_stock_quote(stock_code)
+            if exchange_market:
+                resolved_code, market = self._resolve_cn_stock_quote(stock_code, exchange_market)
+            else:
+                resolved_code, market = self._resolve_cn_stock_quote(stock_code)
+            stock_code = resolved_code
+            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
+        elif price_mode == 'vwap_price':
+            if exchange_market:
+                resolved_code, market = self._resolve_dfcf_stock_quote(stock_code, exchange_market)
+            else:
+                resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
             stock_code = resolved_code
             klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         else:
             klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
 
-        if not klines:
-            raise ValueError(f"股票{stock_code} 没有获取到K线数据")
+        # from app.services.kline import get_d
+        # klines = get_d()
+
+        klines = require_kline_rows(
+            stock_code,
+            market_type,
+            klines,
+            context="原始K线",
+            min_rows=1,
+            price_field={
+                'kp_price': 'stock_kp',
+                'sp_price': 'stock_sp',
+                'vwap_price': 'stock_vwap',
+            }.get(price_mode, 'stock_vwap'),
+        )
 
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']

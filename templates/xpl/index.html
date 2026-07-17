@@ -551,6 +551,26 @@
     let processedData = [];
     let currentResults = null;
 
+    function normalizeApiResponse(payload) {
+        const isStandard = payload
+            && typeof payload === 'object'
+            && Object.prototype.hasOwnProperty.call(payload, 'code')
+            && Object.prototype.hasOwnProperty.call(payload, 'data');
+        const body = isStandard && payload.data && typeof payload.data === 'object'
+            ? payload.data
+            : payload;
+        return {
+            ok: isStandard ? payload.code === 0 : body?.status === 'success',
+            message: payload?.message || body?.message || '',
+            body,
+            data: isStandard ? payload.data : body
+        };
+    }
+
+    function getAnalyzeResults(api) {
+        return api.body?.results ?? api.data?.results ?? api.data;
+    }
+
     function formatPercent(value, digits = 2) {
         if (value === undefined || value === null || value === '') {
             return '-';
@@ -733,25 +753,28 @@
             clearTimeout(timeoutId);
             if (!response.ok) {
                 const error = await response.json().catch(() => ({}));
-                throw new Error(error.message || `HTTP error! status: ${response.status}`);
+                const api = normalizeApiResponse(error);
+                throw new Error(api.message || `HTTP error! status: ${response.status}`);
             }
             return response.json();
         })
         .then(data => {
-            if (data.status === 'success') {
+            const api = normalizeApiResponse(data);
+            const results = getAnalyzeResults(api);
+            if (api.ok) {
                 showAlert('数据分析完成', 'success');
                 console.log('API Response:', data); // 调试日志
                 
                 // 保存当前结果用于导出
-                currentResults = data;
+                currentResults = {results};
                 
                 // 更新所有数据
-                if (data.results) {
-                    updateMetrics(data.results);
-                    updateAllTables(data.results);
+                if (results) {
+                    updateMetrics(results);
+                    updateAllTables(results);
                 }
             } else {
-                throw new Error(data.message || '处理数据时出错');
+                throw new Error(api.message || '处理数据时出错');
             }
         })
         .catch(error => {

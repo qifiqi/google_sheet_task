@@ -8,6 +8,7 @@ import pytest
 from app.extensions import db
 from app.models import BacktestSheetRunLock, GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
 from app.services.backtest_training_service import BacktestTrainingService
+from app.services.google_sheet_registry_service import get_google_sheet_registry_service
 from app.services.task import (
     TaskDashboardQueryService,
     TaskManager,
@@ -192,16 +193,15 @@ def test_backtest_nested_sheet_config_acquires_google_sheet_occupancy(app_factor
 
 def test_create_backtest_task_allows_busy_sheet_to_queue(app_factory):
     with app_factory.app_context():
-        db.session.add(
-            GoogleSheet(
-                name="busy-backtest-sheet",
-                spreadsheet_id="spreadsheet-busy",
-                table_type="c3",
-                is_active=True,
-                is_in_use=True,
-                current_task_id="other-task",
-            )
+        sheet = GoogleSheet(
+            name="busy-backtest-sheet",
+            spreadsheet_id="spreadsheet-busy",
+            table_type="backtest_training",
+            is_active=True,
+            is_in_use=True,
+            current_task_id="other-task",
         )
+        db.session.add(sheet)
         db.session.commit()
 
         manager = TaskManager()
@@ -210,7 +210,7 @@ def test_create_backtest_task_allows_busy_sheet_to_queue(app_factory):
             name="backtest",
             description="",
             task_type="backtest_training",
-            config={"sheet": {"spreadsheet_id": "spreadsheet-busy"}},
+            config={"sheet": {"google_sheet_id": sheet.id, "spreadsheet_id": "spreadsheet-busy"}},
         )
 
         task = db.session.get(Task, task_id)
@@ -218,8 +218,113 @@ def test_create_backtest_task_allows_busy_sheet_to_queue(app_factory):
         assert task.status == "pending"
 
 
+def test_create_backtest_task_rejects_non_backtest_sheet(app_factory):
+    with app_factory.app_context():
+        sheet = GoogleSheet(
+            name="c3-sheet",
+            spreadsheet_id="spreadsheet-c3",
+            table_type="c3",
+            is_active=True,
+        )
+        db.session.add(sheet)
+        db.session.commit()
+
+        manager = TaskManager()
+
+        with pytest.raises(ValueError, match="不是单品回测模板"):
+            manager.create_task(
+                name="backtest",
+                description="",
+                task_type="backtest_training",
+                config={"sheet": {"google_sheet_id": sheet.id, "spreadsheet_id": "spreadsheet-c3"}},
+            )
+
+
+def test_create_backtest_task_allows_custom_sheet(app_factory):
+    with app_factory.app_context():
+        manager = TaskManager()
+
+        task_id = manager.create_task(
+            name="custom-backtest",
+            description="",
+            task_type="backtest_training",
+            config={"sheet": {"spreadsheet_id": "custom-spreadsheet"}},
+        )
+
+        assert db.session.get(Task, task_id) is not None
+
+
+def test_registry_lists_only_available_backtest_training_sheets(app_factory):
+    with app_factory.app_context():
+        available = GoogleSheet(
+            name="available-backtest-sheet",
+            spreadsheet_id="spreadsheet-available",
+            table_type="backtest_training",
+            is_active=True,
+        )
+        busy = GoogleSheet(
+            name="busy-backtest-sheet",
+            spreadsheet_id="spreadsheet-busy",
+            table_type="backtest_training",
+            is_active=True,
+            is_in_use=True,
+            current_task_id="other-task",
+        )
+        c3_sheet = GoogleSheet(
+            name="c3-sheet",
+            spreadsheet_id="spreadsheet-c3",
+            table_type="c3",
+            is_active=True,
+        )
+        db.session.add_all([available, busy, c3_sheet])
+        db.session.commit()
+
+        items = get_google_sheet_registry_service().list_sheets(
+            table_type="backtest_training",
+            only_available=True,
+        )
+
+        assert [item["id"] for item in items] == [available.id]
+
+
+def test_registry_separates_backtest_sheet_from_c_series_sheet(app_factory):
+    with app_factory.app_context():
+        service = get_google_sheet_registry_service()
+
+        c3_sheet = service.create_sheet(
+            spreadsheet_id="shared-spreadsheet",
+            name="c3-sheet",
+            table_type="c3",
+        )
+        backtest_sheet = service.create_sheet(
+            spreadsheet_id="shared-spreadsheet",
+            name="backtest-sheet",
+            table_type="backtest_training",
+        )
+
+        assert c3_sheet["id"] != backtest_sheet["id"]
+        with pytest.raises(ValueError, match="同类表类型"):
+            service.create_sheet(
+                spreadsheet_id="shared-spreadsheet",
+                name="c4-sheet",
+                table_type="c4",
+            )
+        with pytest.raises(ValueError, match="同类表类型"):
+            service.create_sheet(
+                spreadsheet_id="shared-spreadsheet",
+                name="backtest-sheet-2",
+                table_type="backtest_training",
+            )
+
+
 def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
     with app_factory.app_context():
+        sheet = GoogleSheet(
+            name="queue-backtest-sheet",
+            spreadsheet_id="spreadsheet-queue",
+            table_type="backtest_training",
+            is_active=True,
+        )
         running_task = Task(
             id="running-backtest",
             name="running-backtest",
@@ -229,7 +334,7 @@ def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
             status="running",
             start_time=datetime.now(),
         )
-        db.session.add(running_task)
+        db.session.add_all([sheet, running_task])
         db.session.commit()
 
         manager = TaskManager()
@@ -237,7 +342,7 @@ def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
             name="queued-backtest",
             description="",
             task_type="backtest_training",
-            config={"sheet": {"spreadsheet_id": "spreadsheet-queue"}},
+            config={"sheet": {"google_sheet_id": sheet.id, "spreadsheet_id": "spreadsheet-queue"}},
         )
 
         queued_task = db.session.get(Task, response["task_id"])
