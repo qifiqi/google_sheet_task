@@ -287,6 +287,36 @@ def test_registry_lists_only_available_backtest_training_sheets(app_factory):
         assert [item["id"] for item in items] == [available.id]
 
 
+def test_registry_separates_backtest_sheet_from_c_series_sheet(app_factory):
+    with app_factory.app_context():
+        service = get_google_sheet_registry_service()
+
+        c3_sheet = service.create_sheet(
+            spreadsheet_id="shared-spreadsheet",
+            name="c3-sheet",
+            table_type="c3",
+        )
+        backtest_sheet = service.create_sheet(
+            spreadsheet_id="shared-spreadsheet",
+            name="backtest-sheet",
+            table_type="backtest_training",
+        )
+
+        assert c3_sheet["id"] != backtest_sheet["id"]
+        with pytest.raises(ValueError, match="同类表类型"):
+            service.create_sheet(
+                spreadsheet_id="shared-spreadsheet",
+                name="c4-sheet",
+                table_type="c4",
+            )
+        with pytest.raises(ValueError, match="同类表类型"):
+            service.create_sheet(
+                spreadsheet_id="shared-spreadsheet",
+                name="backtest-sheet-2",
+                table_type="backtest_training",
+            )
+
+
 def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
     with app_factory.app_context():
         sheet = GoogleSheet(

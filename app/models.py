@@ -766,14 +766,28 @@ class GoogleSheet(db.Model):
 
     __tablename__ = "google_sheet"
     __table_args__ = (
+        db.Index(
+            "uk_google_sheet_spreadsheet_id_c_series",
+            "spreadsheet_id",
+            unique=True,
+            postgresql_where=db.text("table_type IN ('c3', 'c4', 'c5', 'c7')"),
+            sqlite_where=db.text("table_type IN ('c3', 'c4', 'c5', 'c7')"),
+        ),
+        db.Index(
+            "uk_google_sheet_spreadsheet_id_backtest_training",
+            "spreadsheet_id",
+            unique=True,
+            postgresql_where=db.text("table_type = 'backtest_training'"),
+            sqlite_where=db.text("table_type = 'backtest_training'"),
+        ),
         db.Index("idx_google_sheet_active_in_use", "is_active", "is_in_use"),
         {"comment": "Google Sheet 表ID配置表"},
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
     name = db.Column(db.String(255), nullable=False, index=True, comment="显示名称")
-    spreadsheet_id = db.Column(db.String(255), nullable=False, unique=True, index=True, comment="Google Sheet表ID")
-    table_type = db.Column(db.String(20), nullable=False, default=GoogleSheetTableType.C3.value, index=True, comment="表类型：c3/c4/c5/c7")
+    spreadsheet_id = db.Column(db.String(255), nullable=False, index=True, comment="Google Sheet表ID")
+    table_type = db.Column(db.String(20), nullable=False, default=GoogleSheetTableType.C3.value, index=True, comment="表类型：c3/c4/c5/c7/backtest_training")
     remark = db.Column(db.Text, comment="备注")
     is_active = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否启用")
     is_in_use = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否使用中")

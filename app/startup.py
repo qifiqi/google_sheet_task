@@ -64,6 +64,59 @@ def ensure_google_sheet_id_sequence():
     db.session.commit()
 
 
+def ensure_google_sheet_registry_schema():
+    """Apply Google Sheet uniqueness rules for PostgreSQL registry tables."""
+    if db.engine.dialect.name != 'postgresql':
+        return
+
+    inspector = inspect(db.engine)
+    if 'google_sheet' not in inspector.get_table_names():
+        return
+
+    quote = db.engine.dialect.identifier_preparer.quote
+    obsolete_constraints = {
+        constraint['name']
+        for constraint in inspector.get_unique_constraints('google_sheet')
+        if constraint.get('name')
+        and constraint.get('column_names') in (['spreadsheet_id'], ['spreadsheet_id', 'table_type'])
+    }
+    for constraint_name in obsolete_constraints:
+        db.session.execute(
+            text(f'ALTER TABLE google_sheet DROP CONSTRAINT IF EXISTS {quote(constraint_name)}')
+        )
+
+    inspector = inspect(db.engine)
+    obsolete_indexes = {
+        index['name']
+        for index in inspector.get_indexes('google_sheet')
+        if index.get('name')
+        and index.get('unique')
+        and index.get('column_names') in (['spreadsheet_id'], ['spreadsheet_id', 'table_type'])
+    }
+    for index_name in obsolete_indexes:
+        db.session.execute(text(f'DROP INDEX IF EXISTS {quote(index_name)}'))
+
+    db.session.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uk_google_sheet_spreadsheet_id_c_series
+            ON google_sheet (spreadsheet_id)
+            WHERE table_type IN ('c3', 'c4', 'c5', 'c7')
+            """
+        )
+    )
+    db.session.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uk_google_sheet_spreadsheet_id_backtest_training
+            ON google_sheet (spreadsheet_id)
+            WHERE table_type = 'backtest_training'
+            """
+        )
+    )
+    db.session.commit()
+
+
 def ensure_user_schema():
     inspector = inspect(db.engine)
     if 'user' not in inspector.get_table_names():
@@ -269,6 +322,7 @@ def register_cli(app):
     def init_db():
         db.create_all()
         ensure_google_sheet_token_schema()
+        ensure_google_sheet_registry_schema()
         ensure_google_sheet_id_sequence()
         ensure_user_schema()
         ensure_task_schema()
@@ -543,6 +597,7 @@ def bootstrap_app(app):
     with app.app_context():
         db.create_all()
         ensure_google_sheet_token_schema()
+        ensure_google_sheet_registry_schema()
         ensure_google_sheet_id_sequence()
         ensure_user_schema()
         ensure_task_schema()

@@ -5,6 +5,7 @@ from app.models import BacktestSheetRunLock, ScheduledTask, Task
 from app.startup import (
     cleanup_stale_backtest_sheet_run_locks,
     ensure_google_sheet_id_sequence,
+    ensure_google_sheet_registry_schema,
     ensure_scheduled_task_schema,
     ensure_task_result_summary_index_schema,
 )
@@ -13,6 +14,11 @@ from app.startup import (
 def test_ensure_google_sheet_id_sequence_skips_non_postgresql(app_factory):
     with app_factory.app_context():
         ensure_google_sheet_id_sequence()
+
+
+def test_ensure_google_sheet_registry_schema_skips_non_postgresql(app_factory):
+    with app_factory.app_context():
+        ensure_google_sheet_registry_schema()
 
 
 def test_ensure_scheduled_task_schema_adds_lock_fields_to_legacy_table(app_factory):
