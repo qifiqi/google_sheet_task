@@ -87,17 +87,36 @@ def test_batch_export_global_preview_rejects_unfinished_task(app_factory, monkey
         assert response.get_json()["task_status"] == "running"
 
 
-def test_batch_export_global_preview_rejects_too_many_tasks(app_factory, monkeypatch):
+def test_batch_export_global_preview_allows_more_than_ten_tasks(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
+        task_ids = [f"task-{index}" for index in range(11)]
+        for task_id in task_ids:
+            _add_backtest_task(task_id)
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        response = app.test_client().post(
-            "/backtest-training/api/global-preview/batch-export",
-            json={"task_ids": [f"task-{index}" for index in range(11)]},
+        monkeypatch.setattr(
+            "app.routes.backtest_training.authorize_task_type_action",
+            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
+        )
+        monkeypatch.setattr(
+            "app.routes.backtest_training._build_global_preview_payload",
+            lambda task_id: {"task": {"name": task_id}, "groups": []},
         )
 
-        assert response.status_code == 400
-        assert "最多支持 10 个任务" in response.get_json()["message"]
+        def fake_workbook(_payload):
+            workbook = Workbook()
+            workbook.active["A1"] = "ok"
+            return workbook
+
+        monkeypatch.setattr("app.routes.backtest_training._build_global_preview_workbook", fake_workbook)
+        response = app.test_client().post(
+            "/backtest-training/api/global-preview/batch-export",
+            json={"task_ids": task_ids},
+        )
+
+        assert response.status_code == 200
+        with ZipFile(BytesIO(response.data)) as archive:
+            assert len(archive.namelist()) == 11
 
 
 def test_global_preview_workbook_adds_summary_sheet_first():

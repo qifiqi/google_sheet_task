@@ -79,9 +79,6 @@ SUMMARY_ROW_LABELS = [
     ("excess_drawdown", "超额回撤"),
 ]
 
-BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS = 10
-
-
 def _normalize_scientific_text(text: str) -> str:
     if not SCIENTIFIC_NOTATION_RE.fullmatch(text):
         return text
@@ -170,12 +167,6 @@ def _validate_batch_global_preview_task_ids(raw_task_ids):
     task_ids = list(dict.fromkeys(task_ids))
     if not task_ids:
         return None, (jsonify({"status": "error", "message": "请选择至少一个任务"}), 400)
-
-    if len(task_ids) > BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS:
-        return None, (jsonify({
-            "status": "error",
-            "message": f"批量导出最多支持 {BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个",
-        }), 400)
 
     return task_ids, None
 

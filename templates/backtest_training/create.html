@@ -406,7 +406,7 @@ let selectedStockSuggestion = null;
 let taskNameTouched = false;
 
 const currentYear = new Date().getFullYear();
-const BACKTEST_GOOGLE_SHEETS_CACHE_KEY = 'backtest_training_google_sheets';
+const BACKTEST_GOOGLE_SHEETS_CACHE_KEY = 'backtest_training_google_sheets_v2';
 const BACKTEST_GOOGLE_SHEETS_CACHE_TTL = 5 * 60 * 1000;
 const MARKET_COMMISSION_VALUES = {
     cn: '0.0350%',
@@ -1273,7 +1273,7 @@ async function loadBacktestGoogleSheets() {
     googleSheetMenuList.innerHTML = '<div class="px-3 py-3 small text-body-secondary">加载中...</div>';
     showGoogleSheetOptions();
     try {
-        const response = await fetch('/api/google-sheets?table_type=backtest_training&only_available=1');
+        const response = await fetch('/api/google-sheets?table_type=backtest_training');
         const data = await response.json();
         if (data.status !== 'success') {
             throw new Error(data.message || '加载单品回测 Sheet 失败');

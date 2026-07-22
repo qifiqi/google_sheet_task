@@ -306,7 +306,7 @@
             <div class="modal-header bg-body-tertiary border-0 px-4 py-3">
                 <div>
                     <h5 class="modal-title fw-bold" id="batchExportModalLabel">批量导出当前页任务</h5>
-                    <div class="small text-body-secondary mt-1">已完成任务可选，导出为 ZIP，最多 10 个。</div>
+                    <div class="small text-body-secondary mt-1">已完成任务可选，导出为 ZIP。</div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
             </div>
@@ -339,7 +339,6 @@ const TASK_API_BASE = '/api/tasks';
 const BACKTEST_TASK_TYPE = 'backtest_training';
 const BATCH_EXPORT_API = '/backtest-training/api/global-preview/batch-export';
 const DEFAULT_PAGE_SIZE = 20;
-const BATCH_EXPORT_MAX_TASKS = 10;
 const LIST_PAGINATION_STORAGE_KEY = 'backtest_training:list_pagination';
 let paginationState = {
     page: 1,
@@ -584,7 +583,7 @@ function renderBatchExportTaskList() {
 
 function selectAllExportableTasks() {
     selectedBatchExportTaskIds.clear();
-    getExportableTasks().slice(0, BATCH_EXPORT_MAX_TASKS).forEach((task) => {
+    getExportableTasks().forEach((task) => {
         selectedBatchExportTaskIds.add(String(task.id));
     });
     renderBatchExportTaskList();
@@ -871,10 +870,8 @@ document.addEventListener('click', (event) => {
         const taskId = exportCard.dataset.taskId;
         if (selectedBatchExportTaskIds.has(taskId)) {
             selectedBatchExportTaskIds.delete(taskId);
-        } else if (selectedBatchExportTaskIds.size < BATCH_EXPORT_MAX_TASKS) {
-            selectedBatchExportTaskIds.add(taskId);
         } else {
-            alert(`批量导出最多支持 ${BATCH_EXPORT_MAX_TASKS} 个任务`);
+            selectedBatchExportTaskIds.add(taskId);
         }
         renderBatchExportTaskList();
         return;
