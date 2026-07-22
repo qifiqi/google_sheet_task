@@ -2,8 +2,15 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { getAccessToken } from '../api/http'
 import { useAuth } from '../composables/useAuth'
 import AdminLayout from '../layout/AdminLayout.vue'
-import DashboardView from '../views/DashboardView.vue'
-import LoginView from '../views/LoginView.vue'
+import DashboardView from '../pages/dashboard/DashboardView.vue'
+import LoginView from '../pages/auth/LoginView.vue'
+import ModelSummaryView from '../pages/data/ModelSummaryView.vue'
+import ResultListView from '../pages/tasks/ResultListView.vue'
+import SchedulerView from '../pages/scheduler/SchedulerView.vue'
+import TaskListView from '../pages/tasks/TaskListView.vue'
+import TemplateListView from '../pages/tasks/TemplateListView.vue'
+import XplJobListView from '../pages/tasks/XplJobListView.vue'
+import { migrationPlaceholderRoutes } from './migration-pages'
 
 const router = createRouter({
   history: createWebHistory('/web/'),
@@ -25,6 +32,43 @@ const router = createRouter({
           component: DashboardView,
           meta: { title: '工作台' },
         },
+        {
+          path: 'tasks',
+          name: 'Tasks',
+          component: TaskListView,
+          meta: { title: '任务管理', navPath: '/admin/tasks' },
+        },
+        {
+          path: 'templates',
+          name: 'Templates',
+          component: TemplateListView,
+          meta: { title: '任务模板', navPath: '/admin/templates' },
+        },
+        {
+          path: 'results',
+          name: 'Results',
+          component: ResultListView,
+          meta: { title: '任务结果', navPath: '/admin/results' },
+        },
+        {
+          path: 'xpl-analysis-jobs',
+          name: 'XplAnalysisJobs',
+          component: XplJobListView,
+          meta: { title: 'XPL Job 运维', navPath: '/admin/xpl-analysis-jobs' },
+        },
+        {
+          path: 'model-summary',
+          name: 'ModelSummary',
+          component: ModelSummaryView,
+          meta: { title: '单模型汇总', navPath: '/admin/model-summary' },
+        },
+        {
+          path: 'scheduler',
+          name: 'Scheduler',
+          component: SchedulerView,
+          meta: { title: '定时任务', navPath: '/admin/scheduler' },
+        },
+        ...migrationPlaceholderRoutes,
       ],
     },
     {

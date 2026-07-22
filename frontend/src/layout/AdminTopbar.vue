@@ -1,52 +1,140 @@
 <script setup lang="ts">
+import { computed, onMounted, onUnmounted, shallowRef } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
-  Bell,
   FullScreen,
-  Grid,
   Menu,
   Moon,
   Refresh,
   Search,
-  Setting,
+  Sunny,
   SwitchButton,
 } from '@element-plus/icons-vue'
-import type { CurrentUser } from '../types/api'
+import AdminSearchDialog from '../components/admin/AdminSearchDialog.vue'
+import type { CurrentUser, NavItem } from '../types/api'
 
-defineProps<{
+const props = defineProps<{
   user: CurrentUser | null
   roleText: string
+  navItems: readonly NavItem[]
+  breadcrumbItems: readonly string[]
+  refreshing: boolean
+  sidebarCollapsed: boolean
 }>()
 
 const emit = defineEmits<{
   toggleSidebar: []
+  refresh: []
+  navigate: [path: string]
   logout: []
 }>()
+
+const searchVisible = shallowRef(false)
+const isFullscreen = shallowRef(false)
+const theme = shallowRef<'light' | 'dark'>('light')
+const themeIcon = computed(() => theme.value === 'dark' ? Sunny : Moon)
+const themeLabel = computed(() => theme.value === 'dark' ? '切换浅色主题' : '切换深色主题')
+
+function applyTheme(nextTheme: 'light' | 'dark') {
+  theme.value = nextTheme
+  document.documentElement.dataset.theme = nextTheme
+  localStorage.setItem('admin_theme', nextTheme)
+}
+
+function toggleTheme() {
+  applyTheme(theme.value === 'dark' ? 'light' : 'dark')
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+    } else {
+      await document.documentElement.requestFullscreen()
+    }
+  } catch {
+    ElMessage.warning('浏览器未允许进入全屏')
+  }
+}
+
+function syncFullscreenState() {
+  isFullscreen.value = Boolean(document.fullscreenElement)
+}
+
+function handleShortcut(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === 'k') {
+    event.preventDefault()
+    searchVisible.value = true
+  }
+}
+
+onMounted(() => {
+  const storedTheme = localStorage.getItem('admin_theme')
+  applyTheme(storedTheme === 'dark' ? 'dark' : 'light')
+  document.addEventListener('fullscreenchange', syncFullscreenState)
+  window.addEventListener('keydown', handleShortcut)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', syncFullscreenState)
+  window.removeEventListener('keydown', handleShortcut)
+})
 </script>
 
 <template>
   <header class="admin-topbar">
     <div class="admin-topbar__left">
-      <el-button :icon="Menu" text class="admin-icon-button" @click="emit('toggleSidebar')" />
-      <el-button :icon="Refresh" text class="admin-icon-button" />
-      <el-button :icon="Grid" text class="admin-icon-button" />
-      <el-breadcrumb separator="/" class="admin-topbar__breadcrumb">
-        <el-breadcrumb-item>仪表盘</el-breadcrumb-item>
-        <el-breadcrumb-item>工作台</el-breadcrumb-item>
+      <el-tooltip :content="sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'" placement="bottom">
+        <el-button
+          :icon="Menu"
+          text
+          class="admin-icon-button"
+          :aria-label="sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'"
+          @click="emit('toggleSidebar')"
+        />
+      </el-tooltip>
+      <el-tooltip content="刷新当前页面" placement="bottom">
+        <el-button
+          :icon="Refresh"
+          :loading="props.refreshing"
+          text
+          class="admin-icon-button"
+          aria-label="刷新当前页面"
+          @click="emit('refresh')"
+        />
+      </el-tooltip>
+      <el-breadcrumb separator="/" class="admin-topbar__breadcrumb" aria-label="面包屑">
+        <el-breadcrumb-item v-for="item in breadcrumbItems" :key="item">{{ item }}</el-breadcrumb-item>
       </el-breadcrumb>
     </div>
 
     <div class="admin-topbar__right">
-      <el-input class="admin-topbar__search" placeholder="搜索" :prefix-icon="Search">
-        <template #suffix>
-          <span class="admin-topbar__kbd">ctrl k</span>
-        </template>
-      </el-input>
-      <el-button :icon="FullScreen" text class="admin-icon-button" />
-      <el-button :icon="Moon" text class="admin-icon-button" />
-      <el-badge is-dot class="admin-topbar__badge">
-        <el-button :icon="Bell" text class="admin-icon-button" />
-      </el-badge>
-      <el-button :icon="Setting" text class="admin-icon-button" />
+      <el-input
+        class="admin-topbar__search"
+        placeholder="搜索页面"
+        :prefix-icon="Search"
+        readonly
+        aria-label="搜索页面"
+        @click="searchVisible = true"
+      />
+      <el-tooltip :content="isFullscreen ? '退出全屏' : '进入全屏'" placement="bottom">
+        <el-button
+          :icon="FullScreen"
+          text
+          class="admin-icon-button"
+          :aria-label="isFullscreen ? '退出全屏' : '进入全屏'"
+          @click="toggleFullscreen"
+        />
+      </el-tooltip>
+      <el-tooltip :content="themeLabel" placement="bottom">
+        <el-button
+          :icon="themeIcon"
+          text
+          class="admin-icon-button"
+          :aria-label="themeLabel"
+          @click="toggleTheme"
+        />
+      </el-tooltip>
       <el-dropdown trigger="click">
         <button class="admin-topbar__user" type="button">
           <span class="admin-topbar__avatar">{{ user?.username?.slice(0, 2).toUpperCase() || 'JA' }}</span>
@@ -64,6 +152,12 @@ const emit = defineEmits<{
       </el-dropdown>
     </div>
   </header>
+
+  <AdminSearchDialog
+    v-model="searchVisible"
+    :items="navItems"
+    @select="emit('navigate', $event)"
+  />
 </template>
 
 <style scoped>
@@ -73,7 +167,7 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 22px;
+  padding: 0 18px;
   background: var(--admin-header-bg);
   border-bottom: 1px solid var(--admin-border);
 }
@@ -82,35 +176,18 @@ const emit = defineEmits<{
 .admin-topbar__right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
-.admin-topbar__breadcrumb {
-  margin-left: 14px;
-}
-
-.admin-topbar__search {
-  width: 162px;
-}
-
-.admin-topbar__kbd {
-  padding: 1px 7px;
-  border: 1px solid var(--admin-primary-border);
-  border-radius: 4px;
-  color: var(--admin-primary);
-  font-size: 11px;
-  line-height: 1.2;
-}
+.admin-topbar__breadcrumb { margin-left: 12px; }
+.admin-topbar__search { width: 176px; cursor: pointer; }
+.admin-topbar__search :deep(.el-input__wrapper) { cursor: pointer; }
 
 .admin-icon-button {
   width: 32px;
   height: 32px;
   color: var(--admin-text-muted);
-}
-
-.admin-topbar__badge {
-  height: 32px;
 }
 
 .admin-topbar__user {
@@ -132,7 +209,7 @@ const emit = defineEmits<{
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--admin-primary), #10b981);
+  background: var(--admin-primary);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -144,25 +221,25 @@ const emit = defineEmits<{
   line-height: 1.1;
 }
 
-.admin-topbar__user-text strong {
-  max-width: 90px;
+.admin-topbar__user-text strong,
+.admin-topbar__user-text small {
+  max-width: 92px;
   overflow: hidden;
-  color: var(--admin-text);
-  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.admin-topbar__user-text strong {
+  color: var(--admin-text);
+  font-size: 13px;
 }
 
 .admin-topbar__user-text small {
-  max-width: 90px;
-  overflow: hidden;
   color: var(--admin-text-placeholder);
   font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 860px) {
   .admin-topbar__breadcrumb,
   .admin-topbar__search,
   .admin-topbar__user-text {

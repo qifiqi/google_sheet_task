@@ -159,3 +159,4 @@ node_modules/
 docker-compose.override.yml
 dockers/postgres/data/
 test
+skills.copy/

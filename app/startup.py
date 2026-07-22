@@ -236,6 +236,25 @@ def ensure_xpl_analysis_job_schema():
         XplAnalysisJob.__table__.create(db.engine)
         return
 
+    columns = {column['name'] for column in inspector.get_columns('xpl_analysis_jobs')}
+    column_definitions = {
+        'load_elapsed_seconds': 'DOUBLE PRECISION',
+        'compute_elapsed_seconds': 'DOUBLE PRECISION',
+        'save_elapsed_seconds': 'DOUBLE PRECISION',
+        "push_status": "VARCHAR(20) NOT NULL DEFAULT 'pending'",
+        'pushed_at': 'TIMESTAMP',
+        'push_error_message': 'TEXT',
+    }
+    changed = False
+    for column_name, definition in column_definitions.items():
+        if column_name not in columns:
+            db.session.execute(
+                text(f'ALTER TABLE xpl_analysis_jobs ADD COLUMN {column_name} {definition}')
+            )
+            changed = True
+    if changed:
+        db.session.commit()
+
     indexes = {index['name'] for index in inspector.get_indexes('xpl_analysis_jobs')}
     if 'idx_xpl_jobs_status_created' not in indexes:
         db.session.execute(

@@ -14,7 +14,22 @@ const emit = defineEmits<{
   select: [path: string]
 }>()
 
-const defaultOpeneds = computed(() => props.items.map((item) => item.path || item.key))
+function findOpenPath(items: readonly NavItem[], activePath: string, parents: string[] = []): string[] {
+  for (const item of items) {
+    if (item.path === activePath) return parents
+
+    const openPath = findOpenPath(
+      item.children || [],
+      activePath,
+      [...parents, item.path || item.key],
+    )
+    if (openPath.length) return openPath
+  }
+
+  return []
+}
+
+const defaultOpeneds = computed(() => findOpenPath(props.items, props.activePath))
 </script>
 
 <template>
@@ -27,12 +42,13 @@ const defaultOpeneds = computed(() => props.items.map((item) => item.path || ite
       </div>
     </div>
 
-    <el-scrollbar class="admin-sidebar__scroll">
+    <el-scrollbar class="admin-sidebar__scroll" always :min-size="36">
       <el-menu
         :collapse="collapsed"
         :collapse-transition="false"
         :default-active="activePath"
         :default-openeds="defaultOpeneds"
+        unique-opened
         class="admin-sidebar__menu"
         @select="emit('select', $event)"
       >
@@ -133,17 +149,24 @@ const defaultOpeneds = computed(() => props.items.map((item) => item.path || ite
   color: var(--admin-text-muted);
 }
 
+:deep(.el-menu-item.is-active .el-icon) {
+  color: var(--admin-primary);
+}
+
 @media (max-width: 900px) {
   .admin-sidebar {
     position: fixed;
     z-index: 30;
+    inset: 0 auto 0 0;
+    width: min(var(--admin-sidebar-width), 80vw);
+    box-shadow: 8px 0 24px rgba(15, 23, 42, 0.12);
     transform: translateX(0);
   }
 
   .admin-sidebar.is-collapsed {
-    width: 0;
-    overflow: hidden;
+    transform: translateX(-100%);
     border-right: 0;
+    box-shadow: none;
   }
 }
 </style>

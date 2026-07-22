@@ -1,13 +1,14 @@
 from sqlalchemy import inspect, text
 
 from app.extensions import db
-from app.models import BacktestSheetRunLock, ScheduledTask, Task
+from app.models import BacktestSheetRunLock, ScheduledTask, Task, XplAnalysisJob
 from app.startup import (
     cleanup_stale_backtest_sheet_run_locks,
     ensure_google_sheet_id_sequence,
     ensure_google_sheet_registry_schema,
     ensure_scheduled_task_schema,
     ensure_task_result_summary_index_schema,
+    ensure_xpl_analysis_job_schema,
 )
 
 
@@ -140,3 +141,45 @@ def test_ensure_task_result_summary_index_schema_adds_period_key_to_legacy_table
 
     assert "period_key" in columns
     assert any(index.get("column_names") == ["period_key"] for index in indexes)
+
+
+def test_ensure_xpl_analysis_job_schema_adds_runtime_columns_to_legacy_table(app_factory):
+    db.session.execute(text("DROP TABLE xpl_analysis_jobs"))
+    db.session.execute(
+        text(
+            """
+            CREATE TABLE xpl_analysis_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id VARCHAR(36) NOT NULL,
+                task_result_id INTEGER NOT NULL,
+                return_series_id INTEGER NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 3,
+                locked_by VARCHAR(100),
+                locked_at DATETIME,
+                started_at DATETIME,
+                finished_at DATETIME,
+                error_message TEXT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME
+            )
+            """
+        )
+    )
+    db.session.commit()
+
+    ensure_xpl_analysis_job_schema()
+
+    inspector = inspect(db.engine)
+    columns = {column["name"] for column in inspector.get_columns("xpl_analysis_jobs")}
+
+    assert {
+        "load_elapsed_seconds",
+        "compute_elapsed_seconds",
+        "save_elapsed_seconds",
+        "push_status",
+        "pushed_at",
+        "push_error_message",
+    } <= columns
+    assert XplAnalysisJob.query.all() == []

@@ -1,0 +1,27 @@
+.legacy-page-placeholder {
+  display: grid;
+  gap: 16px;
+}
+
+.legacy-page-placeholder__header p {
+  margin: 0 0 2px;
+  color: var(--admin-text-muted);
+  font-size: 13px;
+}
+
+.legacy-page-placeholder__header h1 {
+  margin: 0;
+  color: var(--admin-text);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+}
+
+.legacy-page-placeholder__panel {
+  display: grid;
+  min-height: 320px;
+  place-items: center;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface);
+}

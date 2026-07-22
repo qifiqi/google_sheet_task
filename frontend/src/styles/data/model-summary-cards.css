@@ -1,0 +1,178 @@
+.summary-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.summary-card-grid--option-one {
+  align-items: stretch;
+}
+
+.summary-market-card,
+.return-threshold-card {
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.summary-market-card {
+  padding: 10px 14px;
+  background: var(--admin-surface);
+}
+
+.summary-card-title,
+.return-card-title {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.summary-main-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.summary-main-number {
+  color: var(--admin-text);
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-main-label,
+.market-row,
+.market-task-row {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+}
+
+.market-share-bar {
+  display: block;
+  margin: 7px 0 6px;
+}
+
+.market-share-bar .el-progress-bar__outer {
+  background: #6366f1;
+}
+
+.market-share-bar .el-progress-bar__inner {
+  background: #22c55e;
+}
+
+.market-inline-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.market-row,
+.market-task-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-width: 0;
+}
+
+.market-row strong,
+.market-task-row strong {
+  color: var(--admin-text);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.market-task-row {
+  margin-top: 2px;
+}
+
+.market-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+}
+
+.market-dot--cn { background: #22c55e; }
+.market-dot--us { background: #6366f1; }
+
+.return-threshold-card {
+  padding: 10px 12px;
+}
+
+.return-card-threshold {
+  margin-top: 1px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.return-card-count {
+  margin-top: 3px;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.return-progress {
+  display: block;
+  margin-top: 6px;
+}
+
+.return-card-caption {
+  margin-top: 5px;
+  color: var(--admin-text-muted);
+  font-size: 11px;
+}
+
+.return-card-rate {
+  margin-top: 1px;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.return-threshold-card--positive { background: #f0fdf4; border-color: #bbf7d0; }
+.return-threshold-card--medium { background: #f7fee7; border-color: #d9f99d; }
+.return-threshold-card--strong { background: #fffbeb; border-color: #fde68a; }
+.return-threshold-card--extreme { background: #fef2f2; border-color: #fecaca; }
+
+.return-threshold-card--positive .return-card-title,
+.return-threshold-card--positive .return-card-threshold,
+.return-threshold-card--positive .return-card-count,
+.return-threshold-card--positive .return-card-rate { color: #166534; }
+
+.return-threshold-card--medium .return-card-title,
+.return-threshold-card--medium .return-card-threshold,
+.return-threshold-card--medium .return-card-count,
+.return-threshold-card--medium .return-card-rate { color: #4d7c0f; }
+
+.return-threshold-card--strong .return-card-title,
+.return-threshold-card--strong .return-card-threshold,
+.return-threshold-card--strong .return-card-count,
+.return-threshold-card--strong .return-card-rate { color: #92400e; }
+
+.return-threshold-card--extreme .return-card-title,
+.return-threshold-card--extreme .return-card-threshold,
+.return-threshold-card--extreme .return-card-count,
+.return-threshold-card--extreme .return-card-rate { color: #991b1b; }
+
+.return-threshold-card--positive .el-progress-bar__inner { background: #16a34a; }
+.return-threshold-card--medium .el-progress-bar__inner { background: #65a30d; }
+.return-threshold-card--strong .el-progress-bar__inner { background: #d97706; }
+.return-threshold-card--extreme .el-progress-bar__inner { background: #dc2626; }
+
+@media (min-width: 1200px) {
+  .summary-card-grid { grid-template-columns: minmax(280px, 1.45fr) repeat(4, minmax(148px, 1fr)); }
+}
+
+@media (max-width: 1199px) {
+  .summary-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .summary-card-grid { grid-template-columns: 1fr; }
+}

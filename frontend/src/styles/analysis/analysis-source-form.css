@@ -1,0 +1,8 @@
+.analysis-source-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.analysis-source-form .el-input { width: min(100%, 420px); }
+.analysis-source-form .el-select { width: 220px; }
+.analysis-source-form__title { color: var(--admin-text-muted); font-size: 13px; }
+
+@media (max-width: 640px) {
+  .analysis-source-form .el-input, .analysis-source-form .el-select { width: 100%; }
+}

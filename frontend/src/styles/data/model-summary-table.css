@@ -1,0 +1,52 @@
+.model-summary-table {
+  width: 100%;
+}
+
+.model-summary-table__stock,
+.model-summary-table__task {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.model-summary-table__stock strong,
+.model-summary-table__task strong {
+  color: var(--admin-text);
+  font-weight: 600;
+}
+
+.model-summary-table__stock span,
+.model-summary-table__task span {
+  overflow: hidden;
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-summary-table__parameters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.model-summary-table__parameters .el-tag {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-summary-table__metric {
+  color: var(--admin-text-regular);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.model-summary-table__metric.is-positive {
+  color: var(--admin-success);
+}
+
+.model-summary-table__metric.is-negative {
+  color: var(--admin-danger);
+}

@@ -1,0 +1,30 @@
+.scheduler-dialog__form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.scheduler-dialog__form-grid .el-select {
+  width: 100%;
+}
+
+.scheduler-dialog__hint,
+.scheduler-dialog__error {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.scheduler-dialog__hint { color: var(--admin-text-muted); }
+.scheduler-dialog__error { color: var(--admin-danger); }
+
+.scheduler-dialog__params textarea {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+@media (max-width: 640px) {
+  .scheduler-dialog__form-grid { grid-template-columns: 1fr; }
+}

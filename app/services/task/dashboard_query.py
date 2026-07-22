@@ -5,9 +5,22 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import case, false, func
 
-from app.models import Task
+from app.extensions import db
+from app.models import (
+    BacktestSheetRunLock,
+    GoogleSheet,
+    GoogleSheetToken,
+    ScheduledTask,
+    StockMetadata,
+    Task,
+    TaskLog,
+    TaskResult,
+    TaskResultSummaryIndex,
+    TaskTemplate,
+    XplAnalysisJob,
+)
 from app.utils.task_authorization import filter_task_types_by_action
 
 
@@ -39,6 +52,12 @@ class TaskDashboardQueryService:
             "daily_trend": daily_trend,
             "recent_tasks": [],
             "active_tasks": [],
+            "execution_health": {
+                "results": self._empty_result_health(),
+                "xpl_jobs": self._empty_xpl_health(),
+            },
+            "resource_health": {},
+            "recent_alerts": [],
             "checked_at": now.isoformat(),
         }
 
@@ -100,6 +119,220 @@ class TaskDashboardQueryService:
             "cancelled_tasks": status_distribution.get("cancelled", 0),
             "pending_tasks": status_distribution.get("pending", 0),
         }
+
+    def get_execution_health(self, allowed_task_types: Iterable[str]) -> dict:
+        allowed_types = list(allowed_task_types)
+        if not allowed_types:
+            return {
+                "results": self._empty_result_health(),
+                "xpl_jobs": self._empty_xpl_health(),
+            }
+
+        result_total, result_success = (
+            db.session.query(
+                func.count(TaskResult.id),
+                func.coalesce(
+                    func.sum(case((TaskResult.success.is_(True), 1), else_=0)),
+                    0,
+                ),
+            )
+            .join(Task, Task.id == TaskResult.task_id)
+            .filter(Task.task_type.in_(allowed_types))
+            .one()
+        )
+        result_total = int(result_total or 0)
+        result_success = int(result_success or 0)
+
+        xpl_rows = (
+            db.session.query(XplAnalysisJob.status, func.count(XplAnalysisJob.id))
+            .join(Task, Task.id == XplAnalysisJob.task_id)
+            .filter(Task.task_type.in_(allowed_types))
+            .group_by(XplAnalysisJob.status)
+            .all()
+        )
+        xpl_statuses = {status: int(count) for status, count in xpl_rows if status}
+        avg_compute_seconds = (
+            db.session.query(func.avg(XplAnalysisJob.compute_elapsed_seconds))
+            .join(Task, Task.id == XplAnalysisJob.task_id)
+            .filter(
+                Task.task_type.in_(allowed_types),
+                XplAnalysisJob.status == "completed",
+            )
+            .scalar()
+        )
+        xpl_total = sum(xpl_statuses.values())
+        xpl_backlog = sum(
+            xpl_statuses.get(status, 0)
+            for status in ("pending", "running", "retrying")
+        )
+
+        return {
+            "results": {
+                "total": result_total,
+                "success": result_success,
+                "failed": result_total - result_success,
+                "success_rate": (
+                    round((result_success / result_total) * 100, 2)
+                    if result_total else 0
+                ),
+            },
+            "xpl_jobs": {
+                "total": xpl_total,
+                "pending": xpl_statuses.get("pending", 0),
+                "running": xpl_statuses.get("running", 0),
+                "retrying": xpl_statuses.get("retrying", 0),
+                "completed": xpl_statuses.get("completed", 0),
+                "error": xpl_statuses.get("error", 0),
+                "cancelled": xpl_statuses.get("cancelled", 0),
+                "backlog": xpl_backlog,
+                "avg_compute_seconds": (
+                    round(float(avg_compute_seconds), 3)
+                    if avg_compute_seconds is not None else None
+                ),
+            },
+        }
+
+    def get_resource_health(
+        self,
+        user,
+        allowed_task_types: Iterable[str],
+    ) -> dict:
+        permissions = self._get_permissions(user)
+        resource_health = {}
+
+        if permissions.intersection({"google_sheet:view", "google_sheet:manage"}):
+            sheet_total, sheet_active, sheet_in_use = db.session.query(
+                func.count(GoogleSheet.id),
+                func.coalesce(
+                    func.sum(case((GoogleSheet.is_active.is_(True), 1), else_=0)),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(case((GoogleSheet.is_in_use.is_(True), 1), else_=0)),
+                    0,
+                ),
+            ).one()
+            token_total, token_active, token_usage = db.session.query(
+                func.count(GoogleSheetToken.id),
+                func.coalesce(
+                    func.sum(case((GoogleSheetToken.is_active.is_(True), 1), else_=0)),
+                    0,
+                ),
+                func.coalesce(func.sum(GoogleSheetToken.current_in_use_count), 0),
+            ).one()
+            token_available = GoogleSheetToken.query.filter(
+                GoogleSheetToken.is_active.is_(True),
+                (
+                    (GoogleSheetToken.max_usage_count <= 0)
+                    | (
+                        GoogleSheetToken.current_in_use_count
+                        < GoogleSheetToken.max_usage_count
+                    )
+                ),
+            ).count()
+            resource_health["google_sheets"] = {
+                "total": int(sheet_total or 0),
+                "active": int(sheet_active or 0),
+                "in_use": int(sheet_in_use or 0),
+                "available": max(0, int(sheet_active or 0) - int(sheet_in_use or 0)),
+            }
+            resource_health["google_sheet_tokens"] = {
+                "total": int(token_total or 0),
+                "active": int(token_active or 0),
+                "available": int(token_available or 0),
+                "current_usage": int(token_usage or 0),
+            }
+
+        if permissions.intersection({"scheduler:view", "scheduler:manage"}):
+            scheduled_total, scheduled_active, scheduled_running = db.session.query(
+                func.count(ScheduledTask.id),
+                func.coalesce(
+                    func.sum(case((ScheduledTask.is_active.is_(True), 1), else_=0)),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(case((ScheduledTask.is_running.is_(True), 1), else_=0)),
+                    0,
+                ),
+            ).one()
+            next_run_at = (
+                db.session.query(func.min(ScheduledTask.next_run_time))
+                .filter(ScheduledTask.is_active.is_(True))
+                .scalar()
+            )
+            resource_health["scheduled_tasks"] = {
+                "total": int(scheduled_total or 0),
+                "active": int(scheduled_active or 0),
+                "running": int(scheduled_running or 0),
+                "next_run_at": next_run_at.isoformat() if next_run_at else None,
+            }
+
+        if permissions.intersection({"backtest:view", "backtest:create"}):
+            resource_health["backtest_locks"] = {
+                "active": BacktestSheetRunLock.query.count(),
+            }
+
+        catalog = {}
+        if permissions.intersection({"template:view", "template:manage"}):
+            catalog["task_templates"] = TaskTemplate.query.count()
+        if permissions.intersection({"backtest:view", "backtest:create"}):
+            catalog["stock_metadata"] = StockMetadata.query.count()
+        if permissions.intersection({"database:model_summary", "database:manage"}):
+            allowed_types = list(allowed_task_types)
+            summary_query = TaskResultSummaryIndex.query
+            if allowed_types:
+                summary_query = summary_query.filter(
+                    TaskResultSummaryIndex.task_type.in_(allowed_types)
+                )
+            else:
+                summary_query = summary_query.filter(false())
+            catalog["result_summaries"] = summary_query.count()
+            catalog["best_summaries"] = summary_query.filter(
+                TaskResultSummaryIndex.is_best.is_(True)
+            ).count()
+        if catalog:
+            resource_health["catalog"] = catalog
+
+        return resource_health
+
+    def get_recent_alerts(
+        self,
+        allowed_task_types: Iterable[str],
+        limit: int = 6,
+    ) -> list[dict]:
+        allowed_types = list(allowed_task_types)
+        if not allowed_types:
+            return []
+
+        rows = (
+            db.session.query(
+                TaskLog.id,
+                TaskLog.task_id,
+                Task.name,
+                TaskLog.level,
+                TaskLog.message,
+                TaskLog.timestamp,
+            )
+            .join(Task, Task.id == TaskLog.task_id)
+            .filter(
+                Task.task_type.in_(allowed_types),
+                TaskLog.level.in_(("warning", "error")),
+            )
+            .order_by(TaskLog.timestamp.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "id": row.id,
+                "task_id": row.task_id,
+                "task_name": row.name,
+                "level": row.level,
+                "message": self._summarize_alert_message(row.message),
+                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+            }
+            for row in rows
+        ]
 
     def get_daily_trend(
         self,
@@ -195,3 +428,35 @@ class TaskDashboardQueryService:
         if hasattr(raw_date, "isoformat"):
             return raw_date.isoformat()
         return str(raw_date)
+
+    def _get_permissions(self, user) -> set[str]:
+        if not user or not hasattr(user, "get_permissions"):
+            return set()
+        return set(user.get_permissions() or set())
+
+    def _summarize_alert_message(self, message: str | None) -> str:
+        compact = " ".join((message or "").split())
+        for marker in ("Traceback (most recent call last):", " Traceback "):
+            compact = compact.split(marker, 1)[0].strip()
+        return compact if len(compact) <= 180 else f"{compact[:177]}..."
+
+    def _empty_result_health(self) -> dict:
+        return {
+            "total": 0,
+            "success": 0,
+            "failed": 0,
+            "success_rate": 0,
+        }
+
+    def _empty_xpl_health(self) -> dict:
+        return {
+            "total": 0,
+            "pending": 0,
+            "running": 0,
+            "retrying": 0,
+            "completed": 0,
+            "error": 0,
+            "cancelled": 0,
+            "backlog": 0,
+            "avg_compute_seconds": None,
+        }

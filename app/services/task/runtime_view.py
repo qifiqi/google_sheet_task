@@ -7,8 +7,6 @@ from datetime import datetime
 from typing import Any
 
 from app.extensions import db
-import json
-
 from app.models import Task, TaskLog, TaskResult, TaskResultReturn, XplAnalysisJob
 
 from app.services.return_series_service import ReturnSeriesService
@@ -281,15 +279,36 @@ class TaskRuntimeViewService:
         )
         return data
 
+    def serialize_dashboard_task(self, task: Task) -> dict[str, Any]:
+        duration_seconds = None
+        if task.start_time:
+            end_at = task.end_time or datetime.now()
+            duration_seconds = max(
+                0,
+                int((end_at - task.start_time).total_seconds()),
+            )
+
+        return {
+            "id": task.id,
+            "name": task.name,
+            "task_type": task.task_type,
+            "status": task.status,
+            "current_step": task.current_step,
+            "total_steps": task.total_steps,
+            "progress_percentage": task.get_progress_percentage(),
+            "duration_seconds": duration_seconds,
+            "error_message": task.error_message,
+            "start_time": task.start_time.isoformat() if task.start_time else None,
+            "end_time": task.end_time.isoformat() if task.end_time else None,
+            "created_at": task.created_at.isoformat() if task.created_at else None,
+        }
+
     def build_dashboard_overview(self, user) -> dict[str, Any]:
         now = datetime.now()
         allowed_task_types = self._dashboard_query_service.get_allowed_task_types(
             user,
             "view",
         )
-
-        if not allowed_task_types:
-            return self._dashboard_query_service.build_empty_overview(now)
 
         status_distribution = self._dashboard_query_service.get_status_distribution(
             allowed_task_types
@@ -313,9 +332,13 @@ class TaskRuntimeViewService:
             limit=6,
         )
 
-        recent_tasks = [self.serialize_task_runtime(task) for task in recent_task_models]
+        recent_tasks = [
+            self.serialize_dashboard_task(task)
+            for task in recent_task_models
+        ]
         active_tasks = [
-            self.serialize_task_runtime(task) for task in running_task_models
+            self.serialize_dashboard_task(task)
+            for task in running_task_models
         ]
 
         return {
@@ -326,5 +349,16 @@ class TaskRuntimeViewService:
             "daily_trend": daily_trend,
             "recent_tasks": recent_tasks,
             "active_tasks": active_tasks,
+            "execution_health": self._dashboard_query_service.get_execution_health(
+                allowed_task_types
+            ),
+            "resource_health": self._dashboard_query_service.get_resource_health(
+                user,
+                allowed_task_types,
+            ),
+            "recent_alerts": self._dashboard_query_service.get_recent_alerts(
+                allowed_task_types,
+                limit=6,
+            ),
             "checked_at": now.isoformat(),
         }

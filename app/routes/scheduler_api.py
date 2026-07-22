@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 import json
 from croniter import croniter
+from sqlalchemy import or_
 from app.extensions import db
 from app.models import ScheduledTask, TaskType
 from app.services.scheduler_service import scheduler_service
@@ -50,7 +51,23 @@ def get_scheduled_tasks():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
         
-        tasks_query = ScheduledTask.query.order_by(ScheduledTask.created_at.desc())
+        tasks_query = ScheduledTask.query
+        keyword = (request.args.get('keyword') or '').strip()
+        task_type = (request.args.get('task_type') or '').strip()
+        is_active = request.args.get('is_active')
+
+        if keyword:
+            pattern = f'%{keyword}%'
+            tasks_query = tasks_query.filter(or_(
+                ScheduledTask.name.ilike(pattern),
+                ScheduledTask.description.ilike(pattern),
+            ))
+        if task_type:
+            tasks_query = tasks_query.filter(ScheduledTask.task_type == task_type)
+        if is_active in {'true', 'false'}:
+            tasks_query = tasks_query.filter(ScheduledTask.is_active.is_(is_active == 'true'))
+
+        tasks_query = tasks_query.order_by(ScheduledTask.created_at.desc())
         tasks_pagination = tasks_query.paginate(page=page, per_page=per_page, error_out=False)
         
         tasks = []

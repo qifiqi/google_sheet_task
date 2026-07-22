@@ -3,6 +3,7 @@ import json
 from sqlalchemy.orm import load_only
 
 from app.models import TaskTemplate, Task, TaskResult, TaskType, db
+from app.services.task_result_summary import build_task_result_list_item
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action, filter_task_types_by_action
@@ -15,6 +16,19 @@ TASK_ACTION_LABELS = {
     "view": "查看",
     "delete": "删除",
 }
+
+
+def _normalize_template_config(config):
+    if not isinstance(config, dict):
+        return config
+
+    normalized = dict(config)
+    task_type = normalized.get("task_type")
+    if not task_type:
+        normalized["task_type"] = TaskType.GOOGLE_SHEET.value
+    else:
+        normalized["task_type"] = TaskType.normalize(task_type, task_type)
+    return normalized
 
 
 def _result_permission_denied(action: str, task_type: str | None, decision: dict, result_id: int | None = None, task_id: str | None = None):
@@ -53,7 +67,7 @@ def get_templates():
                 except Exception:
                     continue
                 template_task_type = (
-                    TaskType.normalize(cfg.get('task_type'), cfg.get('task_type'))
+                    TaskType.normalize(cfg.get('task_type'), TaskType.GOOGLE_SHEET.value)
                     if isinstance(cfg, dict)
                     else None
                 )
@@ -90,11 +104,7 @@ def create_template():
                 config_json = json.loads(data['config'])
             else:
                 config_json = data['config']
-            if isinstance(config_json, dict) and 'task_type' in config_json:
-                config_json['task_type'] = TaskType.normalize(
-                    config_json.get('task_type'),
-                    config_json.get('task_type'),
-                )
+            config_json = _normalize_template_config(config_json)
             config_str = json.dumps(config_json)
         except json.JSONDecodeError:
             return jsonify({"status": "error", "message": "配置信息不是有效的JSON格式"}), 400
@@ -149,7 +159,10 @@ def update_template(template_id):
 
         template.name = data['name']
         template.description = data.get('description', template.description)
-        template.config = json.dumps(data['config']) if isinstance(data['config'], (dict, list)) else data['config']
+        config = data['config']
+        if isinstance(config, str):
+            config = json.loads(config)
+        template.config = json.dumps(_normalize_template_config(config))
 
         db.session.commit()
 
@@ -189,13 +202,19 @@ def get_results():
         task_id = request.args.get('task_id', None)
         current_user = getattr(g, "current_user", None)
 
-        query = TaskResult.query.join(Task, Task.id == TaskResult.task_id).options(
+        query = (
+            db.session.query(TaskResult, Task.name, Task.task_type)
+            .join(Task, Task.id == TaskResult.task_id)
+            .options(
             load_only(
                 TaskResult.id,
                 TaskResult.task_id,
                 TaskResult.step_index,
+                TaskResult.parameters,
+                TaskResult.result,
                 TaskResult.success,
                 TaskResult.timestamp,
+            )
             )
         )
 
@@ -236,14 +255,8 @@ def get_results():
         )
 
         results = [
-            {
-                "id": result.id,
-                "task_id": result.task_id,
-                "step_index": result.step_index,
-                "success": result.success,
-                "timestamp": result.timestamp.isoformat() if result.timestamp else None,
-            }
-            for result in pagination.items
+            build_task_result_list_item(result, task_name, task_type)
+            for result, task_name, task_type in pagination.items
         ]
 
         return jsonify({
@@ -263,7 +276,7 @@ def get_result(result_id):
     """获取任务结果详情"""
     try:
         record = (
-            db.session.query(TaskResult, Task.task_type)
+            db.session.query(TaskResult, Task.name, Task.task_type)
             .join(Task, Task.id == TaskResult.task_id)
             .filter(TaskResult.id == result_id)
             .first()
@@ -271,12 +284,14 @@ def get_result(result_id):
         if not record:
             return jsonify({"status": "error", "message": "结果不存在"}), 404
 
-        result, task_type = record
+        result, task_name, task_type = record
         decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_type)
         if not decision["allowed"]:
             return _result_permission_denied("view", task_type, decision, result_id=result_id, task_id=result.task_id)
 
-        return jsonify(result.to_dict())
+        payload = result.to_dict()
+        payload.update(build_task_result_list_item(result, task_name, task_type))
+        return jsonify(payload)
     except Exception as e:
         logger.error(f"获取结果详情失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
