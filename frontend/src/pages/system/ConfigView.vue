@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, shallowRef } from 'vue'
+import { h, onMounted, reactive, shallowRef } from 'vue'
 import { Plus, Refresh, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SystemPageHeader from '../../components/system/SystemPageHeader.vue'
@@ -82,7 +82,7 @@ async function removeToken(token: GoogleSheetToken) {
 async function validateConfig() {
   try {
     const payload = await systemConfig.validate()
-    await ElMessageBox.alert(`<pre>${JSON.stringify(payload.validation, null, 2)}</pre>`, '配置校验结果', { dangerouslyUseHTMLString: true, confirmButtonText: '关闭' })
+    await ElMessageBox.alert(h('pre', JSON.stringify(payload.validation, null, 2)), '配置校验结果', { confirmButtonText: '关闭' })
   } catch (error) { ElMessage.error(error instanceof Error ? error.message : '配置校验失败') }
 }
 
