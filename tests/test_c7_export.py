@@ -52,19 +52,12 @@ def test_c7_export_reads_shifted_metric_cells():
     sheet = export.workbook.active
     row = [cell.value for cell in sheet[2]]
 
-    assert row[:10] == [
-        2,
-        "ml-a",
-        0.04,
-        -0.01,
-        0.1,
-        0.11,
-        -0.05,
-        0.07,
-        0.08,
-        -0.06,
-    ]
-    assert row[10:] == pytest.approx([
+    assert row[:2] == [2, "ml-a"]
+    assert row[2:13] == pytest.approx([
+        0.03, 0.01, 0.03, 0.04, -0.01,
+        0.1, 0.11, -0.05, 0.07, 0.08, -0.06,
+    ])
+    assert row[13:] == pytest.approx([
         0.0123,
         0.0234,
         0.1111,
@@ -96,7 +89,8 @@ def test_c5_export_uses_sheet_calculated_beats():
 
     row = [cell.value for cell in build_task_export(task, results).workbook.active[2]]
 
-    assert row[2:4] == pytest.approx([0.0291, -0.0178])
+    assert row[2:5] == pytest.approx([0.2017, -0.0178, 0.0292])
+    assert row[5:7] == pytest.approx([0.0291, -0.0178])
 
 
 def test_c7_export_preserves_shifted_beats_and_unformatted_percentages():
@@ -121,17 +115,10 @@ def test_c7_export_preserves_shifted_beats_and_unformatted_percentages():
 
     row = [cell.value for cell in build_task_export(task, results).workbook.active[2]]
 
-    assert row[2:12] == pytest.approx([
-        -0.4404,
-        -0.3,
-        -0.0339,
-        -0.0114,
-        -0.78,
-        1.9205,
-        0.4289,
-        -0.4778,
-        -0.0032,
-        -0.0102,
+    assert row[2:15] == pytest.approx([
+        -1.9544, -0.3022, -0.44, -0.4404, -0.3,
+        -0.0339, -0.0114, -0.78, 1.9205, 0.4289, -0.4778,
+        -0.0032, -0.0102,
     ])
 
 

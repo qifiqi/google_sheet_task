@@ -20,6 +20,9 @@ EXCEL_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sh
 C5_EXPORT_COLUMNS = [
     "xm",
     "ml",
+    "ReturnBeats_0",
+    "ddBeats_0",
+    "AnnualizedBeats_0",
     "ReturnBeats",
     "ddBeats",
     "Return",
@@ -42,6 +45,9 @@ C5_PERCENT_METRIC_KEYS = frozenset(C5_EXPORT_METRIC_KEYS)
 PERCENT_COLUMN_NAMES = {
     "ReturnBeats",
     "ddBeats",
+    "ReturnBeats_0",
+    "ddBeats_0",
+    "AnnualizedBeats_0",
     "Return",
     "Annualized",
     "Max DD%",
@@ -162,6 +168,9 @@ C5_COLUMN_WIDTHS = {
     "ml": 7,
     "ReturnBeats": 12,
     "ddBeats": 10,
+    "ReturnBeats_0": 14,
+    "ddBeats_0": 12,
+    "AnnualizedBeats_0": 18,
     "Return": 10,
     "Annualized": 12,
     "Max DD%": 10,
@@ -427,11 +436,19 @@ def c5_model_row(group: C5ResultGroup, model: dict[str, Any]) -> list[Any]:
     metrics = model["metrics"]
     start_xpl = model["start_xpl"]
     index_xpl = model["index_xpl"]
+    return_beats_0 = c5_percent_difference(metrics.get("D2"), metrics.get("D5"))
+    dd_beats_0 = c5_percent_difference(metrics.get("D4"), metrics.get("D7"))
+    annualized_beats_0 = c5_percent_difference(metrics.get("D3"), metrics.get("D6"))
 
     return [
         group.xm if group.xm is not None else "",
         group.ml if group.ml is not None else "",
-        *[c5_metric_value(metrics, key) for key in C5_EXPORT_METRIC_KEYS],
+        return_beats_0,
+        dd_beats_0,
+        annualized_beats_0,
+        c5_metric_value(metrics, "D11"),
+        c5_metric_value(metrics, "D12"),
+        *[c5_metric_value(metrics, key) for key in C5_EXPORT_METRIC_KEYS[2:]],
         start_xpl.get("annual_std_dev", ""),
         index_xpl.get("annual_std_dev", ""),
         model.get("index_sharpe", ""),
@@ -443,6 +460,14 @@ def c5_metric_value(metrics: dict[str, Any], key: str) -> Any:
     """结果表已计算 D11/D12，导出直接保留原始指标。"""
 
     return metrics.get(key, "")
+
+
+def c5_percent_difference(left: Any, right: Any) -> Any:
+    """按导出百分比规则计算两项指标差值。"""
+
+    left_value = excel_cell(left, "Return")
+    right_value = excel_cell(right, "Return")
+    return _safe_subtract(left_value, right_value)
 
 
 def c5_metric_keys() -> list[str]:
