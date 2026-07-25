@@ -1,4 +1,5 @@
-import { readonly, shallowRef } from 'vue'
+import { computed } from 'vue'
+import { useMutation, useQuery } from '@tanstack/vue-query'
 import { requestJson } from '../api/http'
 import type { AnalysisRecord, AnalysisSource, WorksheetResponse } from '../types/analysis'
 
@@ -8,70 +9,71 @@ interface SourceFormPayload {
   worksheetName: string
 }
 
-export function useAnalysisResult(source: AnalysisSource) {
-  const result = shallowRef<AnalysisRecord | null>(null)
-  const loading = shallowRef(false)
-  const errorMessage = shallowRef('')
-  const worksheetNames = shallowRef<string[]>([])
-  const spreadsheetTitle = shallowRef('')
+export function useAnalysisResult(source: AnalysisSource, resultId?: string) {
+  const resultQuery = useQuery({
+    queryKey: ['analysis-result', source, resultId],
+    enabled: source !== 'xpl-v1' && Boolean(resultId),
+    queryFn: async () => {
+      const prefix = source === 'backtest-training' ? '/backtest-training' : '/backtest-multi-product'
+      const payload = await requestJson<{ status: string; result: AnalysisRecord }>(`${prefix}/api/task-result/${encodeURIComponent(resultId || '')}`)
+      return extractAnalysisResult(payload.result)
+    },
+  })
+  const analyzeV1Mutation = useMutation({
+    mutationFn: async (payload: SourceFormPayload) => {
+      const response = await requestJson<{ status: string; results: AnalysisRecord }>('/xpl/v1/analyze', {
+        method: 'POST',
+        body: JSON.stringify({
+          google_sheet_url: payload.googleSheetUrl,
+          spreadsheet_id: payload.spreadsheetId,
+          google_sheet_name: payload.worksheetName,
+        }),
+      })
+      return response.results
+    },
+  })
+  const worksheetMutation = useMutation({
+    mutationFn: async (spreadsheetId: string) => {
+      const payload = await requestJson<WorksheetResponse>('/api/google-sheet/worksheets', {
+        method: 'POST',
+        body: JSON.stringify({ spreadsheet_id: spreadsheetId }),
+      })
+      return payload.data || payload
+    },
+  })
+  const result = computed(() => source === 'xpl-v1' ? analyzeV1Mutation.data.value || null : resultQuery.data.value || null)
+  const loading = computed(() => resultQuery.isFetching.value || analyzeV1Mutation.isPending.value || worksheetMutation.isPending.value)
+  const errorMessage = computed(() => toErrorMessage(resultQuery.error.value || analyzeV1Mutation.error.value || worksheetMutation.error.value))
+  const worksheetNames = computed(() => Array.isArray(worksheetMutation.data.value?.worksheets) ? worksheetMutation.data.value.worksheets : [])
+  const spreadsheetTitle = computed(() => worksheetMutation.data.value?.title || '')
 
-  async function loadBacktestResult(resultId: string) {
-    const prefix = source === 'backtest-training' ? '/backtest-training' : '/backtest-multi-product'
-    return load(() => requestJson<{ status: string; result: AnalysisRecord }>(`${prefix}/api/task-result/${encodeURIComponent(resultId)}`))
+  async function loadBacktestResult() {
+    await resultQuery.refetch()
+    if (resultQuery.error.value) throw resultQuery.error.value
+    return resultQuery.data.value
   }
 
   async function loadWorksheets(spreadsheetId: string) {
-    const payload = await requestJson<WorksheetResponse>('/api/google-sheet/worksheets', {
-      method: 'POST',
-      body: JSON.stringify({ spreadsheet_id: spreadsheetId }),
-    })
-    const response = payload.data || payload
-    worksheetNames.value = Array.isArray(response.worksheets) ? response.worksheets : []
-    spreadsheetTitle.value = response.title || ''
+    return worksheetMutation.mutateAsync(spreadsheetId)
   }
 
   async function analyzeV1(payload: SourceFormPayload) {
-    return load(() => requestJson<{ status: string; results: AnalysisRecord }>('/xpl/v1/analyze', {
-      method: 'POST',
-      body: JSON.stringify({
-        google_sheet_url: payload.googleSheetUrl,
-        spreadsheet_id: payload.spreadsheetId,
-        google_sheet_name: payload.worksheetName,
-      }),
-    }), 'results')
-  }
-
-  async function load<T extends { result?: AnalysisRecord; results?: AnalysisRecord }>(request: () => Promise<T>, resultKey: 'result' | 'results' = 'result') {
-    loading.value = true
-    errorMessage.value = ''
-    try {
-      const payload = await request()
-      const nextResult = payload[resultKey]
-      if (!nextResult || typeof nextResult !== 'object') throw new Error('接口未返回分析结果')
-      result.value = normalizeResult(nextResult)
-      return result.value
-    } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '加载分析结果失败'
-      result.value = null
-      throw error
-    } finally {
-      loading.value = false
-    }
+    return analyzeV1Mutation.mutateAsync(payload)
   }
 
   return {
-    result: readonly(result),
-    loading: readonly(loading),
-    errorMessage: readonly(errorMessage),
-    worksheetNames: readonly(worksheetNames),
-    spreadsheetTitle: readonly(spreadsheetTitle),
+    result,
+    loading,
+    errorMessage,
+    worksheetNames,
+    spreadsheetTitle,
     loadBacktestResult,
     loadWorksheets,
     analyzeV1,
   }
 }
 
-function normalizeResult(payload: AnalysisRecord): AnalysisRecord {
+function extractAnalysisResult(payload: AnalysisRecord): AnalysisRecord {
   if (isRecord(payload.calculate_metrics)) {
     return {
       ...payload.calculate_metrics,
@@ -80,6 +82,10 @@ function normalizeResult(payload: AnalysisRecord): AnalysisRecord {
     }
   }
   return payload
+}
+
+function toErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : ''
 }
 
 function isRecord(value: unknown): value is AnalysisRecord {

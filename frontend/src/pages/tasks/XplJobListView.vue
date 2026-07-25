@@ -4,12 +4,12 @@ import { Refresh, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import XplJobTable from '../../components/tasks/XplJobTable.vue'
 import { requestJson } from '../../api/http'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 import type { XplJob, XplJobListResponse, XplJobStats } from '../../types/api'
 import { formatDateTime, formatDuration } from '../../utils/format'
 import '../../styles/tasks/xpl-operations.css'
 
-const auth = useAuth()
+const auth = useAuthStore()
 const items = shallowRef<XplJob[]>([])
 const stats = shallowRef<XplJobStats>({})
 const loading = shallowRef(false)

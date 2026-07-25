@@ -6,10 +6,10 @@ import TemplateEditorDialog from '../../components/tasks/TemplateEditorDialog.vu
 import TemplateListTable from '../../components/tasks/TemplateListTable.vue'
 import TemplatePreviewDialog from '../../components/tasks/TemplatePreviewDialog.vue'
 import { requestJson } from '../../api/http'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 import type { TaskTemplate } from '../../types/api'
 
-const auth = useAuth()
+const auth = useAuthStore()
 const templates = shallowRef<TaskTemplate[]>([])
 const loading = shallowRef(false)
 const saving = shallowRef(false)

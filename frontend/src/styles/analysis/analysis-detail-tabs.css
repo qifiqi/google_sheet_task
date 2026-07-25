@@ -9,7 +9,8 @@
 .analysis-detail-tabs__title span { color: var(--admin-text-muted); font-size: 12px; }
 .analysis-detail-tabs__table { width: 100%; }
 .analysis-detail-tabs__raw-actions { display: flex; justify-content: end; margin-bottom: 8px; }
-.analysis-detail-tabs__raw { max-height: 520px; margin: 0; padding: 16px; overflow: auto; border: 1px solid var(--admin-border-light); border-radius: 6px; background: var(--admin-bg); color: var(--admin-text-regular); font-size: 12px; line-height: 20px; white-space: pre-wrap; }
+.analysis-detail-tabs__json { max-height: 520px; overflow: auto; border: 1px solid var(--admin-border-light); border-radius: 6px; background: var(--admin-bg); }
+.analysis-detail-tabs__json .vjs-tree { padding: 14px 16px; color: var(--admin-text-regular); font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; line-height: 20px; }
 
 @media (max-width: 768px) {
   .analysis-detail-tabs .el-collapse-item__header { padding: 0 14px; }

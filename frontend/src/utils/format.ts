@@ -1,22 +1,14 @@
+import dayjs from 'dayjs'
+
 export function formatDateTime(value?: string | null) {
   if (!value) {
     return '-'
   }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
+  const date = dayjs(value)
+  if (!date.isValid()) {
     return '-'
   }
-  const parts = new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(date)
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`
+  return date.format('YYYY-MM-DD HH:mm:ss')
 }
 
 export function formatDuration(seconds?: number | null) {

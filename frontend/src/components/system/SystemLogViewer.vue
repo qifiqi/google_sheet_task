@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, useTemplateRef, watch } from 'vue'
 import { Document } from '@element-plus/icons-vue'
 import { formatDateTime } from '../../utils/format'
 import type { SystemLogEntry } from '../../types/system'
@@ -9,7 +9,7 @@ const props = defineProps<{
   loading?: boolean
 }>()
 
-const scrollbar = ref<{ setScrollTop: (value: number) => void }>()
+const scrollbar = useTemplateRef<{ setScrollTop: (value: number) => void }>('scrollbar')
 
 function normalizedLevel(level: string) {
   return level.toLowerCase() || 'info'

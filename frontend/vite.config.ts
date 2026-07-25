@@ -8,6 +8,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://127.0.0.1:5000',
       '/admin/api': 'http://127.0.0.1:5000',
+      '/xpl': 'http://127.0.0.1:5000',
     },
   },
 })

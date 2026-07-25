@@ -1,25 +1,27 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, shallowRef, useTemplateRef, watch } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
+import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AdminTabs from '../components/admin/AdminTabs.vue'
 import AdminSidebar from './AdminSidebar.vue'
 import AdminTopbar from './AdminTopbar.vue'
-import { useAuth } from '../composables/useAuth'
-import { useNavigation } from '../composables/useNavigation'
 import { legacyPathToVuePath } from '../router/migration-pages'
+import { useAdminPreferencesStore } from '../stores/admin-preferences'
+import { useAuthStore } from '../stores/auth'
+import { useNavigationStore } from '../stores/navigation'
 import type { NavItem } from '../types/api'
-
-const CLOSED_TABS_KEY = 'admin_closed_tabs'
 
 const router = useRouter()
 const route = useRoute()
-const auth = useAuth()
-const navigation = useNavigation()
-const collapsed = shallowRef(false)
+const auth = useAuthStore()
+const navigation = useNavigationStore()
+const preferences = useAdminPreferencesStore()
+const { sidebarCollapsed: collapsed, closedTabKeys } = storeToRefs(preferences)
+const isMobile = useMediaQuery('(max-width: 900px)')
 const refreshKey = shallowRef(0)
 const refreshing = shallowRef(false)
-const closedTabKeys = shallowRef<Set<string>>(new Set())
 const contentScrollbar = useTemplateRef<{ setScrollTop: (value: number) => void }>('contentScrollbar')
 let refreshTimer: number | undefined
 
@@ -38,7 +40,7 @@ const breadcrumbItems = computed(() => {
   return [section, String(route.meta.title || '工作台')]
 })
 const visibleTabs = computed(() => {
-  const leaves = navigation.navLeaves.value
+  const leaves = navigation.navLeaves
   const dashboard = leaves.find((item) => isDashboardPath(item.path)) ?? {
     key: 'dashboard',
     label: '仪表盘',
@@ -50,7 +52,7 @@ const visibleTabs = computed(() => {
   ].filter((item, index, items) => items.findIndex((candidate) => candidate.path === item.path) === index)
 
   return unique
-    .filter((item) => isDashboardPath(item.path) || !closedTabKeys.value.has(item.key))
+    .filter((item) => isDashboardPath(item.path) || !closedTabKeys.value.includes(item.key))
     .slice(0, 12)
 })
 
@@ -58,17 +60,9 @@ function isDashboardPath(path?: string) {
   return path === '/admin' || path === '/admin/' || path === '/'
 }
 
-function persistClosedTabs() {
-  sessionStorage.setItem(CLOSED_TABS_KEY, JSON.stringify([...closedTabKeys.value]))
-}
-
 function reopenTab(path: string) {
-  const item = navigation.navLeaves.value.find((candidate) => candidate.path === path)
-  if (!item || !closedTabKeys.value.has(item.key)) return
-  const nextKeys = new Set(closedTabKeys.value)
-  nextKeys.delete(item.key)
-  closedTabKeys.value = nextKeys
-  persistClosedTabs()
+  const item = navigation.navLeaves.find((candidate) => candidate.path === path)
+  if (item && closedTabKeys.value.includes(item.key)) preferences.reopenTab(item.key)
 }
 
 function selectPath(path: string) {
@@ -83,8 +77,7 @@ function selectPath(path: string) {
 
 function closeTab(item: NavItem) {
   if (isDashboardPath(item.path)) return
-  closedTabKeys.value = new Set([...closedTabKeys.value, item.key])
-  persistClosedTabs()
+  preferences.closeTab(item.key)
 }
 
 function refreshCurrentView() {
@@ -110,19 +103,6 @@ async function logout() {
 onMounted(async () => {
   resetContentScroll()
 
-  if (window.innerWidth <= 900) {
-    collapsed.value = true
-  }
-
-  try {
-    const stored = JSON.parse(sessionStorage.getItem(CLOSED_TABS_KEY) || '[]')
-    if (Array.isArray(stored)) {
-      closedTabKeys.value = new Set(stored.filter((item): item is string => typeof item === 'string'))
-    }
-  } catch {
-    sessionStorage.removeItem(CLOSED_TABS_KEY)
-  }
-
   try {
     await navigation.loadNavigation()
   } catch (error) {
@@ -131,6 +111,7 @@ onMounted(async () => {
 })
 
 watch(() => route.fullPath, resetContentScroll)
+watch(isMobile, (mobile) => { if (mobile) collapsed.value = true }, { immediate: true })
 
 onUnmounted(() => window.clearTimeout(refreshTimer))
 </script>
@@ -140,7 +121,7 @@ onUnmounted(() => window.clearTimeout(refreshTimer))
     <AdminSidebar
       :active-path="activePath"
       :collapsed="collapsed"
-      :items="navigation.navItems.value"
+      :items="navigation.navItems"
       @select="selectPath"
       @toggle="collapsed = !collapsed"
     />
@@ -154,9 +135,9 @@ onUnmounted(() => window.clearTimeout(refreshTimer))
 
     <section class="admin-shell__main">
       <AdminTopbar
-        :role-text="auth.roleText.value"
-        :user="auth.currentUser.value"
-        :nav-items="navigation.navLeaves.value"
+        :role-text="auth.roleText"
+        :user="auth.currentUser"
+        :nav-items="navigation.navLeaves"
         :breadcrumb-items="breadcrumbItems"
         :refreshing="refreshing"
         :sidebar-collapsed="collapsed"

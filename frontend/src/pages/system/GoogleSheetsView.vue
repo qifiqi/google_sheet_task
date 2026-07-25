@@ -3,12 +3,12 @@ import { computed, onMounted, reactive, shallowRef } from 'vue'
 import { Link, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SystemPageHeader from '../../components/system/SystemPageHeader.vue'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 import { useGoogleSheets } from '../../composables/useGoogleSheets'
 import { formatDateTime } from '../../utils/format'
 import type { GoogleSheetItem } from '../../types/system'
 
-const auth = useAuth()
+const auth = useAuthStore()
 const registry = useGoogleSheets()
 const keyword = shallowRef('')
 const tableType = shallowRef('')

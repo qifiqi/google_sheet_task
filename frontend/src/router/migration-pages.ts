@@ -28,12 +28,12 @@ export const legacyPathToVuePath: Record<string, string> = {
 }
 
 export const migrationPlaceholderRoutes: RouteRecordRaw[] = [
-  { path: 'system/config', name: 'SystemConfig', component: () => import('../pages/system/ConfigView.vue'), meta: { title: '系统配置', navPath: '/admin/config' } },
-  { path: 'system/google-sheets', name: 'GoogleSheets', component: () => import('../pages/system/GoogleSheetsView.vue'), meta: { title: 'Google Sheet 管理', navPath: '/admin/google-sheets' } },
-  { path: 'system/navigation', name: 'Navigation', component: () => import('../pages/system/NavigationView.vue'), meta: { title: '路由表管理', navPath: '/admin/navigation' } },
-  { path: 'system/logs', name: 'Logs', component: () => import('../pages/system/LogView.vue'), meta: { title: '系统日志', navPath: '/admin/logs' } },
-  { path: 'system/users', name: 'Users', component: () => import('../pages/system/UserView.vue'), meta: { title: '用户管理', navPath: '/admin/users' } },
-  { path: 'system/roles', name: 'Roles', component: () => import('../pages/system/RoleView.vue'), meta: { title: '角色管理', navPath: '/admin/roles' } },
+  { path: 'system/config', name: 'SystemConfig', component: () => import('../pages/system/ConfigView.vue'), meta: { title: '系统配置', navPath: '/admin/config', permission: 'config:view' } },
+  { path: 'system/google-sheets', name: 'GoogleSheets', component: () => import('../pages/system/GoogleSheetsView.vue'), meta: { title: 'Google Sheet 管理', navPath: '/admin/google-sheets', permission: 'google_sheet:view' } },
+  { path: 'system/navigation', name: 'Navigation', component: () => import('../pages/system/NavigationView.vue'), meta: { title: '路由表管理', navPath: '/admin/navigation', permission: 'navigation:view' } },
+  { path: 'system/logs', name: 'Logs', component: () => import('../pages/system/LogView.vue'), meta: { title: '系统日志', navPath: '/admin/logs', permission: 'config:view' } },
+  { path: 'system/users', name: 'Users', component: () => import('../pages/system/UserView.vue'), meta: { title: '用户管理', navPath: '/admin/users', permission: 'user:view' } },
+  { path: 'system/roles', name: 'Roles', component: () => import('../pages/system/RoleView.vue'), meta: { title: '角色管理', navPath: '/admin/roles', permission: 'user:view' } },
   { path: 'google-sheet/c3/tasks', name: 'C3Tasks', component: () => import('../pages/google-sheet/C3TaskListView.vue'), meta: { title: 'Google Sheet C3', navPath: '/google-sheet/?version=c3' } },
   { path: 'google-sheet/c4/tasks', name: 'C4Tasks', component: () => import('../pages/google-sheet/C4TaskListView.vue'), meta: { title: 'Google Sheet C4', navPath: '/google-sheet/?version=c4' } },
   { path: 'google-sheet/c5/tasks', name: 'C5Tasks', component: () => import('../pages/google-sheet/C5TaskListView.vue'), meta: { title: 'Google Sheet C5', navPath: '/google-sheet/?version=c5' } },

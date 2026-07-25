@@ -1,7 +1,10 @@
-import { computed, onMounted, readonly, shallowRef } from 'vue'
+import { computed } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ElMessage } from 'element-plus'
 import { requestJson } from '../api/http'
 import type { DashboardOverview } from '../types/api'
+
+const dashboardQueryKey = ['dashboard-overview'] as const
 
 const emptySummary = {
   total_tasks: 0,
@@ -12,45 +15,36 @@ const emptySummary = {
   pending_tasks: 0,
 }
 
-export function useDashboardOverview() {
-  const overview = shallowRef<DashboardOverview | null>(null)
-  const loading = shallowRef(false)
-  const errorMessage = shallowRef('')
+async function fetchDashboardOverview() {
+  const data = await requestJson<DashboardOverview>('/admin/api/dashboard/overview')
+  if (!data.success) throw new Error('仪表盘接口返回失败')
+  return data
+}
 
+export function useDashboardOverview() {
+  const queryClient = useQueryClient()
+  const dashboardQuery = useQuery({
+    queryKey: dashboardQueryKey,
+    queryFn: fetchDashboardOverview,
+  })
+  const overview = computed(() => dashboardQuery.data.value ?? null)
   const summary = computed(() => overview.value?.summary ?? emptySummary)
   const completionRate = computed(() => {
     const total = summary.value.total_tasks
     return total ? Math.round((summary.value.completed_tasks / total) * 100) : 0
   })
+  const errorMessage = computed(() => dashboardQuery.error.value instanceof Error ? dashboardQuery.error.value.message : '')
+  const loading = computed(() => dashboardQuery.isPending.value || dashboardQuery.isFetching.value)
 
   async function loadDashboard(showToast = false) {
-    loading.value = true
-    errorMessage.value = ''
     try {
-      const data = await requestJson<DashboardOverview>('/admin/api/dashboard/overview')
-      if (!data.success) {
-        throw new Error('仪表盘接口返回失败')
-      }
-      overview.value = data
-      if (showToast) {
-        ElMessage.success('工作台已刷新')
-      }
+      await queryClient.invalidateQueries({ queryKey: dashboardQueryKey })
+      await dashboardQuery.refetch({ throwOnError: true })
+      if (showToast) ElMessage.success('工作台已刷新')
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '加载工作台失败'
-      ElMessage.error(errorMessage.value)
-    } finally {
-      loading.value = false
+      ElMessage.error(error instanceof Error ? error.message : '加载工作台失败')
     }
   }
 
-  onMounted(() => loadDashboard())
-
-  return {
-    overview: readonly(overview),
-    loading: readonly(loading),
-    errorMessage: readonly(errorMessage),
-    summary,
-    completionRate,
-    loadDashboard,
-  }
+  return { overview, loading, errorMessage, summary, completionRate, loadDashboard }
 }

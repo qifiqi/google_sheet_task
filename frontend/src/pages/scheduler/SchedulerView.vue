@@ -5,13 +5,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import SchedulerMetricGrid from '../../components/scheduler/SchedulerMetricGrid.vue'
 import SchedulerTaskDialog from '../../components/scheduler/SchedulerTaskDialog.vue'
 import SchedulerTaskTable from '../../components/scheduler/SchedulerTaskTable.vue'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 import { useScheduledTasks } from '../../composables/useScheduledTasks'
 import type { SchedulerTaskPayload, ScheduledTask } from '../../types/api'
 import { scheduledTaskTypeOptions } from '../../utils/scheduler'
 import '../../styles/scheduler/scheduler-page.css'
 
-const auth = useAuth()
+const auth = useAuthStore()
 const scheduler = useScheduledTasks()
 const dialogVisible = shallowRef(false)
 const editingTask = shallowRef<ScheduledTask | null>(null)

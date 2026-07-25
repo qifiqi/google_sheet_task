@@ -3,13 +3,13 @@ import { computed, onMounted, reactive, shallowRef } from 'vue'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SystemPageHeader from '../../components/system/SystemPageHeader.vue'
-import { useAuth } from '../../composables/useAuth'
-import { useNavigation } from '../../composables/useNavigation'
+import { useAuthStore } from '../../stores/auth'
+import { useNavigationStore } from '../../stores/navigation'
 import { useNavigationRegistry } from '../../composables/useNavigationRegistry'
 import type { NavigationRegistryItem } from '../../types/system'
 
-const auth = useAuth()
-const navigation = useNavigation()
+const auth = useAuthStore()
+const navigation = useNavigationStore()
 const registry = useNavigationRegistry()
 const keyword = shallowRef('')
 const visibleFilter = shallowRef('')

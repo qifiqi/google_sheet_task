@@ -3,12 +3,12 @@ import { h, onMounted, reactive, shallowRef } from 'vue'
 import { Plus, Refresh, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SystemPageHeader from '../../components/system/SystemPageHeader.vue'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 import { useSystemConfig } from '../../composables/useSystemConfig'
 import { formatDateTime } from '../../utils/format'
 import type { GoogleSheetToken, SystemConfigItem } from '../../types/system'
 
-const auth = useAuth()
+const auth = useAuthStore()
 const systemConfig = useSystemConfig()
 const configDialogVisible = shallowRef(false)
 const tokenDialogVisible = shallowRef(false)

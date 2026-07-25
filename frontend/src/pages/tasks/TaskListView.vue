@@ -7,11 +7,11 @@ import TaskDetailDrawer from '../../components/tasks/TaskDetailDrawer.vue'
 import TaskEditDialog from '../../components/tasks/TaskEditDialog.vue'
 import TaskListTable from '../../components/tasks/TaskListTable.vue'
 import { requestJson } from '../../api/http'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 import type { PaginationState, TaskItem, TaskListResponse, TaskLogItem, TaskStatistics } from '../../types/api'
 import { isGoogleSheetTask, taskExecutionUrl, taskRestartCreateUrl } from '../../utils/task'
 
-const auth = useAuth()
+const auth = useAuthStore()
 const items = shallowRef<TaskItem[]>([])
 const loading = shallowRef(false)
 const errorMessage = shallowRef('')

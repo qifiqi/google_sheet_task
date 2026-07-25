@@ -8,12 +8,12 @@ import ModelSummaryRebuildDialog from '../../components/data/ModelSummaryRebuild
 import ModelSummaryTable from '../../components/data/ModelSummaryTable.vue'
 import { getAccessToken } from '../../api/http'
 import { createDefaultModelSummaryFilters, type ModelSummaryFilters, useModelSummary } from '../../composables/useModelSummary'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 import type { ModelSummaryRebuildJob, ModelSummaryStatistics } from '../../types/api'
 import '../../styles/data/model-summary-page.css'
 
 const emptySummary: ModelSummaryStatistics = { stock_count: 0, cn_stock_count: 0, us_stock_count: 0, task_count: 0, return_beats_gt_0: 0, return_beats_gt_20: 0, return_beats_gt_50: 0, return_beats_gt_100: 0 }
-const auth = useAuth()
+const auth = useAuthStore()
 const { response, loading, errorMessage, load, startRebuild, getRebuildStatus, toQueryParams } = useModelSummary()
 const activeFilters = shallowRef<ModelSummaryFilters>(createDefaultModelSummaryFilters())
 const page = shallowRef(1)

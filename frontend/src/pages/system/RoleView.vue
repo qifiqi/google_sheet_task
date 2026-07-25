@@ -4,10 +4,10 @@ import { Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SystemPageHeader from '../../components/system/SystemPageHeader.vue'
 import { useAdminIdentity } from '../../composables/useAdminIdentity'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 import type { AdminRole } from '../../types/system'
 
-const auth = useAuth()
+const auth = useAuthStore()
 const identity = useAdminIdentity()
 const keyword = shallowRef('')
 const dialogVisible = shallowRef(false)

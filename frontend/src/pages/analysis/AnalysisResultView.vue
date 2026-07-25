@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { ArrowLeft, Download, Refresh, TrendCharts } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
@@ -18,7 +18,7 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const analysis = useAnalysisResult(props.source)
+const analysis = useAnalysisResult(props.source, props.resultId)
 const isXplSource = computed(() => props.source === 'xpl-v1')
 const title = computed(() => isXplSource.value ? 'V1 回测数据分析' : '回测结果')
 const subtitle = computed(() => isXplSource.value ? '从 Google Sheet 读取并分析 V1 回测数据' : '查看并导出当前任务的 V1 回测分析结果')
@@ -27,7 +27,7 @@ const backPath = computed(() => props.source === 'backtest-training' ? '/backtes
 async function loadResult() {
   if (!props.resultId) return
   try {
-    await analysis.loadBacktestResult(props.resultId)
+    await analysis.loadBacktestResult()
   } catch {
     ElMessage.error(analysis.errorMessage.value || '加载结果失败')
   }
@@ -73,10 +73,6 @@ async function exportResult() {
 function backToList() {
   router.push(backPath.value)
 }
-
-onMounted(() => {
-  if (!isXplSource.value) loadResult()
-})
 </script>
 
 <template>

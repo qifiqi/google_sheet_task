@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, shallowRef } from 'vue'
+import { computed, shallowRef } from 'vue'
+import { onKeyStroke, useFullscreen } from '@vueuse/core'
 import { ElMessage } from 'element-plus'
 import {
   FullScreen,
@@ -11,6 +12,7 @@ import {
   SwitchButton,
 } from '@element-plus/icons-vue'
 import AdminSearchDialog from '../components/admin/AdminSearchDialog.vue'
+import { useAdminPreferencesStore } from '../stores/admin-preferences'
 import type { CurrentUser, NavItem } from '../types/api'
 
 const props = defineProps<{
@@ -30,54 +32,28 @@ const emit = defineEmits<{
 }>()
 
 const searchVisible = shallowRef(false)
-const isFullscreen = shallowRef(false)
-const theme = shallowRef<'light' | 'dark'>('light')
-const themeIcon = computed(() => theme.value === 'dark' ? Sunny : Moon)
-const themeLabel = computed(() => theme.value === 'dark' ? '切换浅色主题' : '切换深色主题')
-
-function applyTheme(nextTheme: 'light' | 'dark') {
-  theme.value = nextTheme
-  document.documentElement.dataset.theme = nextTheme
-  localStorage.setItem('admin_theme', nextTheme)
-}
+const preferences = useAdminPreferencesStore()
+const { isFullscreen, toggle: toggleBrowserFullscreen } = useFullscreen()
+const themeIcon = computed(() => preferences.theme === 'dark' ? Sunny : Moon)
+const themeLabel = computed(() => preferences.theme === 'dark' ? '切换浅色主题' : '切换深色主题')
 
 function toggleTheme() {
-  applyTheme(theme.value === 'dark' ? 'light' : 'dark')
+  preferences.toggleTheme()
 }
 
 async function toggleFullscreen() {
   try {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen()
-    } else {
-      await document.documentElement.requestFullscreen()
-    }
+    await toggleBrowserFullscreen()
   } catch {
     ElMessage.warning('浏览器未允许进入全屏')
   }
 }
 
-function syncFullscreenState() {
-  isFullscreen.value = Boolean(document.fullscreenElement)
-}
-
-function handleShortcut(event: KeyboardEvent) {
+onKeyStroke('k', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === 'k') {
     event.preventDefault()
     searchVisible.value = true
   }
-}
-
-onMounted(() => {
-  const storedTheme = localStorage.getItem('admin_theme')
-  applyTheme(storedTheme === 'dark' ? 'dark' : 'light')
-  document.addEventListener('fullscreenchange', syncFullscreenState)
-  window.addEventListener('keydown', handleShortcut)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('fullscreenchange', syncFullscreenState)
-  window.removeEventListener('keydown', handleShortcut)
 })
 </script>
 

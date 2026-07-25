@@ -3,11 +3,11 @@ import { computed, reactive, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Lock, User } from '@element-plus/icons-vue'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 
 const route = useRoute()
 const router = useRouter()
-const auth = useAuth()
+const auth = useAuthStore()
 const submitting = shallowRef(false)
 const form = reactive({
   username: '',

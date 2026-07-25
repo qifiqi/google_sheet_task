@@ -5,10 +5,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ResultDetailDialog from '../../components/tasks/ResultDetailDialog.vue'
 import ResultListTable from '../../components/tasks/ResultListTable.vue'
 import { requestJson } from '../../api/http'
-import { useAuth } from '../../composables/useAuth'
+import { useAuthStore } from '../../stores/auth'
 import type { TaskResultDetail, TaskResultItem, TaskResultListResponse } from '../../types/api'
 
-const auth = useAuth()
+const auth = useAuthStore()
 const items = shallowRef<TaskResultItem[]>([])
 const loading = shallowRef(false)
 const errorMessage = shallowRef('')

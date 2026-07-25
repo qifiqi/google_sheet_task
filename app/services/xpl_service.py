@@ -1042,7 +1042,7 @@ class XPLAnalyzer:
         google_sheet = self._init_google_sheet(spreadsheet_id, google_sheet_name)
         title = google_sheet.title.upper()
 
-        if 'C5' in title:
+        if 'C5' in title or "C7" in title:
             last_now_num = google_sheet.get_last_row("A")
             if last_now_num < 10:
                 last_now_num = 30
