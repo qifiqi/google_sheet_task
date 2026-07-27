@@ -580,6 +580,8 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                 if (c7_parameter_1 != c7_check_positions_c_v.get(c7_check_positions[0])
                         and c7_parameter_2 != c7_check_positions_c_v.get(c7_check_positions[1])):
+                    self._log_info(f"c7_parameter_1:{c7_parameter_1} != {c7_check_positions[0]}{c7_check_positions_c_v.get(c7_check_positions[0]).strip()} "
+                                   f"c7_parameter_2:{c7_parameter_2} != {c7_check_positions[1]}{c7_check_positions_c_v.get(c7_check_positions[1]).strip()}")
                     # 校验参数是否成功响应
                     return False
 
@@ -611,9 +613,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                         ":".join(c7_check_positions)]
                         # value_render_option="UNFORMATTED_VALUE",
                     )
-                    _result.update(batch_results.get(c7_output_range_1, {}))
 
                     if _validate_check_values(batch_results, google_sheet.spreadsheet_id):
+                        _result.update(batch_results.get(c7_output_range_1, {}))
+
                         # # _result = check_result(_result)
                         # _result_yearly = google_sheet.get_range(c7_output_range_2)
                         # # _result_yearly = check_result(google_sheet.get_range(c7_output_range_2))

@@ -600,8 +600,9 @@ class GoogleSheetService(BaseGoogleSheetService):
                     # _result = google_sheet.get_range(c5_output_range_1)
                     _result = {}
                     batch_results = google_sheet.get_ranges([c5_output_range_1,":".join(c5_check_positions)])
-                    _result.update(batch_results.get(c5_output_range_1, {}))
                     if _validate_check_values(batch_results, google_sheet.spreadsheet_id):
+                        _result.update(batch_results.get(c5_output_range_1, {}))
+
                         # # _result = check_result(_result)
                         # _result_yearly = google_sheet.get_range(c5_output_range_2)
                         # # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
