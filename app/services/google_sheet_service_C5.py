@@ -469,6 +469,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             c5_parameter_positions = config_data.get('c5_parameter_positions')
             c5_output_column_j = config_data.get('c5_output_column_j')
             c5_output_column_l = config_data.get('c5_output_column_l')
+            c5_check_positions = config_data.get('c5_check_positions')
 
             initial_results = {}
 
@@ -557,18 +558,26 @@ class GoogleSheetService(BaseGoogleSheetService):
                 """验证检查位置的值是否有效"""
                 if not check_values:
                     return False
-
+                c5_check_positions_c_v = check_values.get(":".join(c5_check_positions))
+                c5_output_range_1_c_v = check_values.get(c5_output_range_1)
                 # for position, value in check_values.items():
                 #     if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
                 #         return False
                 #     if 'target' in str(value).lower():
                 #         return False
+                _check_values = initial_results[spreadsheet_id]
+
+                if (c5_parameter_1.strip() != c5_check_positions_c_v.get(c5_check_positions[0]).strip()
+                        and c5_parameter_2.strip() != c5_check_positions_c_v.get(c5_check_positions[1]).strip()):
+                    # 校验参数是否成功响应
+                    self._log_info(f"c5_parameter_1:{c5_parameter_1} != {c5_check_positions[0]}{c5_check_positions_c_v.get(c5_check_positions[0]).strip()} "
+                                   f"c5_parameter_2:{c5_parameter_2} != {c5_check_positions[1]}{c5_check_positions_c_v.get(c5_check_positions[1]).strip()}")
+                    return False
 
                 _check_values = initial_results[spreadsheet_id]
 
-                if (_check_values[f'{c5_output_range_1[0]}2'] == check_values[f'{c5_output_range_1[0]}2']
-                        and _check_values[f'{c5_output_range_1[0]}3'] == check_values[f'{c5_output_range_1[0]}3']):
-                # if _check_values['D2'] == check_values['D2'] and _check_values['D3'] == check_values['D3']:
+                if (_check_values[f'{c5_output_range_1[0]}2'] == c5_output_range_1_c_v[f'{c5_output_range_1[0]}2']
+                        and _check_values[f'{c5_output_range_1[0]}3'] == c5_output_range_1_c_v[f'{c5_output_range_1[0]}3']):
                     return False
 
                 return True
@@ -588,8 +597,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                     raise RuntimeError("task cancelled")
                 all_num = 0
                 for google_sheet in self.google_sheets:
-                    _result = google_sheet.get_range(c5_output_range_1)
-                    if _validate_check_values(_result, google_sheet.spreadsheet_id):
+                    # _result = google_sheet.get_range(c5_output_range_1)
+                    _result = {}
+                    batch_results = google_sheet.get_ranges([c5_output_range_1,":".join(c5_check_positions)])
+                    _result.update(batch_results.get(c5_output_range_1, {}))
+                    if _validate_check_values(batch_results, google_sheet.spreadsheet_id):
                         # # _result = check_result(_result)
                         # _result_yearly = google_sheet.get_range(c5_output_range_2)
                         # # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))

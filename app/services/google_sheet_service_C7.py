@@ -475,6 +475,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             c7_parameter_positions = config_data.get('c7_parameter_positions')
             c7_output_column_j = config_data.get('c7_output_column_j')
             c7_output_column_l = config_data.get('c7_output_column_l')
+            c7_check_positions = config_data.get('c7_check_positions')
 
             initial_results = {}
 
@@ -567,6 +568,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 if not check_values:
                     return False
 
+                c7_check_positions_c_v = check_values.get(":".join(c7_check_positions))
+                c7_output_range_1_c_v = check_values.get(c7_output_range_1)
                 # for position, value in check_values.items():
                 #     if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
                 #         return False
@@ -575,9 +578,14 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                 _check_values = initial_results[spreadsheet_id]
 
-                if (_check_values[f'{c7_output_range_1[0]}8'] == check_values[f'{c7_output_range_1[0]}8']
-                        and _check_values[f'{c7_output_range_1[0]}9'] == check_values[f'{c7_output_range_1[0]}9']):
-                # if _check_values['D2'] == check_values['D2'] and _check_values['D3'] == check_values['D3']:
+                if (c7_parameter_1 != c7_check_positions_c_v.get(c7_check_positions[0])
+                        and c7_parameter_2 != c7_check_positions_c_v.get(c7_check_positions[1])):
+                    # 校验参数是否成功响应
+                    return False
+
+                if (_check_values[f'{c7_output_range_1[0]}8'] == c7_output_range_1_c_v[f'{c7_output_range_1[0]}8']
+                        and _check_values[f'{c7_output_range_1[0]}9'] == c7_output_range_1_c_v[f'{c7_output_range_1[0]}9']):
+                    # 校验收益和年化是否ok
                     return False
 
                 return True
@@ -597,11 +605,15 @@ class GoogleSheetService(BaseGoogleSheetService):
                     raise RuntimeError("task cancelled")
                 all_num = 0
                 for google_sheet in self.google_sheets:
-                    _result = google_sheet.get_range(
-                        c7_output_range_1,
+                    _result = {}
+                    batch_results = google_sheet.get_ranges(
+                       [ c7_output_range_1,
+                        ":".join(c7_check_positions)]
                         # value_render_option="UNFORMATTED_VALUE",
                     )
-                    if _validate_check_values(_result, google_sheet.spreadsheet_id):
+                    _result.update(batch_results.get(c7_output_range_1, {}))
+
+                    if _validate_check_values(batch_results, google_sheet.spreadsheet_id):
                         # # _result = check_result(_result)
                         # _result_yearly = google_sheet.get_range(c7_output_range_2)
                         # # _result_yearly = check_result(google_sheet.get_range(c7_output_range_2))

@@ -350,7 +350,7 @@ def init_config():
             'description': 'C5 模板参数输入单元格位置列表。',
         },
         'c5_check_positions': {
-            'value': ['D2', 'D3'],
+            'value': ['G1', 'H1'],
             'description': 'C5 模板勾选/触发单元格位置列表。',
         },
         'c5_input_column_a': {
@@ -383,7 +383,7 @@ def init_config():
             'description': 'C5 模板参数输入单元格位置列表。',
         },
         'c7_check_positions': {
-            'value': ['D2', 'D3'],
+            'value': ['G1', 'H1'],
             'description': 'C5 模板勾选/触发单元格位置列表。',
         },
         'c7_input_column_a': {
