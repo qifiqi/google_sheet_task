@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import LegacyPagePlaceholder from '../shared/LegacyPagePlaceholder.vue'
+import CSeriesTaskDetail from '../../components/google-sheet/CSeriesTaskDetail.vue'
 </script>
 
-<template>
-  <LegacyPagePlaceholder module="业务模块" title="C4 任务详情" legacy-path="/google-sheet/?version=c4" />
-</template>
+<template><CSeriesTaskDetail list-route="C4Tasks" create-route="C4TaskCreate" mode="c4" /></template>

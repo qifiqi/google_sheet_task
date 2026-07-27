@@ -317,9 +317,10 @@ def get_task_results(task_id):
 
         page = request.args.get('page', type=int)
         per_page = request.args.get('per_page', type=int)
+        compact = request.args.get('compact') == '1'
 
         if page is not None and per_page is not None:
-            data = task_manager.get_task_results(task_id, page=page, per_page=per_page)
+            data = task_manager.get_task_results(task_id, page=page, per_page=per_page, compact=compact)
             return jsonify({
                 "status": "success",
                 "results": data["items"],

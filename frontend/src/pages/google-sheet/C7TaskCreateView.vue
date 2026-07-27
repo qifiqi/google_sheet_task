@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import LegacyPagePlaceholder from '../shared/LegacyPagePlaceholder.vue'
+import C57TaskCreateForm from '../../components/google-sheet/C57TaskCreateForm.vue'
 </script>
 
 <template>
-  <LegacyPagePlaceholder module="业务模块" title="创建 C7 任务" legacy-path="/google-sheet/create?version=c7" />
+  <C57TaskCreateForm task-type="google_sheet_C7" title="创建 C7 任务" list-route="C7Tasks" detail-route="C7TaskDetail" />
 </template>

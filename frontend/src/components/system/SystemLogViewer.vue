@@ -4,10 +4,19 @@ import { Document } from '@element-plus/icons-vue'
 import { formatDateTime } from '../../utils/format'
 import type { SystemLogEntry } from '../../types/system'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   logs: readonly SystemLogEntry[]
   loading?: boolean
-}>()
+  title?: string
+  emptyDescription?: string
+  height?: string
+  followTail?: boolean
+}>(), {
+  title: '日志输出',
+  emptyDescription: '暂无系统日志',
+  height: 'clamp(420px, calc(100vh - 330px), 680px)',
+  followTail: false,
+})
 
 const scrollbar = useTemplateRef<{ setScrollTop: (value: number) => void }>('scrollbar')
 
@@ -19,7 +28,7 @@ watch(
   () => props.logs,
   async () => {
     await nextTick()
-    scrollbar.value?.setScrollTop(0)
+    if (props.followTail) scrollbar.value?.setScrollTop(Number.MAX_SAFE_INTEGER)
   },
 )
 </script>
@@ -29,11 +38,11 @@ watch(
     <header class="system-log-viewer__header">
       <div class="system-log-viewer__title">
         <el-icon><Document /></el-icon>
-        <span>日志输出</span>
+        <span>{{ title }}</span>
         <el-tag size="small" effect="dark">{{ logs.length }}</el-tag>
       </div>
     </header>
-    <el-scrollbar ref="scrollbar" class="system-log-viewer__scroll" always :min-size="36">
+    <el-scrollbar ref="scrollbar" class="system-log-viewer__scroll" always :min-size="36" :style="{ height }">
       <div v-if="logs.length" class="system-log-viewer__stream" role="log">
         <div
           v-for="(log, index) in logs"
@@ -47,7 +56,7 @@ watch(
           <span class="system-log-viewer__message">{{ log.message }}</span>
         </div>
       </div>
-      <el-empty v-else description="暂无系统日志" :image-size="72" />
+      <el-empty v-else :description="emptyDescription" :image-size="72" />
     </el-scrollbar>
   </section>
 </template>
@@ -57,7 +66,7 @@ watch(
 .system-log-viewer__header { display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-bottom: 1px solid var(--admin-border); }
 .system-log-viewer__title { display: flex; align-items: center; gap: 8px; color: var(--admin-text); font-size: 15px; font-weight: 600; }
 .system-log-viewer__title .el-icon { color: var(--admin-primary); font-size: 18px; }
-.system-log-viewer__scroll { height: clamp(420px, calc(100vh - 330px), 680px); background: #07111f; }
+.system-log-viewer__scroll { background: #07111f; }
 .system-log-viewer__stream { min-width: 100%; width: max-content; padding: 10px 14px 14px; color: #d6e4f5; font-family: Consolas, "Cascadia Mono", "SFMono-Regular", monospace; font-size: 13px; line-height: 22px; }
 .system-log-viewer__line { display: flex; min-width: 100%; width: max-content; gap: 8px; white-space: pre; }
 .system-log-viewer__line:hover { background: rgb(148 163 184 / 8%); }

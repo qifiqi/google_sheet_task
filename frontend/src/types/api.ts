@@ -232,6 +232,25 @@ export interface TaskResultSummary {
   model_count: number
   model_names: string[]
   analysis_status?: string | null
+  models?: TaskResultModelSummary[]
+  metrics?: {
+    return?: string | number | null
+    annualized?: string | number | null
+    max_drawdown?: string | number | null
+    index_return?: string | number | null
+    index_annualized?: string | number | null
+    index_max_drawdown?: string | number | null
+    index_sharpe?: string | number | null
+    model_sharpe?: string | number | null
+  }
+}
+
+export interface TaskResultModelSummary {
+  key: string
+  code: string
+  name: string
+  analysis_status?: string | null
+  metrics: NonNullable<TaskResultSummary['metrics']>
 }
 
 export interface TaskResultListResponse {
@@ -245,6 +264,34 @@ export interface TaskResultDetail extends TaskResultItem {
   parameters?: unknown
   result?: unknown
   error_message?: string | null
+}
+
+export interface C31ChildTaskSummary {
+  task_id: string
+  task_name: string
+  spreadsheet_id: string
+  sheet_name: string
+  stock_code: string
+  parameters: unknown[][]
+  started: boolean
+}
+
+export interface C31BatchStartFailure {
+  task_id: string
+  task_name: string
+  error: string
+}
+
+export interface C31BatchCreateResponse {
+  status: string
+  message?: string
+  task_id: string
+  task_ids: string[]
+  started_task_ids: string[]
+  failed_to_start: C31BatchStartFailure[]
+  total_created: number
+  total_started: number
+  children: C31ChildTaskSummary[]
 }
 
 export interface XplJob {

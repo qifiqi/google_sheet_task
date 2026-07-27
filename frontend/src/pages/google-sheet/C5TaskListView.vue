@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import LegacyPagePlaceholder from '../shared/LegacyPagePlaceholder.vue'
+import CSeriesTaskList from '../../components/google-sheet/CSeriesTaskList.vue'
 </script>
 
 <template>
-  <LegacyPagePlaceholder module="业务模块" title="Google Sheet C5" legacy-path="/google-sheet/?version=c5" />
+  <CSeriesTaskList title="Google Sheet C5" task-type="google_sheet_C5" create-url="/web/google-sheet/c5/create" />
 </template>

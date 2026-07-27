@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef } from 'vue'
+import { useRouter } from 'vue-router'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import TemplateEditorDialog from '../../components/tasks/TemplateEditorDialog.vue'
@@ -10,6 +11,7 @@ import { useAuthStore } from '../../stores/auth'
 import type { TaskTemplate } from '../../types/api'
 
 const auth = useAuthStore()
+const router = useRouter()
 const templates = shallowRef<TaskTemplate[]>([])
 const loading = shallowRef(false)
 const saving = shallowRef(false)
@@ -37,14 +39,19 @@ function duplicate(template: TaskTemplate) { editingTemplate.value = { ...templa
 function openPreview(template: TaskTemplate) { previewTemplate.value = template; previewVisible.value = true }
 function useTemplate(template: TaskTemplate) {
   const taskType = String(template.config.task_type || 'google_sheet').toLowerCase()
-  if (!['google_sheet', 'google_sheet_c4', 'google_sheet_c5', 'google_sheet_c7'].includes(taskType)) {
+  const createRouteByType: Record<string, string> = {
+    google_sheet: 'C3TaskCreate',
+    google_sheet_c4: 'C4TaskCreate',
+    google_sheet_c5: 'C5TaskCreate',
+    google_sheet_c7: 'C7TaskCreate',
+    google_sheet_c31: 'C31TaskCreate',
+  }
+  const createRoute = createRouteByType[taskType]
+  if (!createRoute) {
     ElMessage.warning('当前任务类型暂不支持从旧创建页加载模板')
     return
   }
-  const params = new URLSearchParams({ template_id: String(template.id) })
-  const version = taskType.replace('google_sheet_', '')
-  if (version && version !== 'google_sheet') params.set('version', version)
-  window.location.assign(`/google-sheet/create?${params}`)
+  void router.push({ name: createRoute, query: { template_id: String(template.id) } })
 }
 async function saveTemplate(payload: { name: string; description: string; config: Record<string, unknown> }) {
   saving.value = true

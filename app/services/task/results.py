@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from app.models import TaskResult
+from app.models import Task, TaskResult
+from app.services.task_result_summary import build_task_result_list_item
 
 
 class TaskResultMixin:
@@ -13,6 +14,7 @@ class TaskResultMixin:
         task_id: str,
         page: int | None = None,
         per_page: int | None = None,
+        compact: bool = False,
     ):
         """获取任务结果。
 
@@ -25,7 +27,16 @@ class TaskResultMixin:
 
         if page is not None and per_page is not None:
             pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-            items = [result.to_dict() for result in pagination.items]
+            if compact:
+                task = Task.query.filter_by(id=task_id).first()
+                task_name = task.name if task else None
+                task_type = task.task_type if task else None
+                items = [
+                    build_task_result_list_item(result, task_name, task_type)
+                    for result in pagination.items
+                ]
+            else:
+                items = [result.to_dict() for result in pagination.items]
             total = pagination.total
             success_total = query.filter_by(success=True).count()
             failed_total = total - success_total

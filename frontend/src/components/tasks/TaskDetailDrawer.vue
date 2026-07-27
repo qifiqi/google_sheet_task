@@ -10,7 +10,6 @@ const open = defineModel<boolean>({ default: false })
 const props = defineProps<{
   task: TaskItem | null
   logs: TaskLogItem[]
-  systemLogs: TaskLogItem[]
   logsLoading: boolean
   canEdit: boolean
   canRestart: boolean
@@ -43,7 +42,6 @@ const configText = computed(() => JSON.stringify(props.task?.config || {}, null,
         </el-tab-pane>
         <el-tab-pane label="配置预览"><section class="task-detail__config"><pre>{{ configText }}</pre></section></el-tab-pane>
         <el-tab-pane label="任务日志"><TaskLogList :logs="logs" :loading="logsLoading" empty-description="暂无任务日志" /></el-tab-pane>
-        <el-tab-pane label="系统日志"><TaskLogList :logs="systemLogs" :loading="logsLoading" empty-description="暂无关联系统日志" /></el-tab-pane>
       </el-tabs>
       <div class="task-detail__actions">
         <el-button :icon="View" @click="emit('viewExecution', task)">执行详情</el-button>

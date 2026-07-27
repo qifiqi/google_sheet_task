@@ -76,11 +76,44 @@ def _result_metadata(result_payload):
     return len(model_values), analysis_status, [str(key) for key, value in result_payload.items() if isinstance(value, dict)][:2]
 
 
+def _metric_summary(model):
+    """Extract the small set of backtest metrics needed by C-series lists."""
+    sheet_metrics = model.get("D2:D20") if isinstance(model.get("D2:D20"), dict) else {}
+    flat_metrics = model.get("flat_result") if isinstance(model.get("flat_result"), dict) else {}
+    return {
+        "return": sheet_metrics.get("D2", model.get("D2")),
+        "annualized": sheet_metrics.get("D3", model.get("D3")),
+        "max_drawdown": sheet_metrics.get("D4", model.get("D4")),
+        "index_return": sheet_metrics.get("D5", model.get("D5")),
+        "index_annualized": sheet_metrics.get("D6", model.get("D6")),
+        "index_max_drawdown": sheet_metrics.get("D7", model.get("D7")),
+        "index_sharpe": flat_metrics.get("index_sharpe_ratio"),
+        "model_sharpe": flat_metrics.get("start_sharpe_ratio"),
+    }
+
+
+def _model_summaries(result_payload):
+    summaries = []
+    for key, value in result_payload.items():
+        if not isinstance(value, dict):
+            continue
+        code, _, name = str(key).partition("__")
+        summaries.append({
+            "key": str(key),
+            "code": code,
+            "name": name or code,
+            "analysis_status": value.get("analysis_status"),
+            "metrics": _metric_summary(value),
+        })
+    return summaries
+
+
 def build_task_result_list_item(result, task_name, task_type):
     """Return a result list record without exposing raw K-line or model JSON."""
     parameters = _load_json_object(result.parameters)
     result_payload = _load_json_object(result.result)
     model_count, analysis_status, model_names = _result_metadata(result_payload)
+    models = _model_summaries(result_payload)
 
     return {
         "id": result.id,
@@ -100,5 +133,7 @@ def build_task_result_list_item(result, task_name, task_type):
             "model_count": model_count,
             "model_names": model_names,
             "analysis_status": analysis_status,
+            "models": models,
+            "metrics": models[0]["metrics"] if models else _metric_summary({}),
         },
     }

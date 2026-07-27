@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, shallowRef } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import BatchRestartDialog from '../../components/tasks/BatchRestartDialog.vue'
@@ -9,9 +10,10 @@ import TaskListTable from '../../components/tasks/TaskListTable.vue'
 import { requestJson } from '../../api/http'
 import { useAuthStore } from '../../stores/auth'
 import type { PaginationState, TaskItem, TaskListResponse, TaskLogItem, TaskStatistics } from '../../types/api'
-import { isGoogleSheetTask, taskExecutionUrl, taskRestartCreateUrl } from '../../utils/task'
+import { taskExecutionUrl } from '../../utils/task'
 
 const auth = useAuthStore()
+const router = useRouter()
 const items = shallowRef<TaskItem[]>([])
 const loading = shallowRef(false)
 const errorMessage = shallowRef('')
@@ -19,7 +21,6 @@ const detailVisible = shallowRef(false)
 const selectedTask = shallowRef<TaskItem | null>(null)
 const selectedTasks = shallowRef<TaskItem[]>([])
 const taskLogs = shallowRef<TaskLogItem[]>([])
-const systemLogs = shallowRef<TaskLogItem[]>([])
 const logsLoading = shallowRef(false)
 const batchRestartVisible = shallowRef(false)
 const batchRestarting = shallowRef(false)
@@ -80,18 +81,15 @@ async function openDetail(task: TaskItem) {
   selectedTask.value = task
   detailVisible.value = true
   taskLogs.value = []
-  systemLogs.value = []
   logsLoading.value = true
-  const [runtime, logs, systemLogsResponse] = await Promise.allSettled([
+  const [runtime, logs] = await Promise.allSettled([
     requestJson<{ success: boolean; task: TaskItem }>(`/admin/api/tasks/${encodeURIComponent(task.id)}/runtime-detail`),
     requestJson<{ status: string; logs: TaskLogItem[] }>(`/api/tasks/${encodeURIComponent(task.id)}/logs`),
-    requestJson<{ status: string; logs: TaskLogItem[] }>(`/api/tasks/${encodeURIComponent(task.id)}/system-logs?limit=200`),
   ])
   logsLoading.value = false
   if (runtime.status === 'fulfilled') selectedTask.value = runtime.value.task
   else ElMessage.warning(runtime.reason instanceof Error ? runtime.reason.message : '未能加载运行详情')
   if (logs.status === 'fulfilled') taskLogs.value = logs.value.logs
-  if (systemLogsResponse.status === 'fulfilled') systemLogs.value = systemLogsResponse.value.logs
 }
 
 async function cancelTask(task: TaskItem) {
@@ -133,13 +131,38 @@ async function saveTaskEdit(payload: { id: string; name: string; description: st
   } catch (error) { ElMessage.error(error instanceof Error ? error.message : '更新任务失败') } finally { savingTask.value = false }
 }
 
+function googleSheetTaskRoute(task: TaskItem) {
+  const routes: Record<string, { detail: 'C3TaskDetail' | 'C4TaskDetail' | 'C5TaskDetail' | 'C7TaskDetail'; create: 'C3TaskCreate' | 'C4TaskCreate' | 'C5TaskCreate' | 'C7TaskCreate' }> = {
+    google_sheet: { detail: 'C3TaskDetail', create: 'C3TaskCreate' },
+    google_sheet_c4: { detail: 'C4TaskDetail', create: 'C4TaskCreate' },
+    google_sheet_c5: { detail: 'C5TaskDetail', create: 'C5TaskCreate' },
+    google_sheet_c7: { detail: 'C7TaskDetail', create: 'C7TaskCreate' },
+  }
+  return routes[String(task.task_type || '').toLowerCase()]
+}
+
+function viewTaskDetail(task: TaskItem) {
+  const target = googleSheetTaskRoute(task)
+  if (target) {
+    void router.push({ name: target.detail, params: { taskId: task.id } })
+    return
+  }
+  void openDetail(task)
+}
+
 function viewExecution(task: TaskItem) {
+  const target = googleSheetTaskRoute(task)
+  if (target) {
+    void router.push({ name: target.detail, params: { taskId: task.id } })
+    return
+  }
   window.location.assign(taskExecutionUrl(task))
 }
 
 async function createRestartTask(task: TaskItem) {
-  if (isGoogleSheetTask(task.task_type)) {
-    window.location.assign(taskRestartCreateUrl(task))
+  const target = googleSheetTaskRoute(task)
+  if (target) {
+    void router.push({ name: target.create, query: { restart_task_id: task.id } })
     return
   }
   await ElMessageBox.confirm(`确定基于“${task.name}”创建并启动新任务吗？`, '创建重启任务', { type: 'warning', confirmButtonText: '创建并启动' })
@@ -194,7 +217,7 @@ async function removeTask(task: TaskItem) {
 }
 
 function openTaskCreator() {
-  window.location.assign('/google-sheet/?version=c3')
+  void router.push({ name: 'C3Tasks' })
 }
 
 onMounted(loadTasks)
@@ -238,14 +261,14 @@ onMounted(loadTasks)
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon :closable="false" />
       <TaskListTable
         :items="items" :loading="loading" :can-cancel="can('task:cancel')" :can-restart="can('task:restart')" :can-delete="can('task:delete')" :can-edit="can('task:create')"
-        @selection-change="selectedTasks = $event" @view="openDetail" @cancel="cancelTask" @restart="restartTask" @restart-fresh="(task) => restartTask(task, false)" @create-restart="createRestartTask" @edit="openEdit" @view-execution="viewExecution" @remove="removeTask"
+        @selection-change="selectedTasks = $event" @view="viewTaskDetail" @cancel="cancelTask" @restart="restartTask" @restart-fresh="(task) => restartTask(task, false)" @create-restart="createRestartTask" @edit="openEdit" @view-execution="viewExecution" @remove="removeTask"
       />
       <footer class="task-page__pagination">
         <span>共 {{ pagination.total }} 条</span>
         <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.per_page" background layout="total, sizes, prev, pager, next, jumper" :page-sizes="[10, 20, 50]" :total="pagination.total" @current-change="loadTasks" @size-change="() => loadTasks(1)" />
       </footer>
     </section>
-    <TaskDetailDrawer v-model="detailVisible" :task="selectedTask" :logs="taskLogs" :system-logs="systemLogs" :logs-loading="logsLoading" :can-edit="can('task:create')" :can-restart="can('task:restart')" @edit="openEdit" @view-execution="viewExecution" @restart-fresh="(task) => restartTask(task, false)" @create-restart="createRestartTask" />
+    <TaskDetailDrawer v-model="detailVisible" :task="selectedTask" :logs="taskLogs" :logs-loading="logsLoading" :can-edit="can('task:create')" :can-restart="can('task:restart')" @edit="openEdit" @view-execution="viewExecution" @restart-fresh="(task) => restartTask(task, false)" @create-restart="createRestartTask" />
     <BatchRestartDialog v-model="batchRestartVisible" :tasks="selectedTasks" :submitting="batchRestarting" @submit="restartSelectedTasks" />
     <TaskEditDialog v-model="editVisible" :task="editingTask" :submitting="savingTask" @save="saveTaskEdit" />
   </section>
