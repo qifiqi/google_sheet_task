@@ -578,8 +578,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 _check_values = initial_results[spreadsheet_id]
 
-                if (_check_values[check_positions[0]] == check_values[check_positions[0]]
-                        and _check_values[check_positions[1]] == check_values[check_positions[1]]):
+                if (_check_values[f'{output_range_1[0]}2'] == check_values[f'{output_range_1[0]}2']
+                        and _check_values[f'{output_range_1[0]}3'] == check_values[f'{output_range_1[0]}3']):
                     return False
 
                 return True
