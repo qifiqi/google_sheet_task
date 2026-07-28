@@ -382,7 +382,7 @@
                                 <th>日期(年度最大回测当日)</th>
                                 <th>年份</th>
                                 <th>年度回撤</th>
-                                <th>日收益率</th>
+                                <th>累计收益率</th>
                                 <th>净值</th>
                             </tr>
                         </thead>
@@ -826,7 +826,7 @@
         if (Array.isArray(primaryResults.returns_rate) && primaryResults.returns_rate.length > 0) {
             const latestReturn = primaryResults.returns_rate[primaryResults.returns_rate.length - 1];
             const totalReturn = latestReturn.net_value !== undefined ? latestReturn.net_value - 1 : getReturnRateValue(latestReturn);
-            document.getElementById('total-return').textContent = formatPercent(totalReturn);
+            document.getElementById('total-return').textContent = `${formatNumber(totalReturn, 2)}%`;
             document.getElementById('annual-return').textContent = formatPercent(latestReturn.annual_return);
         }
         
@@ -1043,7 +1043,7 @@
                     ${isDualResults(data) ? '模型 ' : ''}${formatPercent(item.drawdown)}
                     ${secondaryItem ? `<div class="small text-muted">指数 ${formatPercent(secondaryItem.drawdown)}</div>` : ''}
                 </td>
-                <td>${formatPercent(item.daily_return)}${secondaryItem ? `<div class="small text-muted">指数 ${formatPercent(secondaryItem.daily_return)}</div>` : ''}</td>
+                <td>${formatNumber(item.daily_return, 2)}%${secondaryItem ? `<div class="small text-muted">指数 ${formatNumber(secondaryItem.daily_return, 2)}%</div>` : ''}</td>
                 <td>${formatNumber(item.net_value)}${secondaryItem ? `<div class="small text-muted">指数 ${formatNumber(secondaryItem.net_value)}</div>` : ''}</td>
             `;
             tbody.appendChild(row);

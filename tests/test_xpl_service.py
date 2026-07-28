@@ -1,5 +1,6 @@
 import math
 
+import pandas as pd
 import pytest
 
 from app.services.xpl_service import XPLAnalyzer
@@ -141,6 +142,21 @@ def test_parse_input_data_uses_third_column_as_model_return_for_three_columns():
     assert [row["daily_return"] for row in parsed] == [0.012, 0.015]
     assert [row["index_return"] for row in parsed] == [0.001, 0.002]
     assert [row["start_return"] for row in parsed] == [0.012, 0.015]
+
+
+def test_calculate_monthly_return_uses_first_month_start_value_as_baseline():
+    df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2025-01-01", "2025-01-31", "2025-02-28"]),
+            "net_value": [100.0, 110.0, 121.0],
+            "year": [2025, 2025, 2025],
+            "year_month": ["2025-01", "2025-01", "2025-02"],
+        }
+    )
+
+    monthly_returns = XPLAnalyzer().calculate_monthly_return_data(df)
+
+    assert [item["monthly_return"] for item in monthly_returns] == [0.1, 0.1]
 
 
 def _contains_non_finite_number(value):
