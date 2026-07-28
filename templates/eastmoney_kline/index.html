@@ -273,6 +273,7 @@
           return String(market) === "0" || String(market) === "1" ? "hand" : "share";
         }
 
+        // 使用东方财富 JSONP 搜索接口，避免跨域限制。
         function searchSecurities(keyword) {
           return $.ajax({
             url: "https://search-api-web.eastmoney.com/search/jsonp",
@@ -335,6 +336,7 @@
           return true;
         }
 
+        // 通过请求序号丢弃过期响应，避免快速输入时旧结果覆盖新结果。
         function querySecurities(keyword) {
           var requestId = ++securitySearchRequestId;
           searchSecurities(keyword)
@@ -351,9 +353,10 @@
                 securityCandidates = [];
                 renderSecurityCandidates();
               }
-            });
+          });
         }
 
+        // 校验并标准化东方财富原始 K 线；A 股成交量以手返回，VWAP 计算时换算为股。
         function parseKlines(klines, volumeUnit, klt) {
           var uniqueRows = {};
           var invalidCount = 0;
@@ -427,6 +430,7 @@
           ].join("-");
         }
 
+        // 波动率采用相邻价格简单收益率绝对值的算术平均。
         function calculateAbsoluteVolatility(rows, priceField) {
           var prices = rows
             .map(function (row) { return Number(row[priceField || "stock_vwap"]); })
@@ -491,6 +495,7 @@
           });
         }
 
+        // 以最新 K 线日期为基准，计算半年至七年的近年波动率。
         function calculateRecentVolatilities(rows, priceField) {
           var referenceDate = getKlineDate(rows[rows.length - 1]);
           var periods = [
@@ -525,6 +530,7 @@
           return { referenceDate: referenceDate, values: values };
         }
 
+        // 将历史数据按连续 365 天划分年度，年度样本少于 200 条时不参与计算。
         function calculateYearlyVolatilities(rows, referenceDate, priceField) {
           var values = [];
           var validYearRows = [];
@@ -558,6 +564,7 @@
           return values;
         }
 
+        // 平均成交额使用每根有效 K 线的成交额算术平均。
         function calculateAverageTurnover(rows) {
           var amounts = rows
             .map(function (row) { return Number(row.stock_cje); })
@@ -571,6 +578,7 @@
           };
         }
 
+        // 平均成交额与年度波动率共用同一年度窗口和样本完整性规则。
         function calculateYearlyAverageTurnovers(rows, referenceDate) {
           var values = [];
           for (var year = 1; year <= 7; year++) {
@@ -591,6 +599,7 @@
           return values;
         }
 
+        // 汇总当前价格口径下的近年、年度波动率及年度平均成交额。
         function calculateVolatilityAnalysis(rows, priceBasis) {
           var basis = getVolatilityPriceBasis(priceBasis);
           console.info("[波动率计算] 价格口径", { 名称: basis.label, 字段: basis.field });
@@ -658,6 +667,7 @@
           copyWithFallback();
         }
 
+        // 同步刷新股票信息、波动率表和平均成交额表。
         function renderVolatilityAnalysis(query, recentVolatilities, yearlyVolatilities, yearlyTurnovers) {
           var $comparisonBody = $("#volatility-comparison-body").empty();
           var $turnoverBody = $("#average-turnover-comparison-body").empty();
@@ -700,6 +710,7 @@
           return rows.slice(-20).reverse().concat(rows.slice(0, 20).reverse());
         }
 
+        // K 线较多时仅展示最新和最早各 20 条，完整数据仍保留用于计算和导出。
         function renderTable() {
           var displayRows = getDisplayRows(klineRows);
           table.render({
@@ -726,6 +737,7 @@
             .prop("hidden", false);
         }
 
+        // 调用东方财富历史 K 线 JSONP 接口，参数由页面查询条件生成。
         function requestKlines(query) {
           return $.ajax({
             url: "https://push2his.eastmoney.com/api/qt/stock/kline/get",
@@ -980,8 +992,10 @@
         position: absolute;
         z-index: 1000;
         top: calc(100% + 4px);
-        right: 0;
         left: 0;
+        width: max-content;
+        min-width: 100%;
+        max-width: min(360px, calc(100vw - 40px));
         max-height: 240px;
         overflow-y: auto;
         background-color: #fff;
@@ -992,7 +1006,8 @@
       .stock-suggestion {
         display: block;
         box-sizing: border-box;
-        width: 100%;
+        width: auto;
+        min-width: 100%;
         height: 36px;
         padding: 0 12px;
         overflow: hidden;
@@ -1191,6 +1206,10 @@
       @media (max-width: 1100px) {
         .search .layui-form {
           grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .search .layui-row:first-child {
+          grid-column: 1 / -1;
         }
       }
 
