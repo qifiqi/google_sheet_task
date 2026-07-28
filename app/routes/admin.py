@@ -99,6 +99,12 @@ def model_summary():
     """单模型汇总数据看板"""
     return render_template('admin/model_summary.html')
 
+
+@admin_bp.route('/eastmoney-kline')
+def eastmoney_kline():
+    return render_template('admin/eastmoney_kline.html')
+
+
 @admin_bp.route('/google-sheets')
 def google_sheets():
     return render_template('admin/google_sheets.html', google_sheet_table_type_options=GoogleSheetTableType.choices())
