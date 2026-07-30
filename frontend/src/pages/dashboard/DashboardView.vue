@@ -4,8 +4,12 @@ import { useRouter } from 'vue-router'
 import DashboardAlerts from '../../components/dashboard/DashboardAlerts.vue'
 import DashboardExecutionHealth from '../../components/dashboard/DashboardExecutionHealth.vue'
 import DashboardMetricGrid from '../../components/dashboard/DashboardMetricGrid.vue'
+import DashboardPeriodControl from '../../components/dashboard/DashboardPeriodControl.vue'
 import DashboardRecentTasks from '../../components/dashboard/DashboardRecentTasks.vue'
+import DashboardResultQualityChart from '../../components/dashboard/DashboardResultQualityChart.vue'
 import DashboardResourceGrid from '../../components/dashboard/DashboardResourceGrid.vue'
+import DashboardStatusChart from '../../components/dashboard/DashboardStatusChart.vue'
+import DashboardTaskTypeChart from '../../components/dashboard/DashboardTaskTypeChart.vue'
 import DashboardTrendCard from '../../components/dashboard/DashboardTrendCard.vue'
 import { useDashboardOverview } from '../../composables/useDashboardOverview'
 import type { DashboardExecutionHealth as DashboardExecutionHealthData } from '../../types/api'
@@ -32,6 +36,7 @@ const {
   errorMessage,
   summary,
   completionRate,
+  selectedDays,
   loadDashboard,
 } = useDashboardOverview()
 const router = useRouter()
@@ -50,7 +55,10 @@ function openTaskList() {
         <span>系统运行概览</span>
         <h1>工作台</h1>
       </div>
-      <p>{{ overview?.checked_at ? `数据更新于 ${formatDateTime(overview.checked_at)}` : '正在读取运行数据' }}</p>
+      <div class="dashboard-header__actions">
+        <DashboardPeriodControl v-model="selectedDays" />
+        <p>{{ overview?.checked_at ? `数据更新于 ${formatDateTime(overview.checked_at)}` : '正在读取运行数据' }}</p>
+      </div>
     </header>
 
     <el-alert
@@ -65,17 +73,30 @@ function openTaskList() {
 
     <div class="dashboard-main-grid">
       <DashboardTrendCard
-        :items="overview?.daily_trend ?? []"
+        :items="overview?.period.task_trend ?? []"
+        :days="selectedDays"
         @refresh="loadDashboard(true)"
       />
+      <DashboardStatusChart :distribution="overview?.status_distribution ?? {}" />
+    </div>
+
+    <div class="dashboard-analysis-grid">
+      <DashboardTaskTypeChart
+        :items="overview?.period.task_type_status_distribution ?? []"
+        :days="selectedDays"
+      />
+      <DashboardResultQualityChart :items="overview?.period.result_trend ?? []" :days="selectedDays" />
+    </div>
+
+    <DashboardResourceGrid :resources="overview?.resource_health ?? {}" />
+
+    <div class="dashboard-health-section">
       <DashboardExecutionHealth
         :health="executionHealth"
         :summary="summary"
         :completion-rate="completionRate"
       />
     </div>
-
-    <DashboardResourceGrid :resources="overview?.resource_health ?? {}" />
 
     <div class="dashboard-bottom-grid">
       <DashboardRecentTasks
@@ -98,11 +119,17 @@ function openTaskList() {
 }
 
 .dashboard-header {
-  min-height: 52px;
+  min-height: 48px;
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
+}
+
+.dashboard-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .dashboard-header > div {
@@ -130,6 +157,16 @@ function openTaskList() {
   gap: 16px;
 }
 
+.dashboard-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.dashboard-health-section {
+  min-width: 0;
+}
+
 .dashboard-bottom-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
@@ -139,6 +176,7 @@ function openTaskList() {
 
 @media (max-width: 1180px) {
   .dashboard-main-grid,
+  .dashboard-analysis-grid,
   .dashboard-bottom-grid {
     grid-template-columns: 1fr;
   }
@@ -149,6 +187,12 @@ function openTaskList() {
     align-items: start;
     flex-direction: column;
     gap: 4px;
+  }
+
+  .dashboard-header__actions {
+    align-items: start;
+    flex-direction: column;
+    gap: 6px;
   }
 }
 </style>

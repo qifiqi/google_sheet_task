@@ -1,9 +1,10 @@
 import { createApp } from 'vue'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
-import ElementPlus from 'element-plus'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import { ElLoading } from 'element-plus'
 import { createPinia } from 'pinia'
-import 'element-plus/dist/index.css'
+import 'element-plus/es/components/loading/style/css'
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
 import './style.css'
 import App from './App.vue'
 import router from './router'
@@ -26,5 +27,5 @@ createApp(App)
   .use(pinia)
   .use(VueQueryPlugin, { queryClient })
   .use(router)
-  .use(ElementPlus, { locale: zhCn, size: 'default', zIndex: 3000 })
+  .use(ElLoading)
   .mount('#app')

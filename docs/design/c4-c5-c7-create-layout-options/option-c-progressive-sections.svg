@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1080" viewBox="0 0 1440 1080" role="img" aria-labelledby="title desc">
+  <title id="title">方案 C：渐进式折叠分区</title>
+  <desc id="desc">C4、C5、C7 创建页按任务信息、Sheet、K 线规则、参数矩阵四个阶段组织，标题区域可点击折叠并显示摘要。</desc>
+  <defs>
+    <style>
+      text { font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #0f172a; letter-spacing: 0; }
+      .page-title { font-size: 22px; font-weight: 600; }.section-title { font-size: 16px; font-weight: 600; }.group-title { font-size: 14px; font-weight: 600; }
+      .label { font-size: 13px; fill: #334155; }.value { font-size: 13px; fill: #334155; }.muted { font-size: 12px; fill: #64748b; }.tiny { font-size: 11px; fill: #64748b; }
+      .surface { fill: #ffffff; stroke: #e2e8f0; stroke-width: 1; }.field { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1; }.soft { fill: #f8fafc; }
+      .blue-soft { fill: #eff6ff; stroke: #bfdbfe; }.blue { fill: #2563eb; }.blue-text { fill: #2563eb; }.line { stroke: #e2e8f0; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="1080" fill="#f8fafc"/>
+  <rect x="0" y="0" width="1440" height="56" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="48" y="35" class="section-title">业务模块 / C5 创建任务</text>
+  <rect x="1280" y="13" width="112" height="32" rx="6" class="field"/><text x="1304" y="34" class="value">返回任务列表</text>
+
+  <text x="48" y="94" class="page-title">方案 C · 渐进式折叠分区</text>
+  <text x="48" y="118" class="muted">每段标题都可直接点击展开或收起；收起后保留关键配置摘要，不需要重新打开确认</text>
+  <rect x="1192" y="82" width="200" height="30" rx="6" class="blue-soft"/><text x="1218" y="102" class="muted blue-text">推荐：降低长表单的认知负担</text>
+
+  <line x1="73" y1="178" x2="73" y2="876" stroke="#cbd5e1" stroke-width="2"/>
+
+  <circle cx="73" cy="176" r="16" fill="#10b981"/><text x="73" y="181" text-anchor="middle" font-size="13" fill="#ffffff" font-weight="600">1</text>
+  <rect x="104" y="142" width="1288" height="68" rx="8" class="surface"/>
+  <text x="124" y="168" class="group-title">任务信息</text><text x="124" y="190" class="muted">不使用模板　 ·　 C5 参数批量验证　 ·　 名称与描述已保存</text>
+  <rect x="1284" y="159" width="84" height="26" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/><text x="1305" y="177" class="tiny" fill="#047857">已完成</text>
+
+  <circle cx="73" cy="260" r="16" fill="#10b981"/><text x="73" y="265" text-anchor="middle" font-size="13" fill="#ffffff" font-weight="600">2</text>
+  <rect x="104" y="226" width="1288" height="68" rx="8" class="surface"/>
+  <text x="124" y="252" class="group-title">Google Sheet 配置</text><text x="124" y="274" class="muted">示例策略表 / 输出结果　 ·　 执行配置：文件 Token / 无代理</text>
+  <rect x="1284" y="243" width="84" height="26" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/><text x="1305" y="261" class="tiny" fill="#047857">已完成</text>
+
+  <circle cx="73" cy="344" r="16" class="blue"/><text x="73" y="349" text-anchor="middle" font-size="13" fill="#ffffff" font-weight="600">3</text>
+  <rect x="104" y="310" width="1288" height="336" rx="8" class="surface"/>
+  <rect x="105" y="311" width="1286" height="61" rx="7" fill="#eff6ff"/>
+  <text x="124" y="338" class="section-title">K 线与日期规则</text><text x="124" y="359" class="muted">自动获取　 ·　 A 股　 ·　 VWAP　 ·　 2021-07-26 至 2026-07-26</text>
+  <text x="1368" y="346" text-anchor="end" class="tiny blue-text">点击标题收起</text>
+
+  <text x="124" y="401" class="label">K 线来源</text>
+  <rect x="210" y="383" width="236" height="36" rx="6" fill="#f1f5f9"/><rect x="212" y="385" width="116" height="32" rx="5" class="blue"/><text x="244" y="407" font-size="13" fill="#ffffff">自动获取</text><text x="355" y="407" class="value">Sheet 自定义</text>
+  <text x="486" y="401" class="label">统计方式</text>
+  <rect x="570" y="383" width="182" height="36" rx="6" fill="#f1f5f9"/><rect x="572" y="385" width="88" height="32" rx="5" class="blue"/><text x="598" y="407" font-size="13" fill="#ffffff">总数</text><text x="694" y="407" class="value">N+1</text>
+  <text x="792" y="401" class="label">价格类型</text><rect x="878" y="383" width="212" height="36" rx="6" class="field"/><text x="892" y="406" class="value">VWAP</text><text x="1066" y="406" class="muted">⌄</text>
+  <text x="1130" y="401" class="label">市场类型</text><rect x="1216" y="383" width="152" height="36" rx="6" fill="#f1f5f9"/><rect x="1218" y="385" width="73" height="32" rx="5" class="blue"/><text x="1238" y="407" font-size="13" fill="#ffffff">A 股</text><text x="1316" y="407" class="value">美股</text>
+
+  <line x1="124" y1="444" x2="1368" y2="444" class="line"/>
+  <text x="124" y="477" class="label">K 线复权</text><rect x="124" y="486" width="276" height="36" rx="6" class="field"/><text x="138" y="509" class="value">前复权</text><text x="376" y="509" class="muted">⌄</text>
+  <text x="424" y="477" class="label">范围模式</text><rect x="424" y="486" width="276" height="36" rx="6" class="field"/><rect x="438" y="497" width="14" height="14" rx="2" fill="#ffffff" stroke="#94a3b8"/><text x="460" y="509" class="value">整年</text><rect x="526" y="497" width="14" height="14" rx="2" fill="#ffffff" stroke="#94a3b8"/><text x="548" y="509" class="value">近年</text>
+  <text x="724" y="477" class="label">排除近年</text><rect x="724" y="486" width="276" height="36" rx="6" class="field"/><text x="738" y="509" class="muted">可选</text><text x="976" y="509" class="muted">⌄</text>
+  <text x="1024" y="477" class="label">日期范围</text><rect x="1024" y="486" width="160" height="36" rx="6" class="field"/><text x="1038" y="509" class="value">2021-07-26</text><text x="1194" y="509" class="muted">至</text><rect x="1208" y="486" width="160" height="36" rx="6" class="field"/><text x="1222" y="509" class="value">2026-07-26</text>
+  <rect x="124" y="548" width="1244" height="72" rx="6" class="soft" stroke="#e2e8f0"/>
+  <text x="144" y="574" class="group-title">当前规则摘要</text><text x="144" y="598" class="muted">自动拉取 A 股前复权 VWAP 数据；使用固定日期范围；N+1 未启用，因此范围模式暂不参与。</text>
+
+  <circle cx="73" cy="696" r="16" class="blue"/><text x="73" y="701" text-anchor="middle" font-size="13" fill="#ffffff" font-weight="600">4</text>
+  <rect x="104" y="662" width="1288" height="256" rx="8" class="surface"/>
+  <rect x="105" y="663" width="1286" height="61" rx="7" fill="#eff6ff"/>
+  <text x="124" y="690" class="section-title">参数矩阵</text><text x="124" y="711" class="muted">2 个股票代码　 ·　 参数 2：3 项　 ·　 参数 3：2 项　 ·　 共 12 个组合</text>
+  <text x="1368" y="698" text-anchor="end" class="tiny blue-text">点击标题收起</text>
+  <text x="124" y="754" class="label">股票代码 / 产品代码</text>
+  <rect x="124" y="763" width="1098" height="38" rx="6" class="field"/><text x="138" y="787" class="muted">600000, 600001</text>
+  <rect x="1234" y="763" width="134" height="38" rx="6" class="blue"/><text x="1268" y="787" font-size="13" fill="#ffffff">＋ 添加代码</text>
+  <text x="124" y="832" class="label">参数 2 JSON（可选）</text><text x="754" y="832" class="label">参数 3 JSON（可选）</text>
+  <rect x="124" y="841" width="606" height="52" rx="6" class="field"/><text x="138" y="871" class="muted">[1, 2, 3]</text>
+  <rect x="754" y="841" width="614" height="52" rx="6" class="field"/><text x="768" y="871" class="muted">[1, 2]</text>
+
+  <rect x="48" y="934" width="1344" height="82" rx="8" class="surface"/>
+  <text x="68" y="969" class="group-title">创建前检查</text><text x="68" y="992" class="muted">4 个阶段已完成　 ·　 1 个 Sheet　 ·　 预计执行 12 个参数组合</text>
+  <rect x="1022" y="959" width="104" height="32" rx="6" class="field"/><text x="1047" y="980" class="value">清除草稿</text>
+  <rect x="1136" y="959" width="104" height="32" rx="6" class="field"/><text x="1161" y="980" class="value">保存模板</text>
+  <rect x="1250" y="959" width="122" height="32" rx="6" class="blue"/><text x="1275" y="980" font-size="13" fill="#ffffff">创建并执行</text>
+
+  <text x="48" y="1045" class="tiny">C4 适配：阶段结构不变；第 3 阶段精简为统计、市场、复权与日期，第 4 阶段只显示股票代码。</text>
+  <text x="48" y="1065" class="tiny">交互建议：首次进入默认展开未完成阶段；点击 title 或 subtitle 直接折叠，摘要始终保留。</text>
+</svg>

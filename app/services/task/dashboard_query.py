@@ -50,6 +50,7 @@ class TaskDashboardQueryService:
             "status_distribution": {},
             "task_type_distribution": {},
             "daily_trend": daily_trend,
+            "period": self.build_empty_period(now, days),
             "recent_tasks": [],
             "active_tasks": [],
             "execution_health": {
@@ -59,6 +60,37 @@ class TaskDashboardQueryService:
             "resource_health": {},
             "recent_alerts": [],
             "checked_at": now.isoformat(),
+        }
+
+    def build_empty_period(self, now: datetime, days: int) -> dict:
+        return {
+            "days": days,
+            "start_at": self._get_period_start(now, days).isoformat(),
+            "task_trend": self._build_empty_task_trend(now, days),
+            "task_type_status_distribution": [],
+            "result_trend": self._build_empty_result_trend(now, days),
+        }
+
+    def get_period_overview(
+        self,
+        allowed_task_types: Iterable[str],
+        now: datetime,
+        days: int,
+    ) -> dict:
+        allowed_types = list(allowed_task_types)
+        if not allowed_types:
+            return self.build_empty_period(now, days)
+
+        return {
+            "days": days,
+            "start_at": self._get_period_start(now, days).isoformat(),
+            "task_trend": self.get_task_trend(allowed_types, now, days),
+            "task_type_status_distribution": self.get_task_type_status_distribution(
+                allowed_types,
+                now,
+                days,
+            ),
+            "result_trend": self.get_result_trend(allowed_types, now, days),
         }
 
     def get_recent_task_models(
@@ -396,6 +428,109 @@ class TaskDashboardQueryService:
             for date_key, values in trend_map.items()
         ]
 
+    def get_task_trend(
+        self,
+        allowed_task_types: Iterable[str],
+        now: datetime,
+        days: int,
+    ) -> list[dict[str, int | str]]:
+        trend_map = self._build_empty_task_trend_map(now, days)
+        start_time = self._get_period_start(now, days)
+        allowed_types = list(allowed_task_types)
+
+        created_rows = (
+            Task.query.with_entities(func.date(Task.created_at), func.count(Task.id))
+            .filter(
+                Task.task_type.in_(allowed_types),
+                Task.created_at >= start_time,
+            )
+            .group_by(func.date(Task.created_at))
+            .all()
+        )
+        terminal_rows = (
+            Task.query.with_entities(
+                func.date(Task.end_time),
+                Task.status,
+                func.count(Task.id),
+            )
+            .filter(
+                Task.task_type.in_(allowed_types),
+                Task.status.in_(("completed", "error")),
+                Task.end_time.isnot(None),
+                Task.end_time >= start_time,
+            )
+            .group_by(func.date(Task.end_time), Task.status)
+            .all()
+        )
+
+        for bucket_date, count in created_rows:
+            date_key = self._normalize_date_key(bucket_date)
+            if date_key in trend_map:
+                trend_map[date_key]["created"] = int(count)
+
+        for bucket_date, status, count in terminal_rows:
+            date_key = self._normalize_date_key(bucket_date)
+            if date_key in trend_map:
+                trend_map[date_key]["completed" if status == "completed" else "error"] = int(count)
+
+        return [
+            {"date": date_key, **values}
+            for date_key, values in trend_map.items()
+        ]
+
+    def get_task_type_status_distribution(
+        self,
+        allowed_task_types: Iterable[str],
+        now: datetime,
+        days: int,
+    ) -> list[dict[str, int | str]]:
+        rows = (
+            Task.query.with_entities(Task.task_type, Task.status, func.count(Task.id))
+            .filter(
+                Task.task_type.in_(list(allowed_task_types)),
+                Task.created_at >= self._get_period_start(now, days),
+            )
+            .group_by(Task.task_type, Task.status)
+            .all()
+        )
+        return [
+            {"task_type": task_type, "status": status, "count": int(count)}
+            for task_type, status, count in rows
+            if task_type and status
+        ]
+
+    def get_result_trend(
+        self,
+        allowed_task_types: Iterable[str],
+        now: datetime,
+        days: int,
+    ) -> list[dict[str, int | str]]:
+        trend_map = self._build_empty_result_trend_map(now, days)
+        rows = (
+            db.session.query(
+                func.date(TaskResult.timestamp),
+                TaskResult.success,
+                func.count(TaskResult.id),
+            )
+            .join(Task, Task.id == TaskResult.task_id)
+            .filter(
+                Task.task_type.in_(list(allowed_task_types)),
+                TaskResult.timestamp >= self._get_period_start(now, days),
+            )
+            .group_by(func.date(TaskResult.timestamp), TaskResult.success)
+            .all()
+        )
+
+        for bucket_date, success, count in rows:
+            date_key = self._normalize_date_key(bucket_date)
+            if date_key in trend_map:
+                trend_map[date_key]["success" if success else "failed"] = int(count)
+
+        return [
+            {"date": date_key, **values}
+            for date_key, values in trend_map.items()
+        ]
+
     def _build_empty_daily_trend(
         self,
         now: datetime,
@@ -422,6 +557,60 @@ class TaskDashboardQueryService:
         return {
             day.isoformat(): {"created": 0, "completed": 0}
             for day in day_range
+        }
+
+    def _get_period_start(self, now: datetime, days: int) -> datetime:
+        return (now - timedelta(days=days - 1)).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+
+    def _build_empty_task_trend(
+        self,
+        now: datetime,
+        days: int,
+    ) -> list[dict[str, int | str]]:
+        return [
+            {"date": date_key, **values}
+            for date_key, values in self._build_empty_task_trend_map(now, days).items()
+        ]
+
+    def _build_empty_task_trend_map(
+        self,
+        now: datetime,
+        days: int,
+    ) -> dict[str, dict[str, int]]:
+        return {
+            day.isoformat(): {"created": 0, "completed": 0, "error": 0}
+            for day in [
+                (now - timedelta(days=offset)).date()
+                for offset in range(days - 1, -1, -1)
+            ]
+        }
+
+    def _build_empty_result_trend(
+        self,
+        now: datetime,
+        days: int,
+    ) -> list[dict[str, int | str]]:
+        return [
+            {"date": date_key, **values}
+            for date_key, values in self._build_empty_result_trend_map(now, days).items()
+        ]
+
+    def _build_empty_result_trend_map(
+        self,
+        now: datetime,
+        days: int,
+    ) -> dict[str, dict[str, int]]:
+        return {
+            day.isoformat(): {"success": 0, "failed": 0}
+            for day in [
+                (now - timedelta(days=offset)).date()
+                for offset in range(days - 1, -1, -1)
+            ]
         }
 
     def _normalize_date_key(self, raw_date) -> str:

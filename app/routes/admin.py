@@ -180,9 +180,17 @@ def scheduler_status():
 def dashboard_overview():
     """管理后台仪表盘总览数据"""
     try:
+        raw_days = request.args.get("days")
+        try:
+            days = int(raw_days) if raw_days is not None else 30
+        except (TypeError, ValueError):
+            days = None
+        if days not in {7, 30, 90}:
+            return jsonify({"success": False, "error": "统计周期仅支持 7、30 或 90 天"}), 400
         return jsonify(
             runtime_view_service.build_dashboard_overview(
                 getattr(g, "current_user", None),
+                days=days,
             )
         )
     except Exception as e:

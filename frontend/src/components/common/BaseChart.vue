@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 import { useResizeObserver } from '@vueuse/core'
-import { BarChart, LineChart } from 'echarts/charts'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { init, use, type EChartsCoreOption, type EChartsType } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import '../../styles/components/base-chart.css'
 
-use([BarChart, CanvasRenderer, GridComponent, LegendComponent, LineChart, TooltipComponent])
+use([BarChart, CanvasRenderer, GridComponent, LegendComponent, LineChart, PieChart, TooltipComponent])
 
 const props = defineProps<{
   ariaLabel: string

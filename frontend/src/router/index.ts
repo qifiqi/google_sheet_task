@@ -1,29 +1,20 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getAccessToken } from '../api/http'
 import { useAuthStore } from '../stores/auth'
-import AdminLayout from '../layout/AdminLayout.vue'
-import LoginView from '../pages/auth/LoginView.vue'
-import ModelSummaryView from '../pages/data/ModelSummaryView.vue'
-import ResultListView from '../pages/tasks/ResultListView.vue'
-import SchedulerView from '../pages/scheduler/SchedulerView.vue'
-import TaskListView from '../pages/tasks/TaskListView.vue'
-import TemplateListView from '../pages/tasks/TemplateListView.vue'
-import XplJobListView from '../pages/tasks/XplJobListView.vue'
-import AccessDeniedView from '../pages/shared/AccessDeniedView.vue'
 import { migrationPlaceholderRoutes } from './migration-pages'
 
 const router = createRouter({
-  history: createWebHistory('/web/'),
+  history: createWebHistory('/page/'),
   routes: [
     {
       path: '/login',
       name: 'Login',
-      component: LoginView,
+      component: () => import('../pages/auth/LoginView.vue'),
       meta: { public: true },
     },
     {
       path: '/',
-      component: AdminLayout,
+      component: () => import('../layout/AdminLayout.vue'),
       meta: { requiresAuth: true },
       children: [
         {
@@ -35,43 +26,43 @@ const router = createRouter({
         {
           path: 'forbidden',
           name: 'AccessDenied',
-          component: AccessDeniedView,
+          component: () => import('../pages/shared/AccessDeniedView.vue'),
           meta: { title: '访问受限' },
         },
         {
           path: 'tasks',
           name: 'Tasks',
-          component: TaskListView,
+          component: () => import('../pages/tasks/TaskListView.vue'),
           meta: { title: '任务管理', navPath: '/admin/tasks' },
         },
         {
           path: 'templates',
           name: 'Templates',
-          component: TemplateListView,
+          component: () => import('../pages/tasks/TemplateListView.vue'),
           meta: { title: '任务模板', navPath: '/admin/templates' },
         },
         {
           path: 'results',
           name: 'Results',
-          component: ResultListView,
+          component: () => import('../pages/tasks/ResultListView.vue'),
           meta: { title: '任务结果', navPath: '/admin/results' },
         },
         {
           path: 'xpl-analysis-jobs',
           name: 'XplAnalysisJobs',
-          component: XplJobListView,
+          component: () => import('../pages/tasks/XplJobListView.vue'),
           meta: { title: 'XPL Job 运维', navPath: '/admin/xpl-analysis-jobs' },
         },
         {
           path: 'model-summary',
           name: 'ModelSummary',
-          component: ModelSummaryView,
+          component: () => import('../pages/data/ModelSummaryView.vue'),
           meta: { title: '单模型汇总', navPath: '/admin/model-summary' },
         },
         {
           path: 'scheduler',
           name: 'Scheduler',
-          component: SchedulerView,
+          component: () => import('../pages/scheduler/SchedulerView.vue'),
           meta: { title: '定时任务', navPath: '/admin/scheduler' },
         },
         ...migrationPlaceholderRoutes,

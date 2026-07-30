@@ -45,6 +45,7 @@ VALUES
     ('google_sheet', 'google_sheet:c3', '访问 Google Sheet C3', '/task/list?version=c3'),
     ('google_sheet', 'google_sheet:c4', '访问 Google Sheet C4', '/task/list?version=c4'),
     ('google_sheet', 'google_sheet:c5', '访问 Google Sheet C5', '/task/list?version=c5'),
+    ('google_sheet', 'google_sheet:c7', '访问 Google Sheet C7', '/task/list?version=c7'),
     ('config', 'config:view', '查看系统配置', '/admin/config'),
     ('config', 'config:manage', '修改系统配置', '/admin/config'),
     ('navigation', 'navigation:view', '查看路由表', '/admin/navigation'),
@@ -70,6 +71,7 @@ VALUES
     ('page', 'page:google_sheet:c3', '访问 Google Sheet C3 页面', '/google-sheet/?version=c3'),
     ('page', 'page:google_sheet:c4', '访问 Google Sheet C4 页面', '/google-sheet/?version=c4'),
     ('page', 'page:google_sheet:c5', '访问 Google Sheet C5 页面', '/google-sheet/?version=c5'),
+    ('page', 'page:google_sheet:c7', '访问 Google Sheet C7 页面', '/google-sheet/?version=c7'),
     ('page', 'page:backtest:list', '访问回测列表页面', '/backtest-training/list'),
     ('page', 'page:backtest:create', '访问回测创建页面', '/backtest-training/create'),
     ('page', 'page:backtest_multi_product:list', '访问多品数据回测列表页面', '/backtest-multi-product/list'),
@@ -130,10 +132,11 @@ VALUES
     ('c3', 'Google Sheet C3', '/google-sheet/?version=c3', 'page:google_sheet:c3', 'business', 0, TRUE, NOW(), NOW()),
     ('c4', 'Google Sheet C4', '/google-sheet/?version=c4', 'page:google_sheet:c4', 'business', 10, TRUE, NOW(), NOW()),
     ('c5', 'Google Sheet C5', '/google-sheet/?version=c5', 'page:google_sheet:c5', 'business', 20, TRUE, NOW(), NOW()),
-    ('backtest', '单品数据回测', '/backtest-training/list', 'page:backtest:list', 'business', 30, TRUE, NOW(), NOW()),
-    ('backtest_multi_product', '多品数据回测', '/backtest-multi-product/list', 'page:backtest_multi_product:list', 'business', 40, TRUE, NOW(), NOW()),
-    ('xpl', '夏普率计算', '/xpl', NULL, 'business', 50, TRUE, NOW(), NOW()),
-    ('xpl_v1', 'V1 回测数据分析', '/xpl/v1', NULL, 'business', 60, TRUE, NOW(), NOW())
+    ('c7', 'Google Sheet C7', '/google-sheet/?version=c7', 'page:google_sheet:c7', 'business', 30, TRUE, NOW(), NOW()),
+    ('backtest', '单品数据回测', '/backtest-training/list', 'page:backtest:list', 'business', 40, TRUE, NOW(), NOW()),
+    ('backtest_multi_product', '多品数据回测', '/backtest-multi-product/list', 'page:backtest_multi_product:list', 'business', 50, TRUE, NOW(), NOW()),
+    ('xpl', '夏普率计算', '/xpl', NULL, 'business', 60, TRUE, NOW(), NOW()),
+    ('xpl_v1', 'V1 回测数据分析', '/xpl/v1', NULL, 'business', 70, TRUE, NOW(), NOW())
 ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     path = EXCLUDED.path,

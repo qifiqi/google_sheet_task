@@ -5,7 +5,9 @@ import { ElMessage } from 'element-plus'
 
 const model = defineModel<string>({ required: true })
 const input = shallowRef('')
+const showAllCodes = shallowRef(false)
 type ProductCode = string | number
+const defaultVisibleCodeCount = 24
 
 const parsedCodes = computed(() => {
   const value = model.value.trim()
@@ -21,15 +23,16 @@ const parsedCodes = computed(() => {
   }
 })
 
+const visibleCodes = computed(() => showAllCodes.value ? parsedCodes.value.codes : parsedCodes.value.codes.slice(0, defaultVisibleCodeCount))
+const hiddenCodeCount = computed(() => Math.max(0, parsedCodes.value.codes.length - defaultVisibleCodeCount))
+
 function addCodes() {
   const codes = input.value.split(/[，,\s]+/).map((item) => item.trim()).filter(Boolean)
   if (!codes.length) return
-  if (parsedCodes.value.error) {
-    ElMessage.error(parsedCodes.value.error)
-    return
-  }
-  const existing = new Set(parsedCodes.value.codes.map(String))
-  const next = [...parsedCodes.value.codes]
+  if (parsedCodes.value.error) ElMessage.warning('已用新输入覆盖原有的无效产品代码')
+  const currentCodes = parsedCodes.value.error ? [] : parsedCodes.value.codes
+  const existing = new Set(currentCodes.map(String))
+  const next = [...currentCodes]
   codes.forEach((code) => {
     if (!existing.has(code)) {
       next.push(code)
@@ -54,19 +57,18 @@ function removeCode(code: ProductCode) {
       </div>
     </el-form-item>
     <div v-if="parsedCodes.codes.length" class="product-code-editor__tags" aria-label="已添加的产品代码">
-      <el-tag v-for="(code, index) in parsedCodes.codes" :key="`${String(code)}-${index}`" closable effect="plain" @close="removeCode(code)">{{ code }}</el-tag>
+      <el-tag v-for="(code, index) in visibleCodes" :key="`${String(code)}-${index}`" closable effect="plain" @close="removeCode(code)">{{ code }}</el-tag>
+      <el-button v-if="hiddenCodeCount && !showAllCodes" link type="primary" @click="showAllCodes = true">其余 {{ hiddenCodeCount }} 个</el-button>
+      <el-button v-else-if="hiddenCodeCount" link type="primary" @click="showAllCodes = false">收起</el-button>
     </div>
     <el-alert v-if="parsedCodes.error" :title="parsedCodes.error" type="warning" :closable="false" show-icon />
-    <el-form-item label="产品代码 JSON（高级）">
-      <el-input v-model="model" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" placeholder='例如：["000001", "600519"]' />
-    </el-form-item>
   </section>
 </template>
 
 <style scoped>
-.product-code-editor { display: grid; gap: 10px; }
-.product-code-editor :deep(.el-form-item) { margin-bottom: 0; }
-.product-code-editor__input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.product-code-editor { display: grid; min-width: 0; gap: 10px; }
+.product-code-editor :deep(.el-form-item), .product-code-editor :deep(.el-form-item__content) { min-width: 0; margin-bottom: 0; }
+.product-code-editor__input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; width: 100%; }
 .product-code-editor__tags { display: flex; flex-wrap: wrap; gap: 6px; min-height: 28px; padding: 8px 10px; border: 1px solid var(--admin-border-light); border-radius: 6px; background: var(--admin-bg); }
 @media (max-width: 560px) { .product-code-editor__input-row { grid-template-columns: 1fr; } }
 </style>

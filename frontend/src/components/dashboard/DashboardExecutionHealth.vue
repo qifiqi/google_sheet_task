@@ -102,12 +102,11 @@ const xplCompletionRate = computed(() => {
 .health-section {
   display: grid;
   gap: 10px;
-  padding: 4px 0 18px;
+  padding: 4px 18px;
 }
 
 .health-section + .health-section {
-  padding-top: 18px;
-  border-top: 1px solid var(--admin-border-light);
+  border-left: 1px solid var(--admin-border-light);
 }
 
 .health-section__title span {
@@ -121,7 +120,7 @@ const xplCompletionRate = computed(() => {
 }
 
 .health-section--xpl {
-  padding-bottom: 0;
+  padding-bottom: 4px;
 }
 
 .xpl-stats {
@@ -144,5 +143,25 @@ const xplCompletionRate = computed(() => {
 .xpl-stats strong {
   color: var(--admin-text);
   font-size: 16px;
+}
+
+.health-card :deep(.el-card__body) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  padding: 18px 0;
+}
+
+@media (max-width: 760px) {
+  .health-card :deep(.el-card__body) {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .health-section + .health-section {
+    border-top: 1px solid var(--admin-border-light);
+    border-left: 0;
+    padding-top: 18px;
+  }
 }
 </style>

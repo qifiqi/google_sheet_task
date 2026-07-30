@@ -158,7 +158,7 @@ onUnmounted(() => window.clearTimeout(refreshTimer))
         <el-scrollbar ref="contentScrollbar" class="admin-shell__content-scroll" always :min-size="36">
           <div class="admin-shell__content-inner">
             <router-view v-slot="{ Component }">
-              <component :is="Component" :key="refreshKey" />
+              <component :is="Component" :key="`${String(route.name || '')}:${refreshKey}`" />
             </router-view>
           </div>
         </el-scrollbar>

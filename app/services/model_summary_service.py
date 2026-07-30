@@ -151,6 +151,28 @@ C4_C5_METRIC_CELLS = {
     "unit_actual_leverage_return": "D20",
 }
 
+C7_METRIC_CELLS = {
+    "return_rate": "D8",
+    "annualized_rate": "D9",
+    "max_drawdown": "D10",
+    "index_return": "D11",
+    "index_annualized_rate": "D12",
+    "index_max_drawdown": "D13",
+    "fee_total": "D14",
+    "fee_annualized": "D15",
+    "turnover_rate": "D16",
+    "return_beats": "D17",
+    "dd_beats": "D18",
+    "max_one_year_beats": "D19",
+    "min_one_year_beats": "D20",
+    "max_theoretical_leverage": "D21",
+    "avg_theoretical_leverage": "D22",
+    "unit_theoretical_leverage_return": "D23",
+    "max_actual_leverage": "D24",
+    "avg_actual_leverage": "D25",
+    "unit_actual_leverage_return": "D26",
+}
+
 CSV_LEADING_COLUMNS = [
     ("stock_code", "产品/股票"),
     ("stock_name", "股票名"),
@@ -711,7 +733,11 @@ def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
     ]
 
 
-def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
+def _extract_c4_c5(
+    task: Task,
+    result: TaskResult,
+    metric_cells: dict[str, str] = C4_C5_METRIC_CELLS,
+) -> list[SummaryRecord]:
     parameters = _parse_json(result.parameters, {})
     payload = _parse_json(result.result, {})
     if not isinstance(payload, dict):
@@ -722,10 +748,15 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
         if model_key == "flat_result" or not isinstance(raw_metrics, dict):
             continue
 
-        return_beats = _safe_number(raw_metrics.get("D11"))
+        nested_metrics = raw_metrics.get("D2:D20")
+        metrics_payload = nested_metrics if isinstance(nested_metrics, dict) else raw_metrics
+        return_cell = metric_cells.get("return_rate")
+        index_return_cell = metric_cells.get("index_return")
+        return_beats_cell = metric_cells.get("return_beats")
+        return_beats = _safe_number(metrics_payload.get(return_beats_cell))
         if return_beats is None:
-            left = _safe_number(raw_metrics.get("D2"))
-            right = _safe_number(raw_metrics.get("D5"))
+            left = _safe_number(metrics_payload.get(return_cell))
+            right = _safe_number(metrics_payload.get(index_return_cell))
             return_beats = left - right if left is not None and right is not None else None
         start_xpl = raw_metrics.get("start_return_xpl") if isinstance(raw_metrics.get("start_return_xpl"), dict) else {}
         index_xpl = raw_metrics.get("index_return_xpl") if isinstance(raw_metrics.get("index_return_xpl"), dict) else {}
@@ -733,8 +764,8 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
         model_name = "__".join(key_parts[1:]) if len(key_parts) > 1 else str(model_key)
         model_name = _display_model_name(model_name, task.task_type)
         metrics = {
-            key: _safe_number(raw_metrics.get(cell))
-            for key, cell in C4_C5_METRIC_CELLS.items()
+            key: _safe_number(metrics_payload.get(cell))
+            for key, cell in metric_cells.items()
         }
         metrics.update({"return_beats": return_beats})
         metrics.update(_extract_return_analysis_metrics(raw_metrics))
@@ -775,6 +806,10 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
 def _extract_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
     return _extract_c4_c5(task, result)
+
+
+def _extract_c7(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    return _extract_c4_c5(task, result, C7_METRIC_CELLS)
 
 
 def _format_backtest_percent(value: Any) -> str:
@@ -1064,7 +1099,7 @@ def extract_summary_records(task: Task, result: TaskResult) -> list[SummaryRecor
     if normalized == "google_sheet_c5":
         return _extract_c5(task, result)
     if normalized == "google_sheet_c7":
-        return _extract_c5(task, result)
+        return _extract_c7(task, result)
     if normalized == "backtest_training":
         return _extract_backtest(task, result)
     return []

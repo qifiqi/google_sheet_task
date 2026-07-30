@@ -5,10 +5,11 @@ import dayjs from 'dayjs'
 import type { EChartsCoreOption } from 'echarts/core'
 import BaseChart from '../common/BaseChart.vue'
 import { useAdminPreferencesStore } from '../../stores/admin-preferences'
-import type { DashboardTrendPoint } from '../../types/api'
+import type { DashboardPeriodTaskTrendPoint } from '../../types/api'
 
 const props = defineProps<{
-  items: readonly DashboardTrendPoint[]
+  items: readonly DashboardPeriodTaskTrendPoint[]
+  days: number
 }>()
 
 const emit = defineEmits<{
@@ -21,7 +22,7 @@ const chartOption = computed<EChartsCoreOption>(() => {
   const axisColor = dark ? '#9CA3AF' : '#64748B'
   const gridColor = dark ? '#30343B' : '#E2E8F0'
   return {
-    color: ['#2563EB', '#10B981'],
+    color: ['#2563EB', '#10B981', '#DC2626'],
     grid: { top: 44, right: 20, bottom: 34, left: 12, containLabel: true },
     legend: { top: 4, icon: 'roundRect', textStyle: { color: axisColor } },
     tooltip: {
@@ -63,6 +64,14 @@ const chartOption = computed<EChartsCoreOption>(() => {
         areaStyle: { opacity: 0.08 },
         data: props.items.map((item) => item.completed),
       },
+      {
+        name: '异常任务',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 7,
+        data: props.items.map((item) => item.error),
+      },
     ],
   }
 })
@@ -74,7 +83,7 @@ const chartOption = computed<EChartsCoreOption>(() => {
       <div class="trend-card__header">
         <div>
           <strong>任务趋势</strong>
-          <span>近 7 天创建与完成</span>
+          <span>近 {{ days }} 天创建、完成与异常</span>
         </div>
         <el-tooltip content="刷新仪表盘" placement="top">
           <el-button :icon="Refresh" text type="primary" aria-label="刷新仪表盘" @click="emit('refresh')" />
@@ -82,7 +91,7 @@ const chartOption = computed<EChartsCoreOption>(() => {
       </div>
     </template>
     <div class="trend-card__chart">
-      <BaseChart :option="chartOption" ariaLabel="近七天任务创建与完成趋势图" />
+      <BaseChart :option="chartOption" :ariaLabel="`近 ${days} 天任务创建、完成与异常趋势图`" />
     </div>
   </el-card>
 </template>

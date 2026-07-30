@@ -2,8 +2,8 @@
 import { computed, shallowRef, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { requestJson } from '../../api/http'
-import type { GoogleSheetItem } from '../../types/system'
+import { loadGoogleSheetWorksheets, useAvailableGoogleSheets } from '../../composables/useAvailableGoogleSheets'
+import type { GoogleSheetSelectOption } from '../../composables/useAvailableGoogleSheets'
 import type { GoogleSheetSelection } from '../../types/google-sheet'
 
 const props = withDefaults(defineProps<{
@@ -11,46 +11,65 @@ const props = withDefaults(defineProps<{
   removable?: boolean
   proxyUrl?: string
   worksheetRequired?: boolean
-}>(), { index: 0, removable: false, proxyUrl: '', worksheetRequired: true })
+  tableType?: string
+}>(), { index: 0, removable: false, proxyUrl: '', worksheetRequired: true, tableType: '' })
 
 const model = defineModel<GoogleSheetSelection>({ required: true })
 const emit = defineEmits<{ remove: [] }>()
-const sheets = shallowRef<GoogleSheetItem[]>([])
-const worksheets = shallowRef<string[]>([])
-const loadingSheets = shallowRef(false)
+const {
+  sheets,
+  options: sheetOptions,
+  loading: loadingSheets,
+  loadSheets: loadAvailableSheets,
+} = useAvailableGoogleSheets(props.tableType)
+const worksheetOptions = shallowRef<GoogleSheetSelectOption[]>([])
 const loadingWorksheets = shallowRef(false)
+let worksheetRequestVersion = 0
+let loadedWorksheetContext = ''
 const selectedSheet = computed(() => sheets.value.find((item) => item.spreadsheet_id === model.value.spreadsheetId))
 
 function update(patch: Partial<GoogleSheetSelection>) {
   model.value = { ...model.value, ...patch }
 }
 
-async function loadSheets() {
-  loadingSheets.value = true
+async function loadSheets(force = false) {
   try {
-    const payload = await requestJson<{ status: string; items: GoogleSheetItem[] }>('/api/google-sheets?only_available=1')
-    sheets.value = payload.items || []
+    await loadAvailableSheets(force)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载 Google Sheet 失败')
-  } finally {
-    loadingSheets.value = false
   }
 }
 
-async function loadWorksheets(spreadsheetId = model.value.spreadsheetId) {
-  if (!spreadsheetId) { worksheets.value = []; return }
+async function loadWorksheets(spreadsheetId = model.value.spreadsheetId, force = false) {
+  const requestVersion = ++worksheetRequestVersion
+  const requestContext = getWorksheetContext(spreadsheetId)
+  if (!spreadsheetId) {
+    worksheetOptions.value = []
+    loadedWorksheetContext = ''
+    return
+  }
   loadingWorksheets.value = true
   try {
-    const payload = await requestJson<{ status: string; title: string; worksheets: string[] }>('/api/google-sheet/worksheets', {
-      method: 'POST', body: JSON.stringify({ spreadsheet_id: spreadsheetId, proxy_url: props.proxyUrl || null }),
+    const payload = await loadGoogleSheetWorksheets({
+      spreadsheetId,
+      proxyUrl: props.proxyUrl,
+      force,
     })
-    worksheets.value = payload.worksheets || []
+    if (requestVersion !== worksheetRequestVersion || getWorksheetContext() !== requestContext) return
+    worksheetOptions.value = payload.options
+    loadedWorksheetContext = requestContext
     update({ title: model.value.title || payload.title || selectedSheet.value?.name || '', sheetName: model.value.sheetName || payload.worksheets?.[0] || '' })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '加载工作表失败')
+    if (requestVersion === worksheetRequestVersion) {
+      ElMessage.error(error instanceof Error ? error.message : '加载工作表失败')
+    }
   } finally {
-    loadingWorksheets.value = false
+    if (requestVersion === worksheetRequestVersion) loadingWorksheets.value = false
   }
+}
+
+function getWorksheetContext(spreadsheetId = model.value.spreadsheetId) {
+  return JSON.stringify([spreadsheetId, props.proxyUrl.trim()])
 }
 
 function selectSheet(spreadsheetId: string) {
@@ -58,11 +77,30 @@ function selectSheet(spreadsheetId: string) {
   update({ spreadsheetId, title: selected?.name || '', sheetName: '' })
 }
 
-watch(() => model.value.spreadsheetId, (value, previous) => {
-  if (value && value !== previous && sheets.value.length) loadWorksheets(value)
+function selectWorksheet(sheetName: string) {
+  update({ sheetName })
+}
+
+function loadWorksheetsWhenOpened(visible: boolean) {
+  if (!visible || !model.value.spreadsheetId) return
+  if (loadedWorksheetContext === getWorksheetContext()) return
+  void loadWorksheets()
+}
+
+async function refreshSheets() {
+  await loadSheets(true)
+  if (model.value.spreadsheetId) await loadWorksheets(model.value.spreadsheetId, true)
+}
+
+watch([() => model.value.spreadsheetId, () => props.proxyUrl], ([spreadsheetId, proxyUrl], previous) => {
+  if (spreadsheetId === previous?.[0] && proxyUrl === previous?.[1]) return
+  worksheetRequestVersion += 1
+  worksheetOptions.value = []
+  loadedWorksheetContext = ''
+  loadingWorksheets.value = false
 })
 
-loadSheets().then(() => { if (model.value.spreadsheetId) loadWorksheets() })
+void loadSheets()
 </script>
 
 <template>
@@ -74,18 +112,36 @@ loadSheets().then(() => { if (model.value.spreadsheetId) loadWorksheets() })
     <div class="google-sheet-picker__fields">
       <el-form-item label="Google Sheet" required>
         <div class="google-sheet-picker__select-row">
-          <el-select :model-value="model.spreadsheetId" filterable :loading="loadingSheets" placeholder="选择可用 Google Sheet" @update:model-value="selectSheet">
-            <el-option v-for="item in sheets" :key="item.id" :label="item.name" :value="item.spreadsheet_id" />
+          <el-select
+            :model-value="model.spreadsheetId"
+            :loading="loadingSheets"
+            persistent
+            popper-class="c-series-fast-select"
+            placeholder="选择可用 Google Sheet"
+            @update:model-value="selectSheet"
+          >
+            <el-option v-for="option in sheetOptions" :key="option.value" :label="option.label" :value="option.value" />
           </el-select>
-          <el-button :icon="Refresh" aria-label="刷新 Google Sheet" :loading="loadingSheets" @click="loadSheets" />
+          <el-button :icon="Refresh" aria-label="刷新 Google Sheet" :loading="loadingSheets || loadingWorksheets" @click="refreshSheets" />
         </div>
       </el-form-item>
       <el-form-item label="表标题" required>
         <el-input :model-value="model.title" placeholder="选择后自动带出，可调整" @update:model-value="(value) => update({ title: value })" />
       </el-form-item>
       <el-form-item :label="props.worksheetRequired ? '工作表' : '工作表（可选）'" :required="props.worksheetRequired">
-        <el-select :model-value="model.sheetName" allow-create filterable :loading="loadingWorksheets" :disabled="!model.spreadsheetId" placeholder="选择或输入工作表" @update:model-value="(value) => update({ sheetName: value })">
-          <el-option v-for="worksheet in worksheets" :key="worksheet" :label="worksheet" :value="worksheet" />
+        <el-select
+          :model-value="model.sheetName"
+          allow-create
+          filterable
+          :loading="loadingWorksheets"
+          :disabled="!model.spreadsheetId"
+          persistent
+          popper-class="c-series-fast-select"
+          placeholder="选择或输入工作表"
+          @visible-change="loadWorksheetsWhenOpened"
+          @update:model-value="selectWorksheet"
+        >
+          <el-option v-for="option in worksheetOptions" :key="option.value" :label="option.label" :value="option.value" />
         </el-select>
       </el-form-item>
     </div>

@@ -228,6 +228,28 @@ a {
   border-radius: 6px;
 }
 
+.instant-select-popper.el-zoom-in-top-enter-active,
+.instant-select-popper.el-zoom-in-top-leave-active {
+  transition: none;
+}
+
+.c-series-fast-select {
+  --el-transition-duration: 0s;
+  --el-transition-duration-fast: 0s;
+}
+
+.c-series-fast-select.el-zoom-in-top-enter-active,
+.c-series-fast-select.el-zoom-in-top-leave-active,
+.c-series-fast-select .el-zoom-in-top-enter-active,
+.c-series-fast-select .el-zoom-in-top-leave-active {
+  transition: none !important;
+  animation: none !important;
+}
+
+.c-series-no-collapse-motion .el-collapse-item__wrap {
+  transition: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

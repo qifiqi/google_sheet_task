@@ -1,10 +1,13 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ElMessage } from 'element-plus'
 import { requestJson } from '../api/http'
 import type { DashboardOverview } from '../types/api'
 
 const dashboardQueryKey = ['dashboard-overview'] as const
+const dashboardPeriodOptions = [7, 30, 90] as const
+
+export type DashboardPeriodDays = typeof dashboardPeriodOptions[number]
 
 const emptySummary = {
   total_tasks: 0,
@@ -15,17 +18,18 @@ const emptySummary = {
   pending_tasks: 0,
 }
 
-async function fetchDashboardOverview() {
-  const data = await requestJson<DashboardOverview>('/admin/api/dashboard/overview')
+async function fetchDashboardOverview(days: DashboardPeriodDays) {
+  const data = await requestJson<DashboardOverview>(`/admin/api/dashboard/overview?days=${days}`)
   if (!data.success) throw new Error('仪表盘接口返回失败')
   return data
 }
 
 export function useDashboardOverview() {
   const queryClient = useQueryClient()
+  const selectedDays = ref<DashboardPeriodDays>(30)
   const dashboardQuery = useQuery({
-    queryKey: dashboardQueryKey,
-    queryFn: fetchDashboardOverview,
+    queryKey: computed(() => [...dashboardQueryKey, selectedDays.value]),
+    queryFn: () => fetchDashboardOverview(selectedDays.value),
   })
   const overview = computed(() => dashboardQuery.data.value ?? null)
   const summary = computed(() => overview.value?.summary ?? emptySummary)
@@ -38,7 +42,7 @@ export function useDashboardOverview() {
 
   async function loadDashboard(showToast = false) {
     try {
-      await queryClient.invalidateQueries({ queryKey: dashboardQueryKey })
+      await queryClient.invalidateQueries({ queryKey: [...dashboardQueryKey, selectedDays.value] })
       await dashboardQuery.refetch({ throwOnError: true })
       if (showToast) ElMessage.success('工作台已刷新')
     } catch (error) {
@@ -46,5 +50,18 @@ export function useDashboardOverview() {
     }
   }
 
-  return { overview, loading, errorMessage, summary, completionRate, loadDashboard }
+  function setSelectedDays(days: DashboardPeriodDays) {
+    selectedDays.value = days
+  }
+
+  return {
+    overview,
+    loading,
+    errorMessage,
+    summary,
+    completionRate,
+    selectedDays,
+    setSelectedDays,
+    loadDashboard,
+  }
 }

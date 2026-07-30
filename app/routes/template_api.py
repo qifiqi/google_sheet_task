@@ -3,7 +3,10 @@ import json
 from sqlalchemy.orm import load_only
 
 from app.models import TaskTemplate, Task, TaskResult, TaskType, db
-from app.services.task_result_summary import build_task_result_list_item
+from app.services.task_result_summary import (
+    build_task_result_detail_presentation,
+    build_task_result_list_item,
+)
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action, filter_task_types_by_action
@@ -289,8 +292,14 @@ def get_result(result_id):
         if not decision["allowed"]:
             return _result_permission_denied("view", task_type, decision, result_id=result_id, task_id=result.task_id)
 
+        task = Task.query.filter_by(id=result.task_id).first()
         payload = result.to_dict()
-        payload.update(build_task_result_list_item(result, task_name, task_type))
+        payload.update(build_task_result_list_item(result, task_name, task_type, task.config if task else None))
+        payload["presentation"] = build_task_result_detail_presentation(
+            result,
+            task_type,
+            task.config if task else None,
+        )
         return jsonify(payload)
     except Exception as e:
         logger.error(f"获取结果详情失败: {str(e)}")

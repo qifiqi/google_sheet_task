@@ -58,6 +58,33 @@ export interface DashboardTrendPoint {
   completed: number
 }
 
+export interface DashboardPeriodTaskTrendPoint {
+  date: string
+  created: number
+  completed: number
+  error: number
+}
+
+export interface DashboardTaskTypeStatusPoint {
+  task_type: string
+  status: string
+  count: number
+}
+
+export interface DashboardResultTrendPoint {
+  date: string
+  success: number
+  failed: number
+}
+
+export interface DashboardPeriodOverview {
+  days: number
+  start_at: string
+  task_trend: DashboardPeriodTaskTrendPoint[]
+  task_type_status_distribution: DashboardTaskTypeStatusPoint[]
+  result_trend: DashboardResultTrendPoint[]
+}
+
 export interface DashboardTask {
   id: string
   name: string
@@ -142,6 +169,7 @@ export interface DashboardOverview {
   status_distribution: Record<string, number>
   task_type_distribution: Record<string, number>
   daily_trend: DashboardTrendPoint[]
+  period: DashboardPeriodOverview
   recent_tasks: DashboardTask[]
   active_tasks: DashboardTask[]
   execution_health: DashboardExecutionHealth
@@ -233,7 +261,10 @@ export interface TaskResultSummary {
   model_names: string[]
   analysis_status?: string | null
   models?: TaskResultModelSummary[]
-  metrics?: {
+  metrics?: TaskResultMetricMap
+}
+
+export interface TaskResultMetricMap {
     return?: string | number | null
     annualized?: string | number | null
     max_drawdown?: string | number | null
@@ -242,7 +273,19 @@ export interface TaskResultSummary {
     index_max_drawdown?: string | number | null
     index_sharpe?: string | number | null
     model_sharpe?: string | number | null
-  }
+    fee_total?: string | number | null
+    fee_annualized?: string | number | null
+    turnover_rate?: string | number | null
+    return_beats?: string | number | null
+    dd_beats?: string | number | null
+    max_one_year_beats?: string | number | null
+    min_one_year_beats?: string | number | null
+    max_theoretical_leverage?: string | number | null
+    avg_theoretical_leverage?: string | number | null
+    unit_theoretical_leverage_return?: string | number | null
+    max_actual_leverage?: string | number | null
+    avg_actual_leverage?: string | number | null
+    unit_actual_leverage_return?: string | number | null
 }
 
 export interface TaskResultModelSummary {
@@ -250,7 +293,29 @@ export interface TaskResultModelSummary {
   code: string
   name: string
   analysis_status?: string | null
-  metrics: NonNullable<TaskResultSummary['metrics']>
+  metrics: TaskResultMetricMap
+}
+
+export interface TaskResultPresentationItem {
+  label: string
+  value: string
+}
+
+export interface TaskResultPresentationSection {
+  key: 'core' | 'execution' | 'analysis' | string
+  title: string
+  items: TaskResultPresentationItem[]
+}
+
+export interface TaskResultPresentationModel {
+  key: string
+  name: string
+  sections: TaskResultPresentationSection[]
+}
+
+export interface TaskResultPresentation {
+  kind: 'c3' | 'c4_c5' | 'c7' | 'generic' | string
+  models: TaskResultPresentationModel[]
 }
 
 export interface TaskResultListResponse {
@@ -264,6 +329,7 @@ export interface TaskResultDetail extends TaskResultItem {
   parameters?: unknown
   result?: unknown
   error_message?: string | null
+  presentation?: TaskResultPresentation
 }
 
 export interface C31ChildTaskSummary {

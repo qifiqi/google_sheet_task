@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1080" viewBox="0 0 1440 1080" role="img" aria-labelledby="title desc">
+  <title id="title">方案 B：左右双栏工作台</title>
+  <desc id="desc">C4、C5、C7 创建页把 K 线规则与日期放在左侧，把股票代码和参数 JSON 放在右侧。</desc>
+  <defs>
+    <style>
+      text { font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #0f172a; letter-spacing: 0; }
+      .page-title { font-size: 22px; font-weight: 600; }.section-title { font-size: 16px; font-weight: 600; }.group-title { font-size: 14px; font-weight: 600; }
+      .label { font-size: 13px; fill: #334155; }.value { font-size: 13px; fill: #334155; }.muted { font-size: 12px; fill: #64748b; }.tiny { font-size: 11px; fill: #64748b; }
+      .surface { fill: #ffffff; stroke: #e2e8f0; stroke-width: 1; }.field { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1; }.soft { fill: #f8fafc; }
+      .blue-soft { fill: #eff6ff; stroke: #bfdbfe; }.blue { fill: #2563eb; }.blue-text { fill: #2563eb; }.line { stroke: #e2e8f0; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="1080" fill="#f8fafc"/>
+  <rect x="0" y="0" width="1440" height="56" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="48" y="35" class="section-title">业务模块 / C5 创建任务</text>
+  <rect x="1280" y="13" width="112" height="32" rx="6" class="field"/><text x="1304" y="34" class="value">返回任务列表</text>
+
+  <text x="48" y="94" class="page-title">方案 B · 左右双栏工作台</text>
+  <text x="48" y="118" class="muted">左侧只管行情条件，右侧专注参数输入；宽屏首屏信息利用率最高</text>
+  <rect x="1216" y="82" width="176" height="30" rx="6" class="blue-soft"/><text x="1242" y="102" class="muted blue-text">推荐：频繁建任务的熟练用户</text>
+
+  <rect x="48" y="142" width="652" height="72" rx="8" class="surface"/>
+  <text x="68" y="168" class="group-title">任务信息</text><text x="68" y="191" class="muted">不使用模板　 ·　 C5 参数批量验证　 ·　 已完成</text><text x="668" y="181" text-anchor="end" class="muted">⌃</text>
+  <rect x="716" y="142" width="676" height="72" rx="8" class="surface"/>
+  <text x="736" y="168" class="group-title">Google Sheet 配置</text><text x="736" y="191" class="muted">示例策略表 / 输出结果　 ·　 Token 已就绪</text><text x="1360" y="181" text-anchor="end" class="muted">⌃</text>
+
+  <rect x="48" y="230" width="1344" height="728" rx="8" class="surface"/>
+  <text x="68" y="261" class="section-title">K 线与参数</text><text x="68" y="283" class="muted">两侧内容独立向下生长，参数增多不会挤乱行情设置。</text>
+  <line x1="574" y1="302" x2="574" y2="932" class="line"/>
+
+  <text x="68" y="326" class="group-title">行情配置</text><text x="68" y="347" class="tiny">数据来源、计算口径和日期范围</text>
+  <text x="68" y="379" class="label">K 线来源</text>
+  <rect x="68" y="388" width="470" height="36" rx="6" fill="#f1f5f9"/>
+  <rect x="70" y="390" width="233" height="32" rx="5" class="blue"/><text x="151" y="412" font-size="13" fill="#ffffff">自动获取</text><text x="373" y="412" class="value">Sheet 自定义</text>
+
+  <text x="68" y="456" class="label">统计方式</text><text x="310" y="456" class="label">价格类型</text>
+  <rect x="68" y="465" width="220" height="36" rx="6" fill="#f1f5f9"/><rect x="70" y="467" width="107" height="32" rx="5" class="blue"/><text x="106" y="489" font-size="13" fill="#ffffff">总数</text><text x="222" y="489" class="value">N+1</text>
+  <rect x="310" y="465" width="228" height="36" rx="6" class="field"/><text x="324" y="488" class="value">VWAP</text><text x="514" y="488" class="muted">⌄</text>
+
+  <text x="68" y="534" class="label">市场类型</text><text x="310" y="534" class="label">K 线复权</text>
+  <rect x="68" y="543" width="220" height="36" rx="6" fill="#f1f5f9"/><rect x="70" y="545" width="107" height="32" rx="5" class="blue"/><text x="106" y="567" font-size="13" fill="#ffffff">A 股</text><text x="216" y="567" class="value">美股</text>
+  <rect x="310" y="543" width="228" height="36" rx="6" class="field"/><text x="324" y="566" class="value">前复权</text><text x="514" y="566" class="muted">⌄</text>
+
+  <line x1="68" y1="606" x2="538" y2="606" class="line"/>
+  <text x="68" y="636" class="group-title">日期范围</text><text x="68" y="657" class="tiny">自动获取模式下生效</text>
+  <text x="68" y="689" class="label">范围模式</text>
+  <rect x="68" y="698" width="470" height="36" rx="6" class="field"/><rect x="84" y="709" width="14" height="14" rx="2" fill="#ffffff" stroke="#94a3b8"/><text x="106" y="721" class="value">整年</text><rect x="178" y="709" width="14" height="14" rx="2" fill="#ffffff" stroke="#94a3b8"/><text x="200" y="721" class="value">近年</text>
+  <text x="68" y="767" class="label">排除近年</text><rect x="68" y="776" width="470" height="36" rx="6" class="field"/><text x="82" y="799" class="muted">可选</text><text x="514" y="799" class="muted">⌄</text>
+  <text x="68" y="845" class="label">开始日期</text><text x="310" y="845" class="label">结束日期</text>
+  <rect x="68" y="854" width="220" height="36" rx="6" class="field"/><text x="82" y="877" class="value">2021-07-26</text>
+  <rect x="310" y="854" width="228" height="36" rx="6" class="field"/><text x="324" y="877" class="value">2026-07-26</text>
+
+  <text x="602" y="326" class="group-title">参数工作区</text><text x="602" y="347" class="tiny">代码与 JSON 保持同宽，输入区比标签更突出</text>
+  <rect x="1218" y="310" width="142" height="28" rx="6" class="blue-soft"/><text x="1242" y="329" class="tiny blue-text">预计 12 个参数组合</text>
+
+  <text x="602" y="379" class="label">股票代码 / 产品代码</text>
+  <rect x="602" y="388" width="608" height="40" rx="6" class="field"/><text x="616" y="413" class="muted">输入代码后回车，例如：600000、600001</text>
+  <rect x="1222" y="388" width="138" height="40" rx="6" class="blue"/><text x="1257" y="413" font-size="13" fill="#ffffff">＋ 添加代码</text>
+  <rect x="602" y="440" width="758" height="68" rx="6" class="soft" stroke="#e2e8f0"/>
+  <rect x="618" y="456" width="92" height="34" rx="6" fill="#ffffff" stroke="#bfdbfe"/><text x="635" y="478" class="value">600000　×</text>
+  <rect x="720" y="456" width="92" height="34" rx="6" fill="#ffffff" stroke="#bfdbfe"/><text x="737" y="478" class="value">600001　×</text>
+  <text x="1336" y="479" text-anchor="end" class="tiny">2 个代码</text>
+
+  <text x="602" y="548" class="label">参数 2 JSON（可选）</text>
+  <rect x="602" y="557" width="758" height="124" rx="6" class="field"/><text x="618" y="584" class="muted">例如：[1, 2, 3]</text><text x="618" y="654" class="tiny">支持数组；留空时不参与组合</text>
+  <text x="602" y="720" class="label">参数 3 JSON（可选）</text>
+  <rect x="602" y="729" width="758" height="124" rx="6" class="field"/><text x="618" y="756" class="muted">例如：[1, 2, 3]</text><text x="618" y="826" class="tiny">支持数组；留空时不参与组合</text>
+  <rect x="602" y="876" width="758" height="42" rx="6" class="blue-soft"/>
+  <text x="618" y="902" class="value blue-text">组合预览：2 个代码 × 参数 2（3 项）× 参数 3（2 项）= 12 个组合</text>
+
+  <rect x="48" y="974" width="1344" height="70" rx="8" class="surface"/>
+  <text x="68" y="1017" class="muted">1 个 Sheet　 ·　 自动 K 线　 ·　 A 股　 ·　 预计 12 个组合</text>
+  <rect x="1022" y="993" width="104" height="32" rx="6" class="field"/><text x="1047" y="1014" class="value">清除草稿</text>
+  <rect x="1136" y="993" width="104" height="32" rx="6" class="field"/><text x="1161" y="1014" class="value">保存模板</text>
+  <rect x="1250" y="993" width="122" height="32" rx="6" class="blue"/><text x="1275" y="1014" font-size="13" fill="#ffffff">创建并执行</text>
+
+  <text x="48" y="1069" class="tiny">C4 适配：左栏减少为统计方式、市场、复权、日期；右栏只保留股票代码，右侧可改为代码批量预览区。</text>
+</svg>

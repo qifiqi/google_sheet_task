@@ -1,0 +1,116 @@
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    border-radius: 10px !important;
+    background-color: #d8d8d8;
+}
+
+.layui-btn-normal {
+    background: #4f46e5;
+}
+
+.layui-layer-btn0 {
+    background: #4f46e5 !important;
+}
+
+label.required:after {
+    /* 给红色的必填项打红色星号（文字后）如果打前面用before*/
+    content: ' *';
+    color: red;
+}
+
+
+/* 竖向输入框排列 */
+
+.layui-form {
+    display: flex;
+    flex-wrap: wrap;
+    grid-gap: 10px;
+}
+
+.layui-form-item {
+    width: 90%;
+    margin-left: 5%;
+    margin-bottom: 0px;
+}
+
+.layui-form-item .layui-inline {
+    margin-bottom: 0px;
+    display: grid;
+    padding: 0px;
+}
+
+.layui-form-item .layui-inline .layui-form-label {
+    text-align: left;
+    width: 100%;
+    padding: 9px 0px !important;
+}
+
+.layui-form-item-45 {
+    width: 43%;
+}
+
+.layui-form-item-80 {
+    width: 80%;
+}
+
+
+/* END竖向输入框排列 */
+
+
+/* Search 框  BEGIN*/
+
+.search {
+    box-sizing: border-box;
+    padding: 20px;
+    background-color: white;
+    border-radius: 16px;
+    margin-bottom: 1.5rem;
+}
+
+.layui-form {
+    display: flex;
+    flex-wrap: wrap;
+    grid-gap: 10px;
+}
+
+.layui-row {
+    width: 40%;
+    min-width: 350px;
+}
+
+
+/* Search 框  END*/
+
+
+/* Table 框 BEGIN */
+
+.table {
+    box-sizing: border-box;
+    padding: 20px;
+    background-color: white;
+    border-radius: 16px;
+}
+
+.table>.table-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+}
+
+.table>.table-header>.title {
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.table>.table-header>.operate {
+    grid-gap: 5px;
+    display: flex;
+    flex-wrap: wrap;
+}
+
+
+/* Search 框  END*/

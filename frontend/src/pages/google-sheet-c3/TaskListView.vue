@@ -6,7 +6,8 @@ import CSeriesTaskList from '../../components/google-sheet/CSeriesTaskList.vue'
   <CSeriesTaskList
     title="Google Sheet C3"
     task-type="google_sheet"
-    create-url="/web/google-sheet/c3/create"
-    batch-create-url="/web/google-sheet/c31/create"
+    create-url="/google-sheet/c3/create"
+    batch-create-url="/google-sheet/c31/create"
+    merge-export-url="/google-sheet/merge-export"
   />
 </template>

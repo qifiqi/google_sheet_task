@@ -32,7 +32,7 @@ class TaskResultMixin:
                 task_name = task.name if task else None
                 task_type = task.task_type if task else None
                 items = [
-                    build_task_result_list_item(result, task_name, task_type)
+                    build_task_result_list_item(result, task_name, task_type, task.config)
                     for result in pagination.items
                 ]
             else:

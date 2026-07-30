@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, reactive, shallowRef } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DocumentCopy, Plus, Refresh } from '@element-plus/icons-vue'
+import { DocumentCopy, Download, Plus, Refresh } from '@element-plus/icons-vue'
 import BatchRestartDialog from '../tasks/BatchRestartDialog.vue'
 import TaskListTable from '../tasks/TaskListTable.vue'
 import { requestJson } from '../../api/http'
@@ -14,8 +14,10 @@ const props = withDefaults(defineProps<{
   taskType: string
   createUrl: string
   batchCreateUrl?: string
+  mergeExportUrl?: string
 }>(), {
   batchCreateUrl: '',
+  mergeExportUrl: '',
 })
 
 const auth = useAuthStore()
@@ -24,8 +26,12 @@ const items = shallowRef<TaskItem[]>([])
 const selectedTasks = shallowRef<TaskItem[]>([])
 const loading = shallowRef(false)
 const errorMessage = shallowRef('')
+const navigatingUrl = shallowRef('')
 const batchRestartVisible = shallowRef(false)
 const batchRestarting = shallowRef(false)
+const routePrefetches = new Map<string, Promise<void>>()
+let idlePrefetchId: number | undefined
+let prefetchTimerId: number | undefined
 const filters = reactive({ keyword: '', status: '' })
 const pagination = reactive<PaginationState>({ page: 1, per_page: 10, total: 0, pages: 0 })
 const statistics = reactive<TaskStatistics>({
@@ -79,16 +85,66 @@ function resetFilters() {
   void loadTasks(1)
 }
 
-function openUrl(url: string) {
-  void router.push(url)
+function prefetchUrl(url: string) {
+  if (!url) return Promise.resolve()
+
+  const pending = routePrefetches.get(url)
+  if (pending) return pending
+
+  const loaders = router.resolve(url).matched.flatMap(record => (
+    Object.values(record.components || {}).filter(
+      (component): component is () => Promise<unknown> => typeof component === 'function',
+    )
+  ))
+  const prefetch = Promise.all(
+    loaders.map(loader => Promise.resolve().then(() => loader())),
+  ).then(() => undefined).catch(() => {
+    routePrefetches.delete(url)
+  })
+
+  routePrefetches.set(url, prefetch)
+  return prefetch
 }
 
-function openTaskCreator() {
-  openUrl(props.createUrl)
+function scheduleTaskCreatorPrefetch() {
+  const requestIdleCallback = (window as { requestIdleCallback?: Window['requestIdleCallback'] }).requestIdleCallback
+  if (requestIdleCallback) {
+    idlePrefetchId = requestIdleCallback.call(window, () => {
+      idlePrefetchId = undefined
+      void prefetchUrl(props.createUrl)
+    }, { timeout: 1500 })
+    return
+  }
+
+  prefetchTimerId = window.setTimeout(() => {
+    prefetchTimerId = undefined
+    void prefetchUrl(props.createUrl)
+  }, 250)
 }
 
-function openBatchCreator() {
-  if (props.batchCreateUrl) openUrl(props.batchCreateUrl)
+async function openUrl(url: string) {
+  if (!url || navigatingUrl.value) return
+
+  navigatingUrl.value = url
+  try {
+    await router.push(url)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '页面跳转失败')
+  } finally {
+    navigatingUrl.value = ''
+  }
+}
+
+async function openTaskCreator() {
+  await openUrl(props.createUrl)
+}
+
+async function openBatchCreator() {
+  if (props.batchCreateUrl) await openUrl(props.batchCreateUrl)
+}
+
+async function openMergeExporter() {
+  if (props.mergeExportUrl) await openUrl(props.mergeExportUrl)
 }
 
 function taskRoute(task: TaskItem) {
@@ -202,6 +258,12 @@ async function restartSelectedTasks(options: { resumeFromCheckpoint: boolean; de
 
 onMounted(() => {
   void loadTasks()
+  if (can('task:create')) scheduleTaskCreatorPrefetch()
+})
+
+onBeforeUnmount(() => {
+  if (idlePrefetchId !== undefined) window.cancelIdleCallback(idlePrefetchId)
+  if (prefetchTimerId !== undefined) window.clearTimeout(prefetchTimerId)
 })
 </script>
 
@@ -213,8 +275,32 @@ onMounted(() => {
         <h1 class="c-series-task-page__title">{{ title }}</h1>
       </div>
       <div class="c-series-task-page__create-actions">
-        <el-button v-if="batchCreateUrl && can('task:create')" :icon="DocumentCopy" @click="openBatchCreator">C31 批量创建</el-button>
-        <el-button v-if="can('task:create')" type="primary" :icon="Plus" @click="openTaskCreator">创建任务</el-button>
+        <el-button
+          v-if="mergeExportUrl && can('task:view')"
+          :icon="Download"
+          :loading="navigatingUrl === mergeExportUrl"
+          :disabled="Boolean(navigatingUrl)"
+          @click="openMergeExporter"
+        >合并导出</el-button>
+        <el-button
+          v-if="batchCreateUrl && can('task:create')"
+          :icon="DocumentCopy"
+          :loading="navigatingUrl === batchCreateUrl"
+          :disabled="Boolean(navigatingUrl)"
+          @pointerenter="prefetchUrl(batchCreateUrl)"
+          @focus="prefetchUrl(batchCreateUrl)"
+          @click="openBatchCreator"
+        >C31 批量创建</el-button>
+        <el-button
+          v-if="can('task:create')"
+          type="primary"
+          :icon="Plus"
+          :loading="navigatingUrl === createUrl"
+          :disabled="Boolean(navigatingUrl)"
+          @pointerenter="prefetchUrl(createUrl)"
+          @focus="prefetchUrl(createUrl)"
+          @click="openTaskCreator"
+        >创建任务</el-button>
       </div>
     </header>
 
@@ -228,7 +314,7 @@ onMounted(() => {
     <section class="c-series-task-page__table-panel">
       <div class="c-series-task-page__toolbar">
         <el-input v-model="filters.keyword" clearable placeholder="搜索任务名称" @keyup.enter="search" />
-        <el-select v-model="filters.status" clearable placeholder="全部状态">
+          <el-select v-model="filters.status" clearable persistent popper-class="c-series-fast-select" placeholder="全部状态">
           <el-option label="待执行" value="pending" />
           <el-option label="运行中" value="running" />
           <el-option label="已完成" value="completed" />

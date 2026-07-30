@@ -16,6 +16,7 @@ from app.models import (
     XplAnalysisJob,
 )
 from app.services.task import TaskManager, TaskRuntimeViewService
+from app.services.task.dashboard_query import TaskDashboardQueryService
 
 
 class _FakeUser:
@@ -192,3 +193,68 @@ def test_dashboard_overview_hides_resource_health_without_resource_permissions(a
     )
 
     assert overview["resource_health"] == {}
+
+
+def test_dashboard_period_aggregates_task_and_result_activity(app_factory):
+    now = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+    completed_task = Task(
+        id="period-completed",
+        name="period completed",
+        task_type="google_sheet",
+        status="completed",
+        config="{}",
+        created_at=now - timedelta(days=2),
+        end_time=now - timedelta(days=1),
+    )
+    unauthorized_task = Task(
+        id="period-unauthorized",
+        name="period unauthorized",
+        task_type="google_sheet_c4",
+        status="error",
+        config="{}",
+        created_at=now - timedelta(days=1),
+        end_time=now,
+    )
+    db.session.add_all([completed_task, unauthorized_task])
+    db.session.flush()
+    db.session.add_all([
+        TaskResult(
+            task_id=completed_task.id,
+            step_index=0,
+            success=True,
+            timestamp=now - timedelta(days=1),
+        ),
+        TaskResult(
+            task_id=completed_task.id,
+            step_index=1,
+            success=False,
+            timestamp=now,
+        ),
+        TaskResult(
+            task_id=unauthorized_task.id,
+            step_index=0,
+            success=False,
+            timestamp=now,
+        ),
+    ])
+    db.session.commit()
+
+    period = TaskDashboardQueryService().get_period_overview(
+        ["google_sheet"],
+        now,
+        days=7,
+    )
+
+    task_trend = {item["date"]: item for item in period["task_trend"]}
+    result_trend = {item["date"]: item for item in period["result_trend"]}
+    assert period["days"] == 7
+    assert len(period["task_trend"]) == 7
+    assert len(period["result_trend"]) == 7
+    assert task_trend[(now - timedelta(days=2)).date().isoformat()]["created"] == 1
+    assert task_trend[(now - timedelta(days=1)).date().isoformat()]["completed"] == 1
+    assert task_trend[now.date().isoformat()]["error"] == 0
+    assert result_trend[(now - timedelta(days=1)).date().isoformat()]["success"] == 1
+    assert result_trend[now.date().isoformat()]["failed"] == 1
+    assert period["task_type_status_distribution"] == [
+        {"task_type": "google_sheet", "status": "completed", "count": 1}
+    ]

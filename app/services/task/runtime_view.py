@@ -303,7 +303,7 @@ class TaskRuntimeViewService:
             "created_at": task.created_at.isoformat() if task.created_at else None,
         }
 
-    def build_dashboard_overview(self, user) -> dict[str, Any]:
+    def build_dashboard_overview(self, user, days: int = 30) -> dict[str, Any]:
         now = datetime.now()
         allowed_task_types = self._dashboard_query_service.get_allowed_task_types(
             user,
@@ -347,6 +347,11 @@ class TaskRuntimeViewService:
             "status_distribution": status_distribution,
             "task_type_distribution": task_type_distribution,
             "daily_trend": daily_trend,
+            "period": self._dashboard_query_service.get_period_overview(
+                allowed_task_types,
+                now,
+                days,
+            ),
             "recent_tasks": recent_tasks,
             "active_tasks": active_tasks,
             "execution_health": self._dashboard_query_service.get_execution_health(

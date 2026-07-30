@@ -37,7 +37,32 @@ loadTokens()
     <header v-if="props.showHeader"><h2>执行配置</h2><p>默认使用资源池中的随机 Token；只有需要固定凭据时才选择指定 Token。</p></header>
     <div class="execution-settings__grid">
       <el-form-item label="认证方式"><el-segmented :model-value="model.tokenType" :options="[{ label: 'Token 资源池', value: 'file' }, { label: 'Token JSON', value: 'json' }]" @update:model-value="(value) => update({ tokenType: value as 'file' | 'json' })" /></el-form-item>
-      <el-form-item v-if="model.tokenType === 'file'" label="Token"><div class="execution-settings__token"><el-select :model-value="model.tokenId" :loading="loading" @update:model-value="(value) => update({ tokenId: value })"><el-option :label="'随机 Token（按最低使用数均衡分配）'" :value="randomToken" /><el-option v-for="token in tokens" :key="token.id" :label="`${token.name} | 占用 ${token.current_in_use_count} | 累计 ${token.task_usage_count}`" :value="String(token.id)" :disabled="!token.is_available" /></el-select><el-button :icon="Refresh" aria-label="刷新 Token" :loading="loading" @click="loadTokens" /></div></el-form-item>
+      <el-form-item v-if="model.tokenType === 'file'" label="Token">
+        <div class="execution-settings__token">
+          <el-select
+            :model-value="model.tokenId"
+            :loading="loading"
+            persistent
+            popper-class="c-series-fast-select"
+            @update:model-value="(value) => update({ tokenId: String(value || '') })"
+          >
+            <el-option label="随机 Token（按最低使用数均衡分配）" :value="randomToken" />
+            <el-option
+              v-if="model.tokenId && model.tokenId !== randomToken && !tokens.some((token) => String(token.id) === model.tokenId)"
+              :label="`当前配置 Token #${model.tokenId}`"
+              :value="model.tokenId"
+            />
+            <el-option
+              v-for="token in tokens"
+              :key="token.id"
+              :label="`${token.name} | 占用 ${token.current_in_use_count} | 累计 ${token.task_usage_count}`"
+              :value="String(token.id)"
+              :disabled="!token.is_available"
+            />
+          </el-select>
+          <el-button :icon="Refresh" aria-label="刷新 Token" :loading="loading" @click="loadTokens" />
+        </div>
+      </el-form-item>
       <el-form-item v-else label="Token JSON"><el-input :model-value="model.tokenJson" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" placeholder='{"installed": {...}}' @update:model-value="(value) => update({ tokenJson: value })" /></el-form-item>
       <el-form-item label="代理 URL"><el-input :model-value="model.proxyUrl" clearable placeholder="可选" @update:model-value="(value) => update({ proxyUrl: value })" /></el-form-item>
     </div>
