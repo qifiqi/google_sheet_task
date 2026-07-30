@@ -90,6 +90,15 @@ PAGE_DEFS = (
         sort_order=10,
     ),
     PageDef(
+        key="eastmoney_kline",
+        label="东方财富 K 线",
+        path="/admin/eastmoney-kline",
+        template="admin/eastmoney_kline.html",
+        permission=None,
+        parent_key="data",
+        sort_order=20,
+    ),
+    PageDef(
         key="scheduler",
         label="定时任务",
         path="/admin/scheduler",
