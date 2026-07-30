@@ -239,7 +239,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             output_column_index = _get_config_value('c7_output_column_j', 'J')
             output_column_start = _get_config_value('c7_output_column_l', 'L')
             parameter_positions = _get_config_value('c7_parameter_positions', ['A1', 'B1'])
-            check_positions = [f"{output_range_1[0]}8", f"{output_range_1[0]}9"]
+            check_positions = _get_config_value('c7_check_positions', [f"{output_range_1[0]}8", f"{output_range_1[0]}9"])
             last_row = "A"
         elif 'C5' in title:
             input_column_d = _get_config_value('c5_input_column_a', 'A').upper()
@@ -578,9 +578,21 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 _check_values = initial_results[spreadsheet_id]
 
-                if (_check_values[f'{check_positions[0]}'] == check_values[f'{check_positions[0]}']
-                        and _check_values[f'{check_positions[1]}'] == check_values[f'{check_positions[1]}']):
-                    return False
+                cell_k = output_range_1[0]
+                cell_v = 2
+                sheet = config_data.get('sheet') or {}
+                title = str(sheet.get('title') or config_data.get('title') or '').upper()
+
+                if "C7" in title or "C5" in title:
+                    if "C7" in title :
+                        cell_k = 2 + 6
+                    if (_check_values[f'{cell_k}{cell_v}'] == check_values[f'{cell_k}{cell_v}']
+                            and _check_values[f'{cell_k}{cell_v + 1}'] == check_values[f'{cell_k}{cell_v + 1}']):
+                        return False
+                else:
+                    if (_check_values[f'{check_positions[0]}'] == check_values[f'{check_positions[0]}']
+                            and _check_values[f'{check_positions[1]}'] == check_values[f'{check_positions[1]}']):
+                        return False
 
                 return True
 
