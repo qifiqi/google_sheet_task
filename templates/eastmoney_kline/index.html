@@ -948,6 +948,47 @@
           done: refreshVolatilityAnalysis,
         });
 
+        function applyKlineResponse(response, query) {
+          if (
+            !response
+            || !response.data
+            || !Array.isArray(response.data.klines)
+            || !response.data.klines.length
+          ) {
+            return false;
+          }
+          var parsed = parseKlines(response.data.klines, query.volumeUnit, query.klt);
+          if (!parsed.rows.length) {
+            return false;
+          }
+          klineRows = parsed.rows;
+          queryData = query;
+          volatility = calculateVolatilityAnalysis(
+            klineRows,
+            query.priceBasis,
+            getVolatilityReferenceDate(),
+          );
+          renderVolatilityAnalysis(query, volatility.recent, volatility.yearly, volatility.turnover);
+          renderTable();
+          $("#export-file-name").val(getDefaultExportFileName(query, volatility));
+          $("#export-btn").prop("disabled", false);
+          layer.msg("已拉取 " + klineRows.length + " 条K线数据", { icon: 1 });
+          return true;
+        }
+
+        function requestBackendKlines(query) {
+          eastMoneyKlineApi.GetKlinesFallback(query)
+            .done(function (response) {
+              if (!applyKlineResponse(response, query)) {
+                layer.msg((response && response.message) || "后端未返回有效K线数据", { icon: 5 });
+              }
+            })
+            .fail(function (xhr) {
+              var response = xhr.responseJSON || {};
+              layer.msg(response.message || "后端K线接口请求失败", { icon: 5, time: 5000 });
+            });
+        }
+
         form.on("submit(search-btn)", function (data) {
           var query = data.field;
           if (!selectedStock) {
@@ -960,35 +1001,12 @@
           query.volumeUnit = getVolumeUnitByMarket(selectedStock.market);
           eastMoneyKlineApi.GetKlines(query)
             .done(function (response) {
-              if (
-                !response
-                || !response.data
-                || !Array.isArray(response.data.klines)
-                || !response.data.klines.length
-              ) {
-                layer.msg((response && response.msg) || "东方财富未返回有效K线数据", { icon: 5 });
-                return;
+              if (!applyKlineResponse(response, query)) {
+                requestBackendKlines(query);
               }
-              var parsed = parseKlines(response.data.klines, query.volumeUnit, query.klt);
-              if (!parsed.rows.length) {
-                layer.msg("返回数据均未通过K线字段校验", { icon: 5 });
-                return;
-              }
-              klineRows = parsed.rows;
-              queryData = query;
-              volatility = calculateVolatilityAnalysis(
-                klineRows,
-                query.priceBasis,
-                getVolatilityReferenceDate(),
-              );
-              renderVolatilityAnalysis(query, volatility.recent, volatility.yearly, volatility.turnover);
-              renderTable();
-              $("#export-file-name").val(getDefaultExportFileName(query, volatility));
-              $("#export-btn").prop("disabled", false);
-              layer.msg("已拉取 " + klineRows.length + " 条K线数据", { icon: 1 });
             })
             .fail(function () {
-              layer.msg("K线接口请求失败。若浏览器拦截 JSONP，请通过后端同源代理请求东方财富接口。", { icon: 5, time: 5000 });
+              requestBackendKlines(query);
             });
           return false;
         });

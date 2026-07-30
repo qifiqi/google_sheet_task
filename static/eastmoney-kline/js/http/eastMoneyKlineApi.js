@@ -50,3 +50,20 @@ eastMoneyKlineApi.GetKlines = function (query) {
     },
   });
 };
+
+eastMoneyKlineApi.GetKlinesFallback = function (query) {
+  var token = window.localStorage.getItem("access_token");
+  return $.ajax({
+    url: "/eastmoney-kline/api/klines",
+    type: "GET",
+    dataType: "json",
+    timeout: 30000,
+    headers: token ? { Authorization: "Bearer " + token } : {},
+    data: {
+      secid: query.secid,
+      klt: query.klt,
+      lmt: query.lmt,
+      fqt: query.fqt,
+    },
+  });
+};
