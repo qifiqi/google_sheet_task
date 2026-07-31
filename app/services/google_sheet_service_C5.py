@@ -679,7 +679,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         all_num += 1
                     else:
                         self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
-                        self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
+                        self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{batch_results} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
                         break
 
                 if all_num == len(self.google_sheets):

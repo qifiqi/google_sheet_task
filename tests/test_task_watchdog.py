@@ -117,7 +117,7 @@ def test_watchdog_running_task_log_timeout_triggers_force_restart(app_factory, m
         )
 
         assert fake_manager.started == ["running"]
-        assert db.session.get(Task, "running").status == "pending"
+        assert db.session.get(Task, "running").status == "running"
         assert watchdog._read_cached_retry_attempts("running") == 1
 
 
@@ -173,6 +173,7 @@ def test_watchdog_retryable_network_error_uses_checkpoint_restart(app_factory, m
         )
 
         assert fake_manager.restarts == [("network", True)]
+        assert db.session.get(Task, "network").status == "running"
         assert watchdog._read_cached_retry_attempts("network") == 1
 
 

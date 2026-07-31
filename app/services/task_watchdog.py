@@ -323,6 +323,17 @@ class TaskWatchdog:
             db.session.commit()
         task_manager.add_task_log(task_id, "error", message)
 
+    def _mark_restart_running(self, task_id: str) -> None:
+        """同步发布已成功重启的运行状态，供页面立即读取。"""
+        Task.query.filter(
+            Task.id == task_id,
+            Task.status == "pending",
+        ).update(
+            {"status": "running"},
+            synchronize_session=False,
+        )
+        db.session.commit()
+
     def _restart_task_with_reason(
         self,
         task_id: str,
@@ -402,6 +413,7 @@ class TaskWatchdog:
 
             success = task_manager.start_task(task_id)
             if success:
+                self._mark_restart_running(task_id)
                 task_manager.add_task_log(
                     task_id,
                     "info",
@@ -549,6 +561,8 @@ class TaskWatchdog:
                     f"(尝试 {attempt}/{max_attempts}, reason={reason}): "
                     f"{result.get('message') or result}",
                 )
+            else:
+                self._mark_restart_running(task_id)
         except Exception as restart_error:
             db.session.rollback()
             logger.error(
