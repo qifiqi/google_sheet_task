@@ -1042,6 +1042,35 @@ class XPLAnalyzer:
         google_sheet = self._init_google_sheet(spreadsheet_id, google_sheet_name)
         title = google_sheet.title.upper()
 
+
+        if 'C7' in title:
+            last_now_num = google_sheet.get_last_row("A")
+            if last_now_num < 10:
+                last_now_num = 30
+            sheet_data = google_sheet.get_range_2d(f'A2:N{last_now_num}', 'UNFORMATTED_VALUE')
+            sheet_df = pd.DataFrame(sheet_data, columns=[
+                'date', 'values_B', 'result_key_C', 'result_values_D', 'year_start_E',
+                'year_beats_F', 'model_date_G', 'model_values_H', 'net_value_I', 'index_return', "index_DD_K",
+                "start_return", "index_beats_M", "start_DD_N"])
+
+            # Excel/Google Sheets 的基准日期是 1899-12-30
+            sheet_df["date"] = self._parse_google_sheet_dates(sheet_df["date"])
+
+            _data = sheet_df[['date', 'index_return', 'start_return']]
+
+            _data = _data.to_dict(orient='records')
+
+            _data_result = {}
+
+            for item in sheet_df[['result_key_C', 'result_values_D']].to_dict(orient='records'):
+                if item['result_key_C'] in ['', 'year#']:
+                    continue
+
+                _data_result[item['result_key_C']] = item['result_values_D']
+
+            return _data, _data_result, sheet_df
+
+
         if 'C5' in title:
             last_now_num = google_sheet.get_last_row("A")
             if last_now_num < 10:
