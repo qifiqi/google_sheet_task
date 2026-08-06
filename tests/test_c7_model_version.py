@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from app.services.google_sheet_client import GoogleSheet
 from app.services.google_sheet_service_C7 import GoogleSheetService
 
@@ -147,3 +149,86 @@ def test_get_last_row_supports_multi_letter_column():
     )()
 
     assert google_sheet.get_last_row("CC") == 2
+
+
+def test_c7_deduplicates_same_parameters_and_kline_period():
+    service = object.__new__(GoogleSheetService)
+    logs = []
+    service._log_info = logs.append
+    same_kline = [
+        {"stock_date": "2021-08-05"},
+        {"stock_date": "2026-08-05"},
+    ]
+
+    combinations = [
+        {"stock_code": "688235", "A1": "2.3", "B1": "3", "Kline_key": "full"},
+        {"stock_code": "688235", "A1": "2.3", "B1": "3", "Kline_key": "recent_5"},
+        {"stock_code": "688235", "A1": "2.3", "B1": "4", "Kline_key": "recent_5"},
+    ]
+
+    result = service._deduplicate_parameter_combinations(
+        combinations,
+        {"full": same_kline, "recent_5": same_kline},
+    )
+
+    assert result == [combinations[0], combinations[2]]
+    assert len(logs) == 1
+    assert "跳过重复 C7 参数组合" in logs[0]
+
+
+def test_c7_uses_first_available_kline_when_listing_is_newer_than_start_date(monkeypatch):
+    service = GoogleSheetService({}, "task-id")
+    logs = []
+    first_date = date(2021, 12, 15)
+    rows = []
+    for offset in range(30):
+        current_date = first_date + timedelta(days=offset)
+        rows.append({
+            "stock_date": current_date.isoformat(),
+            "stock_kp": 10,
+            "stock_zg": 11,
+            "stock_zd": 9,
+            "stock_sp": 10,
+            "stock_vwap": 10,
+        })
+    rows.append({
+        "stock_date": "2026-08-05",
+        "stock_kp": 11,
+        "stock_zg": 12,
+        "stock_zd": 10,
+        "stock_sp": 11,
+        "stock_vwap": 11,
+    })
+
+    monkeypatch.setattr(
+        "app.services.google_sheet_service_C7.upsert_stock_metadata_in_session",
+        lambda _payload: None,
+    )
+    monkeypatch.setattr(service, "_log_info", logs.append)
+    monkeypatch.setattr(
+        service.dfcf_api,
+        "get_search_list_by_stock_code",
+        lambda _stock_code, _limit: [{"market": "1", "shortName": "测试股票"}],
+    )
+    monkeypatch.setattr(
+        service.dfcf_api,
+        "get_stock_kline_data",
+        lambda _stock_code, _market, _limit, **_kwargs: rows,
+    )
+
+    _combinations, _column_length, kline_map = service._get_all_parameters(
+        "688235",
+        "total",
+        "ohlc_price",
+        "2026-08-05",
+        "2021-08-05",
+        "cn",
+        [],
+        [],
+        [["688235"], [1], [2]],
+    )
+
+    kline = next(iter(kline_map.values()))
+    assert kline[0]["stock_date"] == "2021-12-15"
+    assert kline[-1]["stock_date"] == "2026-08-05"
+    assert any("将从 2021-12-15 开始回测" in message for message in logs)

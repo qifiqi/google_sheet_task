@@ -779,6 +779,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         if not data:
             raise ValueError(f"股票{parameter} 自定义K线模式下没有可执行参数组合")
 
+        data = self._deduplicate_parameter_combinations(data, custom_kline_map)
         return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None):
@@ -872,13 +873,25 @@ class GoogleSheetService(BaseGoogleSheetService):
         #     raise Exception(
         #         f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
+        # 获取K线数据的时间范围
+        data_start_date = klines[0]['stock_date']
+        data_end_date = klines[-1]['stock_date']
+        if start_date < data_start_date:
+            self._log_info(
+                f"股票{parameter} 请求起始日期 {start_date} 早于可用K线首日 {data_start_date}，"
+                f"将从 {data_start_date} 开始回测"
+            )
+            start_date = data_start_date
+            _start_date = int(start_date[:4])
+
+
         # 构建 full_years 列表（用于全年回测模式的边界检查）
         full_years = None
         if 'full' in date_range_mode:
             full_years = list(range(_start_date, _end_year_1 + 1))
 
-        # 检查用户设定的区间是否在数据范围内
-        if start_date < data_start_date or end_date > data_end_date:
+        # 结束日期超出数据范围时仍保持原有校验，避免使用不完整的最新区间。
+        if end_date > data_end_date:
             if full_years and int(data_start_date[:4]) in full_years:
                 pass
             elif full_years and int(full_years[0]) > int(data_start_date[:4]):
@@ -947,6 +960,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     data.append(d)
 
         if count_mode != 'n_plus_1':
+            data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
             return data, len(all_kline) + 20,KLINE_DATA_MAP
 
         if 'recent' in date_range_mode:
@@ -1006,7 +1020,44 @@ class GoogleSheetService(BaseGoogleSheetService):
                 f"请检查 start_date={start_date}, end_date={end_date}, date_range_mode={date_range_mode}"
             )
 
+        data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
         return data, len(all_kline) + 20,KLINE_DATA_MAP
+
+    def _deduplicate_parameter_combinations(self, combinations, kline_data_map):
+        """按股票、参数和实际K线区间去除重复回测组合。"""
+        deduplicated = []
+        seen = set()
+        for combination in combinations:
+            kline = kline_data_map.get(combination.get('Kline_key'))
+            if not kline:
+                deduplicated.append(combination)
+                continue
+
+            kline_signature = (
+                kline[0].get('stock_date'),
+                kline[-1].get('stock_date'),
+                len(kline),
+            )
+            signature = (
+                str(combination.get('stock_code', '')),
+                str(combination.get('A1', '')),
+                str(combination.get('B1', '')),
+                kline_signature,
+            )
+            if signature in seen:
+                self._log_info(
+                    "跳过重复 C5 参数组合："
+                    f"股票={combination.get('stock_code', '')}，"
+                    f"A1={combination.get('A1', '')}，B1={combination.get('B1', '')}，"
+                    f"K线区间={kline_signature[0]}~{kline_signature[1]}，"
+                    f"行数={kline_signature[2]}"
+                )
+                continue
+
+            seen.add(signature)
+            deduplicated.append(combination)
+
+        return deduplicated
 
 if __name__ == '__main__':
     GoogleSheetService({}, '')._get_all_parameters('588000', 'n_plus_1', 'kp_price','2026-06-10', '2020-11-16', 'cn',
