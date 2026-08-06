@@ -84,4 +84,15 @@ def get_nav():
                 result.append(item)
         return result
 
-    return success(data=filter_nav(all_nav))
+    page_permissions = [
+        {
+            "path": item.path,
+            "permission": item.permission,
+        }
+        for item in rows
+        if item.path and (item.permission or "").startswith("page:")
+    ]
+    return success(data={
+        "items": filter_nav(all_nav),
+        "page_permissions": page_permissions,
+    })

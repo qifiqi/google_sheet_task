@@ -12,6 +12,7 @@ from app.services.export_file_service import (
     EXCEL_MIMETYPE,
     BatchExportFile,
     build_batch_export_file,
+    build_c7_stock_code_export_archive,
     build_c3_worksheets,
     build_task_export,
     build_workbook,
@@ -369,6 +370,36 @@ def export_task_results(task_id):
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
         logger.error(f"导出任务结果失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@task_api_bp.route('/tasks/<task_id>/export-by-stock-code', methods=['GET'])
+@login_required
+@permission_required('task:view')
+def export_c7_results_by_stock_code(task_id):
+    """按股票代码拆分 C7 结果，并以 ZIP 文件下载。"""
+    try:
+        task_obj, error_response, status_code = _get_task_or_404(task_id)
+        if not task_obj:
+            return error_response, status_code
+
+        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
+        if not decision["allowed"]:
+            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
+
+        results = task_manager.get_task_results(task_id)
+        export_file = build_c7_stock_code_export_archive(task_obj, results)
+        return send_file(
+            export_file.buffer,
+            mimetype=export_file.mimetype,
+            as_attachment=True,
+            download_name=export_file.filename,
+        )
+    except ValueError as e:
+        logger.warning("按股票代码导出任务结果校验失败 task_id=%s: %s", task_id, e)
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        logger.error("按股票代码导出任务结果失败 task_id=%s: %s", task_id, e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 

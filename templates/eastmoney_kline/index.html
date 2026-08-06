@@ -165,6 +165,13 @@
             placeholder="自定义导出文件名"
             aria-label="导出文件名"
           />
+          <div class="layui-form export-date-order">
+            <label for="export-date-order">导出日期：</label>
+            <select id="export-date-order" aria-label="导出日期排序">
+              <option value="asc" selected>日期升序</option>
+              <option value="desc">日期降序</option>
+            </select>
+          </div>
           <button id="export-btn" type="button" class="layui-btn layui-btn-primary" disabled>
             <i class="layui-icon layui-icon-export"></i>
             导出Excel
@@ -249,6 +256,12 @@
         function getExportFileName(query) {
           var fileName = $("#export-file-name").val().trim() || getDefaultExportFileName(query, volatility);
           return fileName.replace(/[\\/:*?"<>|]/g, "_").replace(/\.xlsx$/i, "");
+        }
+
+        // 导出排序始终基于副本，避免影响页面当前的日期倒序展示。
+        function getExportRows(rows, dateOrder) {
+          var exportRows = rows.slice();
+          return dateOrder === "desc" ? exportRows.reverse() : exportRows;
         }
 
         // 股票搜索结果标准化。
@@ -783,10 +796,12 @@
             cols: [[
               { field: "stock_date", title: "日期", width: 160, fixed: "left" },
               {
-                field: "stock_vwap",
-                title: "VWAP",
-                width: 110,
-                templet: function (item) { return formatNumber(item.stock_vwap, 4); },
+                field: "stock_code",
+                title: "股票代码",
+                width: 120,
+                templet: function () {
+                  return queryData ? queryData.secid.split(".")[1] : "-";
+                },
               },
               {
                 field: "stock_kp",
@@ -841,6 +856,12 @@
                 title: "换手率%",
                 width: 100,
                 templet: function (item) { return formatNumber(item.stock_hsl, 2); },
+              },
+              {
+                field: "stock_vwap",
+                title: "VWAP",
+                width: 110,
+                templet: function (item) { return formatNumber(item.stock_vwap, 4); },
               },
             ]],
             data: displayRows,
@@ -947,6 +968,7 @@
           value: getToday(),
           done: refreshVolatilityAnalysis,
         });
+        form.render("select");
 
         form.on("submit(search-btn)", function (data) {
           var query = data.field;
@@ -1019,7 +1041,7 @@
               "换手率%",
             ],
           ];
-          klineRows.slice().reverse().forEach(function (item) {
+          getExportRows(klineRows, $("#export-date-order").val()).forEach(function (item) {
             klineExportRows.push([
               queryData.secid,
               queryData.secid.split(".")[1],
@@ -1395,6 +1417,22 @@
 
       .export-file-name {
         width: 260px;
+      }
+
+      .export-date-order {
+        display: flex;
+        align-items: center;
+      }
+
+      .export-date-order label {
+        margin-right: 6px;
+        color: #6b7280;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .export-date-order .layui-form-select {
+        width: 130px;
       }
 
       /* 窄宽度 iframe 布局 */

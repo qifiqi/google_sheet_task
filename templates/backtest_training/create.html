@@ -1171,14 +1171,8 @@ function padNumber(value) {
     return String(value).padStart(2, '0');
 }
 
-function formatDateInputValue(date) {
-    return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
-}
-
 function getDefaultEndDateValue() {
-    const date = new Date();
-    date.setDate(date.getDate() - 1);
-    return formatDateInputValue(date);
+    return TradingDate.formatDate(TradingDate.previousWeekday());
 }
 
 function buildMinuteTimestamp() {

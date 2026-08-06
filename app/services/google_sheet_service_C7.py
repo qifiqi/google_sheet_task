@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from typing import Dict, Any
 
@@ -37,6 +38,93 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
+
+    @staticmethod
+    def _get_c7_model_version(config_data: Dict[str, Any], google_sheet=None) -> str:
+        """读取单表 C7 版本，旧任务和缺省配置统一按 C7.0.2 处理。"""
+        spreadsheet_id = getattr(google_sheet, "spreadsheet_id", None)
+        for sheet_config in config_data.get("sheets") or []:
+            if spreadsheet_id and sheet_config.get("spreadsheet_id") == spreadsheet_id:
+                version = str(sheet_config.get("c7_model_version") or "c7_0_2").strip().lower()
+                return version if version in ("c7_0_2", "c7_0_3") else "c7_0_2"
+
+        version = str(config_data.get("c7_model_version") or "c7_0_2").strip().lower()
+        return version if version in ("c7_0_2", "c7_0_3") else "c7_0_2"
+
+    @classmethod
+    def _get_c7_layout(cls, config_data: Dict[str, Any], google_sheet=None) -> Dict[str, Any]:
+        """根据模型版本构建单表输入和结果布局。"""
+        version = cls._get_c7_model_version(config_data, google_sheet)
+        parameter_positions = config_data.get("c7_parameter_positions") or ["A1", "B1"]
+        check_positions = config_data.get("c7_check_positions") or ["G1", "H1"]
+
+        if version == "c7_0_3":
+            return {
+                "version": version,
+                "start_row": int(config_data.get("c7_0_3_kline_start_row") or 2),
+                "date_column": str(config_data.get("c7_0_3_kline_date_column") or "CC").upper(),
+                "open_column": str(config_data.get("c7_0_3_kline_open_column") or "CD").upper(),
+                "high_column": str(config_data.get("c7_0_3_kline_high_column") or "CE").upper(),
+                "low_column": str(config_data.get("c7_0_3_kline_low_column") or "CF").upper(),
+                "close_column": str(config_data.get("c7_0_3_kline_close_column") or "CG").upper(),
+                "output_range_1": config_data.get("c7_0_3_output_range_1") or config_data.get("c5_output_range_1") or "D2:D20",
+                "output_range_2": config_data.get("c7_0_3_output_range_2") or config_data.get("c5_output_range_2") or "D22:F25",
+                "output_column_j": config_data.get("c7_0_3_output_column_j") or config_data.get("c5_output_column_j") or "J",
+                "output_column_l": config_data.get("c7_0_3_output_column_l") or config_data.get("c5_output_column_l") or "L",
+                "parameter_positions": parameter_positions,
+                "check_positions": check_positions,
+            }
+
+        return {
+            "version": "c7_0_2",
+            "start_row": 2,
+            "date_column": str(config_data.get("c7_input_column_a") or "A").upper(),
+            "value_column": str(config_data.get("c7_input_column_b") or "B").upper(),
+            "output_range_1": config_data.get("c7_output_range_1") or "D8:D26",
+            "output_range_2": config_data.get("c7_output_range_2") or "D28:F31",
+            "output_column_j": config_data.get("c7_output_column_j") or "J",
+            "output_column_l": config_data.get("c7_output_column_l") or "L",
+            "parameter_positions": parameter_positions,
+            "check_positions": check_positions,
+        }
+
+    @staticmethod
+    def _get_c7_write_end_column(layout: Dict[str, Any]) -> str:
+        return layout.get("close_column") or layout.get("value_column") or layout["date_column"]
+
+    @staticmethod
+    def _get_c7_range_start(range_a1: str) -> tuple[str, int]:
+        match = re.match(r"^([A-Z]+)(\d+)", str(range_a1 or "").upper())
+        if not match:
+            raise ValueError(f"无效的 C7 结果范围: {range_a1}")
+        return match.group(1), int(match.group(2))
+
+    @staticmethod
+    def _validate_c7_ohlc_rows(rows):
+        for index, row in enumerate(rows, start=1):
+            for field in ("stock_kp", "stock_zg", "stock_zd", "stock_sp"):
+                if row.get(field) in (None, ""):
+                    raise ValueError(f"C7.0.3 K线第 {index} 条缺少 OHLC 字段 {field}")
+
+    @staticmethod
+    def _calculate_c7_0_3_index_returns(kline_rows):
+        """以 C7.0.3 OHLC 收盘价计算相对首日的累计指数收益。"""
+        base_close = None
+        index_returns = []
+
+        for index, row in enumerate(kline_rows, start=1):
+            try:
+                close_price = float(row["stock_sp"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(f"C7.0.3 K线第 {index} 条收盘价无效") from error
+            if close_price <= 0:
+                raise ValueError(f"C7.0.3 K线第 {index} 条收盘价必须大于 0")
+
+            if base_close is None:
+                base_close = close_price
+            index_returns.append(close_price / base_close - 1)
+
+        return index_returns
 
     @staticmethod
     def _to_decimal_ratio(value: Any) -> float:
@@ -195,12 +283,15 @@ class GoogleSheetService(BaseGoogleSheetService):
         first_value = next(iter(result.values()), None) if isinstance(result, dict) else None
         if isinstance(first_value, dict):
             result = first_value
-        result = normalize_c7_result_metrics(result)
+        model_version = combination.get("c7_model_version", "c7_0_2")
+        if model_version != "c7_0_3":
+            result = normalize_c7_result_metrics(result)
         analyze_result = result.get('flat_result') if isinstance(result.get('flat_result'), dict) else result
 
         def metric_value(c5_cell: str) -> Any:
-            """C7 的汇总指标位于 C5 同名指标单元格下方 6 行。"""
-            return result.get(f"D{int(c5_cell[1:]) + 6}", 0)
+            """C7.0.2 使用偏移结果区，C7.0.3 与 C5 使用同一结果区。"""
+            row_offset = 0 if model_version == "c7_0_3" else 6
+            return result.get(f"D{int(c5_cell[1:]) + row_offset}", 0)
 
         payload.update({
             "multiplier": combination.get("A1", 0),
@@ -286,11 +377,22 @@ class GoogleSheetService(BaseGoogleSheetService):
             start_date = config_data.get('start_date')
             market_type = config_data.get('market_type')
             adjust_type = config_data.get('kline_adjustment')
-            c7_input_column_a = config_data.get('c7_input_column_a').upper()
-            c7_input_column_b = config_data.get('c7_input_column_b').upper()
             custom_kline_map = None
             if kline_source == 'custom':
-                custom_kline = self._get_custom_kline_data(c7_input_column_a, c7_input_column_b)
+                first_layout = self._get_c7_layout(config_data, self.google_sheets[0])
+                if first_layout["version"] == "c7_0_3":
+                    custom_kline = self._get_custom_kline_data(
+                        first_layout["date_column"],
+                        first_layout["close_column"],
+                        start_row=first_layout["start_row"],
+                        ohlc_columns=first_layout,
+                    )
+                else:
+                    custom_kline = self._get_custom_kline_data(
+                        first_layout["date_column"],
+                        first_layout["value_column"],
+                        start_row=first_layout["start_row"],
+                    )
                 custom_kline_map = {'custom': custom_kline}
 
             # 仅使用 parameters[0] 作为外层参数列表，真实总组合数为所有 inner combinations 数量之和
@@ -327,11 +429,18 @@ class GoogleSheetService(BaseGoogleSheetService):
 
             if kline_source != 'custom':
                 for google_sheet in self.google_sheets:
-                    A_num = google_sheet.get_last_row('A')
-                    if A_num < 10:
+                    layout = self._get_c7_layout(config_data, google_sheet)
+                    last_row = google_sheet.get_last_row(layout["date_column"])
+                    if last_row < layout["start_row"]:
                         continue
-                    self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},准备滞空 A列 B列')
-                    google_sheet.clear_range(f"{c7_input_column_a}2:{c7_input_column_b}{A_num+2}")
+                    end_column = self._get_c7_write_end_column(layout)
+                    self._log_info(
+                        f'{google_sheet.title} 当前K线行数: {last_row},准备清空 '
+                        f'{layout["date_column"]}{layout["start_row"]}:{end_column}{last_row}'
+                    )
+                    google_sheet.clear_range(
+                        f'{layout["date_column"]}{layout["start_row"]}:{end_column}{last_row}'
+                    )
 
                 self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
                 if not self._interruptible_sleep(20):
@@ -387,6 +496,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                         cache_parameters['combination'] = combination
                         kline = KLINE_DATA_MAP.get(combination['Kline_key'], None)
                         combination['kline'] = [kline[0],kline[-1]]
+                        combination['c7_model_version'] = self._get_c7_model_version(
+                            config_data,
+                            self.google_sheets[0],
+                        )
 
                         self.send_stock_param_result_data(
                             self._build_stock_param_result_payload(
@@ -466,25 +579,19 @@ class GoogleSheetService(BaseGoogleSheetService):
         bool, Dict[str, Any]]:
         """执行单个参数组合"""
         try:
-            # 获取参数位置配置
-            c7_input_column_a = config_data.get('c7_input_column_a').upper()
-            c7_input_column_b = config_data.get('c7_input_column_b').upper()
-
-            c7_output_range_1 = config_data.get('c7_output_range_1')
-            c7_output_range_2 = config_data.get('c7_output_range_2')
-            c7_parameter_positions = config_data.get('c7_parameter_positions')
-            c7_output_column_j = config_data.get('c7_output_column_j')
-            c7_output_column_l = config_data.get('c7_output_column_l')
-            c7_check_positions = config_data.get('c7_check_positions')
-
             initial_results = {}
-
             results = {}
-            cell_updates = {}
-            c7_parameter_1 = f"xm:{combination[c7_parameter_positions[0]]}"
-            c7_parameter_2 = f"ml:{combination[c7_parameter_positions[1]]}"
-            cell_updates[c7_parameter_positions[0]] = c7_parameter_1
-            cell_updates[c7_parameter_positions[1]] = c7_parameter_2
+            sheet_layouts = {
+                google_sheet.spreadsheet_id: self._get_c7_layout(config_data, google_sheet)
+                for google_sheet in self.google_sheets
+            }
+            parameter_positions = next(iter(sheet_layouts.values()))["parameter_positions"]
+            c7_parameter_1 = f"xm:{combination[parameter_positions[0]]}"
+            c7_parameter_2 = f"ml:{combination[parameter_positions[1]]}"
+            base_cell_updates = {
+                parameter_positions[0]: c7_parameter_1,
+                parameter_positions[1]: c7_parameter_2,
+            }
             Kline_key = combination['Kline_key']
             is_custom_kline = str(config_data.get('kline_source') or 'auto').strip().lower() == 'custom'
             current_kline = require_kline_rows(
@@ -493,6 +600,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 KLINE_DATA_MAP.get(Kline_key),
                 context=f"K线区间 {Kline_key}",
             )
+            if any(layout["version"] == "c7_0_3" for layout in sheet_layouts.values()):
+                self._validate_c7_ohlc_rows(current_kline)
 
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
@@ -504,23 +613,13 @@ class GoogleSheetService(BaseGoogleSheetService):
                     self._log_info(f"自定义K线模式，不修改K线列，只写入参数 combination:{combination}")
                 elif Kline_key != cache_Kline_key or initial_result_sleep is not None:
                     for google_sheet in self.google_sheets:
-                        # A_num = google_sheet.get_last_row('A')
-                        A_num = column_A_length
-                        self._log_info(f'{google_sheet.title} 当前A列行数: {A_num},预写入长度：{_kline_len} 准备滞空 A列 B列')
-                        google_sheet.clear_range(f"{c7_input_column_a}2:{c7_input_column_b}{A_num+2}")
-
-                    # 准备要更新的单元格
-                    for i in range(_kline_len):
-                        item = {}
-                        if i <= _kline_len:
-                            item = kline[i]
-                        cell_num = i + 2
-                        cell_A = f"{c7_input_column_a}{cell_num}"
-                        cell_B = f"{c7_input_column_b}{cell_num}"
-                        stock_date = item.get('stock_date', "")
-                        stock_val = item.get('stock_val', "")
-                        cell_updates[cell_A] = stock_date
-                        cell_updates[cell_B] = stock_val
+                        layout = sheet_layouts[google_sheet.spreadsheet_id]
+                        last_row = google_sheet.get_last_row(layout["date_column"])
+                        end_row = max(last_row, layout["start_row"] + column_A_length)
+                        end_column = self._get_c7_write_end_column(layout)
+                        google_sheet.clear_range(
+                            f'{layout["date_column"]}{layout["start_row"]}:{end_column}{end_row}'
+                        )
 
                 else:
                     self._log_info(f"同源数据，不需要修改k线，改动参数就行 combination:{combination},cache_parameters:{cache_parameters}")
@@ -531,12 +630,26 @@ class GoogleSheetService(BaseGoogleSheetService):
                         raise RuntimeError("task cancelled")
 
                 for google_sheet in self.google_sheets:
+                    layout = sheet_layouts[google_sheet.spreadsheet_id]
                     initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(
-                        c7_output_range_1,
+                        layout["output_range_1"],
                         # value_render_option="UNFORMATTED_VALUE",
                     )
 
                 for google_sheet in self.google_sheets:
+                    layout = sheet_layouts[google_sheet.spreadsheet_id]
+                    cell_updates = dict(base_cell_updates)
+                    if not is_custom_kline and (Kline_key != cache_Kline_key or initial_result_sleep is not None):
+                        for index, item in enumerate(kline):
+                            cell_num = layout["start_row"] + index
+                            cell_updates[f'{layout["date_column"]}{cell_num}'] = item.get("stock_date", "")
+                            if layout["version"] == "c7_0_3":
+                                cell_updates[f'{layout["open_column"]}{cell_num}'] = item.get("stock_kp", "")
+                                cell_updates[f'{layout["high_column"]}{cell_num}'] = item.get("stock_zg", "")
+                                cell_updates[f'{layout["low_column"]}{cell_num}'] = item.get("stock_zd", "")
+                                cell_updates[f'{layout["close_column"]}{cell_num}'] = item.get("stock_sp", "")
+                            else:
+                                cell_updates[f'{layout["value_column"]}{cell_num}'] = item.get("stock_val", "")
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title} 长度：{len(cell_updates)}")
                     google_sheet.update_jumped_cells(cell_updates)
 
@@ -563,13 +676,15 @@ class GoogleSheetService(BaseGoogleSheetService):
                     _check_values[_position] = _value
                 return _check_values
 
-            def _validate_check_values(check_values: Dict[str, Any], spreadsheet_id) -> bool:
+            def _validate_check_values(check_values: Dict[str, Any], spreadsheet_id, layout: Dict[str, Any]) -> bool:
                 """验证检查位置的值是否有效"""
                 if not check_values:
                     return False
 
-                c7_check_positions_c_v = check_values.get(":".join(c7_check_positions))
-                c7_output_range_1_c_v = check_values.get(c7_output_range_1)
+                check_positions = layout["check_positions"]
+                output_range_1 = layout["output_range_1"]
+                check_positions_c_v = check_values.get(":".join(check_positions)) or {}
+                output_range_1_c_v = check_values.get(output_range_1) or {}
                 # for position, value in check_values.items():
                 #     if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
                 #         return False
@@ -577,20 +692,41 @@ class GoogleSheetService(BaseGoogleSheetService):
                 #         return False
 
                 _check_values = initial_results[spreadsheet_id]
+                if layout["version"] != "c7_0_3":
+                    if (c7_parameter_1 != check_positions_c_v.get(check_positions[0])
+                            and c7_parameter_2 != check_positions_c_v.get(check_positions[1])):
+                        self._log_info(
+                            f"c7_parameter_1:{c7_parameter_1} != {check_positions[0]}"
+                            f"{str(check_positions_c_v.get(check_positions[0]) or '').strip()} "
+                            f"c7_parameter_2:{c7_parameter_2} != {check_positions[1]}"
+                            f"{str(check_positions_c_v.get(check_positions[1]) or '').strip()}"
+                        )
+                        # 校验参数是否成功响应
+                        return False
 
-                if (c7_parameter_1 != c7_check_positions_c_v.get(c7_check_positions[0])
-                        and c7_parameter_2 != c7_check_positions_c_v.get(c7_check_positions[1])):
-                    self._log_info(f"c7_parameter_1:{c7_parameter_1} != {c7_check_positions[0]}{c7_check_positions_c_v.get(c7_check_positions[0]).strip()} "
-                                   f"c7_parameter_2:{c7_parameter_2} != {c7_check_positions[1]}{c7_check_positions_c_v.get(c7_check_positions[1]).strip()}")
-                    # 校验参数是否成功响应
-                    return False
-
-                if (_check_values[f'{c7_output_range_1[0]}8'] == c7_output_range_1_c_v[f'{c7_output_range_1[0]}8']
-                        and _check_values[f'{c7_output_range_1[0]}9'] == c7_output_range_1_c_v[f'{c7_output_range_1[0]}9']):
+                output_column, output_row = self._get_c7_range_start(output_range_1)
+                first_output_cell = f"{output_column}{output_row}"
+                second_output_cell = f"{output_column}{output_row + 1}"
+                if (_check_values.get(first_output_cell) == output_range_1_c_v.get(first_output_cell)
+                        and _check_values.get(second_output_cell) == output_range_1_c_v.get(second_output_cell)):
                     # 校验收益和年化是否ok
                     return False
 
                 return True
+
+            first_kline = kline[0] if kline else {}
+            last_kline = kline[-1] if kline else {}
+            self._log_info(
+                "开始轮询结果："
+                f"股票代码={combination.get('stock_code', '')}，"
+                f"股票名称={combination.get('stock_name', '')}，"
+                f"参数A1={combination.get('A1', '')}，"
+                f"参数B1={combination.get('B1', '')}，"
+                f"Kline_key={Kline_key}，"
+                f"K线行数={len(kline)}，"
+                f"日期范围={first_kline.get('stock_date', '')}~{last_kline.get('stock_date', '')}，"
+                f"首条K线={first_kline}，末条K线={last_kline}"
+            )
 
             # 定时检查是否完成（最多检查60次，20-30秒）
             delay_min, delay_max = self._get_execution_poll_delay_bounds()
@@ -607,16 +743,21 @@ class GoogleSheetService(BaseGoogleSheetService):
                     raise RuntimeError("task cancelled")
                 all_num = 0
                 for google_sheet in self.google_sheets:
+                    layout = sheet_layouts[google_sheet.spreadsheet_id]
+                    output_range_1 = layout["output_range_1"]
+                    output_range_2 = layout["output_range_2"]
+                    output_column_j = layout["output_column_j"]
+                    output_column_l = layout["output_column_l"]
+                    check_positions = layout["check_positions"]
                     _result = {}
                     batch_results = google_sheet.get_ranges(
-                       [ c7_output_range_1,
-                        ":".join(c7_check_positions)]
+                       [output_range_1, ":".join(check_positions)]
                         # value_render_option="UNFORMATTED_VALUE",
                     )
 
-                    if _validate_check_values(batch_results, google_sheet.spreadsheet_id):
-                        _result.update(batch_results.get(c7_output_range_1, {}))
-                        _result['result_parameters'] = batch_results.get(":".join(c7_check_positions))
+                    if _validate_check_values(batch_results, google_sheet.spreadsheet_id, layout):
+                        _result.update(batch_results.get(output_range_1, {}))
+                        _result['result_parameters'] = batch_results.get(":".join(check_positions))
 
                         # # _result = check_result(_result)
                         # _result_yearly = google_sheet.get_range(c7_output_range_2)
@@ -635,29 +776,37 @@ class GoogleSheetService(BaseGoogleSheetService):
                         #     self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
                         #     break
                         # _result = check_result(_result)
-                        merged_return_range_a1 = f"{c7_output_column_j}2:{c7_output_column_l}{len(kline) + 1}"
+                        if layout["version"] == "c7_0_3":
+                            merged_return_range_a1 = (
+                                f"{output_column_l}2:{output_column_l}{len(kline) + 1}"
+                            )
+                        else:
+                            merged_return_range_a1 = f"{output_column_j}2:{output_column_l}{len(kline) + 1}"
                         batch_range_values = google_sheet.get_ranges([
-                            c7_output_range_2,
+                            output_range_2,
                             merged_return_range_a1,
                         ])
-                        _result_yearly = batch_range_values.get(c7_output_range_2, {})
+                        _result_yearly = batch_range_values.get(output_range_2, {})
                         # _result_yearly = check_result(google_sheet.get_range(c7_output_range_2))
                         _result.update(_result_yearly)
 
                         try:
                             merged_return_range = batch_range_values.get(merged_return_range_a1, {})
-                            _index_return = check_result({
-                                position: value
-                                for position, value in merged_return_range.items()
-                                if position.startswith(c7_output_column_j)
-                            })
                             _start_return = check_result({
                                 position: value
                                 for position, value in merged_return_range.items()
-                                if position.startswith(c7_output_column_l)
+                                if position.startswith(output_column_l)
                             })
+                            if layout["version"] == "c7_0_3":
+                                _index_returns = self._calculate_c7_0_3_index_returns(kline)
+                            else:
+                                _index_return = check_result({
+                                    position: value
+                                    for position, value in merged_return_range.items()
+                                    if position.startswith(output_column_j)
+                                })
                         except Exception as e:
-                            self._log_info(f"获取结果位置 {c7_output_column_j}2:{c7_output_column_l}{len(kline) + 1} 时出错：{str(e)}")
+                            self._log_info(f"获取结果位置 {merged_return_range_a1} 时出错：{str(e)}")
                             self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
                             break
 
@@ -676,8 +825,12 @@ class GoogleSheetService(BaseGoogleSheetService):
                             # })
                             _return_data.append({
                                 'date': kline[i].get('stock_date'),
-                                'index_return': _index_return[f"{c7_output_column_j}{i + 2}"],
-                                'start_return': _start_return[f"{c7_output_column_l}{i + 2}"]
+                                'index_return': (
+                                    _index_returns[i]
+                                    if layout["version"] == "c7_0_3"
+                                    else _index_return[f"{output_column_j}{i + 2}"]
+                                ),
+                                'start_return': _start_return[f"{output_column_l}{i + 2}"]
                             })
 
                         # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
@@ -748,28 +901,53 @@ class GoogleSheetService(BaseGoogleSheetService):
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
 
-    def _get_custom_kline_data(self, input_column_a, input_column_b):
+    def _get_custom_kline_data(
+        self,
+        input_column_a,
+        input_column_b,
+        *,
+        start_row=2,
+        ohlc_columns=None,
+    ):
         if not self.google_sheets:
             raise ValueError("自定义K线模式缺少 Google Sheet")
 
         google_sheet = self.google_sheets[0]
         last_row = google_sheet.get_last_row(input_column_a)
-        if last_row < 2:
+        if last_row < start_row:
             raise ValueError("自定义K线模式下输入列没有K线数据")
 
-        values = google_sheet.get_range(f"{input_column_a}2:{input_column_b}{last_row}")
+        end_column = (ohlc_columns or {}).get("close_column", input_column_b)
+        values = google_sheet.get_range(f"{input_column_a}{start_row}:{end_column}{last_row}")
         rows = []
-        for row_num in range(2, last_row + 1):
+        for row_num in range(start_row, last_row + 1):
             stock_date = values.get(f"{input_column_a}{row_num}")
-            stock_val = values.get(f"{input_column_b}{row_num}")
-            if stock_date in (None, "") and stock_val in (None, ""):
+            if ohlc_columns:
+                stock_kp = values.get(f"{ohlc_columns['open_column']}{row_num}")
+                stock_zg = values.get(f"{ohlc_columns['high_column']}{row_num}")
+                stock_zd = values.get(f"{ohlc_columns['low_column']}{row_num}")
+                stock_sp = values.get(f"{ohlc_columns['close_column']}{row_num}")
+                stock_val = stock_sp
+                empty_row = all(value in (None, "") for value in (stock_date, stock_kp, stock_zg, stock_zd, stock_sp))
+            else:
+                stock_val = values.get(f"{input_column_b}{row_num}")
+                empty_row = stock_date in (None, "") and stock_val in (None, "")
+            if empty_row:
                 continue
-            rows.append({
+            row = {
                 "stock_date": str(stock_date).strip() if stock_date is not None else "",
                 "stock_val": stock_val,
-            })
+            }
+            if ohlc_columns:
+                row.update({
+                    "stock_kp": stock_kp,
+                    "stock_zg": stock_zg,
+                    "stock_zd": stock_zd,
+                    "stock_sp": stock_sp,
+                })
+            rows.append(row)
 
-        return require_kline_rows(
+        validated = require_kline_rows(
             "custom",
             "custom",
             rows,
@@ -777,6 +955,9 @@ class GoogleSheetService(BaseGoogleSheetService):
             min_rows=30,
             price_field="stock_val",
         )
+        if ohlc_columns:
+            self._validate_c7_ohlc_rows(validated)
+        return validated
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
         data = []
@@ -803,27 +984,38 @@ class GoogleSheetService(BaseGoogleSheetService):
             price_field = {
                 'kp_price': 'stock_kp',
                 'vwap_price': 'stock_vwap',
+                'ohlc_price': 'stock_sp',
             }.get(price_mode, 'stock_sp')
+
+            def _project_kline_row(kline_row):
+                return {
+                    'stock_date': kline_row['stock_date'],
+                    'stock_val': kline_row[price_field],
+                    'stock_kp': kline_row.get('stock_kp'),
+                    'stock_zg': kline_row.get('stock_zg'),
+                    'stock_zd': kline_row.get('stock_zd'),
+                    'stock_sp': kline_row.get('stock_sp'),
+                }
             
             if market_type == 'cn':
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                        _project_kline_row(k)
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                    _project_kline_row(k)
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
             else:
                 if _year:
                     return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                        _project_kline_row(k)
                         for k in klines if int(k['stock_date'][:4]) == _year
                     ]
                 return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
+                    _project_kline_row(k)
                     for k in klines
                     if _start_date_1 <= k['stock_date'] <= _end_date_1
                 ]
@@ -868,6 +1060,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             'kp_price': 'stock_kp',
             'sp_price': 'stock_sp',
             'vwap_price': 'stock_vwap',
+            'ohlc_price': 'stock_sp',
         }.get(price_mode, 'stock_vwap')
         klines = require_kline_rows(
             parameter,

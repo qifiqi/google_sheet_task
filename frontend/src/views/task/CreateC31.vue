@@ -43,7 +43,7 @@
         </el-col>
         <el-col :xs="24" :sm="3">
           <el-form-item label="结束日期">
-            <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" class="full-width" placeholder="按后端默认值" />
+            <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" class="full-width" placeholder="默认最近工作日" />
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="3">
@@ -211,6 +211,7 @@ import { getGoogleSheets, getWorksheets, getTokens, importToken as apiImportToke
 import { batchCreateTasks, getTask } from '@/api/task'
 import { getTemplates, getTemplate, createTemplate } from '@/api/template'
 import { useResponsive } from '@/composables/useResponsive'
+import { formatDate, previousWeekday } from '@/utils/tradingDate'
 
 const route = useRoute()
 const router = useRouter()
@@ -242,6 +243,12 @@ const form = reactive({
 const sheetConfigs = ref([{ spreadsheet_id: '', title: '', sheet_name: '' }])
 const params = ref(['', '', '', '', '', ''])
 const templateForm = reactive({ name: '', description: '' })
+
+function initDefaultEndDate() {
+  if (!form.end_date) {
+    form.end_date = formatDate(previousWeekday())
+  }
+}
 
 function parseJsonArray(str) {
   if (!str || !str.trim()) return null
@@ -563,6 +570,7 @@ onMounted(async () => {
   } else {
     loadSavedFormData()
   }
+  initDefaultEndDate()
 })
 </script>
 

@@ -22,7 +22,11 @@ from app.models import (
     TaskResultSummaryIndex,
     User,
 )
-from app.navigation import DEFAULT_NAVIGATION_MENU, flatten_navigation_items
+from app.navigation import (
+    DEFAULT_NAVIGATION_MENU,
+    flatten_navigation_items,
+    sync_navigation_permissions,
+)
 from app.utils.logger import get_logger, initialize_logging
 
 
@@ -404,6 +408,7 @@ def init_navigation_menu():
     if has_existing_items and not should_seed_missing:
         _normalize_existing_navigation_menu()
         _seed_missing_default_navigation_items(default_rows, permission_map, existing)
+        sync_navigation_permissions(NavigationMenuItem.query.all())
         if nav_config:
             db.session.delete(nav_config)
         db.session.commit()
@@ -439,6 +444,7 @@ def init_navigation_menu():
     if nav_config:
         db.session.delete(nav_config)
 
+    sync_navigation_permissions(NavigationMenuItem.query.all())
     db.session.commit()
 
 

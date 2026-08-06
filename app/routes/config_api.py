@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app.services.config_manager import get_config_manager
 from app.models import NavigationMenuItem, SystemConfig, db
+from app.navigation import sync_navigation_permissions
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 
@@ -235,6 +236,8 @@ def create_navigation_menu_item():
 
         item = NavigationMenuItem(**payload)
         db.session.add(item)
+        db.session.flush()
+        sync_navigation_permissions([item])
         db.session.commit()
         return jsonify({
             "status": "success",
@@ -264,6 +267,7 @@ def update_navigation_menu_item(item_id):
 
         for key, value in payload.items():
             setattr(item, key, value)
+        sync_navigation_permissions([item])
         db.session.commit()
         return jsonify({
             "status": "success",

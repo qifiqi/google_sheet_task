@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1030" viewBox="0 0 1600 1030" role="img" aria-labelledby="title desc">
+  <title id="title">V1 回测数据分析双数据源设计稿</title>
+  <desc id="desc">V1 回测数据分析页面支持 Google Sheet 与粘贴数据两种输入方式，展示两种模式各自的输入状态。</desc>
+  <defs>
+    <filter id="shadow" x="-8%" y="-12%" width="116%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#1e293b" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .title { fill: #172033; font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif; }
+      .body { fill: #334155; font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif; }
+      .muted { fill: #64748b; font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif; }
+      .mono { fill: #41556f; font-family: Consolas, 'Microsoft YaHei', monospace; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1030" fill="#f6f8fb"/>
+  <rect x="0" y="0" width="1600" height="7" fill="#0d6efd"/>
+
+  <text x="62" y="68" class="title" font-size="28" font-weight="700">V1：回测数据分析</text>
+  <text x="62" y="98" class="muted" font-size="15">选择数据来源后，按相同的指标口径完成回测分析</text>
+  <rect x="1433" y="45" width="105" height="38" rx="6" fill="#ffffff" stroke="#9aa8ba"/>
+  <path d="M1461 64 h16 M1461 64 l6 -6 M1461 64 l6 6" fill="none" stroke="#4b5d73" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1485" y="69" class="body" font-size="14">返回</text>
+  <line x1="62" y1="121" x2="1538" y2="121" stroke="#dbe3ed"/>
+
+  <!-- Shared source switch -->
+  <rect x="62" y="149" width="1476" height="116" rx="8" fill="#ffffff" filter="url(#shadow)"/>
+  <text x="88" y="188" class="title" font-size="17" font-weight="700">数据来源</text>
+  <text x="88" y="215" class="muted" font-size="13">二选一输入，分析结果和导出格式保持一致</text>
+  <rect x="487" y="174" width="516" height="62" rx="8" fill="#eef3f8"/>
+  <rect x="491" y="178" width="252" height="54" rx="6" fill="#0d6efd"/>
+  <path d="M521 195 h14 v18 h-14 z M524 192 h8 M525 202 h6 M525 207 h6" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
+  <text x="548" y="211" fill="#ffffff" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="700">Google Sheet</text>
+  <path d="M774 195 h17 v17 h-17 z M777 192 h11 M778 202 h11 M778 207 h8" fill="none" stroke="#51657d" stroke-width="1.5" stroke-linejoin="round"/>
+  <text x="805" y="211" class="body" font-size="15" font-weight="600">粘贴数据</text>
+  <text x="1050" y="202" class="muted" font-size="13">需要字段：date、index_return、start_return</text>
+
+  <!-- Mode A -->
+  <text x="62" y="315" class="title" font-size="18" font-weight="700">方式 A · Google Sheet</text>
+  <text x="62" y="341" class="muted" font-size="14">适合已在 Google Sheet 中维护 C3、C4、C5 或 C7 回测结果的用户</text>
+  <rect x="62" y="366" width="710" height="385" rx="8" fill="#ffffff" filter="url(#shadow)"/>
+  <rect x="62" y="366" width="7" height="385" rx="3" fill="#0d6efd"/>
+  <text x="94" y="414" class="title" font-size="17" font-weight="700">从 Google Sheet 读取</text>
+  <text x="94" y="441" class="muted" font-size="13">保留当前工作流：填写链接，获取并选择工作表</text>
+  <text x="94" y="488" class="body" font-size="14" font-weight="600">Google Sheet URL</text>
+  <rect x="94" y="503" width="530" height="48" rx="6" fill="#ffffff" stroke="#aebdce"/>
+  <text x="110" y="533" class="muted" font-size="14">https://docs.google.com/spreadsheets/d/...</text>
+  <rect x="636" y="503" width="102" height="48" rx="6" fill="#ffffff" stroke="#0d6efd"/>
+  <path d="M657 526 h14 M657 521 h10 M657 531 h10" fill="none" stroke="#0d6efd" stroke-width="1.5" stroke-linecap="round"/>
+  <text x="681" y="532" fill="#0d6efd" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="14">获取</text>
+  <text x="94" y="594" class="body" font-size="14" font-weight="600">工作表</text>
+  <rect x="94" y="609" width="644" height="48" rx="6" fill="#f8fafc" stroke="#aebdce"/>
+  <text x="110" y="639" class="body" font-size="14">C5 - 2026 年度回测数据</text>
+  <path d="M708 626 l7 7 l7 -7" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="103" cy="696" r="8" fill="#16a34a"/>
+  <path d="M99 696 l3 3 l6 -7" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="120" y="701" fill="#15803d" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="13">已识别 2,184 行有效回测数据</text>
+  <rect x="550" y="677" width="188" height="46" rx="6" fill="#0d6efd"/>
+  <path d="M574 696 l-6 11 h8 l-3 10 l11 -15 h-8 l4 -6 z" fill="#ffffff"/>
+  <text x="598" y="706" fill="#ffffff" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="700">开始分析</text>
+
+  <!-- Mode B -->
+  <text x="828" y="315" class="title" font-size="18" font-weight="700">方式 B · 粘贴数据</text>
+  <text x="828" y="341" class="muted" font-size="14">适合从 Excel 或其他数据源临时复制数据，无需 Google 授权</text>
+  <rect x="828" y="366" width="710" height="385" rx="8" fill="#ffffff" filter="url(#shadow)"/>
+  <rect x="828" y="366" width="7" height="385" rx="3" fill="#14b8a6"/>
+  <text x="860" y="414" class="title" font-size="17" font-weight="700">粘贴回测收益数据</text>
+  <text x="860" y="441" class="muted" font-size="13">支持从 Excel 直接粘贴，列可由 Tab、逗号或空格分隔</text>
+  <rect x="1156" y="395" width="88" height="32" rx="5" fill="#ffffff" stroke="#8da0b7"/>
+  <path d="M1171 406 h11 v13 h-11 z M1174 403 h5" fill="none" stroke="#4b5d73" stroke-width="1.2" stroke-linejoin="round"/>
+  <text x="1190" y="416" class="body" font-size="12">示例</text>
+  <rect x="1250" y="395" width="104" height="32" rx="5" fill="#ffffff" stroke="#8da0b7"/>
+  <path d="M1266 406 h12 M1266 411 h12 M1266 416 h8" fill="none" stroke="#4b5d73" stroke-width="1.3" stroke-linecap="round"/>
+  <text x="1287" y="416" class="body" font-size="12">格式说明</text>
+  <rect x="1360" y="395" width="88" height="32" rx="5" fill="#fff7f7" stroke="#ef4444"/>
+  <path d="M1376 405 h10 M1380 402 h3 M1379 405 v12 M1385 405 v12 M1377 417 h10" fill="none" stroke="#dc2626" stroke-width="1.2" stroke-linecap="round"/>
+  <text x="1397" y="416" fill="#dc2626" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="12">清空</text>
+  <rect x="860" y="466" width="588" height="183" rx="6" fill="#fbfdff" stroke="#aebdce"/>
+  <text x="881" y="497" class="mono" font-size="13" font-weight="700">date             index_return    start_return</text>
+  <text x="881" y="527" class="mono" font-size="13">2025-01-02       0.0123          0.0156</text>
+  <text x="881" y="554" class="mono" font-size="13">2025-01-03       -0.0081         -0.0042</text>
+  <text x="881" y="581" class="mono" font-size="13">2025-01-06       0.0069          0.0104</text>
+  <text x="881" y="618" class="muted" font-size="12">首行可包含字段名；数据至少需要日期、指数收益、模型收益三列</text>
+  <text x="860" y="690" class="muted" font-size="13">已粘贴 756 行，3 列数据</text>
+  <rect x="1260" y="677" width="188" height="46" rx="6" fill="#0d6efd"/>
+  <path d="M1284 696 l-6 11 h8 l-3 10 l11 -15 h-8 l4 -6 z" fill="#ffffff"/>
+  <text x="1308" y="706" fill="#ffffff" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="700">开始分析</text>
+
+  <!-- Behavior notes -->
+  <rect x="62" y="797" width="1476" height="160" rx="8" fill="#edf6ff" stroke="#c8e1fb"/>
+  <circle cx="97" cy="836" r="16" fill="#0d6efd"/>
+  <text x="93" y="842" fill="#ffffff" font-family="Georgia, serif" font-size="20" font-weight="700">i</text>
+  <text x="126" y="842" class="title" font-size="16" font-weight="700">交互规则建议</text>
+  <line x1="126" y1="860" x2="1488" y2="860" stroke="#c8e1fb"/>
+  <circle cx="143" cy="891" r="4" fill="#0d6efd"/>
+  <text x="158" y="896" class="body" font-size="14">切换来源时仅替换输入区域，顶部指标卡、数据明细、图表和导出区域不变。</text>
+  <circle cx="143" cy="923" r="4" fill="#0d6efd"/>
+  <text x="158" y="928" class="body" font-size="14">粘贴模式在点击分析前校验三列字段和日期格式；Google Sheet 模式继续保留“获取工作表”校验。</text>
+
+  <text x="62" y="999" class="muted" font-size="13">设计预览 · 当前展示两个输入状态，实际页面中以同一组分段按钮切换。</text>
+</svg>

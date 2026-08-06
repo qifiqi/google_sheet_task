@@ -155,7 +155,7 @@
                                         <div class="col-md-3 mb-3">
                                             <label for="end_date" class="form-label">结束时间</label>
                                             <input type="date" class="form-control" id="end_date">
-                                            <div class="form-text">不选择则按后端默认逻辑处理</div>
+                                            <div class="form-text">默认使用最近工作日</div>
                                         </div>
                                         <div class="col-md-2 mb-3">
                                             <label class="form-label d-block">市场</label>
@@ -1232,6 +1232,7 @@
         initFromUrlParams();
 
         normalizeBatchBasicFieldsMarkup();
+        initDefaultDatesIfEmpty();
         calculateCombinations();
 
         // 创建防抖版本的函数
@@ -1293,7 +1294,7 @@
                 endDateCol.innerHTML = `
                     <label for="end_date" class="form-label">结束时间</label>
                     <input type="date" class="form-control" id="end_date">
-                    <div class="form-text">不选择则按后端默认逻辑处理</div>
+                    <div class="form-text">默认使用最近工作日</div>
                 `;
                 const rebuiltEndDateInput = endDateCol.querySelector('#end_date');
                 if (rebuiltEndDateInput) {
@@ -1617,10 +1618,11 @@
         }
     }
 
-    // 日期由用户决定是否传递，不再前端自动填充
+    // 默认使用最近工作日，已有配置不覆盖
     function initDefaultDatesIfEmpty() {
         const endInput = document.getElementById('end_date');
         if (!endInput || endInput.value) return;
+        endInput.value = TradingDate.formatDate(TradingDate.previousWeekday());
     }
 
     function getSelectedDateRangeModes() {

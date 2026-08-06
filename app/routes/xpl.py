@@ -17,6 +17,13 @@ def index_v1():
     """V1：Google Sheet 分析页面"""
     return render_template('xpl/v1.html')
 
+
+@xpl_bp.route('/v2', methods=['GET'])
+def index_v2():
+    """V2：支持多数据源的回测分析页面。"""
+    return render_template('xpl/v2.html')
+
+
 @xpl_bp.route('/analyze', methods=['POST'])
 def analyze_data():
     """

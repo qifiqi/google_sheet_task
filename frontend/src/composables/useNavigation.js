@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { getNav } from '@/api/meta'
 
 const navItems = ref([])
+const pagePermissions = ref([])
 let navPromise = null
 
 const LEGACY_PATH_MAP = {
@@ -25,6 +26,17 @@ function normalizePaths(items) {
   })
 }
 
+function normalizePagePermissions(items) {
+  return items.map((item) => ({
+    ...item,
+    path: LEGACY_PATH_MAP[item.path] || item.path,
+  }))
+}
+
+function normalizePath(path = '') {
+  return path.replace(/\/+$/, '') || '/'
+}
+
 export function useNavigation() {
   async function ensureNavLoaded() {
     if (navItems.value.length) {
@@ -34,8 +46,16 @@ export function useNavigation() {
     if (!navPromise) {
       navPromise = getNav()
         .then((res) => {
-          const raw = Array.isArray(res.data) ? res.data : []
+          const navigationData = res.data || {}
+          const raw = Array.isArray(navigationData)
+            ? navigationData
+            : navigationData.items || []
           navItems.value = normalizePaths(raw)
+          pagePermissions.value = normalizePagePermissions(
+            Array.isArray(navigationData.page_permissions)
+              ? navigationData.page_permissions
+              : []
+          )
           return navItems.value
         })
         .catch(() => {
@@ -52,6 +72,13 @@ export function useNavigation() {
 
   return {
     navItems,
+    pagePermissions,
     ensureNavLoaded,
+    getPagePermission(path) {
+      const currentPath = normalizePath(path)
+      return pagePermissions.value.find(
+        (item) => normalizePath(item.path) === currentPath
+      )?.permission || ''
+    },
   }
 }

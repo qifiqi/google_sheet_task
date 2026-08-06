@@ -1,5 +1,7 @@
 """Default sidebar navigation and helpers."""
 
+from app.extensions import db
+
 
 DEFAULT_NAVIGATION_MENU = [
     {"key": "dashboard", "label": "仪表盘", "path": "/admin", "permission": "page:admin:dashboard"},
@@ -50,6 +52,26 @@ def flatten_navigation_items(items, parent_key=None):
         rows.append(row)
         rows.extend(flatten_navigation_items(item.get("children") or [], item.get("key")))
     return rows
+
+
+def sync_navigation_permissions(items):
+    """将导航表中的页面权限同步到权限表，不删除历史权限数据。"""
+    from app.models import Permission
+
+    for item in items:
+        code = (item.permission or "").strip()
+        if not code.startswith("page:"):
+            continue
+
+        permission = Permission.query.filter_by(code=code).first()
+        if not permission:
+            permission = Permission(code=code)
+            db.session.add(permission)
+
+        permission.group = "page"
+        permission.name = f"访问 {item.label} 页面"
+        permission.description = f"访问路由 {item.path or item.key}"
+        permission.route_path = item.path
 
 
 def build_navigation_tree(rows):

@@ -1197,7 +1197,7 @@
             });
     }
 
-    // 初始化日期默认值：结束=昨天，开始=结束往前推5年（仅在两者都为空时）
+    // 初始化日期默认值：结束=最近工作日，开始=结束往前推5年后的最近工作日（仅在两者都为空时）
     function initDefaultDatesIfEmpty() {
         const startInput = document.getElementById('start_date');
         const endInput = document.getElementById('end_date');
@@ -1208,20 +1208,9 @@
             return;
         }
 
-        const today = new Date();
-        // 昨天
-        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-        // 五年前同一天
-        const start = new Date(end.getFullYear() - 5, end.getMonth(), end.getDate());
-
-        const toISODate = (d) => {
-            const m = (d.getMonth() + 1).toString().padStart(2, '0');
-            const day = d.getDate().toString().padStart(2, '0');
-            return `${d.getFullYear()}-${m}-${day}`;
-        };
-
-        endInput.value = toISODate(end);
-        startInput.value = toISODate(start);
+        const range = TradingDate.defaultDateRange(5);
+        endInput.value = TradingDate.formatDate(range.end);
+        startInput.value = TradingDate.formatDate(range.start);
     }
 
     function getSelectedDateRangeModes() {

@@ -215,8 +215,9 @@ class GoogleSheet:
     def get_last_row(self, col_letter):
         """获取指定列的最后非空行"""
         try:
+            _, column_number = a1_to_rowcol(f"{str(col_letter).strip().upper()}1")
             col_data = self.worksheet.col_values(
-                ord(col_letter) - ord('A') + 1)  # 字母转数字列号
+                column_number)
             return len(col_data) if col_data else 0
         except Exception as e:
             logger.error(f'获取最后非空行错误。错误内容：{str(e)}')
