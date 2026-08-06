@@ -1,8 +1,11 @@
 from types import SimpleNamespace
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
+from openpyxl import load_workbook
 
-from app.services.export_file_service import build_task_export
+from app.services.export_file_service import build_c7_stock_code_export_archive, build_task_export
 from app.services.google_sheet_service_C7 import GoogleSheetService
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
@@ -65,6 +68,36 @@ def test_c7_export_reads_shifted_metric_cells():
         1.5,
         2.5,
     ])
+
+
+def test_c7_stock_code_export_archive_keeps_workbooks_separate():
+    task = SimpleNamespace(id="task-c7", name="C7 导出", task_type="google_sheet_C7")
+    results = [
+        {
+            "task_id": "task-c7",
+            "success": True,
+            "parameters": {"A1": "1", "B1": "ml-a", "stock_code": "600000", "c7_model_version": "c7_0_3"},
+            "result": {"模型A": {"D2": "10%", "D3": "11%", "D4": "-5%", "D5": "7%", "D6": "8%", "D7": "-6%"}},
+        },
+        {
+            "task_id": "task-c7",
+            "success": True,
+            "parameters": {"A1": "2", "B1": "ml-b", "stock_code": "600001", "c7_model_version": "c7_0_3"},
+            "result": {"模型A": {"D2": "20%", "D3": "21%", "D4": "-4%", "D5": "17%", "D6": "18%", "D7": "-7%"}},
+        },
+    ]
+
+    archive = build_c7_stock_code_export_archive(task, results)
+
+    assert archive.filename == "C7 导出_按股票代码导出.zip"
+    with ZipFile(archive.buffer) as zip_file:
+        assert zip_file.namelist() == ["C7 导出_600001.xlsx", "C7 导出_600000.xlsx"]
+
+        first_workbook = load_workbook(BytesIO(zip_file.read("C7 导出_600001.xlsx")), data_only=True)
+        second_workbook = load_workbook(BytesIO(zip_file.read("C7 导出_600000.xlsx")), data_only=True)
+
+    assert first_workbook.active["A2"].value == 2
+    assert second_workbook.active["A2"].value == 1
 
 
 def test_c5_export_uses_sheet_calculated_beats():

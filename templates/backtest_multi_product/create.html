@@ -1152,19 +1152,9 @@ document.addEventListener('click', (event) => {
 document.getElementById('addProductBtn').addEventListener('click', () => addProduct());
 document.getElementById('createBtn').addEventListener('click', createTask);
 
-function formatDateInput(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-const defaultEndDate = new Date();
-defaultEndDate.setDate(defaultEndDate.getDate() - 1);
-const defaultStartDate = new Date(defaultEndDate);
-defaultStartDate.setFullYear(defaultEndDate.getFullYear() - 3);
-document.getElementById('endDate').value = formatDateInput(defaultEndDate);
-document.getElementById('startDate').value = formatDateInput(defaultStartDate);
+const defaultDateRange = TradingDate.defaultDateRange(3);
+document.getElementById('endDate').value = TradingDate.formatDate(defaultDateRange.end);
+document.getElementById('startDate').value = TradingDate.formatDate(defaultDateRange.start);
 addProduct({ ratio: 50 });
 addProduct({ ratio: 50 });
 loadBacktestTokens();

@@ -585,7 +585,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 if "C7" in title or "C5" in title:
                     if "C7" in title :
-                        cell_k = 2 + 6
+                        cell_v = 2 + 6
                     if (_check_values[f'{cell_k}{cell_v}'] == check_values[f'{cell_k}{cell_v}']
                             and _check_values[f'{cell_k}{cell_v + 1}'] == check_values[f'{cell_k}{cell_v + 1}']):
                         return False

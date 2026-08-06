@@ -184,7 +184,17 @@
                                                 <i class="bi bi-info-circle"></i> 请从列表中选择可用的 Google Sheet
                                             </div>
                                         </div>
-                                        <div class="col-md-3 mb-3">
+                                        <div class="col-md-2 mb-3">
+                                            <label for="c7_model_version" class="form-label">
+                                                <i class="bi bi-diagram-3"></i> C7 模型版本
+                                            </label>
+                                            <select class="form-select c7-model-version-select" id="c7_model_version">
+                                                <option value="c7_0_2" selected>C7.0.2（两列K线）</option>
+                                                <option value="c7_0_3">C7.0.3（OHLC K线）</option>
+                                            </select>
+                                            <div class="form-text">按表标题自动识别，可手动调整</div>
+                                        </div>
+                                        <div class="col-md-2 mb-3">
                                             <label for="spreadsheet_title" class="form-label">
                                                 <i class="bi bi-type"></i> 表标题（可选）
                                             </label>
@@ -192,7 +202,7 @@
                                                    placeholder="用于标记或显示的表名称">
                                             <div class="form-text">将作为任务配置中的标题字段一并保存</div>
                                         </div>
-                                        <div class="col-md-3 mb-3">
+                                        <div class="col-md-2 mb-3">
                                             <label for="sheet_name" class="form-label">
                                                 <i class="bi bi-file-spreadsheet"></i> 工作表名称
                                             </label>
@@ -362,7 +372,9 @@
                                                             <option value="vwap_price" selected>加权平均价</option>
                                                             <option value="kp_price">开盘价</option>
                                                             <option value="sp_price">收盘价</option>
+                                                            <option value="ohlc_price" disabled>OHLC（开高低收）</option>
                                                         </select>
+<!--?                                                        <div class="form-text d-none" id="c7-price-mode-help">C7.0.3 固定使用 OHLC（开高低收）价格</div>-->
                                                     </div>
                                                     <div class="col-md-3">
                                                         <label class="form-label d-block">市场类型</label>
@@ -792,6 +804,7 @@
             spreadsheetSelect: item.querySelector('.google-sheet-select') || item.querySelector('#spreadsheet'),
             googleSheetIdInput: item.querySelector('#google_sheet_id'),
             spreadsheetHelp: item.querySelector('#spreadsheet-help'),
+            modelVersionSelect: item.querySelector('.c7-model-version-select') || item.querySelector('#c7_model_version'),
             titleInput: item.querySelector('.spreadsheet-title-input') || item.querySelector('#spreadsheet_title'),
             worksheetInput: item.querySelector('.worksheet-name-input') || item.querySelector('#sheet_name'),
             refreshWorksheetsBtn: item.querySelector('.refresh-worksheets-btn') || item.querySelector('#refresh-sheets'),
@@ -800,6 +813,105 @@
             customInput: item.querySelector('.custom-sheet-name-input') || item.querySelector('#custom_sheet_name'),
             refreshGoogleSheetsBtn: item.querySelector('#refresh-google-sheets')
         };
+    }
+
+    function getConfiguredC7ModelVersions(excludeItem = null) {
+        const versions = new Set();
+        document.querySelectorAll('#sheet-config-list .sheet-config-item').forEach(function(item) {
+            if (item === excludeItem) {
+                return;
+            }
+            const { spreadsheetSelect, modelVersionSelect } = getSheetConfigElements(item);
+            if (extractSpreadsheetId(spreadsheetSelect?.value || '') && modelVersionSelect?.value) {
+                versions.add(modelVersionSelect.value);
+            }
+        });
+        return versions;
+    }
+
+    function enforceC7PriceMode() {
+        const priceModeSelect = document.getElementById('price_mode');
+        const priceModeHelp = document.getElementById('c7-price-mode-help');
+        const forceOhlcPrice = getConfiguredC7ModelVersions().has('c7_0_3');
+        if (!priceModeSelect) {
+            return;
+        }
+
+        const ohlcOption = priceModeSelect.querySelector('option[value="ohlc_price"]');
+        if (ohlcOption) {
+            ohlcOption.disabled = !forceOhlcPrice;
+        }
+        if (forceOhlcPrice) {
+            priceModeSelect.value = 'ohlc_price';
+        } else if (priceModeSelect.value === 'ohlc_price') {
+            priceModeSelect.value = 'vwap_price';
+        }
+        setControlDisabled(priceModeSelect, isCustomKlineMode() || forceOhlcPrice);
+        if (priceModeHelp) {
+            priceModeHelp.classList.toggle('d-none', !forceOhlcPrice);
+        }
+    }
+
+    function updateC7ModelVersionControls() {
+        const versions = getConfiguredC7ModelVersions();
+        const activeVersion = versions.size === 1 ? Array.from(versions)[0] : '';
+
+        document.querySelectorAll('#sheet-config-list .sheet-config-item').forEach(function(item) {
+            const { spreadsheetSelect, modelVersionSelect } = getSheetConfigElements(item);
+            if (!modelVersionSelect) {
+                return;
+            }
+
+            Array.from(modelVersionSelect.options).forEach(function(option) {
+                option.disabled = Boolean(activeVersion && option.value !== activeVersion);
+            });
+            if (!extractSpreadsheetId(spreadsheetSelect?.value || '') && activeVersion) {
+                modelVersionSelect.value = activeVersion;
+            }
+        });
+
+        enforceC7PriceMode();
+    }
+
+    function ensureC7ModelVersionConsistency(changedItem, clearChangedSheet = false) {
+        const otherVersions = getConfiguredC7ModelVersions(changedItem);
+        const { spreadsheetSelect, titleInput, worksheetInput, modelVersionSelect } = getSheetConfigElements(changedItem);
+        const selectedVersion = modelVersionSelect?.value || '';
+
+        if (otherVersions.size === 1 && !otherVersions.has(selectedVersion)) {
+            const activeVersion = Array.from(otherVersions)[0];
+            if (clearChangedSheet && spreadsheetSelect) {
+                spreadsheetSelect.value = '';
+                if (titleInput) titleInput.value = '';
+                if (worksheetInput) worksheetInput.value = '';
+                updateWorksheetSelectionUI(changedItem);
+            }
+            if (modelVersionSelect) {
+                modelVersionSelect.value = activeVersion;
+                modelVersionSelect.dataset.manual = 'true';
+            }
+            updateC7ModelVersionControls();
+            showNotification('C7.0.2 与 C7.0.3 不能同时配置，请选择相同版本的 Google Sheet', 'error');
+            return false;
+        }
+
+        updateC7ModelVersionControls();
+        return true;
+    }
+
+    function validateC7ModelVersionSet(sheets, showMessage = true) {
+        const versions = new Set(
+            sheets
+                .map(sheet => sheet.c7_model_version || 'c7_0_2')
+                .filter(Boolean)
+        );
+        if (versions.size <= 1) {
+            return true;
+        }
+        if (showMessage) {
+            showNotification('C7.0.2 与 C7.0.3 不能同时添加到 Sheet 配置', 'error');
+        }
+        return false;
     }
 
     function syncSelectedGoogleSheetMetaForItem(item) {
@@ -891,7 +1003,8 @@
         const {
             spreadsheetSelect,
             titleInput,
-            worksheetInput
+            worksheetInput,
+            modelVersionSelect
         } = getSheetConfigElements(item);
 
         if (!item || !spreadsheetSelect || !titleInput || !worksheetInput) {
@@ -930,13 +1043,23 @@
                     throw new Error(data.message || '获取工作表列表失败');
                 }
 
-                if (titleInput && typeof data.title === 'string' && data.title.trim() !== '') {
-                    titleInput.value = data.title.trim();
+                const sheetTitle = typeof data.title === 'string' ? data.title.trim() : '';
+                if (titleInput && sheetTitle) {
+                    titleInput.value = sheetTitle;
+                }
+                const isManualModelVersion = modelVersionSelect?.dataset.manual === 'true';
+                if (modelVersionSelect && !isManualModelVersion) {
+                    modelVersionSelect.value = sheetTitle.startsWith('C7.0.3') ? 'c7_0_3' : 'c7_0_2';
                 }
                 worksheetInput.value = Array.isArray(data.worksheets) && data.worksheets.length > 0
                     ? (data.worksheets[0] || '')
                     : '';
                 updateWorksheetSelectionUI(item);
+                if (isManualModelVersion) {
+                    updateC7ModelVersionControls();
+                } else {
+                    ensureC7ModelVersionConsistency(item, true);
+                }
                 showNotification(isManualRefresh ? '表标题已刷新' : '表标题已自动加载', 'success');
             })
             .catch(error => {
@@ -1264,7 +1387,8 @@
             const {
                 spreadsheetSelect,
                 titleInput,
-                worksheetInput
+                worksheetInput,
+                modelVersionSelect
             } = getSheetConfigElements(item);
 
             if (spreadsheetSelect && sheetCfg.spreadsheet_id) {
@@ -1272,6 +1396,10 @@
             }
             if (titleInput && sheetCfg.title !== undefined) {
                 titleInput.value = sheetCfg.title || '';
+            }
+            if (modelVersionSelect && sheetCfg.c7_model_version) {
+                modelVersionSelect.value = sheetCfg.c7_model_version;
+                modelVersionSelect.dataset.manual = 'true';
             }
             if (worksheetInput && sheetCfg.sheet_name) {
                 worksheetInput.value = sheetCfg.sheet_name || '';
@@ -1286,6 +1414,7 @@
         Promise.allSettled(loadPromises).catch(error => {
             console.warn('自动加载 Google Sheet 配置失败:', error);
         });
+        updateC7ModelVersionControls();
     }
 
     function applyConfigToForm(rawConfig, options = {}) {
@@ -1406,7 +1535,7 @@
         }
     }
 
-    // 初始化日期默认值：结束=昨天，开始=结束往前推5年（仅在两者都为空时）
+    // 初始化日期默认值：结束=最近工作日，开始=结束往前推5年后的最近工作日（仅在两者都为空时）
     function initDefaultDatesIfEmpty() {
         const startInput = document.getElementById('start_date');
         const endInput = document.getElementById('end_date');
@@ -1417,20 +1546,9 @@
             return;
         }
 
-        const today = new Date();
-        // 昨天
-        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-        // 五年前同一天
-        const start = new Date(end.getFullYear() - 5, end.getMonth(), end.getDate());
-
-        const toISODate = (d) => {
-            const m = (d.getMonth() + 1).toString().padStart(2, '0');
-            const day = d.getDate().toString().padStart(2, '0');
-            return `${d.getFullYear()}-${m}-${day}`;
-        };
-
-        endInput.value = toISODate(end);
-        startInput.value = toISODate(start);
+        const range = TradingDate.defaultDateRange(5);
+        endInput.value = TradingDate.formatDate(range.end);
+        startInput.value = TradingDate.formatDate(range.start);
     }
 
     function getSelectedDateRangeModes() {
@@ -1556,6 +1674,8 @@
         if (recentYearsContainer) {
             recentYearsContainer.classList.toggle('d-none', !dateRangeRecent || !dateRangeRecent.checked);
         }
+
+        enforceC7PriceMode();
     }
 
     function bindSheetConfigItemEvents(item, debouncedSaveFormData) {
@@ -1563,6 +1683,7 @@
             spreadsheetSelect,
             titleInput,
             worksheetInput,
+            modelVersionSelect,
             customInput,
             refreshWorksheetsBtn,
             refreshGoogleSheetsBtn
@@ -1570,6 +1691,9 @@
 
         if (spreadsheetSelect) {
             spreadsheetSelect.addEventListener('change', function() {
+                if (modelVersionSelect) {
+                    delete modelVersionSelect.dataset.manual;
+                }
                 syncSelectedGoogleSheetMetaForItem(item);
                 loadWorksheetsForItem(item, false);
                 calculateCombinations();
@@ -1586,6 +1710,14 @@
         if (refreshWorksheetsBtn) {
             refreshWorksheetsBtn.addEventListener('click', function() {
                 loadWorksheetsForItem(item, true);
+            });
+        }
+
+        if (modelVersionSelect) {
+            modelVersionSelect.addEventListener('change', function() {
+                modelVersionSelect.dataset.manual = 'true';
+                ensureC7ModelVersionConsistency(item);
+                debouncedSaveFormData();
             });
         }
 
@@ -1812,6 +1944,7 @@
         bindSheetConfigItemEvents(clone, debouncedSaveFormData);
 
         list.appendChild(clone);
+        updateC7ModelVersionControls();
     }
 
     // 移除最后一组仅用于展示的 Google Sheet 配置（保留第一组主配置）
@@ -1828,6 +1961,7 @@
 
         const lastItem = items[items.length - 1];
         lastItem.remove();
+        updateC7ModelVersionControls();
         showNotification('已移除最后一组表格配置', 'success');
     }
 
@@ -2040,7 +2174,7 @@
         const klineSource = document.querySelector('input[name="kline_source"]:checked')?.value || 'auto';
         const isCustomKline = klineSource === 'custom';
         const countMode = isCustomKline ? 'total' : (document.querySelector('input[name="count_mode"]:checked')?.value || 'total');
-        const priceMode = isCustomKline ? null : (document.getElementById('price_mode')?.value || 'vwap_price');
+        let priceMode = isCustomKline ? null : (document.getElementById('price_mode')?.value || 'vwap_price');
         const marketType = isCustomKline ? null : (document.querySelector('input[name="market_type"]:checked')?.value || 'cn');
         const klineAdjustment = isCustomKline ? null : (document.getElementById('kline_adjustment')?.value || 'forward');
         const dateRangeModes = isCustomKline ? [] : getSelectedDateRangeModes();
@@ -2086,7 +2220,8 @@
                 const {
                     spreadsheetSelect,
                     titleInput,
-                    worksheetInput
+                    worksheetInput,
+                    modelVersionSelect
                 } = getSheetConfigElements(item);
 
                 if (spreadsheetSelect) {
@@ -2099,7 +2234,8 @@
                 if (sid) {
                     const sheetConfig = {
                         spreadsheet_id: sid,
-                        title: stitle
+                        title: stitle,
+                        c7_model_version: modelVersionSelect ? (modelVersionSelect.value || 'c7_0_2') : 'c7_0_2'
                     };
                     if (worksheetInput && worksheetInput.value.trim()) {
                         sheetConfig.sheet_name = worksheetInput.value.trim();
@@ -2108,6 +2244,13 @@
                     console.log(`添加表格配置：${sid} - ${stitle}`);
                 }
             });
+        }
+
+        if (!validateC7ModelVersionSet(sheets)) {
+            return;
+        }
+        if (!isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
+            priceMode = 'ohlc_price';
         }
 
         // 构造任务配置（c7 任务仅使用 sheets 数组，不再重复顶层 spreadsheet_id/sheet_name）
@@ -2221,6 +2364,15 @@
             param2: document.getElementById('param2').value,
             param3: document.getElementById('param3').value
         };
+        formData.sheet_configs = Array.from(document.querySelectorAll('#sheet-config-list .sheet-config-item')).map(item => {
+            const { spreadsheetSelect, titleInput, worksheetInput, modelVersionSelect } = getSheetConfigElements(item);
+            return {
+                spreadsheet_id: extractSpreadsheetId(spreadsheetSelect?.value || ''),
+                title: titleInput?.value || '',
+                sheet_name: worksheetInput?.value || '',
+                c7_model_version: modelVersionSelect?.value || 'c7_0_2'
+            };
+        }).filter(item => item.spreadsheet_id);
 
         try {
             // localStorage.setItem('google_sheet_c7_form_data', JSON.stringify(formData));
@@ -2242,6 +2394,9 @@
                 if (formData.task_description) document.getElementById('task_description').value = formData.task_description;
                 if (formData.spreadsheet) {
                     loadGoogleSheets(formData.spreadsheet);
+                }
+                if (Array.isArray(formData.sheet_configs) && formData.sheet_configs.length) {
+                    applySheetsToForm(formData.sheet_configs);
                 }
                 if (formData.spreadsheet_title) document.getElementById('spreadsheet_title').value = formData.spreadsheet_title;
                 if (formData.sheet_name) document.getElementById('sheet_name').value = formData.sheet_name;
@@ -2359,7 +2514,7 @@
             const klineSource = document.querySelector('input[name="kline_source"]:checked')?.value || 'auto';
             const isCustomKline = klineSource === 'custom';
             const countMode = isCustomKline ? 'total' : (document.querySelector('input[name="count_mode"]:checked')?.value || 'total');
-            const priceMode = isCustomKline ? null : (document.getElementById('price_mode')?.value || 'vwap_price');
+            let priceMode = isCustomKline ? null : (document.getElementById('price_mode')?.value || 'vwap_price');
             const marketType = isCustomKline ? null : (document.querySelector('input[name="market_type"]:checked')?.value || 'cn');
             const klineAdjustment = isCustomKline ? null : (document.getElementById('kline_adjustment')?.value || 'forward');
             const dateRangeModes = isCustomKline ? [] : getSelectedDateRangeModes();
@@ -2404,7 +2559,8 @@
                     const {
                         spreadsheetSelect,
                         titleInput,
-                        worksheetInput
+                        worksheetInput,
+                        modelVersionSelect
                     } = getSheetConfigElements(item);
 
                     if (spreadsheetSelect) {
@@ -2418,7 +2574,8 @@
                     if (sid) {
                         const sheetConfig = {
                             spreadsheet_id: sid,
-                            title: stitle
+                            title: stitle,
+                            c7_model_version: modelVersionSelect ? (modelVersionSelect.value || 'c7_0_2') : 'c7_0_2'
                         };
                         if (sheetNameValue) {
                             sheetConfig.sheet_name = sheetNameValue;
@@ -2427,6 +2584,13 @@
                         console.log(`添加工作表：${sid} - ${stitle}`);
                     }
                 });
+            }
+
+            if (!validateC7ModelVersionSet(sheets)) {
+                return null;
+            }
+            if (!isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
+                priceMode = 'ohlc_price';
             }
 
             // 构造参数列表：只加入非空数组

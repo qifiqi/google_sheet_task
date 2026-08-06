@@ -1,0 +1,149 @@
+from app.services.google_sheet_client import GoogleSheet
+from app.services.google_sheet_service_C7 import GoogleSheetService
+
+
+class _C7V03Sheet:
+    title = "C7.0.3"
+    spreadsheet_id = "c7-v03-sheet"
+
+    def __init__(self):
+        self.clear_calls = []
+        self.update_payloads = []
+        self.analysis_rows = []
+
+    def get_last_row(self, column):
+        assert column == "CC"
+        return 4
+
+    def clear_range(self, range_a1):
+        self.clear_calls.append(range_a1)
+
+    def get_range(self, range_a1):
+        assert range_a1 == "D2:D3"
+        return {"D2": "0", "D3": "0"}
+
+    def update_jumped_cells(self, payload):
+        self.update_payloads.append(dict(payload))
+
+    def get_ranges(self, ranges):
+        if ranges == ["D2:D3", "G1:H1"]:
+            return {
+                "D2:D3": {"D2": "1", "D3": "2"},
+                "G1:H1": {"G1": "xm:1", "H1": "ml:2"},
+            }
+        assert ranges == ["E2:E3", "L2:L3"]
+        return {
+            "E2:E3": {"E2": "3", "E3": "4"},
+            "L2:L3": {"L2": "30%", "L3": "40%"},
+        }
+
+
+def _c7_v03_config():
+    return {
+        "sheets": [{"spreadsheet_id": "c7-v03-sheet", "c7_model_version": "c7_0_3"}],
+        "c7_parameter_positions": ["A1", "B1"],
+        "c7_check_positions": ["G1", "H1"],
+        "c7_0_3_kline_start_row": 2,
+        "c7_0_3_kline_date_column": "CC",
+        "c7_0_3_kline_open_column": "CD",
+        "c7_0_3_kline_high_column": "CE",
+        "c7_0_3_kline_low_column": "CF",
+        "c7_0_3_kline_close_column": "CG",
+        "c7_0_3_output_range_1": "D2:D3",
+        "c7_0_3_output_range_2": "E2:E3",
+        "c7_0_3_output_column_j": "J",
+        "c7_0_3_output_column_l": "L",
+        "market_type": "cn",
+    }
+
+
+def test_c7_v03_uses_ohlc_layout_and_c5_result_range(monkeypatch):
+    service = GoogleSheetService({}, "task-id")
+    sheet = _C7V03Sheet()
+    service.google_sheets = [sheet]
+    service.xpl = type(
+        "XPL",
+        (), {"get_return_analysis_v1": lambda _self, rows: (sheet.analysis_rows.extend(rows) or {}, {})},
+    )()
+    monkeypatch.setattr(service, "_interruptible_sleep", lambda _seconds: True)
+
+    kline_map = {
+        "2026-2025": [
+            {
+                "stock_date": "2025-01-01",
+                "stock_val": 10,
+                "stock_kp": 9,
+                "stock_zg": 11,
+                "stock_zd": 8,
+                "stock_sp": 10,
+            },
+            {
+                "stock_date": "2025-01-02",
+                "stock_val": 11,
+                "stock_kp": 10,
+                "stock_zg": 12,
+                "stock_zd": 9,
+                "stock_sp": 11,
+            },
+        ]
+    }
+
+    success, _result = service._execute_parameter_combination(
+        10,
+        {"A1": "1", "B1": "2", "stock_code": "600000", "Kline_key": "2026-2025"},
+        {"combination": {}},
+        _c7_v03_config(),
+        kline_map,
+    )
+
+    assert success is True
+    assert sheet.clear_calls == ["CC2:CG12"]
+    assert sheet.update_payloads[0] == {
+        "A1": "xm:1",
+        "B1": "ml:2",
+        "CC2": "2025-01-01",
+        "CD2": 9,
+        "CE2": 11,
+        "CF2": 8,
+        "CG2": 10,
+        "CC3": "2025-01-02",
+        "CD3": 10,
+        "CE3": 12,
+        "CF3": 9,
+        "CG3": 11,
+    }
+    assert sheet.analysis_rows[0] == {
+        "date": "2025-01-01",
+        "index_return": 0.0,
+        "start_return": 0.3,
+    }
+    assert sheet.analysis_rows[1]["date"] == "2025-01-02"
+    assert abs(sheet.analysis_rows[1]["index_return"] - 0.1) < 1e-12
+    assert sheet.analysis_rows[1]["start_return"] == 0.4
+
+
+def test_c7_v03_result_payload_uses_c5_metric_cells():
+    service = object.__new__(GoogleSheetService)
+    service.task_id = "task-c7-v03"
+
+    payload = service._build_stock_param_result_payload(
+        "C7.0.3 测试",
+        0,
+        {"A1": "1", "B1": "2", "kline": [], "c7_model_version": "c7_0_3"},
+        {"C7.0.3": {"D2": "10%", "D3": "11%", "D4": "-5%", "D5": "7%", "D6": "8%", "D7": "-6%"}},
+    )
+
+    assert payload["return_rate"] == 0.1
+    assert payload["annualized_rate"] == 0.11
+    assert payload["maxdd"] == -0.05
+    assert payload["index_rate"] == 0.07
+
+
+def test_get_last_row_supports_multi_letter_column():
+    google_sheet = object.__new__(GoogleSheet)
+    google_sheet.worksheet = type(
+        "Worksheet",
+        (), {"col_values": lambda _self, column_number: ["header", "value"] if column_number == 81 else []},
+    )()
+
+    assert google_sheet.get_last_row("CC") == 2

@@ -394,6 +394,46 @@ def init_config():
             'value': 'B',
             'description': 'C5 模板输入列 B 的列标识。',
         },
+        'c7_0_3_kline_start_row': {
+            'value': 2,
+            'description': 'C7.0.3 OHLC K线输入起始行。',
+        },
+        'c7_0_3_kline_date_column': {
+            'value': 'CC',
+            'description': 'C7.0.3 OHLC K线日期列。',
+        },
+        'c7_0_3_kline_open_column': {
+            'value': 'CD',
+            'description': 'C7.0.3 OHLC K线开盘价列。',
+        },
+        'c7_0_3_kline_high_column': {
+            'value': 'CE',
+            'description': 'C7.0.3 OHLC K线最高价列。',
+        },
+        'c7_0_3_kline_low_column': {
+            'value': 'CF',
+            'description': 'C7.0.3 OHLC K线最低价列。',
+        },
+        'c7_0_3_kline_close_column': {
+            'value': 'CG',
+            'description': 'C7.0.3 OHLC K线收盘价列。',
+        },
+        'c7_0_3_output_range_1': {
+            'value': 'D2:D20',
+            'description': 'C7.0.3 第一段结果读取区域，与 C5 一致。',
+        },
+        'c7_0_3_output_range_2': {
+            'value': 'D22:F25',
+            'description': 'C7.0.3 第二段结果读取区域，与 C5 一致。',
+        },
+        'c7_0_3_output_column_j': {
+            'value': 'J',
+            'description': 'C7.0.3 指数收益输出列，与 C5 一致。',
+        },
+        'c7_0_3_output_column_l': {
+            'value': 'L',
+            'description': 'C7.0.3 起始收益输出列，与 C5 一致。',
+        },
         # 'c7_output_range_1': {
         #     'value': 'D2:F4',
         #     'description': 'C5 模板第一段结果读取区域。',

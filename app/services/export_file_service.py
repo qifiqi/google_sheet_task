@@ -6,6 +6,7 @@ from datetime import datetime
 from functools import cmp_to_key
 from io import BytesIO
 from typing import Any, Protocol
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -15,6 +16,7 @@ from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
 EXCEL_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+ZIP_MIMETYPE = "application/zip"
 
 # C5 分组 sheet 只展示业务关注列；kline_range 仅作为拆 sheet 的分组依据，不展示在表格里。
 C5_EXPORT_COLUMNS = [
@@ -215,6 +217,13 @@ class GeneratedExport:
 
 
 @dataclass(frozen=True)
+class GeneratedArchive:
+    filename: str
+    mimetype: str
+    buffer: BytesIO
+
+
+@dataclass(frozen=True)
 class WorksheetData:
     name: str
     header: list[Any]
@@ -336,6 +345,48 @@ def build_task_export(task: Any, results: list[dict[str, Any]]) -> GeneratedExpo
 
     exporter = get_task_result_exporter(task)
     return exporter.build(task, results)
+
+
+def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]]) -> GeneratedArchive:
+    """按股票代码拆分 C7 结果，并将现有 Excel 导出格式打包为 ZIP。"""
+
+    if _task_type(task) != "google_sheet_c7":
+        raise ValueError("按股票代码导出仅支持 C7 任务")
+    if not results:
+        raise ValueError("任务暂无可导出结果")
+
+    grouped_results: dict[str, list[dict[str, Any]]] = {}
+    for item in results:
+        parameters = item.get("parameters") or {}
+        if not isinstance(parameters, dict):
+            parameters = {}
+        stock_code = str(parameters.get("stock_code") or "未命名股票").strip() or "未命名股票"
+        grouped_results.setdefault(stock_code, []).append(item)
+
+    archive_buffer = BytesIO()
+    used_filenames: set[str] = set()
+    task_name = sanitize_export_filename(_task_name(task))
+    with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
+        for stock_code in sorted(grouped_results, reverse=True):
+            workbook_export = build_task_export(task, grouped_results[stock_code])
+            workbook_buffer = BytesIO()
+            workbook_export.workbook.save(workbook_buffer)
+
+            filename_base = sanitize_export_filename(f"{task_name}_{stock_code}")
+            filename = f"{filename_base}.xlsx"
+            suffix = 2
+            while filename in used_filenames:
+                filename = f"{filename_base}_{suffix}.xlsx"
+                suffix += 1
+            used_filenames.add(filename)
+            archive.writestr(filename, workbook_buffer.getvalue())
+
+    archive_buffer.seek(0)
+    return GeneratedArchive(
+        filename=f"{task_name}_按股票代码导出.zip",
+        mimetype=ZIP_MIMETYPE,
+        buffer=archive_buffer,
+    )
 
 
 def get_task_result_exporter(task: Any) -> TaskResultExporter:
@@ -483,6 +534,11 @@ def normalize_c7_export_results(results: list[dict[str, Any]]) -> list[dict[str,
     for item in results:
         result = item.get("result")
         if not isinstance(result, dict):
+            normalized_results.append(item)
+            continue
+
+        parameters = item.get("parameters") or {}
+        if parameters.get("c7_model_version") == "c7_0_3":
             normalized_results.append(item)
             continue
 
