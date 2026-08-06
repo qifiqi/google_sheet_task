@@ -141,23 +141,14 @@ def test_export_preview_rejects_non_backtest_result(app_factory, monkeypatch):
         assert response.get_json()["message"] == "当前接口仅支持回测任务"
 
 
-def test_export_preview_rejects_unauthorized_result(app_factory, monkeypatch):
+def test_export_preview_allows_result_without_interface_permission(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
-        _task, task_result = _add_result()
+        _task, task_result = _add_result(calculate_metrics=_exportable_metrics())
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.backtest_training.authorize_task_type_action",
-            lambda _user, _action, task_type: {
-                "allowed": False,
-                "task_type": task_type,
-                "required_permissions": ["backtest:view"],
-                "missing_permissions": ["backtest:view"],
-            },
-        )
         response = app.test_client().get(
             f"/backtest-training/api/task-result/{task_result.id}/export-preview"
         )
 
-        assert response.status_code == 403
-        assert response.get_json()["result_id"] == task_result.id
+        assert response.status_code == 200
+        assert response.get_json()["status"] == "success"

@@ -2,7 +2,8 @@
 from datetime import datetime
 from flask import Blueprint, request
 from werkzeug.security import generate_password_hash, check_password_hash
-from app.models import User, Role, Permission, db
+from app.models import NavigationMenuItem, User, Role, Permission, db
+from app.navigation import sync_navigation_permissions
 from app.utils.auth import (
     create_access_token, create_refresh_token, decode_token,
     login_required, permission_required, extract_token_version,
@@ -264,6 +265,8 @@ def delete_role(role_id):
 @login_required
 @permission_required('user:view', 'user:manage')
 def list_permissions():
+    sync_navigation_permissions(NavigationMenuItem.query.all())
+    db.session.commit()
     perms = Permission.query.order_by(Permission.group, Permission.code).all()
     grouped = {}
     for p in perms:

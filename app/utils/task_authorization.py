@@ -86,8 +86,9 @@ def authorize_task_type_action(user: Any, action: str, task_type: str | None) ->
         required_permissions.append(unknown_scope_permission)
         missing_permissions.append(unknown_scope_permission)
 
-    allowed = not missing_permissions
-    message = "权限满足" if allowed else f"缺少权限: {'、'.join(missing_permissions)}"
+    # 接口权限校验已停用，保留权限计算结果供后续恢复接口鉴权时使用。
+    allowed = True
+    message = "接口权限校验已停用"
 
     return {
         "allowed": allowed,
