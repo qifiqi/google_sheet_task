@@ -204,6 +204,15 @@ def _infer_backtest_model_version(config):
     return "c3"
 
 
+def _is_c7_0_3_backtest_config(config):
+    if not isinstance(config, dict):
+        return False
+    sheet = config.get("sheet") or {}
+    version = str(sheet.get("c7_model_version") or config.get("c7_model_version") or "").strip().lower()
+    title = str(sheet.get("title") or config.get("title") or "").upper()
+    return version == "c7_0_3" or "C7.0.3" in title
+
+
 def _infer_backtest_export_model_name(config):
     if not isinstance(config, dict):
         return "C3"
@@ -337,7 +346,7 @@ def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> d
     calculate_metrics, sheet_result = _extract_task_result_payload(task_result)
     task_config = task.to_dict().get("config") or {}
     model_name = _infer_backtest_export_model_name(task_config)
-    if model_name == "C7":
+    if model_name == "C7" and not _is_c7_0_3_backtest_config(task_config):
         sheet_result = normalize_c7_result_metrics(sheet_result)
     analyze_result = {
         **calculate_metrics,
@@ -1001,12 +1010,16 @@ def _format_summary_value(value):
 
 def _get_summary_raw_metric(column, metric_key):
     model_name = str(column.get("model_name") or "C3").upper()
-    cell_map = SUMMARY_METRIC_CELL_MAP.get(model_name, SUMMARY_METRIC_CELL_MAP["C3"])
+    if model_name == "C7" and column.get("c7_model_version") == "c7_0_3":
+        cell_map = SUMMARY_METRIC_CELL_MAP["C5"]
+    else:
+        cell_map = SUMMARY_METRIC_CELL_MAP.get(model_name, SUMMARY_METRIC_CELL_MAP["C3"])
     cell_key = cell_map.get(metric_key)
     raw_metrics = column.get("raw_metrics") or {}
     value = raw_metrics.get(cell_key) if cell_key else None
     if (
         model_name == "C7"
+        and column.get("c7_model_version") != "c7_0_3"
         and cell_key in C7_RAW_PERCENT_CELLS
         and value not in (None, "")
         and not str(value).strip().endswith("%")
@@ -1338,6 +1351,7 @@ def _build_global_preview_payload(task_id):
         return None
 
     task_config = task.to_dict().get("config") or {}
+    c7_model_version = "c7_0_3" if _is_c7_0_3_backtest_config(task_config) else "c7_0_2"
     task_results = (
         TaskResult.query
         .options(
@@ -1383,6 +1397,7 @@ def _build_global_preview_payload(task_id):
             "step_index": task_result.step_index,
             "header": _build_parameter_header(parameters),
             "model_name": model_name,
+            "c7_model_version": c7_model_version if model_name == "C7" else None,
             "success": bool(task_result.success),
             "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
             "parameter_values": parameters.get("parameter") if isinstance(parameters.get("parameter"), list) else [],

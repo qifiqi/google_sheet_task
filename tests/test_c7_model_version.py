@@ -14,7 +14,7 @@ class _C7V03Sheet:
         self.analysis_rows = []
 
     def get_last_row(self, column):
-        assert column == "CC"
+        assert column in {"CC", "CD", "CE", "CF", "CG"}
         return 4
 
     def clear_range(self, range_a1):
@@ -36,7 +36,7 @@ class _C7V03Sheet:
         assert ranges == ["E2:E3", "L2:L3"]
         return {
             "E2:E3": {"E2": "3", "E3": "4"},
-            "L2:L3": {"L2": "30%", "L3": "40%"},
+            "L2:L3": {"L2": "#DIV/0!", "L3": "40%"},
         }
 
 
@@ -117,7 +117,7 @@ def test_c7_v03_uses_ohlc_layout_and_c5_result_range(monkeypatch):
     assert sheet.analysis_rows[0] == {
         "date": "2025-01-01",
         "index_return": 0.0,
-        "start_return": 0.3,
+        "start_return": 0,
     }
     assert sheet.analysis_rows[1]["date"] == "2025-01-02"
     assert abs(sheet.analysis_rows[1]["index_return"] - 0.1) < 1e-12
@@ -139,6 +139,52 @@ def test_c7_v03_result_payload_uses_c5_metric_cells():
     assert payload["annualized_rate"] == 0.11
     assert payload["maxdd"] == -0.05
     assert payload["index_rate"] == 0.07
+
+
+def test_c7_v03_rewrites_kline_when_stock_changes(monkeypatch):
+    service = GoogleSheetService({}, "task-id")
+    sheet = _C7V03Sheet()
+    service.google_sheets = [sheet]
+    service.xpl = type(
+        "XPL",
+        (), {"get_return_analysis_v1": lambda _self, rows: ({}, {})},
+    )()
+    monkeypatch.setattr(service, "_interruptible_sleep", lambda _seconds: True)
+
+    kline = [{
+        "stock_date": "2025-01-01",
+        "stock_val": 10,
+        "stock_kp": 9,
+        "stock_zg": 11,
+        "stock_zd": 8,
+        "stock_sp": 10,
+    }, {
+        "stock_date": "2025-01-02",
+        "stock_val": 11,
+        "stock_kp": 10,
+        "stock_zg": 12,
+        "stock_zd": 9,
+        "stock_sp": 11,
+    }]
+    success, _result = service._execute_parameter_combination(
+        10,
+        {"A1": "1", "B1": "2", "stock_code": "600001", "Kline_key": "2026-2025"},
+        {"combination": {"stock_code": "600000", "Kline_key": "2026-2025"}},
+        _c7_v03_config(),
+        {"2026-2025": kline},
+    )
+
+    assert success is True
+    assert sheet.clear_calls == ["CC2:CG12"]
+    assert sheet.update_payloads[0]["CC2"] == "2025-01-01"
+
+
+def test_c7_model_version_falls_back_to_sheet_title():
+    service = GoogleSheetService({}, "task-id")
+    sheet = type("Sheet", (), {"spreadsheet_id": "sheet-v03", "title": "C7.0.3.v20260729"})()
+    config = {"sheets": [{"spreadsheet_id": "sheet-v03"}]}
+
+    assert service._get_c7_model_version(config, sheet) == "c7_0_3"
 
 
 def test_get_last_row_supports_multi_letter_column():

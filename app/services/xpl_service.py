@@ -1042,6 +1042,36 @@ class XPLAnalyzer:
         google_sheet = self._init_google_sheet(spreadsheet_id, google_sheet_name)
         title = google_sheet.title.upper()
 
+        if 'C7.0.3' in title:
+            last_now_num = google_sheet.get_last_row("CC")
+            if last_now_num < 2:
+                raise ValueError("C7.0.3 未找到 OHLC K线数据")
+
+            ohlc_rows = google_sheet.get_range_2d(f'CC2:CG{last_now_num}', 'UNFORMATTED_VALUE')
+            start_return_rows = google_sheet.get_range_2d(f'L2:L{last_now_num}', 'UNFORMATTED_VALUE')
+            result_rows = google_sheet.get_range_2d('C2:D20', 'FORMATTED_VALUE')
+            sheet_df = pd.DataFrame(ohlc_rows, columns=['date', 'open', 'high', 'low', 'close'])
+            sheet_df['date'] = self._parse_google_sheet_dates(sheet_df['date'])
+            sheet_df['close'] = pd.to_numeric(sheet_df['close'], errors='coerce')
+            if sheet_df['close'].isna().any() or sheet_df['close'].iloc[0] == 0:
+                raise ValueError('C7.0.3 OHLC 收盘价包含无效值')
+
+            start_returns = pd.to_numeric(
+                pd.Series([row[0] if row else None for row in start_return_rows]),
+                errors='coerce',
+            )
+            if len(start_returns) != len(sheet_df) or start_returns.isna().any():
+                raise ValueError('C7.0.3 strat return% 数据不完整')
+
+            sheet_df['index_return'] = sheet_df['close'] / sheet_df['close'].iloc[0] - 1
+            sheet_df['start_return'] = start_returns.to_numpy()
+            _data = sheet_df[['date', 'index_return', 'start_return']].to_dict(orient='records')
+            _data_result = {
+                row[0]: row[1]
+                for row in result_rows
+                if len(row) >= 2 and row[0] not in ('', 'year#')
+            }
+            return _data, _data_result, sheet_df
 
         if 'C7' in title:
             last_now_num = google_sheet.get_last_row("A")

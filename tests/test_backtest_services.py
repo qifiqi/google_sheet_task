@@ -11,6 +11,7 @@ from app.services.backtest_multi_product_service import (
     normalize_multi_product_config,
 )
 from app.services.backtest_training_service import BacktestTrainingService
+from app.services.xpl_service import XPLAnalyzer
 
 
 def _kline_rows(start_date, end_date):
@@ -211,12 +212,149 @@ def test_backtest_sheet_config_supports_c7():
     )
 
 
+def test_backtest_sheet_config_supports_c7_0_3():
+    config = {
+        "sheet": {"title": "C7.0.3 回测", "c7_model_version": "c7_0_3"},
+    }
+
+    assert BacktestTrainingService._c3_to_c5_get_config(config) == (
+        "CC",
+        "CG",
+        "D2:D20",
+        "D22:F25",
+        "J",
+        "L",
+        ["A1", "B1"],
+        ["D2", "D3"],
+        "CC",
+    )
+
+
+def test_backtest_c7_0_3_uses_ohlc_and_close_for_index_returns(monkeypatch):
+    service = BacktestTrainingService({}, "task-id")
+    monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
+    kline_rows = _kline_rows("2023-01-01", "2024-02-15")
+    for row in kline_rows:
+        row.update({"stock_zg": 11, "stock_zd": 8})
+    next(row for row in kline_rows if row["stock_date"] == "2023-02-16")["stock_sp"] = 12
+    monkeypatch.setattr(service.dfcf_api, "get_stock_kline_data", lambda *_args, **_kwargs: kline_rows)
+
+    _combinations, _column_length, kline_map = service._get_all_parameters(
+        [], [1], [["2.3", "3"]], "600000", price_mode="ohlc_price",
+        end_date="2024-02-15", include_ohlc=True,
+    )
+
+    kline = kline_map["2024-2023"]
+    assert {"stock_kp", "stock_zg", "stock_zd", "stock_sp"}.issubset(kline[0])
+    assert service._calculate_c7_0_3_index_returns(kline)[1] == pytest.approx(0.2)
+
+
+def test_backtest_c7_0_3_execution_writes_ohlc_and_handles_first_div_zero(monkeypatch):
+    class C7V03Sheet:
+        spreadsheet_id = "c7-v03-single"
+        title = "C7.0.3.v20260729-回测-sharable-manual"
+
+        def __init__(self):
+            self.clear_calls = []
+            self.update_payloads = []
+            self.result_reads = 0
+
+        def clear_range(self, range_a1):
+            self.clear_calls.append(range_a1)
+
+        def update_jumped_cells(self, payload):
+            self.update_payloads.append(dict(payload))
+
+        def get_range(self, range_a1, value_render_option=None):
+            assert range_a1 == "D2:D20"
+            self.result_reads += 1
+            return {"D2": "1" if self.result_reads > 1 else "0", "D3": "2"}
+
+        def get_ranges(self, ranges):
+            assert ranges == ["D22:F25", "L2:L3"]
+            return {
+                "D22:F25": {},
+                "L2:L3": {"L2": "#DIV/0!", "L3": "20%"},
+            }
+
+    service = BacktestTrainingService({}, "task-id")
+    sheet = C7V03Sheet()
+    service.google_sheet = sheet
+    service.xpl = type(
+        "XPL",
+        (), {"get_calculate_metrics_v1": lambda _self, rows: {"rows": rows}},
+    )()
+    monkeypatch.setattr(service, "_interruptible_sleep", lambda _seconds: True)
+    monkeypatch.setattr(service, "_get_execution_poll_delay_bounds", lambda: (0, 0))
+    monkeypatch.setattr(service, "_get_execution_poll_delay", lambda *_args: 0)
+
+    kline = [
+        {"stock_date": "2025-01-01", "stock_kp": 9, "stock_zg": 11, "stock_zd": 8, "stock_sp": 10, "stock_val": 10},
+        {"stock_date": "2025-01-02", "stock_kp": 10, "stock_zg": 12, "stock_zd": 9, "stock_sp": 11, "stock_val": 11},
+    ]
+    success, _result, return_date = service._execute_parameter_combination(
+        10,
+        {"parameter": ["2.3", "3"], "stock_code": "600000", "Kline_key": "2026-2025"},
+        {"combination": {}},
+        {"sheet": {"title": sheet.title, "c7_model_version": "c7_0_3"}},
+        {"2026-2025": kline},
+    )
+
+    assert success is True
+    assert sheet.clear_calls == ["CC2:CG12"]
+    assert sheet.update_payloads[0]["CC2"] == "2025-01-01"
+    assert sheet.update_payloads[0]["CD2"] == 9
+    assert return_date[0]["start_return"] == 0
+    assert return_date[1]["index_return"] == pytest.approx(0.1)
+
+
+def test_xpl_reads_c7_0_3_ohlc_layout(monkeypatch):
+    class C7V03Sheet:
+        title = "C7.0.3.v20260729"
+
+        def get_last_row(self, column):
+            assert column == "CC"
+            return 3
+
+        def get_range_2d(self, range_a1, _render_option):
+            values = {
+                "CC2:CG3": [["2025-08-05", 9, 11, 8, 10], ["2025-08-06", 10, 12, 9, 11]],
+                "L2:L3": [[0], [0.2]],
+                "C2:D20": [["Return%", "20%"], ["Annualized", "20%"]],
+            }
+            return values[range_a1]
+
+    analyzer = XPLAnalyzer()
+    monkeypatch.setattr(analyzer, "_init_google_sheet", lambda *_args: C7V03Sheet())
+
+    data, result, sheet_df = analyzer.get_google_sheet_data("sheet-id", "control")
+
+    assert data[0]["index_return"] == 0
+    assert data[1]["index_return"] == pytest.approx(0.1)
+    assert data[1]["start_return"] == pytest.approx(0.2)
+    assert result["Return%"] == "20%"
+    assert list(sheet_df.columns) == ["date", "open", "high", "low", "close", "index_return", "start_return"]
+
+
 def test_c7_summary_excess_return_uses_shifted_c5_cells():
     column = {
         "model_name": "C7",
         "raw_metrics": {
             "D8": "32.47%",
             "D11": "21.14%",
+        },
+    }
+
+    assert _get_summary_derived_value(column, "excess_return") == "11.33%"
+
+
+def test_c7_0_3_summary_uses_c5_result_cells():
+    column = {
+        "model_name": "C7",
+        "c7_model_version": "c7_0_3",
+        "raw_metrics": {
+            "D2": "32.47%",
+            "D5": "21.14%",
         },
     }
 

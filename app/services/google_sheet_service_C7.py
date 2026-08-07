@@ -43,11 +43,18 @@ class GoogleSheetService(BaseGoogleSheetService):
     def _get_c7_model_version(config_data: Dict[str, Any], google_sheet=None) -> str:
         """读取单表 C7 版本，旧任务和缺省配置统一按 C7.0.2 处理。"""
         spreadsheet_id = getattr(google_sheet, "spreadsheet_id", None)
+        sheet_title = str(getattr(google_sheet, "title", "") or "").strip().upper()
         for sheet_config in config_data.get("sheets") or []:
             if spreadsheet_id and sheet_config.get("spreadsheet_id") == spreadsheet_id:
-                version = str(sheet_config.get("c7_model_version") or "c7_0_2").strip().lower()
-                return version if version in ("c7_0_2", "c7_0_3") else "c7_0_2"
+                version = str(sheet_config.get("c7_model_version") or "").strip().lower()
+                if version in ("c7_0_2", "c7_0_3"):
+                    return version
+                if "C7.0.3" in sheet_title or "C7_0_3" in sheet_title:
+                    return "c7_0_3"
+                return "c7_0_2"
 
+        if "C7.0.3" in sheet_title or "C7_0_3" in sheet_title:
+            return "c7_0_3"
         version = str(config_data.get("c7_model_version") or "c7_0_2").strip().lower()
         return version if version in ("c7_0_2", "c7_0_3") else "c7_0_2"
 
@@ -91,6 +98,20 @@ class GoogleSheetService(BaseGoogleSheetService):
     @staticmethod
     def _get_c7_write_end_column(layout: Dict[str, Any]) -> str:
         return layout.get("close_column") or layout.get("value_column") or layout["date_column"]
+
+    @staticmethod
+    def _get_c7_input_last_row(google_sheet, layout: Dict[str, Any]) -> int:
+        if layout["version"] != "c7_0_3":
+            return google_sheet.get_last_row(layout["date_column"])
+        columns = [
+            layout["date_column"],
+            layout["open_column"],
+            layout["high_column"],
+            layout["low_column"],
+            layout["close_column"],
+        ]
+        rows = [google_sheet.get_last_row(column) for column in dict.fromkeys(columns)]
+        return max((row for row in rows if row >= 0), default=0)
 
     @staticmethod
     def _get_c7_range_start(range_a1: str) -> tuple[str, int]:
@@ -430,7 +451,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             if kline_source != 'custom':
                 for google_sheet in self.google_sheets:
                     layout = self._get_c7_layout(config_data, google_sheet)
-                    last_row = google_sheet.get_last_row(layout["date_column"])
+                    last_row = self._get_c7_input_last_row(google_sheet, layout)
                     if last_row < layout["start_row"]:
                         continue
                     end_column = self._get_c7_write_end_column(layout)
@@ -606,15 +627,22 @@ class GoogleSheetService(BaseGoogleSheetService):
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
                 cache_Kline_key = _combination.get('Kline_key',"")
+                cache_stock_code = str(_combination.get('stock_code') or '').strip()
+                current_stock_code = str(combination.get('stock_code') or '').strip()
                 kline = current_kline
                 _kline_len = len(kline)
+                kline_changed = (
+                    Kline_key != cache_Kline_key
+                    or current_stock_code != cache_stock_code
+                    or initial_result_sleep is not None
+                )
 
                 if is_custom_kline:
                     self._log_info(f"自定义K线模式，不修改K线列，只写入参数 combination:{combination}")
-                elif Kline_key != cache_Kline_key or initial_result_sleep is not None:
+                elif kline_changed:
                     for google_sheet in self.google_sheets:
                         layout = sheet_layouts[google_sheet.spreadsheet_id]
-                        last_row = google_sheet.get_last_row(layout["date_column"])
+                        last_row = self._get_c7_input_last_row(google_sheet, layout)
                         end_row = max(last_row, layout["start_row"] + column_A_length)
                         end_column = self._get_c7_write_end_column(layout)
                         google_sheet.clear_range(
@@ -639,7 +667,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 for google_sheet in self.google_sheets:
                     layout = sheet_layouts[google_sheet.spreadsheet_id]
                     cell_updates = dict(base_cell_updates)
-                    if not is_custom_kline and (Kline_key != cache_Kline_key or initial_result_sleep is not None):
+                    if not is_custom_kline and kline_changed:
                         for index, item in enumerate(kline):
                             cell_num = layout["start_row"] + index
                             cell_updates[f'{layout["date_column"]}{cell_num}'] = item.get("stock_date", "")
@@ -659,7 +687,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             def check_result(check_values):
                 _check_values = {}
                 for _position, _value in check_values.items():
-                    if not _value or not is_valid_result_value(_value):
+                    if _value is None or (isinstance(_value, str) and not _value.strip()) or not is_valid_result_value(_value):
                         self._log_info(f"结果位置 {_position} 值为空或无效，跳过重新检查：{_value}")
                         raise Exception(f"结果位置 {_position} 值为空或无效，跳过重新检查：{_value}")
 
@@ -667,7 +695,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         _error_msg = f"获取结果位置 {_position} 时出错: {str(_value)}"
                         raise checkForErrors(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {_error_msg}")
 
-                    if '%' in _value:
+                    if isinstance(_value, str) and '%' in _value:
                         _value = float(_value.replace('%', '').replace(',', '')) / 100
                     if isinstance(_value, str) and ',' in _value:
                         _value = float(_value.replace(',', ''))
@@ -792,6 +820,10 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         try:
                             merged_return_range = batch_range_values.get(merged_return_range_a1, {})
+                            if layout["version"] == "c7_0_3":
+                                first_return_position = f"{output_column_l}2"
+                                if str(merged_return_range.get(first_return_position, "")).strip() == "#DIV/0!":
+                                    merged_return_range[first_return_position] = 0
                             _start_return = check_result({
                                 position: value
                                 for position, value in merged_return_range.items()

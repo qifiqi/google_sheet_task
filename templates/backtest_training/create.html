@@ -269,6 +269,7 @@
                             <option value="vwap_price">加权平均价</option>
                             <option value="kp_price">开盘价</option>
                             <option value="sp_price" selected>收盘价</option>
+                            <option value="ohlc_price" disabled>OHLC（开高低收）</option>
                         </select>
                     </div>
                     <div class="config-box">
@@ -392,6 +393,7 @@ let spreadsheetId = '';
 let sheetTitle = '';
 let selectedWorksheetName = '';
 let currentModelVersion = 'c3';
+let currentC7ModelVersion = 'c7_0_2';
 let currentFields = FIELD_MAP.c3;
 let backtestGoogleSheets = [];
 let selectedGoogleSheetId = null;
@@ -400,6 +402,7 @@ let currentExcelImport = null;
 let backtestTokens = [];
 let isCreatingTask = false;
 let stockSearchTimer = null;
+let lastEditablePriceMode = 'sp_price';
 let stockSearchAbortController = null;
 let lastStockSearchResults = [];
 let selectedStockSuggestion = null;
@@ -480,6 +483,46 @@ function inferModelVersion(title) {
 
 function resolveModelVersion(version) {
     return ['c5', 'c7'].includes(version) ? version : 'c3';
+}
+
+function inferC7ModelVersion(value) {
+    const normalized = String(value || '').toUpperCase();
+    return normalized.includes('C7.0.3') || normalized.includes('C7_0_3')
+        ? 'c7_0_3'
+        : 'c7_0_2';
+}
+
+function isC7V03Model() {
+    return resolveModelVersion(currentModelVersion) === 'c7'
+        && currentC7ModelVersion === 'c7_0_3';
+}
+
+function syncPriceModeForModel() {
+    const priceModeInput = document.getElementById('priceModeInput');
+    const ohlcOption = priceModeInput?.querySelector('option[value="ohlc_price"]');
+    if (!priceModeInput) {
+        return;
+    }
+
+    if (isC7V03Model()) {
+        if (!priceModeInput.disabled && priceModeInput.value !== 'ohlc_price') {
+            lastEditablePriceMode = priceModeInput.value;
+        }
+        if (ohlcOption) {
+            ohlcOption.disabled = false;
+        }
+        priceModeInput.value = 'ohlc_price';
+        priceModeInput.disabled = true;
+        return;
+    }
+
+    if (priceModeInput.disabled && priceModeInput.value === 'ohlc_price') {
+        priceModeInput.value = lastEditablePriceMode;
+    }
+    priceModeInput.disabled = false;
+    if (ohlcOption) {
+        ohlcOption.disabled = true;
+    }
 }
 
 function normalizeMarketTypeValue(value) {
@@ -1034,6 +1077,7 @@ function setCreateButtonState(isLoading) {
 function renderSheetInfo(title, worksheets) {
     const modelVersion = inferModelVersion(title);
     currentModelVersion = modelVersion;
+    currentC7ModelVersion = inferC7ModelVersion(title);
     sheetTitle = title || '';
     selectedWorksheetName = Array.isArray(worksheets) && worksheets.length ? String(worksheets[0]).trim() : '';
     modelVersionBadge.textContent = modelVersion.toUpperCase();
@@ -1042,6 +1086,7 @@ function renderSheetInfo(title, worksheets) {
     sheetInfo.classList.add('is-visible');
     importedParameterRows = [];
     currentExcelImport = null;
+    syncPriceModeForModel();
     setExcelImportStatus('');
     syncTaskNameInput(true);
     resetParameterTable();
@@ -1203,6 +1248,10 @@ function clearSelectedSheetInfo() {
     spreadsheetId = '';
     sheetTitle = '';
     selectedWorksheetName = '';
+    currentModelVersion = 'c3';
+    currentC7ModelVersion = 'c7_0_2';
+    syncPriceModeForModel();
+    updateTableHeader();
     sheetInfo.classList.remove('is-visible');
     sheetTitleEl.textContent = '-';
     sheetNamesEl.textContent = '-';
@@ -1341,6 +1390,7 @@ async function importExcelFile(file) {
         }
 
         currentModelVersion = inferModelVersion(data.model_version || 'c3');
+        currentC7ModelVersion = inferC7ModelVersion(data.model_version || sheetTitle);
         importedParameterRows = Array.isArray(data.parameters) ? data.parameters : [];
         currentExcelImport = data.excel_import || null;
         if (data.stock_code) {
@@ -1364,6 +1414,7 @@ async function importExcelFile(file) {
 
         syncYearsWrapper();
         syncYearsDisplay();
+        syncPriceModeForModel();
         modelVersionBadge.textContent = currentModelVersion.toUpperCase();
         if (data.sheet_name) {
             selectedWorksheetName = String(data.sheet_name).trim();
@@ -1440,6 +1491,9 @@ async function createTask() {
             sheet_name: selectedWorksheetName,
             title: sheetTitle
         };
+        if (resolveModelVersion(currentModelVersion) === 'c7') {
+            sheetConfig.c7_model_version = currentC7ModelVersion;
+        }
         if (selectedGoogleSheetId) {
             sheetConfig.google_sheet_id = selectedGoogleSheetId;
         }
