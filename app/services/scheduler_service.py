@@ -12,6 +12,7 @@ from flask import current_app
 
 from app.extensions import db
 from app.models import ScheduledTask, TaskLog, TaskResult
+from app.services.task.data_cleanup import delete_task_result_dependencies
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -353,7 +354,7 @@ class SchedulerService:
                 if not batch_ids:
                     break
 
-                # 删除当前批次
+                delete_task_result_dependencies(batch_ids)
                 deleted_count = TaskResult.query.filter(TaskResult.id.in_(batch_ids)).delete(synchronize_session=False)
                 db.session.commit()
 

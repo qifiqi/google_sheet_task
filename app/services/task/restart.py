@@ -7,7 +7,8 @@ from datetime import datetime
 from flask import current_app
 
 from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, TaskResultReturn, TaskResultSummaryIndex
+from app.models import Task
+from app.services.task.data_cleanup import clear_task_execution_data
 from app.utils.database import safe_update, transaction_required
 from app.utils.logger import get_logger
 
@@ -101,9 +102,7 @@ class TaskRestartMixin:
                 task.current_step = 0
                 self.release_task_token_occupancy(task_id)
                 self.release_google_sheet_occupancy(task_id)
-                TaskResultSummaryIndex.query.filter_by(task_id=task_id).delete()
-                TaskResult.query.filter_by(task_id=task_id).delete()
-                TaskResultReturn.query.filter_by(task_id=task_id).delete()
+                clear_task_execution_data(task_id)
                 db.session.commit()
                 self.add_task_log(
                     task_id,
@@ -193,9 +192,7 @@ class TaskRestartMixin:
                     self.release_task_token_occupancy(task_id)
                 self.release_google_sheet_occupancy(task_id)
 
-                TaskResultSummaryIndex.query.filter_by(task_id=task_id).delete()
-                TaskResult.query.filter_by(task_id=task_id).delete()
-                TaskLog.query.filter_by(task_id=task_id).delete()
+                clear_task_execution_data(task_id, include_logs=True)
                 db.session.delete(task)
                 db.session.commit()
 

@@ -36,8 +36,6 @@ def upgrade():
         sa.Column("result_timestamp", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["task_id"], ["tasks.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["task_result_id"], ["task_results.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("task_result_id", "model_key", name="uk_result_summary_result_model"),
     )

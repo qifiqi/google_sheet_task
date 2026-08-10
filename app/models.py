@@ -2,6 +2,8 @@ from datetime import datetime
 from enum import Enum
 import json
 
+from sqlalchemy.orm import foreign
+
 from app.extensions import db
 
 
@@ -27,13 +29,13 @@ def _normalize_summary_metrics(metrics):
 # ==================== RBAC ====================
 
 role_permissions = db.Table('role_permissions',
-    db.Column('role_id', db.Integer, db.ForeignKey('role.id'), primary_key=True),
-    db.Column('permission_id', db.Integer, db.ForeignKey('permission.id'), primary_key=True),
+    db.Column('role_id', db.Integer, primary_key=True),
+    db.Column('permission_id', db.Integer, primary_key=True),
 )
 
 user_roles = db.Table('user_roles',
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
-    db.Column('role_id', db.Integer, db.ForeignKey('role.id'), primary_key=True),
+    db.Column('user_id', db.Integer, primary_key=True),
+    db.Column('role_id', db.Integer, primary_key=True),
 )
 
 
@@ -52,7 +54,13 @@ class User(db.Model):
     token_version = db.Column(db.Integer, default=0, nullable=False, comment='JWT 会话版本号')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
     last_login = db.Column(db.DateTime, comment='最后登录时间')
-    roles = db.relationship('Role', secondary=user_roles, backref='users')
+    roles = db.relationship(
+        'Role',
+        secondary=user_roles,
+        primaryjoin=lambda: User.id == foreign(user_roles.c.user_id),
+        secondaryjoin=lambda: Role.id == foreign(user_roles.c.role_id),
+        backref='users',
+    )
 
     def get_permissions(self):
         perms = set()
@@ -88,7 +96,13 @@ class Role(db.Model):
     code = db.Column(db.String(50), unique=True, nullable=False, comment='角色编码，如 admin/operator')
     description = db.Column(db.String(200), comment='角色描述')
     is_system = db.Column(db.Boolean, default=False, comment='是否系统内置角色（不可删除）')
-    permissions = db.relationship('Permission', secondary=role_permissions, backref='roles')
+    permissions = db.relationship(
+        'Permission',
+        secondary=role_permissions,
+        primaryjoin=lambda: Role.id == foreign(role_permissions.c.role_id),
+        secondaryjoin=lambda: Permission.id == foreign(role_permissions.c.permission_id),
+        backref='roles',
+    )
 
     def to_dict(self, include_permissions=False):
         d = {
@@ -277,7 +291,7 @@ class Task(db.Model):
     status = db.Column(db.String(20), default="pending", index=True, comment="任务状态")
     task_type = db.Column(db.String(50), default="google_sheet", index=True, comment="任务类型")
     config = db.Column(db.Text, comment="任务配置JSON")
-    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True, comment="创建人用户ID")
+    created_by_user_id = db.Column(db.Integer, index=True, comment="创建人用户ID")
     start_time = db.Column(db.DateTime, comment="开始时间")
     end_time = db.Column(db.DateTime, comment="结束时间")
     current_step = db.Column(db.Integer, default=0, comment="当前步骤")
@@ -286,15 +300,32 @@ class Task(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now, index=True, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
-    logs = db.relationship("TaskLog", backref="task", lazy="dynamic", cascade="all, delete-orphan")
-    results = db.relationship("TaskResult", backref="task", lazy="dynamic", cascade="all, delete-orphan")
-    returns_return = db.relationship(
-        "TaskResultReturn",
+    logs = db.relationship(
+        "TaskLog",
+        primaryjoin=lambda: Task.id == foreign(TaskLog.task_id),
         backref="task",
         lazy="dynamic",
         cascade="all, delete-orphan",
     )
-    created_by = db.relationship("User", foreign_keys=[created_by_user_id])
+    results = db.relationship(
+        "TaskResult",
+        primaryjoin=lambda: Task.id == foreign(TaskResult.task_id),
+        backref="task",
+        lazy="dynamic",
+        cascade="all, delete-orphan",
+    )
+    returns_return = db.relationship(
+        "TaskResultReturn",
+        primaryjoin=lambda: Task.id == foreign(TaskResultReturn.task_id),
+        backref="task",
+        lazy="dynamic",
+        cascade="all, delete-orphan",
+    )
+    created_by = db.relationship(
+        "User",
+        primaryjoin=lambda: foreign(Task.created_by_user_id) == User.id,
+        foreign_keys=lambda: [Task.created_by_user_id],
+    )
 
     def to_dict(self):
         return {
@@ -333,7 +364,6 @@ class TaskLog(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="日志ID")
     task_id = db.Column(
         db.String(36),
-        db.ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="关联任务ID",
@@ -365,7 +395,6 @@ class TaskResult(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="结果ID")
     task_id = db.Column(
         db.String(36),
-        db.ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="关联任务ID",
@@ -375,7 +404,6 @@ class TaskResult(db.Model):
     result = db.Column(db.Text, comment="结果JSON")
     return_series_id = db.Column(
         db.Integer,
-        db.ForeignKey("task_results_return.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
         comment="收益曲线ID",
@@ -422,7 +450,6 @@ class TaskResultReturn(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
     task_id = db.Column(
         db.String(36),
-        db.ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="关联任务ID",
@@ -524,14 +551,12 @@ class TaskResultSummaryIndex(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
     task_id = db.Column(
         db.String(36),
-        db.ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="关联任务ID",
     )
     task_result_id = db.Column(
         db.Integer,
-        db.ForeignKey("task_results.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="关联任务结果ID",
@@ -554,8 +579,16 @@ class TaskResultSummaryIndex(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
 
-    task = db.relationship("Task", backref=db.backref("summary_indexes", lazy="dynamic"))
-    task_result = db.relationship("TaskResult", backref=db.backref("summary_indexes", lazy="dynamic"))
+    task = db.relationship(
+        "Task",
+        primaryjoin=lambda: foreign(TaskResultSummaryIndex.task_id) == Task.id,
+        backref=db.backref("summary_indexes", lazy="dynamic"),
+    )
+    task_result = db.relationship(
+        "TaskResult",
+        primaryjoin=lambda: foreign(TaskResultSummaryIndex.task_result_id) == TaskResult.id,
+        backref=db.backref("summary_indexes", lazy="dynamic"),
+    )
 
     def to_dict(self):
         return {

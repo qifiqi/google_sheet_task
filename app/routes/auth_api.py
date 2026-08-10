@@ -2,7 +2,7 @@
 from datetime import datetime
 from flask import Blueprint, request
 from werkzeug.security import generate_password_hash, check_password_hash
-from app.models import NavigationMenuItem, User, Role, Permission, db
+from app.models import NavigationMenuItem, Permission, Role, Task, User, db, role_permissions, user_roles
 from app.navigation import sync_navigation_permissions
 from app.utils.auth import (
     create_access_token, create_refresh_token, decode_token,
@@ -190,6 +190,11 @@ def delete_user(user_id):
     user = User.query.get(user_id)
     if not user:
         return error('用户不存在', http_status=404)
+    Task.query.filter_by(created_by_user_id=user.id).update(
+        {Task.created_by_user_id: None},
+        synchronize_session=False,
+    )
+    db.session.execute(user_roles.delete().where(user_roles.c.user_id == user.id))
     db.session.delete(user)
     db.session.commit()
     return success(message='用户删除成功')
@@ -254,6 +259,8 @@ def delete_role(role_id):
         return error('角色不存在', http_status=404)
     if role.is_system:
         return error('系统内置角色不可删除')
+    db.session.execute(user_roles.delete().where(user_roles.c.role_id == role.id))
+    db.session.execute(role_permissions.delete().where(role_permissions.c.role_id == role.id))
     db.session.delete(role)
     db.session.commit()
     return success(message='角色删除成功')
