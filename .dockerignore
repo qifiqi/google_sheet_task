@@ -4,8 +4,6 @@ README.md
 Dockerfile
 .dockerignore
 *.md
-.env
-.env.*
 __pycache__
 .venv/
 *.pyc
@@ -35,3 +33,12 @@ Thumbs.db
 .claude/
 .codex/
 .cursor/
+frontend/
+data/
+docs/
+.git/
+.gitignore
+logs/
+migrations/
+scripts/
+

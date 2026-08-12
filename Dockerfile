@@ -11,7 +11,13 @@ COPY requirements.txt .
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY app ./app
+COPY static ./static
+COPY templates ./templates
+COPY run.py .
+COPY .env .env.example .env.development .env.production .env.testing ./
+COPY run.sh .
+
 COPY dockers/gunicorn.conf.py /app/docker-gunicorn.conf.py
 
 RUN addgroup --system appgroup \
