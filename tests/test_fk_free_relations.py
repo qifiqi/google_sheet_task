@@ -88,6 +88,85 @@ def test_historical_migrations_do_not_create_foreign_keys():
         assert not any(call in source for call in blocked_calls), migration_path.name
 
 
+def test_summary_index_does_not_create_duplicate_single_column_indexes(app_factory):
+    app = app_factory
+    with app.app_context():
+        indexes = inspect(db.engine).get_indexes("task_result_summary_index")
+        indexed_columns = [tuple(index["column_names"]) for index in indexes]
+
+        assert indexed_columns.count(("best_metric_value",)) == 1
+        assert indexed_columns.count(("created_at",)) == 1
+
+
+def test_models_omit_unused_and_redundant_indexes(app_factory):
+    app = app_factory
+    expected_absent_indexes = {
+        "tasks": {"ix_tasks_status", "ix_tasks_task_type"},
+        "task_logs": {"ix_task_logs_task_id", "ix_task_logs_level", "idx_level_timestamp"},
+        "task_results": {"ix_task_results_task_id", "ix_task_results_step_index", "ix_task_results_success"},
+        "backtest_product_result_cache": {
+            "ix_backtest_product_result_cache_batch_id",
+            "ix_backtest_product_result_cache_cache_key",
+            "ix_backtest_product_result_cache_created_at",
+            "ix_backtest_product_result_cache_source_task_id",
+        },
+        "backtest_sheet_run_locks": {"ix_backtest_sheet_run_locks_spreadsheet_id"},
+        "task_result_summary_index": {
+            "ix_task_result_summary_index_task_id",
+            "ix_task_result_summary_index_task_result_id",
+            "ix_task_result_summary_index_task_type",
+            "ix_task_result_summary_index_stock_code",
+            "ix_task_result_summary_index_stock_name",
+            "ix_task_result_summary_index_year_label",
+        },
+        "stock_metadata": {
+            "ix_stock_metadata_stock_code",
+            "ix_stock_metadata_market_type",
+            "ix_stock_metadata_created_at",
+            "idx_stock_metadata_name",
+            "idx_stock_metadata_exchange_market",
+        },
+        "task_templates": {"ix_task_templates_name"},
+        "google_sheet_tokens": {"ix_google_sheet_tokens_is_active"},
+        "google_sheet": {"ix_google_sheet_is_active"},
+        "navigation_menu_items": {"ix_navigation_menu_items_parent_key"},
+        "scheduled_tasks": {
+            "idx_active_next_run",
+            "idx_type_active",
+            "ix_scheduled_tasks_is_running",
+            "ix_scheduled_tasks_next_run_time",
+        },
+    }
+
+    with app.app_context():
+        inspector = inspect(db.engine)
+        for table_name, unwanted_indexes in expected_absent_indexes.items():
+            index_names = {index["name"] for index in inspector.get_indexes(table_name)}
+            assert unwanted_indexes.isdisjoint(index_names)
+
+
+def test_unused_index_migration_removes_existing_indexes():
+    migration_path = Path(__file__).parents[1] / "migrations" / "versions" / "20260811_remove_unused_indexes.py"
+    spec = spec_from_file_location("remove_unused_indexes", migration_path)
+    migration = module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        for table_name, index_names in migration.UNUSED_INDEXES.items():
+            connection.execute(text(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY)"))
+            for index_name in index_names:
+                connection.execute(text(f"CREATE INDEX {index_name} ON {table_name} (id)"))
+
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+
+        inspector = inspect(connection)
+        for table_name, index_names in migration.UNUSED_INDEXES.items():
+            existing_names = {index["name"] for index in inspector.get_indexes(table_name)}
+            assert set(index_names).isdisjoint(existing_names)
+
+
 def test_migration_removes_existing_foreign_keys():
     migration_path = Path(__file__).parents[1] / "migrations" / "versions" / "20260810_remove_fks.py"
     spec = spec_from_file_location("remove_fks", migration_path)

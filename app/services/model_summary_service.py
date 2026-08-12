@@ -14,7 +14,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Load
 
 from flask import has_app_context
@@ -1794,20 +1794,7 @@ class ModelSummaryService:
     def _apply_market_type_filter(self, query, market_type: str):
         if not market_type:
             return query
-
-        column = TaskResultSummaryIndex.stock_code
-        dialect_name = db.engine.dialect.name
-        if dialect_name == "sqlite":
-            numeric_expression = column.op("GLOB")("[0-9]*") & ~column.op("GLOB")("*[^0-9]*")
-        elif dialect_name == "postgresql":
-            numeric_expression = column.op("~")(r"^\d+$")
-        else:
-            numeric_expression = column.op("REGEXP")(r"^\d+$")
-
-        non_empty_expression = and_(column.isnot(None), column != "")
-        if market_type == "cn":
-            return query.filter(non_empty_expression, numeric_expression)
-        return query.filter(non_empty_expression, ~numeric_expression)
+        return query.filter(TaskResultSummaryIndex.market_type == market_type)
 
     def _apply_stock_keyword_filter(self, query, stock_keyword: str):
         if not stock_keyword:

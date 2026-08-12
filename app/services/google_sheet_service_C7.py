@@ -4,7 +4,6 @@ import time
 from typing import Dict, Any
 
 from flask import current_app
-from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
@@ -175,18 +174,6 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
-                # 尝试获取 Postgres Advisory Lock，防止并发执行同一任务
-                lock_acquired = False
-                try:
-                    lock_acquired = db.session.execute(
-                        text("SELECT pg_try_advisory_lock(:k)"), {"k": int(self.task_id)}
-                    ).scalar()
-                    if not lock_acquired:
-                        self._log_warning(f"任务 {self.task_id} 已在运行（获取锁失败），拒绝并发执行 (c7)")
-                        return 'already_running'
-                except Exception:
-                    # 非 Postgres 或锁不可用时忽略，继续执行（由上层状态原子更新兜底）
-                    pass
                 task = db.session.get(Task, self.task_id)
                 self.task = task
                 if not task:
@@ -277,14 +264,6 @@ class GoogleSheetService(BaseGoogleSheetService):
             self._log_error(error_msg)
             self._log_error(f"任务异常摘要: {error_summary}")
             return 'error'
-        finally:
-            # 释放 Advisory Lock（仅当成功获取时）
-            try:
-                if 'lock_acquired' in locals() and lock_acquired:
-                    db.session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": int(self.task_id)})
-            except Exception:
-                pass
-
     def _build_stock_param_result_payload(
         self,
         task_name: str,
@@ -482,10 +461,9 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                     # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
                     def check_task_status():
-                        return db.session.execute(
-                            text("SELECT status FROM tasks WHERE id = :task_id"),
-                            {"task_id": self.task_id}
-                        ).fetchone()
+                        return db.session.query(Task.status).filter(
+                            Task.id == self.task_id
+                        ).first()
 
                     result = safe_db_operation(check_task_status)
 

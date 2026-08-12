@@ -59,10 +59,6 @@ def load_environment(env_file: str):
     return env_path
 
 
-def quote_default(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
 def has_index(inspector, table_name: str, index_name: str) -> bool:
     try:
         indexes = inspector.get_indexes(table_name)
@@ -91,8 +87,9 @@ def ensure_table_type(conn, inspector, dry_run: bool, actions: list[str]):
                     "WHERE table_type IS NULL OR TRIM(table_type) = ''"
                 )
             )
-            conn.execute(text("ALTER TABLE google_sheet ALTER COLUMN table_type SET DEFAULT 'c3'"))
-            conn.execute(text("ALTER TABLE google_sheet ALTER COLUMN table_type SET NOT NULL"))
+            # Keep the additive repair portable.  The ORM supplies the default
+            # for new rows; changing existing column constraints belongs in
+            # the Alembic migration for the selected database.
 
     if not has_index(inspector, "google_sheet", "ix_google_sheet_table_type"):
         actions.append("Create index ix_google_sheet_table_type")
@@ -122,21 +119,10 @@ def ensure_token_columns(conn, inspector, dry_run: bool, actions: list[str]):
             conn.execute(
                 text(
                     "UPDATE google_sheet_tokens "
-                    f"SET task_type = {quote_default('google_sheet')} "
+                    "SET task_type = :default_task_type "
                     "WHERE task_type IS NULL OR TRIM(task_type) = ''"
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE google_sheet_tokens "
-                    "ALTER COLUMN task_type SET DEFAULT 'google_sheet'"
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE google_sheet_tokens "
-                    "ALTER COLUMN task_type SET NOT NULL"
-                )
+                ),
+                {"default_task_type": "google_sheet"},
             )
 
     if not has_index(inspector, "google_sheet_tokens", "ix_google_sheet_tokens_task_type"):

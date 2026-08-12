@@ -2,12 +2,20 @@ name: google-sheet-validator
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: google-sheet-validator:local
+    restart: unless-stopped
+    init: true
     ports:
       - "5000:5000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./config:/app/config
     env_file:
       - .env.production
+    environment:
+      APP_ENV: production
+      FLASK_DEBUG: "false"
+    stop_grace_period: 45s

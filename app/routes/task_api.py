@@ -455,7 +455,7 @@ def batch_export_task_results():
         # ③ 批量查询 TaskResult
         #    只选择导出需要的列（task_id, step_index, result），跳过 parameters（巨大JSON，
         #    包含 kline 数据，单行 ~10KB）、return_series_id、error_message、timestamp 等无关列。
-        #    导出场景数据量大（~100MB/万行），覆盖全局 30s statement_timeout 为 120s。
+        #    导出场景数据量大（~100MB/万行），避免读取无关的大字段。
         _t_query = time.time()
         from app.models import TaskResult
         _slim_stmt = (
@@ -470,7 +470,6 @@ def batch_export_task_results():
         )
         with db.engine.connect() as conn:
             with conn.begin():
-                conn.execute(db.text("SET LOCAL statement_timeout = '120s'"))
                 raw_rows = conn.execute(_slim_stmt).fetchall()
         logger.info(f"[batch-export] DB query: {time.time()-_t_query:.2f}s, {len(raw_rows)} rows")
 

@@ -1,24 +1,26 @@
 from sqlalchemy import inspect, text
 
 from app.extensions import db
-from app.models import BacktestSheetRunLock, ScheduledTask, Task
+from app.models import BacktestSheetRunLock, GoogleSheet, ScheduledTask, Task
 from app.startup import (
     cleanup_stale_backtest_sheet_run_locks,
-    ensure_google_sheet_id_sequence,
     ensure_google_sheet_registry_schema,
     ensure_scheduled_task_schema,
     ensure_task_result_summary_index_schema,
 )
 
 
-def test_ensure_google_sheet_id_sequence_skips_non_postgresql(app_factory):
-    with app_factory.app_context():
-        ensure_google_sheet_id_sequence()
-
-
-def test_ensure_google_sheet_registry_schema_skips_non_postgresql(app_factory):
+def test_ensure_google_sheet_registry_schema_is_portable(app_factory):
     with app_factory.app_context():
         ensure_google_sheet_registry_schema()
+        sheet = GoogleSheet(
+            name="C7 sheet",
+            spreadsheet_id="same-sheet",
+            table_type="c7",
+        )
+        db.session.add(sheet)
+        db.session.commit()
+        assert sheet.registry_scope == "c_series"
 
 
 def test_ensure_scheduled_task_schema_adds_lock_fields_to_legacy_table(app_factory):
@@ -54,7 +56,7 @@ def test_ensure_scheduled_task_schema_adds_lock_fields_to_legacy_table(app_facto
 
     assert "is_running" in columns
     assert "running_instance_id" in columns
-    assert any(index.get("column_names") == ["is_running"] for index in indexes)
+    assert not any(index.get("column_names") == ["is_running"] for index in indexes)
 
     db.session.add(
         ScheduledTask(
@@ -139,4 +141,4 @@ def test_ensure_task_result_summary_index_schema_adds_period_key_to_legacy_table
     indexes = inspector.get_indexes("task_result_summary_index")
 
     assert "period_key" in columns
-    assert any(index.get("column_names") == ["period_key"] for index in indexes)
+    assert not any(index.get("name") == "idx_result_summary_period_key" for index in indexes)

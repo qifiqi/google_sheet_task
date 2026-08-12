@@ -5,23 +5,14 @@ from typing import Optional
 from sqlalchemy import or_
 
 from app.extensions import db
-from app.models import GoogleSheet, GoogleSheetTableType
-
-
-_C_SERIES_TABLE_TYPES = (
-    GoogleSheetTableType.C3.value,
-    GoogleSheetTableType.C4.value,
-    GoogleSheetTableType.C5.value,
-    GoogleSheetTableType.C7.value,
-)
+from app.models import GoogleSheet, GoogleSheetTableType, google_sheet_registry_scope
 
 
 def _find_duplicate_sheet(spreadsheet_id: str, table_type: str, exclude_id: int | None = None):
-    query = GoogleSheet.query.filter_by(spreadsheet_id=spreadsheet_id)
-    if table_type in _C_SERIES_TABLE_TYPES:
-        query = query.filter(GoogleSheet.table_type.in_(_C_SERIES_TABLE_TYPES))
-    else:
-        query = query.filter_by(table_type=table_type)
+    query = GoogleSheet.query.filter_by(
+        spreadsheet_id=spreadsheet_id,
+        registry_scope=google_sheet_registry_scope(table_type),
+    )
     if exclude_id is not None:
         query = query.filter(GoogleSheet.id != exclude_id)
     return query.first()

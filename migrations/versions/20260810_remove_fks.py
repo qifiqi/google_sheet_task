@@ -23,26 +23,16 @@ def upgrade():
         if not foreign_keys:
             continue
 
-        # SQLite does not expose a name for inline/legacy foreign keys. A
-        # batch rebuild is the only portable way to remove those constraints.
-        if bind.dialect.name == "sqlite":
-            reflected = sa.Table(table_name, sa.MetaData(), autoload_with=bind)
-            for constraint in list(reflected.constraints):
-                if isinstance(constraint, sa.ForeignKeyConstraint):
-                    reflected.constraints.remove(constraint)
-            with op.batch_alter_table(
-                table_name,
-                copy_from=reflected,
-                recreate="always",
-            ):
-                pass
-            continue
-
-        with op.batch_alter_table(table_name) as batch_op:
-            for foreign_key in foreign_keys:
-                name = foreign_key.get("name")
-                if name:
-                    batch_op.drop_constraint(name, type_="foreignkey")
+        reflected = sa.Table(table_name, sa.MetaData(), autoload_with=bind)
+        for constraint in list(reflected.constraints):
+            if isinstance(constraint, sa.ForeignKeyConstraint):
+                reflected.constraints.remove(constraint)
+        with op.batch_alter_table(
+            table_name,
+            copy_from=reflected,
+            recreate="always",
+        ):
+            pass
 
 
 def downgrade():

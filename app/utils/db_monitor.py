@@ -4,11 +4,10 @@
 监控数据库性能指标，包括慢查询、连接池状态、表大小等
 """
 
-import os
-import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
-from flask import current_app
+from sqlalchemy import inspect
+
 from app.extensions import db
 from app.models import Task, TaskResult, TaskLog, TaskTemplate, SystemConfig
 from app.utils.logger import get_logger
@@ -21,31 +20,15 @@ class DatabaseMonitor:
     
     @staticmethod
     def get_database_size() -> Dict[str, Any]:
-        """获取数据库大小信息"""
+        """返回当前数据库引擎信息。
+
+        数据库物理大小没有跨数据库的 SQL 标准语法，应由数据库监控系统提供。
+        """
         try:
-            db_uri = current_app.config.get('SQLALCHEMY_DATABASE_URI', '')
-            
-            if db_uri.startswith('sqlite'):
-                # SQLite数据库
-                db_path = db_uri.replace('sqlite:///', '')
-                if os.path.exists(db_path):
-                    size_bytes = os.path.getsize(db_path)
-                    size_mb = size_bytes / (1024 * 1024)
-                    
-                    return {
-                        'type': 'SQLite',
-                        'path': db_path,
-                        'size_bytes': size_bytes,
-                        'size_mb': round(size_mb, 2),
-                        'size_human': DatabaseMonitor._format_bytes(size_bytes)
-                    }
-            else:
-                # 其他数据库类型
-                return {
-                    'type': 'Other',
-                    'message': '非SQLite数据库，请使用数据库特定工具查看大小'
-                }
-                
+            return {
+                'type': db.engine.url.get_backend_name(),
+                'message': '数据库物理大小请通过数据库监控系统查看',
+            }
         except Exception as e:
             logger.error(f"获取数据库大小失败: {str(e)}")
             return {'error': str(e)}
@@ -91,14 +74,17 @@ class DatabaseMonitor:
         try:
             engine = db.engine
             pool = engine.pool
-            
+            pool_size = pool.size() if hasattr(pool, 'size') else 0
+            checked_in = pool.checkedin() if hasattr(pool, 'checkedin') else 0
+            checked_out = pool.checkedout() if hasattr(pool, 'checkedout') else 0
+            overflow = pool.overflow() if hasattr(pool, 'overflow') else 0
             return {
-                'pool_size': pool.size(),
-                'checked_in': pool.checkedin(),
-                'checked_out': pool.checkedout(),
-                'overflow': pool.overflow(),
-                'total_connections': pool.size() + pool.overflow(),
-                'status': 'healthy' if pool.checkedin() > 0 else 'warning'
+                'pool_size': pool_size,
+                'checked_in': checked_in,
+                'checked_out': checked_out,
+                'overflow': overflow,
+                'total_connections': pool_size + overflow,
+                'status': 'healthy' if checked_in > 0 else 'warning'
             }
         except Exception as e:
             logger.error(f"获取连接池状态失败: {str(e)}")
@@ -115,7 +101,7 @@ class DatabaseMonitor:
                 'tasks_completed': Task.query.filter(
                     Task.status == 'completed',
                     Task.end_time >= cutoff_time
-                ).count() if Task.query.filter(Task.end_time != None).count() > 0 else 0,
+                ).count() if Task.query.filter(Task.end_time.isnot(None)).count() > 0 else 0,
                 'results_generated': TaskResult.query.filter(TaskResult.timestamp >= cutoff_time).count(),
                 'period_hours': hours,
                 'period_start': cutoff_time.isoformat(),
@@ -127,21 +113,20 @@ class DatabaseMonitor:
     
     @staticmethod
     def check_indexes() -> Dict[str, List[str]]:
-        """检查表索引（仅SQLite）"""
+        """通过 SQLAlchemy inspector 检查应用表索引。"""
         try:
-            db_uri = current_app.config.get('SQLALCHEMY_DATABASE_URI', '')
-            if not db_uri.startswith('sqlite'):
-                return {'message': '仅支持SQLite数据库'}
-            
             indexes = {}
-            tables = ['tasks', 'task_results', 'task_logs', 'task_templates', 'system_configs']
-            
+            inspector = inspect(db.engine)
+            tables = {
+                'tasks', 'task_results', 'task_logs', 'task_templates', 'system_configs'
+            }
             for table in tables:
-                result = db.session.execute(
-                    db.text(f"SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='{table}'")
-                )
-                indexes[table] = [row[0] for row in result]
-            
+                if table in inspector.get_table_names():
+                    indexes[table] = [
+                        index['name']
+                        for index in inspector.get_indexes(table)
+                        if index.get('name')
+                    ]
             return indexes
         except Exception as e:
             logger.error(f"检查索引失败: {str(e)}")
@@ -186,17 +171,6 @@ class DatabaseMonitor:
                     'benefit': '保持数据整洁'
                 })
             
-            # 检查数据库大小
-            db_info = DatabaseMonitor.get_database_size()
-            if 'size_mb' in db_info and db_info['size_mb'] > 100:
-                suggestions.append({
-                    'priority': 'high',
-                    'category': '数据库优化',
-                    'issue': f"数据库大小: {db_info['size_mb']:.2f} MB",
-                    'suggestion': '运行 VACUUM 命令压缩数据库',
-                    'benefit': '释放未使用的空间'
-                })
-            
             # 如果没有问题
             if not suggestions:
                 suggestions.append({
@@ -221,43 +195,11 @@ class DatabaseMonitor:
     
     @staticmethod
     def vacuum_database():
-        """执行VACUUM压缩数据库（仅SQLite）"""
-        try:
-            db_uri = current_app.config.get('SQLALCHEMY_DATABASE_URI', '')
-            if not db_uri.startswith('sqlite'):
-                return {'success': False, 'message': '仅支持SQLite数据库'}
-            
-            # 获取压缩前大小
-            size_before = DatabaseMonitor.get_database_size()
-            
-            # 执行VACUUM
-            db.session.execute(db.text('VACUUM'))
-            db.session.commit()
-            
-            # 获取压缩后大小
-            size_after = DatabaseMonitor.get_database_size()
-            
-            freed_mb = size_before.get('size_mb', 0) - size_after.get('size_mb', 0)
-            
-            return {
-                'success': True,
-                'size_before_mb': size_before.get('size_mb', 0),
-                'size_after_mb': size_after.get('size_mb', 0),
-                'freed_mb': round(freed_mb, 2),
-                'message': f'数据库已压缩，释放 {freed_mb:.2f} MB 空间'
-            }
-        except Exception as e:
-            logger.error(f"VACUUM失败: {str(e)}")
-            return {'success': False, 'error': str(e)}
-    
-    @staticmethod
-    def _format_bytes(bytes_size: int) -> str:
-        """格式化字节大小为人类可读格式"""
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if bytes_size < 1024.0:
-                return f"{bytes_size:.2f} {unit}"
-            bytes_size /= 1024.0
-        return f"{bytes_size:.2f} PB"
+        """数据库维护没有跨数据库的通用 SQL 实现。"""
+        return {
+            'success': False,
+            'message': '数据库物理维护请通过对应数据库的运维工具执行',
+        }
     
     @staticmethod
     def get_full_report() -> Dict[str, Any]:

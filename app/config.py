@@ -31,49 +31,10 @@ def _resolve_database_url(default_url):
     return database_url
 
 
-def _build_engine_options(database_url):
-    if database_url.startswith('sqlite'):
-        return {
-            'pool_pre_ping': True,
-            'connect_args': {
-                'timeout': 30,
-                'check_same_thread': False,
-                'isolation_level': None,
-            }
-        }
-
-    if database_url.startswith('postgresql'):
-        return {
-            'pool_pre_ping': True,
-            'pool_recycle': 3600,
-            'pool_size': 20,
-            'max_overflow': 40,
-            'pool_timeout': 30,
-            'connect_args': {
-                'connect_timeout': 10,
-                'options': '-c statement_timeout=30000',
-            }
-        }
-
-    if database_url.startswith('mysql'):
-        return {
-            'pool_pre_ping': True,
-            'pool_recycle': 3600,
-            'pool_size': 20,
-            'max_overflow': 40,
-            'pool_timeout': 30,
-            'connect_args': {
-                'connect_timeout': 10,
-                'charset': 'utf8mb4',
-            }
-        }
-
+def _build_engine_options(_database_url):
     return {
         'pool_pre_ping': True,
         'pool_recycle': 3600,
-        'pool_size': 10,
-        'max_overflow': 20,
-        'pool_timeout': 30,
     }
 
 
@@ -141,12 +102,10 @@ class BaseConfig:
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
-    DEFAULT_DATABASE_URL = 'postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator'
 
 
 class ProductionConfig(BaseConfig):
     DEBUG = False
-    DEFAULT_DATABASE_URL = 'postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator'
 
 
 class TestingConfig(BaseConfig):

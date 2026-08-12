@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
 from flask import current_app
-from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
@@ -824,13 +823,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                 # 按需计算参数组合，避免内存问题
                 combination = self._get_parameter_combination_by_index(parameters, i)
                 
-                # 原子性检查任务是否被取消
-                # SQLite不支持FOR UPDATE，使用简单查询
+                # 每轮执行前检查数据库中的取消状态。
                 def check_task_status():
-                    return db.session.execute(
-                        text("SELECT status FROM tasks WHERE id = :task_id"),
-                        {"task_id": self.task_id}
-                    ).fetchone()
+                    return db.session.query(Task.status).filter(
+                        Task.id == self.task_id
+                    ).first()
                 
                 result = safe_db_operation(check_task_status)
                 

@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from typing import Dict, Any
 
 from flask import current_app
-from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
@@ -441,10 +440,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                     # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
                     def check_task_status():
-                        return db.session.execute(
-                            text("SELECT status FROM tasks WHERE id = :task_id"),
-                            {"task_id": self.task_id}
-                        ).fetchone()
+                        return db.session.query(Task.status).filter(
+                            Task.id == self.task_id
+                        ).first()
 
                     result = safe_db_operation(check_task_status)
 

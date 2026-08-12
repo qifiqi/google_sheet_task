@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum
 import json
 
+from sqlalchemy import event
 from sqlalchemy.orm import foreign
 
 from app.extensions import db
@@ -193,6 +194,22 @@ class GoogleSheetTokenTaskType(str, Enum):
         ]
 
 
+def google_sheet_registry_scope(table_type: str | None) -> str:
+    normalized = GoogleSheetTableType.normalize(table_type, GoogleSheetTableType.C3.value)
+    if normalized in {
+        GoogleSheetTableType.C3.value,
+        GoogleSheetTableType.C4.value,
+        GoogleSheetTableType.C5.value,
+        GoogleSheetTableType.C7.value,
+    }:
+        return "c_series"
+    return normalized
+
+
+def summary_market_type(stock_code: str | None) -> str:
+    return "cn" if str(stock_code or "").strip().isdigit() else "us"
+
+
 class TaskStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
@@ -288,8 +305,8 @@ class Task(db.Model):
     id = db.Column(db.String(36), primary_key=True, comment="任务ID")
     name = db.Column(db.String(255), nullable=False, comment="任务名称")
     description = db.Column(db.Text, comment="任务描述")
-    status = db.Column(db.String(20), default="pending", index=True, comment="任务状态")
-    task_type = db.Column(db.String(50), default="google_sheet", index=True, comment="任务类型")
+    status = db.Column(db.String(20), default="pending", comment="任务状态")
+    task_type = db.Column(db.String(50), default="google_sheet", comment="任务类型")
     config = db.Column(db.Text, comment="任务配置JSON")
     created_by_user_id = db.Column(db.Integer, index=True, comment="创建人用户ID")
     start_time = db.Column(db.DateTime, comment="开始时间")
@@ -357,7 +374,6 @@ class TaskLog(db.Model):
     __tablename__ = "task_logs"
     __table_args__ = (
         db.Index("idx_task_logs_task_timestamp", "task_id", "timestamp"),
-        db.Index("idx_level_timestamp", "level", "timestamp"),
         {"comment": "任务日志表"},
     )
 
@@ -365,10 +381,9 @@ class TaskLog(db.Model):
     task_id = db.Column(
         db.String(36),
         nullable=False,
-        index=True,
         comment="关联任务ID",
     )
-    level = db.Column(db.String(20), default="info", index=True, comment="日志级别")
+    level = db.Column(db.String(20), default="info", comment="日志级别")
     message = db.Column(db.Text, nullable=False, comment="日志内容")
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="日志时间")
 
@@ -396,10 +411,9 @@ class TaskResult(db.Model):
     task_id = db.Column(
         db.String(36),
         nullable=False,
-        index=True,
         comment="关联任务ID",
     )
-    step_index = db.Column(db.Integer, nullable=False, index=True, comment="步骤序号")
+    step_index = db.Column(db.Integer, nullable=False, comment="步骤序号")
     parameters = db.Column(db.Text, comment="参数JSON")
     result = db.Column(db.Text, comment="结果JSON")
     return_series_id = db.Column(
@@ -408,7 +422,7 @@ class TaskResult(db.Model):
         index=True,
         comment="收益曲线ID",
     )
-    success = db.Column(db.Boolean, default=True, index=True, comment="是否成功")
+    success = db.Column(db.Boolean, default=True, comment="是否成功")
     error_message = db.Column(db.Text, comment="错误信息")
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="结果时间")
 
@@ -480,13 +494,13 @@ class BacktestProductResultCache(db.Model):
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
-    batch_id = db.Column(db.String(64), nullable=False, index=True, comment="同批创建ID")
-    cache_key = db.Column(db.String(64), nullable=False, index=True, comment="固定产品结果缓存键")
+    batch_id = db.Column(db.String(64), nullable=False, comment="同批创建ID")
+    cache_key = db.Column(db.String(64), nullable=False, comment="固定产品结果缓存键")
     result_json = db.Column(db.Text, nullable=False, comment="结果JSON")
     returns_json = db.Column(db.Text, comment="收益曲线JSON")
-    source_task_id = db.Column(db.String(36), index=True, comment="来源任务ID")
+    source_task_id = db.Column(db.String(36), comment="来源任务ID")
     source_step_index = db.Column(db.Integer, comment="来源步骤序号")
-    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
 
     def to_dict(self):
         return {
@@ -511,7 +525,7 @@ class BacktestSheetRunLock(db.Model):
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
-    spreadsheet_id = db.Column(db.String(255), nullable=False, index=True, comment="Google Sheet 表ID")
+    spreadsheet_id = db.Column(db.String(255), nullable=False, comment="Google Sheet 表ID")
     task_id = db.Column(db.String(36), nullable=False, index=True, comment="持锁任务ID")
     task_type = db.Column(db.String(50), nullable=False, comment="任务类型")
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
@@ -545,38 +559,30 @@ class TaskResultSummaryIndex(db.Model):
         db.Index("idx_result_summary_best_metric", "best_metric_value"),
         db.Index("idx_result_summary_created_at", "created_at"),
         db.Index("idx_result_summary_period_key", "period_key"),
+        db.Index("idx_result_summary_type_market_best", "task_type", "market_type", "is_best"),
         {"comment": "任务结果汇总查询索引表"},
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
-    task_id = db.Column(
-        db.String(36),
-        nullable=False,
-        index=True,
-        comment="关联任务ID",
-    )
-    task_result_id = db.Column(
-        db.Integer,
-        nullable=False,
-        index=True,
-        comment="关联任务结果ID",
-    )
-    task_type = db.Column(db.String(50), nullable=False, index=True, comment="任务类型")
+    task_id = db.Column(db.String(36), nullable=False, comment="关联任务ID")
+    task_result_id = db.Column(db.Integer, nullable=False, comment="关联任务结果ID")
+    task_type = db.Column(db.String(50), nullable=False, comment="任务类型")
     task_name = db.Column(db.String(255), comment="任务名称")
-    stock_code = db.Column(db.String(64), index=True, comment="股票代码/产品代码")
-    stock_name = db.Column(db.String(255), index=True, comment="股票名称/产品名称")
+    stock_code = db.Column(db.String(64), comment="股票代码/产品代码")
+    stock_name = db.Column(db.String(255), comment="股票名称/产品名称")
+    market_type = db.Column(db.String(8), nullable=False, default="us", comment="股票市场类型 cn/us")
     model_key = db.Column(db.String(255), nullable=False, default="default", comment="模型键")
     model_name = db.Column(db.String(255), comment="模型名称")
-    year_label = db.Column(db.String(64), index=True, comment="年份或区间标签")
+    year_label = db.Column(db.String(64), comment="年份或区间标签")
     period_key = db.Column(db.String(32), comment="标准化年份/区间筛选键")
     kline_range = db.Column(db.String(128), comment="K线区间")
     parameter_summary = db.Column(db.Text, comment="参数摘要")
     best_metric_name = db.Column(db.String(100), comment="最优指标名称")
-    best_metric_value = db.Column(db.Float, index=True, comment="最优指标值")
+    best_metric_value = db.Column(db.Float, comment="最优指标值")
     metrics_json = db.Column(db.Text, comment="汇总指标JSON")
     is_best = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否当前分组最优")
     result_timestamp = db.Column(db.DateTime, index=True, comment="原始结果时间")
-    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
 
     task = db.relationship(
@@ -621,20 +627,18 @@ class StockMetadata(db.Model):
     __tablename__ = "stock_metadata"
     __table_args__ = (
         db.UniqueConstraint("stock_code", "market_type", name="uk_stock_metadata_code_market_type"),
-        db.Index("idx_stock_metadata_name", "stock_name"),
-        db.Index("idx_stock_metadata_exchange_market", "exchange_market"),
         {"comment": "股票元数据表"},
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
-    stock_code = db.Column(db.String(64), nullable=False, index=True, comment="股票代码")
+    stock_code = db.Column(db.String(64), nullable=False, comment="股票代码")
     stock_name = db.Column(db.String(255), nullable=False, default="", comment="股票名称")
-    market_type = db.Column(db.String(20), nullable=False, default="", index=True, comment="业务市场类型 cn/us")
+    market_type = db.Column(db.String(20), nullable=False, default="", comment="业务市场类型 cn/us")
     exchange_market = db.Column(db.String(50), comment="交易市场/东方财富 market")
     security_type_name = db.Column(db.String(100), comment="证券类型名称")
     source = db.Column(db.String(50), comment="数据来源")
     raw_json = db.Column(db.Text, comment="原始搜索结果 JSON")
-    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True, comment="创建时间")
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
 
     def to_dict(self):
@@ -659,7 +663,7 @@ class TaskTemplate(db.Model):
     __table_args__ = ({"comment": "任务模板表"},)
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="模板ID")
-    name = db.Column(db.String(255), nullable=False, index=True, comment="模板名称")
+    name = db.Column(db.String(255), nullable=False, comment="模板名称")
     description = db.Column(db.Text, comment="模板描述")
     config = db.Column(db.Text, comment="模板配置JSON")
     created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
@@ -713,7 +717,7 @@ class NavigationMenuItem(db.Model):
     label = db.Column(db.String(100), nullable=False, comment="菜单名称")
     path = db.Column(db.String(255), comment="前端路由路径")
     permission = db.Column(db.String(100), comment="访问该菜单所需权限编码")
-    parent_key = db.Column(db.String(100), index=True, comment="父级菜单key，空表示顶级")
+    parent_key = db.Column(db.String(100), comment="父级菜单key，空表示顶级")
     sort_order = db.Column(db.Integer, default=0, nullable=False, comment="排序值")
     is_visible = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否显示")
     created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
@@ -765,7 +769,7 @@ class GoogleSheetToken(db.Model):
         nullable=False,
         comment="最大同时占用次数，0表示不限制",
     )
-    is_active = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否启用")
+    is_active = db.Column(db.Boolean, default=True, nullable=False, comment="是否启用")
     last_used_at = db.Column(db.DateTime, comment="最后使用时间")
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
@@ -799,19 +803,10 @@ class GoogleSheet(db.Model):
 
     __tablename__ = "google_sheet"
     __table_args__ = (
-        db.Index(
-            "uk_google_sheet_spreadsheet_id_c_series",
+        db.UniqueConstraint(
             "spreadsheet_id",
-            unique=True,
-            postgresql_where=db.text("table_type IN ('c3', 'c4', 'c5', 'c7')"),
-            sqlite_where=db.text("table_type IN ('c3', 'c4', 'c5', 'c7')"),
-        ),
-        db.Index(
-            "uk_google_sheet_spreadsheet_id_backtest_training",
-            "spreadsheet_id",
-            unique=True,
-            postgresql_where=db.text("table_type = 'backtest_training'"),
-            sqlite_where=db.text("table_type = 'backtest_training'"),
+            "registry_scope",
+            name="uk_google_sheet_spreadsheet_registry_scope",
         ),
         db.Index("idx_google_sheet_active_in_use", "is_active", "is_in_use"),
         {"comment": "Google Sheet 表ID配置表"},
@@ -821,8 +816,9 @@ class GoogleSheet(db.Model):
     name = db.Column(db.String(255), nullable=False, index=True, comment="显示名称")
     spreadsheet_id = db.Column(db.String(255), nullable=False, index=True, comment="Google Sheet表ID")
     table_type = db.Column(db.String(20), nullable=False, default=GoogleSheetTableType.C3.value, index=True, comment="表类型：c3/c4/c5/c7/backtest_training")
+    registry_scope = db.Column(db.String(32), nullable=False, comment="表类型唯一性分组")
     remark = db.Column(db.Text, comment="备注")
-    is_active = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否启用")
+    is_active = db.Column(db.Boolean, default=True, nullable=False, comment="是否启用")
     is_in_use = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否使用中")
     current_task_id = db.Column(db.String(36), index=True, comment="当前占用任务ID")
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
@@ -843,13 +839,23 @@ class GoogleSheet(db.Model):
         }
 
 
+@event.listens_for(GoogleSheet, "before_insert")
+@event.listens_for(GoogleSheet, "before_update")
+def _sync_google_sheet_registry_scope(_mapper, _connection, target):
+    target.registry_scope = google_sheet_registry_scope(target.table_type)
+
+
+@event.listens_for(TaskResultSummaryIndex, "before_insert")
+@event.listens_for(TaskResultSummaryIndex, "before_update")
+def _sync_summary_market_type(_mapper, _connection, target):
+    target.market_type = summary_market_type(target.stock_code)
+
+
 class ScheduledTask(db.Model):
     """定时任务模型"""
 
     __tablename__ = "scheduled_tasks"
     __table_args__ = (
-        db.Index("idx_active_next_run", "is_active", "next_run_time"),
-        db.Index("idx_type_active", "task_type", "is_active"),
         {"comment": "定时任务表"},
     )
 
@@ -862,9 +868,9 @@ class ScheduledTask(db.Model):
     task_params = db.Column(db.Text, comment="任务参数JSON")
     is_active = db.Column(db.Boolean, default=True, index=True, comment="是否启用")
     last_run_time = db.Column(db.DateTime, comment="上次执行时间")
-    next_run_time = db.Column(db.DateTime, index=True, comment="下次执行时间")
+    next_run_time = db.Column(db.DateTime, comment="下次执行时间")
     run_count = db.Column(db.Integer, default=0, comment="执行次数")
-    is_running = db.Column(db.Boolean, default=False, index=True, comment="是否正在执行")
+    is_running = db.Column(db.Boolean, default=False, comment="是否正在执行")
     running_instance_id = db.Column(db.String(100), comment="执行实例ID")
     created_at = db.Column(db.DateTime, default=datetime.now, index=True, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")

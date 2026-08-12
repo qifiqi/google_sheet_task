@@ -32,7 +32,7 @@ def upgrade():
         sa.Column("best_metric_name", sa.String(length=100), nullable=True),
         sa.Column("best_metric_value", sa.Float(), nullable=True),
         sa.Column("metrics_json", sa.Text(), nullable=True),
-        sa.Column("is_best", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("is_best", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("result_timestamp", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),

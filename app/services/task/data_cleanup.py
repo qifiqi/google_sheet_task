@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import inspect, text
+from sqlalchemy import MetaData, Table, inspect, or_
 
 from app.extensions import db
 from app.models import BacktestSheetRunLock, TaskLog, TaskResult, TaskResultReturn, TaskResultSummaryIndex
@@ -13,27 +13,20 @@ def _delete_xpl_analysis_jobs(*, task_id: str | None = None, result_ids: list[in
     if not inspect(db.engine).has_table("xpl_analysis_jobs"):
         return
 
+    jobs_table = Table(
+        "xpl_analysis_jobs",
+        MetaData(),
+        autoload_with=db.engine,
+    )
     clauses = []
-    params = {}
     if task_id:
-        clauses.append("task_id = :task_id")
-        params["task_id"] = task_id
+        clauses.append(jobs_table.c.task_id == task_id)
     if result_ids:
-        placeholders = []
-        for index, result_id in enumerate(result_ids):
-            key = f"result_id_{index}"
-            placeholders.append(f":{key}")
-            params[key] = result_id
-        clauses.append(f"task_result_id IN ({', '.join(placeholders)})")
+        clauses.append(jobs_table.c.task_result_id.in_(result_ids))
     if return_series_ids:
-        placeholders = []
-        for index, return_series_id in enumerate(return_series_ids):
-            key = f"return_series_id_{index}"
-            placeholders.append(f":{key}")
-            params[key] = return_series_id
-        clauses.append(f"return_series_id IN ({', '.join(placeholders)})")
+        clauses.append(jobs_table.c.return_series_id.in_(return_series_ids))
     if clauses:
-        db.session.execute(text(f"DELETE FROM xpl_analysis_jobs WHERE {' OR '.join(clauses)}"), params)
+        db.session.execute(jobs_table.delete().where(or_(*clauses)))
 
 
 def delete_task_result_dependencies(result_ids: list[int]) -> None:

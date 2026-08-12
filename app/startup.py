@@ -1,7 +1,7 @@
 import json
 import os
 
-from sqlalchemy import inspect, text
+from sqlalchemy import Boolean, String, cast, case, func, inspect, text, update
 from werkzeug.security import generate_password_hash
 
 from app.config import PERMISSIONS, init_config
@@ -30,95 +30,93 @@ from app.navigation import (
 from app.utils.logger import get_logger, initialize_logging
 
 
+def _quoted_identifier(name):
+    return db.engine.dialect.identifier_preparer.quote(name)
+
+
+def _add_column(table_name, column_name, definition):
+    db.session.execute(
+        text(
+            f"ALTER TABLE {_quoted_identifier(table_name)} "
+            f"ADD COLUMN {_quoted_identifier(column_name)} {definition}"
+        )
+    )
+
+
+def _ensure_model_index(model, index_name):
+    index = next(index for index in model.__table__.indexes if index.name == index_name)
+    index.create(db.engine, checkfirst=True)
+
+
+def normalize_boolean_columns():
+    """Normalize boolean values imported from databases with text booleans."""
+    inspector = inspect(db.engine)
+    existing_tables = set(inspector.get_table_names())
+    true_values = ('1', 't', 'true', 'y', 'yes', 'on')
+    false_values = ('0', 'f', 'false', 'n', 'no', 'off')
+
+    for table in db.metadata.tables.values():
+        if table.name not in existing_tables:
+            continue
+        existing_columns = {column['name'] for column in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if not isinstance(column.type, Boolean) or column.name not in existing_columns:
+                continue
+            normalized = func.lower(func.trim(cast(column, String(8))))
+            value = case(
+                (column.is_(None), None),
+                (normalized.in_(true_values), True),
+                (normalized.in_(false_values), False),
+                else_=column,
+            )
+            db.session.execute(update(table).values({column: value}))
+    db.session.commit()
+
+
 def ensure_google_sheet_token_schema():
     inspector = inspect(db.engine)
     if 'google_sheet_tokens' not in inspector.get_table_names():
         return
     columns = {column['name'] for column in inspector.get_columns('google_sheet_tokens')}
     if 'current_in_use_count' not in columns:
-        db.session.execute(
-            text('ALTER TABLE google_sheet_tokens ADD COLUMN current_in_use_count INTEGER NOT NULL DEFAULT 0')
-        )
+        _add_column('google_sheet_tokens', 'current_in_use_count', 'INTEGER NOT NULL DEFAULT 0')
         db.session.commit()
 
 
-def ensure_google_sheet_id_sequence():
-    """Align the PostgreSQL Google Sheet ID sequence with existing rows."""
-    if db.engine.dialect.name != 'postgresql':
-        return
-
-    sequence_name = db.session.execute(
-        text("SELECT pg_get_serial_sequence('google_sheet', 'id')")
-    ).scalar()
-    if not sequence_name:
-        return
-
-    db.session.execute(
-        text(
-            """
-            SELECT setval(
-                CAST(:sequence_name AS regclass),
-                COALESCE((SELECT MAX(id) FROM google_sheet), 1),
-                EXISTS(SELECT 1 FROM google_sheet)
-            )
-            """
-        ),
-        {'sequence_name': sequence_name},
-    )
-    db.session.commit()
-
-
 def ensure_google_sheet_registry_schema():
-    """Apply Google Sheet uniqueness rules for PostgreSQL registry tables."""
-    if db.engine.dialect.name != 'postgresql':
-        return
-
+    """Apply the portable Google Sheet registry uniqueness rule."""
     inspector = inspect(db.engine)
     if 'google_sheet' not in inspector.get_table_names():
         return
 
-    quote = db.engine.dialect.identifier_preparer.quote
-    obsolete_constraints = {
-        constraint['name']
-        for constraint in inspector.get_unique_constraints('google_sheet')
-        if constraint.get('name')
-        and constraint.get('column_names') in (['spreadsheet_id'], ['spreadsheet_id', 'table_type'])
-    }
-    for constraint_name in obsolete_constraints:
-        db.session.execute(
-            text(f'ALTER TABLE google_sheet DROP CONSTRAINT IF EXISTS {quote(constraint_name)}')
-        )
+    columns = {column['name'] for column in inspector.get_columns('google_sheet')}
+    if 'registry_scope' not in columns:
+        _add_column('google_sheet', 'registry_scope', 'VARCHAR(32)')
 
-    inspector = inspect(db.engine)
-    obsolete_indexes = {
-        index['name']
-        for index in inspector.get_indexes('google_sheet')
-        if index.get('name')
-        and index.get('unique')
-        and index.get('column_names') in (['spreadsheet_id'], ['spreadsheet_id', 'table_type'])
-    }
-    for index_name in obsolete_indexes:
-        db.session.execute(text(f'DROP INDEX IF EXISTS {quote(index_name)}'))
+    from app.models import GoogleSheet, google_sheet_registry_scope
 
-    db.session.execute(
-        text(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS uk_google_sheet_spreadsheet_id_c_series
-            ON google_sheet (spreadsheet_id)
-            WHERE table_type IN ('c3', 'c4', 'c5', 'c7')
-            """
-        )
-    )
-    db.session.execute(
-        text(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS uk_google_sheet_spreadsheet_id_backtest_training
-            ON google_sheet (spreadsheet_id)
-            WHERE table_type = 'backtest_training'
-            """
-        )
-    )
+    for sheet in GoogleSheet.query.all():
+        sheet.registry_scope = google_sheet_registry_scope(sheet.table_type)
     db.session.commit()
+
+    current_inspector = inspect(db.engine)
+    index_names = {index['name'] for index in current_inspector.get_indexes('google_sheet')}
+    index_names.update(
+        constraint['name']
+        for constraint in current_inspector.get_unique_constraints('google_sheet')
+        if constraint.get('name')
+    )
+    if 'uk_google_sheet_spreadsheet_registry_scope' not in index_names:
+        # The model expresses this rule as a UniqueConstraint, while the
+        # migration creates a named unique index.  Build the index directly
+        # so legacy databases can be repaired without assuming either shape.
+        registry_index = db.Index(
+            'uk_google_sheet_spreadsheet_registry_scope',
+            GoogleSheet.__table__.c.spreadsheet_id,
+            GoogleSheet.__table__.c.registry_scope,
+            unique=True,
+        )
+        registry_index.create(db.engine, checkfirst=True)
 
 
 def ensure_user_schema():
@@ -127,11 +125,11 @@ def ensure_user_schema():
         return
     columns = {column['name'] for column in inspector.get_columns('user')}
     if 'token_version' not in columns:
-        db.session.execute(text('ALTER TABLE "user" ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0'))
+        _add_column('user', 'token_version', 'INTEGER NOT NULL DEFAULT 0')
     if 'mobile' not in columns:
-        db.session.execute(text('ALTER TABLE "user" ADD COLUMN mobile VARCHAR(32)'))
+        _add_column('user', 'mobile', 'VARCHAR(32)')
     if 'is_alert_oncall' not in columns:
-        db.session.execute(text('ALTER TABLE "user" ADD COLUMN is_alert_oncall BOOLEAN NOT NULL DEFAULT 0'))
+        _add_column('user', 'is_alert_oncall', 'BOOLEAN NOT NULL DEFAULT FALSE')
     db.session.commit()
 
 
@@ -141,12 +139,10 @@ def ensure_task_schema():
         return
     columns = {column['name'] for column in inspector.get_columns('tasks')}
     if 'created_by_user_id' not in columns:
-        db.session.execute(text('ALTER TABLE tasks ADD COLUMN created_by_user_id INTEGER'))
+        _add_column('tasks', 'created_by_user_id', 'INTEGER')
         db.session.commit()
-        indexes = {index['name'] for index in inspector.get_indexes('tasks')}
-        if 'ix_tasks_created_by_user_id' not in indexes:
-            db.session.execute(text('CREATE INDEX ix_tasks_created_by_user_id ON tasks (created_by_user_id)'))
-            db.session.commit()
+        _ensure_model_index(Task, 'ix_tasks_created_by_user_id')
+        db.session.commit()
 
 
 def ensure_task_result_schema():
@@ -155,12 +151,10 @@ def ensure_task_result_schema():
         return
     columns = {column['name'] for column in inspector.get_columns('task_results')}
     if 'return_series_id' not in columns:
-        db.session.execute(text('ALTER TABLE task_results ADD COLUMN return_series_id INTEGER'))
+        _add_column('task_results', 'return_series_id', 'INTEGER')
         db.session.commit()
-    indexes = {index['name'] for index in inspector.get_indexes('task_results')}
-    if 'ix_task_results_return_series_id' not in indexes:
-        db.session.execute(text('CREATE INDEX ix_task_results_return_series_id ON task_results (return_series_id)'))
-        db.session.commit()
+    _ensure_model_index(TaskResult, 'ix_task_results_return_series_id')
+    db.session.commit()
 
 
 def ensure_scheduled_task_schema():
@@ -171,24 +165,13 @@ def ensure_scheduled_task_schema():
     columns = {column['name'] for column in inspector.get_columns('scheduled_tasks')}
     changed = False
     if 'is_running' not in columns:
-        db.session.execute(
-            text('ALTER TABLE scheduled_tasks ADD COLUMN is_running BOOLEAN NOT NULL DEFAULT FALSE')
-        )
+        _add_column('scheduled_tasks', 'is_running', 'BOOLEAN NOT NULL DEFAULT FALSE')
         changed = True
     if 'running_instance_id' not in columns:
-        db.session.execute(text('ALTER TABLE scheduled_tasks ADD COLUMN running_instance_id VARCHAR(100)'))
+        _add_column('scheduled_tasks', 'running_instance_id', 'VARCHAR(100)')
         changed = True
     if changed:
         db.session.commit()
-
-    indexes = inspector.get_indexes('scheduled_tasks')
-    has_is_running_index = any(
-        index.get('column_names') == ['is_running']
-        for index in indexes
-    )
-    if not has_is_running_index:
-        db.session.execute(text('CREATE INDEX ix_scheduled_tasks_is_running ON scheduled_tasks (is_running)'))
-    db.session.commit()
 
 
 def ensure_task_result_summary_index_schema():
@@ -199,20 +182,32 @@ def ensure_task_result_summary_index_schema():
     columns = {column['name'] for column in inspector.get_columns('task_result_summary_index')}
     changed = False
     if 'stock_name' not in columns:
-        db.session.execute(text('ALTER TABLE task_result_summary_index ADD COLUMN stock_name VARCHAR(255)'))
+        _add_column('task_result_summary_index', 'stock_name', 'VARCHAR(255)')
         changed = True
     if 'period_key' not in columns:
-        db.session.execute(text('ALTER TABLE task_result_summary_index ADD COLUMN period_key VARCHAR(32)'))
+        _add_column('task_result_summary_index', 'period_key', 'VARCHAR(32)')
+        changed = True
+    if 'market_type' not in columns:
+        _add_column('task_result_summary_index', 'market_type', 'VARCHAR(8)')
         changed = True
     if changed:
         db.session.commit()
+    from app.models import summary_market_type
+
+    for item in TaskResultSummaryIndex.query.filter(
+        (TaskResultSummaryIndex.market_type.is_(None))
+        | (TaskResultSummaryIndex.market_type == "")
+    ).all():
+        item.market_type = summary_market_type(item.stock_code)
+    db.session.commit()
     indexes = {index['name'] for index in inspector.get_indexes('task_result_summary_index')}
-    if 'ix_task_result_summary_index_stock_name' not in indexes:
-        db.session.execute(text('CREATE INDEX ix_task_result_summary_index_stock_name ON task_result_summary_index (stock_name)'))
-        db.session.commit()
-    if 'idx_result_summary_period_key' not in indexes:
-        db.session.execute(text('CREATE INDEX idx_result_summary_period_key ON task_result_summary_index (period_key)'))
-        db.session.commit()
+    if 'idx_result_summary_type_market_best' not in indexes:
+        market_index = next(
+            index
+            for index in TaskResultSummaryIndex.__table__.indexes
+            if index.name == 'idx_result_summary_type_market_best'
+        )
+        market_index.create(db.engine, checkfirst=True)
 
 
 def ensure_stock_metadata_schema():
@@ -236,7 +231,7 @@ def ensure_task_result_return_schema():
         return
     columns = {column['name'] for column in inspector.get_columns('task_results_return')}
     if 'returns_json' not in columns:
-        db.session.execute(text('ALTER TABLE task_results_return ADD COLUMN returns_json TEXT'))
+        _add_column('task_results_return', 'returns_json', 'TEXT')
         db.session.commit()
 
 
@@ -255,26 +250,19 @@ def ensure_navigation_menu_schema():
         'parent_key': 'VARCHAR(100)',
         'sort_order': 'INTEGER NOT NULL DEFAULT 0',
         'is_visible': 'BOOLEAN NOT NULL DEFAULT 1',
-        'created_at': 'DATETIME',
-        'updated_at': 'DATETIME',
+        'created_at': 'TIMESTAMP',
+        'updated_at': 'TIMESTAMP',
     }
     changed = False
     for column_name, definition in column_definitions.items():
         if column_name not in columns:
-            db.session.execute(text(f'ALTER TABLE navigation_menu_items ADD COLUMN {column_name} {definition}'))
+            _add_column('navigation_menu_items', column_name, definition)
             changed = True
     if changed:
         db.session.commit()
 
-    indexes = {index['name'] for index in inspector.get_indexes('navigation_menu_items')}
-    if 'idx_navigation_menu_parent_sort' not in indexes:
-        db.session.execute(
-            text('CREATE INDEX idx_navigation_menu_parent_sort ON navigation_menu_items (parent_key, sort_order)')
-        )
-    if 'ix_navigation_menu_items_parent_key' not in indexes:
-        db.session.execute(text('CREATE INDEX ix_navigation_menu_items_parent_key ON navigation_menu_items (parent_key)'))
-    if 'ix_navigation_menu_items_is_visible' not in indexes:
-        db.session.execute(text('CREATE INDEX ix_navigation_menu_items_is_visible ON navigation_menu_items (is_visible)'))
+    _ensure_model_index(NavigationMenuItem, 'idx_navigation_menu_parent_sort')
+    _ensure_model_index(NavigationMenuItem, 'ix_navigation_menu_items_is_visible')
     db.session.commit()
 
 
@@ -325,9 +313,9 @@ def register_cli(app):
     @app.cli.command()
     def init_db():
         db.create_all()
+        normalize_boolean_columns()
         ensure_google_sheet_token_schema()
         ensure_google_sheet_registry_schema()
-        ensure_google_sheet_id_sequence()
         ensure_user_schema()
         ensure_task_schema()
         ensure_task_result_schema()
@@ -602,9 +590,9 @@ def bootstrap_app(app):
     initialize_logging()
     with app.app_context():
         db.create_all()
+        normalize_boolean_columns()
         ensure_google_sheet_token_schema()
         ensure_google_sheet_registry_schema()
-        ensure_google_sheet_id_sequence()
         ensure_user_schema()
         ensure_task_schema()
         ensure_task_result_schema()

@@ -5,11 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import or_, and_, func, case, text
+from sqlalchemy import or_, and_, func, case
 
 from app.extensions import db
 from app.models import Task, TaskResult
-
 
 class TaskQueryService:
     """只读任务查询服务。"""
@@ -110,22 +109,19 @@ class TaskQueryService:
         pending_tasks = stats_row.pending or 0
         today_new_tasks = stats_row.today_new or 0
 
-        # 平均时长单独查询（需要 JOIN TaskResult 或使用 start/end_time）
-        avg_duration_row = query.with_entities(
-            func.avg(
-                case(
-                    (
-                        Task.status == 'completed',
-                        text(
-                            "EXTRACT(EPOCH FROM (end_time - start_time))"
-                        ),
-                    ),
-                )
-            ).label('avg_seconds'),
-        ).first()
+        completed_durations = query.filter(
+            Task.status == 'completed',
+            Task.start_time.isnot(None),
+            Task.end_time.isnot(None),
+        ).with_entities(Task.start_time, Task.end_time).yield_per(1000)
+        total_duration_seconds = 0
+        duration_count = 0
+        for start_time, end_time in completed_durations:
+            total_duration_seconds += (end_time - start_time).total_seconds()
+            duration_count += 1
         avg_duration_minutes = (
-            round((avg_duration_row.avg_seconds or 0) / 60)
-            if avg_duration_row.avg_seconds
+            round(total_duration_seconds / duration_count / 60)
+            if duration_count
             else 0
         )
         success_rate = (

@@ -13,7 +13,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from flask import current_app
-from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
@@ -809,10 +808,11 @@ class BacktestMultiProductService(BacktestTrainingService):
                     processed_index += 1
                     continue
 
-                result = safe_db_operation(lambda: db.session.execute(
-                    text("SELECT status FROM tasks WHERE id = :task_id"),
-                    {"task_id": self.task_id},
-                ).fetchone())
+                result = safe_db_operation(
+                    lambda: db.session.query(Task.status).filter(
+                        Task.id == self.task_id
+                    ).first()
+                )
                 if not result or result.status == "cancelled":
                     self._log_warning("任务已被取消，停止执行")
                     return "cancelled"
