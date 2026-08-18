@@ -383,6 +383,15 @@
                                                         </select>
                                                     </div>
                                                     <div class="col-md-3">
+                                                        <label class="form-label" for="kline_data_source">K线数据源</label>
+                                                        <select class="form-select" id="kline_data_source">
+                                                            <option value="dfcf" selected>东方财富（默认）</option>
+                                                            <option value="qq">腾讯</option>
+                                                            <option value="yahoo">Yahoo</option>
+                                                            <option value="tdx">通达信（仅A股）</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3">
                                                         <label class="form-label d-block">快速时间范围</label>
                                                         <div class="btn-group d-flex" role="group" aria-label="Quick date range">
                                                             <div class="form-check form-check-inline mb-0 me-2">
@@ -733,6 +742,10 @@
                 if (config.kline_adjustment) {
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = config.kline_adjustment;
+                }
+                if (config.kline_data_source) {
+                    const sourceSelect = document.getElementById('kline_data_source');
+                    if (sourceSelect) sourceSelect.value = config.kline_data_source;
                 }
 
                 if (config.date_range_mode !== undefined) {
@@ -1366,6 +1379,10 @@
         if (normalized.kline_adjustment) {
             const adjustSelect = document.getElementById('kline_adjustment');
             if (adjustSelect) adjustSelect.value = normalized.kline_adjustment;
+        }
+        if (normalized.kline_data_source) {
+            const sourceSelect = document.getElementById('kline_data_source');
+            if (sourceSelect) sourceSelect.value = normalized.kline_data_source;
         }
         if (normalized.start_date) {
             const sd = document.getElementById('start_date');
@@ -2111,6 +2128,7 @@
             price_mode: priceMode,
             market_type: marketType,
             kline_adjustment: klineAdjustment,
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             date_range_mode: dateRangeModes,
             exclude_recent_years: isCustomKline ? [] : getExcludedRecentYears(),
             start_date: startDate,
@@ -2204,6 +2222,7 @@
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             date_range_mode: getSelectedDateRangeModes(),
             exclude_recent_years: getExcludedRecentYears(),
             param1: document.getElementById('param1').value,
@@ -2263,6 +2282,10 @@
                 if (formData.kline_adjustment) {
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
+                }
+                if (formData.kline_data_source) {
+                    const sourceSelect = document.getElementById('kline_data_source');
+                    if (sourceSelect) sourceSelect.value = formData.kline_data_source;
                 }
 
                 if (formData.count_mode) {
@@ -2437,6 +2460,7 @@
                 price_mode: priceMode,
                 market_type: marketType,
                 kline_adjustment: klineAdjustment,
+                kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
                 date_range_mode: dateRangeModes,
                 exclude_recent_years: isCustomKline ? [] : getExcludedRecentYears(),
                 start_date: startDate,
@@ -2533,6 +2557,7 @@
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',
             kline_adjustment: raw.kline_adjustment || 'forward',
+            kline_data_source: raw.kline_data_source || 'dfcf',
             token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',

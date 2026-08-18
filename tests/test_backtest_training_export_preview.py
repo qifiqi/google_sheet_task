@@ -1,5 +1,6 @@
 import json
 from io import BytesIO
+from urllib.parse import unquote
 
 from app.extensions import db
 from app.models import Task, TaskResult
@@ -114,6 +115,25 @@ def test_export_preview_download_uses_same_export_data(app_factory, monkeypatch)
         assert response.data == b"csv-content"
         assert response.mimetype == "text/csv"
         assert captured_export_data == _build_backtest_result_export_data(task_result, task)
+
+
+def test_export_preview_uses_task_name_as_download_name(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        task, task_result = _add_result()
+        task.name = "我的回测任务"
+        db.session.commit()
+        _allow_backtest_view(monkeypatch)
+        monkeypatch.setattr(
+            "app.routes.backtest_training.xpl_analyzer.export_file",
+            lambda _data: (BytesIO(b"csv-content"), "text/csv"),
+        )
+
+        response = app.test_client().get(
+            f"/backtest-training/api/task-result/{task_result.id}/export-preview/download"
+        )
+
+        assert "我的回测任务.csv" in unquote(response.headers["Content-Disposition"])
 
 
 def test_export_preview_rejects_missing_result(app_factory, monkeypatch):

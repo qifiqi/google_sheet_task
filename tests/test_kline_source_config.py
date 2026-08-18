@@ -10,6 +10,15 @@ class _TaskCreation(TaskCreationMixin):
     pass
 
 
+def test_task_config_accepts_tdx_kline_source():
+    normalized = _TaskCreation()._normalize_task_config_for_type(
+        "google_sheet",
+        {"kline_data_source": "tdx"},
+    )
+
+    assert normalized["kline_data_source"] == "tdx"
+
+
 class _CustomKlineSheet:
     def get_last_row(self, column):
         assert column == "A"
@@ -52,6 +61,48 @@ def test_c7_rejects_invalid_kline_source():
         _TaskCreation()._normalize_task_config_for_type(
             "google_sheet_C7",
             {"kline_source": "manual"},
+        )
+
+
+def test_c7_random_price_config_uses_defaults_and_validates_group_count():
+    normalized = _TaskCreation()._normalize_task_config_for_type(
+        "google_sheet_C7",
+        {"kline_source": "auto", "price_mode": "random_price"},
+    )
+
+    assert normalized["random_price_range"] == "high_low"
+    assert normalized["random_group_count"] == 1
+
+    with pytest.raises(ValueError, match="随机组数"):
+        _TaskCreation()._normalize_task_config_for_type(
+            "google_sheet_C7",
+            {
+                "kline_source": "auto",
+                "price_mode": "random_price",
+                "random_group_count": 0,
+            },
+        )
+
+    with pytest.raises(ValueError, match="随机组数"):
+        _TaskCreation()._normalize_task_config_for_type(
+            "google_sheet_C7",
+            {
+                "kline_source": "auto",
+                "price_mode": "random_price",
+                "random_group_count": 1.5,
+            },
+        )
+
+
+def test_c7_random_price_rejects_c7_0_3_sheet():
+    with pytest.raises(ValueError, match="C7.0.2"):
+        _TaskCreation()._normalize_task_config_for_type(
+            "google_sheet_C7",
+            {
+                "kline_source": "auto",
+                "price_mode": "random_price",
+                "sheets": [{"spreadsheet_id": "sheet-id", "c7_model_version": "c7_0_3"}],
+            },
         )
 
 

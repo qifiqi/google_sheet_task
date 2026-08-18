@@ -21,6 +21,7 @@ from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
+from app.services.kline_service import KlineService
 
 
 logger = get_logger(__name__)
@@ -242,7 +243,8 @@ class GoogleSheetService(BaseGoogleSheetService):
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
             for outer_param in parameters[0]:
                 combinations, column_A_length = self._get_all_parameters(
-                    outer_param, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type
+                    outer_param, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type,
+                    config_data.get("kline_data_source", "dfcf")
                 )
                 precomputed_params.append((combinations, column_A_length))
                 total_combinations += len(combinations)
@@ -587,7 +589,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             raise
 
     @staticmethod
-    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None):
+    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None, data_source=None):
 
         def _get_kline(klines, year=None,_start_date=None, _end_date=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -614,41 +616,34 @@ class GoogleSheetService(BaseGoogleSheetService):
                     for k in klines
                     if _start_date <= k['stock_date'] <= _end_date
                 ]
-
-
-
-        if market_type == 'cn':
-            dfcf_api = DFCJStockApi()
-            stock_config = dfcf_api.get_search_list_by_stock_code(parameter, 10)
-            stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-            if stock_config:
-                stock_config = stock_config[0]
-                try:
-                    upsert_stock_metadata_in_session({
-                        **stock_config,
-                        "stock_code": parameter,
-                        "stock_name": stock_config.get("shortName") or stock_config.get("name"),
-                        "market_type": market_type,
-                        "source": stock_config.get("source") or "google_sheet_c4",
-                    })
-                except Exception as metadata_error:
-                    db.session.rollback()
-                    logger.warning("同步 C4 股票元数据失败: %s", metadata_error)
-            market = stock_config['market']
-            stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()
-        else:
-            yf_api = YFApi()
-            stock_name = ""
-
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 250
-        if market_type == 'cn':
-            klines = dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
-        else:
-            klines = yf_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
+        # 旧版 DFCF/Yahoo 分支保留为注释参考；当前统一先读内置库，再按数据源回退。
+        # if market_type == 'cn':
+        #     dfcf_api = DFCJStockApi()
+        #     stock_config = dfcf_api.get_search_list_by_stock_code(parameter, 10)
+        #     klines = dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
+        # else:
+        #     yf_api = YFApi()
+        #     klines = yf_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
+        # 直接调用的历史测试/脚本未携带配置时沿用旧的美股 Yahoo 默认；正式任务会显式传入规范化后的 dfcf。
+        selected_data_source = data_source or ("yahoo" if str(market_type).lower() in {"us", "en"} else "dfcf")
+        klines = KlineService(
+            dfcf_api=DFCJStockApi(),
+            yahoo_api=YFApi(),
+        ).get_kline_data(
+            parameter,
+            market_type,
+            limit,
+            data_source=selected_data_source,
+            start_date=start_date,
+            end_date=end_date,
+            adjust_type=adjust_type,
+        )
+        stock_name = str(klines[0].get("stock_name") or "") if klines else ""
         klines = require_kline_rows(
             parameter,
             market_type,

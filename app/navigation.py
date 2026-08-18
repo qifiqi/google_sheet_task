@@ -14,6 +14,9 @@ DEFAULT_NAVIGATION_MENU = [
         {"key": "model_summary", "label": "单模型汇总", "path": "/admin/model-summary", "permission": "page:admin:model_summary"},
         {"key": "eastmoney_kline", "label": "东方财富 K 线", "path": "/admin/eastmoney-kline"},
     ]},
+    {"key": "data", "label": "预览模块", "children": [
+        {"key": "single_product", "label": "单品全局预览", "path": "/global-preview/single_product", "permission": "page:global_preview:single_product"},
+    ]},
     {"key": "scheduler_group", "label": "调度模块", "children": [
         {"key": "scheduler", "label": "定时任务", "path": "/admin/scheduler", "permission": "page:admin:scheduler"},
     ]},

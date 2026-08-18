@@ -21,6 +21,7 @@ from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
+from app.services.kline_service import KlineService
 
 
 logger = get_logger(__name__)
@@ -35,6 +36,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
+        self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
 
     @staticmethod
     def _to_decimal_ratio(value: Any) -> float:
@@ -277,7 +279,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                     )
                 else:
                     combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
-                        outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type
+                        outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type,
+                        data_source=config_data.get("kline_data_source", "dfcf")
                     )
                 precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
                 total_combinations += len(combinations)
@@ -760,7 +763,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         data = self._deduplicate_parameter_combinations(data, custom_kline_map)
         return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="dfcf"):
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
@@ -799,35 +802,48 @@ class GoogleSheetService(BaseGoogleSheetService):
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 300
 
-        if market_type == 'cn' or price_mode == 'vwap_price':
-            stock_config = self.dfcf_api.get_search_list_by_stock_code(parameter, 10)
-            if market_type in ('us', 'en'):
-                stock_config = [
-                    i for i in stock_config
-                    if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
-                ]
+        # 旧版 DFCF/Yahoo 分支（原 if market_type... 代码）保留在版本历史中，
+        # 当前所有任务统一通过 KlineService：先读内置库，再按数据源回退外部接口。
+        # if market_type == 'cn' or price_mode == 'vwap_price':
+        #     stock_config = self.dfcf_api.get_search_list_by_stock_code(parameter, 10)
+        #     if market_type in ('us', 'en'):
+        #         stock_config = [
+        #             i for i in stock_config
+        #             if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
+        #         ]
+        #
+        #     # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
+        #     if stock_config:
+        #         stock_config = stock_config[0]
+        #         try:
+        #             upsert_stock_metadata_in_session({
+        #                 **stock_config,
+        #                 "stock_code": parameter,
+        #                 "stock_name": stock_config.get("shortName") or stock_config.get("name"),
+        #                 "market_type": market_type,
+        #                 "source": stock_config.get("source") or "google_sheet_c5",
+        #             })
+        #         except Exception as metadata_error:
+        #             db.session.rollback()
+        #             logger.warning("同步 C5 股票元数据失败: %s", metadata_error)
+        #     market = stock_config['market']
+        #     stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()
+        #
+        #     klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
+        # else:
+        #     klines = self.YF_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
+        #     stock_name = ""
 
-            # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-            if stock_config:
-                stock_config = stock_config[0]
-                try:
-                    upsert_stock_metadata_in_session({
-                        **stock_config,
-                        "stock_code": parameter,
-                        "stock_name": stock_config.get("shortName") or stock_config.get("name"),
-                        "market_type": market_type,
-                        "source": stock_config.get("source") or "google_sheet_c5",
-                    })
-                except Exception as metadata_error:
-                    db.session.rollback()
-                    logger.warning("同步 C5 股票元数据失败: %s", metadata_error)
-            market = stock_config['market']
-            stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()
-
-            klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
-        else:
-            klines = self.YF_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
-            stock_name = ""
+        klines = self.kline_service.get_kline_data(
+            parameter,
+            market_type,
+            limit,
+            data_source=data_source,
+            start_date=start_date,
+            end_date=end_date,
+            adjust_type=adjust_type,
+        )
+        stock_name = str(klines[0].get("stock_name") or "") if klines else ""
 
         price_field = {
             'kp_price': 'stock_kp',

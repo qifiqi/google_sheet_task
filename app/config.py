@@ -109,8 +109,8 @@ class ProductionConfig(BaseConfig):
 
 
 class TestingConfig(BaseConfig):
+    DEBUG = False
     TESTING = True
-    DEFAULT_DATABASE_URL = f'sqlite:///{INSTANCE_DIR / "test.db"}'
 
 
 CONFIG_MAP = {

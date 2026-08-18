@@ -5,17 +5,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: google-sheet-validator:local
+    image: google_task:1.0.2
     restart: unless-stopped
     init: true
     ports:
-      - "5000:5000"
+      - "8081:5000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-    env_file:
-      - .env.production
     environment:
       APP_ENV: production
       FLASK_DEBUG: "false"
+    user: "1000:1000"  # 添加这一行，使用普通用户运行
     stop_grace_period: 45s

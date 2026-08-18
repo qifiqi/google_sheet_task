@@ -241,6 +241,8 @@ def test_negative_percent_display_keeps_zero_unsigned():
     assert _negative_percent_display("-4.00%") == "-4.00%"
 
 
+
+
 def test_single_global_preview_inserts_excess_return_above_annualized_return():
     rows = [
         {

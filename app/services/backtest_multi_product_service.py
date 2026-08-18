@@ -191,6 +191,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "market_type": normalize_market_type(product.get("market_type")),
             "price_mode": normalize_price_mode(product.get("price_mode") or config.get("price_mode")),
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
+            "kline_data_source": product.get("kline_data_source") or config.get("kline_data_source") or "dfcf",
             "ratio": normalize_ratio_display(product.get("ratio")),
             "is_fixed": bool(product.get("is_fixed")),
             "sheet": _normalize_sheet(product),
@@ -1002,6 +1003,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             config_data["end_date"],
             price_mode=product.get("price_mode") or config_data.get("price_mode", "vwap_price"),
             adjust_type=product.get("kline_adjustment", "forward"),
+            data_source=product.get("kline_data_source") or config_data.get("kline_data_source", "dfcf"),
         )
         kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
         return {
@@ -1047,6 +1049,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         *,
         price_mode: str = "vwap_price",
         adjust_type: str | None = None,
+        data_source: str = "dfcf",
     ) -> list[dict[str, Any]]:
         price_field = {
             "kp_price": "stock_kp",
@@ -1059,14 +1062,30 @@ class BacktestMultiProductService(BacktestTrainingService):
         year_count = max(1, end_year - start_year + 1)
         limit = max(300, year_count * (250 if market_type == "cn" else 252) + 120)
 
+        # 旧的 DFCF/Yahoo 分支保留为注释参考；多品回测也统一走 KlineService。
+
+        #     resolved_code, market = self._resolve_cn_stock_quote(stock_code)
+        #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
+        # elif price_mode == "vwap_price":
+        #     resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
+        #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
+        # else:
+        #     klines = self.YF_api.get_kline_data(stock_code, "10y", adjust_type=adjust_type)
+
+        resolved_code = stock_code
+        resolved_market = None
         if market_type == "cn":
-            resolved_code, market = self._resolve_cn_stock_quote(stock_code)
-            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
-        elif price_mode == "vwap_price":
-            resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
-            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
-        else:
-            klines = self.YF_api.get_kline_data(stock_code, "10y", adjust_type=adjust_type)
+            resolved_code, resolved_market = self._resolve_dfcf_stock_quote(stock_code)
+        klines = self.kline_service.get_kline_data(
+            resolved_code,
+            market_type,
+            limit,
+            data_source=data_source,
+            start_date=start_date,
+            end_date=end_date,
+            adjust_type=adjust_type,
+            exchange_market=resolved_market,
+        )
 
         if not klines:
             raise ValueError(f"股票 {stock_code} 没有 K 线数据")

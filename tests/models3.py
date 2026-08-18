@@ -29,12 +29,12 @@ def _normalize_summary_metrics(metrics):
 
 # ==================== RBAC ====================
 
-role_permissions = db.Table('t_param_role_permissions',
+role_permissions = db.Table('role_permissions',
     db.Column('role_id', db.Integer, primary_key=True),
     db.Column('permission_id', db.Integer, primary_key=True),
 )
 
-user_roles = db.Table('t_param_user_roles',
+user_roles = db.Table('user_roles',
     db.Column('user_id', db.Integer, primary_key=True),
     db.Column('role_id', db.Integer, primary_key=True),
 )
@@ -43,7 +43,7 @@ user_roles = db.Table('t_param_user_roles',
 class User(db.Model):
     """用户模型"""
 
-    __tablename__ = 't_param_user'
+    __tablename__ = 'user'
     __table_args__ = {'comment': '用户表'}
 
     id = db.Column(db.Integer, primary_key=True, comment='用户ID')
@@ -89,7 +89,7 @@ class User(db.Model):
 class Role(db.Model):
     """角色模型"""
 
-    __tablename__ = 't_param_role'
+    __tablename__ = 'role'
     __table_args__ = {'comment': '角色表'}
 
     id = db.Column(db.Integer, primary_key=True, comment='角色ID')
@@ -121,7 +121,7 @@ class Role(db.Model):
 class Permission(db.Model):
     """权限模型"""
 
-    __tablename__ = 't_param_permission'
+    __tablename__ = 'permission'
     __table_args__ = {'comment': '权限表'}
 
     id = db.Column(db.Integer, primary_key=True, comment='权限ID')
@@ -295,7 +295,7 @@ class TaskType(str, Enum):
 class Task(db.Model):
     """任务模型"""
 
-    __tablename__ = "t_param_tasks"
+    __tablename__ = "tasks"
     __table_args__ = (
         db.Index("idx_status_created", "status", "created_at"),
         db.Index("idx_type_status", "task_type", "status"),
@@ -371,7 +371,7 @@ class Task(db.Model):
 class TaskLog(db.Model):
     """任务日志模型"""
 
-    __tablename__ = "t_param_task_logs"
+    __tablename__ = "task_logs"
     __table_args__ = (
         db.Index("idx_task_logs_task_timestamp", "task_id", "timestamp"),
         {"comment": "任务日志表"},
@@ -399,7 +399,7 @@ class TaskLog(db.Model):
 class TaskResult(db.Model):
     """任务结果模型"""
 
-    __tablename__ = "t_param_task_results"
+    __tablename__ = "task_results"
     __table_args__ = (
         db.Index("idx_task_step", "task_id", "step_index"),
         db.Index("idx_task_results_task_timestamp", "task_id", "timestamp"),
@@ -458,7 +458,7 @@ class TaskResult(db.Model):
 class TaskResultReturn(db.Model):
     """任务收益时间序列表"""
 
-    __tablename__ = "t_param_task_results_return"
+    __tablename__ = "task_results_return"
     __table_args__ = ({"comment": "任务收益时间序列表"},)
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
@@ -487,7 +487,7 @@ class TaskResultReturn(db.Model):
 class BacktestProductResultCache(db.Model):
     """Same-batch reusable result for fixed multi-product backtest products."""
 
-    __tablename__ = "t_param_backtest_product_result_cache"
+    __tablename__ = "backtest_product_result_cache"
     __table_args__ = (
         db.UniqueConstraint("batch_id", "cache_key", name="uk_backtest_product_cache_batch_key"),
         {"comment": "多品回测固定产品同批结果缓存表"},
@@ -518,7 +518,7 @@ class BacktestProductResultCache(db.Model):
 class BacktestSheetRunLock(db.Model):
     """Database-backed per-spreadsheet run lock for backtest tasks."""
 
-    __tablename__ = "t_param_backtest_sheet_run_locks"
+    __tablename__ = "backtest_sheet_run_locks"
     __table_args__ = (
         db.UniqueConstraint("spreadsheet_id", name="uk_backtest_sheet_run_locks_spreadsheet_id"),
         {"comment": "回测任务 Google Sheet 运行锁表"},
@@ -551,7 +551,7 @@ class BacktestSheetRunLock(db.Model):
 class TaskResultSummaryIndex(db.Model):
     """任务结果汇总查询索引表。"""
 
-    __tablename__ = "t_param_task_result_summary_index"
+    __tablename__ = "task_result_summary_index"
     __table_args__ = (
         db.UniqueConstraint("task_result_id", "model_key", name="uk_result_summary_result_model"),
         db.Index("idx_result_summary_type_stock_best", "task_type", "stock_code", "is_best"),
@@ -624,7 +624,7 @@ class TaskResultSummaryIndex(db.Model):
 class StockMetadata(db.Model):
     """股票元数据表。"""
 
-    __tablename__ = "t_param_stock_metadata"
+    __tablename__ = "stock_metadata"
     __table_args__ = (
         db.UniqueConstraint("stock_code", "market_type", name="uk_stock_metadata_code_market_type"),
         {"comment": "股票元数据表"},
@@ -659,7 +659,7 @@ class StockMetadata(db.Model):
 class TaskTemplate(db.Model):
     """任务模板模型"""
 
-    __tablename__ = "t_param_task_templates"
+    __tablename__ = "task_templates"
     __table_args__ = ({"comment": "任务模板表"},)
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="模板ID")
@@ -683,7 +683,7 @@ class TaskTemplate(db.Model):
 class SystemConfig(db.Model):
     """系统配置模型"""
 
-    __tablename__ = "t_param_system_configs"
+    __tablename__ = "system_configs"
     __table_args__ = ({"comment": "系统配置表"},)
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="配置ID")
@@ -706,7 +706,7 @@ class SystemConfig(db.Model):
 class NavigationMenuItem(db.Model):
     """侧边栏导航菜单项"""
 
-    __tablename__ = "t_param_navigation_menu_items"
+    __tablename__ = "navigation_menu_items"
     __table_args__ = (
         db.Index("idx_navigation_menu_parent_sort", "parent_key", "sort_order"),
         {"comment": "侧边栏导航菜单表"},
@@ -744,7 +744,7 @@ class NavigationMenuItem(db.Model):
 class GoogleSheetToken(db.Model):
     """Google Sheet token pool model."""
 
-    __tablename__ = "t_param_google_sheet_tokens"
+    __tablename__ = "google_sheet_tokens"
     __table_args__ = (
         db.Index("idx_google_sheet_token_active_usage", "is_active", "current_in_use_count"),
         {"comment": "谷歌 Sheet Token 池表"},
@@ -801,7 +801,7 @@ class GoogleSheetToken(db.Model):
 class GoogleSheet(db.Model):
     """Google Sheet registry model."""
 
-    __tablename__ = "t_param_google_sheet"
+    __tablename__ = "google_sheet"
     __table_args__ = (
         db.UniqueConstraint(
             "spreadsheet_id",
@@ -854,7 +854,7 @@ def _sync_summary_market_type(_mapper, _connection, target):
 class ScheduledTask(db.Model):
     """定时任务模型"""
 
-    __tablename__ = "t_param_scheduled_tasks"
+    __tablename__ = "scheduled_tasks"
     __table_args__ = (
         {"comment": "定时任务表"},
     )

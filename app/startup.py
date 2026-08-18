@@ -177,7 +177,7 @@ def ensure_scheduled_task_schema():
 def ensure_task_result_summary_index_schema():
     inspector = inspect(db.engine)
     if 'task_result_summary_index' not in inspector.get_table_names():
-        TaskResultSummaryIndex.__table__.create(db.engine)
+        TaskResultSummaryIndex.__table__.create(db.engine, checkfirst=True)
         return
     columns = {column['name'] for column in inspector.get_columns('task_result_summary_index')}
     changed = False
@@ -213,16 +213,16 @@ def ensure_task_result_summary_index_schema():
 def ensure_stock_metadata_schema():
     inspector = inspect(db.engine)
     if 'stock_metadata' not in inspector.get_table_names():
-        StockMetadata.__table__.create(db.engine)
+        StockMetadata.__table__.create(db.engine,checkfirst=True)
 
 
 def ensure_backtest_runtime_schema():
     inspector = inspect(db.engine)
     table_names = set(inspector.get_table_names())
     if 'backtest_product_result_cache' not in table_names:
-        BacktestProductResultCache.__table__.create(db.engine)
+        BacktestProductResultCache.__table__.create(db.engine, checkfirst=True)
     if 'backtest_sheet_run_locks' not in table_names:
-        BacktestSheetRunLock.__table__.create(db.engine)
+        BacktestSheetRunLock.__table__.create(db.engine, checkfirst=True)
 
 
 def ensure_task_result_return_schema():
@@ -238,7 +238,7 @@ def ensure_task_result_return_schema():
 def ensure_navigation_menu_schema():
     inspector = inspect(db.engine)
     if 'navigation_menu_items' not in inspector.get_table_names():
-        NavigationMenuItem.__table__.create(db.engine)
+        NavigationMenuItem.__table__.create(db.engine, checkfirst=True)
         return
 
     columns = {column['name'] for column in inspector.get_columns('navigation_menu_items')}
@@ -510,6 +510,7 @@ def _build_nav_permission_map():
         '/backtest-multi/create': 'page:backtest_multi_product:create',
         '/backtest-multi-product/list': 'page:backtest_multi_product:list',
         '/backtest-multi-product/create': 'page:backtest_multi_product:create',
+        '/global-preview/c7_0_3': 'page:global_preview:c7_0_3',
     }
 
 

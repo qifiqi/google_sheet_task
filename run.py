@@ -14,7 +14,7 @@ register_cli(app)
 if __name__ == '__main__':
     logger = get_logger('app')
     try:
-        bootstrap_app(app)
+        # bootstrap_app(app)
         debug_mode = os.getenv('FLASK_DEBUG', 'false').lower() in ('true', '1', 'yes', 'on')
         app.run(debug=debug_mode, host='0.0.0.0', port=os.getenv('PORT', 5000))
     except Exception as exc:

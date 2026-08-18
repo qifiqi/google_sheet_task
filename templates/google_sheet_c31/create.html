@@ -176,14 +176,22 @@
                                             </select>
                                             <div class="form-text">写入 K 线价格列的数据口径</div>
                                         </div>
-                                        <div class="col-md-3 mb-3">
+                                        <div class="col-md-2 mb-3">
                                             <label class="form-label" for="kline_adjustment">K线复权</label>
                                             <select class="form-select" id="kline_adjustment">
                                                 <option value="forward" selected>前复权</option>
                                                 <option value="back">后复权</option>
                                                 <option value="none">不复权</option>
                                             </select>
-                                            <div class="form-text">A股映射东方财富 fqt，美股映射 Yahoo 调整价</div>
+                                        </div>
+                                        <div class="col-md-2 mb-3">
+                                            <label class="form-label" for="kline_data_source">K线数据源</label>
+                                            <select class="form-select" id="kline_data_source">
+                                                <option value="dfcf" selected>东方财富（默认）</option>
+                                                <option value="qq">腾讯</option>
+                                                <option value="yahoo">Yahoo</option>
+                                                <option value="tdx">通达信（仅A股）</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
@@ -1350,7 +1358,7 @@
         if (!document.getElementById('kline_adjustment')) {
             const marketTypeCol = document.getElementById('market_type_cn')?.closest('.col-md-2');
             const adjustmentCol = document.createElement('div');
-            adjustmentCol.className = 'col-md-3 mb-3';
+            adjustmentCol.className = 'col-md-2 mb-3';
             adjustmentCol.innerHTML = `
                 <label class="form-label" for="kline_adjustment">K线复权</label>
                 <select class="form-select" id="kline_adjustment">
@@ -1358,13 +1366,29 @@
                     <option value="back">后复权</option>
                     <option value="none">不复权</option>
                 </select>
-                <div class="form-text">A股映射东方财富 fqt，美股映射 Yahoo 调整价</div>
             `;
             if (marketTypeCol && marketTypeCol.parentElement) {
                 marketTypeCol.parentElement.insertBefore(adjustmentCol, marketTypeCol.nextSibling);
             }
             const adjustmentSelect = adjustmentCol.querySelector('#kline_adjustment');
             if (adjustmentSelect) adjustmentSelect.value = currentAdjustment;
+        }
+        if (!document.getElementById('kline_data_source')) {
+            const marketTypeCol = document.getElementById('market_type_cn')?.closest('.col-md-2');
+            if (marketTypeCol) {
+                const sourceCol = document.createElement('div');
+                sourceCol.className = 'col-md-2 mb-3';
+                sourceCol.innerHTML = `
+                    <label class="form-label" for="kline_data_source">K线数据源</label>
+                    <select class="form-select" id="kline_data_source">
+                        <option value="dfcf" selected>东方财富（默认）</option>
+                        <option value="qq">腾讯</option>
+                        <option value="yahoo">Yahoo</option>
+                        <option value="tdx">通达信（仅A股）</option>
+                    </select>`;
+                const adjustmentCol = document.getElementById('kline_adjustment')?.closest('.col-md-2, .col-md-3');
+                marketTypeCol.parentElement.insertBefore(sourceCol, adjustmentCol?.nextSibling || marketTypeCol.nextSibling);
+            }
         }
     }
 
@@ -1574,6 +1598,10 @@
         if (normalized.kline_adjustment) {
             const adjustSelect = document.getElementById('kline_adjustment');
             if (adjustSelect) adjustSelect.value = normalized.kline_adjustment;
+        }
+        if (normalized.kline_data_source) {
+            const sourceSelect = document.getElementById('kline_data_source');
+            if (sourceSelect) sourceSelect.value = normalized.kline_data_source;
         }
         const endDateInput = document.getElementById('end_date');
         if (endDateInput) {
@@ -2106,6 +2134,7 @@
             market_type: marketType,
             price_mode: priceMode,
             kline_adjustment: klineAdjustment,
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             // token_type: tokenType,
             // token_id: tokenType === 'file' ? tokenId : null,
             // token_file: tokenFile,
@@ -2200,6 +2229,7 @@
             market_type: normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value),
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             sheets: sheets,
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
@@ -2265,6 +2295,10 @@
                 if (formData.kline_adjustment) {
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
+                }
+                if (formData.kline_data_source) {
+                    const sourceSelect = document.getElementById('kline_data_source');
+                    if (sourceSelect) sourceSelect.value = formData.kline_data_source;
                 }
                 // if (formData.count_mode) {
                 //     const cmInput = document.querySelector(`input[name="count_mode"][value="${formData.count_mode}"]`);
@@ -2370,7 +2404,8 @@
                 stock_codes: [stockCodeValue],
                 market_type: marketType,
                 price_mode: priceMode,
-                kline_adjustment: klineAdjustment,
+            kline_adjustment: klineAdjustment,
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
                 // “更多配置”目前不参与模板保存；注释保留供后续恢复。
                 // token_type: tokenType,
                 // token_id: tokenType === 'file' ? tokenId : null,
@@ -2479,6 +2514,7 @@
             end_date: raw.end_date || null,
             market_type: normalizeMarketTypeValue(raw.market_type),
             kline_adjustment: raw.kline_adjustment || 'forward',
+            kline_data_source: raw.kline_data_source || 'dfcf',
             token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',

@@ -1,5 +1,7 @@
 import json
 
+from requests.exceptions import SSLError
+
 from app.extensions import db
 from app.models import Task, TaskLog
 from app.services.google_sheet_service_C5 import GoogleSheetService as C5GoogleSheetService
@@ -10,6 +12,7 @@ from app.services.task.error_handling import (
     record_task_exception,
 )
 from app.services.task.facade import TaskManager
+from app.utils.task_error_utils import NETWORK_ERROR_PREFIX
 
 
 def _kline_rows_with_vwap():
@@ -96,6 +99,30 @@ def test_record_task_exception_stores_trace_id_summary_and_full_log(app_factory)
         assert f"trace_id={record.trace_id}" in log.message
         assert "phase=unit_phase" in log.message
         assert "Traceback" in log.message
+
+
+def test_record_task_exception_marks_network_errors_for_watchdog(app_factory):
+    app = app_factory
+    with app.app_context():
+        task = Task(
+            id="network-error-task",
+            name="network error task",
+            task_type="google_sheet_C7",
+            status="running",
+            config="{}",
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        record_task_exception(
+            task.id,
+            SSLError("wrong version number"),
+            "get_bdl",
+        )
+
+        refreshed = db.session.get(Task, task.id)
+        assert refreshed.error_message.startswith(NETWORK_ERROR_PREFIX)
+        assert "SSLError: wrong version number" in refreshed.error_message
 
 
 def test_record_task_exception_truncates_summary_but_keeps_full_log(app_factory):

@@ -134,6 +134,15 @@
                                         <option value="json">Token JSON字符串</option>
                                     </select>
                                 </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="kline_data_source" class="form-label">K线数据源</label>
+                                    <select class="form-select" id="kline_data_source">
+                                        <option value="dfcf" selected>东方财富（默认）</option>
+                                        <option value="qq">腾讯</option>
+                                        <option value="yahoo">Yahoo</option>
+                                        <option value="tdx">通达信（仅A股）</option>
+                                    </select>
+                                </div>
                                 <div class="col-md-6 mb-3" id="token_file_container">
                                     <label for="token_id" class="form-label">
                                         <i class="bi bi-file-earmark-text"></i> Token文件路径
@@ -1451,6 +1460,7 @@
             token_file: tokenFile,
             token_json: tokenJson,
             proxy_url: proxyUrl || null,
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             parameters: parameters
         };
         
@@ -1535,6 +1545,7 @@
             token_file: document.getElementById('token_file').value,
             token_json: document.getElementById('token_json').value,
             proxy_url: document.getElementById('proxy_url').value,
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
             param3: document.getElementById('param3').value,
@@ -1571,6 +1582,7 @@
                 if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
                 if (formData.token_json) document.getElementById('token_json').value = formData.token_json;
                 if (formData.proxy_url) document.getElementById('proxy_url').value = formData.proxy_url;
+                if (formData.kline_data_source) document.getElementById('kline_data_source').value = formData.kline_data_source;
                 if (formData.spreadsheet) {
                     loadGoogleSheets(formData.spreadsheet);
                 }
@@ -1688,6 +1700,7 @@
                 token_file: tokenFile,
                 token_json: tokenJson,
                 proxy_url: proxyUrl || null,
+                kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
                 parameters: [param1, param2, param3, param4, param5, param6]
             };
         } catch (error) {

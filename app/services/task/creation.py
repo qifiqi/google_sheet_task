@@ -19,6 +19,7 @@ from app.services.google_sheet_token_service import (
 )
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
+from app.services.kline_service import KlineService
 from app.utils.database import safe_create, transaction_required
 from app.utils.logger import get_logger, get_task_logger
 
@@ -66,6 +67,37 @@ def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str,
     normalized["exclude_recent_years"] = []
     normalized["start_date"] = None
     normalized["end_date"] = None
+    return normalized
+
+
+def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    price_mode = normalized.get("price_mode") or "vwap_price"
+    if price_mode != "random_price":
+        normalized.pop("random_price_range", None)
+        normalized.pop("random_group_count", None)
+        return normalized
+
+    versions = {
+        str(sheet.get("c7_model_version") or "c7_0_2").strip().lower()
+        for sheet in normalized.get("sheets") or []
+    }
+    if "c7_0_3" in versions:
+        raise ValueError("随机价格仅支持 C7.0.2")
+    random_range = str(normalized.get("random_price_range") or "high_low").strip().lower()
+    if random_range not in {"high_low", "open_close"}:
+        raise ValueError("随机价格范围仅支持最高最低或开盘收盘")
+    try:
+        raw_group_count = normalized.get("random_group_count")
+        group_count = 1 if raw_group_count in (None, "") else int(raw_group_count)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("随机组数必须是正整数") from exc
+    if isinstance(raw_group_count, bool) or (
+        isinstance(raw_group_count, float) and not raw_group_count.is_integer()
+    ) or group_count < 1:
+        raise ValueError("随机组数必须是正整数")
+    normalized["random_price_range"] = random_range
+    normalized["random_group_count"] = group_count
     return normalized
 
 
@@ -128,8 +160,13 @@ class TaskCreationMixin:
         normalized = dict(config)
         if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
+            normalized["kline_data_source"] = KlineService.normalize_data_source(
+                normalized.get("kline_data_source", normalized.get("data_source"))
+            )
             if task_type.lower() in ("google_sheet_c5", "google_sheet_c7"):
                 normalized = _normalize_c_series_kline_source_config(normalized)
+            if task_type.lower() == "google_sheet_c7":
+                normalized = _normalize_c7_random_price_config(normalized)
         elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
@@ -139,6 +176,9 @@ class TaskCreationMixin:
                 normalized.get("price_mode")
                 if normalized.get("price_mode") in ("kp_price", "sp_price", "vwap_price")
                 else "vwap_price"
+            )
+            normalized["kline_data_source"] = KlineService.normalize_data_source(
+                normalized.get("kline_data_source", normalized.get("data_source"))
             )
 
         if task_type.lower() in ("google_sheet_c4", "google_sheet_c5","google_sheet_c7"):

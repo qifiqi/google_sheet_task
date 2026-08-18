@@ -1,4 +1,5 @@
 import json
+import random
 import re
 import time
 from typing import Dict, Any
@@ -20,8 +21,13 @@ from app.services.xpl_service import xpl_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import unwrap_exception
+from app.utils.task_error_utils import (
+    RetryableNetworkTaskError,
+    is_retryable_network_error,
+    unwrap_exception,
+)
 from app.utils.kline_validation import require_kline_rows
+from app.services.kline_service import KlineService
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
@@ -37,6 +43,12 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
+        self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
+
+    def _raise_retryable_network_error(self, exc, context):
+        if is_retryable_network_error(exc):
+            root = unwrap_exception(exc) or exc
+            raise RetryableNetworkTaskError(f"{context}: {root}") from exc
 
     @staticmethod
     def _get_c7_model_version(config_data: Dict[str, Any], google_sheet=None) -> str:
@@ -97,6 +109,61 @@ class GoogleSheetService(BaseGoogleSheetService):
     @staticmethod
     def _get_c7_write_end_column(layout: Dict[str, Any]) -> str:
         return layout.get("close_column") or layout.get("value_column") or layout["date_column"]
+
+    @staticmethod
+    def _project_c7_kline_row(kline_row, price_mode, random_price_range="high_low", random_generator=None):
+        price_field = {
+            "kp_price": "stock_kp",
+            "vwap_price": "stock_vwap",
+            "ohlc_price": "stock_sp",
+        }.get(price_mode, "stock_sp")
+        if price_mode == "random_price":
+            range_fields = {
+                "high_low": ("stock_zd", "stock_zg"),
+                "open_close": ("stock_kp", "stock_sp"),
+            }
+            lower_field, upper_field = range_fields[random_price_range]
+            lower, upper = sorted((float(kline_row[lower_field]), float(kline_row[upper_field])))
+            generator = random_generator or random
+            stock_val = generator.uniform(lower, upper)
+        else:
+            stock_val = kline_row[price_field]
+        return {
+            "stock_date": kline_row["stock_date"],
+            "stock_val": stock_val,
+            "stock_kp": kline_row.get("stock_kp"),
+            "stock_zg": kline_row.get("stock_zg"),
+            "stock_zd": kline_row.get("stock_zd"),
+            "stock_sp": kline_row.get("stock_sp"),
+        }
+
+    def _expand_random_price_groups(self, combinations, kline_data_map, price_mode, random_price_range, random_group_count):
+        if price_mode != "random_price":
+            return combinations, kline_data_map
+        grouped_data = []
+        grouped_map = {}
+        for combination in combinations:
+            source_key = combination["Kline_key"]
+            source_kline = kline_data_map[source_key]
+            for random_group in range(1, int(random_group_count or 1) + 1):
+                group_key = f"{source_key}:random-{random_group}"
+                if group_key not in grouped_map:
+                    random_generator = random.Random(
+                        f"{self.task_id}:{combination.get('stock_code', '')}:"
+                        f"{source_key}:{random_price_range}:{random_group}"
+                    )
+                    grouped_map[group_key] = [
+                        self._project_c7_kline_row(
+                            row, price_mode, random_price_range, random_generator
+                        )
+                        for row in source_kline
+                    ]
+                item = dict(combination)
+                item["Kline_key"] = group_key
+                item["year"] = group_key
+                item["random_group"] = random_group
+                grouped_data.append(item)
+        return grouped_data, grouped_map
 
     @staticmethod
     def _get_c7_input_last_row(google_sheet, layout: Dict[str, Any]) -> int:
@@ -368,6 +435,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 raise ValueError("kline_source 仅支持 auto 或 custom")
             count_mode = config_data.get('count_mode', 'n_plus_1')
             price_mode = config_data.get('price_mode', 'vwap_price')
+            random_price_range = config_data.get('random_price_range', 'high_low')
+            random_group_count = int(config_data.get('random_group_count') or 1)
             date_range_mode = config_data.get('date_range_mode',[])
             exclude_recent_years = config_data.get(
                 'exclude_recent_years',
@@ -406,7 +475,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                     )
                 else:
                     combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
-                        outer_param, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type
+                        outer_param, count_mode, price_mode, end_date, start_date, market_type,
+                        date_range_mode, exclude_recent_years, parameters, adjust_type,
+                        random_price_range=random_price_range, random_group_count=random_group_count,
+                        data_source=config_data.get("kline_data_source", "dfcf")
                     )
                 precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
                 total_combinations += len(combinations)
@@ -552,6 +624,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             return success_count, failed_count, 'completed'
 
         except Exception as e:
+            self._raise_retryable_network_error(e, "批量数据处理网络请求失败")
             # 检查是否是任务被取消导致的异常
             task.error = e
             try:
@@ -852,7 +925,6 @@ class GoogleSheetService(BaseGoogleSheetService):
                         _result[f"flat_result"] = flat_result
 
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
-                        # results[f"flat_result"] = flat_result
                         all_num += 1
                     else:
                         self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
@@ -986,26 +1058,14 @@ class GoogleSheetService(BaseGoogleSheetService):
 
         return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="dfcf"):
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
             # 根据price_mode决定使用开盘价、收盘价或加权平均价
-            price_field = {
-                'kp_price': 'stock_kp',
-                'vwap_price': 'stock_vwap',
-                'ohlc_price': 'stock_sp',
-            }.get(price_mode, 'stock_sp')
-
             def _project_kline_row(kline_row):
-                return {
-                    'stock_date': kline_row['stock_date'],
-                    'stock_val': kline_row[price_field],
-                    'stock_kp': kline_row.get('stock_kp'),
-                    'stock_zg': kline_row.get('stock_zg'),
-                    'stock_zd': kline_row.get('stock_zd'),
-                    'stock_sp': kline_row.get('stock_sp'),
-                }
+                projection_mode = 'sp_price' if price_mode == 'random_price' else price_mode
+                return self._project_c7_kline_row(kline_row, projection_mode, random_price_range)
             
             if market_type == 'cn':
                 if _year:
@@ -1036,41 +1096,54 @@ class GoogleSheetService(BaseGoogleSheetService):
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 300
 
-        if market_type == 'cn' or price_mode == 'vwap_price':
-            stock_config = self.dfcf_api.get_search_list_by_stock_code(parameter, 10)
-            if market_type in ('us', 'en'):
-                stock_config = [
-                    i for i in stock_config
-                    if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
-                ]
-
-            # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-            if stock_config:
-                stock_config = stock_config[0]
-                try:
-                    upsert_stock_metadata_in_session({
-                        **stock_config,
-                        "stock_code": parameter,
-                        "stock_name": stock_config.get("shortName") or stock_config.get("name"),
-                        "market_type": market_type,
-                        "source": stock_config.get("source") or "google_sheet_c7",
-                    })
-                except Exception as metadata_error:
-                    db.session.rollback()
-                    logger.warning("同步 c7 股票元数据失败: %s", metadata_error)
-            market = stock_config['market']
-            stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()
-
-            klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
-        else:
-            klines = self.YF_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
-            stock_name = ""
+        # 旧版 DFCF/Yahoo 分支（原 if market_type... 代码）保留为注释参考。
+        # 当前所有任务统一先读内置库，再由 KlineService 按数据源回退外部接口。
+        # if market_type == 'cn' or price_mode == 'vwap_price':
+        #     stock_config = self.dfcf_api.get_search_list_by_stock_code(parameter, 10)
+        #     if market_type in ('us', 'en'):
+        #         stock_config = [
+        #             i for i in stock_config
+        #             if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
+        #         ]
+        #
+        #     # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
+        #     if stock_config:
+        #         stock_config = stock_config[0]
+        #         try:
+        #             upsert_stock_metadata_in_session({
+        #                 **stock_config,
+        #                 "stock_code": parameter,
+        #                 "stock_name": stock_config.get("shortName") or stock_config.get("name"),
+        #                 "market_type": market_type,
+        #                 "source": stock_config.get("source") or "google_sheet_c7",
+        #             })
+        #         except Exception as metadata_error:
+        #             db.session.rollback()
+        #             logger.warning("同步 c7 股票元数据失败: %s", metadata_error)
+        #     market = stock_config['market']
+        #     stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()
+        #
+        #     klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
+        # else:
+        #     klines = self.YF_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
+        #     stock_name = ""
+        klines = self.kline_service.get_kline_data(
+            parameter,
+            market_type,
+            limit,
+            data_source=data_source,
+            start_date=start_date,
+            end_date=end_date,
+            adjust_type=adjust_type,
+        )
+        stock_name = str(klines[0].get("stock_name") or "") if klines else ""
 
         price_field = {
             'kp_price': 'stock_kp',
             'sp_price': 'stock_sp',
             'vwap_price': 'stock_vwap',
             'ohlc_price': 'stock_sp',
+            'random_price': 'stock_zg' if random_price_range == 'high_low' else 'stock_sp',
         }.get(price_mode, 'stock_vwap')
         klines = require_kline_rows(
             parameter,
@@ -1167,6 +1240,9 @@ class GoogleSheetService(BaseGoogleSheetService):
                     data.append(d)
 
         if count_mode != 'n_plus_1':
+            data, KLINE_DATA_MAP = self._expand_random_price_groups(
+                data, KLINE_DATA_MAP, price_mode, random_price_range, random_group_count
+            )
             data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
             return data, len(all_kline) + 20,KLINE_DATA_MAP
 
@@ -1221,6 +1297,10 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         data.append(d)
 
+        data, KLINE_DATA_MAP = self._expand_random_price_groups(
+            data, KLINE_DATA_MAP, price_mode, random_price_range, random_group_count
+        )
+
         if not data:
             raise ValueError(
                 f"股票{parameter}({market_type}) 在配置区间内没有可执行K线组合，"
@@ -1249,6 +1329,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 str(combination.get('stock_code', '')),
                 str(combination.get('A1', '')),
                 str(combination.get('B1', '')),
+                str(combination.get('random_group', '')),
+                str(combination.get('Kline_key', '')) if combination.get('random_group') else '',
                 kline_signature,
             )
             if signature in seen:

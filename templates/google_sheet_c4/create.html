@@ -320,6 +320,13 @@
                                                         <option value="back">后复权</option>
                                                         <option value="none">不复权</option>
                                                     </select>
+                                                    <label class="form-label mt-2" for="kline_data_source">K线数据源</label>
+                                                    <select class="form-select" id="kline_data_source">
+                                                        <option value="dfcf" selected>东方财富（默认）</option>
+                                                        <option value="qq">腾讯</option>
+                                                        <option value="yahoo">Yahoo</option>
+                                                        <option value="tdx">通达信（仅A股）</option>
+                                                    </select>
                                                 </div>
                                                 <div class="col-md-6">
                                                     <label class="form-label">数据时间范围</label>
@@ -632,6 +639,10 @@
                 if (config.kline_adjustment) {
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = config.kline_adjustment;
+                }
+                if (config.kline_data_source) {
+                    const sourceSelect = document.getElementById('kline_data_source');
+                    if (sourceSelect) sourceSelect.value = config.kline_data_source;
                 }
 
                 if (config.date_range_mode !== undefined) {
@@ -1167,6 +1178,10 @@
                 if (config.kline_adjustment) {
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = config.kline_adjustment;
+                }
+                if (config.kline_data_source) {
+                    const sourceSelect = document.getElementById('kline_data_source');
+                    if (sourceSelect) sourceSelect.value = config.kline_data_source;
                 }
                 if (config.start_date) {
                     const sd = document.getElementById('start_date');
@@ -1804,6 +1819,7 @@
             count_mode: countMode,
             market_type: marketType,
             kline_adjustment: klineAdjustment,
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             date_range_mode: dateRangeModes,
             start_date: startDate,
             end_date: endDate,
@@ -1894,6 +1910,7 @@
             proxy_url: document.getElementById('proxy_url').value,
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             date_range_mode: getSelectedDateRangeModes(),
             param1: document.getElementById('param1').value
         };
@@ -1942,6 +1959,10 @@
                 if (formData.kline_adjustment) {
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
+                }
+                if (formData.kline_data_source) {
+                    const sourceSelect = document.getElementById('kline_data_source');
+                    if (sourceSelect) sourceSelect.value = formData.kline_data_source;
                 }
 
                 if (formData.date_range_mode !== undefined) {
@@ -2102,7 +2123,8 @@
                 proxy_url: proxyUrl || null,
                 count_mode: countMode,
                 market_type: marketType,
-                kline_adjustment: klineAdjustment,
+            kline_adjustment: klineAdjustment,
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
                 start_date: startDate,
                 end_date: endDate,
                 parameters: [param1],
@@ -2192,6 +2214,7 @@
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',
             kline_adjustment: raw.kline_adjustment || 'forward',
+            kline_data_source: raw.kline_data_source || 'dfcf',
             token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',

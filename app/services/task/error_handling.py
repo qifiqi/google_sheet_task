@@ -13,7 +13,11 @@ from flask import current_app, has_app_context
 
 from app.extensions import db
 from app.models import Task, TaskLog
-from app.utils.task_error_utils import unwrap_exception
+from app.utils.task_error_utils import (
+    NETWORK_ERROR_PREFIX,
+    is_retryable_network_error,
+    unwrap_exception,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +105,8 @@ def record_task_exception(
 ) -> TaskErrorRecord:
     record = build_task_error_record(exc, phase, task_id)
     error_message = format_task_error_message(record)
+    if is_retryable_network_error(exc):
+        error_message = f"{NETWORK_ERROR_PREFIX} {error_message}"
     log_message = format_task_error_log(record)
     should_write_log = not _is_record_logged(exc)
 

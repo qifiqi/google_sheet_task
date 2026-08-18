@@ -371,10 +371,22 @@
                                                         <select class="form-select" id="price_mode">
                                                             <option value="vwap_price">加权平均价</option>
                                                             <option value="kp_price">开盘价</option>
-                                                            <option value="sp_price" selecteds>收盘价</option>
+                                                            <option value="sp_price" selected>收盘价</option>
+                                                            <option value="random_price">随机价</option>
                                                             <option value="ohlc_price" disabled>OHLC（开高低收）</option>
                                                         </select>
 <!--?                                                        <div class="form-text d-none" id="c7-price-mode-help">C7.0.3 固定使用 OHLC（开高低收）价格</div>-->
+                                                    </div>
+                                                    <div class="col-md-3 d-none random-price-option">
+                                                        <label class="form-label" for="random_price_range">随机价格范围</label>
+                                                        <select class="form-select" id="random_price_range">
+                                                            <option value="high_low" selected>最高价 - 最低价</option>
+                                                            <option value="open_close">开盘价 - 收盘价</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3 d-none random-price-option">
+                                                        <label class="form-label" for="random_group_count">随机组数</label>
+                                                        <input class="form-control" id="random_group_count" type="number" min="1" step="1" value="1">
                                                     </div>
                                                     <div class="col-md-3">
                                                         <label class="form-label d-block">市场类型</label>
@@ -392,6 +404,15 @@
                                                             <option value="forward" selected>前复权</option>
                                                             <option value="back">后复权</option>
                                                             <option value="none">不复权</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label" for="kline_data_source">K线数据源</label>
+                                                        <select class="form-select" id="kline_data_source">
+                                                            <option value="dfcf" selected>东方财富（默认）</option>
+                                                            <option value="qq">腾讯</option>
+                                                            <option value="yahoo">Yahoo</option>
+                                                            <option value="tdx">通达信（仅A股）</option>
                                                         </select>
                                                     </div>
                                                     <div class="col-md-3">
@@ -746,6 +767,10 @@
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = config.kline_adjustment;
                 }
+                if (config.kline_data_source) {
+                    const sourceSelect = document.getElementById('kline_data_source');
+                    if (sourceSelect) sourceSelect.value = config.kline_data_source;
+                }
 
                 if (config.date_range_mode !== undefined) {
                     applyDateRangeModes(config.date_range_mode);
@@ -831,6 +856,7 @@
 
     function enforceC7PriceMode() {
         const priceModeSelect = document.getElementById('price_mode');
+        const randomOptions = document.querySelectorAll('.random-price-option');
         const priceModeHelp = document.getElementById('c7-price-mode-help');
         const forceOhlcPrice = getConfiguredC7ModelVersions().has('c7_0_3');
         if (!priceModeSelect) {
@@ -846,6 +872,15 @@
         } else if (priceModeSelect.value === 'ohlc_price') {
             priceModeSelect.value = 'vwap_price';
         }
+        const showRandomOptions = priceModeSelect.value === 'random_price'
+            && !isCustomKlineMode()
+            && !forceOhlcPrice;
+        randomOptions.forEach(option => {
+            option.classList.toggle('d-none', !showRandomOptions);
+            option.querySelectorAll('select, input').forEach(control => {
+                setControlDisabled(control, !showRandomOptions);
+            });
+        });
         setControlDisabled(priceModeSelect, isCustomKlineMode() || forceOhlcPrice);
         if (priceModeHelp) {
             priceModeHelp.classList.toggle('d-none', !forceOhlcPrice);
@@ -1486,6 +1521,10 @@
         if (priceModeSelect) {
             priceModeSelect.value = normalized.price_mode || 'vwap_price';
         }
+        const randomRangeSelect = document.getElementById('random_price_range');
+        if (randomRangeSelect) randomRangeSelect.value = normalized.random_price_range || 'high_low';
+        const randomGroupInput = document.getElementById('random_group_count');
+        if (randomGroupInput) randomGroupInput.value = normalized.random_group_count || 1;
         if (normalized.market_type) {
             const mtInput = document.querySelector(`input[name="market_type"][value="${normalized.market_type}"]`);
             if (mtInput) {
@@ -1495,6 +1534,10 @@
         if (normalized.kline_adjustment) {
             const adjustSelect = document.getElementById('kline_adjustment');
             if (adjustSelect) adjustSelect.value = normalized.kline_adjustment;
+        }
+        if (normalized.kline_data_source) {
+            const sourceSelect = document.getElementById('kline_data_source');
+            if (sourceSelect) sourceSelect.value = normalized.kline_data_source;
         }
         if (normalized.start_date) {
             const sd = document.getElementById('start_date');
@@ -1843,7 +1886,7 @@
         // 为所有输入字段添加自动保存
         const inputFields = [
             'token_file', 'token_json', 'proxy_url',
-            'start_date', 'end_date', 'price_mode', 'kline_adjustment'
+            'start_date', 'end_date', 'price_mode', 'random_price_range', 'random_group_count', 'kline_adjustment'
         ];
 
         inputFields.forEach(function(fieldId) {
@@ -1861,6 +1904,14 @@
         document.querySelectorAll('input[name="market_type"]').forEach(function(field) {
             field.addEventListener('change', debouncedSaveFormData);
         });
+        const priceModeSelect = document.getElementById('price_mode');
+        if (priceModeSelect) {
+            priceModeSelect.addEventListener('change', function() {
+                enforceC7PriceMode();
+                debouncedCalculateCombinations();
+                debouncedSaveFormData();
+            });
+        }
 
         // 添加一组表格配置（仅用于前端展示，实际提交仍使用第一组带有固定ID的配置）
         const addSheetConfigBtn = document.getElementById('add-sheet-config-btn');
@@ -2080,7 +2131,10 @@
             const len1 = param1.length;
             const len2 = param2.length || 1;
             const len3 = param3.length || 1;
-            count = len1 * len2 * len3;
+            const randomGroups = document.getElementById('price_mode')?.value === 'random_price'
+                ? Math.max(1, parseInt(document.getElementById('random_group_count')?.value || '1', 10))
+                : 1;
+            count = len1 * len2 * len3 * randomGroups;
         }
 
         const infoDiv = document.getElementById('combination-info');
@@ -2180,6 +2234,12 @@
         const dateRangeModes = isCustomKline ? [] : getSelectedDateRangeModes();
         const startDate = isCustomKline ? null : (document.getElementById('start_date')?.value || null);
         const endDate = isCustomKline ? null : (document.getElementById('end_date')?.value || null);
+        const randomGroupCount = parseInt(document.getElementById('random_group_count')?.value || '1', 10);
+
+        if (priceMode === 'random_price' && (!Number.isInteger(randomGroupCount) || randomGroupCount < 1)) {
+            showNotification('随机组数必须是正整数', 'error');
+            return;
+        }
 
         if (tokenType === 'file' && !tokenId) {
             showNotification('请选择Token', 'error');
@@ -2263,8 +2323,11 @@
             kline_source: klineSource,
             count_mode: countMode,
             price_mode: priceMode,
+            random_price_range: priceMode === 'random_price' ? (document.getElementById('random_price_range')?.value || 'high_low') : null,
+            random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
             market_type: marketType,
             kline_adjustment: klineAdjustment,
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             date_range_mode: dateRangeModes,
             exclude_recent_years: isCustomKline ? [] : getExcludedRecentYears(),
             start_date: startDate,
@@ -2356,8 +2419,11 @@
             kline_source: document.querySelector('input[name="kline_source"]:checked')?.value || 'auto',
             count_mode: document.querySelector('input[name="count_mode"]:checked')?.value || 'total',
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
+            random_price_range: document.getElementById('random_price_range')?.value || 'high_low',
+            random_group_count: parseInt(document.getElementById('random_group_count')?.value || '1', 10),
             market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             date_range_mode: getSelectedDateRangeModes(),
             exclude_recent_years: getExcludedRecentYears(),
             param1: document.getElementById('param1').value,
@@ -2430,6 +2496,10 @@
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = formData.kline_adjustment;
                 }
+                if (formData.kline_data_source) {
+                    const sourceSelect = document.getElementById('kline_data_source');
+                    if (sourceSelect) sourceSelect.value = formData.kline_data_source;
+                }
 
                 if (formData.count_mode) {
                     const cmInput = document.querySelector(`input[name="count_mode"][value="${formData.count_mode}"]`);
@@ -2442,6 +2512,8 @@
                     const priceModeSelect = document.getElementById('price_mode');
                     if (priceModeSelect) priceModeSelect.value = formData.price_mode;
                 }
+                if (formData.random_price_range) document.getElementById('random_price_range').value = formData.random_price_range;
+                if (formData.random_group_count) document.getElementById('random_group_count').value = formData.random_group_count;
 
                 if (formData.date_range_mode !== undefined) {
                     applyDateRangeModes(formData.date_range_mode);
@@ -2520,6 +2592,12 @@
             const dateRangeModes = isCustomKline ? [] : getSelectedDateRangeModes();
             const startDate = isCustomKline ? null : (document.getElementById('start_date')?.value || null);
             const endDate = isCustomKline ? null : (document.getElementById('end_date')?.value || null);
+            const randomGroupCount = parseInt(document.getElementById('random_group_count')?.value || '1', 10);
+
+            if (priceMode === 'random_price' && (!Number.isInteger(randomGroupCount) || randomGroupCount < 1)) {
+                showError('随机组数必须是正整数');
+                return null;
+            }
 
             // 验证必要字段
             if (!spreadsheetId) {
@@ -2610,8 +2688,11 @@
                 kline_source: klineSource,
                 count_mode: countMode,
                 price_mode: priceMode,
+                random_price_range: priceMode === 'random_price' ? (document.getElementById('random_price_range')?.value || 'high_low') : null,
+                random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
                 market_type: marketType,
                 kline_adjustment: klineAdjustment,
+                kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
                 date_range_mode: dateRangeModes,
                 exclude_recent_years: isCustomKline ? [] : getExcludedRecentYears(),
                 start_date: startDate,
@@ -2702,8 +2783,11 @@
 
         return {
             kline_source: raw.kline_source || 'auto',
+            kline_data_source: raw.kline_data_source || 'dfcf',
             count_mode: raw.count_mode || 'total',
             price_mode: raw.price_mode || 'vwap_price',
+            random_price_range: raw.random_price_range || 'high_low',
+            random_group_count: raw.random_group_count || 1,
             start_date: raw.start_date || null,
             end_date: raw.end_date || null,
             market_type: raw.market_type || 'cn',

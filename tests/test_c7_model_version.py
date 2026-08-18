@@ -222,6 +222,107 @@ def test_c7_deduplicates_same_parameters_and_kline_period():
     assert "跳过重复 C7 参数组合" in logs[0]
 
 
+def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
+    service = GoogleSheetService({}, "task-id")
+    rows = []
+    first_date = date(2026, 1, 1)
+    for offset in range(31):
+        current_date = first_date + timedelta(days=offset)
+        rows.append({
+            "stock_date": current_date.isoformat(),
+            "stock_kp": 10,
+            "stock_zg": 14,
+            "stock_zd": 8,
+            "stock_sp": 12,
+            "stock_vwap": 11,
+        })
+
+    monkeypatch.setattr(
+        "app.services.google_sheet_service_C7.upsert_stock_metadata_in_session",
+        lambda _payload: None,
+    )
+    monkeypatch.setattr(
+        service.dfcf_api,
+        "get_search_list_by_stock_code",
+        lambda _stock_code, _limit: [{"market": "1", "shortName": "测试股票"}],
+    )
+    monkeypatch.setattr(
+        service.dfcf_api,
+        "get_stock_kline_data",
+        lambda _stock_code, _market, _limit, **_kwargs: rows,
+    )
+    combinations, _column_length, kline_map = service._get_all_parameters(
+        "600000",
+        "total",
+        "random_price",
+        "2026-01-31",
+        "2026-01-01",
+        "cn",
+        [],
+        [],
+        [["600000"], [1], [2]],
+        random_price_range="high_low",
+        random_group_count=2,
+    )
+
+    assert len(combinations) == 2
+    assert [item["random_group"] for item in combinations] == [1, 2]
+    assert len(kline_map) == 2
+    assert all(8 <= row["stock_val"] <= 14 for kline in kline_map.values() for row in kline)
+
+
+def test_c7_random_open_close_handles_close_above_open(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.google_sheet_service_C7.random.uniform",
+        lambda low, high: (low, high),
+    )
+
+    projected = GoogleSheetService._project_c7_kline_row(
+        {
+            "stock_date": "2026-01-01",
+            "stock_kp": 10,
+            "stock_zg": 13,
+            "stock_zd": 8,
+            "stock_sp": 12,
+        },
+        "random_price",
+        "open_close",
+    )
+
+    assert projected["stock_val"] == (10, 12)
+
+
+def test_c7_random_groups_are_stable_for_task_restart():
+    service = object.__new__(GoogleSheetService)
+    service.task_id = "task-random-price"
+    combinations = [{
+        "stock_code": "600000",
+        "A1": 1,
+        "B1": 2,
+        "year": "2026-2025",
+        "Kline_key": "2026-2025",
+    }]
+    kline_map = {
+        "2026-2025": [{
+            "stock_date": "2026-01-01",
+            "stock_kp": 10,
+            "stock_zg": 14,
+            "stock_zd": 8,
+            "stock_sp": 12,
+            "stock_val": 12,
+        }]
+    }
+
+    first = service._expand_random_price_groups(
+        combinations, kline_map, "random_price", "high_low", 2
+    )
+    second = service._expand_random_price_groups(
+        combinations, kline_map, "random_price", "high_low", 2
+    )
+
+    assert first == second
+
+
 def test_c7_uses_first_available_kline_when_listing_is_newer_than_start_date(monkeypatch):
     service = GoogleSheetService({}, "task-id")
     logs = []

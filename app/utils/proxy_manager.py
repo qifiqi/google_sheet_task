@@ -1,29 +1,24 @@
-import os
-import shutil
 import threading
 import time
 from typing import Any
 
-import certifi
 import requests
 
 
 class SmartProxyManager:
     """Manage a short-lived proxy pool for DFCF requests."""
 
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, base_url: str = "http://stockapi.stplan.cn/"):
         self.lock = threading.Lock()
         self.proxy_size = 0
         self.logger = logger
         self.max_proxy_size = 50
         self.proxy = {}
         self.proxy_time = time.time()
+        self.base_url = base_url.strip("/")
         self.proxy_config = {
-            "base_username": "9DFBAAA4",
-            "password": "9BA6FBC6AA65",
-            "url": "https://share.proxy.qg.net/get?key=9DFBAAA4&num=1&area=&isp=0&format=json&distinct=false",
+            "url": f"{self.base_url}/api/StockDic/GetProxyListByOne",
         }
-        self.cert_path = self._get_persistent_cert_path()
 
     @staticmethod
     def _redact_proxy(proxy: dict[str, str] | dict[Any, Any]):
@@ -38,39 +33,20 @@ class SmartProxyManager:
                 redacted[key] = proxy_url
         return redacted
 
-    def _get_persistent_cert_path(self):
-        user_cert_dir = os.path.join(
-            os.path.expanduser("~"),
-            ".stockvolume",
-            "cert",
-        )
-        os.makedirs(user_cert_dir, exist_ok=True)
-
-        cert_file = os.path.join(user_cert_dir, "cacert.pem")
-        if not os.path.exists(cert_file):
-            try:
-                shutil.copy2(certifi.where(), cert_file)
-            except Exception:
-                return certifi.where()
-        return cert_file
-
     def _get_proxy(self) -> dict[str, str]:
-        response = requests.get(
+        response = requests.post(
             self.proxy_config["url"],
+            headers={"accept": "text/plain"},
+            data="",
             timeout=20,
-            verify=self.cert_path,
         )
         response.raise_for_status()
-        payload = response.json()
-        proxy_data = payload.get("data") or []
-        if not proxy_data:
-            raise ValueError(f"代理池返回为空: {payload}")
-
-        server = proxy_data[0]["server"]
-        proxy_url = "http://%(user)s:%(password)s@%(server)s" % {
-            "user": self.proxy_config["base_username"],
-            "password": self.proxy_config["password"],
-            "server": server,
+        proxy = response.json()["ret_obj"]
+        proxy_url = "http://%(username)s:%(password)s@%(url)s:%(port)s" % {
+            "username": proxy["username"],
+            "password": proxy["password"],
+            "url": proxy["url"],
+            "port": proxy["port"],
         }
         return {
             "http": proxy_url,

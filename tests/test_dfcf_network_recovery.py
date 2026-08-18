@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime as real_datetime, timedelta
 
 import pytest
-from requests.exceptions import ProxyError
+from requests.exceptions import ProxyError, SSLError
 
 from app.services.backtest_training_service import BacktestTrainingService
 import app.services.backtest_training_service as backtest_training_service
+from app.services.google_sheet_service_C7 import GoogleSheetService as GoogleSheetServiceC7
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.task_error_utils import RetryableNetworkTaskError
 
@@ -59,6 +60,16 @@ def test_backtest_rethrows_network_error_as_retryable():
         assert "批量数据处理网络请求失败" in str(exc)
     else:
         raise AssertionError("expected RetryableNetworkTaskError")
+
+
+def test_c7_rethrows_ssl_error_as_retryable_network_error():
+    service = GoogleSheetServiceC7.__new__(GoogleSheetServiceC7)
+
+    with pytest.raises(RetryableNetworkTaskError, match="批量数据处理网络请求失败"):
+        service._raise_retryable_network_error(
+            SSLError("EOF occurred in violation of protocol"),
+            "批量数据处理网络请求失败",
+        )
 
 
 def test_backtest_full_years_accept_string_values(monkeypatch):

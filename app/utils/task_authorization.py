@@ -28,6 +28,8 @@ def normalize_task_type(task_type: str | None) -> str:
         return "google_sheet_c4"
     if raw in {"google_sheet_c5"}:
         return "google_sheet_c5"
+    if raw in {"google_sheet_c7"}:
+        return "google_sheet_c7"
     if raw in {"backtest_training", "backtest"}:
         return "backtest_training"
     if raw in {"backtest_multi_product", "multi_product_backtest", "backtest_multi"}:

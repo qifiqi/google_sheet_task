@@ -20,10 +20,11 @@ COPY run.sh .
 
 COPY dockers/gunicorn.conf.py /app/docker-gunicorn.conf.py
 
-RUN addgroup --system appgroup \
-    && adduser --system --ingroup appgroup appuser \
-    && mkdir -p data logs \
-    && chown -R appuser:appgroup /app
+RUN addgroup --system --gid 1000 appgroup \
+    && adduser --system --uid 1000 --ingroup appgroup appuser \
+    && mkdir -p /app/logs /app/data \
+    && chown -R appuser:appgroup /app \
+    && chmod 777 /app/logs /app/data
 
 EXPOSE 5000
 

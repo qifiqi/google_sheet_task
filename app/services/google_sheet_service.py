@@ -23,6 +23,7 @@ from app.utils.yf_api import YFApi
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
+from app.services.kline_service import KlineService
 
 logger = get_logger(__name__)
 
@@ -37,6 +38,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.len_kline = None
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
+        self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
         self.google_sheet:Optional[GoogleSheet] = None
         self.xpl = xpl_analyzer
         self._return_date_cache: Dict[Tuple[str, int], Dict[str, Any]] = {}
@@ -671,33 +673,44 @@ class GoogleSheetService(BaseGoogleSheetService):
         trading_days_per_year = 250 if market_type == 'cn' else 252
         limit = max(300, year_count * trading_days_per_year + 80)
 
-        if market_type == 'cn' or price_mode == 'vwap_price':
-            stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_code, 10)
-            if market_type in ('us', 'en'):
-                stock_config = [
-                    i for i in stock_config
-                    if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
-                ]
-
-            # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-            if stock_config:
-                stock_config = stock_config[0]
-                try:
-                    upsert_stock_metadata_in_session({
-                        **stock_config,
-                        "stock_code": stock_code,
-                        "stock_name": stock_config.get("shortName") or stock_config.get("name"),
-                        "market_type": market_type,
-                        "source": stock_config.get("source") or "google_sheet_c3",
-                    })
-                except Exception as metadata_error:
-                    db.session.rollback()
-                    logger.warning("同步 C3 股票元数据失败: %s", metadata_error)
-            market = stock_config['market']
-
-            klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit, adjust_type=adjust_type)
-        else:
-            klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
+        # 旧版这里按 market_type/price_mode 分支直接调用 DFCF 或 Yahoo：
+        # if market_type == 'cn' or price_mode == 'vwap_price':
+        #     stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_code, 10)
+        #     if market_type in ('us', 'en'):
+        #         stock_config = [
+        #             i for i in stock_config
+        #             if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
+        #         ]
+        #
+        #     # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
+        #     if stock_config:
+        #         stock_config = stock_config[0]
+        #         try:
+        #             upsert_stock_metadata_in_session({
+        #                 **stock_config,
+        #                 "stock_code": stock_code,
+        #                 "stock_name": stock_config.get("shortName") or stock_config.get("name"),
+        #                 "market_type": market_type,
+        #                 "source": stock_config.get("source") or "google_sheet_c3",
+        #             })
+        #         except Exception as metadata_error:
+        #             db.session.rollback()
+        #             logger.warning("同步 C3 股票元数据失败: %s", metadata_error)
+        #     market = stock_config['market']
+        #
+        #     klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit, adjust_type=adjust_type)
+        # else:
+        #     klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
+        # 任务执行统一改由 KlineService 先查内置库，再按数据源回退外部接口。
+        klines = self.kline_service.get_kline_data(
+            stock_code,
+            market_type,
+            limit,
+            data_source=config_data.get("kline_data_source", "dfcf"),
+            start_date=start_date,
+            end_date=end_date,
+            adjust_type=adjust_type,
+        )
 
         klines = require_kline_rows(
             stock_code,

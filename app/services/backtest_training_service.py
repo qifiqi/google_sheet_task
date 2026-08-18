@@ -24,6 +24,7 @@ from app.utils.task_error_utils import (
     unwrap_exception,
 )
 from app.utils.kline_validation import require_kline_rows
+from app.services.kline_service import KlineService
 
 
 class BacktestTrainingService(BaseGoogleSheetService):
@@ -34,6 +35,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
+        self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
 
     def _task_detail_url(self) -> str:
         return f"{current_app.config.get('BASE_URL')}/backtest-training/detail/{self.task_id}"
@@ -124,9 +126,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if resolved_code != stock_query:
             self._log_info(f"股票 {stock_query} 已解析为代码 {resolved_code}, market={market}")
         return resolved_code, market
-
-    def _resolve_cn_stock_quote(self, stock_code, exchange_market=None):
-        return self._resolve_dfcf_stock_quote(stock_code, exchange_market)
 
     @staticmethod
     def _normalize_year_values(values, field_name):
@@ -388,6 +387,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 include_full_year_range=include_full_year_range,
                 end_date=end_date,
                 include_ohlc=is_c7_0_3,
+                data_source=config_data.get("kline_data_source", "dfcf"),
             )
             precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
             total_combinations += len(combinations)
@@ -852,6 +852,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         include_full_year_range=False,
         end_date=None,
         include_ohlc=False,
+        data_source="dfcf",
 
     ):
         market_type = self._normalize_market_type(market_type)
@@ -923,22 +924,39 @@ class BacktestTrainingService(BaseGoogleSheetService):
         trading_days_per_year = 250 if market_type == 'cn' else 252
         limit = max(300, year_count * trading_days_per_year + 80)
 
-        if market_type == 'cn':
-            if exchange_market:
-                resolved_code, market = self._resolve_cn_stock_quote(stock_code, exchange_market)
-            else:
-                resolved_code, market = self._resolve_cn_stock_quote(stock_code)
-            stock_code = resolved_code
-            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
-        elif price_mode == 'vwap_price':
-            if exchange_market:
-                resolved_code, market = self._resolve_dfcf_stock_quote(stock_code, exchange_market)
-            else:
-                resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
-            stock_code = resolved_code
-            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
-        else:
-            klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
+        # 旧的 DFCF/Yahoo 分支保留为注释参考；全部执行统一走 KlineService。
+        # if market_type == 'cn':
+        #     if exchange_market:
+        #         resolved_code, market = self._resolve_cn_stock_quote(stock_code, exchange_market)
+        #     else:
+        #         resolved_code, market = self._resolve_cn_stock_quote(stock_code)
+        #     stock_code = resolved_code
+        #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
+        # elif price_mode == 'vwap_price':
+        #     if exchange_market:
+        #         resolved_code, market = self._resolve_dfcf_stock_quote(stock_code, exchange_market)
+        #     else:
+        #         resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
+        #     stock_code = resolved_code
+        #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
+        # else:
+        #     klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
+        resolved_code = stock_code
+        resolved_market = exchange_market
+        resolved_code, resolved_market = self._resolve_dfcf_stock_quote(stock_code, exchange_market)
+
+        klines = self.kline_service.get_kline_data(
+            resolved_code,
+            market_type,
+            limit,
+            data_source=data_source,
+            start_date=start_date,
+            end_date=effective_end_date,
+            adjust_type=adjust_type,
+            exchange_market=resolved_market,
+        )
+        if klines and klines[0].get("stock_code"):
+            stock_code = klines[0]["stock_code"]
 
         # from app.services.kline import get_d
         # klines = get_d()
