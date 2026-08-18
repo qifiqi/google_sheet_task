@@ -1,3 +1,9 @@
+"""应用进程启动编排与历史数据库兼容处理。
+
+数据库结构的长期来源应是 Alembic migration。这里的 ``ensure_*`` 函数仅用于
+兼容尚未完成迁移的历史数据库，避免服务因为缺少新增列或索引而无法启动。
+"""
+
 import json
 import os
 
@@ -294,6 +300,7 @@ def cleanup_stale_backtest_sheet_run_locks():
 
 
 def register_shell_context(app):
+    """注册 ``flask shell`` 的快捷对象；不会访问数据库或启动后台线程。"""
     @app.shell_context_processor
     def make_shell_context():
         return {
@@ -310,21 +317,11 @@ def register_shell_context(app):
 
 
 def register_cli(app):
+    """注册显式执行的运维命令；注册命令本身不初始化数据库。"""
     @app.cli.command()
     def init_db():
-        db.create_all()
-        normalize_boolean_columns()
-        ensure_google_sheet_token_schema()
-        ensure_google_sheet_registry_schema()
-        ensure_user_schema()
-        ensure_task_schema()
-        ensure_task_result_schema()
-        ensure_scheduled_task_schema()
-        ensure_task_result_return_schema()
-        ensure_task_result_summary_index_schema()
-        ensure_stock_metadata_schema()
-        ensure_backtest_runtime_schema()
-        ensure_navigation_menu_schema()
+        # Flask CLI 会自动提供 app context，因此这里可以复用完整 schema 初始化。
+        _initialize_database_schema()
         print('数据库初始化完成')
 
     @app.cli.command()
@@ -334,6 +331,7 @@ def register_cli(app):
 
 
 def init_rbac():
+    """幂等同步内置权限、角色及首次安装的管理员账号。"""
     logger = get_logger('rbac')
 
     for group, code, name, route_path in PERMISSIONS:
@@ -374,6 +372,7 @@ def init_rbac():
         logger.info('已创建默认管理员用户 admin / admin123')
 
 def init_navigation_menu():
+    """幂等写入默认导航，并兼容旧版 ``nav_menu`` 系统配置。"""
     logger = get_logger('navigation')
     nav_config = SystemConfig.query.filter_by(key='nav_menu').first()
     has_existing_items = NavigationMenuItem.query.count() > 0
@@ -538,6 +537,11 @@ def _normalize_nav_label(key, label):
 
 
 def check_and_cleanup_dead_tasks(app):
+    """将本进程不存在的运行中任务标记为待恢复状态。
+
+    ``TaskManager.running_tasks`` 是进程内内存状态；Web 进程重启后必须以数据库
+    任务状态为准重新协调，不能继续把这些任务视为仍在执行。
+    """
     from app.services.task import task_manager
 
     logger = get_logger('startup')
@@ -562,6 +566,10 @@ def check_and_cleanup_dead_tasks(app):
 
 
 def init_scheduler(app):
+    """启动调度器并确保默认清理任务存在。
+
+    调度器是进程内单例，同一数据库同一时刻只能由一个 serving worker 启动。
+    """
     from app.services.scheduler_service import scheduler_service
 
     logger = get_logger('scheduler')
@@ -575,6 +583,7 @@ def init_scheduler(app):
 
 
 def init_task_watchdog(app):
+    """启动进程内任务看门狗；多 worker/多副本会产生重复巡检。"""
     from app.services.task_watchdog import task_watchdog
 
     logger = get_logger('watchdog')
@@ -585,30 +594,75 @@ def init_task_watchdog(app):
         logger.error(f'启动任务看门狗线程失败: {exc}')
 
 
-def bootstrap_app(app):
+def _prepare_runtime_directories():
+    """创建运行时目录，供日志和本地 token/临时数据使用。"""
     os.makedirs('data', exist_ok=True)
     os.makedirs('logs', exist_ok=True)
-    initialize_logging()
-    with app.app_context():
-        db.create_all()
-        normalize_boolean_columns()
-        ensure_google_sheet_token_schema()
-        ensure_google_sheet_registry_schema()
-        ensure_user_schema()
-        ensure_task_schema()
-        ensure_task_result_schema()
-        ensure_scheduled_task_schema()
-        ensure_task_result_return_schema()
-        ensure_task_result_summary_index_schema()
-        ensure_stock_metadata_schema()
-        ensure_backtest_runtime_schema()
-        ensure_navigation_menu_schema()
-        reset_google_sheet_token_occupancy()
-        reset_google_sheet_occupancy()
-        cleanup_stale_backtest_sheet_run_locks()
-        init_config()
-        init_rbac()
-        init_navigation_menu()
-    check_and_cleanup_dead_tasks(app)
+
+
+def _initialize_database_schema():
+    """创建缺失表并执行历史数据库的增量兼容修补。
+
+    部署环境应先执行 ``flask db upgrade``。在全部历史库完成迁移前，此函数保留
+    ``db.create_all`` 与 ``ensure_*`` 作为兼容兜底；不要在业务代码中调用它。
+    调用方必须已处于 Flask app context 中。
+    """
+    db.create_all()
+    normalize_boolean_columns()
+
+    # 顺序保持与旧 bootstrap 一致，避免历史库修补之间产生依赖变化。
+    for schema_repair in (
+        ensure_google_sheet_token_schema,
+        ensure_google_sheet_registry_schema,
+        ensure_user_schema,
+        ensure_task_schema,
+        ensure_task_result_schema,
+        ensure_scheduled_task_schema,
+        ensure_task_result_return_schema,
+        ensure_task_result_summary_index_schema,
+        ensure_stock_metadata_schema,
+        ensure_backtest_runtime_schema,
+        ensure_navigation_menu_schema,
+    ):
+        schema_repair()
+
+
+def _recover_runtime_resources():
+    """清理上一个进程遗留的 token、Sheet 占用和回测锁。
+
+    这些字段代表进程内执行状态，不是应被永久保留的业务数据。
+    """
+    reset_google_sheet_token_occupancy()
+    reset_google_sheet_occupancy()
+    cleanup_stale_backtest_sheet_run_locks()
+
+
+def _initialize_system_metadata():
+    """幂等初始化运行必需的配置、RBAC 和导航元数据。"""
+    init_config()
+    init_rbac()
+    init_navigation_menu()
+
+
+def _start_background_components(app):
+    """启动依赖当前 Flask 进程的后台组件。"""
     init_scheduler(app)
     init_task_watchdog(app)
+
+
+def bootstrap_app(app):
+    """完成 serving worker 的启动准备。
+
+    此函数会启动调度器和看门狗等进程内线程，因此只能在一个 Gunicorn worker
+    （且一个部署副本）中调用一次。数据库 migration 应在容器启动前单独完成。
+    """
+    _prepare_runtime_directories()
+    initialize_logging()
+
+    with app.app_context():
+        _initialize_database_schema()
+        _recover_runtime_resources()
+        _initialize_system_metadata()
+
+    check_and_cleanup_dead_tasks(app)
+    _start_background_components(app)
