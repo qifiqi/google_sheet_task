@@ -14,6 +14,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 COPY app ./app
 COPY static ./static
 COPY templates ./templates
+COPY stock_sdk ./stock_sdk
 COPY run.py .
 COPY .env .env.example .env.development .env.production .env.testing ./
 COPY run.sh .

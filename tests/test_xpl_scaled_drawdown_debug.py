@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.debug_scaled_return_drawdown import (
+from tests.scripts.debug_scaled_return_drawdown import (
     build_metric_rows,
     compute_drawdown_rows,
     normalize_ratio,

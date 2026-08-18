@@ -158,7 +158,7 @@ node_modules/
 # Docker
 docker-compose.override.yml
 test
-scripts/
+tests/scripts/
 migrations/
 tests/
 dockers/

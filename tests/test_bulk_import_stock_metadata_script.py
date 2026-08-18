@@ -1,10 +1,8 @@
 import csv
 import json
-from pathlib import Path
 
-from app.extensions import db
 from app.models import StockMetadata
-from scripts import bulk_import_stock_metadata as bulk_import_script
+from tests.scripts import bulk_import_stock_metadata as bulk_import_script
 
 
 def test_bulk_import_stock_metadata_strips_table_prefix_columns(app_factory, tmp_path):
@@ -32,7 +30,7 @@ def test_bulk_import_stock_metadata_strips_table_prefix_columns(app_factory, tmp
             }
         )
 
-    from scripts.bulk_import_stock_metadata import import_stock_metadata_file
+    from tests.scripts.bulk_import_stock_metadata import import_stock_metadata_file
 
     with app.app_context():
         result = import_stock_metadata_file(csv_path)
@@ -60,7 +58,7 @@ def test_bulk_import_stock_metadata_supports_json_rows(app_factory, tmp_path):
         encoding="utf-8",
     )
 
-    from scripts.bulk_import_stock_metadata import import_stock_metadata_file
+    from tests.scripts.bulk_import_stock_metadata import import_stock_metadata_file
 
     with app.app_context():
         result = import_stock_metadata_file(json_path)

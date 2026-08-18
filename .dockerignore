@@ -40,5 +40,5 @@ docs/
 .gitignore
 logs/
 migrations/
-scripts/
+tests/scripts/
 

@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import asyncio
+import os
+from datetime import datetime, timedelta
 import logging
 from typing import Any, Callable, Iterable
+from stock_sdk import StockClient
 
 from app.utils.dfcf_api import DFCJStockApi
 
@@ -33,6 +36,7 @@ class KlineService:
 
     def __init__(self, dfcf_api: Any | None = None, qq_api: Any | None = None, yahoo_api: Any | None = None):
         self.dfcf_api = dfcf_api or DFCJStockApi()
+        self.stock_client = StockClient(base_url=os.environ.get("STOCK_BASE_URL", "http://172.18.20.20:8081"))
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
         self.sources: dict[str, Callable[[dict[str, Any]], Iterable[dict[str, Any]]]] = {
@@ -53,15 +57,152 @@ class KlineService:
             raise ValueError("数据源名称和处理函数不能为空")
         self.sources[source] = handler
 
+    @staticmethod
+    def get_stock_market(code):
+        """
+        A股股票代码映射市场后缀
+
+        Args:
+            code (str or int): 6位股票代码
+
+        Returns:
+            str: 带市场后缀的代码，如 "000001.SZ"
+
+        Examples:
+            >>> get_stock_market("000001")
+            '000001.SZ'
+            >>> get_stock_market(600000)
+            '600000.SH'
+            >>> get_stock_market("688001")
+            '688001.SH'
+        """
+        # 转为字符串并去除空格
+        code = str(code).strip()
+
+        # 如果长度不足6位，前面补0
+        code = code.zfill(6)
+
+        # 取前3位作为判断依据
+        prefix = code[:3]
+
+        # 深圳市场（主板、中小板、创业板）
+        sz_prefixes = ['000', '001', '002', '003', '004', '300']
+        if prefix in sz_prefixes:
+            return f"{code}.SZ"
+
+        # 上海市场（主板、科创板）
+        sh_prefixes = ['600', '601', '603', '605', '688', '689']
+        if prefix in sh_prefixes:
+            return f"{code}.SH"
+
+        # 北京证券交易所
+        bj_prefixes = ['830', '831', '832', '833', '834', '835', '836', '837', '838', '839',
+                       '870', '871', '872', '873', '874', '875', '876', '877', '878', '879',
+                       '880', '881', '882', '883', '884', '885', '886', '887', '888', '889']
+        if prefix in bj_prefixes:
+            return f"{code}.BJ"
+
+        # 退市股票
+        if prefix in ['400', '420']:
+            return f"{code}.退市"
+
+        # B股
+        if prefix == '900':
+            return f"{code}.SH"  # 沪市B股
+        if prefix == '200':
+            return f"{code}.SZ"  # 深市B股
+
+        # 未知代码
+        return f"{code}.未知"
+
     def read_internal_kline_data(self, **_kwargs: Any) -> list[dict[str, Any]]:
         """读取内置 K 线库的占位接口，接入数据库时覆盖此方法。"""
-        print("Reading internal kline data...")
-        return []
+        stock_code = _kwargs.get("stock_code")
 
-    def write_internal_kline_data(self, rows: list[dict[str, Any]], **_kwargs: Any) -> None:
+        if str(stock_code).isdigit():
+            data = self.stock_client.stock_data.get_data_all_list({
+                "begin_date": _kwargs.get("start_date"),
+                "stock_code": self.get_stock_market(stock_code),
+            })
+
+        else:
+            data = self.stock_client.stock_data_us.get_data_all_list({
+                "begin_date": _kwargs.get("start_date"),
+                "stock_code": stock_code,
+            })
+
+        data = [
+            {
+                "stock_date": raw.get("stock_date"),
+                "stock_code": raw.get("stock_code"),
+                "stock_name": raw.get("stock_name"),
+                "stock_kp": raw.get("stock_open"),
+                "stock_zg": raw.get("stock_max"),
+                "stock_zd": raw.get("stock_min"),
+                "stock_sp": raw.get("stock_close"),
+                "stock_cjl": raw.get("stock_volume"),
+                "stock_cje": raw.get("stock_volume_price")
+            } for raw in data.ret_obj
+        ]
+
+        return data
+
+    def write_internal_kline_data(self, rows: list[dict[str, Any]], **_kwargs: Any) -> list[Any]:
         """写入内置 K 线库的占位接口，接入数据库时覆盖此方法。"""
-        print("Writing internal kline data...")
-        return None
+        if _kwargs.get("adjust_type") != 'forward':
+            return []
+
+        stock_code = _kwargs.get("stock_code")
+        if str(stock_code).isdigit(): # A 股美股不同接口
+            stock_data = self.stock_client.stock_data
+
+            stock_code = self.get_stock_market(stock_code)
+        else:
+            stock_data = self.stock_client.stock_data_us
+
+        data = stock_data.get_data_all_list({
+            "begin_date": rows[0]["stock_date"],
+            "end_time": rows[7]["stock_date"],
+            "stock_code": stock_code,
+        })
+        data = data.ret_obj
+
+        if data:
+            rows = sorted(rows, key=lambda x: x["stock_date"],reverse=True)[:30]
+
+        # 创建异步任务
+        async def write_one(row):
+            data = {
+                "stock_code": stock_code,
+                "stock_name": row.get("stock_name"),
+                "stock_open": row.get("stock_kp"),
+                "stock_max": row.get("stock_zg"),
+                "stock_min": row.get("stock_zd"),
+                "stock_close": row.get("stock_sp"),
+                "stock_volume": row.get("stock_cjl"),
+                "stock_volume_price": row.get("stock_cje"),
+                "stock_limit": row.get("stock_zdf"),
+                "stock_limit_price": row.get("stock_zde"),
+                "stock_date": row.get("stock_date")
+            }
+            loop = asyncio.get_event_loop()
+            res = await loop.run_in_executor(None, stock_data.modify_or_add, data)
+            print(res, data)
+            return res
+
+        # 在 Flask 中获取当前事件循环
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # 如果没有事件循环，创建一个新的
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        # 并发执行所有任务
+        tasks = [write_one(row) for row in rows]
+        results = loop.run_until_complete(asyncio.gather(*tasks))
+        return results
+
 
     def get_kline_data(
         self,
