@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import httpx
+import requests
 
 from .api import bind_api_groups
 from .http_client import SyncHttpClient
@@ -21,12 +21,12 @@ class StockClient(SyncHttpClient):
         token: str | None = None,
         base_url: str = "http://172.18.20.20:8081",
         timeout: float = 10.0,
-        transport: httpx.BaseTransport | None = None,
+        session: requests.Session | None = None,
     ) -> None:
         super().__init__(
             token=token,
             base_url=base_url,
             timeout=timeout,
-            transport=transport,
+            session=session,
         )
         bind_api_groups(self)

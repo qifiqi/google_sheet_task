@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-import httpx
+import requests
 
 from .exceptions import ApiConnectionError, ApiHttpError, ApiResponseError, ApiTimeoutError
 from .model_base import SerializableModel
@@ -24,19 +24,15 @@ class SyncHttpClient:
         token: str | None = None,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = 10.0,
-        transport: httpx.BaseTransport | None = None,
+        session: requests.Session | None = None,
     ) -> None:
         if timeout <= 0:
             raise ValueError("timeout must be greater than zero")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.token = token
-        self._client = httpx.Client(
-            base_url=self.base_url,
-            timeout=timeout,
-            transport=transport,
-            headers={"Accept": "application/json"},
-        )
+        self._client = session if session is not None else requests.Session()
+        self._client.headers.update({"Accept": "application/json"})
 
     def request(
         self,
@@ -65,24 +61,25 @@ class SyncHttpClient:
         try:
             response = self._client.request(
                 method,
-                path,
+                f"{self.base_url}{path}",
                 params=filtered_params,
                 json=payload,
                 headers=headers,
+                timeout=self.timeout,
             )
-        except httpx.TimeoutException as error:
+        except requests.Timeout as error:
             raise ApiTimeoutError("Request timed out") from error
-        except httpx.RequestError as error:
+        except requests.RequestException as error:
             raise ApiConnectionError(str(error)) from error
         body = self._decode_body(response)
-        if response.is_error:
+        if response.status_code >= 400:
             raise ApiHttpError(response.status_code, body)
         if not isinstance(body, dict):
             raise ApiResponseError("Expected a JSON object response envelope")
         return ResponseDto.from_dict(body)
 
     @staticmethod
-    def _decode_body(response: httpx.Response) -> Any:
+    def _decode_body(response: requests.Response) -> Any:
         if not response.content:
             return {}
         try:
@@ -91,7 +88,7 @@ class SyncHttpClient:
             raise ApiResponseError("Response body is not valid JSON") from error
 
     def close(self) -> None:
-        """Close the underlying synchronous httpx client."""
+        """Close the underlying synchronous requests session."""
         self._client.close()
 
     def __enter__(self) -> "SyncHttpClient":

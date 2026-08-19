@@ -660,9 +660,9 @@ def bootstrap_app(app):
     initialize_logging()
 
     with app.app_context():
-        _initialize_database_schema()
+        # _initialize_database_schema()
         _recover_runtime_resources()
-        _initialize_system_metadata()
+        # _initialize_system_metadata()
 
     check_and_cleanup_dead_tasks(app)
     _start_background_components(app)

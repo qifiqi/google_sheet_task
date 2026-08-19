@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: google_task:1.0.2
+    image: google_task:1.0.4
     restart: unless-stopped
     init: true
     ports:
