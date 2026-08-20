@@ -1,15 +1,12 @@
 """认证与用户/角色/权限管理 API"""
-from flask import Blueprint, request, abort
+from datetime import datetime
+from flask import Blueprint, current_app, request
 from werkzeug.security import generate_password_hash, check_password_hash
 from app.models import NavigationMenuItem, Permission, Role, Task, User, db, role_permissions, user_roles
-from app.repositories.sdk_client import SdkDataAccessError, SdkOperationError
-from app.repositories.sys_user_repository import SysUserRepository
-from app.services.remote_identity_service import RemoteIdentityService
-# TODO: 用户、角色、权限及导航菜单等待远程 Identity/AccessControl 接口后再迁移。
 from app.navigation import sync_navigation_permissions
 from app.utils.auth import (
     create_access_token, create_refresh_token, decode_token,
-    login_required, permission_required,
+    login_required, permission_required, extract_token_version,
 )
 from app.utils.api_response import success, error
 import jwt
@@ -17,13 +14,6 @@ import jwt
 auth_api_bp = Blueprint('auth_api', __name__)
 legacy_identity_bp = Blueprint('legacy_identity', __name__)
 DEV_ROLE_CODES = {'developer'}
-
-
-@auth_api_bp.before_request
-def disable_local_identity_management():
-    """用户/RBAC 管理已移交主 Web，保留认证接口以兼容现有 JWT。"""
-    if request.path.startswith(('/api/admin/users', '/api/admin/roles', '/api/admin/permissions', '/api/auth/password')):
-        abort(404)
 
 
 def _is_dev_role(role):
@@ -45,61 +35,97 @@ def _can_alert_oncall(role_ids=None, user=None):
 
 @auth_api_bp.route('/auth/login', methods=['POST'])
 def login():
-    """使用主 Web 用户服务校验账号，并签发本地 JWT。"""
+    """默认校验本地用户；主 Web 网关开启时通过 sys_user 校验。"""
     data = request.get_json() or {}
     username = data.get('username', '').strip()
     password = data.get('password', '')
     if not username or not password:
         return error('用户名和密码不能为空')
 
-    try:
-        remote_record = SysUserRepository().login(username, password)
-    except SdkOperationError:
+    if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
+        # 网关登录实现保留为开关分支，后续无需恢复已删除的代码。
+        from app.repositories.sdk_client import SdkDataAccessError, SdkOperationError
+        from app.repositories.sys_user_repository import SysUserRepository
+        from app.services.remote_identity_service import RemoteIdentityService
+
+        try:
+            remote_record = SysUserRepository().login(username, password)
+        except SdkOperationError:
+            return error('用户名或密码错误', http_status=401)
+        except SdkDataAccessError:
+            return error('远程用户服务暂不可用', http_status=503)
+        if not remote_record:
+            return error('用户名或密码错误', http_status=401)
+        user_id = remote_record.get('userid', remote_record.get('id'))
+        if user_id is None:
+            return error('远程登录响应缺少用户标识', http_status=502)
+        user = RemoteIdentityService().get_user(user_id, username)
+        if not user:
+            return error('账号不存在或已禁用', http_status=401)
+        return success(data={
+            'access_token': create_access_token(user.id),
+            'refresh_token': create_refresh_token(user.id),
+            'user': user.to_dict(include_permissions=True),
+        })
+
+    user = User.query.filter_by(username=username).first()
+    if not user or not check_password_hash(user.password_hash, password):
         return error('用户名或密码错误', http_status=401)
-    except SdkDataAccessError:
-        return error('远程用户服务暂不可用', http_status=503)
-    if not remote_record:
-        return error('用户名或密码错误', http_status=401)
-    user_id = remote_record.get('userid', remote_record.get('id'))
-    if user_id is None:
-        return error('远程登录响应缺少用户标识', http_status=502)
-    user = RemoteIdentityService().get_user(user_id, username)
-    if not user:
-        return error('账号不存在或已禁用', http_status=401)
+    if not user.is_active:
+        return error('账号已被禁用')
+    user.token_version = int(user.token_version or 0) + 1
+    token_version = int(user.token_version or 0)
+    user.last_login = datetime.utcnow()
+    db.session.commit()
 
     return success(data={
-        'access_token': create_access_token(user.id),
-        'refresh_token': create_refresh_token(user.id),
+        'access_token': create_access_token(user.id, token_version=token_version),
+        'refresh_token': create_refresh_token(user.id, token_version=token_version),
         'user': user.to_dict(include_permissions=True),
     })
 
 
 @auth_api_bp.route('/auth/refresh', methods=['POST'])
 def refresh():
-    """校验刷新令牌后，为仍有效的远程用户换发访问令牌。"""
+    """默认校验本地刷新令牌；网关模式下校验远程用户仍可用。"""
     data = request.get_json() or {}
     token = data.get('refresh_token', '')
     try:
         payload = decode_token(token)
         if payload.get('type') != 'refresh':
             return error('令牌类型错误')
+        token_version = extract_token_version(payload)
     except jwt.ExpiredSignatureError:
         return error('刷新令牌已过期', http_status=401)
     except jwt.InvalidTokenError:
         return error('无效刷新令牌', http_status=401)
 
-    user_id = payload.get('user_id', payload.get('userid'))
-    if user_id is None:
-        return error('令牌缺少用户标识', http_status=401)
-    try:
-        user = RemoteIdentityService().get_user(user_id)
-    except SdkDataAccessError:
-        return error('远程用户服务暂不可用', http_status=503)
+    if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
+        from app.repositories.sdk_client import SdkDataAccessError
+        from app.services.remote_identity_service import RemoteIdentityService
+
+        user_id = payload.get('user_id', payload.get('userid'))
+        if user_id is None:
+            return error('令牌缺少用户标识', http_status=401)
+        try:
+            user = RemoteIdentityService().get_user(user_id)
+        except SdkDataAccessError:
+            return error('远程用户服务暂不可用', http_status=503)
+        if not user:
+            return error('用户不存在或已禁用', http_status=401)
+        return success(data={
+            'access_token': create_access_token(user.id),
+            'user': user.to_dict(include_permissions=True),
+        })
+
+    user = User.query.get(payload['user_id'])
     if not user:
         return error('用户不存在或已禁用', http_status=401)
+    if int(user.token_version or 0) != token_version:
+        return error('登录状态已失效，请重新登录', http_status=401)
 
     return success(data={
-        'access_token': create_access_token(user.id),
+        'access_token': create_access_token(user.id, token_version=int(user.token_version or 0)),
         'user': user.to_dict(include_permissions=True),
     })
 
@@ -116,7 +142,13 @@ def get_me():
 @auth_api_bp.route('/auth/logout', methods=['POST'])
 @login_required
 def logout():
-    """保留登出成功响应；JWT 无状态失效由客户端清除令牌完成。"""
+    """递增本地令牌版本，使当前登录态立即失效。"""
+    from flask import g
+    if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
+        return success(message='退出登录成功')
+    user = g.current_user
+    user.token_version = int(user.token_version or 0) + 1
+    db.session.commit()
     return success(message='退出登录成功')
 
 

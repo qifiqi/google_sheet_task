@@ -218,15 +218,16 @@ def _validate_navigation_payload(data, item_id=None):
     }, None
 
 
-@legacy_navigation_bp.route('/navigation-menu-items', methods=['GET'])
+@config_api_bp.route('/navigation-menu-items', methods=['GET'])
 @login_required
 @permission_required('navigation:view')
 def list_navigation_menu_items():
     """获取侧边栏路由表"""
-    return jsonify({"status": "error", "message": "本地路由表已停用，请使用 /api/navigation/menu"}), 404
+    items = NavigationMenuItem.query.order_by(NavigationMenuItem.sort_order, NavigationMenuItem.id).all()
+    return jsonify({"status": "success", "items": [_navigation_menu_payload(item) for item in items]})
 
 
-@legacy_navigation_bp.route('/navigation-menu-items', methods=['POST'])
+@config_api_bp.route('/navigation-menu-items', methods=['POST'])
 @login_required
 @permission_required('navigation:manage')
 def create_navigation_menu_item():
@@ -254,7 +255,7 @@ def create_navigation_menu_item():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@legacy_navigation_bp.route('/navigation-menu-items/<int:item_id>', methods=['PUT'])
+@config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['PUT'])
 @login_required
 @permission_required('navigation:manage')
 def update_navigation_menu_item(item_id):
@@ -285,7 +286,7 @@ def update_navigation_menu_item(item_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@legacy_navigation_bp.route('/navigation-menu-items/<int:item_id>', methods=['DELETE'])
+@config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['DELETE'])
 @login_required
 @permission_required('navigation:manage')
 def delete_navigation_menu_item(item_id):

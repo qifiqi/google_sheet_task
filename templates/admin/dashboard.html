@@ -314,7 +314,13 @@
         });
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
+    let dashboardInitialized = false;
+
+    function initDashboardPage() {
+        if (dashboardInitialized) {
+            return;
+        }
+        dashboardInitialized = true;
         loadDashboard(false);
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
             const interval = (data && data.config && data.config.dashboard_refresh_interval)
@@ -322,6 +328,15 @@
                 : 30000;
             dashboardRefreshTimer = setInterval(loadDashboard, interval);
         });
+    }
+
+    // 等 template-auth 完成本地 JWT 校验后再请求受保护接口，
+    // 避免切换登录模式或刷新令牌时产生抢跑 401。
+    document.addEventListener('template-auth-ready', initDashboardPage, { once: true });
+    document.addEventListener('DOMContentLoaded', function() {
+        if (document.body.classList.contains('template-auth-ready') || document.body.dataset.authEnabled === 'false') {
+            initDashboardPage();
+        }
     });
 </script>
 {% endblock %}

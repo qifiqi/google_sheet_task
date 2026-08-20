@@ -11,6 +11,7 @@
     let isRefreshing = false;
     let refreshPromise = null;
     let navItems = [];
+    let pagePermissions = [];
 
     const legacyPathMap = new Map([
         ["/admin", "/admin/"],
@@ -75,6 +76,7 @@
         currentUser = null;
         currentPermissions = [];
         navItems = [];
+        pagePermissions = [];
     }
 
     function isAuthEnabled() {
@@ -188,8 +190,17 @@
     }
 
     function hasPermission(code) {
-        // 本地 RBAC 已停用；页面可见性由本服务返回的 sys_model 菜单决定。
-        return true;
+        if (!code) {
+            return true;
+        }
+        // 本地接口权限仍由后端校验；页面权限用于前端入口可见性。
+        if (!String(code).startsWith("page:")) {
+            return true;
+        }
+        if (code === "task:any") {
+            return currentPermissions.some((permission) => String(permission).startsWith("task:"));
+        }
+        return currentPermissions.includes(code);
     }
 
     function hasAnyPermission(permissionList) {
@@ -209,7 +220,23 @@
     }
 
     function getPagePermissions() {
-        return [];
+        const datasetValue = (document.body?.dataset?.requiredPermissions || "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+        if (datasetValue.length) {
+            return datasetValue;
+        }
+        const pathname = window.location.pathname;
+        if (/^\/google-sheet(?:\/|$)/.test(pathname)) {
+            const path = `/google-sheet/?version=${new URLSearchParams(window.location.search).get("version") || "c3"}`;
+            const page = pagePermissions.find((item) => item.path === path);
+            return page ? [page.permission] : [];
+        }
+        const currentUrl = getCurrentUrl();
+        const page = pagePermissions.find((item) => item.path === currentUrl)
+            || pagePermissions.find((item) => normalizePath(item.path) === normalizePath(pathname));
+        return page ? [page.permission] : [];
     }
 
     function redirectToLogin() {
@@ -363,12 +390,14 @@
             };
             if (cloned.path) {
                 const legacyPath = resolveLegacyPath(cloned.path);
-                if (cloned.disabled || !cloned.available || !legacyPath || templateUnsupportedPaths.has(cloned.path)) {
+                if (cloned.disabled || cloned.available === false || !legacyPath || templateUnsupportedPaths.has(cloned.path)) {
                     cloned.path = "";
                     cloned.disabled = true;
                 } else {
                     cloned.path = legacyPath;
                 }
+                result.push(cloned);
+                return result;
             }
 
             if (Array.isArray(cloned.children)) {
@@ -504,11 +533,14 @@
     }
 
     async function loadNav() {
-        const payload = await requestJson("/api/navigation/menu", { method: "GET" });
+        const payload = await requestJson("/api/meta/nav", { method: "GET" });
         const navigationData = payload?.data || {};
         navItems = filterTemplateNav(
             Array.isArray(navigationData) ? navigationData : navigationData.items || []
         );
+        pagePermissions = Array.isArray(navigationData.page_permissions)
+            ? navigationData.page_permissions
+            : [];
         renderSidebarMenu(navItems);
         renderTopMenu(navItems);
     }

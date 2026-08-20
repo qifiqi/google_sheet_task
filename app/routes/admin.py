@@ -1,6 +1,6 @@
 from urllib.parse import quote
 
-from flask import Blueprint, Response, abort, current_app, g, jsonify, render_template, request
+from flask import Blueprint, Response, current_app, g, jsonify, render_template, request
 
 from app.extensions import db
 from app.services.model_summary_service import model_summary_service
@@ -19,12 +19,6 @@ legacy_admin_pages_bp = Blueprint('legacy_admin_pages', __name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
 _task_repository = TaskRepository()
 
-
-@admin_bp.before_request
-def disable_local_identity_pages():
-    """身份、RBAC 和本地路由表由主 Web 管理。"""
-    if request.path in {'/admin/users', '/admin/roles', '/admin/navigation'}:
-        abort(404)
 
 TASK_ACTION_LABELS = {
     "view": "查看",
@@ -85,7 +79,7 @@ def config():
     """配置管理页面"""
     return render_template('admin/config.html')
 
-@legacy_admin_pages_bp.route('/navigation')
+@admin_bp.route('/navigation')
 def navigation():
     """路由表管理页面"""
     return render_template('admin/navigation.html')
@@ -127,12 +121,12 @@ def scheduler():
     """定时任务管理页面"""
     return render_template('admin/scheduler.html')
 
-@legacy_admin_pages_bp.route('/users')
+@admin_bp.route('/users')
 def users():
     """用户管理页面"""
     return render_template('admin/users.html')
 
-@legacy_admin_pages_bp.route('/roles')
+@admin_bp.route('/roles')
 def roles():
     """角色管理页面"""
     return render_template('admin/roles.html')

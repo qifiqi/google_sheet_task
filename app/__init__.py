@@ -70,7 +70,9 @@ def create_app():
 
     @app.before_request
     def require_gateway_jwt():
-        """页面和接口共用 JWT 网关，静态资源与登录接口保持公开。"""
+        """按开关启用保留的主 Web JWT 网关；默认使用本地登录与 RBAC。"""
+        if not app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
+            return None
         if request.path.startswith('/static/') or request.path == '/login':
             return None
         if is_retired_local_identity_path(request.path):

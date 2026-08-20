@@ -69,6 +69,8 @@ class BaseConfig:
     # 用户范围的模型代码，不能以全量 sys_model 冒充权限。
     REMOTE_MODEL_ACCESS_ENFORCED = False
     REMOTE_MODEL_CODES_CLAIM = 'model_codes'
+    # 临时保持本地登录与路由表；切换为 true 后启用已保留的主 Web JWT 网关。
+    REMOTE_IDENTITY_GATEWAY_ENABLED = False
 
     BASE_URL = 'http://localhost:5000'
     TASK_TIMEOUT = 3600
@@ -105,6 +107,7 @@ class BaseConfig:
         cls.STOCK_API_TIMEOUT = _get_int('STOCK_API_TIMEOUT', 10)
         cls.REMOTE_MODEL_ACCESS_ENFORCED = _get_bool('REMOTE_MODEL_ACCESS_ENFORCED', False)
         cls.REMOTE_MODEL_CODES_CLAIM = os.environ.get('REMOTE_MODEL_CODES_CLAIM', 'model_codes').strip() or 'model_codes'
+        cls.REMOTE_IDENTITY_GATEWAY_ENABLED = _get_bool('REMOTE_IDENTITY_GATEWAY_ENABLED', False)
         cls.BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
         cls.TASK_TIMEOUT = _get_int('TASK_TIMEOUT', 3600)
         cls.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')

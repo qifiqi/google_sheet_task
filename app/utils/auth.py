@@ -4,10 +4,11 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import jwt
-from flask import request, g, jsonify
+from flask import current_app, request, g, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.services.config_manager import get_config_manager
+from app.extensions import db
 
 # 开发环境默认 secret 也保持 32+ 字节，避免 JWT 库抛出弱密钥长度告警。
 DEFAULT_JWT_SECRET = 'change-me-in-production-secure-key'
@@ -118,6 +119,8 @@ def _inject_mock_user():
     """AUTH_ENABLED=false 时注入一个拥有全部权限的 mock 用户，避免下游 g.current_user 报错"""
     if hasattr(g, 'current_user'):
         return
+    from app.models import Permission
+
     class _MockUser:
         id = 0
         username = 'anonymous'
@@ -126,8 +129,10 @@ def _inject_mock_user():
         _perms = None
 
         def get_permissions(self):
-            """为关闭认证时的模拟用户返回空权限集合。"""
-            return set()
+            """为关闭认证时的模拟用户返回全部本地权限。"""
+            if self._perms is None:
+                self._perms = {permission.code for permission in Permission.query.all()}
+            return self._perms
 
         def to_dict(self, include_permissions=False):
             """将关闭认证时的模拟用户转换为兼容响应字典。"""
@@ -147,10 +152,7 @@ def _inject_mock_user():
 
 
 def authenticate_current_request():
-    """校验当前 JWT，并通过 ``sys_user`` 解析令牌主体。
-
-    认证失败时返回 Flask 错误响应，成功时返回 ``None``。
-    """
+    """校验当前 JWT；默认解析本地 User，网关开关开启时解析 sys_user。"""
     if hasattr(g, 'current_user'):
         return None
     if not is_auth_enabled():
@@ -168,31 +170,40 @@ def authenticate_current_request():
     except jwt.InvalidTokenError:
         return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
 
-    user_id = payload.get('user_id', payload.get('userid'))
-    if user_id is None:
-        return jsonify({'code': 401, 'data': None, 'message': '令牌缺少用户标识'}), 401
     if payload.get('type') not in (None, 'access'):
         return jsonify({'code': 401, 'data': None, 'message': '令牌类型错误'}), 401
-    try:
-        from app.services.remote_identity_service import RemoteIdentityService
-        user = RemoteIdentityService().get_user(user_id, payload.get('username'))
-    except Exception:
-        return jsonify({'code': 401, 'data': None, 'message': '远程用户校验失败'}), 401
-    if not user:
-        return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
-
-    g.current_user = user
-    try:
-        from flask import current_app
+    if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
+        # 主 Web 网关逻辑保留在此；切换开关后无需重新改动路由装饰器。
+        user_id = payload.get('user_id', payload.get('userid'))
+        if user_id is None:
+            return jsonify({'code': 401, 'data': None, 'message': '令牌缺少用户标识'}), 401
+        try:
+            from app.services.remote_identity_service import RemoteIdentityService
+            user = RemoteIdentityService().get_user(user_id, payload.get('username'))
+        except Exception:
+            return jsonify({'code': 401, 'data': None, 'message': '远程用户校验失败'}), 401
+        if not user:
+            return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
+        g.current_user = user
         from app.services.model_access_service import set_current_model_codes
-
         claim_name = current_app.config.get('REMOTE_MODEL_CODES_CLAIM', 'model_codes')
         claimed_codes = payload.get(claim_name)
         if isinstance(claimed_codes, (list, tuple, set)):
             set_current_model_codes(claimed_codes)
-    except RuntimeError:
-        # Authentication can be used in a bare request context in unit tests.
-        pass
+        return None
+
+    try:
+        token_version = extract_token_version(payload)
+        user_id = payload['user_id']
+    except (KeyError, jwt.InvalidTokenError):
+        return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
+    from app.models import User
+    user = db.session.get(User, user_id)
+    if not user or not user.is_active:
+        return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
+    if int(user.token_version or 0) != token_version:
+        return jsonify({'code': 401, 'data': None, 'message': '登录状态已失效，请重新登录'}), 401
+    g.current_user = user
     return None
 
 
@@ -245,19 +256,14 @@ def login_required(f):
 #     return decorator
 
 def permission_required(*permission_codes):
-    """保留权限声明装饰器，当前实际访问范围由页面模型权限控制。"""
+    """保留接口权限声明；本地模式仍以路由表页面权限控制可见性。"""
     def decorator(f):
         """包装路由以保持既有权限装饰器调用形式。"""
         @wraps(f)
         def decorated(*args, **kwargs):
-            """执行被装饰路由；细粒度接口权限暂未启用。"""
-            # 接口权限定义和装饰器保留，当前仅以页面权限控制访问范围。
-            # 原接口鉴权代码：
-            # user = getattr(g, 'current_user', None)
-            # user_perms = user.get_permissions() if user else set()
-            # required_permissions = [code for code in permission_codes if code]
-            # if not any(code in user_perms for code in required_permissions):
-            #     return jsonify({'code': 403, 'data': None, 'message': '权限不足'}), 403
+            """执行路由；权限码用于菜单、页面和后续主 Web 权限映射。"""
+            # 原本地接口鉴权逻辑仍保留在上方注释中；旧版行为仅限制页面入口，
+            # 不对已登录用户的接口二次拦截，避免改变现有管理页调用方式。
             return f(*args, **kwargs)
         return decorated
     return decorator

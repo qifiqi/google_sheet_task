@@ -664,9 +664,10 @@ def _recover_runtime_resources():
 def _initialize_system_metadata():
     """幂等初始化运行必需的配置、RBAC 和导航元数据。"""
     init_config()
-    # 用户、角色、权限和导航由主 Web 提供；本地旧表保留用于兼容历史数据，
-    # 但启动时不再 seed 或同步，避免本地配置重新成为运行时权威来源。
-    logger.info('跳过本地 RBAC 和导航菜单初始化，使用主 Web sys_user/sys_model')
+    # 本地登录、RBAC 和导航表临时恢复；主 Web 网关相关服务仍保留，
+    # 后续将 REMOTE_IDENTITY_GATEWAY_ENABLED 设为 true 即可切回。
+    init_rbac()
+    init_navigation_menu()
 
 
 def _start_background_components(app):
