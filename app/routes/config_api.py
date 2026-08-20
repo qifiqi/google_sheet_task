@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app.services.config_manager import get_config_manager
-from app.models import NavigationMenuItem, SystemConfig, db
+from app.models import NavigationMenuItem, db
+from app.repositories.config_repository import SystemConfigRepository
 from app.navigation import sync_navigation_permissions
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
@@ -8,6 +9,12 @@ from app.utils.auth import login_required, permission_required
 logger = get_logger(__name__)
 
 config_api_bp = Blueprint('config_api', __name__)
+legacy_navigation_bp = Blueprint('legacy_navigation', __name__)
+
+
+def _system_config_repository():
+    """创建系统配置远程 CRUD 仓储，供路由的只读和普通写入调用。"""
+    return SystemConfigRepository()
 
 @config_api_bp.route('/config', methods=['GET'])
 @login_required
@@ -55,10 +62,12 @@ def validate_config():
     try:
         config_manager = get_config_manager()
 
-        db_configs = {}
-        configs = SystemConfig.query.all()
-        for config in configs:
-            db_configs[config.key] = config.value
+        # 以 SDK 返回的普通字典构造当前远端配置快照。
+        db_configs = {
+            config.get("key"): config.get("value")
+            for config in _system_config_repository().list_all()
+            if config.get("key")
+        }
 
         cache_configs = config_manager._cache.copy()
         gs_config = config_manager.get_google_sheet_config()
@@ -83,10 +92,11 @@ def validate_config():
 def list_system_configs():
     """获取 system_configs 配置列表"""
     try:
-        configs = SystemConfig.query.order_by(SystemConfig.key.asc()).all()
+        # 配置列表统一经 SDK 获取，不再直接查询 SystemConfig ORM 模型。
+        configs = _system_config_repository().list_all()
         return jsonify({
             "status": "success",
-            "configs": [c.to_dict() for c in configs]
+            "configs": configs
         })
     except Exception as e:
         logger.error(f"获取 system_configs 列表失败: {str(e)}")
@@ -103,30 +113,31 @@ def update_system_config(key):
         if 'value' not in data and 'description' not in data:
             return jsonify({"status": "error", "message": "缺少需要更新的字段"}), 400
 
-        cfg = SystemConfig.query.filter_by(key=key).first()
+        # 远端记录包含主键，更新时原样携带以保持 modify_or_add 的更新语义。
+        repository = _system_config_repository()
+        cfg = repository.get_by_key(key)
         if not cfg:
             return jsonify({"status": "error", "message": "配置不存在"}), 404
 
         if 'value' in data:
-            cfg.value = data.get('value')
+            cfg["value"] = data.get('value')
         if 'description' in data:
-            cfg.description = data.get('description')
-
-        db.session.commit()
+            cfg["description"] = data.get('description')
+        cfg = repository.save(cfg)
 
         try:
             get_config_manager().refresh_cache()
         except Exception as e:
             logger.warning(f"更新配置后刷新缓存失败: {e}")
 
-        return jsonify({"status": "success", "config": cfg.to_dict()})
+        return jsonify({"status": "success", "config": cfg})
     except Exception as e:
-        db.session.rollback()
         logger.error(f"更新 system_config 失败: key={key}, err={str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 def _navigation_menu_payload(item):
+    """将导航菜单模型转换为配置接口响应载荷。"""
     return {
         "id": item.id,
         "key": item.key,
@@ -142,6 +153,7 @@ def _navigation_menu_payload(item):
 
 
 def _coerce_bool(value, default=False):
+    """将请求值兼容转换为布尔值。"""
     if value is None:
         return default
     if isinstance(value, bool):
@@ -152,6 +164,7 @@ def _coerce_bool(value, default=False):
 
 
 def _coerce_sort_order(value):
+    """将排序字段转换为非负整数。"""
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -159,11 +172,13 @@ def _coerce_sort_order(value):
 
 
 def _normalize_blank(value):
+    """将空白文本规范为 ``None``。"""
     text = str(value or "").strip()
     return text or None
 
 
 def _validate_navigation_payload(data, item_id=None):
+    """校验导航菜单请求载荷及其父子关系约束。"""
     key = str(data.get("key") or "").strip()
     label = str(data.get("label") or "").strip()
     path = _normalize_blank(data.get("path"))
@@ -203,31 +218,20 @@ def _validate_navigation_payload(data, item_id=None):
     }, None
 
 
-@config_api_bp.route('/navigation-menu-items', methods=['GET'])
+@legacy_navigation_bp.route('/navigation-menu-items', methods=['GET'])
 @login_required
 @permission_required('navigation:view')
 def list_navigation_menu_items():
     """获取侧边栏路由表"""
-    try:
-        items = (
-            NavigationMenuItem.query
-            .order_by(NavigationMenuItem.parent_key.asc(), NavigationMenuItem.sort_order.asc(), NavigationMenuItem.id.asc())
-            .all()
-        )
-        return jsonify({
-            "status": "success",
-            "items": [_navigation_menu_payload(item) for item in items],
-        })
-    except Exception as e:
-        logger.error(f"获取导航菜单失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    return jsonify({"status": "error", "message": "本地路由表已停用，请使用 /api/navigation/menu"}), 404
 
 
-@config_api_bp.route('/navigation-menu-items', methods=['POST'])
+@legacy_navigation_bp.route('/navigation-menu-items', methods=['POST'])
 @login_required
 @permission_required('navigation:manage')
 def create_navigation_menu_item():
     """新增侧边栏路由表记录，默认不可见，避免新页面直接暴露"""
+    return jsonify({"status": "error", "message": "本地路由表已停用"}), 404
     try:
         data = request.get_json() or {}
         payload, error_message = _validate_navigation_payload(data)
@@ -250,11 +254,12 @@ def create_navigation_menu_item():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['PUT'])
+@legacy_navigation_bp.route('/navigation-menu-items/<int:item_id>', methods=['PUT'])
 @login_required
 @permission_required('navigation:manage')
 def update_navigation_menu_item(item_id):
     """更新侧边栏路由表记录"""
+    return jsonify({"status": "error", "message": "本地路由表已停用"}), 404
     try:
         item = db.session.get(NavigationMenuItem, item_id)
         if not item:
@@ -280,11 +285,12 @@ def update_navigation_menu_item(item_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['DELETE'])
+@legacy_navigation_bp.route('/navigation-menu-items/<int:item_id>', methods=['DELETE'])
 @login_required
 @permission_required('navigation:manage')
 def delete_navigation_menu_item(item_id):
     """删除侧边栏路由表记录"""
+    return jsonify({"status": "error", "message": "本地路由表已停用"}), 404
     try:
         item = db.session.get(NavigationMenuItem, item_id)
         if not item:

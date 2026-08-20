@@ -30,6 +30,7 @@ from sqlalchemy import and_, inspect, not_, or_
 from app.config import Config
 from app.extensions import db
 from app.models import Task, TaskLog
+from app.repositories.task_repository import TaskRepository
 from app.services.config_manager import get_config_manager
 from app.services.task import task_manager
 from app.utils.task_error_utils import (
@@ -39,7 +40,11 @@ from app.utils.task_error_utils import (
 )
 
 
+_task_repository = TaskRepository()
+
+
 def _get_watchdog_logger() -> logging.Logger:
+    """创建或复用带轮转文件处理器的看门狗专用日志器。"""
     logger = logging.getLogger("task_watchdog")
     if logger.handlers:
         return logger
@@ -96,11 +101,13 @@ class _WatchdogConfig:
 
     @property
     def effective_sleep_seconds(self) -> int:
+        """保证轮询间隔不会低于最小值，避免异常配置造成忙循环。"""
         return max(self.interval_seconds, MIN_SLEEP_SECONDS)
 
 
 class TaskWatchdog:
     def __init__(self):
+        """初始化后台线程控制、运行锁和失败重启次数缓存。"""
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -108,9 +115,11 @@ class TaskWatchdog:
         self._retry_restart_lock = threading.Lock()
 
     def is_running(self) -> bool:
+        """判断看门狗后台线程是否仍在运行。"""
         return self._thread is not None and self._thread.is_alive()
 
     def start(self, app):
+        """在同一进程内幂等启动一个绑定 Flask 应用上下文的看门狗线程。"""
         with self._lock:
             if self.is_running():
                 return
@@ -121,6 +130,7 @@ class TaskWatchdog:
             self._thread.start()
 
     def stop(self, timeout: float | None = 5.0):
+        """请求看门狗退出，并在指定时间内等待后台线程收尾。"""
         with self._lock:
             self._stop_event.set()
             t = self._thread
@@ -129,10 +139,12 @@ class TaskWatchdog:
             t.join(timeout=timeout)
 
     def _get_config(self, app, key: str, default):
+        """在应用上下文中读取单项运行配置。"""
         with app.app_context():
             return get_config_manager().get_config(key, default)
 
     def _load_runtime_config(self, app) -> _WatchdogConfig:
+        """读取并规范化本轮巡检所需的全部运行配置。"""
         return _WatchdogConfig(
             enabled=bool(self._get_config(app, "watchdog_enabled", True)),
             interval_seconds=int(
@@ -174,6 +186,7 @@ class TaskWatchdog:
         last_logged_config: _WatchdogConfig | None,
         config: _WatchdogConfig,
     ) -> _WatchdogConfig:
+        """仅在配置变化时记录快照，避免每轮巡检产生重复日志。"""
         if config != last_logged_config:
             logger.info(
                 "watchdog config applied: enabled=%s, interval_seconds=%s, "
@@ -209,6 +222,7 @@ class TaskWatchdog:
         return not thread.is_alive()
 
     def _read_prior_attempt_count(self, error_message: str | None) -> int:
+        """从历史错误摘要中解析已持久化的重启尝试次数。"""
         match = _ATTEMPT_PATTERN.search(str(error_message or ""))
         return int(match.group(1)) if match else 0
 
@@ -220,15 +234,15 @@ class TaskWatchdog:
         last_error: str,
     ) -> None:
         """重启次数耗尽: 把任务彻底标成 error 退出自动重试循环。"""
-        task = db.session.get(Task, task_id)
+        task = _task_repository.get(task_id)
         if task:
-            task.status = "error"
-            task.error_message = (
+            task["status"] = "error"
+            task["error_message"] = (
                 f"{WATCHDOG_ABANDON_PREFIX} (尝试 {attempts} 次, reason={reason}): "
                 f"{last_error}"
             )
-            task.end_time = datetime.now()
-            db.session.commit()
+            task["end_time"] = datetime.now()
+            _task_repository.save(task)
         message = (
             f"watchdog 已停止自动重启 (达到上限 {attempts} 次, reason={reason}), "
             "等待人工介入"
@@ -245,20 +259,24 @@ class TaskWatchdog:
         self._clear_cached_retry_attempts(task_id)
 
     def _read_cached_retry_attempts(self, task_id: str) -> int:
+        """在线程安全的本地缓存中读取错误任务的重启次数。"""
         with self._retry_restart_lock:
             return self._retry_restart_attempts.get(task_id, 0)
 
     def _increment_cached_retry_attempts(self, task_id: str) -> int:
+        """原子递增并返回错误任务的本地重启次数。"""
         with self._retry_restart_lock:
             attempt = self._retry_restart_attempts.get(task_id, 0) + 1
             self._retry_restart_attempts[task_id] = attempt
             return attempt
 
     def _set_cached_retry_attempts(self, task_id: str, attempts: int) -> None:
+        """写入非负的本地重启次数，供同进程后续巡检复用。"""
         with self._retry_restart_lock:
             self._retry_restart_attempts[task_id] = max(attempts, 0)
 
     def _clear_cached_retry_attempts(self, task_id: str) -> None:
+        """在任务恢复或放弃时移除其本地重试计数。"""
         with self._retry_restart_lock:
             self._retry_restart_attempts.pop(task_id, None)
 
@@ -269,6 +287,7 @@ class TaskWatchdog:
         *,
         persisted_attempts: int = 0,
     ) -> tuple[int | None, int]:
+        """计算下一次重启序号；超过上限时返回空序号。"""
         prior_attempts = max(
             self._read_cached_retry_attempts(task_id),
             persisted_attempts,
@@ -283,7 +302,8 @@ class TaskWatchdog:
     def _prepare_task_for_force_restart(
         self, task_id: str, reason: str
     ) -> Task | None:
-        task = db.session.get(Task, task_id)
+        """释放旧运行资源并重置任务状态，为强制重启准备干净上下文。"""
+        task = _task_repository.get(task_id)
         if not task:
             logger.warning("watchdog force restart skipped, task missing: %s", task_id)
             return None
@@ -295,7 +315,7 @@ class TaskWatchdog:
         task.status = "pending"
         task.error_message = None
         task.end_time = None
-        db.session.commit()
+        _task_repository.save(task)
 
         task_manager.add_task_log(
             task_id,
@@ -312,27 +332,24 @@ class TaskWatchdog:
         max_attempts: int,
         message: str,
     ) -> None:
-        task = db.session.get(Task, task_id)
+        """记录强制重启启动失败，并保留可供下一轮识别的失败标记。"""
+        task = _task_repository.get(task_id)
         if task:
-            task.status = "cancelled"
-            task.error_message = (
+            task["status"] = "cancelled"
+            task["error_message"] = (
                 f"{WATCHDOG_RESTART_PREFIX} attempt={attempt}/{max_attempts} "
                 f"reason={reason}: {message}"
             )
-            task.end_time = datetime.now()
-            db.session.commit()
+            task["end_time"] = datetime.now()
+            _task_repository.save(task)
         task_manager.add_task_log(task_id, "error", message)
 
     def _mark_restart_running(self, task_id: str) -> None:
         """同步发布已成功重启的运行状态，供页面立即读取。"""
-        Task.query.filter(
-            Task.id == task_id,
-            Task.status == "pending",
-        ).update(
-            {"status": "running"},
-            synchronize_session=False,
-        )
-        db.session.commit()
+        task = _task_repository.get(task_id)
+        if task and task.status == "pending":
+            task.status = "running"
+            _task_repository.save(task)
 
     def _restart_task_with_reason(
         self,
@@ -341,13 +358,14 @@ class TaskWatchdog:
         wait_seconds: int = DEFAULT_FORCE_RESTART_WAIT_SECONDS,
         max_attempts: int = DEFAULT_MAX_RESTART_ATTEMPTS,
     ) -> None:
+        """停止旧线程、释放资源并尝试从断点强制重新启动任务。"""
         if not has_app_context():
             task_manager.cancel_task(task_id)
             task_manager.restart_task(task_id, resume_from_checkpoint=True)
             return
 
         try:
-            task = db.session.get(Task, task_id)
+            task = _task_repository.get(task_id)
             if not task:
                 return
             attempt, prior_attempts = self._next_restart_attempt(
@@ -459,6 +477,7 @@ class TaskWatchdog:
             )
 
     def _classify_error_restart_reason(self, error_message: str) -> str:
+        """根据错误前缀区分网络、表格执行和普通异常的重启原因。"""
         if error_message.startswith(NETWORK_ERROR_PREFIX):
             return REASON_RETRYABLE_NETWORK_ERROR
         if error_message.startswith(
@@ -468,6 +487,7 @@ class TaskWatchdog:
         return REASON_TASK_ERROR
 
     def _prefix_for_restart_failure_reason(self, reason: str) -> str:
+        """为重启失败摘要选择与原始错误类别匹配的稳定前缀。"""
         if reason == REASON_RETRYABLE_NETWORK_ERROR:
             return NETWORK_ERROR_PREFIX
         if reason == REASON_RETRYABLE_GOOGLE_SHEET_EXECUTION_ERROR:
@@ -483,16 +503,17 @@ class TaskWatchdog:
         original_error: str,
         message: str,
     ) -> None:
-        task = db.session.get(Task, task_id)
+        """将自动重启失败写回错误任务，保留原始异常和本次尝试信息。"""
+        task = _task_repository.get(task_id)
         prefix = self._prefix_for_restart_failure_reason(reason)
         if task:
-            task.status = "error"
-            task.error_message = (
+            task["status"] = "error"
+            task["error_message"] = (
                 f"{prefix} watchdog_restart_failed attempt={attempt}/{max_attempts} "
                 f"reason={reason}: {message}; original_error={original_error}"
             )
-            task.end_time = datetime.now()
-            db.session.commit()
+            task["end_time"] = datetime.now()
+            _task_repository.save(task)
         task_manager.add_task_log(task_id, "error", message)
 
     def _restart_error_task(
@@ -501,9 +522,10 @@ class TaskWatchdog:
         reason: str,
         max_attempts: int,
     ) -> None:
+        """对 error 状态任务执行带次数上限的断点重启。"""
         inspected = inspect(task)
         task_id = inspected.identity[0] if inspected.identity else task.id
-        current_task = db.session.get(Task, task_id)
+        current_task = _task_repository.get(task_id)
         if not current_task:
             logger.warning("watchdog error restart skipped, task missing: %s", task_id)
             return
@@ -589,6 +611,7 @@ class TaskWatchdog:
         reason: str,
         max_attempts: int,
     ) -> None:
+        """复用普通错误任务重启流程处理可恢复错误。"""
         self._restart_error_task(task, reason, max_attempts)
 
     def _has_task_exceeded_log_timeout(
@@ -598,6 +621,7 @@ class TaskWatchdog:
         log_timeout_minutes: int,
         now: datetime,
     ) -> tuple[bool, str | None]:
+        """根据最近日志或启动时间判断运行任务是否超过静默阈值。"""
         if latest_log:
             minutes_since_last_log = (now - latest_log.timestamp).total_seconds() / 60
             if minutes_since_last_log > log_timeout_minutes:
@@ -625,6 +649,7 @@ class TaskWatchdog:
         return False, None
 
     def _process_watched_task(self, task: Task, config: _WatchdogConfig) -> None:
+        """按任务状态选择取消重试、异常重启或日志超时检查路径。"""
         error_message = str(task.error_message or "")
 
         if task.status == "cancelled":
@@ -669,6 +694,7 @@ class TaskWatchdog:
             )
             return
 
+        # TODO: 最近日志按 task_id 查询等待 ParamTaskLogs/Query，禁止 SDK 全表筛选。
         latest_log = (
             TaskLog.query.filter_by(task_id=task.id)
             .order_by(TaskLog.timestamp.desc())
@@ -689,6 +715,8 @@ class TaskWatchdog:
             )
 
     def _fetch_watched_tasks(self) -> list[Task]:
+        """在数据库侧筛选近期需要看门狗处理的任务集合。"""
+        # TODO: 看门狗按时间/状态筛选等待 ParamTasks/Query，当前保留 SQL 下推筛选。
         created_cutoff = datetime.now() - timedelta(
             days=WATCHED_TASK_CREATED_WITHIN_DAYS
         )
@@ -712,6 +740,8 @@ class TaskWatchdog:
         ).all()
 
     def _prune_retry_attempt_cache(self) -> None:
+        """清除不再处于近期活跃窗口内任务的本地重试记录。"""
+        # TODO: 活跃任务 ID 筛选等待 ParamTasks/Query，不能改为 SDK 全表扫描。
         created_cutoff = datetime.now() - timedelta(
             days=WATCHED_TASK_CREATED_WITHIN_DAYS
         )
@@ -730,6 +760,7 @@ class TaskWatchdog:
                 self._retry_restart_attempts.pop(task_id, None)
 
     def _run(self, app):
+        """运行后台巡检循环，动态加载配置并隔离单轮异常。"""
         last_logged_config: _WatchdogConfig | None = None
 
         while not self._stop_event.is_set():

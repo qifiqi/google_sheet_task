@@ -6,7 +6,7 @@ C7_PERCENT_LEVERAGE_CELLS = frozenset({"D22", "D24", "D25"})
 
 
 def normalize_c7_result_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
-    """Normalize C7 formatted values to the C5 metric units."""
+    """将 C7 格式化指标值规范为 C5 指标单位。"""
     normalized = dict(metrics)
     for cell in C7_RAW_PERCENT_CELLS:
         value = normalized.get(cell)

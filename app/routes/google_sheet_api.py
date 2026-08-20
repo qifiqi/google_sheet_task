@@ -2,7 +2,9 @@ import time
 
 from flask import Blueprint, redirect, request, jsonify, url_for
 
-from app.models import GoogleSheetToken, GoogleSheetTableType, db
+from app.models import GoogleSheetTableType, db
+from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepository
+from app.repositories.sdk_client import SdkFilterUnavailableError
 from app.services.google_sheet_registry_service import get_google_sheet_registry_service
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_token_service import get_google_sheet_token_service, RANDOM_TOKEN_VALUE
@@ -15,6 +17,11 @@ google_sheet_api_bp = Blueprint('google_sheet_api', __name__)
 
 _worksheets_cache = {}
 _WORKSHEETS_CACHE_TTL = 5 * 24 * 60 * 60
+
+
+def _google_sheet_token_repository():
+    """创建 Token 远程 CRUD 仓储，供无状态的删除操作使用。"""
+    return GoogleSheetTokenRepository()
 
 
 def _get_worksheets_with_cache(spreadsheet_id: str, token_file: str, proxy_url: str | None):
@@ -118,7 +125,6 @@ def google_sheets():
     except ValueError as e:
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
-        db.session.rollback()
         logger.error(f"处理 Google Sheet 列表接口失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -153,7 +159,6 @@ def google_sheet_detail(sheet_id):
     except ValueError as e:
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
-        db.session.rollback()
         logger.error(f"处理 Google Sheet 详情接口失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -171,6 +176,9 @@ def list_google_sheet_tokens():
             "tokens": get_google_sheet_token_service().list_tokens(task_type=task_type),
             "summary": get_google_sheet_token_service().get_usage_summary()
         })
+    # SDK 未声明 task_type 筛选能力时，明确告知调用端不能安全地执行该请求。
+    except SdkFilterUnavailableError as e:
+        return jsonify({"status": "error", "message": str(e)}), 501
     except Exception as e:
         logger.error(f"获取Google Sheet Token列表失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -208,7 +216,6 @@ def google_sheet_token_detail(token_id):
     except ValueError as e:
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
-        db.session.rollback()
         logger.error(f"处理Google Sheet Token详情失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -217,7 +224,7 @@ def google_sheet_token_detail(token_id):
 @login_required
 @permission_required('google_sheet:manage')
 def import_google_sheet_token():
-    """Add or import a Google Sheet token"""
+    """新增或导入 Google Sheet Token。"""
     try:
         data = request.get_json() or {}
         token_file = (data.get('token_file') or '').strip()
@@ -255,15 +262,14 @@ def import_google_sheet_token():
 def delete_google_sheet_token(token_id):
     """删除 Google Sheet Token"""
     try:
-        token = GoogleSheetToken.query.get(token_id)
+        # 普通删除直接走远程 CRUD；运行态占用相关逻辑不在此接口处理。
+        token = _google_sheet_token_repository().get(token_id)
         if not token:
             return jsonify({"status": "error", "message": "Token不存在"}), 404
 
-        db.session.delete(token)
-        db.session.commit()
+        _google_sheet_token_repository().delete(token_id)
         return jsonify({"status": "success", "message": "Token删除成功"})
     except Exception as e:
-        db.session.rollback()
         logger.error(f"删除Google Sheet Token失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 

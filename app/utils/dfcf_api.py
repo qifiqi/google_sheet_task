@@ -27,12 +27,14 @@ class DFCJStockApi:
     """
 
     def __init__(self):
+        """初始化独立 HTTP 会话与智能代理管理器。"""
         self.ut_fixed = None
         self.logger = get_logger(self.__class__.__name__)
         self.proxy_manager = get_smart_proxy_manager(self.logger)
         self._reset_session()
 
     def _reset_session(self):
+        """关闭旧会话并重建不继承环境代理的东方财富请求会话。"""
         if getattr(self, "session", None) is not None:
             try:
                 self.session.close()
@@ -44,6 +46,7 @@ class DFCJStockApi:
         self.session.headers.update(self._generate_headers())
 
     def _refresh_proxy_after_failure(self, exc):
+        """代理请求失败后重建会话、作废旧代理并触发代理刷新。"""
         self._reset_session()
         self.proxy_manager.invalidate_proxy()
         try:
@@ -53,6 +56,7 @@ class DFCJStockApi:
         self.logger.warning("DFCF代理请求失败，已重建会话并尝试刷新代理: %s", exc)
 
     def _generate_headers(self, referer=None):
+        """生成模拟浏览器的请求头，并按需补充来源页。"""
         headers = {
             "Accept": "*/*",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
@@ -70,6 +74,7 @@ class DFCJStockApi:
         return headers
 
     def _should_use_proxy_for_kline(self):
+        """读取运行配置，决定 K 线请求是否经由代理发送。"""
         raw_value = get_config_manager().get_config("dfcf_kline_proxy_enabled", "false")
         if isinstance(raw_value, bool):
             return raw_value
@@ -82,6 +87,7 @@ class DFCJStockApi:
         reraise=True,
     )
     def __get(self, *args, **kwargs):
+        """执行带指数退避重试的 GET 请求，并处理代理失效恢复。"""
         use_proxy = bool(kwargs.pop("use_proxy", False))
         headers = kwargs.pop("headers", None)
         if headers is None:
@@ -109,6 +115,7 @@ class DFCJStockApi:
         return response
 
     def get_stock_kline_data(self, stock_code, stock_type, limit=100, kline_type="101", adjust_type=None):
+        """通过东方财富接口读取指定股票的 K 线数据。"""
         try:
             url = self._build_eastmoney_url(stock_type, stock_code, limit, kline_type, adjust_type)
             if not url:
@@ -138,16 +145,19 @@ class DFCJStockApi:
             raise
 
     def generate_wbp2u(self):
+        """生成东方财富请求所需的随机 wbp2u 标识。"""
         timestamp = int(time.time() * 1000) * 1000 + random.randint(0, 9999)
         return f"{timestamp}|0|1|0|web"
 
     def get_ut(self, use_random=False):
+        """生成或返回东方财富请求所需的 ut 参数。"""
         if use_random:
             raw_string = f"{time.time()}{random.random()}"
             return hashlib.md5(raw_string.encode()).hexdigest()
         return self.ut_fixed
 
     def _build_eastmoney_url(self, stock_type, stock_code, limit, kline_type="101", adjust_type=None):
+        """按东方财富 K 线协议拼装包含复权参数的请求地址。"""
         base_url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
         ut = self.get_ut(True)
         secid = f"{stock_type}.{stock_code}"
@@ -170,6 +180,7 @@ class DFCJStockApi:
         return built
 
     def _parse_kline_data(self, line, stock_code):
+        """解析东方财富逗号分隔 K 线行，并补充成交额加权均价。"""
         try:
             data = line.split(",")
             if len(data) < 10:
@@ -202,6 +213,7 @@ class DFCJStockApi:
             return None
 
     def get_search_list_by_stock_code(self, stock, page_size=20):
+        """按股票代码或名称搜索东方财富股票候选项。"""
         normalized_page_size = max(1, min(int(page_size or 20), 20))
 
         rows = self._search_codetable(stock, normalized_page_size)
@@ -214,6 +226,7 @@ class DFCJStockApi:
         return fallback_rows
 
     def _search_codetable(self, stock, page_size):
+        """调用 codetable 搜索并标准化候选股票字段。"""
         try:
             url = "https://search-codetable.eastmoney.com/codetable/search/web"
             params = {
@@ -278,6 +291,7 @@ class DFCJStockApi:
             return []
 
     def _search_suggest(self, stock, page_size):
+        """在 codetable 无结果时调用 suggest 接口作为兼容回退。"""
         try:
             url = "https://searchapi.eastmoney.com/api/suggest/get"
             params = {

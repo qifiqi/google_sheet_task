@@ -92,6 +92,7 @@ class TaskLogger:
     """任务专用日志记录器，自动添加任务ID前缀"""
     
     def __init__(self, task_id: str, logger_name: str = None):
+        """创建携带任务短 ID 前缀的日志包装器。"""
         self.task_id = task_id
         self.logger = get_logger(logger_name or __name__)
         self.prefix = f"[Task-{task_id[:8]}]"  # 使用任务ID前8位作为前缀

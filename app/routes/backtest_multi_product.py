@@ -16,7 +16,10 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import load_only
 
 from app.extensions import db
-from app.models import Task, TaskResult, TaskResultReturn
+from app.models import TaskResult
+from app.repositories.task_repository import TaskRepository
+from app.repositories.task_result_repository import TaskResultRepository
+from app.repositories.task_result_return_repository import TaskResultReturnRepository
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
@@ -32,6 +35,9 @@ from app.utils.task_authorization import authorize_task_type_action, normalize_t
 
 bp = Blueprint("backtest_multi_product", __name__, url_prefix="/backtest-multi-product")
 legacy_bp = Blueprint("backtest_multi_product_legacy", __name__, url_prefix="/backtest-multi")
+_task_repository = TaskRepository()
+_task_result_repository = TaskResultRepository()
+_task_result_return_repository = TaskResultReturnRepository()
 
 TASK_ACTION_LABELS = {
     "view": "查看",
@@ -42,6 +48,7 @@ BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS = 10
 
 
 def _sanitize_json_value(value):
+    """将回测结果中的复杂值转换为 JSON 可序列化内容。"""
     if isinstance(value, float):
         return value if value == value and value not in (float("inf"), float("-inf")) else None
     if isinstance(value, dict):
@@ -52,10 +59,12 @@ def _sanitize_json_value(value):
 
 
 def _strip_html_tags(value):
+    """移除导出文本中的 HTML 标签。"""
     return re.sub(r"<[^>]+>", "", str(value or "")).strip()
 
 
 def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None):
+    """构造多品回测任务权限不足时的统一接口响应。"""
     action_label = TASK_ACTION_LABELS.get(action, action)
     normalized_type = decision.get("task_type") or str(task_type or "unknown")
     missing_permissions = decision.get("missing_permissions") or []
@@ -73,7 +82,8 @@ def _task_permission_denied(action: str, task_type: str | None, decision: dict, 
 
 
 def _load_multi_product_task_or_response(task_id: str, action: str = "view"):
-    task = db.session.get(Task, task_id)
+    """读取多品回测任务，并在缺失或无权限时直接返回错误响应。"""
+    task = _task_repository.get(task_id)
     if not task:
         return None, (jsonify({"status": "error", "message": "任务不存在"}), 404)
 
@@ -92,6 +102,7 @@ def _load_multi_product_task_or_response(task_id: str, action: str = "view"):
 
 
 def _parse_json(raw, default):
+    """安全解析 JSON 文本；格式无效时返回调用方默认值。"""
     if isinstance(raw, (dict, list)):
         return raw
     try:
@@ -101,6 +112,7 @@ def _parse_json(raw, default):
 
 
 def _infer_product_export_model_name(product):
+    """从产品配置推断导出文件使用的模型名称。"""
     if not isinstance(product, dict):
         return "C3"
 
@@ -114,12 +126,14 @@ def _infer_product_export_model_name(product):
 
 
 def _build_excel_download_name(task_name, fallback_id: str) -> str:
+    """为单任务 Excel 导出生成安全且可读的下载文件名。"""
     safe_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(task_name or "").strip())
     safe_name = safe_name.rstrip(" .")
     return f"{safe_name or fallback_id}.xlsx"
 
 
 def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: set[str]) -> str:
+    """生成 ZIP 内唯一的 Excel 成员文件名。"""
     filename = _build_excel_download_name(task_name, fallback_id)
     if filename not in used_names:
         used_names.add(filename)
@@ -136,6 +150,7 @@ def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: 
 
 
 def _validate_batch_global_preview_task_ids(raw_task_ids):
+    """校验批量全局预览导出传入的任务 ID 列表。"""
     if not isinstance(raw_task_ids, list) or not raw_task_ids:
         return None, (jsonify({"status": "error", "message": "请选择至少一个任务"}), 400)
 
@@ -154,6 +169,7 @@ def _validate_batch_global_preview_task_ids(raw_task_ids):
 
 
 def _parse_excel_percent_text(value: str) -> float | None:
+    """解析 Excel 单元格中的百分比文本。"""
     text = value.strip().replace(",", "").replace("$", "")
     if not text.endswith("%"):
         return None
@@ -170,6 +186,7 @@ def _parse_excel_percent_text(value: str) -> float | None:
 
 
 def _format_excel_data_cell(cell):
+    """为导出单元格设置文本、数值或百分比显示格式。"""
     if not isinstance(cell.value, str):
         return
 
@@ -183,30 +200,37 @@ def _format_excel_data_cell(cell):
 
 @bp.route("/create")
 def create_page():
+    """渲染多品回测任务创建页面。"""
     return render_template("backtest_multi_product/create.html")
 
 
 @bp.route("/list")
 def list_page():
+    """渲染多品回测任务列表页面。"""
     return render_template("backtest_multi_product/list.html")
 
 
 @bp.route("/detail/<task_id>")
 def detail_page(task_id):
+    """渲染指定多品回测任务的详情页面。"""
     return render_template("backtest_multi_product/detail.html", task_id=task_id)
 
 
 @bp.route("/global-preview/<task_id>")
 def global_preview_page(task_id):
+    """渲染指定多品回测任务的全局预览页面。"""
     return render_template("backtest_multi_product/global_preview.html", task_id=task_id)
 
 
 @bp.route("/result/<int:result_id>")
 def result_page(result_id):
-    task_result = db.session.get(TaskResult, result_id)
+    """渲染指定多品回测结果的详情页面。"""
+    task_result = _task_result_repository.get(result_id)
     task_id = ""
-    if task_result and task_result.task and normalize_task_type(task_result.task.task_type) == BACKTEST_MULTI_PRODUCT_TASK_TYPE:
-        task_id = task_result.task_id
+    if task_result:
+        task = _task_repository.get(task_result.get("task_id"))
+        if task and normalize_task_type(task.task_type) == BACKTEST_MULTI_PRODUCT_TASK_TYPE:
+            task_id = task_result.task_id
     return render_template("backtest_multi_product/result.html", result_id=result_id, task_id=task_id)
 
 
@@ -221,6 +245,7 @@ legacy_bp.add_url_rule("/result/<int:result_id>", view_func=result_page)
 @login_required
 @permission_required("backtest:create")
 def import_excel():
+    """导入多品回测任务使用的 Excel 配置。"""
     excel_file = request.files.get("file")
     if not excel_file or not excel_file.filename:
         return jsonify({"status": "error", "message": "请先上传 Excel 文件"}), 400
@@ -238,6 +263,7 @@ def import_excel():
 @login_required
 @permission_required("backtest:view")
 def search_stocks():
+    """按关键词搜索可添加到多品回测的股票。"""
     keyword = (request.args.get("q") or "").strip()
     page_size = request.args.get("page_size", default=10, type=int) or 10
     page_size = max(1, min(page_size, 20))
@@ -279,7 +305,6 @@ def search_stocks():
         }
         for item in normalized_results
     ])
-    db.session.commit()
 
     return jsonify({"status": "success", "keyword": keyword, "results": normalized_results})
 
@@ -288,6 +313,7 @@ def search_stocks():
 @login_required
 @permission_required("backtest:view")
 def get_task_results_by_task_id(task_id):
+    """返回指定多品任务的结果列表，并校验查看权限。"""
     _, error_response = _load_multi_product_task_or_response(task_id, action="view")
     if error_response:
         return error_response
@@ -339,7 +365,8 @@ def get_task_results_by_task_id(task_id):
 @login_required
 @permission_required("backtest:view")
 def get_task_result_detail(task_result_id):
-    task_result = db.session.get(TaskResult, task_result_id)
+    """返回一条多品回测结果的详细数据。"""
+    task_result = _task_result_repository.get(task_result_id)
     if not task_result:
         return jsonify({"status": "error", "message": "任务结果不存在"}), 404
     task, error_response = _load_multi_product_task_or_response(task_result.task_id, action="view")
@@ -372,7 +399,7 @@ def get_task_result_detail(task_result_id):
 
     daily_returns = {}
     if task_result.return_series_id:
-        return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
+        return_series = _task_result_return_repository.get(task_result.return_series_id)
         if return_series and return_series.returns_json:
             parsed_returns = _parse_json(return_series.returns_json, {})
             if isinstance(parsed_returns, dict):
@@ -402,6 +429,7 @@ def get_task_result_detail(task_result_id):
 @login_required
 @permission_required("backtest:view")
 def get_global_preview(task_id):
+    """返回多品回测任务的全局预览数据。"""
     _, error_response = _load_multi_product_task_or_response(task_id, action="view")
     if error_response:
         return error_response
@@ -415,6 +443,7 @@ def get_global_preview(task_id):
 @login_required
 @permission_required("backtest:view")
 def calculate_ratios(task_id):
+    """根据任务当前产品配置计算建议比例。"""
     _, error_response = _load_multi_product_task_or_response(task_id, action="view")
     if error_response:
         return error_response
@@ -435,6 +464,7 @@ def calculate_ratios(task_id):
 @login_required
 @permission_required("backtest:create")
 def update_ratios(task_id):
+    """更新多品回测任务中各产品的比例配置。"""
     task, error_response = _load_multi_product_task_or_response(task_id, action="create")
     if error_response:
         return error_response
@@ -454,13 +484,13 @@ def update_ratios(task_id):
     except ValueError as exc:
         return jsonify({"status": "error", "message": str(exc)}), 400
 
-    task.config = json.dumps(config, ensure_ascii=False)
-    db.session.commit()
+    _task_repository.save({**task.to_dict(), "config": config})
     payload = build_multi_product_global_preview_payload(task_id)
     return jsonify({"status": "success", "message": "比例已保存", **_sanitize_json_value(payload or {})})
 
 
 def _build_global_preview_workbook(payload: dict[str, object]):
+    """将多品回测全局预览载荷转换为 Excel 工作簿。"""
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "多品全局预览"
@@ -552,6 +582,7 @@ def _build_global_preview_workbook(payload: dict[str, object]):
 @login_required
 @permission_required("backtest:view")
 def export_global_preview(task_id):
+    """导出单个多品回测任务的全局预览工作簿。"""
     _, error_response = _load_multi_product_task_or_response(task_id, action="view")
     if error_response:
         return error_response
@@ -586,6 +617,7 @@ def export_global_preview(task_id):
 @login_required
 @permission_required("backtest:view")
 def batch_export_global_preview():
+    """将多个多品回测任务的预览工作簿打包导出。"""
     data = request.get_json(silent=True) or {}
     task_ids, error_response = _validate_batch_global_preview_task_ids(data.get("task_ids"))
     if error_response:

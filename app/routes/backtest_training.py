@@ -8,6 +8,8 @@ from flask import Blueprint, current_app, jsonify, render_template, request, sen
 from sqlalchemy.orm import load_only
 from app.extensions import db
 from app.models import Task, TaskResult
+from app.repositories.task_repository import TaskRepository
+from app.repositories.task_result_repository import TaskResultRepository
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_training_api_service import _sanitize_json_value, _strip_html_tags, \
     _load_backtest_task_or_response, _load_backtest_task_result_or_response, _build_backtest_result_export_data, \
@@ -22,39 +24,49 @@ from app.utils.task_authorization import authorize_task_type_action, normalize_t
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
 legacy_bp = Blueprint("backtest_training_legacy", __name__, url_prefix="/backtest")
+_task_repository = TaskRepository()
+_task_result_repository = TaskResultRepository()
 
 
 @bp.route("/create")
 def create_page():
+    """渲染单品回测任务创建页面。"""
     return render_template("backtest_training/create.html")
 
 
 @bp.route("/list")
 def list_page():
+    """渲染单品回测任务列表页面。"""
     return render_template("backtest_training/list.html")
 
 
 @bp.route("/detail/<task_id>")
 def detail_page(task_id):
+    """渲染指定单品回测任务的详情页面。"""
     return render_template("backtest_training/detail.html", task_id=task_id)
 
 
 @bp.route("/global-preview/<task_id>")
 def global_preview_page(task_id):
+    """渲染指定任务的全局预览页面。"""
     return render_template("backtest_training/global_preview.html", task_id=task_id)
 
 
 @bp.route("/result/<int:result_id>")
 def result_page(result_id):
-    task_result = TaskResult.query.get(result_id)
+    """渲染指定单品回测结果的详情页面。"""
+    task_result = _task_result_repository.get(result_id)
     task_id = ""
-    if task_result and task_result.task and normalize_task_type(task_result.task.task_type) == "backtest_training":
-        task_id = task_result.task_id
+    if task_result:
+        task = _task_repository.get(task_result.task_id)
+        if task and normalize_task_type(task.task_type) == "backtest_training":
+            task_id = task_result.task_id
     return render_template("backtest_training/result.html", result_id=result_id, task_id=task_id)
 
 
 @bp.route("/result/<int:result_id>/export-preview")
 def result_export_preview_page(result_id):
+    """渲染任务结果的导出预览页面。"""
     return render_template(
         "backtest_training/result_export_preview.html",
         result_id=result_id,
@@ -73,6 +85,7 @@ legacy_bp.add_url_rule("/result/<int:result_id>/export-preview", view_func=resul
 @login_required
 @permission_required('backtest:create')
 def import_excel():
+    """导入 Excel 中的回测股票与参数配置。"""
     excel_file = request.files.get("file")
     if not excel_file or not excel_file.filename:
         return jsonify({
@@ -103,6 +116,7 @@ def import_excel():
 @login_required
 @permission_required('backtest:view')
 def search_stocks():
+    """按关键词搜索可用于单品回测的股票。"""
     keyword = (request.args.get("q") or "").strip()
     page_size = request.args.get("page_size", default=10, type=int) or 10
     page_size = max(1, min(page_size, 20))
@@ -178,6 +192,7 @@ def search_stocks():
 @login_required
 @permission_required('backtest:view')
 def get_task_results_by_task_id(task_id):
+    """返回指定任务的结果列表，并执行任务查看权限校验。"""
     """Return paginated task result summaries for the detail page."""
     _, error_response = _load_backtest_task_or_response(task_id, action="view")
     if error_response:
@@ -240,6 +255,7 @@ def get_task_results_by_task_id(task_id):
 @login_required
 @permission_required('backtest:view')
 def get_task_result_detail(task_result_id):
+    """返回一条单品回测结果的完整详情。"""
     """Return the full task result payload for the result page."""
     task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
     if error_response:
@@ -257,6 +273,7 @@ def get_task_result_detail(task_result_id):
 @login_required
 @permission_required('backtest:view')
 def get_task_result_export_preview(task_result_id):
+    """构造单条结果的导出预览内容。"""
     task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
     if error_response:
         return error_response
@@ -282,6 +299,7 @@ def get_task_result_export_preview(task_result_id):
 @login_required
 @permission_required('backtest:view')
 def download_task_result_export_preview(task_result_id):
+    """下载单条结果的预览导出文件。"""
     task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
     if error_response:
         return error_response
@@ -308,6 +326,7 @@ def download_task_result_export_preview(task_result_id):
 @login_required
 @permission_required('backtest:view')
 def get_task_summary(task_id):
+    """返回指定任务的汇总统计数据。"""
     task, error_response = _load_backtest_task_or_response(task_id, action="view")
     if error_response:
         return error_response
@@ -345,6 +364,7 @@ def get_task_summary(task_id):
 @login_required
 @permission_required('backtest:view')
 def get_global_preview(task_id):
+    """返回全局预览所需的数据和状态。"""
     _, error_response = _load_backtest_task_or_response(task_id, action="view")
     if error_response:
         return error_response
@@ -366,6 +386,7 @@ def get_global_preview(task_id):
 @login_required
 @permission_required('backtest:view')
 def export_global_preview(task_id):
+    """导出指定任务的全局预览数据。"""
     _, error_response = _load_backtest_task_or_response(task_id, action="view")
     if error_response:
         return error_response
@@ -398,6 +419,7 @@ def export_global_preview(task_id):
 @login_required
 @permission_required('backtest:view')
 def batch_export_global_preview():
+    """批量导出多个单品回测任务的全局预览数据。"""
     data = request.get_json(silent=True) or {}
     task_ids, error_response = _validate_batch_global_preview_task_ids(data.get("task_ids"))
     if error_response:

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from flask import current_app, has_app_context
 
-from app.extensions import db
 from app.models import TaskLog
+from app.repositories.task_log_repository import TaskLogRepository
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+_task_log_repository = TaskLogRepository()
 
 
 class TaskLogMixin:
@@ -27,27 +28,22 @@ class TaskLogMixin:
         """
         try:
             if has_app_context():
-                log = TaskLog(task_id=task_id, level=level, message=message)
-                db.session.add(log)
-                db.session.commit()
+                _task_log_repository.save({"task_id": task_id, "level": level, "message": message})
                 return
 
             if app:
                 with app.app_context():
-                    log = TaskLog(task_id=task_id, level=level, message=message)
-                    db.session.add(log)
-                    db.session.commit()
+                    _task_log_repository.save({"task_id": task_id, "level": level, "message": message})
                 return
 
             with current_app.app_context():
-                log = TaskLog(task_id=task_id, level=level, message=message)
-                db.session.add(log)
-                db.session.commit()
+                _task_log_repository.save({"task_id": task_id, "level": level, "message": message})
         except Exception as exc:
             logger.error("添加任务日志失败: %s", exc)
 
     def get_task_logs(self, task_id: str, limit: int = 500) -> list[dict]:
         """按时间正序返回最新任务日志。"""
+        # TODO: 迁移到 ParamTaskLogs/Query 前保留本地查询，禁止 SDK 全表筛选替代。
         try:
             logs = (
                 TaskLog.query.filter_by(task_id=task_id)

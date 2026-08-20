@@ -9,6 +9,7 @@ class SmartProxyManager:
     """Manage a short-lived proxy pool for DFCF requests."""
 
     def __init__(self, logger=None, base_url: str = "http://stockapi.stplan.cn/"):
+        """初始化代理服务地址、缓存状态和并发保护锁。"""
         self.lock = threading.Lock()
         self.proxy_size = 0
         self.logger = logger
@@ -22,6 +23,7 @@ class SmartProxyManager:
 
     @staticmethod
     def _redact_proxy(proxy: dict[str, str] | dict[Any, Any]):
+        """脱敏代理 URL 中可能存在的账号和密码。"""
         redacted = {}
         for key, value in proxy.items():
             proxy_url = str(value)
@@ -34,6 +36,7 @@ class SmartProxyManager:
         return redacted
 
     def _get_proxy(self) -> dict[str, str]:
+        """从远程代理服务拉取一个可用代理配置。"""
         response = requests.post(
             self.proxy_config["url"],
             headers={"accept": "text/plain"},
@@ -54,6 +57,7 @@ class SmartProxyManager:
         }
 
     def update_proxy(self):
+        """从代理服务刷新当前可用代理。"""
         with self.lock:
             self.proxy = self._get_proxy()
             self.proxy_size = 0
@@ -62,6 +66,7 @@ class SmartProxyManager:
                 self.logger.info("更新代理: %s", self._redact_proxy(self.proxy))
 
     def invalidate_proxy(self):
+        """失效当前代理，使下次请求重新获取代理。"""
         with self.lock:
             self.proxy = {}
             self.proxy_size = 0
@@ -71,6 +76,7 @@ class SmartProxyManager:
         self,
         force_refresh: bool = False,
     ) -> dict[str, str] | dict[Any, Any]:
+        """获取可用代理；必要时刷新或降级为空代理。"""
         with self.lock:
             should_refresh = (
                 force_refresh
@@ -95,6 +101,7 @@ _proxy_manager_lock = threading.Lock()
 
 
 def get_smart_proxy_manager(logger=None) -> SmartProxyManager:
+    """返回共享的智能代理管理器实例。"""
     global _proxy_manager
     with _proxy_manager_lock:
         if _proxy_manager is None:

@@ -18,6 +18,7 @@ class RetryableNetworkTaskError(Exception):
 
 
 def iter_exception_chain(exc: BaseException | None) -> Iterator[BaseException]:
+    """按异常因果链依次遍历原始异常及其包装异常。"""
     seen: set[int] = set()
     current = exc
     while current is not None and id(current) not in seen:
@@ -39,6 +40,7 @@ def iter_exception_chain(exc: BaseException | None) -> Iterator[BaseException]:
 
 
 def unwrap_exception(exc: BaseException | None) -> BaseException | None:
+    """返回异常链中最底层、最接近真实故障原因的异常。"""
     last = None
     for last in iter_exception_chain(exc):
         pass
@@ -46,6 +48,7 @@ def unwrap_exception(exc: BaseException | None) -> BaseException | None:
 
 
 def is_retryable_network_error(exc: BaseException | None) -> bool:
+    """判断异常链是否包含可重试的网络类失败。"""
     if exc is None:
         return False
 
@@ -88,6 +91,7 @@ def is_retryable_network_error(exc: BaseException | None) -> bool:
 
 
 def _retry_error_finished_with_failed_result(error: RetryError) -> bool:
+    """判断 tenacity 重试耗尽是否由无效结果而非异常触发。"""
     last_attempt = getattr(error, "last_attempt", None)
     if last_attempt is None:
         return False
@@ -105,7 +109,7 @@ def _retry_error_finished_with_failed_result(error: RetryError) -> bool:
 
 
 def is_retryable_google_sheet_execution_error(exc: BaseException | None) -> bool:
-    """Google Sheet parameter execution retried but never got valid results."""
+    """判断 Google Sheet 参数执行多次重试后仍未取得有效结果的异常。"""
     if exc is None:
         return False
 
@@ -125,4 +129,5 @@ def is_retryable_google_sheet_execution_error(exc: BaseException | None) -> bool
 
 
 def is_retryable_c3_execution_error(exc: BaseException | None) -> bool:
+    """判断 C3 执行异常是否满足自动重启的可恢复条件。"""
     return is_retryable_google_sheet_execution_error(exc)

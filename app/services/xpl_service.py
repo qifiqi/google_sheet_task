@@ -22,6 +22,7 @@ class XPLAnalyzer:
     """
 
     def __init__(self):
+        """初始化分析过程中复用的数据容器和指标缓存。"""
         self.data = []
         self.metrics = {}
 
@@ -739,6 +740,7 @@ class XPLAnalyzer:
         return start_data - index_data
 
     def get_xpl(self, data: List[Dict[str, Any]], date='date', val='daily_return'):
+        """根据日期和日收益数据计算 XPL 指标。"""
         if not data:
             return {}
 
@@ -881,6 +883,7 @@ class XPLAnalyzer:
 
     @staticmethod
     def _has_dual_return_columns(data: List[Dict[str, Any]]) -> bool:
+        """判断输入记录是否同时包含指数和策略两列收益率。"""
         return any(
             "index_return" in row and "start_return" in row
             for row in data
@@ -889,6 +892,7 @@ class XPLAnalyzer:
 
     @staticmethod
     def _parse_return_value(value: Any) -> float:
+        """解析数值或百分号文本形式的单期收益率。"""
         if isinstance(value, str):
             value = value.strip()
             if '%' in value:
@@ -899,6 +903,7 @@ class XPLAnalyzer:
 
     @classmethod
     def _sanitize_for_json(cls, value: Any) -> Any:
+        """递归清理 NaN、时间对象和 NumPy 标量，使分析结果可 JSON 编码。"""
         if isinstance(value, dict):
             return {key: cls._sanitize_for_json(item) for key, item in value.items()}
         if isinstance(value, list):
@@ -1039,6 +1044,7 @@ class XPLAnalyzer:
 
     def get_google_sheet_data(self, spreadsheet_id: str, google_sheet_name: str) -> tuple[Any, dict[
         Any, Any], pd.DataFrame] | None:
+        """读取 Google Sheet 数据并转换为分析所需的数据框。"""
         google_sheet = self._init_google_sheet(spreadsheet_id, google_sheet_name)
         title = google_sheet.title.upper()
 
@@ -1238,6 +1244,7 @@ class XPLAnalyzer:
         }
 
         def pick_all(items, key="year", value="all"):
+            """从筛选项中选取指定年份或 all 对应的全部值。"""
             if not isinstance(items, list):
                 return {}
             for item in items:
@@ -1246,6 +1253,7 @@ class XPLAnalyzer:
             return {}
 
         def safe_value(value):
+            """将空值和非有限浮点数转换为可 JSON 序列化的空值。"""
             if value is None:
                 return 0
             if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
@@ -1356,6 +1364,7 @@ class XPLAnalyzer:
         return result, analyze_result
 
     def get_calculate_metrics_v1(self,data):
+        """执行 V1 格式数据的指标计算。"""
         return self._calculate_metrics_v1(data)
 
     def _calculate_metrics_v1(self, data) -> Dict[str, Any]:
@@ -1554,6 +1563,7 @@ class XPLAnalyzer:
 
     @staticmethod
     def _resolve_export_model_name(data, analyze_result):
+        """从导出数据、文件标题和 Sheet 名中识别对应模型版本。"""
         sheet_result = analyze_result.get('sheet_result', {}) if isinstance(analyze_result, dict) else {}
         sources = [
             data.get('model_name', ''),
@@ -1569,9 +1579,11 @@ class XPLAnalyzer:
 
     @staticmethod
     def _format_export_metric(value, format_spec):
+        """按给定格式输出指标，缺失值统一展示为占位符。"""
         return '--' if value is None else f"{value:{format_spec}}"
 
     def format_export_file_data(self, data):
+        """将分析结果整理为 XPL 导出文件需要的二维数据。"""
         analyze_result = data.get('analyze_result')
         model_name = self._resolve_export_model_name(data, analyze_result)
 
@@ -1771,6 +1783,7 @@ class XPLAnalyzer:
         return target_df
 
     def export_file(self, data):
+        """根据分析结果生成可下载的 XPL Excel 文件。"""
         if not data:
             raise ValueError("data不能为空")
 

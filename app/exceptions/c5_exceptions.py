@@ -10,6 +10,7 @@ class C5BaseException(Exception):
     
     def __init__(self, message: str, error_code: Optional[str] = None, 
                  error_type: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        """保存统一错误码、类型和可序列化上下文信息。"""
         super().__init__(message)
         self.message = message
         self.error_code = error_code or "C5_UNKNOWN_ERROR"
@@ -26,6 +27,7 @@ class C5BaseException(Exception):
         }
     
     def __str__(self):
+        """生成包含错误码和附加上下文的可读异常文本。"""
         details_str = f", details: {self.details}" if self.details else ""
         return f"[{self.error_code}] {self.message}{details_str}"
 
@@ -35,6 +37,7 @@ class C5NetworkException(C5BaseException):
     
     def __init__(self, message: str, http_status: Optional[int] = None, 
                  request_id: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        """封装网络状态码、请求标识和调用上下文。"""
         error_details = details or {}
         if http_status:
             error_details["http_status"] = http_status
@@ -56,6 +59,7 @@ class C5RateLimitException(C5NetworkException):
     
     def __init__(self, message: str = "请求频率过高，触发速率限制", 
                  retry_after: Optional[int] = None, request_id: Optional[str] = None):
+        """构造 HTTP 429 异常，并保存建议的重试等待时间。"""
         details = {}
         if retry_after:
             details["retry_after"] = retry_after
@@ -77,6 +81,7 @@ class C5ExecutionException(C5BaseException):
     def __init__(self, message: str, step_index: Optional[int] = None,
                  parameter_info: Optional[Dict[str, Any]] = None, 
                  details: Optional[Dict[str, Any]] = None):
+        """封装执行步骤与参数组合信息，便于定位业务失败。"""
         error_details = details or {}
         if step_index is not None:
             error_details["step_index"] = step_index
@@ -98,6 +103,7 @@ class C5ValidationException(C5ExecutionException):
     
     def __init__(self, message: str, validation_errors: Optional[Dict[str, Any]] = None,
                  step_index: Optional[int] = None, details: Optional[Dict[str, Any]] = None):
+        """在执行异常基础上附加字段级校验失败详情。"""
         error_details = details or {}
         if validation_errors:
             error_details["validation_errors"] = validation_errors
@@ -117,6 +123,7 @@ class C5TimeoutException(C5BaseException):
     
     def __init__(self, message: str = "操作超时", timeout_seconds: Optional[float] = None,
                  details: Optional[Dict[str, Any]] = None):
+        """封装操作超时秒数及可选调用上下文。"""
         error_details = details or {}
         if timeout_seconds:
             error_details["timeout_seconds"] = timeout_seconds
@@ -135,6 +142,7 @@ class C5DataException(C5BaseException):
     
     def __init__(self, message: str, data_info: Optional[Dict[str, Any]] = None,
                  details: Optional[Dict[str, Any]] = None):
+        """封装输入或输出数据缺失、格式异常的详细信息。"""
         error_details = details or {}
         if data_info:
             error_details["data_info"] = data_info

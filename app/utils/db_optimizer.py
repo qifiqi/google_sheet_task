@@ -200,6 +200,7 @@ def measure_query_time(func: Callable) -> Callable:
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
+        """记录目标数据库操作的耗时，并保持原函数返回值。"""
         start_time = time.time()
         result = func(*args, **kwargs)
         elapsed = time.time() - start_time

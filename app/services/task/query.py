@@ -9,15 +9,21 @@ from sqlalchemy import or_, and_, func, case
 
 from app.extensions import db
 from app.models import Task, TaskResult
+from app.repositories.task_repository import TaskRepository
+
+
+_task_repository = TaskRepository()
 
 class TaskQueryService:
     """只读任务查询服务。"""
 
     def __init__(self, task_manager):
+        """保存任务门面引用，用于读取本进程线程运行状态。"""
         self._task_manager = task_manager
 
     def get_task_status(self, task_id: str) -> Optional[dict[str, Any]]:
-        task = db.session.get(Task, task_id)
+        """通过远程主键 CRUD 读取一条任务的当前状态。"""
+        task = _task_repository.get(task_id)
         if not task:
             return None
         return task.to_dict()
@@ -27,6 +33,8 @@ class TaskQueryService:
         task_type: Optional[str] = None,
         task_types: Optional[list[str]] = None,
     ) -> list[dict[str, Any]]:
+        """按任务类型读取全部任务，复杂筛选暂保留数据库端执行。"""
+        # TODO: 任务类型筛选与排序依赖 ParamTasks/Query，不能用 SDK 全量分页替代。
         query = Task.query
         if task_types:
             query = query.filter(Task.task_type.in_(task_types))
@@ -45,6 +53,8 @@ class TaskQueryService:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
     ) -> dict[str, Any]:
+        """在数据库端完成分页、筛选和统计，返回任务列表页所需数据。"""
+        # TODO: 分页筛选、统计和耗时聚合依赖 ParamTasks/Query，等待服务端查询能力。
         page = max(page or 1, 1)
         per_page = max(min(per_page or 10, 100), 1)
 
@@ -157,13 +167,15 @@ class TaskQueryService:
         }
 
     def check_local_task_status(self, task_id: str) -> dict[str, Any]:
-        task = db.session.get(Task, task_id)
+        """对照远端任务状态、内存线程和最近执行痕迹，判断是否可重启。"""
+        task = _task_repository.get(task_id)
         if not task:
             return {"status": "not_found", "message": "任务不存在"}
 
         db_status = task.status
         thread = self._task_manager.running_tasks.get(task_id)
         memory_running = bool(thread and thread.is_alive())
+        # TODO: 最新结果按 task_id 查询依赖 ParamTaskResults/Query，不能全表扫描。
         latest_result = (
             TaskResult.query.filter_by(task_id=task_id)
             .order_by(TaskResult.timestamp.desc())
@@ -234,6 +246,7 @@ class TaskQueryMixin:
     """为门面类提供稳定的查询接口。"""
 
     def get_task_status(self, task_id: str) -> Optional[dict[str, Any]]:
+        """代理任务状态查询，保持任务门面的既有公开接口。"""
         return TaskQueryService(self).get_task_status(task_id)
 
     def get_all_tasks(
@@ -241,6 +254,7 @@ class TaskQueryMixin:
         task_type: Optional[str] = None,
         task_types: Optional[list[str]] = None,
     ) -> list[dict[str, Any]]:
+        """代理任务列表查询，保持任务门面的既有公开接口。"""
         return TaskQueryService(self).get_all_tasks(
             task_type=task_type,
             task_types=task_types,
@@ -255,6 +269,7 @@ class TaskQueryMixin:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
     ) -> dict[str, Any]:
+        """代理任务分页查询，保持任务门面的既有公开接口。"""
         return TaskQueryService(self).get_tasks_paginated(
             page=page,
             per_page=per_page,
@@ -265,4 +280,5 @@ class TaskQueryMixin:
         )
 
     def check_local_task_status(self, task_id: str) -> dict[str, Any]:
+        """代理本地运行态检查，保持任务门面的既有公开接口。"""
         return TaskQueryService(self).check_local_task_status(task_id)

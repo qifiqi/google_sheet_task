@@ -15,15 +15,18 @@ import json
 import time
 from app import create_app
 from app.extensions import db
-from app.models import ScheduledTask, TaskLog, TaskResult
+from app.models import TaskLog, TaskResult
+from app.repositories.scheduled_task_repository import ScheduledTaskRepository
 from app.services.task.data_cleanup import delete_task_result_dependencies
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+_scheduled_task_repository = ScheduledTaskRepository()
 
 
 def cleanup_old_logs(params):
     """清理旧日志"""
+    # TODO: 按时间筛选日志 ID 等待 ParamTaskLogs/Query，禁止 SDK 全表分页筛选。
     try:
         days = params.get('days', 10)
         batch_size = params.get('batch_size', 200)
@@ -59,6 +62,7 @@ def cleanup_old_logs(params):
 
 def cleanup_old_results(params):
     """清理旧结果"""
+    # TODO: 按时间筛选结果 ID 等待 ParamTaskResults/Query，禁止 SDK 全表分页筛选。
     try:
         days = params.get('days', 10)
         batch_size = params.get('batch_size', 200)
@@ -105,15 +109,17 @@ def execute_task(task_id, instance_id):
 
     with app.app_context():
         try:
-            task = db.session.get(ScheduledTask, task_id)
+            task = _scheduled_task_repository.get(task_id)
             if not task:
                 logger.error(f"任务 {task_id} 不存在")
                 return False
 
-            logger.info(f"[Worker] 开始执行任务: {task.name}")
+            logger.info("[Worker] 开始执行任务: %s", task.get("name"))
 
-            function_name = task.task_function
-            params = json.loads(task.task_params) if task.task_params else {}
+            function_name = task.get("task_function")
+            params = task.get("task_params") or {}
+            if isinstance(params, str):
+                params = json.loads(params)
 
             # 执行对应函数
             if function_name == 'cleanup_old_logs':
@@ -127,22 +133,26 @@ def execute_task(task_id, instance_id):
                 success = False
 
             # 释放锁
-            task.is_running = False
-            task.running_instance_id = None
-            db.session.commit()
+            _scheduled_task_repository.save({
+                **task,
+                "is_running": False,
+                "running_instance_id": None,
+            })
 
-            logger.info(f"[Worker] 任务执行{'成功' if success else '失败'}: {task.name}")
+            logger.info("[Worker] 任务执行%s: %s", "成功" if success else "失败", task.get("name"))
             return success
 
         except Exception as e:
             logger.error(f"[Worker] 执行任务异常: {e}")
             # 释放锁
             try:
-                task = db.session.get(ScheduledTask, task_id)
-                if task and task.running_instance_id == instance_id:
-                    task.is_running = False
-                    task.running_instance_id = None
-                    db.session.commit()
+                task = _scheduled_task_repository.get(task_id)
+                if task and task.get("running_instance_id") == instance_id:
+                    _scheduled_task_repository.save({
+                        **task,
+                        "is_running": False,
+                        "running_instance_id": None,
+                    })
             except:
                 pass
             return False

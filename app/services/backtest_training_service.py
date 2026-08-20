@@ -7,7 +7,9 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db, TaskResultReturn
+from app.models import Task, db
+from app.repositories.task_result_repository import TaskResultRepository
+from app.repositories.task_result_return_repository import TaskResultReturnRepository
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
@@ -26,11 +28,15 @@ from app.utils.task_error_utils import (
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService
 
+_task_result_repository = TaskResultRepository()
+_task_result_return_repository = TaskResultReturnRepository()
+
 
 class BacktestTrainingService(BaseGoogleSheetService):
     """回测数据服务 - backtest_training_service.py"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        """初始化单品回测执行所需的收益分析器与行情服务。"""
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.xpl = xpl_analyzer
         self.YF_api = YFApi()
@@ -38,10 +44,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
         self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
 
     def _task_detail_url(self) -> str:
+        """返回单品回测任务详情页地址，供通知消息跳转。"""
         return f"{current_app.config.get('BASE_URL')}/backtest-training/detail/{self.task_id}"
 
     @staticmethod
     def _normalize_market_type(value):
+        """将页面或历史配置中的市场标识归一为 cn 或 en。"""
         normalized = str(value or '').strip().lower()
         if normalized == 'cn':
             return 'cn'
@@ -51,6 +59,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _is_c7_0_3(config_data):
+        """根据显式版本或 Sheet 标题识别 C7.0.3 专用模板。"""
         sheet = config_data.get('sheet') or {}
         version = str(sheet.get('c7_model_version') or config_data.get('c7_model_version') or '').strip().lower()
         title = str(sheet.get('title') or config_data.get('title') or '').upper()
@@ -58,6 +67,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _calculate_c7_0_3_index_returns(kline):
+        """以首根收盘价为基准计算 C7.0.3 所需的指数累计收益。"""
         first_close = None
         index_returns = []
         for index, item in enumerate(kline, start=1):
@@ -74,6 +84,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _validate_c7_0_3_kline(kline):
+        """校验 C7.0.3 OHLC 写入前每根 K 线都具备完整字段。"""
         for index, item in enumerate(kline, start=1):
             for field in ('stock_kp', 'stock_zg', 'stock_zd', 'stock_sp'):
                 if item.get(field) in (None, ''):
@@ -81,7 +92,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _get_c7_0_3_sheet_config(config_data):
+        """读取 C7.0.3 的输入、输出和检查单元格配置，并补齐默认值。"""
         def get_value(key, default):
+            """读取配置字段；显式 ``None`` 时回退调用方默认值。"""
             value = config_data.get(key)
             return default if value is None else value
 
@@ -100,6 +113,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         }
 
     def _resolve_dfcf_stock_quote(self, stock_code, exchange_market=None):
+        """解析东方财富股票代码及市场号，优先复用任务已传入的市场号。"""
         stock_query = str(stock_code or '').strip()
         market = str(exchange_market or '').strip()
         if market:
@@ -129,6 +143,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _normalize_year_values(values, field_name):
+        """过滤空值并将年份配置统一转换为整数列表。"""
         normalized = []
         for value in values or []:
             if value is None or str(value).strip() == "":
@@ -141,12 +156,14 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _require_kline_data(stock_code, kline_key, kline):
+        """确保指定回测区间存在 K 线，避免空数据进入表格计算。"""
         if not kline:
             raise ValueError(f"股票{stock_code} 的K线区间 {kline_key} 没有可用数据，请检查年份或日期范围")
         return kline
 
     @staticmethod
     def _parse_optional_end_date(value):
+        """校验可选结束日期，空值保留为默认行情截止日期。"""
         if value in (None, ""):
             return None
         normalized = str(value).strip()
@@ -157,6 +174,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         return normalized
 
     def _raise_retryable_network_error(self, exc, context):
+        """将可恢复网络异常转换为任务层可识别的重试异常。"""
         if is_retryable_network_error(exc):
             root = unwrap_exception(exc) or exc
             raise RetryableNetworkTaskError(f"{context}: {root}") from exc
@@ -172,7 +190,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
-                task = db.session.get(Task, self.task_id)
+                task = self._get_remote_task()
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -251,7 +269,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = db.session.get(Task, self.task_id)
+                task = self._get_remote_task()
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -273,7 +291,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _c3_to_c5_get_config(config_data):
+        """按 C3、C5、C7 模板类型返回统一的输入输出单元格配置。"""
         def _get_config_value(key, default=None):
+            """读取配置项；显式空值时回退为模板默认值。"""
             value = config_data.get(key)
             return default if value is None else value
 
@@ -328,7 +348,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         return input_column_d, input_column_v, output_range_1, output_range_2, output_column_index, output_column_start, parameter_positions, check_positions,last_row
 
     def _resolve_resume_start_index(self, task):
-        """Return the zero-based combination index to run next on checkpoint resume."""
+        """根据断点与已保存结果确定下一个待执行的零基参数组合索引。"""
         checkpoint_index = task.current_step - 1 if task.current_step >= 1 else 0
         if checkpoint_index < 0:
             checkpoint_index = 0
@@ -392,8 +412,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
             total_combinations += len(combinations)
             # 更新任务总步数
-            task.total_steps = total_combinations
-            db_retry_manager.commit_with_retry(db.session)
+            task = self._save_remote_task(task, total_steps=total_combinations)
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -439,12 +458,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                         continue
 
                     # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
-                    def check_task_status():
-                        return db.session.query(Task.status).filter(
-                            Task.id == self.task_id
-                        ).first()
-
-                    result = safe_db_operation(check_task_status)
+                    result = self._get_remote_task()
 
                     if not result or result.status == 'cancelled':
                         self._log_warning("任务已被取消，停止执行")
@@ -459,8 +473,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     self._log_info(progress_msg)
 
                     # 更新当前步数为组合级别
-                    task.current_step = current_step
-                    db_retry_manager.commit_with_retry(db.session)
+                    task = self._save_remote_task(task, current_step=current_step)
 
                     # 执行单个参数组合
                     try:
@@ -499,7 +512,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                         # 检查是否是任务被取消
                         task.error = e
                         try:
-                            task_check = db.session.get(Task, self.task_id)
+                            task_check = self._get_remote_task()
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
@@ -528,7 +541,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 检查是否是任务被取消导致的异常
             task.error = e
             try:
-                task_check = db.session.get(Task, self.task_id)
+                task_check = self._get_remote_task()
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
@@ -584,6 +597,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             result_value_render_option = 'UNFORMATTED_VALUE' if is_c7 else 'FORMATTED_VALUE'
 
             def set_googl_val(initial_result_sleep=None):
+                """将当前参数组合及 K 线写入单品回测工作表。"""
                 _combination = cache_parameters['combination']
                 cache_Kline_key = _combination.get('Kline_key',"")
                 _kline_len = len(kline)
@@ -648,6 +662,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             output_cell_list = [output_range_2,merged_return_range_a1] if len(parameter) == 2 else [merged_return_range_a1]
 
             def check_result(check_values):
+                """校验触发单元格已返回有效结果，未完成时抛出异常。"""
                 _check_values = {}
                 for _position, _value in check_values.items():
                     if _value is None or (isinstance(_value, str) and not _value.strip()) or not is_valid_result_value(_value):
@@ -795,6 +810,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         """保存任务结果到数据库，包含重试逻辑"""
 
         def build_returns_json(return_rows):
+            """将收益明细整理为可写入远端结果记录的 JSON 结构。"""
             dates = []
             index_returns = []
             start_returns = []
@@ -809,25 +825,25 @@ class BacktestTrainingService(BaseGoogleSheetService):
             }, ensure_ascii=False, allow_nan=False)
 
         def save_result_operation():
+            """保存单品回测结果及关联的收益序列。"""
             safe_parameters = self._sanitize_json_value(parameters)
             safe_result = self._sanitize_json_value(result)
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success
-            )
-            db.session.add(task_result)
+            task_result = _task_result_repository.save({
+                "task_id": self.task_id,
+                "step_index": step_index,
+                "parameters": safe_parameters,
+                "result": safe_result,
+                "success": success,
+            })
             if return_date:
-                return_series = TaskResultReturn(
-                    task_id=self.task_id,
-                    returns_json=build_returns_json(return_date),
-                )
-                db.session.add(return_series)
-                db.session.flush()
-                task_result.return_series_id = return_series.id
-            db.session.commit()
+                return_series = _task_result_return_repository.save({
+                    "task_id": self.task_id,
+                    "returns_json": build_returns_json(return_date),
+                })
+                _task_result_repository.save({
+                    **task_result,
+                    "return_series_id": return_series.get("id"),
+                })
 
         try:
             if self.app:
@@ -855,6 +871,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         data_source="dfcf",
 
     ):
+        """获取并按年份或日期范围拆分 K 线，生成待执行的参数组合。"""
         market_type = self._normalize_market_type(market_type)
         full_years = self._normalize_year_values(full_years, "full_years")
         recent_years = self._normalize_year_values(recent_years, "recent_years")
@@ -864,6 +881,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             raise ValueError("include_full_year_range=true 时必须传入 full_years")
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
+            """筛选行情区间并投影为模板输入列需要的价格和可选 OHLC 字段。"""
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
             # 根据price_mode决定使用开盘价、收盘价或加权平均价
             price_field = {
@@ -874,6 +892,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             }.get(price_mode, 'stock_vwap')
 
             def _project_kline_row(kline):
+                """将原始行情行转换为回测 Sheet 输入行。"""
                 row = {'stock_date': kline['stock_date'], 'stock_val': kline[price_field]}
                 if include_ohlc:
                     row.update({

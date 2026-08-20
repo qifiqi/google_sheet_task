@@ -42,6 +42,7 @@ DEFAULT_NAVIGATION_MENU = [
 
 
 def flatten_navigation_items(items, parent_key=None):
+    """将嵌套的默认导航配置展开为可持久化的平面记录。"""
     rows = []
     for index, item in enumerate(items or []):
         row = {
@@ -78,6 +79,7 @@ def sync_navigation_permissions(items):
 
 
 def build_navigation_tree(rows):
+    """将数据库菜单记录按父子关系重建为前端导航树。"""
     nodes = {}
     roots = []
     ordered_rows = sorted(rows, key=lambda item: ((item.parent_key or ""), item.sort_order, item.id))
@@ -95,6 +97,7 @@ def build_navigation_tree(rows):
             roots.append(node)
 
     def prune_empty_children(node):
+        """递归移除空子节点字段，保持前端导航数据简洁。"""
         children = node.get("children") or []
         if children:
             node["children"] = [prune_empty_children(child) for child in children]

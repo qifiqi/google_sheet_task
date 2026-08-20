@@ -11,11 +11,13 @@ from croniter import croniter
 from flask import current_app
 
 from app.extensions import db
-from app.models import ScheduledTask, TaskLog, TaskResult
+from app.models import TaskLog, TaskResult
+from app.repositories.scheduled_task_repository import ScheduledTaskRepository
 from app.services.task.data_cleanup import delete_task_result_dependencies
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+_scheduled_task_repository = ScheduledTaskRepository()
 
 
 class SchedulerService:
@@ -26,6 +28,7 @@ class SchedulerService:
     """
 
     def __init__(self):
+        """初始化 APScheduler 引用、应用上下文和并发保护锁。"""
         # APScheduler 调度器实例
         self.scheduler = None
         self.is_running = False
@@ -55,6 +58,7 @@ class SchedulerService:
                 return
         
         def delayed_start():
+            """延迟启动调度器，避免应用初始化阶段的资源竞争。"""
             logger.info(f"定时任务调度器将在 {delay_seconds} 秒后启动...")
             time.sleep(delay_seconds)
             self._start_scheduler()
@@ -97,7 +101,10 @@ class SchedulerService:
             
         try:
             with self.app.app_context():
-                active_tasks = ScheduledTask.query.filter_by(is_active=True).all()
+                active_tasks = [
+                    task for task in _scheduled_task_repository.list_all()
+                    if task.get("is_active")
+                ]
                 logger.info(f"从数据库加载了 {len(active_tasks)} 个活跃的定时任务")
                 
                 for task in active_tasks:
@@ -113,29 +120,32 @@ class SchedulerService:
             return False
         
         try:
-            job_id = f"scheduled_task_{scheduled_task.id}"
+            task_id = scheduled_task.get("id") if isinstance(scheduled_task, dict) else scheduled_task.id
+            task_name = scheduled_task.get("name") if isinstance(scheduled_task, dict) else scheduled_task.name
+            cron_expression = scheduled_task.get("cron_expression") if isinstance(scheduled_task, dict) else scheduled_task.cron_expression
+            job_id = f"scheduled_task_{task_id}"
             
             # 移除已存在的任务
             if self.scheduler.get_job(job_id):
                 self.scheduler.remove_job(job_id)
             
             # 创建cron触发器
-            trigger = CronTrigger.from_crontab(scheduled_task.cron_expression)
+            trigger = CronTrigger.from_crontab(cron_expression)
             
             # 添加任务，直接由 APScheduler 在线程池中调用 _execute_task
             self.scheduler.add_job(
                 func=self._execute_task,
                 trigger=trigger,
                 id=job_id,
-                args=[scheduled_task.id],
-                name=scheduled_task.name,
+                args=[task_id],
+                name=task_name,
                 replace_existing=True
             )
             
             # 更新下次执行时间
             self._update_next_run_time(scheduled_task)
             
-            logger.info(f"已添加定时任务: {scheduled_task.name} ({scheduled_task.cron_expression})")
+            logger.info("已添加定时任务: %s (%s)", task_name, cron_expression)
             return True
             
         except Exception as e:
@@ -186,6 +196,7 @@ class SchedulerService:
                 }
 
             def _run():
+                """在线程中执行指定定时任务，并记录未捕获异常。"""
                 try:
                     self._execute_task(task_id)
                     status = 'completed'
@@ -221,38 +232,28 @@ class SchedulerService:
         try:
             with self.app.app_context():
                 # 获取任务信息
-                scheduled_task = db.session.get(ScheduledTask, task_id)
-                if not scheduled_task or not scheduled_task.is_active:
+                scheduled_task = _scheduled_task_repository.get(task_id)
+                if not scheduled_task or not scheduled_task.get("is_active"):
                     logger.warning(f"定时任务 {task_id} 不存在或已禁用")
                     return
 
                 # 尝试获取分布式锁
-                if scheduled_task.is_running:
-                    logger.warning(f"定时任务 {scheduled_task.name} 正在被实例 {scheduled_task.running_instance_id} 执行，跳过")
+                if scheduled_task.get("is_running"):
+                    logger.warning("定时任务 %s 正在被实例 %s 执行，跳过", scheduled_task.get("name"), scheduled_task.get("running_instance_id"))
                     return
 
-                # 使用乐观锁获取执行权
-                rows_updated = db.session.query(ScheduledTask).filter(
-                    ScheduledTask.id == task_id,
-                    ScheduledTask.is_running == False
-                ).update({
+                # 当前部署为单调度实例，进程内锁足以串行化；多实例需 ClaimRun 接口。
+                scheduled_task = _scheduled_task_repository.save({
+                    **scheduled_task,
                     'is_running': True,
                     'running_instance_id': self.instance_id,
-                    'last_run_time': datetime.now()
-                }, synchronize_session=False)
-                db.session.commit()
-
-                if rows_updated == 0:
-                    logger.warning(f"定时任务 {scheduled_task.name} 已被其他实例获取，跳过")
-                    return
-
-                db.session.refresh(scheduled_task)
-                logger.info(f"[实例 {self.instance_id}] 开始执行定时任务: {scheduled_task.name}")
+                    'last_run_time': datetime.now(),
+                    'run_count': int(scheduled_task.get('run_count') or 0) + 1,
+                })
+                logger.info("[实例 %s] 开始执行定时任务: %s", self.instance_id, scheduled_task.get("name"))
 
                 # 更新执行次数和下次执行时间
-                scheduled_task.run_count += 1
                 self._update_next_run_time(scheduled_task)
-                db.session.commit()
 
                 # 使用独立进程执行任务
                 self._run_task_in_subprocess(scheduled_task)
@@ -266,7 +267,9 @@ class SchedulerService:
         try:
             # 构建子进程命令
             script_path = 'app/services/scheduled_task_worker.py'
-            cmd = [sys.executable, script_path, str(scheduled_task.id), self.instance_id]
+            task_id = scheduled_task.get("id") if isinstance(scheduled_task, dict) else scheduled_task.id
+            task_name = scheduled_task.get("name") if isinstance(scheduled_task, dict) else scheduled_task.name
+            cmd = [sys.executable, script_path, str(task_id), self.instance_id]
 
             # 启动子进程（非阻塞）
             process = subprocess.Popen(
@@ -277,29 +280,29 @@ class SchedulerService:
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             )
 
-            logger.info(f"定时任务 {scheduled_task.name} 已在独立进程 {process.pid} 中启动")
+            logger.info("定时任务 %s 已在独立进程 %s 中启动", task_name, process.pid)
 
         except Exception as e:
             logger.error(f"启动独立进程失败: {e}")
-            self._release_task_lock(scheduled_task.id)
+            self._release_task_lock(task_id)
 
     def _release_task_lock(self, task_id):
         """释放任务锁"""
         try:
             with self.app.app_context():
-                ScheduledTask.query.filter(
-                    ScheduledTask.id == task_id,
-                    ScheduledTask.running_instance_id == self.instance_id,
-                ).update({
-                    "is_running": False,
-                    "running_instance_id": None,
-                }, synchronize_session=False)
-                db.session.commit()
+                task = _scheduled_task_repository.get(task_id)
+                if task and task.get("running_instance_id") == self.instance_id:
+                    _scheduled_task_repository.save({
+                        **task,
+                        "is_running": False,
+                        "running_instance_id": None,
+                    })
         except Exception as e:
             logger.error(f"释放任务锁失败: {e}")
     
     def _cleanup_old_logs(self, params):
         """清理旧日志（批量处理优化）"""
+        # TODO: 按时间筛选日志 ID 等待 ParamTaskLogs/Query，禁止 SDK 全表分页筛选。
         try:
             days = params.get('days', 10)
             batch_size = params.get('batch_size', 200)  # 减小批次大小
@@ -339,6 +342,7 @@ class SchedulerService:
     
     def _cleanup_old_results(self, params):
         """清理旧结果（批量处理优化）"""
+        # TODO: 按时间筛选结果 ID 等待 ParamTaskResults/Query，禁止 SDK 全表分页筛选。
         try:
             days = params.get('days', 10)
             batch_size = params.get('batch_size', 200)  # 减小批次大小
@@ -391,8 +395,12 @@ class SchedulerService:
     def _update_next_run_time(self, scheduled_task):
         """更新下次执行时间"""
         try:
-            cron = croniter(scheduled_task.cron_expression, datetime.now())
+            cron_expression = scheduled_task.get("cron_expression") if isinstance(scheduled_task, dict) else scheduled_task.cron_expression
+            cron = croniter(cron_expression, datetime.now())
             next_time = cron.get_next(datetime)
+            if isinstance(scheduled_task, dict):
+                scheduled_task["next_run_time"] = next_time.isoformat()
+                return _scheduled_task_repository.save(scheduled_task)
             scheduled_task.next_run_time = next_time
             db.session.commit()
         except Exception as e:
@@ -455,28 +463,29 @@ class SchedulerService:
         try:
             with self.app.app_context():
                 # 检查是否已存在默认任务
-                existing_task = ScheduledTask.query.filter_by(
-                    name='每日数据清理',
-                    task_function='cleanup_old_data'
-                ).first()
+                existing_task = next(
+                    (
+                        task for task in _scheduled_task_repository.list_all()
+                        if task.get("name") == "每日数据清理"
+                        and task.get("task_function") == "cleanup_old_data"
+                    ),
+                    None,
+                )
                 
                 if existing_task:
                     logger.info("默认定时任务已存在")
                     return existing_task
                 
                 # 创建默认任务：每天0点清理超过10天的日志和结果
-                default_task = ScheduledTask(
-                    name='每日数据清理',
-                    description='每天0点自动清理超过10天的任务日志和任务结果',
-                    cron_expression='0 0 * * *',  # 每天0点
-                    task_type='cleanup',
-                    task_function='cleanup_old_data',
-                    task_params=json.dumps({'days': 10}),
-                    is_active=True
-                )
-                
-                db.session.add(default_task)
-                db.session.commit()
+                default_task = _scheduled_task_repository.save({
+                    'name': '每日数据清理',
+                    'description': '每天0点自动清理超过10天的任务日志和任务结果',
+                    'cron_expression': '0 0 * * *',
+                    'task_type': 'cleanup',
+                    'task_function': 'cleanup_old_data',
+                    'task_params': {'days': 10},
+                    'is_active': True,
+                })
                 
                 # 添加到调度器
                 if self.is_running:
@@ -487,8 +496,6 @@ class SchedulerService:
                 
         except Exception as e:
             logger.error(f"创建默认定时任务失败: {e}")
-            with self.app.app_context():
-                db.session.rollback()
             return None
 
 # 全局调度器实例

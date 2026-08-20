@@ -21,6 +21,9 @@ from flask import has_app_context
 
 from app.extensions import db
 from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
+from app.repositories.task_result_summary_index_repository import TaskResultSummaryIndexRepository
+from app.repositories.task_log_repository import TaskLogRepository
+from app.repositories.task_repository import TaskRepository
 from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.xpl_service import xpl_analyzer
 from app.utils.logger import get_logger
@@ -28,6 +31,9 @@ from app.utils.task_authorization import filter_task_types_by_action, normalize_
 
 
 logger = get_logger(__name__)
+_summary_index_repository = TaskResultSummaryIndexRepository()
+_task_log_repository = TaskLogRepository()
+_task_repository = TaskRepository()
 
 SUPPORTED_TASK_TYPES = ("google_sheet", "google_sheet_C4", "google_sheet_C5", "backtest_training")
 MODEL_SUMMARY_REBUILD_TASK_TYPE = "model_summary_rebuild"
@@ -187,6 +193,7 @@ class SummaryRecord:
 
 
 def _parse_json(raw: Any, default: Any) -> Any:
+    """安全解析远端 JSON 字段，无法解析时返回调用方默认值。"""
     if isinstance(raw, (dict, list)):
         return raw
     try:
@@ -196,6 +203,7 @@ def _parse_json(raw: Any, default: Any) -> Any:
 
 
 def _safe_number(value: Any) -> float | None:
+    """将文本、百分比或数字转换为有限浮点数。"""
     if value in (None, ""):
         return None
     if isinstance(value, bool):
@@ -215,10 +223,12 @@ def _safe_number(value: Any) -> float | None:
 
 
 def _fmt_percent_like(value: Any) -> float | None:
+    """兼容百分比格式的数值解析入口。"""
     return _safe_number(value)
 
 
 def _normalize_scientific_text(text: str) -> str:
+    """将科学计数法文本展开为可读的普通数值字符串。"""
     if not SCIENTIFIC_NOTATION_RE.fullmatch(text):
         return text
     try:
@@ -234,6 +244,7 @@ def _normalize_scientific_text(text: str) -> str:
 
 
 def _summary_key_from_label(label: str) -> str:
+    """将展示指标名称映射为稳定的汇总字段键。"""
     text = str(label or "").strip()
     if text in BACKTEST_SUMMARY_KEY_BY_LABEL:
         return BACKTEST_SUMMARY_KEY_BY_LABEL[text]
@@ -242,6 +253,7 @@ def _summary_key_from_label(label: str) -> str:
 
 
 def _first_dict_value(payload: Any) -> dict[str, Any]:
+    """从嵌套结果载荷中取得首个字典对象。"""
     if not isinstance(payload, dict) or not payload:
         return {}
     value = next(iter(payload.values()))
@@ -249,6 +261,7 @@ def _first_dict_value(payload: Any) -> dict[str, Any]:
 
 
 def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
+    """从年度或周期指标列表中获取 all 聚合项。"""
     if not isinstance(items, list):
         return {}
     for item in items:
@@ -258,6 +271,7 @@ def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
 
 
 def _kline_range(parameters: Any) -> str:
+    """从参数 K 线列表提取起止日期展示范围。"""
     params = parameters if isinstance(parameters, dict) else {}
     kline = params.get("kline")
     if not isinstance(kline, list):
@@ -273,6 +287,7 @@ def _kline_range(parameters: Any) -> str:
 
 
 def _normalize_year_number(value: str) -> int | None:
+    """规范化两位或四位年份文本为四位年份整数。"""
     text = str(value or "").strip()
     if not re.fullmatch(r"\d{2}|\d{4}", text):
         return None
@@ -281,6 +296,7 @@ def _normalize_year_number(value: str) -> int | None:
 
 
 def _period_key_from_year_label(value: Any) -> str:
+    """从年份或年份区间标签推导统一周期键。"""
     text = str(value or "").strip()
     if not text:
         return ""
@@ -304,6 +320,7 @@ def _period_key_from_year_label(value: Any) -> str:
 
 
 def _period_key_from_year_n(value: Any) -> str:
+    """从 C3 的年数配置推导最近 N 年周期键。"""
     text = str(value or "").strip().lower()
     match = re.fullmatch(r"([13])\s*y", text)
     if not match:
@@ -312,6 +329,7 @@ def _period_key_from_year_n(value: Any) -> str:
 
 
 def _period_key_from_c3_task_name(task_name: Any) -> str:
+    """从 C3 任务名称中提取 1y 或 3y 周期标识。"""
     text = _strip_task_name_bracket_content(task_name)
     if not text:
         return ""
@@ -322,6 +340,7 @@ def _period_key_from_c3_task_name(task_name: Any) -> str:
 
 
 def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
+    """按结果标签、任务配置和名称优先级确定汇总分组周期。"""
     period_key = _period_key_from_year_label(year_label)
     if period_key:
         return period_key
@@ -339,10 +358,12 @@ def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
 
 
 def _summary_record_group_key(row: SummaryRecord) -> str:
+    """返回汇总记录用于分组的最优周期标识。"""
     return row.period_key or row.year_label or row.kline_range or ""
 
 
 def _summary_index_group_expression():
+    """构造与 Python 分组键一致的数据库侧分组表达式。"""
     return func.coalesce(
         func.nullif(TaskResultSummaryIndex.period_key, ""),
         func.nullif(TaskResultSummaryIndex.year_label, ""),
@@ -352,10 +373,12 @@ def _summary_index_group_expression():
 
 
 def _json_text(value: Any) -> str:
+    """以 UTF-8 友好的方式序列化任意值用于远端 JSON 字段。"""
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
 def _csv_text(value: Any) -> str:
+    """将标量或结构化值转换为 CSV 单元格文本。"""
     if value in (None, ""):
         return ""
     if isinstance(value, (dict, list)):
@@ -364,6 +387,7 @@ def _csv_text(value: Any) -> str:
 
 
 def _format_csv_metric(value: Any, format_name: str | None = None) -> str:
+    """按字段格式输出 CSV 指标文本。"""
     if value in (None, ""):
         return ""
     if not format_name and isinstance(value, str):
@@ -379,6 +403,7 @@ def _format_csv_metric(value: Any, format_name: str | None = None) -> str:
 
 
 def _format_csv_parameter_summary(value: Any) -> str:
+    """将参数摘要压缩为 CSV 中易读的逗号分隔文本。"""
     if isinstance(value, dict):
         parameter_value = value.get("parameter")
         if isinstance(parameter_value, list):
@@ -396,10 +421,12 @@ def _format_csv_parameter_summary(value: Any) -> str:
 
 
 def _interval_display_value(item: dict[str, Any]) -> str:
+    """优先返回 K 线范围，其次返回年度标签作为区间展示。"""
     return _csv_text(item.get("kline_range") or item.get("year_label"))
 
 
 def _normalize_market_type(value: Any) -> str:
+    """将多种市场别名归一为 cn、us 或空值。"""
     text = str(value or "").strip().lower()
     if text in {"cn", "a", "a股", "ashare", "china"}:
         return "cn"
@@ -409,10 +436,12 @@ def _normalize_market_type(value: Any) -> str:
 
 
 def _is_cn_stock_code(stock_code: Any) -> bool:
+    """通过纯数字代码规则识别 A 股股票代码。"""
     return bool(re.fullmatch(r"\d+", str(stock_code or "").strip()))
 
 
 def _matches_market_type(stock_code: Any, market_type: str) -> bool:
+    """判断股票代码是否符合指定市场筛选条件。"""
     if not market_type:
         return True
     text = str(stock_code or "").strip()
@@ -423,6 +452,7 @@ def _matches_market_type(stock_code: Any, market_type: str) -> bool:
 
 
 def _normalize_excess_return_min(value: Any) -> float | None:
+    """把页面超额收益阈值统一转换为小数形式。"""
     if value in (None, ""):
         return None
     number = _safe_number(value)
@@ -432,6 +462,7 @@ def _normalize_excess_return_min(value: Any) -> float | None:
 
 
 def _parameter_summary(parameters: Any) -> dict[str, Any]:
+    """从不同任务参数结构提取用于汇总展示的简要字段。"""
     if isinstance(parameters, dict):
         summary = {
             "stock_code": parameters.get("stock_code"),
@@ -450,6 +481,7 @@ def _parameter_summary(parameters: Any) -> dict[str, Any]:
 
 
 def _first_text_value(payload: Any, keys: tuple[str, ...]) -> str:
+    """按候选字段顺序读取第一个非空文本值。"""
     if not isinstance(payload, dict):
         return ""
     for key in keys:
@@ -460,6 +492,7 @@ def _first_text_value(payload: Any, keys: tuple[str, ...]) -> str:
 
 
 def _display_model_name(raw_name: Any, task_type: str | None = None) -> str:
+    """规范化模型展示名，兼容任务类型与名称中的 C4/C5 标识。"""
     text = str(raw_name or "").strip()
     lower_text = text.lower()
     normalized = normalize_task_type(task_type)
@@ -471,6 +504,7 @@ def _display_model_name(raw_name: Any, task_type: str | None = None) -> str:
 
 
 def _strip_task_name_bracket_content(value: Any) -> str:
+    """移除任务名中的中英文括号备注，保留可解析主体。"""
     text = str(value or "").strip()
     if not text:
         return ""
@@ -483,6 +517,7 @@ def _strip_task_name_bracket_content(value: Any) -> str:
 
 
 def _stock_code_from_task_name(task_type: str | None, task_name: str | None) -> str:
+    """按任务类型和命名规则从任务名回退解析股票代码。"""
     text = _strip_task_name_bracket_content(task_name)
     if not text:
         return ""
@@ -503,6 +538,7 @@ def _stock_code_from_task_name(task_type: str | None, task_name: str | None) -> 
 
 
 def _extract_stock_code(task: Task, parameters: Any) -> str:
+    """按参数、配置与任务名优先级提取任务关联股票代码。"""
     normalized = normalize_task_type(task.task_type)
     parameter_task_name = _first_text_value(
         parameters,
@@ -548,12 +584,14 @@ def _extract_stock_code(task: Task, parameters: Any) -> str:
 
 
 def _extract_stock_name(parameters: Any) -> str:
+    """从结果参数中读取可用的股票中文名称。"""
     if not isinstance(parameters, dict):
         return ""
     return _first_text_value(parameters, ("stock_name", "name_cn", "product_name"))
 
 
 def _stock_name_from_config(task: Task, parameters: Any, stock_code: str) -> str:
+    """从参数、任务配置或元数据缓存中补充股票名称。"""
     stock_name = _extract_stock_name(parameters)
     if stock_name:
         return stock_name
@@ -574,6 +612,7 @@ def _stock_name_from_config(task: Task, parameters: Any, stock_code: str) -> str
 
 
 def _extract_candidate_records(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """提取包含可比较最佳指标的候选汇总记录。"""
     return [
         row
         for row in extract_summary_records(task, result)
@@ -582,6 +621,7 @@ def _extract_candidate_records(task: Task, result: TaskResult) -> list[SummaryRe
 
 
 def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float]:
+    """从收益分析载荷中抽取扁平化的标准指标集合。"""
     flat_result = payload.get("flat_result")
     if isinstance(flat_result, dict):
         payload = {**payload, **flat_result}
@@ -627,6 +667,7 @@ def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float
 
 
 def _first_safe_number(*values: Any) -> float | None:
+    """依次解析候选值并返回第一个有效数值。"""
     for value in values:
         number = _safe_number(value)
         if number is not None:
@@ -635,6 +676,7 @@ def _first_safe_number(*values: Any) -> float | None:
 
 
 def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """将 C3 单条结果转换为统一的汇总索引记录。"""
     parameters = _parse_json(result.parameters, [])
     payload = _parse_json(result.result, {})
     if not isinstance(payload, dict):
@@ -673,6 +715,7 @@ def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
 
 def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """将 C4/C5 多模型结果拆分为独立汇总索引记录。"""
     parameters = _parse_json(result.parameters, {})
     payload = _parse_json(result.result, {})
     if not isinstance(payload, dict):
@@ -735,10 +778,12 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
 
 def _extract_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """复用 C4/C5 的通用结果提取流程处理 C5。"""
     return _extract_c4_c5(task, result)
 
 
 def _format_backtest_percent(value: Any) -> str:
+    """将回测指标格式化为两位小数百分比。"""
     number = _safe_number(value)
     if number is None:
         return ""
@@ -746,6 +791,7 @@ def _format_backtest_percent(value: Any) -> str:
 
 
 def _format_backtest_number(value: Any) -> str:
+    """将回测数值格式化为去除尾随零的普通文本。"""
     number = _safe_number(value)
     if number is None:
         return ""
@@ -753,11 +799,13 @@ def _format_backtest_number(value: Any) -> str:
 
 
 def _negative_number(value: Any) -> float | None:
+    """将有效数值转换为负值，供回撤类指标统一展示。"""
     number = _safe_number(value)
     return -number if number is not None else None
 
 
 def _normalize_backtest_display_value(value: Any) -> str:
+    """清理回测导出中的占位前缀并展开科学计数法。"""
     text = str(value or "").strip()
     if not text:
         return ""
@@ -767,6 +815,7 @@ def _normalize_backtest_display_value(value: Any) -> str:
 
 
 def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[str, str]:
+    """从回测计算指标生成固定列集合的展示值。"""
     excess_all = _all_entry(calculate_metrics.get("excess_returns"))
     index_profit_monthly_all = _all_entry(calculate_metrics.get("index_profit_monthly"))
     start_profit_monthly_all = _all_entry(calculate_metrics.get("start_profit_monthly"))
@@ -855,10 +904,13 @@ def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[s
 
 
 def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name: str) -> tuple[str, list[dict[str, str]]]:
+    """优先经 XPL 格式化生成回测摘要，失败时回退本地指标映射。"""
     def _safe_all_entry(items: Any) -> dict[str, Any]:
+        """读取当前计算指标中的年度 all 聚合项。"""
         return _all_entry(items, "year")
 
     def _fallback_rows() -> tuple[str, list[dict[str, str]]]:
+        """在 XPL 格式化失败时从原始计算指标构造摘要行。"""
         excess_all = _safe_all_entry(calculate_metrics.get("excess_returns"))
         index_profit_monthly_all = _safe_all_entry(calculate_metrics.get("index_profit_monthly"))
         start_profit_monthly_all = _safe_all_entry(calculate_metrics.get("start_profit_monthly"))
@@ -969,6 +1021,7 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
 
 
 def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """将单品回测结果转换为统一汇总索引记录。"""
     parameters = _parse_json(result.parameters, {})
     payload = _parse_json(result.result, {})
     core = _first_dict_value(payload)
@@ -1015,6 +1068,7 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
 
 def extract_summary_records(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """按任务类型提炼成功结果，用于构建统一的汇总索引记录。"""
     if not result.success:
         return []
     normalized = normalize_task_type(task.task_type) or str(task.task_type or "")
@@ -1033,25 +1087,28 @@ class ModelSummaryService:
     """维护和查询单模型汇总索引。"""
 
     def __init__(self):
+        """初始化索引重建作业缓存、作业锁和索引写入锁。"""
         self._jobs: dict[str, dict[str, Any]] = {}
         self._jobs_lock = threading.Lock()
         self._index_lock = threading.RLock()
 
     def upsert_task_result(self, task_result_id: int, *, commit: bool = True) -> int:
+        """串行更新单条任务结果对应的汇总索引，避免并发写入互相覆盖。"""
         with self._index_lock:
             return self._upsert_task_result_locked(task_result_id, commit=commit)
 
     def upsert_task(self, task_id: str, *, commit: bool = True) -> dict[str, int]:
-        """Rebuild summary index rows for one task from all successful results."""
+        """从单个任务的全部成功结果重建汇总索引行。"""
         if not task_id:
             return {"processed": 0, "processed_tasks": 0, "candidate_records": 0}
         with self._index_lock:
             summary = self._upsert_task_batch([task_id])
-            if commit:
-                db.session.commit()
+            # 远程 CRUD 已逐条提交；保留参数以兼容旧调用方。
             return summary
 
     def _upsert_task_result_locked(self, task_result_id: int, *, commit: bool = True) -> int:
+        """在索引锁内同步单条结果对应的汇总记录并清理过期模型键。"""
+        # TODO: 任务结果与既有索引的关联查询等待 ParamTaskResults/Query 和索引查询接口。
         record = (
             db.session.query(Task, TaskResult)
             .join(TaskResult, TaskResult.task_id == Task.id)
@@ -1069,22 +1126,21 @@ class ModelSummaryService:
         changed_task_ids = set()
         for row in rows:
             item = existing.get(row.model_key)
-            if item is None:
-                item = TaskResultSummaryIndex(task_result_id=row.task_result_id, model_key=row.model_key)
-                db.session.add(item)
-            self._apply_record(item, row)
+            _summary_index_repository.save(self._summary_index_payload(
+                row,
+                record_id=item.id if item else None,
+                is_best=bool(item.is_best) if item else False,
+            ))
             changed_task_ids.add(row.task_id)
 
         stale_keys = set(existing) - {row.model_key for row in rows}
         for key in stale_keys:
             changed_task_ids.add(existing[key].task_id)
-            db.session.delete(existing[key])
-        db.session.flush()
+            _summary_index_repository.delete(existing[key].id)
 
         for changed_task_id in changed_task_ids:
             self._keep_only_best_for_task(changed_task_id)
-        if commit:
-            db.session.commit()
+        # 远程 CRUD 已逐条提交；保留参数以兼容旧调用方。
         return len(rows)
 
     def rebuild(
@@ -1095,6 +1151,7 @@ class ModelSummaryService:
         reset: bool = False,
         progress_task_id: str | None = None,
     ) -> dict[str, int]:
+        """按筛选条件批量重建汇总索引，并通过进度任务反馈执行状态。"""
         with self._index_lock:
             return self._rebuild_locked(
                 task_type=task_type,
@@ -1112,14 +1169,18 @@ class ModelSummaryService:
         reset: bool = False,
         progress_task_id: str | None = None,
     ) -> dict[str, int]:
+        """按筛选条件执行索引重建、可选清空和每任务最优记录去重。"""
         if reset:
+            # TODO: 按 task_id/task_type 查索引 ID 需要专用 Query；当前保留原筛选语义。
             delete_query = TaskResultSummaryIndex.query
             if task_id:
                 delete_query = delete_query.filter(TaskResultSummaryIndex.task_id == task_id)
             if task_type:
                 delete_query = delete_query.filter(TaskResultSummaryIndex.task_type == task_type)
-            deleted = delete_query.delete(synchronize_session=False)
-            db.session.commit()
+            reset_ids = [item.id for item in delete_query.all()]
+            for index_id in reset_ids:
+                _summary_index_repository.delete(index_id)
+            deleted = len(reset_ids)
         else:
             deleted = 0
 
@@ -1152,7 +1213,6 @@ class ModelSummaryService:
                         f"扫描 {processed} 条结果，解析候选 {candidate_records} 条"
                     ),
                 )
-            db.session.commit()
 
         deduped = self._dedupe_best_per_task(task_type=task_type, task_id=task_id)
         indexed = self._count_index_rows(task_type=task_type, task_id=task_id)
@@ -1181,34 +1241,34 @@ class ModelSummaryService:
         reset: bool = False,
         created_by_user_id: int | None = None,
     ) -> dict[str, Any]:
+        """创建后台索引重建任务；同时只允许一个重建作业处于活跃状态。"""
         with self._jobs_lock:
             active_job = self._active_rebuild_job()
             if active_job:
                 return active_job
 
             job_id = str(uuid.uuid4())
-            rebuild_task = Task(
-                id=job_id,
-                name="单模型汇总索引重建",
-                description="后台扫描历史 task_results，重建任务/股票汇总查询索引",
-                task_type=MODEL_SUMMARY_REBUILD_TASK_TYPE,
-                status="pending",
-                config=json.dumps(
-                    {
-                        "task_type": task_type,
-                        "task_id": task_id,
-                        "batch_size": batch_size,
-                        "reset": reset,
-                    },
-                    ensure_ascii=False,
-                ),
-                total_steps=0,
-                current_step=0,
-                created_by_user_id=created_by_user_id,
-            )
-            db.session.add(rebuild_task)
-            db.session.add(TaskLog(task_id=job_id, level="info", message="索引重建任务已创建"))
-            db.session.commit()
+            rebuild_task = _task_repository.save({
+                "id": job_id,
+                "name": "单模型汇总索引重建",
+                "description": "后台扫描历史 task_results，重建任务/股票汇总查询索引",
+                "task_type": MODEL_SUMMARY_REBUILD_TASK_TYPE,
+                "status": "pending",
+                "config": {
+                    "task_type": task_type,
+                    "task_id": task_id,
+                    "batch_size": batch_size,
+                    "reset": reset,
+                },
+                "total_steps": 0,
+                "current_step": 0,
+                "created_by_user_id": created_by_user_id,
+            })
+            _task_log_repository.save({
+                "task_id": job_id,
+                "level": "info",
+                "message": "索引重建任务已创建",
+            })
 
             job = {
                 "job_id": job_id,
@@ -1238,6 +1298,7 @@ class ModelSummaryService:
         return job.copy()
 
     def _active_rebuild_job(self) -> dict[str, Any] | None:
+        """查询当前仍处于待执行或执行中的索引重建作业。"""
         task = (
             Task.query
             .filter(
@@ -1256,6 +1317,7 @@ class ModelSummaryService:
         return job
 
     def get_rebuild_job(self, job_id: str) -> dict[str, Any] | None:
+        """优先从进程内缓存读取作业，再回退到持久化任务记录。"""
         with self._jobs_lock:
             job = self._jobs.get(job_id)
             if job:
@@ -1263,6 +1325,7 @@ class ModelSummaryService:
         return self._job_from_task(job_id)
 
     def latest_rebuild_job(self) -> dict[str, Any] | None:
+        """返回最近一次索引重建作业，支持服务重启后的记录回溯。"""
         with self._jobs_lock:
             if not self._jobs:
                 task = (
@@ -1276,6 +1339,7 @@ class ModelSummaryService:
             return self._job_with_task_status(dict(job))
 
     def _run_rebuild_job(self, app, job_id: str) -> None:
+        """在线程中执行重建任务，并同步内存与持久化进度状态。"""
         with self._jobs_lock:
             job = self._jobs[job_id]
             params = dict(job["params"])
@@ -1336,6 +1400,7 @@ class ModelSummaryService:
                 })
 
     def query(self, user: Any, filters: dict[str, Any]) -> dict[str, Any]:
+        """按用户权限和筛选条件分页查询汇总结果及统计信息。"""
         page = max(int(filters.get("page") or 1), 1)
         per_page = min(max(int(filters.get("per_page") or 50), 1), 200)
         task_type = str(filters.get("task_type") or "").strip()
@@ -1457,6 +1522,7 @@ class ModelSummaryService:
         }
 
     def export_csv(self, user: Any, filters: dict[str, Any]) -> dict[str, Any]:
+        """复用分页查询逐页收集可见结果，并生成 CSV 导出内容。"""
         export_filters = dict(filters)
         export_filters["page"] = 1
         export_filters["per_page"] = 200
@@ -1485,25 +1551,45 @@ class ModelSummaryService:
             "count": len(items),
         }
 
-    def _apply_record(self, item: TaskResultSummaryIndex, row: SummaryRecord) -> None:
-        item.task_id = row.task_id
-        item.task_result_id = row.task_result_id
-        item.task_type = row.task_type
-        item.task_name = row.task_name
-        item.stock_code = row.stock_code
-        item.stock_name = row.stock_name
-        item.model_key = row.model_key
-        item.model_name = row.model_name
-        item.year_label = row.year_label
-        item.period_key = row.period_key
-        item.kline_range = row.kline_range
-        item.parameter_summary = _json_text(row.parameter_summary)
-        item.best_metric_name = row.best_metric_name
-        item.best_metric_value = row.best_metric_value
-        item.metrics_json = _json_text(row.metrics)
-        item.result_timestamp = row.result_timestamp
+    def _summary_index_payload(
+        self,
+        row: SummaryRecord,
+        *,
+        record_id: int | None = None,
+        is_best: bool = False,
+    ) -> dict[str, Any]:
+        """构造远程汇总索引 CRUD 所需的普通字典。"""
+        return {
+            "id": record_id,
+            "task_id": row.task_id,
+            "task_result_id": row.task_result_id,
+            "task_type": row.task_type,
+            "task_name": row.task_name,
+            "stock_code": row.stock_code,
+            "stock_name": row.stock_name,
+            "market_type": "cn" if _is_cn_stock_code(row.stock_code) else "us",
+            "model_key": row.model_key,
+            "model_name": row.model_name,
+            "year_label": row.year_label,
+            "period_key": row.period_key,
+            "kline_range": row.kline_range,
+            "parameter_summary": row.parameter_summary,
+            "best_metric_name": row.best_metric_name,
+            "best_metric_value": row.best_metric_value,
+            "metrics_json": row.metrics,
+            "is_best": is_best,
+            "result_timestamp": row.result_timestamp,
+        }
+
+    @staticmethod
+    def _summary_index_model_payload(item: TaskResultSummaryIndex) -> dict[str, Any]:
+        """将仅用于查询的本地索引对象转换为远程保存载荷。"""
+        payload = item.to_dict()
+        payload["metrics_json"] = payload.pop("metrics", {})
+        return payload
 
     def _record_to_dict(self, row: SummaryRecord) -> dict[str, Any]:
+        """将内部汇总记录转换为页面与 CSV 共用的字典 DTO。"""
         return {
             "id": None,
             "task_id": row.task_id,
@@ -1536,6 +1622,7 @@ class ModelSummaryService:
         task_type: str,
         stock_code: str,
     ) -> dict[str, Any]:
+        """按股票代码从原始任务结果即时构建全量预览分页数据。"""
         columns = self._columns_for_task_type(task_type)
         market_type = _normalize_market_type(filters.get("market_type"))
         excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
@@ -1633,6 +1720,8 @@ class ModelSummaryService:
         }
 
     def _upsert_batch(self, batch: list[tuple[Task, TaskResult]]) -> int:
+        """同步一批结果的汇总索引，并删除不再存在的模型键。"""
+        # TODO: 结果与索引批量关联查询等待 ParamTaskResults/Query 与索引查询接口。
         result_ids = [result.id for _task, result in batch]
         existing_items = (
             TaskResultSummaryIndex.query
@@ -1656,21 +1745,18 @@ class ModelSummaryService:
                 key = (row.task_result_id, row.model_key)
                 seen_keys.add(key)
                 item = existing.get(key)
-                if item is None:
-                    item = TaskResultSummaryIndex(
-                        task_result_id=row.task_result_id,
-                        model_key=row.model_key,
-                    )
-                    db.session.add(item)
-                self._apply_record(item, row)
+                _summary_index_repository.save(self._summary_index_payload(
+                    row,
+                    record_id=item.id if item else None,
+                    is_best=bool(item.is_best) if item else False,
+                ))
                 changed_task_ids.add(row.task_id)
 
         for key, item in existing.items():
             if key not in seen_keys:
                 changed_task_ids.add(item.task_id)
-                db.session.delete(item)
+                _summary_index_repository.delete(item.id)
 
-        db.session.flush()
         for changed_task_id in changed_task_ids:
             self._keep_only_best_for_task(changed_task_id)
         return indexed
@@ -1680,6 +1766,7 @@ class ModelSummaryService:
         task_type: str | None = None,
         task_id: str | None = None,
     ) -> list[str]:
+        """读取符合重建条件且已经结束的任务 ID 列表。"""
         query = db.session.query(Task.id).filter(Task.status.in_(FINISHED_TASK_STATUSES))
         if task_type:
             query = query.filter(Task.task_type == task_type)
@@ -1695,9 +1782,11 @@ class ModelSummaryService:
         return [row[0] for row in rows]
 
     def _upsert_task_batch(self, task_ids: list[str]) -> dict[str, int]:
+        """重建一组任务的索引，只保留每任务/周期的最佳候选记录。"""
         if not task_ids:
             return {"processed": 0, "processed_tasks": 0, "candidate_records": 0}
 
+        # TODO: 任务和结果按 task_id 联合查询等待 ParamTasks/Query 与 ParamTaskResults/Query。
         batch = (
             db.session.query(Task, TaskResult)
             .join(TaskResult, TaskResult.task_id == Task.id)
@@ -1727,21 +1816,17 @@ class ModelSummaryService:
                 if current is None or self._is_better_record(row, current):
                     best_by_group[key] = row
 
-        TaskResultSummaryIndex.query.filter(
-            TaskResultSummaryIndex.task_id.in_(task_ids)
-        ).delete(synchronize_session=False)
-        db.session.flush()
+        existing_index_ids = [
+            item.id
+            for item in TaskResultSummaryIndex.query.filter(
+                TaskResultSummaryIndex.task_id.in_(task_ids)
+            ).all()
+        ]
+        for index_id in existing_index_ids:
+            _summary_index_repository.delete(index_id)
 
         for row in best_by_group.values():
-            item = TaskResultSummaryIndex(
-                task_result_id=row.task_result_id,
-                model_key=row.model_key,
-                is_best=True,
-            )
-            self._apply_record(item, row)
-            db.session.add(item)
-
-        db.session.flush()
+            _summary_index_repository.save(self._summary_index_payload(row, is_best=True))
         return {
             "processed": len(batch),
             "processed_tasks": len(task_ids),
@@ -1749,6 +1834,7 @@ class ModelSummaryService:
         }
 
     def _is_better_record(self, candidate: SummaryRecord, current: SummaryRecord) -> bool:
+        """按指标值、结果时间和结果 ID 比较两个汇总候选记录。"""
         candidate_value = candidate.best_metric_value
         current_value = current.best_metric_value
         if candidate_value is None:
@@ -1764,6 +1850,7 @@ class ModelSummaryService:
         return candidate.task_result_id > current.task_result_id
 
     def _stock_summary_query(self, query):
+        """将索引查询收敛为每只股票最近且指标最优的一条记录。"""
         subquery = (
             query
             .with_entities(
@@ -1792,11 +1879,13 @@ class ModelSummaryService:
         )
 
     def _apply_market_type_filter(self, query, market_type: str):
+        """按规范化市场类型附加索引查询条件。"""
         if not market_type:
             return query
         return query.filter(TaskResultSummaryIndex.market_type == market_type)
 
     def _apply_stock_keyword_filter(self, query, stock_keyword: str):
+        """在股票代码、名称和任务名中应用模糊关键词筛选。"""
         if not stock_keyword:
             return query
         pattern = f"%{stock_keyword}%"
@@ -1807,6 +1896,7 @@ class ModelSummaryService:
         ))
 
     def _summary_from_items(self, items) -> dict[str, int]:
+        """统计结果列表中的股票、任务和不同超额收益阈值数量。"""
         stock_codes: set[str] = set()
         cn_stock_codes: set[str] = set()
         us_stock_codes: set[str] = set()
@@ -1852,6 +1942,7 @@ class ModelSummaryService:
         }
 
     def _count_index_rows(self, task_type: str | None = None, task_id: str | None = None) -> int:
+        """按可选任务类型和任务 ID 统计当前汇总索引行数。"""
         query = TaskResultSummaryIndex.query
         if task_id:
             query = query.filter(TaskResultSummaryIndex.task_id == task_id)
@@ -1860,6 +1951,7 @@ class ModelSummaryService:
         return query.count()
 
     def _dedupe_best_per_task(self, task_type: str | None = None, task_id: str | None = None) -> int:
+        """借助窗口排序删除每任务/周期分组中的非最佳重复索引。"""
         group_expression = _summary_index_group_expression()
         ranked_query = db.session.query(
             TaskResultSummaryIndex.id.label("id"),
@@ -1878,19 +1970,23 @@ class ModelSummaryService:
             ranked_query = ranked_query.filter(TaskResultSummaryIndex.task_type == task_type)
         ranked = ranked_query.subquery()
         duplicate_ids = db.session.query(ranked.c.id).filter(ranked.c.row_number > 1)
-        deleted = (
-            TaskResultSummaryIndex.query
-            .filter(TaskResultSummaryIndex.id.in_(duplicate_ids))
-            .delete(synchronize_session=False)
-        )
-        TaskResultSummaryIndex.query.filter(
-            TaskResultSummaryIndex.id.in_(
-                db.session.query(ranked.c.id).filter(ranked.c.row_number == 1)
-            )
-        ).update({"is_best": True}, synchronize_session=False)
-        return deleted
+        duplicate_ids = [item[0] for item in duplicate_ids.all()]
+        for index_id in duplicate_ids:
+            _summary_index_repository.delete(index_id)
+        best_ids = [
+            item[0]
+            for item in db.session.query(ranked.c.id).filter(ranked.c.row_number == 1).all()
+        ]
+        for index_id in best_ids:
+            item = _summary_index_repository.get(index_id)
+            if item:
+                item["is_best"] = True
+                _summary_index_repository.save(item)
+        return len(duplicate_ids)
 
     def _keep_only_best_for_task(self, task_id: str) -> None:
+        """对单个任务按周期保留最佳索引，并移除其余候选。"""
+        # TODO: task_id 分组排序依赖汇总索引 Query，当前仅保留本地筛选语义。
         rows = (
             TaskResultSummaryIndex.query
             .filter_by(task_id=task_id)
@@ -1909,9 +2005,11 @@ class ModelSummaryService:
             group_key = row.period_key or row.year_label or row.kline_range or ""
             if group_key not in seen_groups and row.best_metric_value is not None:
                 seen_groups.add(group_key)
-                row.is_best = True
+                payload = self._summary_index_model_payload(row)
+                payload["is_best"] = True
+                _summary_index_repository.save(payload)
                 continue
-            db.session.delete(row)
+            _summary_index_repository.delete(row.id)
 
     def _update_rebuild_task(
         self,
@@ -1926,7 +2024,8 @@ class ModelSummaryService:
         message: str | None = None,
         level: str = "info",
     ) -> None:
-        task = db.session.get(Task, task_id)
+        """更新后台重建任务状态、进度和可见日志消息。"""
+        task = _task_repository.get(task_id)
         if not task:
             return
         if status is not None:
@@ -1942,12 +2041,13 @@ class ModelSummaryService:
         if error_message is not None:
             task.error_message = error_message
         if message:
-            db.session.add(TaskLog(task_id=task_id, level=level, message=message))
-        db.session.commit()
+            _task_log_repository.save({"task_id": task_id, "level": level, "message": message})
+        _task_repository.save(task)
 
     def _job_with_task_status(self, job: dict[str, Any]) -> dict[str, Any]:
+        """用持久化任务状态刷新进程内作业描述。"""
         task_id = job.get("task_id") or job.get("job_id")
-        task = db.session.get(Task, task_id) if task_id else None
+        task = _task_repository.get(task_id) if task_id else None
         if task:
             job["task"] = task.to_dict()
             job["status"] = task.status
@@ -1958,9 +2058,10 @@ class ModelSummaryService:
         return job
 
     def _job_from_task(self, task_id: str | None) -> dict[str, Any] | None:
+        """将持久化的汇总重建任务转换为作业状态 DTO。"""
         if not task_id:
             return None
-        task = db.session.get(Task, task_id)
+        task = _task_repository.get(task_id)
         if not task or task.task_type != MODEL_SUMMARY_REBUILD_TASK_TYPE:
             return None
         config = _parse_json(task.config, {})
@@ -1978,9 +2079,11 @@ class ModelSummaryService:
         }
 
     def _columns_for_task_type(self, task_type: str | None) -> list[dict[str, str]]:
+        """按任务类型选择普通模型或回测模型的摘要列定义。"""
         return BACKTEST_SUMMARY_COLUMNS if normalize_task_type(task_type) == "backtest_training" else SUMMARY_COLUMNS
 
     def _export_filename(self, filters: dict[str, Any], summary_type: str) -> str:
+        """根据筛选条件或用户自定义名称生成安全的 CSV 文件名。"""
         custom_filename = self._safe_filename_part(filters.get("filename"))
         if custom_filename and custom_filename != "all":
             return custom_filename if custom_filename.lower().endswith(".csv") else f"{custom_filename}.csv"
@@ -1991,6 +2094,7 @@ class ModelSummaryService:
         return f"model_summary_{summary_type}_{task_type}_{stock_code}_{timestamp}.csv"
 
     def _safe_filename_part(self, value: Any) -> str:
+        """移除文件名非法字符并限制片段长度。"""
         text = str(value or "").strip()
         if not text:
             return "all"
@@ -1998,6 +2102,7 @@ class ModelSummaryService:
         return text[:80] or "all"
 
     def _render_csv(self, columns: list[dict[str, str]], items: list[dict[str, Any]]) -> str:
+        """按当前列定义把汇总记录渲染为 UTF-8 CSV 文本。"""
         buffer = io.StringIO(newline="")
         writer = csv.writer(buffer)
         headers = (
@@ -2034,6 +2139,7 @@ class ModelSummaryService:
         key: str,
         format_name: str | None = None,
     ) -> str:
+        """格式化单个 CSV 列，兼容任务类型、时间和指标格式。"""
         value = item.get(key)
         if key == "task_type":
             return TASK_TYPE_LABELS.get(str(value or ""), _csv_text(value))
@@ -2049,6 +2155,7 @@ class ModelSummaryService:
         per_page: int,
         columns: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
+        """返回与正常分页结构一致的空查询响应。"""
         return {
             "status": "success",
             "columns": columns or SUMMARY_COLUMNS,

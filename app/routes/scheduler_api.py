@@ -2,8 +2,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 import json
 from croniter import croniter
-from app.extensions import db
-from app.models import ScheduledTask
+from app.repositories.scheduled_task_repository import ScheduledTaskRepository
 from app.services.scheduler_service import scheduler_service
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
@@ -12,14 +11,21 @@ logger = get_logger(__name__)
 
 scheduler_api_bp = Blueprint('scheduler_api', __name__)
 
+
+def _scheduled_task_repository():
+    """创建定时任务远程 CRUD 仓储，供只读接口使用。"""
+    return ScheduledTaskRepository()
+
 @scheduler_api_bp.route('/api/admin/scheduler/stats', methods=['GET'])
 @login_required
 @permission_required('scheduler:view')
 def get_scheduler_stats():
     """获取调度器统计信息"""
     try:
-        total_tasks = ScheduledTask.query.count()
-        active_tasks = ScheduledTask.query.filter_by(is_active=True).count()
+        # 标准分页 CRUD 可支持小规模调度任务统计，无需本地 ORM 聚合。
+        tasks = _scheduled_task_repository().list_all()
+        total_tasks = len(tasks)
+        active_tasks = sum(1 for task in tasks if task.get("is_active"))
         inactive_tasks = total_tasks - active_tasks
         
         stats = {
@@ -50,12 +56,15 @@ def get_scheduled_tasks():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
         
-        tasks_query = ScheduledTask.query.order_by(ScheduledTask.created_at.desc())
-        tasks_pagination = tasks_query.paginate(page=page, per_page=per_page, error_out=False)
-        
-        tasks = []
-        for task in tasks_pagination.items:
-            tasks.append(task.to_dict())
+        # 列表读取走 SDK；创建、调度和运行态更新仍由本地调度器维护。
+        result = _scheduled_task_repository().list_page(
+            page_index=page,
+            page_size=per_page,
+            order_field="created_at",
+            order_type="desc",
+        )
+        tasks = result["items"]
+        total = result["total"]
         
         return jsonify({
             'success': True,
@@ -63,8 +72,8 @@ def get_scheduled_tasks():
             'pagination': {
                 'page': page,
                 'per_page': per_page,
-                'total': tasks_pagination.total,
-                'pages': tasks_pagination.pages
+                'total': total,
+                'pages': (total + per_page - 1) // per_page
             }
         })
         
@@ -112,35 +121,30 @@ def create_scheduled_task():
                     'message': f'任务参数必须是有效的JSON格式: {e}'
                 }), 400
         
-        # 创建任务
-        task = ScheduledTask(
-            name=data['name'],
-            description=data.get('description', ''),
-            cron_expression=data['cron_expression'],
-            task_type=data['task_type'],
-            task_function=data['task_function'],
-            task_params=task_params,
-            is_active=data.get('is_active', True)
-        )
-        
-        db.session.add(task)
-        db.session.commit()
+        task = _scheduled_task_repository().save({
+            'name': data['name'],
+            'description': data.get('description', ''),
+            'cron_expression': data['cron_expression'],
+            'task_type': data['task_type'],
+            'task_function': data['task_function'],
+            'task_params': task_params,
+            'is_active': data.get('is_active', True),
+        })
         
         # 如果任务是活跃的，添加到调度器
-        if task.is_active and scheduler_service.is_running:
+        if task.get('is_active') and scheduler_service.is_running:
             scheduler_service.add_job(task)
         
-        logger.info(f"创建定时任务成功: {task.name}")
+        logger.info("创建定时任务成功: %s", task.get('name'))
         
         return jsonify({
             'success': True,
             'message': '定时任务创建成功',
-            'task': task.to_dict()
+            'task': task
         })
         
     except Exception as e:
         logger.error(f"创建定时任务失败: {e}")
-        db.session.rollback()
         return jsonify({
             'success': False,
             'message': str(e)
@@ -152,7 +156,10 @@ def create_scheduled_task():
 def update_scheduled_task(task_id):
     """更新定时任务"""
     try:
-        task = ScheduledTask.query.get_or_404(task_id)
+        repository = _scheduled_task_repository()
+        task = repository.get(task_id)
+        if not task:
+            return jsonify({'success': False, 'message': '定时任务不存在'}), 404
         data = request.get_json()
         
         # 验证cron表达式
@@ -175,31 +182,30 @@ def update_scheduled_task(task_id):
                     'message': f'任务参数必须是有效的JSON格式: {e}'
                 }), 400
         
-        # 更新任务字段
+        # 合并允许更新的字段并使用同一远程记录主键保存。
+        updated = dict(task)
         for field in ['name', 'description', 'cron_expression', 'task_type', 'task_function', 'task_params', 'is_active']:
             if field in data:
-                setattr(task, field, data[field])
-        
-        task.updated_at = datetime.now()
-        db.session.commit()
+                updated[field] = data[field]
+        updated['updated_at'] = datetime.now().isoformat()
+        task = repository.save(updated)
         
         # 更新调度器中的任务
         if scheduler_service.is_running:
             scheduler_service.remove_job(task_id)
-            if task.is_active:
+            if task.get('is_active'):
                 scheduler_service.add_job(task)
         
-        logger.info(f"更新定时任务成功: {task.name}")
+        logger.info("更新定时任务成功: %s", task.get('name'))
         
         return jsonify({
             'success': True,
             'message': '定时任务更新成功',
-            'task': task.to_dict()
+            'task': task
         })
         
     except Exception as e:
         logger.error(f"更新定时任务失败: {e}")
-        db.session.rollback()
         return jsonify({
             'success': False,
             'message': str(e)
@@ -211,16 +217,17 @@ def update_scheduled_task(task_id):
 def delete_scheduled_task(task_id):
     """删除定时任务"""
     try:
-        task = ScheduledTask.query.get_or_404(task_id)
-        task_name = task.name
+        repository = _scheduled_task_repository()
+        task = repository.get(task_id)
+        if not task:
+            return jsonify({'success': False, 'message': '定时任务不存在'}), 404
+        task_name = task.get('name')
         
         # 从调度器中移除任务
         if scheduler_service.is_running:
             scheduler_service.remove_job(task_id)
         
-        # 删除数据库记录
-        db.session.delete(task)
-        db.session.commit()
+        repository.delete(task_id)
         
         logger.info(f"删除定时任务成功: {task_name}")
         
@@ -231,7 +238,6 @@ def delete_scheduled_task(task_id):
         
     except Exception as e:
         logger.error(f"删除定时任务失败: {e}")
-        db.session.rollback()
         return jsonify({
             'success': False,
             'message': str(e)
@@ -243,33 +249,36 @@ def delete_scheduled_task(task_id):
 def toggle_scheduled_task(task_id):
     """切换定时任务状态"""
     try:
-        task = ScheduledTask.query.get_or_404(task_id)
+        repository = _scheduled_task_repository()
+        task = repository.get(task_id)
+        if not task:
+            return jsonify({'success': False, 'message': '定时任务不存在'}), 404
         data = request.get_json()
         
-        is_active = data.get('is_active', not task.is_active)
-        task.is_active = is_active
-        task.updated_at = datetime.now()
-        
-        db.session.commit()
+        is_active = data.get('is_active', not task.get('is_active'))
+        task = repository.save({
+            **task,
+            'is_active': is_active,
+            'updated_at': datetime.now().isoformat(),
+        })
         
         # 更新调度器中的任务
         if scheduler_service.is_running:
             scheduler_service.remove_job(task_id)
-            if task.is_active:
+            if task.get('is_active'):
                 scheduler_service.add_job(task)
         
         status_text = '启用' if is_active else '禁用'
-        logger.info(f"{status_text}定时任务: {task.name}")
+        logger.info("%s定时任务: %s", status_text, task.get('name'))
         
         return jsonify({
             'success': True,
             'message': f'定时任务已{status_text}',
-            'task': task.to_dict()
+            'task': task
         })
         
     except Exception as e:
         logger.error(f"切换定时任务状态失败: {e}")
-        db.session.rollback()
         return jsonify({
             'success': False,
             'message': str(e)
@@ -281,7 +290,9 @@ def toggle_scheduled_task(task_id):
 def run_scheduled_task_now(task_id):
     """立即执行定时任务"""
     try:
-        task = ScheduledTask.query.get_or_404(task_id)
+        task = _scheduled_task_repository().get(task_id)
+        if not task:
+            return jsonify({'success': False, 'message': '定时任务不存在'}), 404
         
         if not scheduler_service.is_running:
             return jsonify({
@@ -305,7 +316,7 @@ def run_scheduled_task_now(task_id):
                 'message': '任务提交执行失败'
             }), 500
         
-        logger.info(f"立即执行定时任务: {task.name}")
+        logger.info("立即执行定时任务: %s", task.get('name'))
         
         return jsonify({
             'success': True,
@@ -326,7 +337,13 @@ def run_scheduled_task_now(task_id):
 def get_task_execution_status(task_id):
     """获取任务执行状态"""
     try:
-        task = ScheduledTask.query.get_or_404(task_id)
+        # 详情字段从 SDK 获取，异步状态和调度器状态仍来自本地运行态。
+        task = _scheduled_task_repository().get(task_id)
+        if not task:
+            return jsonify({
+                'success': False,
+                'message': '定时任务不存在',
+            }), 404
         
         # 获取异步执行状态
         async_status = scheduler_service.get_async_task_status(task_id)
@@ -337,12 +354,12 @@ def get_task_execution_status(task_id):
         return jsonify({
             'success': True,
             'task': {
-                'id': task.id,
-                'name': task.name,
-                'is_active': task.is_active,
-                'last_run_time': task.last_run_time.isoformat() if task.last_run_time else None,
-                'next_run_time': task.next_run_time.isoformat() if task.next_run_time else None,
-                'run_count': task.run_count
+                'id': task.get('id'),
+                'name': task.get('name'),
+                'is_active': task.get('is_active'),
+                'last_run_time': task.get('last_run_time'),
+                'next_run_time': task.get('next_run_time'),
+                'run_count': task.get('run_count'),
             },
             'async_status': async_status,
             'job_status': job_status

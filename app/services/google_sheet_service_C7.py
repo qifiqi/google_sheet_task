@@ -8,7 +8,8 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db, TaskResultReturn
+from app.models import Task, db, TaskResultReturn
+from app.repositories.task_result_repository import TaskResultRepository
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -32,12 +33,14 @@ from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
 logger = get_logger(__name__)
+_task_result_repository = TaskResultRepository()
 
 
 class GoogleSheetService(BaseGoogleSheetService):
     """Google Sheet服务 - C7"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        """初始化 C7 模板执行器及其 Sheet、行情和指标分析依赖。"""
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
         self.xpl = xpl_analyzer
@@ -46,6 +49,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
 
     def _raise_retryable_network_error(self, exc, context):
+        """将可恢复网络异常转换为任务层可识别的重试异常。"""
         if is_retryable_network_error(exc):
             root = unwrap_exception(exc) or exc
             raise RetryableNetworkTaskError(f"{context}: {root}") from exc
@@ -108,10 +112,12 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     @staticmethod
     def _get_c7_write_end_column(layout: Dict[str, Any]) -> str:
+        """确定 C7 当前布局中写入 K 线数据的最后一列。"""
         return layout.get("close_column") or layout.get("value_column") or layout["date_column"]
 
     @staticmethod
     def _project_c7_kline_row(kline_row, price_mode, random_price_range="high_low", random_generator=None):
+        """按 C7 价格模式投影一条 OHLC K 线为模板输入行。"""
         price_field = {
             "kp_price": "stock_kp",
             "vwap_price": "stock_vwap",
@@ -138,6 +144,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         }
 
     def _expand_random_price_groups(self, combinations, kline_data_map, price_mode, random_price_range, random_group_count):
+        """在随机价格模式下复制组合并生成独立的随机 K 线组。"""
         if price_mode != "random_price":
             return combinations, kline_data_map
         grouped_data = []
@@ -167,6 +174,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     @staticmethod
     def _get_c7_input_last_row(google_sheet, layout: Dict[str, Any]) -> int:
+        """读取 C7 输入区域最后一行，0.3 版需同时考察 OHLC 列。"""
         if layout["version"] != "c7_0_3":
             return google_sheet.get_last_row(layout["date_column"])
         columns = [
@@ -181,6 +189,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     @staticmethod
     def _get_c7_range_start(range_a1: str) -> tuple[str, int]:
+        """解析 A1 范围起点的列名和行号。"""
         match = re.match(r"^([A-Z]+)(\d+)", str(range_a1 or "").upper())
         if not match:
             raise ValueError(f"无效的 C7 结果范围: {range_a1}")
@@ -188,6 +197,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     @staticmethod
     def _validate_c7_ohlc_rows(rows):
+        """校验 C7.0.3 OHLC 输入行具备完整的开高低收字段。"""
         for index, row in enumerate(rows, start=1):
             for field in ("stock_kp", "stock_zg", "stock_zd", "stock_sp"):
                 if row.get(field) in (None, ""):
@@ -215,7 +225,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     @staticmethod
     def _to_decimal_ratio(value: Any) -> float:
-        """Convert percentage-like values into decimal ratios for outbound payloads."""
+        """将百分比形式的值转换为上报载荷所需的小数比例。"""
         if value in (None, ""):
             return 0
 
@@ -241,7 +251,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
-                task = db.session.get(Task, self.task_id)
+                task = self._get_remote_task()
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -312,7 +322,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = db.session.get(Task, self.task_id)
+                task = self._get_remote_task()
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -338,6 +348,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         combination: Dict[str, Any],
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
+        """将 C7 参数组合和结果整理为股票参数结果上报载荷。"""
         payload = self._build_stock_param_result_base_payload(
             task_name,
             task_index,
@@ -484,8 +495,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 total_combinations += len(combinations)
 
             # 更新任务总步数
-            task.total_steps = total_combinations
-            db_retry_manager.commit_with_retry(db.session)
+            task = self._save_remote_task(task, total_steps=total_combinations)
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -532,12 +542,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         continue
 
                     # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
-                    def check_task_status():
-                        return db.session.query(Task.status).filter(
-                            Task.id == self.task_id
-                        ).first()
-
-                    result = safe_db_operation(check_task_status)
+                    result = self._get_remote_task()
 
                     if not result or result.status == 'cancelled':
                         self._log_warning("任务已被取消，停止执行")
@@ -582,8 +587,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         )
 
                         # 更新当前步数为组合级别
-                        task.current_step = current_step
-                        db_retry_manager.commit_with_retry(db.session)
+                        task = self._save_remote_task(task, current_step=current_step)
 
                         # 保存结果到数据库
                         stock_name = str(combination.get('stock_name') or '').strip()
@@ -603,7 +607,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         # 检查是否是任务被取消
                         task.error = e
                         try:
-                            task_check = db.session.get(Task, self.task_id)
+                            task_check = self._get_remote_task()
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
@@ -628,7 +632,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 检查是否是任务被取消导致的异常
             task.error = e
             try:
-                task_check = db.session.get(Task, self.task_id)
+                task_check = self._get_remote_task()
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
@@ -676,6 +680,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 self._validate_c7_ohlc_rows(current_kline)
 
             def set_googl_val(initial_result_sleep=None):
+                """将当前参数组合及 K 线写入 C7 模板。"""
                 _combination = cache_parameters['combination']
                 cache_Kline_key = _combination.get('Kline_key',"")
                 cache_stock_code = str(_combination.get('stock_code') or '').strip()
@@ -736,6 +741,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             kline = current_kline
 
             def check_result(check_values):
+                """校验 C7 模板计算完成后的触发单元格。"""
                 _check_values = {}
                 for _position, _value in check_values.items():
                     if _value is None or (isinstance(_value, str) and not _value.strip()) or not is_valid_result_value(_value):
@@ -958,18 +964,17 @@ class GoogleSheetService(BaseGoogleSheetService):
         """保存任务结果到数据库，包含重试逻辑"""
 
         def save_result_operation():
+            """保存当前 C7 组合的结果和收益明细。"""
             _index_start_return_date = None
             safe_parameters = self._sanitize_json_value(parameters)
             safe_result = self._sanitize_json_value(result)
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success
-            )
-            db.session.add(task_result)
-            db.session.commit()
+            _task_result_repository.save({
+                "task_id": self.task_id,
+                "step_index": step_index,
+                "parameters": safe_parameters,
+                "result": safe_result,
+                "success": success,
+            })
 
         try:
             if self.app:
@@ -991,6 +996,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         start_row=2,
         ohlc_columns=None,
     ):
+        """从 C7 输入列读取用户维护的自定义 K 线数据。"""
         if not self.google_sheets:
             raise ValueError("自定义K线模式缺少 Google Sheet")
 
@@ -1042,6 +1048,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         return validated
 
     def _get_custom_parameters(self, parameter, parameters, custom_kline_map):
+        """基于 C7 自定义 K 线映射展开参数组合。"""
         data = []
         for v1 in parameters[1]:
             for v2 in parameters[2]:
@@ -1059,11 +1066,14 @@ class GoogleSheetService(BaseGoogleSheetService):
         return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="dfcf"):
+        """按 C7 布局、价格模式和日期范围生成自动 K 线参数组合。"""
 
         def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
+            """按年份或日期范围截取并投影符合 C7 输入要求的 K 线。"""
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
             # 根据price_mode决定使用开盘价、收盘价或加权平均价
             def _project_kline_row(kline_row):
+                """将原始 K 线投影为当前价格模式的 C7 输入结构。"""
                 projection_mode = 'sp_price' if price_mode == 'random_price' else price_mode
                 return self._project_c7_kline_row(kline_row, projection_mode, random_price_range)
             

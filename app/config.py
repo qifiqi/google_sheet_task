@@ -4,10 +4,12 @@ from pathlib import Path
 
 
 def _get_bool(name, default=False):
+    """从环境变量读取布尔配置，未设置时使用默认值。"""
     return os.environ.get(name, str(default)).lower() in ('true', '1', 'yes', 'on')
 
 
 def _get_int(name, default):
+    """从环境变量读取整数配置。"""
     return int(os.environ.get(name, default))
 
 
@@ -19,6 +21,7 @@ CONFIG_DIR = BASE_DIR / 'config'
 
 
 def _resolve_database_url(default_url):
+    """规范化数据库 URL，确保相对 SQLite 路径基于项目根目录。"""
     database_url = os.environ.get('DATABASE_URL') or default_url
 
     if database_url.startswith('sqlite:///'):
@@ -32,6 +35,7 @@ def _resolve_database_url(default_url):
 
 
 def _build_engine_options(_database_url):
+    """构造 SQLAlchemy 连接池的通用配置。"""
     return {
         'pool_pre_ping': True,
         'pool_recycle': 3600,
@@ -57,6 +61,14 @@ class BaseConfig:
     DING_TALK_SECRET = ''
     DING_TALK_DETAIL_BASE_URL = ''
     PUBLIC_BASE_URL = ''
+    # SDK 远程数据服务的集中配置，业务服务不应直接读取环境变量。
+    STOCK_BASE_URL = ''
+    STOCK_API_TOKEN = ''
+    STOCK_API_TIMEOUT = 10.0
+    # sys_model SDK 暂无“当前用户可见模型”接口，启用前必须由主 Web 提供
+    # 用户范围的模型代码，不能以全量 sys_model 冒充权限。
+    REMOTE_MODEL_ACCESS_ENFORCED = False
+    REMOTE_MODEL_CODES_CLAIM = 'model_codes'
 
     BASE_URL = 'http://localhost:5000'
     TASK_TIMEOUT = 3600
@@ -67,6 +79,7 @@ class BaseConfig:
 
     @classmethod
     def init_app(cls):
+        """从环境变量加载运行配置，并创建应用所需本地目录。"""
         cls.SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
         # 通过参数统一控制 SQLAlchemy SQL 输出。
         # 默认关闭，避免运行期被 SQL 日志刷屏；排查数据库问题时可显式设为 true。
@@ -87,6 +100,11 @@ class BaseConfig:
             '',
         )
         cls.PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
+        cls.STOCK_BASE_URL = os.environ.get('STOCK_BASE_URL', '').strip()
+        cls.STOCK_API_TOKEN = os.environ.get('STOCK_API_TOKEN', '')
+        cls.STOCK_API_TIMEOUT = _get_int('STOCK_API_TIMEOUT', 10)
+        cls.REMOTE_MODEL_ACCESS_ENFORCED = _get_bool('REMOTE_MODEL_ACCESS_ENFORCED', False)
+        cls.REMOTE_MODEL_CODES_CLAIM = os.environ.get('REMOTE_MODEL_CODES_CLAIM', 'model_codes').strip() or 'model_codes'
         cls.BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
         cls.TASK_TIMEOUT = _get_int('TASK_TIMEOUT', 3600)
         cls.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
@@ -121,6 +139,7 @@ CONFIG_MAP = {
 
 
 def get_config_class():
+    """根据 ``APP_ENV`` 返回对应的 Flask 配置类，未知值回退开发配置。"""
     app_env = os.environ.get('APP_ENV', 'development').strip().lower() or 'development'
     return CONFIG_MAP.get(app_env, DevelopmentConfig)
 
@@ -129,6 +148,7 @@ Config = get_config_class()
 
 
 def init_config():
+    """初始化缺失的系统默认配置，保留已有管理员修改的配置值。"""
     from app.models import SystemConfig
     from app.services.config_manager import get_config_manager
 

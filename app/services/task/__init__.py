@@ -15,6 +15,7 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    """按需导入任务门面和只读服务，避免包初始化时产生循环依赖。"""
     if name in {"TaskManager", "task_manager"}:
         from app.services.task.facade import TaskManager, task_manager
 

@@ -11,7 +11,6 @@
     let isRefreshing = false;
     let refreshPromise = null;
     let navItems = [];
-    let pagePermissions = [];
 
     const legacyPathMap = new Map([
         ["/admin", "/admin/"],
@@ -76,7 +75,6 @@
         currentUser = null;
         currentPermissions = [];
         navItems = [];
-        pagePermissions = [];
     }
 
     function isAuthEnabled() {
@@ -190,17 +188,8 @@
     }
 
     function hasPermission(code) {
-        if (!code) {
-            return true;
-        }
-        // 接口权限保留为元数据，不再限制页面内操作；只有页面权限参与访问控制。
-        if (!String(code).startsWith("page:")) {
-            return true;
-        }
-        if (code === "task:any") {
-            return currentPermissions.some((permission) => String(permission).startsWith("task:"));
-        }
-        return currentPermissions.includes(code);
+        // 本地 RBAC 已停用；页面可见性由本服务返回的 sys_model 菜单决定。
+        return true;
     }
 
     function hasAnyPermission(permissionList) {
@@ -220,24 +209,7 @@
     }
 
     function getPagePermissions() {
-        const datasetValue = (document.body?.dataset?.requiredPermissions || "")
-            .split(",")
-            .map((value) => value.trim())
-            .filter(Boolean);
-        if (datasetValue.length) {
-            return datasetValue;
-        }
-
-        const pathname = window.location.pathname;
-        if (/^\/google-sheet(?:\/|$)/.test(pathname)) {
-            const googleSheetPath = `/google-sheet/?version=${new URLSearchParams(window.location.search).get("version") || "c3"}`;
-            const googleSheetPermission = pagePermissions.find((item) => item.path === googleSheetPath);
-            return googleSheetPermission ? [googleSheetPermission.permission] : [];
-        }
-        const currentUrl = getCurrentUrl();
-        const match = pagePermissions.find((item) => item.path === currentUrl)
-            || pagePermissions.find((item) => normalizePath(item.path) === normalizePath(pathname));
-        return match ? [match.permission] : [];
+        return [];
     }
 
     function redirectToLogin() {
@@ -384,15 +356,19 @@
 
     function filterTemplateNav(items) {
         return (Array.isArray(items) ? items : []).reduce((result, item) => {
-            const cloned = { ...item };
+            const cloned = {
+                ...item,
+                label: item.model_name || item.label || "未命名菜单",
+                path: item.model_link || item.path || "",
+            };
             if (cloned.path) {
                 const legacyPath = resolveLegacyPath(cloned.path);
-                if (!legacyPath || templateUnsupportedPaths.has(cloned.path)) {
-                    return result;
+                if (cloned.disabled || !cloned.available || !legacyPath || templateUnsupportedPaths.has(cloned.path)) {
+                    cloned.path = "";
+                    cloned.disabled = true;
+                } else {
+                    cloned.path = legacyPath;
                 }
-                cloned.path = legacyPath;
-                result.push(cloned);
-                return result;
             }
 
             if (Array.isArray(cloned.children)) {
@@ -427,40 +403,26 @@
             return;
         }
 
-        container.innerHTML = items.map((item, index) => {
-            if (item.path) {
-                return `
-                    <div>
-                        <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">
-                            <span>${item.label}</span>
-                        </a>
-                    </div>
-                `;
+        let sequence = 0;
+        const hasActiveDescendant = (item) => isItemActive(item.path)
+            || (item.children || []).some(hasActiveDescendant);
+        const renderItem = (item, nested) => {
+            const label = escapeHtml(item.label);
+            if (!item.children?.length) {
+                return item.path
+                    ? `<li><a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}"><span>${label}</span></a></li>`
+                    : `<li><span class="nav-link disabled"><span>${label}</span></span></li>`;
             }
-
-            const collapseId = `templateSidebarGroup${index}`;
-            const childMarkup = (item.children || []).map((child) => `
-                <li>
-                    <a class="nav-link ${isItemActive(child.path) ? "active" : ""}" href="${child.path}">
-                        <span>${child.label}</span>
-                    </a>
-                </li>
-            `).join("");
-            const expanded = (item.children || []).some((child) => isItemActive(child.path));
-            return `
-                <div class="mt-3">
-                    <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="${expanded ? "true" : "false"}">
-                        <span>${item.label}</span>
-                        <i class="bi bi-chevron-right btn-toggle-icon"></i>
-                    </button>
-                    <div class="collapse ${expanded ? "show" : ""}" id="${collapseId}">
-                        <ul class="btn-toggle-nav">
-                            ${childMarkup}
-                        </ul>
-                    </div>
-                </div>
-            `;
-        }).join("");
+            const collapseId = `templateSidebarGroup${sequence++}`;
+            const expanded = hasActiveDescendant(item);
+            return `<li class="${nested ? "mt-1" : "mt-3"}">
+                <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="${expanded ? "true" : "false"}">
+                    <span>${label}</span><i class="bi bi-chevron-right btn-toggle-icon"></i>
+                </button>
+                <div class="collapse ${expanded ? "show" : ""}" id="${collapseId}"><ul class="btn-toggle-nav">${item.children.map((child) => renderItem(child, true)).join("")}</ul></div>
+            </li>`;
+        };
+        container.innerHTML = `<ul class="btn-toggle-nav">${items.map((item) => renderItem(item, false)).join("")}</ul>`;
     }
 
     function renderTopMenu(items) {
@@ -542,14 +504,11 @@
     }
 
     async function loadNav() {
-        const payload = await requestJson("/api/meta/nav", { method: "GET" });
+        const payload = await requestJson("/api/navigation/menu", { method: "GET" });
         const navigationData = payload?.data || {};
         navItems = filterTemplateNav(
             Array.isArray(navigationData) ? navigationData : navigationData.items || []
         );
-        pagePermissions = Array.isArray(navigationData.page_permissions)
-            ? navigationData.page_permissions
-            : [];
         renderSidebarMenu(navItems);
         renderTopMenu(navItems);
     }

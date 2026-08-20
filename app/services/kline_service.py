@@ -7,12 +7,10 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import datetime, timedelta
 import logging
 from typing import Any, Callable, Iterable
-from stock_sdk import StockClient
-
+from app.repositories.stock_market_data_repository import StockMarketDataRepository
 from app.utils.dfcf_api import DFCJStockApi
 
 logger = logging.getLogger(__name__)
@@ -34,9 +32,11 @@ VALID_DATA_SOURCES = {
 class KlineService:
     """按统一格式读取、标准化并可回填 K 线数据。"""
 
-    def __init__(self, dfcf_api: Any | None = None, qq_api: Any | None = None, yahoo_api: Any | None = None):
+    def __init__(self, dfcf_api: Any | None = None, qq_api: Any | None = None, yahoo_api: Any | None = None,
+                 stock_data_repository: StockMarketDataRepository | None = None):
+        """装配外部行情源与内部 K 线 SDK 仓储，便于替换和定向测试。"""
         self.dfcf_api = dfcf_api or DFCJStockApi()
-        self.stock_client = StockClient(base_url=os.environ.get("STOCK_BASE_URL", "http://172.18.20.20:8081"))
+        self.stock_data_repository = stock_data_repository or StockMarketDataRepository()
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
         self.sources: dict[str, Callable[[dict[str, Any]], Iterable[dict[str, Any]]]] = {
@@ -116,17 +116,17 @@ class KlineService:
         return f"{code}.未知"
 
     def read_internal_kline_data(self, **_kwargs: Any) -> list[dict[str, Any]]:
-        """读取内置 K 线库的占位接口，接入数据库时覆盖此方法。"""
+        """经 Repository 从远端读取内置 K 线，并转换成统一字段。"""
         stock_code = _kwargs.get("stock_code")
 
         if str(stock_code).isdigit():
-            data = self.stock_client.stock_data.get_data_all_list({
+            data = self.stock_data_repository.get_all_rows("cn", {
                 "begin_date": _kwargs.get("start_date"),
                 "stock_code": self.get_stock_market(stock_code),
             })
 
         else:
-            data = self.stock_client.stock_data_us.get_data_all_list({
+            data = self.stock_data_repository.get_all_rows("us", {
                 "begin_date": _kwargs.get("start_date"),
                 "stock_code": stock_code,
             })
@@ -142,36 +142,35 @@ class KlineService:
                 "stock_sp": raw.get("stock_close"),
                 "stock_cjl": raw.get("stock_volume"),
                 "stock_cje": raw.get("stock_volume_price")
-            } for raw in data.ret_obj
+            } for raw in data
         ]
 
         return data
 
     def write_internal_kline_data(self, rows: list[dict[str, Any]], **_kwargs: Any) -> list[Any]:
-        """写入内置 K 线库的占位接口，接入数据库时覆盖此方法。"""
+        """经 Repository 并发写入远端内置 K 线，仅处理前复权数据。"""
         if _kwargs.get("adjust_type") != 'forward':
             return []
 
         stock_code = _kwargs.get("stock_code")
-        if str(stock_code).isdigit(): # A 股美股不同接口
-            stock_data = self.stock_client.stock_data
-
+        if str(stock_code).isdigit(): # A 股和美股分别对应不同的 SDK 分组。
+            market_type = "cn"
             stock_code = self.get_stock_market(stock_code)
         else:
-            stock_data = self.stock_client.stock_data_us
+            market_type = "us"
 
-        data = stock_data.get_data_all_list({
+        data = self.stock_data_repository.get_all_rows(market_type, {
             "begin_date": rows[0]["stock_date"],
             "end_time": rows[7]["stock_date"],
             "stock_code": stock_code,
         })
-        data = data.ret_obj
 
         if data:
             rows = sorted(rows, key=lambda x: x["stock_date"],reverse=True)[:30]
 
         # 创建异步任务
         async def write_one(row):
+            """保存一条 K 线记录，供并发批量写入任务调用。"""
             data = {
                 "stock_code": stock_code,
                 "stock_name": row.get("stock_name"),
@@ -185,9 +184,10 @@ class KlineService:
                 "stock_limit_price": row.get("stock_zde"),
                 "stock_date": row.get("stock_date")
             }
+            # SDK 为同步客户端，放在线程池执行以免阻塞本次批量写入协程。
             loop = asyncio.get_event_loop()
-            res = await loop.run_in_executor(None, stock_data.modify_or_add, data)
-            print(res, data)
+            res = await loop.run_in_executor(None, self.stock_data_repository.save, market_type, data)
+            logger.debug("已写入内部 K 线数据: stock_code=%s stock_date=%s", stock_code, row.get("stock_date"))
             return res
 
         # 在 Flask 中获取当前事件循环
@@ -217,6 +217,7 @@ class KlineService:
         exchange_market: str | None = None,
         stock_name: str | None = None,
     ) -> list[dict[str, Any]]:
+        """按数据源和市场读取指定股票、日期范围内的 K 线数据。"""
         source = self.normalize_data_source(data_source, self.sources)
         code = str(stock_code or "").strip().upper()
         if not code:
@@ -266,6 +267,7 @@ class KlineService:
 
     @staticmethod
     def normalize_data_source(value: Any, available_sources: dict[str, Any] | None = None) -> str:
+        """将数据源别名归一为已启用的数据源标识。"""
         source = str(value or DATA_SOURCE_DFCF).strip().lower()
         aliases = {"eastmoney": DATA_SOURCE_DFCF, "internal": DATA_SOURCE_DATABASE, "db": DATA_SOURCE_DATABASE}
         source = aliases.get(source, source)
@@ -286,6 +288,7 @@ class KlineService:
         start_date: str | None,
         end_date: str | None,
     ) -> tuple[Iterable[dict[str, Any]], str]:
+        """按指定行情源获取 K 线，并统一返回数据及解析出的股票名称。"""
         if source in {DATA_SOURCE_YAHOO, DATA_SOURCE_TDX}:
             exchange, resolved_name, resolved_code = (
                 str(exchange_market or ""),
@@ -312,6 +315,7 @@ class KlineService:
         return rows or [], resolved_name
 
     def _fetch_dfcf(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+        """调用东方财富行情源获取 K 线。"""
         return self.dfcf_api.get_stock_kline_data(
             request["stock_code"],
             request["exchange_market"],
@@ -320,6 +324,7 @@ class KlineService:
         )
 
     def _fetch_qq(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+        """调用 QQ 财经行情源获取 K 线。"""
         return self._get_qq_api().get_stock_kline_data(
             request["stock_code"],
             request["exchange_market"],
@@ -329,6 +334,7 @@ class KlineService:
         )
 
     def _fetch_yahoo(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+        """调用 Yahoo Finance 行情源获取 K 线。"""
         return self._get_yahoo_api().get_kline_data(
             request["stock_code"],
             "10y",
@@ -392,6 +398,7 @@ class KlineService:
         exchange_market: str | None,
         stock_name: str | None,
     ) -> tuple[str, str, str]:
+        """解析外部行情请求使用的交易所代码、股票名称和规范代码。"""
         normalized_market = str(market_type or "cn").strip().lower()
         if normalized_market not in {"cn", "a股", "china"}:
             if stock_name:
@@ -422,6 +429,7 @@ class KlineService:
             return "1", str(stock_name or ""), code
 
     def _get_qq_api(self) -> Any:
+        """延迟创建 QQ 行情客户端，避免未使用时初始化网络依赖。"""
         if self._qq_api is None:
             from app.utils.qq_api import QQStockApi
 
@@ -429,6 +437,7 @@ class KlineService:
         return self._qq_api
 
     def _get_yahoo_api(self) -> Any:
+        """延迟创建 Yahoo 行情客户端，避免未使用时初始化网络依赖。"""
         if self.yahoo_api is None:
             from app.utils.yf_api import YFApi
 
@@ -442,6 +451,7 @@ class KlineService:
         end_date: str | None,
         limit: int,
     ) -> bool:
+        """判断内部 K 线缓存是否已覆盖请求日期范围和数量。"""
         if not rows:
             return False
         dates = [str(row.get("stock_date") or "")[:10] for row in rows]
@@ -461,6 +471,7 @@ class KlineService:
         stock_name: str | None,
         source: str,
     ) -> list[dict[str, Any]]:
+        """统一外部和内部 K 线字段、日期顺序及来源标记。"""
         normalized: list[dict[str, Any]] = []
         for raw in rows or []:
             if not isinstance(raw, dict):

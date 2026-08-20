@@ -2,7 +2,8 @@ from flask import Blueprint, request, jsonify, g
 import json
 from sqlalchemy.orm import load_only
 
-from app.models import TaskTemplate, Task, TaskResult, db
+from app.models import Task, TaskResult, db
+from app.repositories.template_repository import TaskTemplateRepository
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action, filter_task_types_by_action
@@ -17,7 +18,13 @@ TASK_ACTION_LABELS = {
 }
 
 
+def _template_repository():
+    """创建任务模板远程 CRUD 仓储。"""
+    return TaskTemplateRepository()
+
+
 def _result_permission_denied(action: str, task_type: str | None, decision: dict, result_id: int | None = None, task_id: str | None = None):
+    """构造任务结果权限不足时的统一接口响应。"""
     action_label = TASK_ACTION_LABELS.get(action, action)
     normalized_type = decision.get("task_type") or str(task_type or "unknown")
     missing_permissions = decision.get("missing_permissions") or []
@@ -42,13 +49,18 @@ def get_templates():
     """获取所有任务模板"""
     try:
         task_type = request.args.get('task_type')
-        templates = TaskTemplate.query.order_by(TaskTemplate.created_at.desc()).all()
+        # 仅列表读取迁移到 SDK；按 task_type 的页面筛选沿用现有接口语义。
+        templates = _template_repository().list_page(
+            page_size=1000,
+            order_field="created_at",
+            order_type="desc",
+        )["items"]
 
         if task_type:
             filtered = []
             for t in templates:
                 try:
-                    cfg = json.loads(t.config) if isinstance(t.config, str) else t.config
+                    cfg = t.get("config")
                 except Exception:
                     continue
                 if isinstance(cfg, dict) and cfg.get('task_type') == task_type:
@@ -57,7 +69,7 @@ def get_templates():
 
         return jsonify({
             "status": "success",
-            "templates": [template.to_dict() for template in templates]
+            "templates": templates
         })
     except Exception as e:
         logger.error(f"获取模板列表失败: {str(e)}")
@@ -88,22 +100,19 @@ def create_template():
         except json.JSONDecodeError:
             return jsonify({"status": "error", "message": "配置信息不是有效的JSON格式"}), 400
 
-        template = TaskTemplate(
-            name=data['name'],
-            description=data.get('description', ''),
-            config=config_str
-        )
-
-        db.session.add(template)
-        db.session.commit()
+        # Repository 负责将 config 字典/JSON 文本转换成 SDK 所需格式。
+        template = _template_repository().save({
+            "name": data['name'],
+            "description": data.get('description', ''),
+            "config": config_str,
+        })
 
         return jsonify({
             "status": "success",
             "message": "模板创建成功",
-            "template": template.to_dict()
+            "template": template
         })
     except Exception as e:
-        db.session.rollback()
         logger.error(f"创建模板失败: {str(e)}")
         return jsonify({"status": "error", "message": f"创建模板失败: {str(e)}"}), 500
 
@@ -113,11 +122,11 @@ def create_template():
 def get_template(template_id):
     """获取模板详情"""
     try:
-        template = TaskTemplate.query.get(template_id)
+        template = _template_repository().get(template_id)
         if not template:
             return jsonify({"status": "error", "message": "模板不存在"}), 404
 
-        return jsonify(template.to_dict())
+        return jsonify(template)
     except Exception as e:
         logger.error(f"获取模板详情失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -128,7 +137,7 @@ def get_template(template_id):
 def update_template(template_id):
     """更新任务模板"""
     try:
-        template = TaskTemplate.query.get(template_id)
+        template = _template_repository().get(template_id)
         if not template:
             return jsonify({"status": "error", "message": "模板不存在"}), 404
 
@@ -136,15 +145,16 @@ def update_template(template_id):
         if not data:
             return jsonify({"status": "error", "message": "请求数据为空"}), 400
 
-        template.name = data['name']
-        template.description = data.get('description', template.description)
-        template.config = json.dumps(data['config']) if isinstance(data['config'], (dict, list)) else data['config']
+        # 更新时显式携带主键，调用远端 modify_or_add 的更新分支。
+        template = _template_repository().save({
+            "id": template_id,
+            "name": data['name'],
+            "description": data.get('description', template.get("description", "")),
+            "config": data['config'],
+        })
 
-        db.session.commit()
-
-        return jsonify({"status": "success", "template": template.to_dict()})
+        return jsonify({"status": "success", "template": template})
     except Exception as e:
-        db.session.rollback()
         logger.error(f"更新模板失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -154,16 +164,14 @@ def update_template(template_id):
 def delete_template(template_id):
     """删除任务模板"""
     try:
-        template = TaskTemplate.query.get(template_id)
+        template = _template_repository().get(template_id)
         if not template:
             return jsonify({"status": "error", "message": "模板不存在"}), 404
 
-        db.session.delete(template)
-        db.session.commit()
+        _template_repository().delete(template_id)
 
         return jsonify({"status": "success", "message": "模板已删除"})
     except Exception as e:
-        db.session.rollback()
         logger.error(f"删除模板失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 

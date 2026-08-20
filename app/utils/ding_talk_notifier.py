@@ -26,11 +26,13 @@ class DingTalkNotifier:
     }
 
     def __init__(self, access_token, secret):
+        """保存机器人鉴权信息和固定发送端点。"""
         self.access_token = access_token
         self.secret = secret
         self.base_url = 'https://oapi.dingtalk.com/robot/send'
 
     def _generate_signature(self):
+        """按钉钉机器人协议生成带毫秒时间戳的 HMAC 签名。"""
         timestamp = str(round(time.time() * 1000))
         secret_enc = self.secret.encode('utf-8')
         string_to_sign = f'{timestamp}\n{self.secret}'
@@ -40,10 +42,12 @@ class DingTalkNotifier:
         return timestamp, sign
 
     def _normalize_mobile(self, value):
+        """清理手机号输入，并将空值统一为 None。"""
         mobile = str(value or '').strip()
         return mobile or None
 
     def _mask_mobile(self, mobile):
+        """对日志中的手机号做中间四位脱敏处理。"""
         raw = self._normalize_mobile(mobile)
         if not raw:
             return None
@@ -52,6 +56,7 @@ class DingTalkNotifier:
         return f"{raw[:3]}****{raw[-4:]}"
 
     def _task_detail_url(self, task_id, detail_url=None):
+        """优先使用调用方链接，否则按任务 ID 构造默认详情地址。"""
         if detail_url:
             return detail_url
         if not has_app_context():
@@ -116,6 +121,7 @@ class DingTalkNotifier:
         return "\n".join(lines)
 
     def _collect_oncall_developer_mobiles(self):
+        """收集启用且值班的开发角色手机号，用于异常告警 @。"""
         mobiles = set()
         users = User.query.filter_by(is_active=True, is_alert_oncall=True).all()
         for user in users:
@@ -127,6 +133,7 @@ class DingTalkNotifier:
         return mobiles
 
     def _collect_at_mobiles(self, task, notify_type):
+        """合并任务创建人与异常值班人员，返回去重后的 @ 列表。"""
         mobiles = set()
         if task and task.created_by:
             creator_mobile = self._normalize_mobile(task.created_by.mobile)
@@ -139,6 +146,7 @@ class DingTalkNotifier:
         return sorted(mobiles)
 
     def send_task_notification(self, task_id, notify_type='error', summary=None, detail_url=None):
+        """根据任务状态构造并发送钉钉 Markdown 通知。"""
         task_id = str(task_id or '').strip()
         task = db.session.get(Task, task_id) if task_id else None
         keyword = self.NOTIFY_KEYWORDS.get(notify_type, "通知")
@@ -207,6 +215,7 @@ class DingTalkNotifier:
         return self.send_message(payload)
 
     def send_message(self, data):
+        """向钉钉机器人发送原始消息载荷。"""
         try:
             if not self.access_token or not self.secret:
                 logger.error("钉钉通知发送失败: access_token 或 secret 未配置")

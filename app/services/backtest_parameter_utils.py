@@ -1,4 +1,4 @@
-"""Utilities for normalizing single-product backtest parameter rows."""
+"""单品回测参数行规范化工具。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ C3_PARAMETER_KEYS = ("xm", "dbbh1", "dbbh2", "zlxc", "zsgz", "ywf1", "ywf2")
 
 
 def derive_dbbh2(dbbh1: Any) -> str:
-    """Derive 单边保护 2 from 单边保护 1."""
+    """根据单边保护 1 推导单边保护 2。"""
     text = _clean_cell(dbbh1).replace(",", "")
     if not text:
         return ""
@@ -28,7 +28,7 @@ def derive_dbbh2(dbbh1: Any) -> str:
 
 
 def normalize_backtest_training_config(config: dict[str, Any]) -> dict[str, Any]:
-    """Normalize C3 backtest parameters while leaving C5-style rows untouched."""
+    """规范化 C3 回测参数，同时保持 C5 风格行数据不变。"""
     if not isinstance(config, dict) or not _is_c3_config(config):
         return config
 
@@ -45,7 +45,7 @@ def normalize_backtest_training_config(config: dict[str, Any]) -> dict[str, Any]
 
 
 def normalize_c3_parameter_dict(row: dict[str, Any]) -> dict[str, str]:
-    """Normalize an imported C3 parameter object keyed by field names."""
+    """将按字段名组织的导入 C3 参数对象转换为标准参数行。"""
     normalized = {
         key: _clean_cell(row.get(key))
         for key in C3_PARAMETER_KEYS
@@ -56,7 +56,7 @@ def normalize_c3_parameter_dict(row: dict[str, Any]) -> dict[str, str]:
 
 
 def normalize_c3_parameter_row(row: Any) -> Any:
-    """Normalize pasted/API C3 rows into [commission, xm, dbbh1, dbbh2, ...]."""
+    """将粘贴或 API 传入的 C3 行数据规范为标准参数顺序。"""
     if isinstance(row, dict):
         normalized = normalize_c3_parameter_dict(row)
         commission = _clean_cell(row.get("commission")) or DEFAULT_C3_COMMISSION
@@ -82,6 +82,7 @@ def normalize_c3_parameter_row(row: Any) -> Any:
 
 
 def _expand_six_value_business_row(values: list[str]) -> list[str]:
+    """将缺少派生字段的六列 C3 业务参数扩展为标准七列。"""
     return [
         values[0],
         values[1],
@@ -94,6 +95,7 @@ def _expand_six_value_business_row(values: list[str]) -> list[str]:
 
 
 def _is_c3_config(config: dict[str, Any]) -> bool:
+    """判断配置是否属于需要规范化参数行的 C3 单品回测。"""
     model_version = str(config.get("model_version") or "").strip().lower()
     if model_version in {"c4", "c5"}:
         return False
@@ -109,15 +111,18 @@ def _is_c3_config(config: dict[str, Any]) -> bool:
 
 
 def _is_commission_cell(value: Any) -> bool:
+    """判断单元格文本是否可识别为佣金字段。"""
     normalized = _clean_cell(value).lower()
     return "%" in normalized or normalized in {"commission", "手续费"}
 
 
 def _clean_cell(value: Any) -> str:
+    """清理 Excel 单元格值为去除空白的普通文本。"""
     return "" if value is None else str(value).strip()
 
 
 def _trim_trailing_empty(values: list[str]) -> list[str]:
+    """移除参数行尾部多余的空单元格。"""
     trimmed = list(values)
     while trimmed and trimmed[-1] == "":
         trimmed.pop()

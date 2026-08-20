@@ -64,6 +64,7 @@ class GoogleSheet:
             raise
 
     def _connect_and_select_worksheet(self):
+        """建立授权连接，并按名称选择可用工作表。"""
         creds = Credentials.from_authorized_user_file(self._token_file, scopes=self._SCOPES)
         self.client = gspread.authorize(credentials=creds)
 
@@ -101,6 +102,7 @@ class GoogleSheet:
             raise Exception(f"请先选择工作表: '{self._sheet_name}' 不存在，可用工作表: {titles}")
 
     def _log_ctx(self) -> str:
+        """生成包含任务、表格和工作表标识的统一日志前缀。"""
         parts = []
         if self.task_id:
             parts.append(f"task_id={self.task_id}")
@@ -145,6 +147,7 @@ class GoogleSheet:
 
         @functools.wraps(original_request)
         def request_with_timeout(method, url, **kwargs):
+            """为 Google API 底层请求补充默认超时参数。"""
             kwargs.setdefault('timeout', getattr(session, '_default_timeout', timeout))
             return original_request(method, url, **kwargs)
 
@@ -200,6 +203,7 @@ class GoogleSheet:
 
     @staticmethod
     def _clear_proxy_settings():
+        """清理本客户端写入的进程代理环境变量。"""
         for proxy_key in ('HTTP_PROXY', 'HTTPS_PROXY'):
             if proxy_key in os.environ:
                 del os.environ[proxy_key]
@@ -232,6 +236,7 @@ class GoogleSheet:
         logger.info(f"{self._log_ctx()}清空区间: {range_a1}")
 
         def _clear_operation():
+            """将单一区间清空操作包装为可重试的无参调用。"""
             self.worksheet.batch_clear([range_a1])
 
         self._retry_network_operation(_clear_operation, f"clear_range({range_a1})")
@@ -265,6 +270,7 @@ class GoogleSheet:
         logger.info(f"{self._log_ctx()}清空非连续单元格: {valid_refs}")
 
         def _clear_operation():
+            """将多个离散单元格的清空操作包装为可重试调用。"""
             self.worksheet.batch_clear(valid_refs)
 
         return self._retry_network_operation(_clear_operation, "clear_jumped_cells")
@@ -367,6 +373,7 @@ class GoogleSheet:
             logger.info(f"{self._log_ctx()}更新单元格 {cell_address} = {cell_value} (类型: {type(cell_value)})")
 
             def _update_operation():
+                """以二维数组格式写入单个单元格，满足 gspread 协议。"""
                 # 修复：将值包装成二维列表格式
                 self.worksheet.update(cell_address, [[cell_value]])
 
@@ -412,6 +419,7 @@ class GoogleSheet:
 
             # 批量更新单元格（带重试）
             def _update_operation():
+                """提交已转换为 gspread Cell 的离散单元格批量更新。"""
                 return self.worksheet.update_cells(cells)
 
             return self._retry_network_operation(_update_operation, "update_jumped_cells")
@@ -424,6 +432,7 @@ class GoogleSheet:
         """获取指定单元格的值"""
 
         def _get_cell_operation():
+            """读取单元格并取出首个值，供统一重试器执行。"""
             return self.worksheet.get(cell_ref)[0][0]
 
         return self._retry_network_operation(_get_cell_operation, f"get_cell({cell_ref})")
@@ -442,6 +451,7 @@ class GoogleSheet:
             return {}
 
         def _get_range_operation():
+            """读取二维区间，并转换为以 A1 地址为键的扁平字典。"""
             values_2d = self.worksheet.get(range_a1, value_render_option=value_render_option)
             start_row, start_col = a1_to_rowcol(range_a1.split(':')[0])
             result = {}
@@ -469,6 +479,7 @@ class GoogleSheet:
 
         try:
             def _get_ranges_operation():
+                """一次请求读取多个区间，降低 Google API 往返次数。"""
                 return self.worksheet.batch_get(
                     normalized_ranges,
                     value_render_option=value_render_option,
@@ -519,6 +530,7 @@ class GoogleSheet:
             return {}
 
         def _get_range_operation():
+            """读取并原样返回二维区间数据，供保留行列结构的调用方使用。"""
             values_2d = self.worksheet.get(range_a1, value_render_option=value_render_option)
             return values_2d
 
@@ -543,6 +555,7 @@ class GoogleSheet:
 
         try:
             def _batch_get_operation():
+                """把单元格地址转换为批量读取区间并执行一次请求。"""
                 ranges = [f"{ref}" for ref in cell_refs]
                 return self.worksheet.batch_get(ranges)
 

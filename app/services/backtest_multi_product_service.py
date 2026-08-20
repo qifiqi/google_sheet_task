@@ -13,10 +13,13 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from flask import current_app
-from sqlalchemy.exc import IntegrityError
-
 from app.extensions import db
 from app.models import BacktestProductResultCache, Task, TaskResult, TaskResultReturn
+from app.repositories.task_result_repository import TaskResultRepository
+from app.repositories.task_result_return_repository import TaskResultReturnRepository
+from app.repositories.backtest_product_result_cache_repository import BacktestProductResultCacheRepository
+from app.repositories.task_repository import TaskRepository
+from app.repositories.sdk_client import SdkDuplicateKeyError
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
 from app.services.task.error_handling import format_task_error_message, record_task_exception
@@ -29,6 +32,10 @@ BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
 RATIO_BASE = Decimal("100")
 GLOBAL_PREVIEW_CACHE_MAX_SIZE = 64
 _GLOBAL_PREVIEW_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
+_task_result_repository = TaskResultRepository()
+_task_result_return_repository = TaskResultReturnRepository()
+_cache_repository = BacktestProductResultCacheRepository()
+_task_repository = TaskRepository()
 
 SUMMARY_ROW_DEFS = [
     ("绝对收益", "年化收益", "index_annualized_return", "start_annualized_return", "percent"),
@@ -55,6 +62,7 @@ SUMMARY_ROW_DEFS = [
 
 
 def normalize_market_type(value: Any) -> str:
+    """将页面市场标识归一为回测服务使用的 ``cn`` 或 ``en``。"""
     normalized = str(value or "").strip().lower()
     if normalized in {"en", "us", "usa"}:
         return "en"
@@ -62,6 +70,7 @@ def normalize_market_type(value: Any) -> str:
 
 
 def normalize_price_mode(value: Any) -> str:
+    """将价格模式归一为系统支持的标准枚举值。"""
     normalized = str(value or "").strip().lower()
     if normalized in {"kp_price", "sp_price", "vwap_price"}:
         return normalized
@@ -69,6 +78,7 @@ def normalize_price_mode(value: Any) -> str:
 
 
 def parse_ratio(value: Any) -> Decimal:
+    """解析比例输入，兼容小数与百分号文本。"""
     raw = str(value if value is not None else "").strip().replace("%", "")
     if not raw:
         raise ValueError("产品比例不能为空")
@@ -82,6 +92,7 @@ def parse_ratio(value: Any) -> Decimal:
 
 
 def normalize_ratio_display(value: Any) -> str:
+    """将比例转换为稳定的前端展示文本。"""
     ratio = parse_ratio(value)
     normalized = ratio.quantize(Decimal("0.0001")).normalize()
     text = format(normalized, "f")
@@ -89,11 +100,13 @@ def normalize_ratio_display(value: Any) -> str:
 
 
 def _hash_text(value: Any) -> str:
+    """为缓存签名生成稳定的 UTF-8 SHA-1 摘要。"""
     raw = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
 def _is_fixed_product(product: dict[str, Any]) -> bool:
+    """判断产品是否标记为可复用结果的固定比例产品。"""
     return bool(product.get("is_fixed"))
 
 
@@ -102,6 +115,7 @@ def _global_preview_cache_key(
     products: list[dict[str, Any]],
     results: list[TaskResult],
 ) -> tuple[Any, ...]:
+    """基于任务、比例和结果版本构造全局预览缓存键。"""
     ratio_signature = tuple(normalize_ratio_display(product.get("ratio")) for product in products)
     result_signature = tuple(
         (
@@ -119,6 +133,7 @@ def _global_preview_cache_key(
 
 
 def _get_global_preview_cache(cache_key: tuple[Any, ...]) -> dict[str, Any] | None:
+    """读取全局预览 LRU 缓存，并将命中项标记为最近使用。"""
     cached = _GLOBAL_PREVIEW_CACHE.get(cache_key)
     if cached is None:
         return None
@@ -127,6 +142,7 @@ def _get_global_preview_cache(cache_key: tuple[Any, ...]) -> dict[str, Any] | No
 
 
 def _set_global_preview_cache(cache_key: tuple[Any, ...], payload: dict[str, Any]) -> None:
+    """保存多品全局预览缓存并淘汰超过容量限制的最旧项。"""
     _GLOBAL_PREVIEW_CACHE[cache_key] = deepcopy(payload)
     _GLOBAL_PREVIEW_CACHE.move_to_end(cache_key)
     while len(_GLOBAL_PREVIEW_CACHE) > GLOBAL_PREVIEW_CACHE_MAX_SIZE:
@@ -134,6 +150,7 @@ def _set_global_preview_cache(cache_key: tuple[Any, ...], payload: dict[str, Any
 
 
 def _normalize_sheet(product: dict[str, Any]) -> dict[str, str]:
+    """规范化产品内嵌 Sheet 配置，确保名称和 ID 字段一致。"""
     sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
     spreadsheet_id = str(sheet.get("spreadsheet_id") or product.get("spreadsheet_id") or "").strip()
     sheet_name = str(sheet.get("sheet_name") or product.get("sheet_name") or "data").strip()
@@ -148,6 +165,7 @@ def _normalize_sheet(product: dict[str, Any]) -> dict[str, str]:
 
 
 def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
+    """规范化多品回测配置，补齐产品和市场的兼容字段。"""
     if not isinstance(config, dict):
         raise ValueError("多品数据回测 config 必须是 JSON 对象")
 
@@ -207,6 +225,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_json(raw: Any, default: Any) -> Any:
+    """安全解析远程字段中的 JSON 文本，失败时回退默认值。"""
     if isinstance(raw, (dict, list)):
         return raw
     try:
@@ -216,6 +235,7 @@ def _parse_json(raw: Any, default: Any) -> Any:
 
 
 def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
+    """从年度记录中读取 all 聚合项或第一个可用项。"""
     if not isinstance(items, list):
         return {}
     for item in items:
@@ -225,6 +245,7 @@ def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
 
 
 def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
+    """从任务结果对象中提取核心结果载荷。"""
     payload = _parse_json(task_result.result, {})
     if not isinstance(payload, dict) or not payload:
         return {}
@@ -245,6 +266,7 @@ def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
 
 
 def _extract_return_date_from_result_payload(result_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """从结果载荷解析按日期排列的收益明细。"""
     if not isinstance(result_payload, dict):
         return []
     direct_return_date = result_payload.get("_return_date")
@@ -258,6 +280,7 @@ def _extract_return_date_from_result_payload(result_payload: dict[str, Any]) -> 
 
 
 def _safe_number(value: Any) -> float | None:
+    """将输入安全转换为有限浮点数，无法转换时返回空值。"""
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):
@@ -274,6 +297,7 @@ def _safe_number(value: Any) -> float | None:
 
 
 def _year_key(value: Any) -> str:
+    """将年度字段转换为可用于跨来源匹配的规范字符串。"""
     text = str(value if value is not None else "").strip()
     if not text or text.lower() == "all":
         return ""
@@ -287,6 +311,7 @@ def _year_key(value: Any) -> str:
 
 
 def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float | None:
+    """计算跑赢年份中策略相对指数的最大年度回撤差。"""
     annual_excess_returns = [
         (year, _safe_number(item.get("annualized_return_diff")))
         for item in calculate_metrics.get("excess_returns") or []
@@ -334,6 +359,7 @@ def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float
 
 
 def _negative_number(value: Any) -> float | None:
+    """将有效数值转换为非正展示值，空值保持为空。"""
     number = _safe_number(value)
     if number is None:
         return None
@@ -343,6 +369,7 @@ def _negative_number(value: Any) -> float | None:
 
 
 def _fmt_value(value: Any, value_type: str) -> str:
+    """按百分比或普通数值格式输出摘要表中的展示文本。"""
     number = _safe_number(value)
     if number is None:
         return "" if value in (None, "") else str(value)
@@ -355,6 +382,7 @@ def _scale_return_date(
     return_date: list[dict[str, Any]],
     ratio: Any,
 ) -> list[dict[str, Any]]:
+    """按产品比例缩放收益序列，供组合加权汇总使用。"""
     ratio_value = float(parse_ratio(ratio) / RATIO_BASE)
     scaled = []
     for item in return_date:
@@ -372,6 +400,7 @@ def _scale_return_date(
 
 
 def _build_returns_json(return_date: list[dict[str, Any]]) -> str:
+    """将逐日收益记录编码为远端收益序列表使用的列式 JSON。"""
     dates = []
     index_returns = []
     start_returns = []
@@ -389,6 +418,7 @@ def _build_returns_json(return_date: list[dict[str, Any]]) -> str:
 
 
 def _parse_returns_json(raw: Any) -> list[dict[str, Any]]:
+    """将列式收益 JSON 还原为逐日字典列表。"""
     payload = _parse_json(raw, {})
     if not isinstance(payload, dict):
         return []
@@ -406,10 +436,11 @@ def _parse_returns_json(raw: Any) -> list[dict[str, Any]]:
 
 
 def _get_return_date_for_task_result(task_result: TaskResult) -> list[dict[str, Any]]:
+    """优先读取关联收益序列，不存在时兼容旧结果载荷内的收益数据。"""
     if task_result.return_series_id:
-        return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
+        return_series = _task_result_return_repository.get(task_result.return_series_id)
         if return_series:
-            return _parse_returns_json(return_series.returns_json)
+            return _parse_returns_json(return_series.get("returns_json"))
     return _extract_return_date_from_result_payload(_parse_json(task_result.result, {}))
 
 
@@ -417,6 +448,7 @@ def _set_weighted_metrics_on_result_payload(
     result_payload: dict[str, Any],
     weighted_calculate_metrics: dict[str, Any],
 ) -> dict[str, Any]:
+    """将加权计算指标写入结果载荷的首个模型结果对象。"""
     if not isinstance(result_payload, dict) or not result_payload:
         return result_payload
     first_key = next(iter(result_payload))
@@ -427,6 +459,7 @@ def _set_weighted_metrics_on_result_payload(
 
 
 def _return_date_by_date(return_date: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """按日期索引有效收益行，便于多产品取共同交易日。"""
     rows: dict[str, dict[str, float]] = {}
     for item in return_date:
         if not isinstance(item, dict):
@@ -447,6 +480,7 @@ def _build_portfolio_return_date(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """取各产品共同日期并按比例合成组合收益序列。"""
     product_return_maps: list[tuple[dict[str, dict[str, float]], Decimal]] = []
     common_dates: set[str] | None = None
 
@@ -482,6 +516,7 @@ def _build_portfolio_metrics(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """从组合加权收益序列计算组合层面的回测指标。"""
     return_date = _build_portfolio_return_date(product_results, products)
     if not return_date:
         return {}
@@ -493,6 +528,7 @@ def _build_weighted_product_metrics(
     return_date: list[dict[str, Any]],
     ratio: Any,
 ) -> dict[str, Any]:
+    """按单个产品比例缩放收益序列后计算其加权指标。"""
     scaled = _scale_return_date(return_date, ratio)
     if not scaled:
         return {}
@@ -501,7 +537,9 @@ def _build_weighted_product_metrics(
 
 
 def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
+    """从原始计算指标中提取汇总表统一使用的扁平字段。"""
     def _metric_value(*keys: str) -> Any:
+        """按优先顺序读取第一个非空的同义指标字段。"""
         for key in keys:
             value = calculate_metrics.get(key)
             if value not in (None, ""):
@@ -509,6 +547,7 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
         return None
 
     def _first_value(*values: Any) -> Any:
+        """从多个候选值中返回首个有效值。"""
         for value in values:
             if value not in (None, ""):
                 return value
@@ -583,6 +622,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         product: dict[str, Any],
         parameter: list[Any],
     ) -> str:
+        """基于产品、区间、行情来源和参数组合生成固定产品缓存键。"""
         sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
         payload = {
             "stock_code": str(product.get("stock_code") or "").strip().upper(),
@@ -604,6 +644,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         config_data: dict[str, Any],
         product: dict[str, Any],
     ) -> bool:
+        """判断固定比例产品是否已有可复用的远程回测缓存。"""
         batch_id = str(config_data.get("fixed_product_batch_id") or "").strip()
         if not batch_id or not _is_fixed_product(product):
             return False
@@ -626,6 +667,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         product: dict[str, Any],
         parameter: list[Any],
     ) -> dict[str, Any] | None:
+        """按业务键读取固定产品缓存；查询接口未就绪前保留现有兼容路径。"""
         batch_id = str(config_data.get("fixed_product_batch_id") or "").strip()
         if not batch_id or not _is_fixed_product(product):
             return None
@@ -652,26 +694,25 @@ class BacktestMultiProductService(BacktestTrainingService):
         return_date: list[dict[str, Any]] | None,
         step_index: int,
     ) -> None:
+        """尝试写入固定产品缓存；唯一冲突时保留先成功的内容。"""
         batch_id = str(config_data.get("fixed_product_batch_id") or "").strip()
         if not batch_id or not _is_fixed_product(product):
             return
 
         cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
-        if BacktestProductResultCache.query.filter_by(batch_id=batch_id, cache_key=cache_key).first():
-            return
-
-        db.session.add(BacktestProductResultCache(
-            batch_id=batch_id,
-            cache_key=cache_key,
-            result_json=json.dumps(self._sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
-            returns_json=_build_returns_json(return_date or []) if return_date else None,
-            source_task_id=self.task_id,
-            source_step_index=step_index,
-        ))
+        # TODO: 命中判断等待 QueryByBusinessKey，禁止分页拉全表筛选；直接尝试幂等写入。
         try:
-            db.session.commit()
-        except IntegrityError:
-            db.session.rollback()
+            _cache_repository.save({
+                "batch_id": batch_id,
+                "cache_key": cache_key,
+                "result_json": self._sanitize_json_value(result_payload),
+                "returns_json": _build_returns_json(return_date or []) if return_date else None,
+                "source_task_id": self.task_id,
+                "source_step_index": step_index,
+            })
+        except SdkDuplicateKeyError:
+            # 唯一约束冲突表示其他执行者已成功写入，不能覆盖其内容。
+            return
 
     def _build_cached_result_parameters(
         self,
@@ -681,6 +722,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         parameter: list[Any],
         return_date: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        """根据缓存收益序列重建写入任务结果所需的参数元数据。"""
         dates = [
             str(item.get("date") or item.get("stock_date") or "").strip()
             for item in return_date
@@ -712,6 +754,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         parameter: list[Any],
         cache_entry: dict[str, Any],
     ) -> None:
+        """将命中的固定产品缓存转换为当前任务的一条成功结果。"""
         result_payload = _parse_json(cache_entry.get("result_json"), {})
         return_date = _parse_returns_json(cache_entry.get("returns_json"))
         parameters = self._build_cached_result_parameters(
@@ -731,6 +774,7 @@ class BacktestMultiProductService(BacktestTrainingService):
 
     @staticmethod
     def _build_kline_signature(kline: list[dict[str, Any]]) -> dict[str, Any]:
+        """提取首、中、末行情行形成轻量签名，识别 Sheet 输入是否可复用。"""
         if not kline:
             return {}
         middle_index = len(kline) // 2
@@ -743,19 +787,22 @@ class BacktestMultiProductService(BacktestTrainingService):
 
     @staticmethod
     def _build_sheet_cache_key(product: dict[str, Any]) -> str:
+        """以表格 ID 和工作表名生成单次执行内的输入缓存键。"""
         sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
         spreadsheet_id = str(sheet.get("spreadsheet_id") or "").strip()
         sheet_name = str(sheet.get("sheet_name") or "").strip()
         return f"{spreadsheet_id}::{sheet_name}"
 
     def _task_detail_url(self) -> str:
+        """构造多品回测任务详情地址，供执行通知跳转。"""
         return f"{current_app.config.get('BASE_URL')}/backtest-multi-product/detail/{self.task_id}"
 
     def execute_task(self):
+        """执行多品回测任务，并在每个产品完成后持久化结果。"""
         try:
             context_app = self.app or current_app
             with context_app.app_context():
-                task = db.session.get(Task, self.task_id)
+                task = self._get_remote_task()
                 self.task = task
                 if not task:
                     self._log_error(f"任务 {self.task_id} 不存在")
@@ -787,11 +834,11 @@ class BacktestMultiProductService(BacktestTrainingService):
             return "error"
 
     def _execute_products(self, task: Task, config_data: dict[str, Any]) -> str:
+        """按参数组和产品顺序执行回测，处理断点、缓存和持久化。"""
         products = config_data["products"]
         parameter_count = len(products[0]["parameters"])
         total_steps = parameter_count * len(products)
-        task.total_steps = total_steps
-        db_retry_manager.commit_with_retry(db.session)
+        task = self._save_remote_task(task, total_steps=total_steps)
         self._log_info(f"将执行 {parameter_count} 个参数方案、{len(products)} 个产品，共 {total_steps} 步")
 
         start_index = self._resolve_resume_start_index(task)
@@ -809,11 +856,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     processed_index += 1
                     continue
 
-                result = safe_db_operation(
-                    lambda: db.session.query(Task.status).filter(
-                        Task.id == self.task_id
-                    ).first()
-                )
+                result = self._get_remote_task()
                 if not result or result.status == "cancelled":
                     self._log_warning("任务已被取消，停止执行")
                     return "cancelled"
@@ -931,11 +974,11 @@ class BacktestMultiProductService(BacktestTrainingService):
         return "completed" if success_count else "error"
 
     def _update_task_progress(self, current_step: int) -> None:
-        task = db.session.get(Task, self.task_id)
+        """读取最新远端任务并更新其当前执行步骤。"""
+        task = self._get_remote_task()
         if not task:
             return
-        task.current_step = current_step
-        db_retry_manager.commit_with_retry(db.session)
+        self._save_remote_task(task, current_step=current_step)
 
     def _save_task_result(
         self,
@@ -946,7 +989,9 @@ class BacktestMultiProductService(BacktestTrainingService):
         *,
         return_date: list[dict[str, Any]] | None = None,
     ):
+        """保存单个产品结果及收益序列，并写入按比例计算的加权指标。"""
         def save_result_operation():
+            """将当前产品结果与收益明细写入远程任务结果存储。"""
             safe_parameters = self._sanitize_json_value(parameters)
             safe_result_payload = dict(result) if isinstance(result, dict) else {}
             weighted_calculate_metrics = _build_weighted_product_metrics(return_date or [], safe_parameters.get("ratio"))
@@ -955,25 +1000,22 @@ class BacktestMultiProductService(BacktestTrainingService):
                 weighted_calculate_metrics,
             )
             safe_result = self._sanitize_json_value(safe_result_payload)
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success,
-            )
-            db.session.add(task_result)
-            db.session.flush()
+            task_result = _task_result_repository.save({
+                "task_id": self.task_id,
+                "step_index": step_index,
+                "parameters": safe_parameters,
+                "result": safe_result,
+                "success": success,
+            })
             if return_date:
-                return_series = TaskResultReturn(
-                    task_id=self.task_id,
-                    returns_json=_build_returns_json(return_date),
-                )
-                db.session.add(return_series)
-                db.session.flush()
-                task_result.return_series_id = return_series.id
-
-            db.session.commit()
+                return_series = _task_result_return_repository.save({
+                    "task_id": self.task_id,
+                    "returns_json": _build_returns_json(return_date),
+                })
+                _task_result_repository.save({
+                    **task_result,
+                    "return_series_id": return_series.get("id"),
+                })
 
         try:
             context_app = self.app or current_app
@@ -983,6 +1025,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             self._log_error(f"保存多品任务结果失败: {exc}")
 
     def _build_product_config(self, config_data: dict[str, Any], product: dict[str, Any]) -> dict[str, Any]:
+        """将全局配置与产品专属 Sheet、股票和行情配置合并。"""
         product_config = dict(config_data)
         product_config.update({
             "sheet": product["sheet"],
@@ -996,6 +1039,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         return product_config
 
     def _build_product_kline(self, product: dict[str, Any], config_data: dict[str, Any]) -> dict[str, Any]:
+        """加载产品日期区间 K 线，并构造供重复写入判断使用的签名。"""
         kline = self._get_kline_by_date_range(
             product["stock_code"],
             product["market_type"],
@@ -1013,6 +1057,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         }
 
     def _is_same_kline_source(self, combination: dict[str, Any], cached_combination: dict[str, Any]) -> bool:
+        """判断当前参数组合能否复用上次已写入 Sheet 的行情数据。"""
         if combination.get("Kline_key") != cached_combination.get("Kline_key"):
             return False
         if combination.get("stock_code") != cached_combination.get("stock_code"):
@@ -1029,6 +1074,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         config_data: dict[str, Any],
         KLINE_DATA_MAP,
     ) -> tuple[bool, dict[Any, Any], list[Any]]:
+        """在行情来源变化时清空 Sheet 缓存，再委托单品执行器计算。"""
         cached_combination = cache_parameters.get("combination") or {}
         if cached_combination and not self._is_same_kline_source(combination, cached_combination):
             cache_parameters["combination"] = {}
@@ -1051,6 +1097,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         adjust_type: str | None = None,
         data_source: str = "dfcf",
     ) -> list[dict[str, Any]]:
+        """按日期范围获取并投影产品 K 线，统一处理市场和价格字段。"""
         price_field = {
             "kp_price": "stock_kp",
             "sp_price": "stock_sp",
@@ -1110,10 +1157,11 @@ def build_multi_product_global_preview_payload(
     task_id: str,
     ratios_override: list[Any] | None = None,
 ) -> dict[str, Any] | None:
-    task = db.session.get(Task, task_id)
-    if not task or task.task_type != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
+    """构建多品回测全局预览所需的聚合数据。"""
+    task = _task_repository.get(task_id)
+    if not task or task.get("task_type") != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
         return None
-    config = normalize_multi_product_config(task.to_dict().get("config") or {})
+    config = normalize_multi_product_config(task.get("config") or {})
     products = config["products"]
     if ratios_override is not None:
         if len(ratios_override) != len(products):

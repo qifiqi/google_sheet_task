@@ -6,7 +6,9 @@ from typing import Any, Dict, List, Optional
 from flask import current_app, has_app_context
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.models import Task, TaskLog, db
+from app.models import Task, db
+from app.repositories.task_log_repository import TaskLogRepository
+from app.repositories.task_repository import TaskRepository
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation
@@ -16,16 +18,20 @@ from app.services.task.error_handling import format_task_error_message, record_t
 
 
 logger = get_logger(__name__)
+_task_log_repository = TaskLogRepository()
+_task_repository = TaskRepository()
 
 DEFAULT_EXECUTION_DELAY_MIN = 20
 DEFAULT_EXECUTION_DELAY_MAX = 30
 
 
 def should_alert_execute_task_result(result):
+    """判断任务执行结果是否需要发送异常通知。"""
     return result == 'error'
 
 
 def build_execute_task_alert(target, func_name, phase, exc, result):
+    """将执行结果或异常转换为适合告警通知的简短文本。"""
     if exc is not None:
         return f"{func_name} 执行异常: {type(exc).__name__}: {exc}"
 
@@ -38,6 +44,7 @@ def build_execute_task_alert(target, func_name, phase, exc, result):
 
 class BaseGoogleSheetService:
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        """保存任务运行上下文，并初始化统一日志和外部结果客户端。"""
         self.config = config
         self.task_id = task_id
         self.app = app
@@ -47,9 +54,19 @@ class BaseGoogleSheetService:
         self.task_logger = get_logger(f"{self.__module__}.{task_id}")
         self.api_client = StockAPIClient()
 
+    def _get_remote_task(self):
+        """按 ID 读取远端任务，供执行服务检查状态和断点。"""
+        return _task_repository.get(self.task_id)
+
+    def _save_remote_task(self, task, **changes):
+        """合并任务状态字段并通过 Repository 写回远端。"""
+        if not task:
+            return None
+        return _task_repository.save({**dict(task), **changes})
+
     @classmethod
     def _sanitize_json_value(cls, value: Any):
-        """Recursively convert values into strict JSON-safe Python objects."""
+        """递归转换日期、NumPy 标量和非有限浮点数，确保结果可 JSON 序列化。"""
         if isinstance(value, dict):
             return {
                 key: cls._sanitize_json_value(item)
@@ -86,15 +103,17 @@ class BaseGoogleSheetService:
 
 
     def _is_cancel_requested(self) -> bool:
+        """同时检查进程内停止事件与远端任务取消状态。"""
         if self.stop_event and self.stop_event.is_set():
             return True
         try:
-            task = db.session.get(Task, self.task_id)
+            task = self._get_remote_task()
             return bool(task and task.status == 'cancelled')
         except Exception:
             return False
 
     def _interruptible_sleep(self, seconds: float) -> bool:
+        """以可中断方式等待指定时长，返回等待后任务是否仍可继续。"""
         if seconds <= 0:
             return not self._is_cancel_requested()
         if self.stop_event:
@@ -104,6 +123,7 @@ class BaseGoogleSheetService:
         return not self._is_cancel_requested()
 
     def _get_execution_poll_delay_bounds(self) -> tuple[int, int]:
+        """读取轮询等待区间，并在配置非法时回退为安全默认值。"""
         try:
             config_manager = get_config_manager()
             delay_min = int(config_manager.get_config('execution_delay_min', DEFAULT_EXECUTION_DELAY_MIN))
@@ -122,15 +142,19 @@ class BaseGoogleSheetService:
 
     @staticmethod
     def _get_execution_poll_delay(attempt: int, delay_min: int, delay_max: int) -> int:
+        """按重试次数递增轮询间隔，并限制在配置的最大值内。"""
         return int(min(delay_min + max(attempt, 0) * 5, delay_max))
 
     def _task_display_name(self) -> str:
+        """返回日志和通知中优先展示的任务名称。"""
         return self.task_name or self.task_id
 
     def _task_detail_url(self) -> str:
+        """构造当前任务详情页地址，供通知消息跳转使用。"""
         return f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
 
     def error_dd(self, error_msg):
+        """发送任务异常的钉钉通知，并记录通知失败原因。"""
         result = self.app.notifier.send_task_notification(
             self.task_id,
             notify_type="error",
@@ -140,6 +164,7 @@ class BaseGoogleSheetService:
         return result
 
     def task_ok_to_dd(self, result):
+        """发送任务成功通知，并记录通知失败原因。"""
         payload_result = self.app.notifier.send_task_notification(
             self.task_id,
             notify_type="success",
@@ -149,6 +174,7 @@ class BaseGoogleSheetService:
         return payload_result
 
     def _log(self, level: str, message: str, log_type: str = 'general', **kwargs):
+        """同时写入任务专用日志器和远端任务日志记录；日志失败不阻断执行。"""
         try:
             formatted_message = self._format_log_message(message, log_type, **kwargs)
             prefixed_message = f"[Task-{self.task_id[:8]}] {formatted_message}"
@@ -165,6 +191,7 @@ class BaseGoogleSheetService:
             pass
 
     def _format_log_message(self, message: str, log_type: str, **kwargs) -> str:
+        """根据步骤、进度或 API 类型补充统一的日志前缀。"""
         if log_type == 'step':
             step = kwargs.get('step', 0)
             total = kwargs.get('total', 0)
@@ -184,10 +211,10 @@ class BaseGoogleSheetService:
         return message
 
     def _save_to_database(self, level: str, message: str):
+        """在可用应用上下文中调用仓储保存任务日志。"""
         def save_log_operation():
-            log = TaskLog(task_id=self.task_id, level=level, message=message)
-            db.session.add(log)
-            db.session.commit()
+            """通过远程仓储写入单条任务日志。"""
+            _task_log_repository.save({"task_id": self.task_id, "level": level, "message": message})
 
         try:
             if has_app_context():
@@ -202,12 +229,15 @@ class BaseGoogleSheetService:
             pass
 
     def _log_info(self, message: str, log_type: str = 'general', **kwargs):
+        """记录 info 级任务日志。"""
         self._log('info', message, log_type, **kwargs)
 
     def _log_warning(self, message: str, log_type: str = 'general', **kwargs):
+        """记录 warning 级任务日志。"""
         self._log('warning', message, log_type, **kwargs)
 
     def _log_error(self, message: str, log_type: str = 'general', **kwargs):
+        """记录 error 级任务日志。"""
         self._log('error', message, log_type, **kwargs)
 
     def _record_execution_error_message(
@@ -215,6 +245,7 @@ class BaseGoogleSheetService:
         exc: Exception,
         phase: str = "google_sheet_service",
     ) -> str:
+        """记录执行异常并返回可写入任务日志的结构化错误摘要。"""
         try:
             record = record_task_exception(
                 self.task_id,
@@ -228,18 +259,23 @@ class BaseGoogleSheetService:
             return f"{exc.__class__.__name__}: {exc}"
 
     def _log_step(self, step: int, total: int, message: str):
+        """按步骤格式记录任务日志。"""
         self._log('info', message, 'step', step=step, total=total)
 
     def _log_progress(self, percentage: float, message: str):
+        """按百分比格式记录任务进度日志。"""
         self._log('info', message, 'progress', percentage=percentage)
 
     def _log_api(self, action: str, details: str = ''):
+        """记录外部 API 正常调用事件。"""
         self._log('info', '', 'api', action=action, details=details)
 
     def _log_api_error(self, action: str, error: str):
+        """记录外部 API 调用失败事件。"""
         self._log('error', '', 'api_error', action=action, error=error)
 
     def _refresh_model_summary_index(self):
+        """尝试刷新当前任务的汇总索引；失败仅记录告警，不影响主任务。"""
         try:
             from app.services.model_summary_service import model_summary_service
 
@@ -257,6 +293,7 @@ class BaseGoogleSheetService:
         reraise=True,
     )
     def send_stock_param_result_data(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """调用股票参数结果接口，并将异常转换为结构化失败响应。"""
         try:
             result = self.api_client.add_or_modify_stock_param_result(payload) or {}
             return result
@@ -270,6 +307,7 @@ class BaseGoogleSheetService:
         task_index: int,
         config_data: Dict[str, Any],
     ) -> Dict[str, Any]:
+        """构建股票参数结果的公共默认字段，供各模板补充实际指标。"""
         # stock_code = (
         #     config_data.get("stock_code",None)
         #     or str(task_name or "").strip()

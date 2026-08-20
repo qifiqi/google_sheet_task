@@ -11,6 +11,7 @@ stock_api_bp = Blueprint("stock_api", __name__)
 
 
 def _strip_html_tags(value):
+    """移除股票搜索结果中的 HTML 高亮标签。"""
     return re.sub(r"<[^>]+>", "", str(value or "")).strip()
 
 

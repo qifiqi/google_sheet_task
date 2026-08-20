@@ -2,22 +2,23 @@ import os
 import logging
 from pathlib import Path
 
-from flask import Flask
-from stock_sdk import StockClient
+from flask import Flask, abort, g, jsonify, request
 
 try:
     from dotenv import load_dotenv
 except ImportError:
     def load_dotenv(*_args, **_kwargs):
+        """在未安装 dotenv 的环境中保持应用可启动。"""
         return False
 
 from app.extensions import db, migrate
 from app.routes import register_blueprints
-from app.utils.auth import validate_auth_runtime_settings
+from app.utils.auth import authenticate_current_request, is_retired_local_identity_path, validate_auth_runtime_settings
 from app.utils.ding_talk_notifier import DingTalkNotifier
 
 
 def load_app_environment():
+    """按基础环境和当前运行环境的顺序加载配置文件。"""
     project_root = Path(__file__).parent.parent
 
     base_env = project_root / '.env'
@@ -31,6 +32,7 @@ def load_app_environment():
 
 
 def create_app():
+    """创建并配置 Flask 应用、扩展、认证网关和全部业务蓝图。"""
     load_app_environment()
     validate_auth_runtime_settings()
 
@@ -61,15 +63,55 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
 
-    app.stock_client = StockClient(base_url=app.config.get('STOCK_BASE_URL', ''))
-
     from app.services.config_manager import get_config_manager
     get_config_manager().init_app(app)
 
     register_blueprints(app)
 
+    @app.before_request
+    def require_gateway_jwt():
+        """页面和接口共用 JWT 网关，静态资源与登录接口保持公开。"""
+        if request.path.startswith('/static/') or request.path == '/login':
+            return None
+        if is_retired_local_identity_path(request.path):
+            abort(404)
+        if request.path in {'/api/auth/login', '/api/auth/refresh'}:
+            return None
+        auth_error = authenticate_current_request()
+        if auth_error:
+            return auth_error
+        if (
+            app.config.get('REMOTE_MODEL_ACCESS_ENFORCED')
+            and request.method == 'GET'
+            and not request.path.startswith('/api/')
+        ):
+            model_codes = getattr(g, 'current_model_codes', None)
+            if model_codes is None:
+                return jsonify({'code': 503, 'data': None, 'message': 'JWT 未携带主 Web 模型权限'}), 503
+            from app.repositories.sys_model_repository import SysModelRepository
+            from app.services.menu_service import MenuService
+            from app.services.model_access_service import is_path_allowed
+            from werkzeug.exceptions import NotFound
+
+            def is_local_route(link):
+                """验证远程菜单链接是否对应本应用已注册的 GET 路由。"""
+                try:
+                    app.url_map.bind('').match(link.split('?', 1)[0], method='GET')
+                    return True
+                except NotFound:
+                    return False
+
+            menu = MenuService(SysModelRepository()).get_menu(
+                cache_key=str(g.current_user.id), is_available=is_local_route,
+            )
+            current_path = request.full_path.rstrip('?')
+            if not is_path_allowed(menu, model_codes, current_path):
+                return jsonify({'code': 403, 'data': None, 'message': '无该模型访问权限'}), 403
+        return None
+
     @app.context_processor
     def inject_template_auth_context():
+        """向所有模板暴露认证开关，供前端选择登录态交互。"""
         return {
             'auth_enabled': os.environ.get('AUTH_ENABLED', 'true').lower() == 'true',
         }

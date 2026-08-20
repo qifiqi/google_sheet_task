@@ -19,6 +19,7 @@ def transaction_required(func):
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
+        """执行目标函数并在失败时回滚当前数据库会话。"""
         try:
             result = func(*args, **kwargs)
             # 使用重试逻辑提交事务
@@ -51,6 +52,7 @@ def safe_delete(model_class, **filters):
         int: 删除的记录数
     """
     def delete_operation():
+        """在重试机制内按条件删除匹配记录。"""
         query = model_class.query.filter_by(**filters)
         count = query.count()
         query.delete()
@@ -90,6 +92,7 @@ def safe_update(model_or_instance, instance_id=None, commit=True, **updates):
             commit = instance_id
 
     def update_operation():
+        """在重试机制内更新目标实例的允许字段。"""
         for key, value in updates.items():
             if hasattr(model_instance, key):
                 setattr(model_instance, key, value)
@@ -120,6 +123,7 @@ def safe_create(model_class, commit=False, **fields):
         model_instance: 创建的实例
     """
     def create_operation():
+        """在重试机制内创建并写入一条模型记录。"""
         instance = model_class(**fields)
         db.session.add(instance)
         if commit:
@@ -152,6 +156,7 @@ class DatabaseManager:
             tuple: (instance, created)
         """
         def get_or_create_operation():
+            """在重试机制内读取已有记录或创建新记录。"""
             instance = model_class.query.filter_by(**kwargs).first()
             if instance:
                 return instance, False
@@ -186,6 +191,7 @@ class DatabaseManager:
             list: 创建的实例列表
         """
         def bulk_create_operation():
+            """在重试机制内批量写入模型记录。"""
             instances = [model_class(**data) for data in data_list]
             db.session.bulk_save_objects(instances)
             db.session.commit()
@@ -211,6 +217,7 @@ class DatabaseManager:
             list: 操作结果列表
         """
         def transaction_operation():
+            """按顺序执行事务操作列表，并返回各操作结果。"""
             results = []
             for operation in operations:
                 result = operation()

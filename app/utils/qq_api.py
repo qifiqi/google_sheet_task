@@ -21,9 +21,11 @@ try:
 except ImportError:
     # 旧版部署中的 apis 包已移除；腾讯源默认直连，保留可替换的适配函数。
     def configure_session_proxy(session):
+        """按全局代理配置为 QQ 请求会话设置代理。"""
         return session
 
     def get_proxy_for_request():
+        """获取 QQ 数据请求当前可用的代理配置。"""
         return None
 
 # ── User-Agent 池 ─────────────────────────────────────────
@@ -80,6 +82,7 @@ class QQStockApi:
     }
 
     def __init__(self):
+        """初始化连接池会话、随机请求头和本地请求节流状态。"""
         self.logger = logging.getLogger(self.__class__.__name__)
         self._request_count = 0
         self._last_request_time = 0.0
@@ -89,6 +92,7 @@ class QQStockApi:
     # ── Session 管理 ────────────────────────────────────────
 
     def _create_session(self) -> requests.Session:
+        """创建配置连接池、默认请求头及可选代理的 requests 会话。"""
         session = requests.Session()
         adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=0)
         session.mount("https://", adapter)
@@ -98,6 +102,7 @@ class QQStockApi:
         return session
 
     def _build_headers(self) -> Dict[str, str]:
+        """生成腾讯财经请求所需的浏览器兼容请求头。"""
         return {
             "Accept": "*/*",
             "Accept-Language": "zh-CN,zh;q=0.9",
@@ -108,6 +113,7 @@ class QQStockApi:
         }
 
     def _throttle(self) -> None:
+        """在请求之间插入随机最小间隔，降低被接口限流的概率。"""
         now = time.monotonic()
         elapsed = now - self._last_request_time
         delay = random.uniform(self.MIN_REQUEST_INTERVAL, self.MAX_REQUEST_INTERVAL)

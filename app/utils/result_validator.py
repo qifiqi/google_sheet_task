@@ -11,6 +11,7 @@ logger = get_logger(__name__)
 
 
 def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ')):
+    """创建结果字典校验装饰器，拦截空值或无效结构。"""
     """
     装饰器：验证返回的字典中是否包含空值或无效值
     
@@ -21,8 +22,10 @@ def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ')):
         如果字典中包含空值，则返回 (False, {})，否则返回原始结果
     """
     def decorator(func):
+        """包装目标函数并在返回前执行结果字段校验。"""
         @wraps(func)
         def wrapper(*args, **kwargs):
+            """执行目标函数并将无效结果转换为标准失败响应。"""
             try:
                 # 执行原函数
                 success, result_dict = func(*args, **kwargs)
@@ -69,6 +72,7 @@ def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ')):
 
 
 def validate_google_sheet_result(result_dict: Dict[str, Any]) -> Tuple[bool, str]:
+    """校验 Google Sheet 结果字典是否包含有效输出。"""
     """
     专门验证 Google Sheet 结果的字典
     
@@ -115,6 +119,7 @@ def validate_google_sheet_result(result_dict: Dict[str, Any]) -> Tuple[bool, str
 
 
 def is_valid_result_value(value: Any, allow_zero: bool = True) -> bool:
+    """判断单个 Sheet 结果值是否非空且符合数值语义。"""
     """
     检查单个值是否为有效的结果值
     

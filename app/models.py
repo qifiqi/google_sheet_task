@@ -9,6 +9,7 @@ from app.extensions import db
 
 
 def _json_object_or_empty(raw):
+    """将 JSON 文本安全解析为对象，失败时返回空字典。"""
     if not raw:
         return {}
     try:
@@ -19,6 +20,7 @@ def _json_object_or_empty(raw):
 
 
 def _normalize_summary_metrics(metrics):
+    """规范化汇总指标字段，保证其可安全序列化。"""
     if not isinstance(metrics, dict):
         return {}
     normalized = dict(metrics)
@@ -64,6 +66,7 @@ class User(db.Model):
     )
 
     def get_permissions(self):
+        """汇总用户所有角色关联的权限编码。"""
         perms = set()
         for role in self.roles:
             for p in role.permissions:
@@ -71,6 +74,7 @@ class User(db.Model):
         return perms
 
     def to_dict(self, include_permissions=False):
+        """将用户模型转换为接口或模板可使用的字典。"""
         d = {
             'id': self.id,
             'username': self.username,
@@ -106,6 +110,7 @@ class Role(db.Model):
     )
 
     def to_dict(self, include_permissions=False):
+        """将角色及可选权限信息转换为字典。"""
         d = {
             'id': self.id,
             'name': self.name,
@@ -132,6 +137,7 @@ class Permission(db.Model):
     route_path = db.Column(db.String(200), comment='关联前端路由路径，如 /admin/config，仅供展示')
 
     def to_dict(self):
+        """将权限模型转换为字典。"""
         return {
             'id': self.id,
             'name': self.name,
@@ -154,6 +160,7 @@ class GoogleSheetTableType(str, Enum):
 
     @classmethod
     def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        """将 Sheet 表类型别名归一为系统枚举值。"""
         raw = (value or "").strip().lower()
         if raw == "c31":
             raw = cls.C3.value
@@ -164,6 +171,7 @@ class GoogleSheetTableType(str, Enum):
 
     @classmethod
     def choices(cls):
+        """返回可供前端选择的 Sheet 表类型列表。"""
         labels = {
             cls.C3: "C3",
             cls.C4: "C4",
@@ -180,6 +188,7 @@ class GoogleSheetTokenTaskType(str, Enum):
 
     @classmethod
     def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        """将 Token 适用任务类型别名归一为系统枚举值。"""
         raw = (value or "").strip().lower()
         valid_values = {item.value for item in cls}
         if raw in valid_values:
@@ -188,6 +197,7 @@ class GoogleSheetTokenTaskType(str, Enum):
 
     @classmethod
     def choices(cls):
+        """返回可供前端选择的 Token 任务类型列表。"""
         return [
             {"value": cls.GOOGLE_SHEET.value, "label": "Google Sheet"},
             {"value": cls.BACKTEST_TRAINING.value, "label": "Backtest Training"},
@@ -195,6 +205,7 @@ class GoogleSheetTokenTaskType(str, Enum):
 
 
 def google_sheet_registry_scope(table_type: str | None) -> str:
+    """根据 Sheet 表类型计算注册表唯一性作用域。"""
     normalized = GoogleSheetTableType.normalize(table_type, GoogleSheetTableType.C3.value)
     if normalized in {
         GoogleSheetTableType.C3.value,
@@ -207,6 +218,7 @@ def google_sheet_registry_scope(table_type: str | None) -> str:
 
 
 def summary_market_type(stock_code: str | None) -> str:
+    """根据股票代码格式推断汇总结果所属市场。"""
     return "cn" if str(stock_code or "").strip().isdigit() else "us"
 
 
@@ -219,6 +231,7 @@ class TaskStatus(str, Enum):
 
     @classmethod
     def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        """将任务状态别名归一为系统枚举值。"""
         raw = (value or "").strip().lower()
         valid_values = {item.value for item in cls}
         if raw in valid_values:
@@ -227,6 +240,7 @@ class TaskStatus(str, Enum):
 
     @classmethod
     def choices(cls):
+        """返回全部任务状态的前端选项。"""
         labels = {
             cls.PENDING: "待执行",
             cls.RUNNING: "运行中",
@@ -238,6 +252,7 @@ class TaskStatus(str, Enum):
 
     @classmethod
     def editable_choices(cls):
+        """返回允许人工编辑的任务状态选项。"""
         return [
             item for item in cls.choices()
             if item["value"] in {cls.PENDING.value, cls.COMPLETED.value, cls.CANCELLED.value, cls.ERROR.value}
@@ -255,6 +270,7 @@ class TaskType(str, Enum):
 
     @classmethod
     def normalize(cls, value: str | None, default: str | None = None) -> str | None:
+        """将任务类型别名归一为系统枚举值。"""
         raw = (value or "").strip()
         normalized = raw.lower()
         aliases = {
@@ -275,6 +291,7 @@ class TaskType(str, Enum):
 
     @classmethod
     def choices(cls, include_system=False):
+        """返回任务类型选项；可选择包含内部系统任务。"""
         labels = {
             cls.GOOGLE_SHEET: "Google Sheet C3",
             cls.GOOGLE_SHEET_C4: "Google Sheet C4",
@@ -345,6 +362,7 @@ class Task(db.Model):
     )
 
     def to_dict(self):
+        """将任务模型转换为包含配置解析结果的字典。"""
         return {
             "id": self.id,
             "name": self.name,
@@ -363,6 +381,7 @@ class Task(db.Model):
         }
 
     def get_progress_percentage(self):
+        """按已完成步骤与总步骤计算任务百分比进度。"""
         if self.total_steps == 0:
             return 0
         return round((self.current_step / self.total_steps) * 100, 2)
@@ -388,6 +407,7 @@ class TaskLog(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="日志时间")
 
     def to_dict(self):
+        """将任务日志转换为接口响应字典。"""
         return {
             "id": self.id,
             "level": self.level,
@@ -427,6 +447,7 @@ class TaskResult(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="结果时间")
 
     def to_dict(self):
+        """将任务结果及 JSON 字段转换为接口响应字典。"""
         result_dict = {
             "id": self.id,
             "task_id": self.task_id,
@@ -474,6 +495,7 @@ class TaskResultReturn(db.Model):
     returns_json = db.Column(db.Text, comment="收益曲线JSON，按列存储 dates/index_returns/start_returns")
 
     def to_dict(self):
+        """将任务收益序列记录转换为字典。"""
         return {
             "id": self.id,
             "task_id": self.task_id,
@@ -503,6 +525,7 @@ class BacktestProductResultCache(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
 
     def to_dict(self):
+        """将多品回测缓存记录转换为字典。"""
         return {
             "id": self.id,
             "batch_id": self.batch_id,
@@ -538,6 +561,7 @@ class BacktestSheetRunLock(db.Model):
     )
 
     def to_dict(self):
+        """将回测 Sheet 运行锁转换为字典。"""
         return {
             "id": self.id,
             "spreadsheet_id": self.spreadsheet_id,
@@ -597,6 +621,7 @@ class TaskResultSummaryIndex(db.Model):
     )
 
     def to_dict(self):
+        """将任务结果汇总索引转换为包含指标的字典。"""
         return {
             "id": self.id,
             "task_id": self.task_id,
@@ -642,6 +667,7 @@ class StockMetadata(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
 
     def to_dict(self):
+        """将股票元数据转换为字典。"""
         return {
             "id": self.id,
             "stock_code": self.stock_code,
@@ -670,6 +696,7 @@ class TaskTemplate(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
     def to_dict(self):
+        """将任务模板及其配置转换为字典。"""
         return {
             "id": self.id,
             "name": self.name,
@@ -694,6 +721,7 @@ class SystemConfig(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
     def to_dict(self):
+        """将系统配置转换为字典。"""
         return {
             "key": self.key,
             "value": self.value,
@@ -724,6 +752,7 @@ class NavigationMenuItem(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
     def to_dict(self, include_children=False):
+        """将导航菜单项转换为字典，并可附带子节点。"""
         data = {
             "id": self.id,
             "key": self.key,
@@ -775,9 +804,11 @@ class GoogleSheetToken(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
 
     def is_available(self):
+        """判断 Token 是否启用且未超过并发使用上限。"""
         return self.is_active and (self.max_usage_count <= 0 or self.current_in_use_count < self.max_usage_count)
 
     def to_dict(self, include_context: bool = False):
+        """将 Token 转换为字典，默认不暴露敏感上下文。"""
         data = {
             "id": self.id,
             "name": self.name,
@@ -825,6 +856,7 @@ class GoogleSheet(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
 
     def to_dict(self):
+        """将 Google Sheet 注册记录转换为字典。"""
         return {
             "id": self.id,
             "name": self.name,
@@ -842,12 +874,14 @@ class GoogleSheet(db.Model):
 @event.listens_for(GoogleSheet, "before_insert")
 @event.listens_for(GoogleSheet, "before_update")
 def _sync_google_sheet_registry_scope(_mapper, _connection, target):
+    """在 Sheet 写入前同步由表类型推导的注册作用域。"""
     target.registry_scope = google_sheet_registry_scope(target.table_type)
 
 
 @event.listens_for(TaskResultSummaryIndex, "before_insert")
 @event.listens_for(TaskResultSummaryIndex, "before_update")
 def _sync_summary_market_type(_mapper, _connection, target):
+    """在汇总索引写入前同步由股票代码推导的市场类型。"""
     target.market_type = summary_market_type(target.stock_code)
 
 
@@ -876,6 +910,7 @@ class ScheduledTask(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
     def to_dict(self):
+        """将定时任务转换为包含任务参数的字典。"""
         return {
             "id": self.id,
             "name": self.name,

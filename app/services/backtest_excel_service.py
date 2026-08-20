@@ -25,9 +25,11 @@ class BacktestExcelService:
     ALLOWED_EXTENSIONS = {".xlsx", ".xlsm"}
 
     def storage_dir(self) -> Path:
+        """返回回测 Excel 上传文件的本地存储目录。"""
         return Path(current_app.root_path).parent / "data" / "backtest_excel"
 
     def import_uploaded_excel(self, file: FileStorage) -> dict[str, Any]:
+        """保存并解析上传的回测 Excel，提取可执行的产品配置。"""
         saved_path = self._save_uploaded_file(file)
         imported_rows, imported_sources, stock_code, years_value, sheet_name = self._load_tasks_from_excel_file(saved_path)
 
@@ -61,6 +63,7 @@ class BacktestExcelService:
         }
 
     def _save_uploaded_file(self, file: FileStorage) -> Path:
+        """校验上传扩展名并以唯一文件名保存回测 Excel。"""
         filename = secure_filename(file.filename or "")
         suffix = Path(filename).suffix.lower()
         if suffix not in self.ALLOWED_EXTENSIONS:
@@ -73,6 +76,7 @@ class BacktestExcelService:
         return saved_path
 
     def _load_tasks_from_excel_file(self, file_path: str | Path) -> tuple[list[list[str]], list[dict[str, Any]], str, str, str]:
+        """读取回测 Excel 的参数、产品、日期和模型版本配置。"""
         file_path = str(Path(file_path).resolve())
         try:
             workbook = openpyxl.load_workbook(file_path, data_only=False)
@@ -83,6 +87,7 @@ class BacktestExcelService:
             raise ValueError(f"Excel 文件读取失败：{exc}") from exc
 
         def get_merged_range(row: int, col: int):
+            """查找指定单元格所在的合并区域。"""
             for merged_range in worksheet.merged_cells.ranges:
                 if (
                     merged_range.min_row <= row <= merged_range.max_row
@@ -92,12 +97,14 @@ class BacktestExcelService:
             return None
 
         def normalize_label(value: Any) -> str:
+            """规范化 Excel 标签文本，便于与预定义字段匹配。"""
             text = "" if value is None else str(value).strip()
             for token in (" ", "\n", "\r", "\t", "/", "\\", "。", "，", ",", "：", ":"):
                 text = text.replace(token, "")
             return text
 
         def format_excel_value(value: Any) -> str:
+            """将 Excel 值转换为配置读取使用的文本。"""
             if value is None:
                 return ""
             if isinstance(value, bool):
@@ -121,7 +128,9 @@ class BacktestExcelService:
         }
 
         def safe_eval_expression(expr: str) -> float:
+            """安全计算仅包含基本算术运算的公式表达式。"""
             def _eval(node):
+                """递归计算受限 AST 节点，禁止执行任意 Python 表达式。"""
                 if isinstance(node, ast.Expression):
                     return _eval(node.body)
                 if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
@@ -138,6 +147,7 @@ class BacktestExcelService:
             return _eval(parsed)
 
         def get_numeric_cell_value(row: int, col: int, visited=None) -> float:
+            """读取单元格数值，并递归解析其引用的公式。"""
             visited = visited or set()
             cell_key = (row, col)
             if cell_key in visited:
@@ -160,9 +170,11 @@ class BacktestExcelService:
             return float(text_value)
 
         def evaluate_formula(formula: str, visited=None) -> float:
+            """替换公式中的单元格引用后安全计算数值结果。"""
             expr = formula.lstrip("=").replace("^", "**")
 
             def replace_cell_reference(match):
+                """将公式内的 A1 引用替换为对应单元格数值。"""
                 col_letters = match.group(1)
                 row_number = int(match.group(2))
                 col_number = column_index_from_string(col_letters)
@@ -172,6 +184,7 @@ class BacktestExcelService:
             return safe_eval_expression(expr)
 
         def get_cell_text(row: int, col: int) -> str:
+            """读取单元格展示文本，优先使用 Excel 缓存计算值。"""
             cached_value = worksheet_values.cell(row, col).value
             source_value = worksheet.cell(row, col).value
             resolved_value = cached_value

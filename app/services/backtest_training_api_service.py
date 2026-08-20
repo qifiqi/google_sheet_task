@@ -14,12 +14,18 @@ from sqlalchemy.orm import load_only
 
 from app.extensions import db
 from app.models import Task, TaskResult
+from app.repositories.task_repository import TaskRepository
+from app.repositories.task_result_repository import TaskResultRepository
 from app.services.xpl_service import xpl_analyzer
 from app.utils.c7_result_normalizer import (
     C7_RAW_PERCENT_CELLS,
     normalize_c7_result_metrics,
 )
 from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
+
+
+_task_repository = TaskRepository()
+_task_result_repository = TaskResultRepository()
 
 
 
@@ -72,6 +78,7 @@ SUMMARY_ROW_LABELS = [
 ]
 
 def _normalize_scientific_text(text: str) -> str:
+    """将科学计数法文本展开为页面和导出中可读的普通数值。"""
     if not SCIENTIFIC_NOTATION_RE.fullmatch(text):
         return text
 
@@ -92,6 +99,7 @@ def _normalize_scientific_text(text: str) -> str:
 
 
 def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None, result_id: int | None = None):
+    """按统一响应格式构造任务或结果资源的权限拒绝消息。"""
     action_label = TASK_ACTION_LABELS.get(action, action)
     normalized_type = decision.get("task_type") or str(task_type or "unknown")
     missing_permissions = decision.get("missing_permissions") or []
@@ -111,7 +119,8 @@ def _task_permission_denied(action: str, task_type: str | None, decision: dict, 
 
 
 def _load_backtest_task_or_response(task_id: str, action: str = "view", result_id: int | None = None):
-    task = db.session.get(Task, task_id)
+    """读取回测任务并执行操作级权限校验，失败时返回 API 响应。"""
+    task = _task_repository.get(task_id)
     if not task:
         return None, (jsonify({
             "status": "error",
@@ -134,6 +143,7 @@ def _load_backtest_task_or_response(task_id: str, action: str = "view", result_i
 
 
 def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: set[str]) -> str:
+    """生成压缩包内唯一且安全的导出文件名。"""
     base_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(task_name or "").strip())
     base_name = base_name.rstrip(" .") or fallback_id
     filename = f"{base_name}_global_preview.xlsx"
@@ -152,6 +162,7 @@ def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: 
 
 
 def _validate_batch_global_preview_task_ids(raw_task_ids):
+    """校验批量全局预览任务 ID 列表的格式、数量和可访问性。"""
     if not isinstance(raw_task_ids, list) or not raw_task_ids:
         return None, (jsonify({"status": "error", "message": "请选择至少一个任务"}), 400)
 
@@ -164,7 +175,7 @@ def _validate_batch_global_preview_task_ids(raw_task_ids):
 
 
 def _sanitize_json_value(value):
-    """Convert NaN/Infinity values into JSON-safe nulls."""
+    """将 NaN、Infinity 等非有限数值转换为 JSON 安全的空值。"""
     if isinstance(value, float):
         return value if math.isfinite(value) else None
     if isinstance(value, dict):
@@ -175,10 +186,12 @@ def _sanitize_json_value(value):
 
 
 def _strip_html_tags(value):
+    """移除结果字段中的 HTML 标签，保留纯文本展示内容。"""
     return re.sub(r"<[^>]+>", "", str(value or "")).strip()
 
 
 def _infer_backtest_model_version(config):
+    """从任务配置与 Sheet 标题中推断回测模型版本。"""
     if not isinstance(config, dict):
         return "c3"
 
@@ -197,6 +210,7 @@ def _infer_backtest_model_version(config):
 
 
 def _is_c7_0_3_backtest_config(config):
+    """判断配置是否指向 C7.0.3 专用回测模板。"""
     if not isinstance(config, dict):
         return False
     sheet = config.get("sheet") or {}
@@ -222,6 +236,7 @@ def _resolve_c7_model_version(task_config, parameters):
 
 
 def _infer_backtest_export_model_name(config):
+    """为单结果导出确定稳定的模型名称标签。"""
     if not isinstance(config, dict):
         return "C3"
 
@@ -241,6 +256,7 @@ def _infer_backtest_export_model_name(config):
 
 
 def _parse_percent_like_value(value):
+    """解析百分号、普通数字和格式化文本形式的指标数值。"""
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -264,10 +280,15 @@ def _parse_percent_like_value(value):
 
 
 def _extract_task_result_payload(task_result):
-    try:
-        result_payload = json.loads(task_result.result) if task_result.result else {}
-    except (TypeError, json.JSONDecodeError):
-        result_payload = {}
+    """安全解码任务结果字段，并返回字典形式的结果载荷。"""
+    raw_result = task_result.result
+    if isinstance(raw_result, dict):
+        result_payload = raw_result
+    else:
+        try:
+            result_payload = json.loads(raw_result) if raw_result else {}
+        except (TypeError, json.JSONDecodeError):
+            result_payload = {}
 
     if isinstance(result_payload, dict) and result_payload:
         value = next(
@@ -298,12 +319,8 @@ def _extract_task_result_payload(task_result):
 
 
 def _load_backtest_task_result_or_response(task_result_id: int):
-    task_result = (
-        TaskResult.query
-        .options(load_only(TaskResult.id, TaskResult.task_id, TaskResult.result))
-        .filter(TaskResult.id == task_result_id)
-        .first()
-    )
+    """读取任务结果及其所属任务，并统一执行查看权限校验。"""
+    task_result = _task_result_repository.get(task_result_id)
     if not task_result:
         return None, None, (jsonify({
             "status": "error",
@@ -322,6 +339,7 @@ def _load_backtest_task_result_or_response(task_result_id: int):
 
 
 def _build_backtest_result_export_filename(task: Task, result_id: int) -> tuple[str, str]:
+    """构造单个回测结果导出的基础文件名与完整下载名。"""
     filename_title = "".join(
         char if char not in '\\/:*?"<>|' else "_"
         for char in str(task.name or "").strip()
@@ -330,6 +348,7 @@ def _build_backtest_result_export_filename(task: Task, result_id: int) -> tuple[
 
 
 def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> dict:
+    """组合任务、参数、计算指标和结果元信息为导出数据对象。"""
     calculate_metrics, sheet_result = _extract_task_result_payload(task_result)
     task_config = task.to_dict().get("config") or {}
     model_name = _infer_backtest_export_model_name(task_config)
@@ -351,6 +370,7 @@ def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> d
 
 
 def _build_backtest_result_export_rows(export_data: dict) -> list[list[str]]:
+    """将单结果导出对象转换为 Excel/CSV 使用的二维行数据。"""
     dataframe = xpl_analyzer.format_export_file_data(export_data)
     return [
         ["" if value is None else str(value) for value in row]
@@ -359,6 +379,7 @@ def _build_backtest_result_export_rows(export_data: dict) -> list[list[str]]:
 
 
 def _extract_year_drawdown_map(section):
+    """从年度回撤区块提取以年份为键的回撤数值映射。"""
     if not isinstance(section, dict):
         return {}
     return {
@@ -369,6 +390,7 @@ def _extract_year_drawdown_map(section):
 
 
 def _extract_year_sharpe_map(section):
+    """从年度夏普区块提取以年份为键的夏普比率映射。"""
     if not isinstance(section, dict):
         return {}
 
@@ -383,6 +405,7 @@ def _extract_year_sharpe_map(section):
 
 
 def _extract_display_year(source_window):
+    """从日期窗口或周期文本中解析适合汇总表展示的年份。"""
     raw = str(source_window or "").strip()
     if not raw:
         return ""
@@ -395,6 +418,7 @@ def _extract_display_year(source_window):
 
 
 def _build_c3_summary_rows(task_id):
+    """读取 C3 任务结果并生成全局预览所需的标准汇总行。"""
     task_results = (
         TaskResult.query
         .options(
@@ -434,6 +458,7 @@ def _build_c3_summary_rows(task_id):
 
         calculate_metrics, sheet_result = _extract_task_result_payload(task_result)
         def _safe_all_entry(items, key_name="year"):
+            """在当前结果的年度指标列表中安全读取 all 聚合项。"""
             if not isinstance(items, list):
                 return {}
             for item in items:
@@ -617,6 +642,7 @@ def _build_c3_summary_rows(task_id):
 
 
 def _build_parameter_header(parameters):
+    """根据参数数组生成导出表的参数列标题。"""
     parameter_values = parameters.get("parameter")
     if not isinstance(parameter_values, list) or not parameter_values:
         c7_values = [
@@ -638,6 +664,7 @@ def _build_parameter_header(parameters):
 
 
 def _extract_result_core(task_result):
+    """从嵌套任务结果中定位包含回测指标的核心模型结果。"""
     payload = task_result.to_dict().get("result") or {}
     if not isinstance(payload, dict) or not payload:
         return {}
@@ -646,6 +673,7 @@ def _extract_result_core(task_result):
 
 
 def _detect_model_name(task_name, parameters):
+    """根据任务名称和参数结构识别 C3、C4、C5 或 C7 模型。"""
     upper_name = (task_name or "").upper()
     for model_name in ("C7", "C5", "C4", "C3"):
         if model_name in upper_name:
@@ -670,6 +698,7 @@ def _detect_global_preview_model_name(task, parameters):
 
 
 def _extract_raw_sheet_metrics(result_core):
+    """从 Sheet 原始单元格结果提取导出汇总使用的核心指标。"""
     if not isinstance(result_core, dict):
         return {}
     return {
@@ -680,6 +709,7 @@ def _extract_raw_sheet_metrics(result_core):
 
 
 def _normalize_summary_numeric_value(value):
+    """将摘要指标的字符串、百分比或数字归一为浮点值。"""
     parsed = _parse_percent_like_value(value)
     if isinstance(parsed, (int, float)):
         return parsed if math.isfinite(parsed) else None
@@ -687,6 +717,7 @@ def _normalize_summary_numeric_value(value):
 
 
 def _format_summary_value(value):
+    """格式化摘要数值，兼容缺失值、百分比和科学计数法文本。"""
     parsed = _parse_percent_like_value(value)
     if isinstance(parsed, (int, float)):
         if not math.isfinite(parsed):
@@ -698,6 +729,7 @@ def _format_summary_value(value):
 
 
 def _get_summary_raw_metric(column, metric_key):
+    """根据列定义从原始 Sheet 指标映射中读取目标字段。"""
     model_name = str(column.get("model_name") or "C3").upper()
     if model_name == "C7" and column.get("c7_model_version") == "c7_0_3":
         cell_map = SUMMARY_METRIC_CELL_MAP["C5"]
@@ -718,6 +750,7 @@ def _get_summary_raw_metric(column, metric_key):
 
 
 def _get_excess_return_from_calculate_metrics(calculate_metrics):
+    """从计算指标中读取 all 聚合项的年化超额收益。"""
     if not isinstance(calculate_metrics, dict):
         return None
 
@@ -743,6 +776,7 @@ def _get_excess_return_from_calculate_metrics(calculate_metrics):
 
 
 def _get_summary_derived_value(column, metric_key, calculate_metrics=None):
+    """计算不直接存在于原始 Sheet 中的派生摘要指标。"""
     if metric_key == "excess_return":
         left = _normalize_summary_numeric_value(
             _get_summary_raw_metric(column, "return")
@@ -771,6 +805,7 @@ def _get_summary_derived_value(column, metric_key, calculate_metrics=None):
 
 
 def _negative_percent_display(value):
+    """将回撤类数值规范为带负号的百分比展示。"""
     parsed = _parse_percent_like_value(value)
     if not isinstance(parsed, (int, float)) or not math.isfinite(parsed):
         return ""
@@ -780,6 +815,7 @@ def _negative_percent_display(value):
 
 
 def _percent_display(value):
+    """将数值规范为百分比展示，保留无效文本供排查。"""
     parsed = _parse_percent_like_value(value)
     if not isinstance(parsed, (int, float)) or not math.isfinite(parsed):
         return ""
@@ -787,6 +823,7 @@ def _percent_display(value):
 
 
 def _metric_year_key(value):
+    """将指标年度值转换为跨来源可匹配的标准键。"""
     text = str(value if value is not None else "").strip()
     if not text or text.lower() == "all":
         return ""
@@ -798,6 +835,7 @@ def _metric_year_key(value):
 
 
 def _derive_year_max_excess_drawdown(calculate_metrics):
+    """计算跑赢年份中策略相对指数的最大超额回撤。"""
     excess_returns = [
         (_metric_year_key(item.get("year")), _parse_percent_like_value(item.get("annualized_return_diff")))
         for item in calculate_metrics.get("excess_returns") or []
@@ -852,6 +890,7 @@ def _derive_year_max_excess_drawdown(calculate_metrics):
 
 
 def _format_excel_data_cell(cell):
+    """将导出单元格值转成 openpyxl 可安全写入的类型。"""
     value = cell.value
     if not isinstance(value, str):
         return
@@ -869,6 +908,7 @@ def _format_excel_data_cell(cell):
 
 
 def _with_excess_return_preview_row(summary_rows, column, calculate_metrics=None):
+    """为全局预览摘要行补充统一口径的超额收益展示值。"""
     if not summary_rows:
         return summary_rows
     if any(
@@ -903,11 +943,13 @@ def _with_excess_return_preview_row(summary_rows, column, calculate_metrics=None
 
 
 def _extract_summary_rows(calculate_metrics, model_name):
+    """从计算指标或模板原始结果构造模型统一的摘要行。"""
     if not isinstance(calculate_metrics, dict) or not calculate_metrics:
         return "", []
     calculate_metrics = _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics)
 
     def _normalize_metric_label(label):
+        """归一化指标名称中的空白、中文括号和别名。"""
         text = str(label or "").strip()
         text = text.replace("（", "(").replace("）", ")")
         metric_aliases = {
@@ -921,6 +963,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
         return metric_aliases.get(text, text)
 
     def _normalize_display_value(value):
+        """将空值、数值和文本转换为可比较的展示字符串。"""
         text = str(value or "").strip()
         if not text:
             return ""
@@ -929,21 +972,25 @@ def _extract_summary_rows(calculate_metrics, model_name):
         return _normalize_scientific_text(text)
 
     def _normalize_negative_display_value(metric, value):
+        """仅对回撤类指标强制使用负号展示。"""
         if metric == "年最大回撤":
             return _negative_percent_display(value)
         return _normalize_display_value(value)
 
     def _fmt_percent(value):
+        """将可解析数值格式化为两位小数百分比。"""
         if value is None or not math.isfinite(value):
             return ""
         return f"{value:.2%}"
 
     def _fmt_number(value):
+        """将可解析数值格式化为最多两位小数的普通文本。"""
         if value is None or not math.isfinite(value):
             return ""
         return f"{value:.2f}".rstrip("0").rstrip(".")
 
     def _safe_all_entry(items, key_name):
+        """从年度指标列表中安全获取 all 聚合项。"""
         if not isinstance(items, list):
             return {}
         for item in items:
@@ -952,6 +999,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
         return {}
 
     def _build_fallback_rows():
+        """在缺失计算指标时，以原始 Sheet 指标构造兼容摘要行。"""
         excess_all = _safe_all_entry(calculate_metrics.get("excess_returns"), "year")
         index_profit_monthly_all = _safe_all_entry(calculate_metrics.get("index_profit_monthly"), "year")
         start_profit_monthly_all = _safe_all_entry(calculate_metrics.get("start_profit_monthly"), "year")
@@ -1010,9 +1058,11 @@ def _extract_summary_rows(calculate_metrics, model_name):
 
 
 def _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics):
+    """统一 XPL 导出指标中的年份类型，避免字符串和整数混用。"""
     normalized = deepcopy(calculate_metrics)
 
     def normalize_year(value):
+        """将年份输入规范化为有效整数；空值和 all 保持原语义。"""
         text = str(value if value is not None else "").strip()
         if not text or text.lower() == "all":
             return value
@@ -1037,6 +1087,7 @@ def _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics):
 
 def _query_global_preview_results(task_id, result_ids=None):
     """按主键精确读取结果，避免切换分组时扫描整个任务的大 JSON。"""
+    # TODO: task_id 与 result_ids 联合查询依赖 ParamTaskResults/Query，不能用 SDK 全量扫描。
     query = (
         TaskResult.query
         .options(
@@ -1060,6 +1111,7 @@ def _query_global_preview_results(task_id, result_ids=None):
 
 
 def _build_global_preview_payload_from_results(task, task_results):
+    """由一批任务结果构建全局预览的明细、分组和统计载荷。"""
     task_config = task.to_dict().get("config") or {}
 
     groups = OrderedDict()
@@ -1187,7 +1239,7 @@ def _build_global_preview_payload_from_results(task, task_results):
 
 def _build_global_preview_payload(task_id):
     """兼容全量调用；页面首屏不应使用该函数。"""
-    task = db.session.get(Task, task_id)
+    task = _task_repository.get(task_id)
     if not task or normalize_task_type(task.task_type) not in {
         "backtest_training", "google_sheet", "google_sheet_c4", "google_sheet_c5", "google_sheet_c7",
     }:
@@ -1199,7 +1251,8 @@ def _build_global_preview_payload(task_id):
 
 def _build_global_preview_initial_payload(task_id):
     """首屏仅加载轻量参数索引，并预加载用户默认会看到的一个分组。"""
-    task = db.session.get(Task, task_id)
+    task = _task_repository.get(task_id)
+    # TODO: 结果元数据按 task_id 查询依赖 ParamTaskResults/Query，不能用 SDK 全量扫描。
     if not task:
         return None
     task_config = task.to_dict().get("config") or {}
@@ -1254,7 +1307,7 @@ def _build_global_preview_initial_payload(task_id):
 
 def _build_global_preview_group_payload(task_id, result_ids):
     """结果 ID 必须同时受 task_id 约束，防止跨任务读取。"""
-    task = db.session.get(Task, task_id)
+    task = _task_repository.get(task_id)
     if not task:
         return None
     safe_ids = [int(item) for item in result_ids if str(item).isdigit()]
@@ -1265,7 +1318,8 @@ def _build_global_preview_group_payload(task_id, result_ids):
 
 def get_global_preview_result_ids_by_stock(task_id):
     """导出用的轻量索引：先分股票，再逐股票读取完整结果生成文件。"""
-    task = db.session.get(Task, task_id)
+    task = _task_repository.get(task_id)
+    # TODO: 结果元数据按 task_id 查询依赖 ParamTaskResults/Query，不能用 SDK 全量扫描。
     if not task:
         return None, []
     task_config = task.to_dict().get("config") or {}
@@ -1315,6 +1369,7 @@ def split_global_preview_payload_by_stock(payload):
 
 
 def _sanitize_excel_sheet_name(name, fallback):
+    """清理 Excel 工作表非法字符并限制名称长度。"""
     raw_name = str(name or fallback or "Sheet")
     invalid_chars = set('\\/:*?[]')
     cleaned = ''.join('_' if char in invalid_chars else char for char in raw_name).strip()
@@ -1323,6 +1378,7 @@ def _sanitize_excel_sheet_name(name, fallback):
 
 
 def _append_global_summary_sheet(workbook, payload, styles):
+    """向工作簿写入全局汇总页及其标题、表头和样式。"""
     groups = payload.get("groups") or []
     sheet = workbook.create_sheet("汇总", 0)
     if not groups:
@@ -1392,6 +1448,7 @@ def _append_global_summary_sheet(workbook, payload, styles):
 
 
 def _build_global_preview_workbook(payload):
+    """将全局预览载荷渲染为可下载的多工作表 Excel 工作簿。"""
     workbook = Workbook()
     default_sheet = workbook.active
     workbook.remove(default_sheet)

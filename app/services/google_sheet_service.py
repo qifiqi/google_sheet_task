@@ -8,7 +8,8 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db
+from app.models import Task, db
+from app.repositories.task_result_repository import TaskResultRepository
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -23,6 +24,8 @@ from app.utils.yf_api import YFApi
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
+
+_task_result_repository = TaskResultRepository()
 from app.services.kline_service import KlineService
 
 logger = get_logger(__name__)
@@ -32,6 +35,7 @@ class GoogleSheetService(BaseGoogleSheetService):
     """Google Sheet服务"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        """初始化 C3 执行器及其行情、表格和收益分析依赖。"""
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.klines_map = None
         self.kline = None
@@ -45,9 +49,11 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     @staticmethod
     def _format_elapsed(seconds: float) -> str:
+        """将耗时秒数格式化为日志中统一使用的毫秒精度文本。"""
         return f"{seconds:.3f}s"
 
     def _summarize_result_for_log(self, result: Dict[str, Any]) -> str:
+        """提取关键结果字段，生成避免日志过大的执行摘要。"""
         if not isinstance(result, dict):
             return str(result)
 
@@ -94,6 +100,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         read_elapsed: float,
         xpl_elapsed: float,
     ) -> str:
+        """汇总收益分析的行数、耗时与核心指标，供任务日志记录。"""
         summary = {
             "rows": row_count,
             "read": self._format_elapsed(read_elapsed),
@@ -124,6 +131,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         combination: List[Any],
         param_positions: List[str],
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """把参数组合映射为表格写入值和结果基础字段。"""
         cell_updates: Dict[str, Any] = {}
         results: Dict[str, Any] = {}
         for index, position in enumerate(param_positions):
@@ -133,6 +141,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         return cell_updates, results
 
     def _write_parameter_cells(self, cell_updates: Dict[str, Any], attempt: int = 0,config_data=None):
+        """按重试次数写入参数；连续卡顿时重置输入区以触发表格重算。"""
         if attempt <= 0:
             self._log_info(f"向Google Sheet写入参数: {cell_updates}")
             self.google_sheet.update_jumped_cells(cell_updates)
@@ -191,6 +200,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         #     raise
 
     def _normalize_result_value(self, position: str, value: Any) -> float:
+        """校验并统一表格结果为数值，兼容百分号和千分位格式。"""
         if not value or not is_valid_result_value(value):
             self._log_info(f"结果位置 {position} 值为空或无效，跳过重新检查")
             raise Exception(f"结果位置 {position} 值为空或无效，跳过重新检查")
@@ -207,6 +217,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         return round(float(value), 5)
 
     def _validate_check_values(self, check_values: Dict[str, Any], input_results: Dict[str, Any]) -> bool:
+        """校验回读检查值，确认公式结果未保留错误或旧输入。"""
         if not check_values:
             return False
 
@@ -235,6 +246,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         result_values: Dict[str, Any],
         result_positions: List[str],
     ) -> Tuple[bool, List[str]]:
+        """检查批量读取结果是否覆盖全部目标位置且数值有效。"""
         if not result_values:
             return False, ["结果字典为空"]
 
@@ -264,6 +276,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         base_results: Dict[str, Any],
         config_data: Dict[str, Any],
     ) -> tuple[bool, Dict[str, Any]]:
+        """归一化结果并附加收益分析，最后执行整体业务校验。"""
         final_results = dict(base_results)
         for position in result_positions:
             final_results[position] = self._normalize_result_value(position, result_values.get(position, ""))
@@ -284,6 +297,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         base_results: Dict[str, Any],
         config_data: Dict[str, Any],
     ) -> tuple[bool, Dict[str, Any]]:
+        """优先通过批量接口读取结果位置，减少单元格请求次数。"""
         result_values = self.google_sheet.get_cells_batch(result_positions)
         self._log_info(f"获取到参数执行结果: {result_values}")
 
@@ -300,6 +314,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         base_results: Dict[str, Any],
         config_data: Dict[str, Any],
     ) -> tuple[bool, Dict[str, Any]]:
+        """批量读取失败时逐格回退读取，并复用同一结果校验流程。"""
         fallback_values: Dict[str, Any] = {}
         for position in result_positions:
             try:
@@ -320,6 +335,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         return True, final_results
 
     def _build_return_analysis_input(self, config_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """从 Sheet 输出列组装收益分析需要的日期与两组收益序列。"""
         if not self.google_sheet or not self.len_kline:
             return []
 
@@ -370,6 +386,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         return return_data
 
     def _attach_return_analysis(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """执行收益率分析，并在非关键分析失败时保留原始任务结果。"""
         try:
             read_started = time.perf_counter()
             return_data = self._build_return_analysis_input(config_data)
@@ -408,6 +425,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         config_data: Dict[str, Any],
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
+        """把 C3 结果及收益分析指标转换为股票参数结果记录。"""
         payload = self._build_stock_param_result_base_payload(task_name, task_index, config_data)
         return_analysis = result.get("flat_result") if isinstance(result.get("flat_result"), dict) else result
         payload.update({
@@ -490,7 +508,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
-                task = db.session.get(Task, self.task_id)
+                task = self._get_remote_task()
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -589,7 +607,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = db.session.get(Task, self.task_id)
+                task = self._get_remote_task()
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -610,6 +628,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             return 'error'
 
     def cell_kline_data(self,config_data):
+        """根据任务配置准备并写入 C3 模板所需的 K 线数据。"""
         stock_code = config_data.get('stock_code', '')
         year_n = config_data.get('year_n', '1y')
         # count_mode = config_data.get('count_mode', 'n_plus_1')
@@ -625,6 +644,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
 
         def _get_kline(klines, _year=None, _start_date_1=None, _end_date_1=None):
+            """按年份或日期范围筛选行情，并投影为 Sheet 所需的日期价格列。"""
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
             # 根据price_mode决定使用开盘价、收盘价或加权平均价
             price_field = {
@@ -784,8 +804,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 total_combinations *= len(param_list)
 
             # 更新任务总步数
-            task.total_steps = total_combinations
-            db_retry_manager.commit_with_retry(db.session)
+            task = self._save_remote_task(task, total_steps=total_combinations)
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -837,12 +856,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 combination = self._get_parameter_combination_by_index(parameters, i)
                 
                 # 每轮执行前检查数据库中的取消状态。
-                def check_task_status():
-                    return db.session.query(Task.status).filter(
-                        Task.id == self.task_id
-                    ).first()
-                
-                result = safe_db_operation(check_task_status)
+                result = self._get_remote_task()
                 
                 if not result or result.status == 'cancelled':
                     self._log_warning("任务已被取消，停止执行")
@@ -880,8 +894,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     )
 
                     # 更新当前步数
-                    task.current_step = i + 1
-                    db_retry_manager.commit_with_retry(db.session)
+                    task = self._save_remote_task(task, current_step=i + 1)
 
 
                     # 保存结果到数据库
@@ -907,7 +920,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     # 检查是否是任务被取消
                     task.error = e
                     try:
-                        task_check = db.session.get(Task, self.task_id)
+                        task_check = self._get_remote_task()
                         if task_check and task_check.status == 'cancelled':
                             self._log_info(f'第 {i + 1} 个参数组合执行中断（任务被取消）: {str(e)}')
                             break  # 退出循环
@@ -930,7 +943,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task_check = db.session.get(Task, self.task_id)
+                task_check = self._get_remote_task()
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
@@ -1040,17 +1053,16 @@ class GoogleSheetService(BaseGoogleSheetService):
     def _save_task_result(self, step_index: int, parameters: List, result: Dict, success: bool):
         """保存任务结果到数据库，包含重试逻辑"""
         def save_result_operation():
+            """将当前 C3 组合的结果和收益明细保存到远端存储。"""
             safe_parameters = self._sanitize_json_value(parameters)
             safe_result = self._sanitize_json_value(result)
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success
-            )
-            db.session.add(task_result)
-            db.session.commit()
+            _task_result_repository.save({
+                "task_id": self.task_id,
+                "step_index": step_index,
+                "parameters": safe_parameters,
+                "result": safe_result,
+                "success": success,
+            })
         
         try:
             if self.app:

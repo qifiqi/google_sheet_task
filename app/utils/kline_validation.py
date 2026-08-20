@@ -13,7 +13,7 @@ def require_kline_rows(
     min_rows: int = 1,
     price_field: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Validate K-line rows before writing them into Google Sheet."""
+    """在写入 Google Sheet 前校验 K 线数据行。"""
     row_list = list(rows or [])
     range_text = ""
     if start_date or end_date:

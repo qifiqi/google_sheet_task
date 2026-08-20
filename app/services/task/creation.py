@@ -11,8 +11,8 @@ from functools import reduce
 from itertools import product
 from typing import Any, Optional
 
-from app.extensions import db
-from app.models import GoogleSheetTokenTaskType, Task, TaskStatus
+from app.models import GoogleSheetTokenTaskType, TaskStatus
+from app.repositories.task_repository import TaskRepository
 from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
@@ -20,10 +20,11 @@ from app.services.google_sheet_token_service import (
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
 from app.services.kline_service import KlineService
-from app.utils.database import safe_create, transaction_required
+from app.utils.database import transaction_required
 from app.utils.logger import get_logger, get_task_logger
 
 logger = get_logger(__name__)
+_task_repository = TaskRepository()
 
 KLINE_SOURCE_AUTO = "auto"
 KLINE_SOURCE_CUSTOM = "custom"
@@ -31,10 +32,12 @@ VALID_KLINE_SOURCES = {KLINE_SOURCE_AUTO, KLINE_SOURCE_CUSTOM}
 
 
 def _is_empty_custom_kline_option(value: Any) -> bool:
+    """判断自定义 K 线模式中可忽略的空配置项。"""
     return value in (None, "") or value == [] or value == ()
 
 
 def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str, Any]:
+    """规范化 C 系列任务的自动与自定义 K 线配置。"""
     normalized = dict(config)
     kline_source = str(normalized.get("kline_source") or KLINE_SOURCE_AUTO).strip().lower()
     if kline_source not in VALID_KLINE_SOURCES:
@@ -71,6 +74,7 @@ def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str,
 
 
 def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
+    """规范化 C7 随机价格模式相关的任务配置字段。"""
     normalized = dict(config)
     price_mode = normalized.get("price_mode") or "vwap_price"
     if price_mode != "random_price":
@@ -102,6 +106,7 @@ def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _stock_metadata_items_from_config(config: Any) -> list[dict[str, Any]]:
+    """从任务配置提取可用于补全股票名称的元数据项。"""
     if not isinstance(config, dict):
         return []
 
@@ -136,6 +141,7 @@ def _stock_metadata_items_from_config(config: Any) -> list[dict[str, Any]]:
 
 
 def _hydrate_stock_name_from_metadata(config: dict[str, Any]) -> dict[str, Any]:
+    """依据内嵌股票元数据补全任务配置中的股票名称。"""
     if config.get("stock_name") or not config.get("stock_code"):
         return config
     metadata = lookup_stock_metadata(config.get("stock_code"), config.get("market_type"))
@@ -155,6 +161,7 @@ class TaskCreationMixin:
     """封装任务创建、批量拆分与配置更新。"""
 
     def _normalize_task_config_for_type(self, task_type: str, config):
+        """根据任务类型统一规范化参数、股票和 K 线配置。"""
         if not isinstance(config, dict):
             return config
         normalized = dict(config)
@@ -232,16 +239,16 @@ class TaskCreationMixin:
                 upsert_stock_metadata_in_session(stock_item)
 
         config_str = json.dumps(config) if isinstance(config, dict) else str(config)
-        safe_create(
-            Task,
-            id=task_id,
-            name=name,
-            description=description,
-            task_type=task_type,
-            config=config_str,
-            status="pending",
-            created_by_user_id=created_by_user_id,
-        )
+        # 任务主记录通过远程 CRUD 创建；本地事务仅覆盖仍保留的元数据缓存。
+        _task_repository.save({
+            "id": task_id,
+            "name": name,
+            "description": description,
+            "task_type": task_type,
+            "config": config_str,
+            "status": "pending",
+            "created_by_user_id": created_by_user_id,
+        })
 
         if isinstance(config, dict) and task_type not in ("backtest_training", "backtest_multi_product"):
             self.ensure_google_sheet_occupancy(task_id, config)
@@ -460,13 +467,22 @@ class TaskCreationMixin:
                         1,
                     )
                     child_description = description or f"批量执行 {combo_count} 个参数组合"
-                    task_id = self.create_task(
-                        task_name,
-                        child_description,
-                        child_task_type,
-                        child_config,
-                        created_by_user_id=created_by_user_id,
-                    )
+                    try:
+                        task_id = self.create_task(
+                            task_name,
+                            child_description,
+                            child_task_type,
+                            child_config,
+                            created_by_user_id=created_by_user_id,
+                        )
+                    except Exception:
+                        # 远端没有跨任务事务：创建中断时补偿删除已经成功创建的子任务。
+                        for created_task_id in reversed(created_task_ids):
+                            try:
+                                self.delete_task(created_task_id)
+                            except Exception as cleanup_exc:
+                                logger.error("C31 补偿删除子任务失败: task_id=%s err=%s", created_task_id, cleanup_exc)
+                        raise
                     created_task_ids.append(task_id)
 
                     started = self.start_task(task_id)
@@ -527,6 +543,7 @@ class TaskCreationMixin:
         return rows
 
     def _normalize_c31_parameter_groups(self, parameter_groups):
+        """将 C31 批量参数转换为可拆分子任务的二维分组。"""
         normalized_groups = []
         for index, group in enumerate(parameter_groups, start=1):
             if not isinstance(group, list) or not group:
@@ -546,6 +563,7 @@ class TaskCreationMixin:
         return normalized_groups
 
     def _is_count_compatible(self, left_count: int, right_count: int) -> bool:
+        """判断两个参数组长度是否满足 C31 批量拆分规则。"""
         if left_count <= 0 or right_count <= 0:
             return False
         return (
@@ -565,11 +583,11 @@ class TaskCreationMixin:
     ) -> dict[str, Any]:
         """更新任务配置。"""
         try:
-            task = db.session.get(Task, task_id)
+            task = _task_repository.get(task_id)
             if not task:
                 return {"status": "error", "message": "任务不存在"}
 
-            if task.status == "running":
+            if task.get("status") == "running":
                 return {
                     "status": "error",
                     "message": "正在运行的任务无法直接修改，请先停止任务",
@@ -588,10 +606,11 @@ class TaskCreationMixin:
                 if next_status not in allowed_statuses:
                     return {"status": "error", "message": f"不支持的任务状态: {next_status}"}
 
-            new_config = self._normalize_task_config_for_type(task.task_type, new_config)
-            if task.task_type == "backtest_training":
+            task_type = task.get("task_type")
+            new_config = self._normalize_task_config_for_type(task_type, new_config)
+            if task_type == "backtest_training":
                 self.validate_backtest_training_sheet(new_config)
-            old_config = json.loads(task.config) if task.config else {}
+            old_config = task.get("config") or {}
             old_google_sheet_id = (
                 old_config.get("google_sheet_id") if isinstance(old_config, dict) else None
             )
@@ -603,23 +622,22 @@ class TaskCreationMixin:
                 if new_google_sheet_id:
                     self.ensure_google_sheet_occupancy(task_id, new_config)
 
-            task.config = json.dumps(new_config)
+            updated = dict(task)
+            updated["config"] = new_config
             if update_name:
-                task.name = update_name
+                updated["name"] = update_name
             if update_description is not None:
-                task.description = update_description
-            old_status = task.status
-            if next_status and next_status != task.status:
-                task.status = next_status
+                updated["description"] = update_description
+            old_status = task.get("status")
+            if next_status and next_status != old_status:
+                updated["status"] = next_status
                 if next_status == TaskStatus.PENDING.value:
-                    task.start_time = None
-                    task.end_time = None
-                    task.error_message = None
+                    updated.update(start_time=None, end_time=None, error_message=None)
                 elif next_status in {TaskStatus.COMPLETED.value, TaskStatus.CANCELLED.value}:
-                    task.end_time = task.end_time or datetime.now()
+                    updated["end_time"] = updated.get("end_time") or datetime.now()
                     if next_status == TaskStatus.COMPLETED.value:
-                        task.error_message = None
-            db.session.commit()
+                        updated["error_message"] = None
+            task = _task_repository.save(updated)
 
             task_logger = get_task_logger(task_id, f"{__name__}.update_config")
             if next_status and next_status != old_status:
@@ -632,44 +650,40 @@ class TaskCreationMixin:
             return {
                 "status": "success",
                 "message": "任务更新成功",
-                "task": task.to_dict(),
+                "task": task,
             }
         except Exception as exc:
-            db.session.rollback()
+            # 远端任务更新失败不依赖本地事务回滚；保留异常供调用方处理。
             logger.error("更新任务配置失败: %s, 错误: %s", task_id, exc)
             return {"status": "error", "message": f"更新任务配置失败: {exc}"}
 
     def create_restart_task(self, original_task_id: str) -> str:
         """基于原任务创建新的重启任务。"""
         try:
-            original_task = db.session.get(Task, original_task_id)
+            original_task = _task_repository.get(original_task_id)
             if not original_task:
                 raise ValueError("原任务不存在")
 
             new_task_id = str(uuid.uuid4())
             original_config = (
-                json.loads(original_task.config)
-                if isinstance(original_task.config, str)
-                else original_task.config
+                original_task.get("config") or {}
             )
             original_config = self._normalize_task_config_for_type(
-                original_task.task_type,
+                original_task.get("task_type"),
                 original_config,
             )
 
-            new_task = Task(
-                id=new_task_id,
-                name=f"{original_task.name} (重启)",
-                description=f"{original_task.description}基于任务 {original_task_id} 重启",
-                task_type=original_task.task_type,
-                config=json.dumps(original_config),
-                status="pending",
-                created_by_user_id=original_task.created_by_user_id,
-            )
-            db.session.add(new_task)
-            db.session.commit()
+            _task_repository.save({
+                "id": new_task_id,
+                "name": f"{original_task.get('name')} (重启)",
+                "description": f"{original_task.get('description') or ''}基于任务 {original_task_id} 重启",
+                "task_type": original_task.get("task_type"),
+                "config": original_config,
+                "status": "pending",
+                "created_by_user_id": original_task.get("created_by_user_id"),
+            })
 
-            if isinstance(original_config, dict) and original_task.task_type not in ("backtest_training", "backtest_multi_product"):
+            if isinstance(original_config, dict) and original_task.get("task_type") not in ("backtest_training", "backtest_multi_product"):
                 self.ensure_google_sheet_occupancy(new_task_id, original_config)
 
             logger.info("创建重启任务: %s (基于 %s)", new_task_id, original_task_id)

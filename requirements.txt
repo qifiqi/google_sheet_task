@@ -24,4 +24,5 @@ xlsxwriter
 PyJWT>=2.0
 dingtalk-stream
 pymysql
+pytest
 

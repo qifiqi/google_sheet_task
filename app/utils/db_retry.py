@@ -28,6 +28,7 @@ class DatabaseLockError(Exception):
 
 
 def _is_transient_database_error(error: OperationalError) -> bool:
+    """判断数据库操作错误是否可能通过重试恢复。"""
     message = str(error).lower()
     return any(marker in message for marker in TRANSIENT_DATABASE_ERROR_MARKERS)
 
@@ -42,6 +43,7 @@ def _retry_operation(
     *args,
     **kwargs,
 ) -> Any:
+    """按指数退避策略执行可能出现瞬时数据库错误的操作。"""
     for attempt in range(max_attempts):
         try:
             return operation(*args, **kwargs)
@@ -84,8 +86,10 @@ def db_retry(
         jitter: 是否添加随机抖动
     """
     def decorator(func: Callable) -> Callable:
+        """为目标数据库操作生成可重试的包装函数。"""
         @wraps(func)
         def wrapper(*args, **kwargs) -> Any:
+            """在瞬时数据库异常发生时按策略重试目标函数。"""
             return _retry_operation(
                 func,
                 max_attempts,
@@ -144,6 +148,7 @@ class DatabaseRetryManager:
         max_delay: float = 2.0,
         exponential_base: float = 2.0
     ):
+        """保存数据库重试器的最大次数和退避配置。"""
         self.max_attempts = max_attempts
         self.base_delay = base_delay
         self.max_delay = max_delay
@@ -163,6 +168,7 @@ class DatabaseRetryManager:
     def commit_with_retry(self, session):
         """带重试的提交操作"""
         def commit_operation():
+            """提交当前会话，供统一重试逻辑调用。"""
             session.commit()
         
         return self.execute_with_retry(commit_operation)
@@ -170,6 +176,7 @@ class DatabaseRetryManager:
     def flush_with_retry(self, session):
         """带重试的刷新操作"""
         def flush_operation():
+            """刷新当前会话，供统一重试逻辑调用。"""
             session.flush()
         
         return self.execute_with_retry(flush_operation)

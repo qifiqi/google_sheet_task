@@ -8,6 +8,7 @@ from flask import Blueprint, g, jsonify, request, send_file
 
 from app.extensions import db
 from app.models import Task
+from app.repositories.task_repository import TaskRepository
 from app.services.export_file_service import (
     EXCEL_MIMETYPE,
     BatchExportFile,
@@ -31,6 +32,7 @@ logger = get_logger(__name__)
 
 task_api_bp = Blueprint('task_api', __name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
+_task_repository = TaskRepository()
 
 TASK_ACTION_LABELS = {
     "view": "查看",
@@ -42,6 +44,7 @@ TASK_ACTION_LABELS = {
 
 
 def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None):
+    """构造任务权限不足时的统一接口响应。"""
     action_label = TASK_ACTION_LABELS.get(action, action)
     normalized_type = decision.get("task_type") or str(task_type or "全部")
     missing_permissions = decision.get("missing_permissions") or []
@@ -60,7 +63,8 @@ def _task_permission_denied(action: str, task_type: str | None, decision: dict, 
 
 
 def _get_task_or_404(task_id: str):
-    task = db.session.get(Task, task_id)
+    """按 ID 读取任务，不存在时返回标准 404 错误响应。"""
+    task = _task_repository.get(task_id)
     if not task:
         return None, jsonify({"status": "error", "message": "任务不存在"}), 404
     return task, None, None
@@ -88,6 +92,7 @@ def tasks():
                 base_view_decision = authorize_task_type_action(current_user, "view", None)
                 if not base_view_decision["allowed"]:
                     return _task_permission_denied("view", "全部", base_view_decision)
+                # TODO: 可见任务类型依赖 ParamTasks/Query 的服务端 distinct 查询。
                 distinct_task_types = [item[0] for item in Task.query.with_entities(Task.task_type).distinct().all()]
                 allowed_task_types = filter_task_types_by_action(current_user, "view", distinct_task_types)
 

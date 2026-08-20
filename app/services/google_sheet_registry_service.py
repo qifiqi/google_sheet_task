@@ -2,46 +2,40 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import or_
-
-from app.extensions import db
-from app.models import GoogleSheet, GoogleSheetTableType, google_sheet_registry_scope
-
-
-def _find_duplicate_sheet(spreadsheet_id: str, table_type: str, exclude_id: int | None = None):
-    query = GoogleSheet.query.filter_by(
-        spreadsheet_id=spreadsheet_id,
-        registry_scope=google_sheet_registry_scope(table_type),
-    )
-    if exclude_id is not None:
-        query = query.filter(GoogleSheet.id != exclude_id)
-    return query.first()
-
+from app.models import GoogleSheetTableType, google_sheet_registry_scope
+from app.repositories.google_sheet_repository import GoogleSheetRepository
 
 class GoogleSheetRegistryService:
+    def __init__(self, repository: GoogleSheetRepository | None = None):
+        """注入 Sheet 注册表仓储；运行占用事实由任务锁维护。"""
+        self.repository = repository or GoogleSheetRepository()
+
     def list_sheets(self, include_inactive: bool = False, only_available: bool = False, task_id: str | None = None,
                     table_type: str | None = None):
-        query = GoogleSheet.query
+        """读取远程注册表并按页面已有条件筛选展示结果。"""
+        sheets = self.repository.list_page(
+            page_size=1000,
+        )["items"]
         normalized_table_type = GoogleSheetTableType.normalize(table_type)
-        if normalized_table_type:
-            query = query.filter_by(table_type=normalized_table_type)
-        if not include_inactive:
-            query = query.filter_by(is_active=True)
-        if only_available:
-            query = query.filter(
-                or_(
-                    GoogleSheet.is_in_use.is_(False),
-                    GoogleSheet.current_task_id == task_id if task_id else False,
-                )
+        return [
+            sheet
+            for sheet in sheets
+            if (not normalized_table_type or sheet.get("table_type") == normalized_table_type)
+            and (include_inactive or sheet.get("is_active"))
+            and (
+                not only_available
+                or not sheet.get("is_in_use")
+                or (task_id and sheet.get("current_task_id") == task_id)
             )
-        return [sheet.to_dict() for sheet in query.order_by(GoogleSheet.name.asc(), GoogleSheet.id.asc()).all()]
+        ]
 
     def get_sheet(self, sheet_id: int) -> Optional[dict]:
-        sheet = GoogleSheet.query.get(int(sheet_id))
-        return sheet.to_dict() if sheet else None
+        """通过远程 CRUD 按主键读取一个 Sheet 注册记录。"""
+        return self.repository.get(sheet_id)
 
     def create_sheet(self, spreadsheet_id: str, name: str | None = None, remark: str | None = None,
                      is_active: bool = True, table_type: str | None = None):
+        """校验同类表唯一性后，调用远程 CRUD 创建注册记录。"""
         spreadsheet_id = (spreadsheet_id or '').strip()
         if not spreadsheet_id:
             raise ValueError("spreadsheet_id 不能为空")
@@ -50,103 +44,102 @@ class GoogleSheetRegistryService:
         if not normalized_table_type:
             raise ValueError("table_type 无效")
 
-        existing = _find_duplicate_sheet(spreadsheet_id, normalized_table_type)
+        # 服务端尚无复合条件去重接口，暂在单页注册表数据中完成兼容校验。
+        existing = next(
+            (
+                sheet
+                for sheet in self.repository.list_page(page_size=1000)["items"]
+                if sheet.get("spreadsheet_id") == spreadsheet_id
+                and sheet.get("registry_scope") == google_sheet_registry_scope(normalized_table_type)
+            ),
+            None,
+        )
         if existing:
             raise ValueError("该 spreadsheet_id 已存在于同类表类型中")
 
-        sheet = GoogleSheet(
-            spreadsheet_id=spreadsheet_id,
-            name=(name or spreadsheet_id).strip(),
-            table_type=normalized_table_type,
-            remark=(remark or '').strip() or None,
-            is_active=bool(is_active),
-        )
-        db.session.add(sheet)
-        db.session.commit()
-        return sheet.to_dict()
+        return self.repository.save({
+            "spreadsheet_id": spreadsheet_id,
+            "name": (name or spreadsheet_id).strip(),
+            "table_type": normalized_table_type,
+            "registry_scope": google_sheet_registry_scope(normalized_table_type),
+            "remark": (remark or '').strip() or None,
+            "is_active": bool(is_active),
+        })
 
     def update_sheet(self, sheet_id: int, **payload):
-        sheet = GoogleSheet.query.get(int(sheet_id))
+        """更新远程注册表记录，并校验同类表内的 spreadsheet_id 唯一性。"""
+        sheet = self.repository.get(sheet_id)
         if not sheet:
             raise ValueError("Google Sheet 不存在")
 
-        spreadsheet_id = sheet.spreadsheet_id
+        spreadsheet_id = sheet["spreadsheet_id"]
         if 'spreadsheet_id' in payload:
             spreadsheet_id = (payload.get('spreadsheet_id') or '').strip()
             if not spreadsheet_id:
                 raise ValueError("spreadsheet_id 不能为空")
 
-        table_type = sheet.table_type
+        table_type = sheet["table_type"]
         if 'table_type' in payload:
             table_type = GoogleSheetTableType.normalize(payload.get('table_type'))
             if not table_type:
                 raise ValueError("table_type 无效")
 
-        existing = _find_duplicate_sheet(spreadsheet_id, table_type, exclude_id=sheet.id)
+        # 排除当前记录后，再检查更新后的复合唯一性约束。
+        existing = next(
+            (
+                item
+                for item in self.repository.list_page(page_size=1000)["items"]
+                if item.get("spreadsheet_id") == spreadsheet_id
+                and item.get("registry_scope") == google_sheet_registry_scope(table_type)
+                and item.get("id") != sheet_id
+            ),
+            None,
+        )
         if existing:
             raise ValueError("该 spreadsheet_id 已存在于同类表类型中")
 
-        sheet.spreadsheet_id = spreadsheet_id
-        sheet.table_type = table_type
-
+        updated = dict(sheet)
+        updated.update({
+            "spreadsheet_id": spreadsheet_id,
+            "table_type": table_type,
+            "registry_scope": google_sheet_registry_scope(table_type),
+        })
         if 'name' in payload:
-            sheet.name = (payload.get('name') or '').strip() or sheet.spreadsheet_id
+            updated["name"] = (payload.get('name') or '').strip() or spreadsheet_id
         if 'remark' in payload:
-            sheet.remark = (payload.get('remark') or '').strip() or None
+            updated["remark"] = (payload.get('remark') or '').strip() or None
         if 'is_active' in payload:
-            sheet.is_active = bool(payload.get('is_active'))
-
-        db.session.commit()
-        return sheet.to_dict()
+            updated["is_active"] = bool(payload.get('is_active'))
+        return self.repository.save(updated)
 
     def delete_sheet(self, sheet_id: int):
-        sheet = GoogleSheet.query.get(int(sheet_id))
+        """删除未被任务占用的远程注册表记录。"""
+        sheet = self.repository.get(sheet_id)
         if not sheet:
             raise ValueError("Google Sheet 不存在")
-        if sheet.is_in_use:
+        if sheet.get("is_in_use"):
             raise ValueError("该 Google Sheet 正在被任务使用，无法删除")
 
-        db.session.delete(sheet)
-        db.session.commit()
+        self.repository.delete(sheet_id)
 
     def acquire_for_task(self, sheet_id: int, task_id: str):
-        sheet = GoogleSheet.query.get(int(sheet_id))
+        """兼容旧入口：仅校验 Sheet；互斥由 BacktestSheetRunLock 负责。"""
+        sheet = self.repository.get(int(sheet_id))
         if not sheet:
             raise ValueError("所选 Google Sheet 不存在")
-        if not sheet.is_active:
+        if not sheet.get("is_active"):
             raise ValueError("所选 Google Sheet 未启用")
-        if sheet.current_task_id == task_id:
-            if not sheet.is_in_use:
-                sheet.is_in_use = True
-                db.session.commit()
-            return sheet.to_dict()
-        if sheet.is_in_use and sheet.current_task_id and sheet.current_task_id != task_id:
-            raise ValueError("该 Google Sheet 已被其他任务使用")
-
-        sheet.is_in_use = True
-        sheet.current_task_id = task_id
-        db.session.commit()
-        db.session.refresh(sheet)
-        if not sheet.is_in_use or sheet.current_task_id != task_id:
-            raise ValueError("Google Sheet 占用失败，请重试")
-        return sheet.to_dict()
+        # is_in_use/current_task_id 只是页面派生展示，不能作为并发互斥事实。
+        return sheet
 
     def release_for_task(self, task_id: str):
-        if not task_id:
-            return False
-        updated = GoogleSheet.query.filter_by(current_task_id=task_id).update(
-            {
-                'is_in_use': False,
-                'current_task_id': None,
-            },
-            synchronize_session=False
-        )
-        db.session.commit()
-        return updated > 0
+        """兼容旧入口；实际释放由任务运行锁在收尾阶段完成。"""
+        return False
 
 
 google_sheet_registry_service = GoogleSheetRegistryService()
 
 
 def get_google_sheet_registry_service() -> GoogleSheetRegistryService:
+    """返回共享的 Sheet 注册表服务实例。"""
     return google_sheet_registry_service

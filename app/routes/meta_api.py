@@ -1,13 +1,15 @@
 """元数据 API — 为前端提供版本、枚举、导航等静态配置"""
-from flask import Blueprint
+from flask import Blueprint, current_app, g
+from werkzeug.exceptions import NotFound
 from app.models import (
     GoogleSheetTableType,
     GoogleSheetTokenTaskType,
-    NavigationMenuItem,
     TaskStatus,
     TaskType,
 )
-from app.navigation import build_navigation_tree
+from app.repositories.sys_model_repository import SysModelRepository
+from app.repositories.sdk_client import SdkDataAccessError, SdkOperationError
+from app.services.menu_service import MenuService
 from app.utils.api_response import success
 from app.utils.auth import login_required
 
@@ -44,55 +46,37 @@ def get_enums():
 @meta_api_bp.route('/meta/nav', methods=['GET'])
 @login_required
 def get_nav():
-    """返回当前用户有权访问的导航菜单，从独立导航菜单表读取并按权限过滤"""
-    from flask import g
+    """返回本服务代理的远程 sys_model 菜单。"""
+    return _menu_response()
 
-    user_perms = g.current_user.get_permissions()
-    rows = (
-        NavigationMenuItem.query
-        .filter_by(is_visible=True)
-        .order_by(NavigationMenuItem.sort_order.asc(), NavigationMenuItem.id.asc())
-        .all()
+
+@meta_api_bp.route('/navigation/menu', methods=['GET'])
+@login_required
+def get_navigation_menu():
+    """为前端提供稳定菜单接口；该接口不直接调用远程服务。"""
+    return _menu_response()
+
+
+def _menu_response():
+    """构造当前用户可访问的远程菜单响应。"""
+    try:
+        return success(data={"items": _get_remote_menu()})
+    except (SdkDataAccessError, SdkOperationError):
+        return {"code": 503, "data": None, "message": "远程菜单服务暂不可用"}, 503
+
+
+def _get_remote_menu():
+    """读取远程模型菜单，并用本地路由判断其可用性。"""
+    user_id = getattr(getattr(g, "current_user", None), "id", "anonymous")
+    def is_local_route(link: str) -> bool:
+        """判断远程菜单链接是否对应当前应用的可访问 GET 路由。"""
+        path = link.split("?", 1)[0]
+        try:
+            current_app.url_map.bind("").match(path, method="GET")
+            return True
+        except NotFound:
+            return False
+
+    return MenuService(SysModelRepository()).get_menu(
+        cache_key=str(user_id), is_available=is_local_route,
     )
-    rows = sorted(rows, key=lambda item: (item.parent_key or "", item.sort_order, item.id))
-    all_nav = build_navigation_tree(rows)
-
-    def has_nav_permission(required_permission, _item):
-        if not required_permission:
-            return True
-        if required_permission in user_perms:
-            return True
-
-        if required_permission.endswith(':view'):
-            manage_permission = f"{required_permission.split(':', 1)[0]}:manage"
-            if manage_permission in user_perms:
-                return True
-
-        return False
-
-    def filter_nav(items):
-        result = []
-        for item in items:
-            perm = item.get('permission')
-            if perm and not has_nav_permission(perm, item):
-                continue
-            if 'children' in item:
-                children = filter_nav(item['children'])
-                if children:
-                    result.append({**item, 'children': children})
-            else:
-                result.append(item)
-        return result
-
-    page_permissions = [
-        {
-            "path": item.path,
-            "permission": item.permission,
-        }
-        for item in rows
-        if item.path and (item.permission or "").startswith("page:")
-    ]
-    return success(data={
-        "items": filter_nav(all_nav),
-        "page_permissions": page_permissions,
-    })

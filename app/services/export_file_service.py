@@ -236,9 +236,11 @@ class TaskResultExporter(Protocol):
     key: str
 
     def supports(self, task: Any) -> bool:
+        """判断导出器是否支持指定任务类型。"""
         ...
 
     def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
+        """将任务结果构建为可下载的导出文件。"""
         ...
 
 
@@ -270,9 +272,11 @@ class C7TaskResultExporter:
     key = "google_sheet_C7"
 
     def supports(self, task: Any) -> bool:
+        """判断任务是否为 C7 类型。"""
         return _task_type(task) == "google_sheet_c7"
 
     def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
+        """构建按 K 线区间拆分工作表的 C7 导出文件。"""
         worksheets = build_c5_worksheets(normalize_c7_export_results(results))
         return GeneratedExport(
             filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
@@ -287,9 +291,11 @@ class C5TaskResultExporter:
     key = "google_sheet_C5"
 
     def supports(self, task: Any) -> bool:
+        """判断任务是否为 C5 类型。"""
         return _task_type(task) == "google_sheet_c5"
 
     def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
+        """构建按 K 线区间拆分工作表的 C5 导出文件。"""
         worksheets = build_c5_worksheets(results)
         return GeneratedExport(
             filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
@@ -304,9 +310,11 @@ class GenericTaskResultExporter:
     key = "generic"
 
     def supports(self, task: Any) -> bool:
+        """作为兜底导出器，接受任意任务类型。"""
         return True
 
     def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
+        """将原始任务结果构建为通用工作表导出文件。"""
         header = [
             "id",
             "task_id",
@@ -390,6 +398,7 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
 
 
 def get_task_result_exporter(task: Any) -> TaskResultExporter:
+    """按任务类型选择对应的结果文件导出器。"""
     for exporter in EXPORTERS:
         if exporter.supports(task):
             return exporter
@@ -443,6 +452,7 @@ def build_c5_groups(results: list[dict[str, Any]]) -> list[C5ResultGroup]:
 
 
 def build_c5_model(model_key: Any, metrics: Any) -> dict[str, Any]:
+    """将 C5 模型指标归一为导出行使用的结构。"""
     raw_metrics = metrics if isinstance(metrics, dict) else {}
     key_text = str(model_key)
     key_parts = key_text.split("__")
@@ -476,6 +486,7 @@ def build_c5_model(model_key: Any, metrics: Any) -> dict[str, Any]:
 
 
 def c5_empty_model_row(group: C5ResultGroup) -> list[Any]:
+    """为没有模型结果的 C5 分组生成占位导出行。"""
     return [
         group.xm if group.xm is not None else "",
         group.ml if group.ml is not None else "",
@@ -484,6 +495,7 @@ def c5_empty_model_row(group: C5ResultGroup) -> list[Any]:
 
 
 def c5_model_row(group: C5ResultGroup, model: dict[str, Any]) -> list[Any]:
+    """将一个 C5 模型及其指标转换为工作表行。"""
     metrics = model["metrics"]
     start_xpl = model["start_xpl"]
     index_xpl = model["index_xpl"]
@@ -553,6 +565,7 @@ def normalize_c7_export_results(results: list[dict[str, Any]]) -> list[dict[str,
 
 
 def normalize_c7_model_metrics(metrics: Any) -> Any:
+    """将 C7 指标字段适配为与 C5 兼容的导出结构。"""
     if not isinstance(metrics, dict):
         return metrics
 
@@ -578,6 +591,7 @@ def normalize_c7_model_metrics(metrics: Any) -> Any:
 
 
 def metric_sort_key(key: str) -> tuple[bool, str, int]:
+    """生成指标字段的自然排序键。"""
     match = re.match(r"^([A-Za-z_]+)(\d+)?$", str(key))
     if not match:
         return True, str(key), 0
@@ -587,6 +601,7 @@ def metric_sort_key(key: str) -> tuple[bool, str, int]:
 
 
 def metric_label(key: str) -> str:
+    """返回指标字段的中文显示名称。"""
     return METRIC_DISPLAY_NAME_MAP.get(str(key), str(key))
 
 
@@ -594,6 +609,7 @@ def sort_c5_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]:
     """按股票和 K 线区间稳定排列，sheet 内排序在分组后单独处理。"""
 
     def compare(left: C5ExportRecord, right: C5ExportRecord) -> int:
+        """比较 C5 记录的跨工作表排序优先级。"""
         comparisons = [
             compare_desc(left.group.stock_code, right.group.stock_code),
             compare_desc(parse_range_end(left.group.kline_range), parse_range_end(right.group.kline_range)),
@@ -620,6 +636,7 @@ def build_c5_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
 
 
 def group_c5_records_by_kline_range(records: list[C5ExportRecord]) -> "OrderedDict[str, list[list[Any]]]":
+    """按 K 线区间分组 C5 导出记录并生成工作表数据。"""
     grouped_records = OrderedDict()
     for record in records:
         key = str(record.group.kline_range or "无K线区间")
@@ -636,6 +653,7 @@ def sort_c5_sheet_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]
     return_beats_col = C5_EXPORT_COLUMNS.index("ReturnBeats")
 
     def compare(left: C5ExportRecord, right: C5ExportRecord) -> int:
+        """比较同一 C5 工作表内记录的展示顺序。"""
         comparisons = [
             compare_asc(is_non_empty_xm(left.group.xm), is_non_empty_xm(right.group.xm)),
             compare_desc(parse_percent(left.row[return_beats_col]), parse_percent(right.row[return_beats_col])),
@@ -756,6 +774,7 @@ def style_table_sheet(sheet: Any) -> None:
 
 
 def column_width(sheet: Any, column_index: int) -> int:
+    """计算导出工作表指定列的合适宽度。"""
     header = str(sheet.cell(row=1, column=column_index).value or "")
     if header in C5_COLUMN_WIDTHS:
         return C5_COLUMN_WIDTHS[header]
@@ -770,6 +789,7 @@ def column_width(sheet: Any, column_index: int) -> int:
 
 
 def display_width(value: Any) -> int:
+    """按中文双宽字符规则估算单元格文本展示宽度。"""
     text = str(value or "")
     width = 0
     for char in text:
@@ -794,6 +814,7 @@ def excel_cell(value: Any, column_name: str = "") -> Any:
 
 
 def apply_number_format(cell: Any, column_name: Any) -> None:
+    """根据导出列语义设置 Excel 单元格数字格式。"""
     if cell.row == 1:
         return
     column_text = str(column_name or "")
@@ -808,6 +829,7 @@ def apply_number_format(cell: Any, column_name: Any) -> None:
 
 
 def parse_percent_cell(value: str) -> float | None:
+    """解析带百分号或普通文本形式的百分比单元格。"""
     text = value.strip()
     if not text:
         return None
@@ -818,6 +840,7 @@ def parse_percent_cell(value: str) -> float | None:
 
 
 def parse_numeric_cell(value: str) -> float | int | None:
+    """解析普通文本单元格中的数值。"""
     text = value.strip()
     if not text:
         return None
@@ -833,6 +856,7 @@ def parse_numeric_cell(value: str) -> float | int | None:
 
 
 def json_cell(value: Any) -> str:
+    """将复杂值序列化为适合导出单元格的 JSON 文本。"""
     if value in (None, ""):
         return ""
     if isinstance(value, str):
@@ -841,6 +865,7 @@ def json_cell(value: Any) -> str:
 
 
 def format_time(value: Any) -> str:
+    """格式化导出数据中的时间字段。"""
     if not value:
         return ""
     try:
@@ -856,6 +881,7 @@ def format_time(value: Any) -> str:
 
 
 def sanitize_export_filename(name: Any, fallback: str = "task_export") -> str:
+    """移除文件名非法字符，并在为空时使用备用名称。"""
     safe_name = "".join(char if char not in '\\/:*?"<>|' else "_" for char in str(name or "")).strip()
     return safe_name or fallback
 
@@ -875,6 +901,7 @@ def unique_sheet_name(label: Any, fallback: str, used_names: set[str]) -> str:
 
 
 def sanitize_sheet_name(label: Any, fallback: str) -> str:
+    """移除 Excel 工作表名称非法字符并限制长度。"""
     name = str(label or "").strip() or fallback
     name = re.sub(r"[\[\]:*?/\\]", "_", name)
     name = re.sub(r"\s+", " ", name).strip("' ")
@@ -882,16 +909,19 @@ def sanitize_sheet_name(label: Any, fallback: str) -> str:
 
 
 def parse_range_end(value: Any) -> float:
+    """解析区间文本的结束时间戳，缺失时置为最小值。"""
     parts = str(value or "").split("~")
     return parse_datetime_timestamp(parts[1].strip()) if len(parts) >= 2 else float("-inf")
 
 
 def parse_range_start(value: Any) -> float:
+    """解析区间文本的开始时间戳，缺失时置为最小值。"""
     parts = str(value or "").split("~")
     return parse_datetime_timestamp(parts[0].strip()) if parts else float("-inf")
 
 
 def parse_datetime_timestamp(value: str) -> float:
+    """将 ISO 时间文本解析为用于排序的时间戳。"""
     try:
         return datetime.fromisoformat(value).timestamp()
     except (TypeError, ValueError):
@@ -899,20 +929,24 @@ def parse_datetime_timestamp(value: str) -> float:
 
 
 def parse_percent(value: Any) -> float:
+    """解析百分比数值，无法解析时返回最小排序值。"""
     number = parse_numeric_cell(str(value).replace("%", ""))
     return number if number is not None else float("-inf")
 
 
 def normalize_xm(value: Any) -> str:
+    """规范化 XM 字段，空值和零值统一为空文本。"""
     text = str(value or "").strip()
     return "" if not text or text == "0" else text
 
 
 def is_non_empty_xm(value: Any) -> bool:
+    """判断 XM 字段在导出排序中是否有效。"""
     return bool(normalize_xm(value))
 
 
 def compare_desc(left: Any, right: Any) -> int:
+    """按降序比较两个可排序值。"""
     if left == right:
         return 0
     return -1 if left > right else 1
@@ -929,12 +963,14 @@ def _safe_float(value: Any) -> float:
 
 
 def compare_asc(left: Any, right: Any) -> int:
+    """按升序比较两个可排序值。"""
     if left == right:
         return 0
     return -1 if left < right else 1
 
 
 def _task_type(task: Any) -> str:
+    """从任务对象安全读取并小写化任务类型。"""
     return str(getattr(task, "task_type", "") or "").lower()
 
 
@@ -973,10 +1009,12 @@ class C3TaskResultExporter:
     key = "google_sheet"
 
     def supports(self, task: Any) -> bool:
+        """判断任务是否为 C3 或兼容的 google_sheet 类型。"""
         tt = _task_type(task)
         return tt in ("google_sheet", "google_sheet_c3")
 
     def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
+        """构建按 K 线区间拆分工作表的 C3 导出文件。"""
         worksheets = build_c3_worksheets(results)
         return GeneratedExport(
             filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
@@ -986,6 +1024,7 @@ class C3TaskResultExporter:
 
 
 def build_c3_groups(results: list[dict[str, Any]]) -> list[C3ResultGroup]:
+    """将 C3 任务结果归并为按参数组合分组的导出结构。"""
     groups = []
     for item in results:
         params = item.get("parameters")
@@ -1033,6 +1072,7 @@ def build_c3_groups(results: list[dict[str, Any]]) -> list[C3ResultGroup]:
 
 
 def build_c3_records(results: list[dict[str, Any]]) -> list[C3ExportRecord]:
+    """将 C3 分组结果展开为模型级导出记录。"""
     records = []
     for group in build_c3_groups(results):
         records.append(C3ExportRecord(group=group, row=c3_result_row(group)))
@@ -1070,6 +1110,7 @@ def _safe_multiply_100(value: Any) -> Any:
 
 
 def c3_result_row(group: C3ResultGroup) -> list[Any]:
+    """将一组 C3 结果转换为工作表行。"""
     r = group.result
 
     # ── 参数列（从单元格引用读取，与 _build_stock_param_result_payload 一致）──
@@ -1162,6 +1203,7 @@ def sort_c3_records(records: list[C3ExportRecord]) -> list[C3ExportRecord]:
         )
 
     def compare(left: C3ExportRecord, right: C3ExportRecord) -> int:
+        """比较 C3 记录的预计算排序键。"""
         lk = sort_keys[id(left)]
         rk = sort_keys[id(right)]
         comparisons = [
@@ -1182,6 +1224,7 @@ def c3_display_header(columns: list[str]) -> list[str]:
 
 
 def build_c3_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
+    """构建 C3 结果导出所需的全部工作表数据。"""
     records = build_c3_records(results)
     display_header = c3_display_header(C3_EXPORT_COLUMNS)
     if not records:
@@ -1199,6 +1242,7 @@ def build_c3_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
 
 
 def _task_name(task: Any) -> str:
+    """从任务对象读取导出文件使用的名称，缺失时回退任务 ID。"""
     return str(getattr(task, "name", None) or getattr(task, "id", None) or "task_export")
 
 

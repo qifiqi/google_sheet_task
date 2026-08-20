@@ -15,6 +15,7 @@ class TaskDashboardQueryService:
     """集中处理管理后台任务仪表盘聚合查询。"""
 
     def get_allowed_task_types(self, user, action: str = "view") -> list[str]:
+        """从已存在的任务类型中筛出当前用户有权限执行操作的类型。"""
         distinct_task_types = [
             item[0]
             for item in Task.query.with_entities(Task.task_type).distinct().all()
@@ -23,6 +24,7 @@ class TaskDashboardQueryService:
         return filter_task_types_by_action(user, action, distinct_task_types)
 
     def build_empty_overview(self, now: datetime, days: int = 7) -> dict:
+        """生成无可见任务时仍满足前端结构要求的仪表盘数据。"""
         daily_trend = self._build_empty_daily_trend(now, days=days)
         return {
             "success": True,
@@ -47,6 +49,7 @@ class TaskDashboardQueryService:
         allowed_task_types: Iterable[str],
         limit: int = 10,
     ) -> list[Task]:
+        """按创建时间倒序读取当前用户可见的最近任务。"""
         return (
             Task.query.filter(Task.task_type.in_(list(allowed_task_types)))
             .order_by(Task.created_at.desc())
@@ -59,6 +62,7 @@ class TaskDashboardQueryService:
         allowed_task_types: Iterable[str],
         limit: int = 6,
     ) -> list[Task]:
+        """读取当前用户可见且数据库状态为运行中的任务。"""
         return (
             Task.query.filter(
                 Task.task_type.in_(list(allowed_task_types)),
@@ -70,6 +74,7 @@ class TaskDashboardQueryService:
         )
 
     def get_status_distribution(self, allowed_task_types: Iterable[str]) -> dict[str, int]:
+        """在数据库中聚合各任务状态的数量。"""
         rows = (
             Task.query.with_entities(Task.status, func.count(Task.id))
             .filter(Task.task_type.in_(list(allowed_task_types)))
@@ -82,6 +87,7 @@ class TaskDashboardQueryService:
         self,
         allowed_task_types: Iterable[str],
     ) -> dict[str, int]:
+        """在数据库中聚合各任务类型的数量。"""
         rows = (
             Task.query.with_entities(Task.task_type, func.count(Task.id))
             .filter(Task.task_type.in_(list(allowed_task_types)))
@@ -91,6 +97,7 @@ class TaskDashboardQueryService:
         return {task_type: count for task_type, count in rows if task_type}
 
     def get_summary(self, allowed_task_types: Iterable[str]) -> dict[str, int]:
+        """将状态分布转换为仪表盘使用的固定汇总字段。"""
         status_distribution = self.get_status_distribution(allowed_task_types)
         return {
             "total_tasks": sum(status_distribution.values()),
@@ -107,6 +114,7 @@ class TaskDashboardQueryService:
         now: datetime | None = None,
         days: int = 7,
     ) -> list[dict[str, int | str]]:
+        """统计指定日期窗口内每天创建和完成任务的数量。"""
         reference_time = now or datetime.now()
         trend_map = self._build_empty_daily_map(reference_time, days=days)
         start_time = (reference_time - timedelta(days=days - 1)).replace(
@@ -168,6 +176,7 @@ class TaskDashboardQueryService:
         now: datetime,
         days: int = 7,
     ) -> list[dict[str, int | str]]:
+        """将空的每日统计映射转换为前端趋势数组。"""
         return [
             {
                 "date": date_key,
@@ -182,6 +191,7 @@ class TaskDashboardQueryService:
         now: datetime,
         days: int = 7,
     ) -> dict[str, dict[str, int]]:
+        """为指定天数预先建立创建数和完成数均为零的日期映射。"""
         day_range = [
             (now - timedelta(days=offset)).date()
             for offset in range(days - 1, -1, -1)
@@ -192,6 +202,7 @@ class TaskDashboardQueryService:
         }
 
     def _normalize_date_key(self, raw_date) -> str:
+        """将数据库日期对象统一转换为趋势图使用的 ISO 日期键。"""
         if hasattr(raw_date, "isoformat"):
             return raw_date.isoformat()
         return str(raw_date)

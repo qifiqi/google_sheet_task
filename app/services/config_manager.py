@@ -1,6 +1,6 @@
 import json
 from typing import Dict, Any, Optional
-from app.models import SystemConfig, db
+from app.repositories.config_repository import SystemConfigRepository
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -8,16 +8,21 @@ logger = get_logger(__name__)
 class ConfigManager:
     """配置管理器"""
     
-    def __init__(self):
+    def __init__(self, repository: SystemConfigRepository | None = None):
+        """初始化远程配置仓储及本地缓存；``_records`` 保留远端主键供更新/删除。"""
         self._cache = {}
+        self._records = {}
         self._app = None
+        self._repository = repository or SystemConfigRepository()
         # 延迟加载配置，避免在应用上下文外初始化
         # self._load_configs()
 
     def init_app(self, app):
+        """绑定 Flask 应用实例，使配置读取可使用应用上下文。"""
         self._app = app
 
     def _get_app_context(self):
+        """获取可用的 Flask 应用上下文，供配置读取时访问缓存。"""
         try:
             from flask import has_app_context, current_app
             if has_app_context():
@@ -39,17 +44,23 @@ class ConfigManager:
                 return
 
             with ctx:
-                configs = SystemConfig.query.all()
-                for config in configs:
+                # 远端数据先进入缓存，同时保留原始记录中的 id 等写回所需字段。
+                records = self._repository.list_all()
+                self._cache = {}
+                self._records = {}
+                for config in records:
                     # 尝试反序列化JSON字符串
-                    value = config.value
+                    value = config.get("value")
                     if isinstance(value, str) and value.startswith(('{', '[')):
                         try:
                             value = json.loads(value)
                         except (json.JSONDecodeError, TypeError):
                             pass  # 保持原始字符串
-                    self._cache[config.key] = value
-                logger.debug(f"加载了 {len(configs)} 个配置项")
+                    key = config.get("key")
+                    if key:
+                        self._cache[key] = value
+                        self._records[key] = config
+                logger.debug(f"加载了 {len(records)} 个配置项")
         except Exception as e:
             logger.error(f"加载配置失败: {str(e)}")
     
@@ -68,16 +79,17 @@ class ConfigManager:
                     return default
 
                 with ctx:
-                    config = SystemConfig.query.filter_by(key=key).first()
+                    config = self._repository.get_by_key(key)
                     if config:
                         # 尝试反序列化JSON字符串
-                        value = config.value
+                        value = config.get("value")
                         if isinstance(value, str) and value.startswith(('{', '[')):
                             try:
                                 value = json.loads(value)
                             except (json.JSONDecodeError, TypeError):
                                 pass  # 保持原始字符串
                         self._cache[key] = value
+                        self._records[key] = config
                         return value
             except Exception as e:
                 logger.error(f"从数据库加载配置失败: {key}, 错误: {str(e)}")
@@ -106,23 +118,21 @@ class ConfigManager:
                     value_str = str(value)
                 
                 # 查找或创建配置项
-                config = SystemConfig.query.filter_by(key=key).first()
-                if config:
-                    config.value = value_str
-                    if description:
-                        config.description = description
-                else:
-                    config = SystemConfig(
-                        key=key,
-                        value=value_str,
-                        description=description
-                    )
-                    db.session.add(config)
-                
-                db.session.commit()
+                # 优先使用缓存记录，缺失时再按配置键查询远端。
+                config = self._records.get(key) or self._repository.get_by_key(key)
+                payload = {
+                    "key": key,
+                    "value": value_str,
+                    "description": description if description is not None else (config or {}).get("description"),
+                }
+                if config and config.get("id") is not None:
+                    payload["id"] = config["id"]
+                # 通过 SDK 的 modify_or_add 统一处理新增和更新。
+                saved = self._repository.save(payload)
                 
                 # 更新缓存
                 self._cache[key] = value
+                self._records[key] = saved
                 
                 logger.info(f"设置配置: {key} = {value}")
                 return True
@@ -140,14 +150,15 @@ class ConfigManager:
                 return False
 
             with ctx:
-                config = SystemConfig.query.filter_by(key=key).first()
+                # 删除需要远端主键，故从缓存或远端记录中取完整对象。
+                config = self._records.get(key) or self._repository.get_by_key(key)
                 if config:
-                    db.session.delete(config)
-                    db.session.commit()
+                    self._repository.delete(int(config["id"]))
                     
                     # 从缓存中删除
                     if key in self._cache:
                         del self._cache[key]
+                    self._records.pop(key, None)
                     
                     logger.info(f"删除配置: {key}")
                     return True

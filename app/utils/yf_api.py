@@ -17,10 +17,12 @@ class YFApi:
     """
 
     def __init__(self):
+        """初始化 Yahoo 行情缓存容器和模块专用日志器。"""
         self.kline_data = []
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def get_kline_data(self, stock_code='BTC', period='max', interval='1d', proxy=None, adjust_type=None):
+        """通过 Yahoo Finance 获取股票或指数 K 线数据。"""
         # 先获取原始 OHLC + Adj Close，再在本地按统一口径处理前/后复权。
         data = yf.download(
             stock_code,
@@ -34,6 +36,7 @@ class YFApi:
         return data
 
     def _adjust_ticker_frame(self, ticker_data, adjust_type=None):
+        """按统一复权口径调整单个 Yahoo OHLC 数据框。"""
         normalized_adjust_type = normalize_kline_adjustment(adjust_type)
         if not isinstance(ticker_data, pd.DataFrame) or ticker_data.empty:
             return ticker_data
@@ -78,6 +81,7 @@ class YFApi:
         return adjusted
 
     def _normalize_ticker_hint(self, ticker_hint):
+        """将单股票提示规范化为代码文本，多代码提示不强行猜测。"""
         if isinstance(ticker_hint, (list, tuple, set)):
             values = [str(item) for item in ticker_hint if item is not None]
             return values[0] if len(values) == 1 else None

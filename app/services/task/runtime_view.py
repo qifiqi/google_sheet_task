@@ -6,15 +6,20 @@ import json
 from datetime import datetime
 from typing import Any
 
-from app.extensions import db
-import json
-
 from app.models import Task, TaskLog, TaskResult, TaskResultReturn
+from app.repositories.task_repository import TaskRepository
+from app.repositories.task_result_repository import TaskResultRepository
+from app.repositories.task_result_return_repository import TaskResultReturnRepository
 
 from app.services.task.dashboard_query import TaskDashboardQueryService
 
+_task_repository = TaskRepository()
+_task_result_repository = TaskResultRepository()
+_task_result_return_repository = TaskResultReturnRepository()
+
 
 def _safe_json_loads(raw_value, default=None):
+    """安全解析任务配置或结果 JSON，失败时回退默认值。"""
     if default is None:
         default = {}
     if not raw_value:
@@ -28,10 +33,12 @@ def _safe_json_loads(raw_value, default=None):
 
 
 def _as_dict(value):
+    """确保后续字段读取使用字典，其他类型回退为空字典。"""
     return value if isinstance(value, dict) else {}
 
 
 def _extract_parameter_label(parameters_payload, step_index: int):
+    """从参数负载中提取适合结果图展示的组合标签。"""
     if isinstance(parameters_payload, dict):
         return (
             parameters_payload.get("stock_code")
@@ -65,10 +72,12 @@ class TaskRuntimeViewService:
     """管理后台任务运行态视图拼装服务。"""
 
     def __init__(self, task_manager):
+        """保存任务门面和仪表盘查询服务依赖。"""
         self._task_manager = task_manager
         self._dashboard_query_service = TaskDashboardQueryService()
 
     def build_config_summary(self, task: Task) -> dict[str, Any]:
+        """从任务配置中提取适合管理后台展示的参数摘要。"""
         config = _safe_json_loads(task.config, {})
         parameters = config.get("parameters") if isinstance(config, dict) else None
         parameter_groups = len(parameters) if isinstance(parameters, list) else 0
@@ -109,14 +118,15 @@ class TaskRuntimeViewService:
         }
 
     def build_stop_confirmation(self, task_id: str) -> dict[str, Any]:
+        """汇总数据库、线程和停止事件，供前端确认任务是否已停止。"""
         status_check = self._task_manager.check_local_task_status(task_id)
         thread = self._task_manager.running_tasks.get(task_id)
         stop_event = self._task_manager.task_stop_events.get(task_id)
-        task = db.session.get(Task, task_id)
+        task = _task_repository.get(task_id)
 
         thread_alive = bool(thread and thread.is_alive())
         stop_requested = bool(stop_event and stop_event.is_set())
-        db_status = task.status if task else status_check.get("db_status")
+        db_status = task.get("status") if task else status_check.get("db_status")
         stop_confirmed = (db_status != "running") and (not thread_alive)
 
         return {
@@ -126,13 +136,15 @@ class TaskRuntimeViewService:
             "memory_running": status_check.get("memory_running", thread_alive),
             "stop_requested": stop_requested,
             "stop_confirmed": stop_confirmed,
-            "current_step": task.current_step if task else None,
-            "total_steps": task.total_steps if task else None,
+            "current_step": task.get("current_step") if task else None,
+            "total_steps": task.get("total_steps") if task else None,
             "checked_at": datetime.now().isoformat(),
             "status_check": status_check,
         }
 
     def build_result_summary(self, task_id: str) -> dict[str, Any]:
+        """汇总任务结果、关键指标和最近收益序列，供运行态页面展示。"""
+        # TODO: 按 task_id 查询结果和收益序列等待对应 Query 接口，禁止 SDK 全表筛选。
         results = (
             TaskResult.query.filter_by(task_id=task_id)
             .order_by(TaskResult.step_index.asc())
@@ -170,13 +182,13 @@ class TaskRuntimeViewService:
         return_chart = []
         series_result = next((item for item in reversed(results) if item.return_series_id), None)
         series_row = (
-            db.session.get(TaskResultReturn, series_result.return_series_id)
+            _task_result_return_repository.get(series_result.return_series_id)
             if series_result and series_result.return_series_id
             else None
         )
         if series_row:
             try:
-                series = json.loads(series_row.returns_json)
+                series = _safe_json_loads(series_row.get("returns_json"), {})
                 dates = series.get("dates") or []
                 index_returns = series.get("index_returns") or []
                 start_returns = series.get("start_returns") or []
@@ -216,9 +228,11 @@ class TaskRuntimeViewService:
         }
 
     def serialize_task_runtime(self, task: Task) -> dict[str, Any]:
+        """将任务基础数据与运行态、结果摘要组装为页面响应。"""
         config_summary = self.build_config_summary(task)
         stop_confirmation = self.build_stop_confirmation(task.id)
         result_summary = self.build_result_summary(task.id)
+        # TODO: 按 task_id 读取最近日志等待 ParamTaskLogs/Query 接口。
         recent_logs = (
             TaskLog.query.filter_by(task_id=task.id)
             .order_by(TaskLog.timestamp.desc())
@@ -249,6 +263,7 @@ class TaskRuntimeViewService:
         return data
 
     def build_dashboard_overview(self, user) -> dict[str, Any]:
+        """按用户权限构造管理后台任务仪表盘的完整数据集。"""
         now = datetime.now()
         allowed_task_types = self._dashboard_query_service.get_allowed_task_types(
             user,

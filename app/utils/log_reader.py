@@ -10,6 +10,7 @@ LOG_PATTERN = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([^-]+) - (\w+) - 
 
 
 def _parse_log_line(line: str) -> Optional[Dict[str, str]]:
+    """解析一行标准应用日志为结构化字段。"""
     line = line.strip()
     if not line:
         return None
@@ -37,6 +38,7 @@ def read_logs(limit: int = 100,
               task_id: str = "",
               since: str = "",
               task_only: bool = False) -> List[Dict[str, str]]:
+    """读取并解析最近的应用日志记录。"""
     log_file = Config.LOG_FILE
     if not os.path.exists(log_file):
         return []

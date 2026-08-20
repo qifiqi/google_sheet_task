@@ -2,14 +2,17 @@ from flask import Blueprint, render_template, request, jsonify, url_for, redirec
 import json
 from app.services.config_manager import get_config_manager
 from app.utils.logger import get_logger
-from app.models import Task, TaskTemplate
+from app.models import TaskTemplate
+from app.repositories.task_repository import TaskRepository
 
 logger = get_logger(__name__)
 
 google_sheet_bp = Blueprint('google_sheet', __name__)
+_task_repository = TaskRepository()
 
 
 def _version_from_task_type(task_type):
+    """将任务类型映射为 Google Sheet 页面模板版本。"""
     normalized_type = (task_type or '').lower()
     if normalized_type == 'google_sheet_c5':
         return 'c5'
@@ -23,12 +26,13 @@ def _version_from_task_type(task_type):
 
 
 def _resolve_task_version(*task_id_params):
+    """从多个请求参数中解析任务并推断其页面模板版本。"""
     for param_name in task_id_params:
         task_id = request.args.get(param_name)
         if not task_id:
             continue
 
-        task = Task.query.get(task_id)
+        task = _task_repository.get(task_id)
         version = _version_from_task_type(task.task_type if task else None)
         if version:
             return version

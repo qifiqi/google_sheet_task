@@ -40,13 +40,16 @@ _YAHOO_ADJUST_FLAGS = {
 
 
 def normalize_kline_adjustment(value):
+    """将复权模式别名归一为系统支持的标准值。"""
     normalized = str(value if value is not None else "").strip().lower()
     return _ALIASES.get(normalized, DEFAULT_KLINE_ADJUSTMENT)
 
 
 def eastmoney_fqt(value):
+    """将标准复权模式转换为东方财富接口的 fqt 参数。"""
     return _EASTMONEY_FQT[normalize_kline_adjustment(value)]
 
 
 def yahoo_adjust_flags(value):
+    """将标准复权模式转换为 Yahoo 数据处理开关。"""
     return dict(_YAHOO_ADJUST_FLAGS[normalize_kline_adjustment(value)])

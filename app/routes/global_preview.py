@@ -11,8 +11,7 @@ from zipfile import ZIP_STORED, ZipFile
 
 from flask import Blueprint, Response, current_app, g, jsonify, render_template, request, send_file, stream_with_context
 
-from app.extensions import db
-from app.models import Task
+from app.repositories.task_repository import TaskRepository
 from app.services.backtest_training_api_service import (
     _build_global_preview_payload,
     _build_global_preview_group_payload,
@@ -26,19 +25,23 @@ from app.utils.task_authorization import authorize_task_type_action, normalize_t
 
 
 bp = Blueprint("global_preview", __name__, url_prefix="/global-preview")
+_task_repository = TaskRepository()
 
 
 def _task_error(message, status_code):
+    """构造全局预览任务相关的标准错误响应。"""
     return jsonify({"status": "error", "message": message}), status_code
 
 
 def _safe_filename(value, fallback):
+    """清除非法字符并生成安全的下载文件名片段。"""
     cleaned = "".join(char if char not in '\\/:*?\"<>|' else "_" for char in str(value or "").strip())
     return cleaned.rstrip(" .") or fallback
 
 
 def _load_backtest_task_or_response(task_id):
-    task = db.session.get(Task, task_id)
+    """读取可预览的回测任务，并在不符合条件时返回错误响应。"""
+    task = _task_repository.get(task_id)
     if not task:
         return None, _task_error("任务不存在", 404)
 
@@ -51,6 +54,7 @@ def _load_backtest_task_or_response(task_id):
 
 
 def _preview_status(task):
+    """根据任务运行状态生成全局预览页面使用的状态描述。"""
     task_type = normalize_task_type(task.task_type)
     if task_type in {
         "backtest_training",
@@ -68,6 +72,7 @@ def _preview_status(task):
 @bp.route("")
 @bp.route("/single_product")
 def page():
+    """渲染统一的回测全局预览页面。"""
     return render_template("global_preview/index.html")
 
 
@@ -75,6 +80,7 @@ def page():
 @login_required
 @permission_required("backtest:view")
 def get_preview(task_id):
+    """返回单个回测任务的全局预览内容。"""
     task, error_response = _load_backtest_task_or_response(task_id)
     if error_response:
         return error_response
@@ -97,6 +103,7 @@ def get_preview(task_id):
 @login_required
 @permission_required("backtest:view")
 def get_preview_group(task_id):
+    """返回按产品分组的回测预览内容。"""
     task, error_response = _load_backtest_task_or_response(task_id)
     if error_response:
         return error_response
@@ -115,22 +122,27 @@ class _ZipStreamWriter:
     """将 ZipFile 写出的字节块放入队列，供 Flask 逐块响应给浏览器。"""
 
     def __init__(self, output_queue):
+        """绑定生产者队列并初始化 ZIP 字节偏移计数。"""
         self.output_queue = output_queue
         self.position = 0
 
     def write(self, data):
+        """将 ZIP 写入的字节块推送到响应队列。"""
         if data:
             self.output_queue.put(bytes(data))
             self.position += len(data)
         return len(data)
 
     def tell(self):
+        """返回已写入的字节数，供 ZIP 写入器计算偏移量。"""
         return self.position
 
     def flush(self):
+        """满足文件对象协议；队列写入无需额外刷新。"""
         return None
 
     def writable(self):
+        """声明该流支持写入，供 ZIP 写入器校验。"""
         return True
 
 
@@ -141,6 +153,7 @@ def _stream_stock_export_zip(task_id, task_name):
     flask_app = current_app._get_current_object()
 
     def produce():
+        """在后台应用上下文中生成每个股票的导出文件。"""
         try:
             with flask_app.app_context():
                 export_started_at = perf_counter()
@@ -179,6 +192,7 @@ def _stream_stock_export_zip(task_id, task_name):
 
     @stream_with_context
     def generate():
+        """持续消费导出队列，向客户端流式返回 ZIP 字节。"""
         while True:
             chunk = output_queue.get()
             if chunk is finished:
@@ -192,6 +206,7 @@ def _stream_stock_export_zip(task_id, task_name):
 @login_required
 @permission_required("backtest:view")
 def export_preview(task_id):
+    """以流式 ZIP 形式导出任务内所有股票的预览文件。"""
     task, error_response = _load_backtest_task_or_response(task_id)
     if error_response:
         return error_response

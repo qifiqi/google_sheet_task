@@ -6,7 +6,8 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db
+from app.models import Task, db
+from app.repositories.task_result_repository import TaskResultRepository
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -23,6 +24,8 @@ from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService
 
+_task_result_repository = TaskResultRepository()
+
 
 logger = get_logger(__name__)
 
@@ -31,6 +34,7 @@ class GoogleSheetService(BaseGoogleSheetService):
     """Google Sheet服务 - C4"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
+        """初始化 C4 模板执行器及其 Sheet、指标分析依赖。"""
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
         self.xpl = xpl_analyzer
@@ -46,7 +50,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
-                task = db.session.get(Task, self.task_id)
+                task = self._get_remote_task()
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -117,7 +121,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = db.session.get(Task, self.task_id)
+                task = self._get_remote_task()
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -143,6 +147,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         combination: Dict[str, Any],
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
+        """将 C4 参数组合和结果整理为股票参数结果上报载荷。"""
         payload = self._build_stock_param_result_base_payload(
             task_name,
             task_index,
@@ -250,8 +255,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 total_combinations += len(combinations)
 
             # 更新任务总步数
-            task.total_steps = total_combinations
-            db_retry_manager.commit_with_retry(db.session)
+            task = self._save_remote_task(task, total_steps=total_combinations)
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -289,12 +293,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         continue
 
                     # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
-                    def check_task_status():
-                        return db.session.query(Task.status).filter(
-                            Task.id == self.task_id
-                        ).first()
-
-                    result = safe_db_operation(check_task_status)
+                    result = self._get_remote_task()
 
                     if not result or result.status == 'cancelled':
                         self._log_warning("任务已被取消，停止执行")
@@ -322,8 +321,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                             return success_count, failed_count, 'error'
 
                         # 更新当前步数为组合级别
-                        task.current_step = current_step
-                        db_retry_manager.commit_with_retry(db.session)
+                        task = self._save_remote_task(task, current_step=current_step)
 
                         # 保存结果到数据库
                         stock_name = str(combination.get('stock_name') or '').strip()
@@ -352,7 +350,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         # 检查是否是任务被取消
                         task.error = e
                         try:
-                            task_check = db.session.get(Task, self.task_id)
+                            task_check = self._get_remote_task()
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
@@ -375,7 +373,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task_check = db.session.get(Task, self.task_id)
+                task_check = self._get_remote_task()
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
@@ -390,18 +388,17 @@ class GoogleSheetService(BaseGoogleSheetService):
         """保存任务结果到数据库，包含重试逻辑"""
 
         def save_result_operation():
+            """保存当前 C4 组合的结果和收益明细。"""
             _index_start_return_date = None
             safe_parameters = self._sanitize_json_value(parameters)
             safe_result = self._sanitize_json_value(result)
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success
-            )
-            db.session.add(task_result)
-            db.session.commit()
+            _task_result_repository.save({
+                "task_id": self.task_id,
+                "step_index": step_index,
+                "parameters": safe_parameters,
+                "result": safe_result,
+                "success": success,
+            })
 
         try:
             if self.app:
@@ -470,6 +467,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c4_output_range_1)
 
             def check_result(check_values):
+                """校验 C4 模板计算完成后的触发单元格。"""
                 _check_values = {}
                 for _position, _value in check_values.items():
                     if not _value or not is_valid_result_value(_value):
@@ -590,8 +588,10 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     @staticmethod
     def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None, data_source=None):
+        """根据市场、日期和计数模式生成 C4 全部参数及 K 线组合。"""
 
         def _get_kline(klines, year=None,_start_date=None, _end_date=None):
+            """按年度或显式日期区间截取 C4 计算所需的 K 线数据。"""
             # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
             price_field = 'stock_kp' if market_type == 'cn' else 'stock_sp'
             if market_type == 'cn':

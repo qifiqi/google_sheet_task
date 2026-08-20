@@ -37,10 +37,12 @@ from app.utils.logger import get_logger, initialize_logging
 
 
 def _quoted_identifier(name):
+    """按当前数据库方言安全引用 SQL 标识符。"""
     return db.engine.dialect.identifier_preparer.quote(name)
 
 
 def _add_column(table_name, column_name, definition):
+    """为历史数据库表执行兼容的增列操作。"""
     db.session.execute(
         text(
             f"ALTER TABLE {_quoted_identifier(table_name)} "
@@ -50,12 +52,13 @@ def _add_column(table_name, column_name, definition):
 
 
 def _ensure_model_index(model, index_name):
+    """确保模型声明的指定索引已在数据库中创建。"""
     index = next(index for index in model.__table__.indexes if index.name == index_name)
     index.create(db.engine, checkfirst=True)
 
 
 def normalize_boolean_columns():
-    """Normalize boolean values imported from databases with text booleans."""
+    """将历史数据库中以文本存储的布尔值规范化为标准布尔字段。"""
     inspector = inspect(db.engine)
     existing_tables = set(inspector.get_table_names())
     true_values = ('1', 't', 'true', 'y', 'yes', 'on')
@@ -80,6 +83,7 @@ def normalize_boolean_columns():
 
 
 def ensure_google_sheet_token_schema():
+    """补齐 Google Sheet Token 表在历史数据库中缺失的列。"""
     inspector = inspect(db.engine)
     if 'google_sheet_tokens' not in inspector.get_table_names():
         return
@@ -90,7 +94,7 @@ def ensure_google_sheet_token_schema():
 
 
 def ensure_google_sheet_registry_schema():
-    """Apply the portable Google Sheet registry uniqueness rule."""
+    """为 Google Sheet 注册表应用跨数据库兼容的唯一性约束。"""
     inspector = inspect(db.engine)
     if 'google_sheet' not in inspector.get_table_names():
         return
@@ -126,6 +130,7 @@ def ensure_google_sheet_registry_schema():
 
 
 def ensure_user_schema():
+    """补齐用户表在历史数据库中缺失的身份字段。"""
     inspector = inspect(db.engine)
     if 'user' not in inspector.get_table_names():
         return
@@ -140,6 +145,7 @@ def ensure_user_schema():
 
 
 def ensure_task_schema():
+    """补齐任务表在历史数据库中缺失的运行字段。"""
     inspector = inspect(db.engine)
     if 'tasks' not in inspector.get_table_names():
         return
@@ -152,6 +158,7 @@ def ensure_task_schema():
 
 
 def ensure_task_result_schema():
+    """补齐任务结果表在历史数据库中缺失的关联字段。"""
     inspector = inspect(db.engine)
     if 'task_results' not in inspector.get_table_names():
         return
@@ -164,6 +171,7 @@ def ensure_task_result_schema():
 
 
 def ensure_scheduled_task_schema():
+    """补齐定时任务表在历史数据库中缺失的调度字段。"""
     inspector = inspect(db.engine)
     if 'scheduled_tasks' not in inspector.get_table_names():
         return
@@ -181,6 +189,7 @@ def ensure_scheduled_task_schema():
 
 
 def ensure_task_result_summary_index_schema():
+    """补齐任务结果汇总索引表及其必要索引。"""
     inspector = inspect(db.engine)
     if 'task_result_summary_index' not in inspector.get_table_names():
         TaskResultSummaryIndex.__table__.create(db.engine, checkfirst=True)
@@ -217,12 +226,14 @@ def ensure_task_result_summary_index_schema():
 
 
 def ensure_stock_metadata_schema():
+    """补齐股票元数据表及其检索索引。"""
     inspector = inspect(db.engine)
     if 'stock_metadata' not in inspector.get_table_names():
         StockMetadata.__table__.create(db.engine,checkfirst=True)
 
 
 def ensure_backtest_runtime_schema():
+    """补齐回测运行锁与缓存表，支持并发控制和结果复用。"""
     inspector = inspect(db.engine)
     table_names = set(inspector.get_table_names())
     if 'backtest_product_result_cache' not in table_names:
@@ -232,6 +243,7 @@ def ensure_backtest_runtime_schema():
 
 
 def ensure_task_result_return_schema():
+    """补齐任务收益序列表及其查询索引。"""
     inspector = inspect(db.engine)
     if 'task_results_return' not in inspector.get_table_names():
         return
@@ -242,6 +254,7 @@ def ensure_task_result_return_schema():
 
 
 def ensure_navigation_menu_schema():
+    """补齐导航菜单表及其唯一约束。"""
     inspector = inspect(db.engine)
     if 'navigation_menu_items' not in inspector.get_table_names():
         NavigationMenuItem.__table__.create(db.engine, checkfirst=True)
@@ -273,12 +286,14 @@ def ensure_navigation_menu_schema():
 
 
 def reset_google_sheet_token_occupancy():
+    """应用启动时清零遗留的 Token 实时占用计数。"""
     if GoogleSheetToken.query.filter(GoogleSheetToken.current_in_use_count != 0).count() > 0:
         GoogleSheetToken.query.update({'current_in_use_count': 0}, synchronize_session=False)
         db.session.commit()
 
 
 def reset_google_sheet_occupancy():
+    """应用启动时清理旧 Sheet 展示占用字段。"""
     from app.models import GoogleSheet
 
     if GoogleSheet.query.filter(GoogleSheet.is_in_use == True).count() > 0:
@@ -287,6 +302,7 @@ def reset_google_sheet_occupancy():
 
 
 def cleanup_stale_backtest_sheet_run_locks():
+    """删除任务已结束或不存在时遗留的回测 Sheet 运行锁。"""
     stale_locks = (
         BacktestSheetRunLock.query.outerjoin(Task, BacktestSheetRunLock.task_id == Task.id)
         .filter((Task.id.is_(None)) | (Task.status != 'running'))
@@ -303,6 +319,7 @@ def register_shell_context(app):
     """注册 ``flask shell`` 的快捷对象；不会访问数据库或启动后台线程。"""
     @app.shell_context_processor
     def make_shell_context():
+        """向 Flask Shell 注入常用模型和服务对象。"""
         return {
             'db': db,
             'Task': Task,
@@ -320,12 +337,14 @@ def register_cli(app):
     """注册显式执行的运维命令；注册命令本身不初始化数据库。"""
     @app.cli.command()
     def init_db():
+        """提供 Flask CLI 数据库初始化命令。"""
         # Flask CLI 会自动提供 app context，因此这里可以复用完整 schema 初始化。
         _initialize_database_schema()
         print('数据库初始化完成')
 
     @app.cli.command()
     def init_default_config():
+        """提供 Flask CLI 默认系统配置初始化命令。"""
         init_config()
         print('默认配置初始化完成')
 
@@ -436,6 +455,7 @@ def init_navigation_menu():
 
 
 def _seed_missing_default_navigation_items(default_rows, permission_map, existing):
+    """将默认导航中缺失的菜单项写入数据库。"""
     for row in default_rows:
         key = row.get('key')
         if not key or key in existing:
@@ -453,6 +473,7 @@ def _seed_missing_default_navigation_items(default_rows, permission_map, existin
 
 
 def _normalize_existing_navigation_menu():
+    """修正历史导航菜单的路径、标签和权限字段。"""
     permission_map = _build_nav_permission_map()
     default_rows = {
         row.get('key'): row
@@ -477,6 +498,7 @@ def _normalize_existing_navigation_menu():
 
 
 def _build_nav_permission_map():
+    """建立默认导航路径到页面权限编码的映射。"""
     return {
         '/admin': 'page:admin:dashboard',
         '/admin/': 'page:admin:dashboard',
@@ -514,6 +536,7 @@ def _build_nav_permission_map():
 
 
 def _normalize_nav_path(path):
+    """归一化历史菜单路径，兼容旧路径和查询参数。"""
     legacy_path_map = {
         '/task/list?version=c3': '/google-sheet/?version=c3',
         '/task/list?version=c4': '/google-sheet/?version=c4',
@@ -531,6 +554,7 @@ def _normalize_nav_path(path):
 
 
 def _normalize_nav_label(key, label):
+    """为历史菜单键生成标准中文显示名称。"""
     if key == 'backtest' and label == '数据回测':
         return '单品数据回测'
     return label
@@ -640,8 +664,9 @@ def _recover_runtime_resources():
 def _initialize_system_metadata():
     """幂等初始化运行必需的配置、RBAC 和导航元数据。"""
     init_config()
-    init_rbac()
-    init_navigation_menu()
+    # 用户、角色、权限和导航由主 Web 提供；本地旧表保留用于兼容历史数据，
+    # 但启动时不再 seed 或同步，避免本地配置重新成为运行时权威来源。
+    logger.info('跳过本地 RBAC 和导航菜单初始化，使用主 Web sys_user/sys_model')
 
 
 def _start_background_components(app):

@@ -1,12 +1,13 @@
 from urllib.parse import quote
 
-from flask import Blueprint, Response, current_app, g, jsonify, render_template, request
+from flask import Blueprint, Response, abort, current_app, g, jsonify, render_template, request
 
 from app.extensions import db
 from app.services.model_summary_service import model_summary_service
 from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.models import Task, GoogleSheetTableType, TaskStatus, TaskType
+from app.repositories.task_repository import TaskRepository
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action
@@ -14,7 +15,16 @@ from app.utils.task_authorization import authorize_task_type_action
 logger = get_logger(__name__)
 
 admin_bp = Blueprint('admin', __name__)
+legacy_admin_pages_bp = Blueprint('legacy_admin_pages', __name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
+_task_repository = TaskRepository()
+
+
+@admin_bp.before_request
+def disable_local_identity_pages():
+    """身份、RBAC 和本地路由表由主 Web 管理。"""
+    if request.path in {'/admin/users', '/admin/roles', '/admin/navigation'}:
+        abort(404)
 
 TASK_ACTION_LABELS = {
     "view": "查看",
@@ -22,6 +32,7 @@ TASK_ACTION_LABELS = {
 
 
 def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None):
+    """构造任务类型权限不足时的统一接口响应。"""
     action_label = TASK_ACTION_LABELS.get(action, action)
     normalized_type = decision.get("task_type") or str(task_type or "unknown")
     missing_permissions = decision.get("missing_permissions") or []
@@ -74,7 +85,7 @@ def config():
     """配置管理页面"""
     return render_template('admin/config.html')
 
-@admin_bp.route('/navigation')
+@legacy_admin_pages_bp.route('/navigation')
 def navigation():
     """路由表管理页面"""
     return render_template('admin/navigation.html')
@@ -102,11 +113,13 @@ def model_summary():
 
 @admin_bp.route('/eastmoney-kline')
 def eastmoney_kline():
+    """渲染东方财富 K 线管理页面。"""
     return render_template('admin/eastmoney_kline.html')
 
 
 @admin_bp.route('/google-sheets')
 def google_sheets():
+    """渲染 Google Sheet 注册表管理页面。"""
     return render_template('admin/google_sheets.html', google_sheet_table_type_options=GoogleSheetTableType.choices())
 
 @admin_bp.route('/scheduler')
@@ -114,12 +127,12 @@ def scheduler():
     """定时任务管理页面"""
     return render_template('admin/scheduler.html')
 
-@admin_bp.route('/users')
+@legacy_admin_pages_bp.route('/users')
 def users():
     """用户管理页面"""
     return render_template('admin/users.html')
 
-@admin_bp.route('/roles')
+@legacy_admin_pages_bp.route('/roles')
 def roles():
     """角色管理页面"""
     return render_template('admin/roles.html')
@@ -268,7 +281,7 @@ def model_summary_rebuild_status_api():
 def task_runtime_detail(task_id):
     """管理后台任务运行细节"""
     try:
-        task = db.session.get(Task, task_id)
+        task = _task_repository.get(task_id)
         if not task:
             return jsonify({'success': False, 'error': 'task not found'}), 404
 

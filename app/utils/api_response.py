@@ -10,14 +10,17 @@ from flask import jsonify
 
 
 def success(data=None, message=""):
+    """构造统一格式的成功 JSON 响应。"""
     return jsonify({"code": 0, "data": data, "message": message})
 
 
 def error(message="操作失败", code=1, http_status=400):
+    """构造统一格式的失败 JSON 响应。"""
     return jsonify({"code": code, "data": None, "message": message}), http_status
 
 
 def paginated(items, total, page, per_page, message=""):
+    """构造包含分页元信息的成功 JSON 响应。"""
     return jsonify({
         "code": 0,
         "data": {

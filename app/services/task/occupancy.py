@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from app.extensions import db
-from app.models import GoogleSheet, GoogleSheetTableType, Task
-from app.services.google_sheet_registry_service import (
-    get_google_sheet_registry_service,
-)
+from app.models import GoogleSheetTableType
+from app.repositories.google_sheet_repository import GoogleSheetRepository
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+_google_sheet_repository = GoogleSheetRepository()
 
 
 class TaskOccupancyMixin:
@@ -30,6 +27,7 @@ class TaskOccupancyMixin:
         sheet_ids: list[int] = []
 
         def add_sheet_reference(sheet_config: dict[str, Any] | None) -> None:
+            """从单个 Sheet 配置提取已注册的数值主键。"""
             if not isinstance(sheet_config, dict):
                 return
 
@@ -38,13 +36,7 @@ class TaskOccupancyMixin:
                 sheet_ids.append(int(sheet_id))
                 return
 
-            spreadsheet_id = sheet_config.get("spreadsheet_id")
-            if spreadsheet_id:
-                matched_sheet = GoogleSheet.query.filter_by(
-                    spreadsheet_id=str(spreadsheet_id)
-                ).first()
-                if matched_sheet:
-                    sheet_ids.append(int(matched_sheet.id))
+            # TODO: spreadsheet_id 反查需要远端 Query；仅接受配置中的已知 registry ID。
 
         add_sheet_reference(config)
         add_sheet_reference(config.get("sheet"))
@@ -85,9 +77,9 @@ class TaskOccupancyMixin:
         task_id: str,
         config: dict[str, Any] | None,
     ) -> None:
-        """根据任务配置建立 Google Sheet 占用。"""
-        for sheet_id in self._collect_google_sheet_ids(config):
-            get_google_sheet_registry_service().acquire_for_task(sheet_id, task_id)
+        """保留兼容入口；Sheet 注册表字段不再作为运行占用事实来源。"""
+        # 回测互斥由 BacktestSheetRunLock 负责；非回测目前允许并行。
+        return None
 
     def validate_google_sheet_available_for_task(
         self,
@@ -97,22 +89,15 @@ class TaskOccupancyMixin:
     ) -> None:
         """在创建或启动任务前校验 Google Sheet 是否可占用。"""
         for sheet_id in self._collect_google_sheet_ids(config):
-            sheet = GoogleSheet.query.get(sheet_id)
+            sheet = _google_sheet_repository.get(sheet_id)
             if not sheet:
                 raise ValueError("所选 Google Sheet 不存在")
-            if not sheet.is_active:
+            if not sheet.get("is_active"):
                 raise ValueError("所选 Google Sheet 未启用")
-            if (
-                not allow_in_use
-                and
-                sheet.is_in_use
-                and sheet.current_task_id
-                and sheet.current_task_id != task_id
-            ):
-                raise ValueError("该 Google Sheet 已被其他任务使用")
+            # is_in_use/current_task_id 是派生展示字段，不能用于互斥判定。
 
     def validate_backtest_training_sheet(self, config: dict[str, Any] | None) -> None:
-        """Verify that a single-product backtest uses its dedicated sheet type."""
+        """校验单品回测使用已启用且类型匹配的专用 Sheet。"""
         sheet_config = config.get("sheet") if isinstance(config, dict) else None
         if not isinstance(sheet_config, dict):
             raise ValueError("单品回测缺少 Google Sheet 配置")
@@ -125,46 +110,26 @@ class TaskOccupancyMixin:
             return
 
         try:
-            sheet = db.session.get(GoogleSheet, int(google_sheet_id))
+            sheet = _google_sheet_repository.get(int(google_sheet_id))
         except (TypeError, ValueError):
             sheet = None
 
         if not sheet:
             raise ValueError("所选单品回测 Sheet 不存在")
-        if not sheet.is_active:
+        if not sheet.get("is_active"):
             raise ValueError("所选单品回测 Sheet 未启用")
-        if sheet.table_type != GoogleSheetTableType.BACKTEST_TRAINING.value:
+        if sheet.get("table_type") != GoogleSheetTableType.BACKTEST_TRAINING.value:
             raise ValueError("所选 Sheet 不是单品回测模板")
-        if not spreadsheet_id or sheet.spreadsheet_id != spreadsheet_id:
+        if not spreadsheet_id or sheet.get("spreadsheet_id") != spreadsheet_id:
             raise ValueError("所选单品回测 Sheet 信息不一致")
 
     def release_google_sheet_occupancy(self, task_id: str) -> None:
-        """释放任务关联的 Google Sheet 占用。"""
-        try:
-            released = get_google_sheet_registry_service().release_for_task(task_id)
-            if released:
-                return
-
-            task = db.session.get(Task, task_id)
-            if not task:
-                return
-
-            config_data = (
-                json.loads(task.config)
-                if isinstance(task.config, str)
-                else (task.config or {})
-            )
-            if isinstance(config_data, dict) and config_data.get("google_sheet_id"):
-                logger.warning(
-                    "Google Sheet 占用释放跳过: task_id=%s, google_sheet_id=%s",
-                    task_id,
-                    config_data.get("google_sheet_id"),
-                )
-        except Exception as exc:
-            logger.warning("释放 Google Sheet 占用失败: task_id=%s, err=%s", task_id, exc)
+        """保留兼容入口；实际互斥锁由回测锁在任务收尾阶段释放。"""
+        return None
 
     # 兼容旧私有命名。
     def _release_task_token_occupancy(self, task_id: str) -> None:
+        """兼容旧私有入口，转发到统一 Token 占用释放方法。"""
         self.release_task_token_occupancy(task_id)
 
     def _ensure_google_sheet_occupancy(
@@ -172,7 +137,9 @@ class TaskOccupancyMixin:
         task_id: str,
         config: dict[str, Any] | None,
     ) -> None:
+        """兼容旧私有入口，转发到当前 Sheet 占用检查方法。"""
         self.ensure_google_sheet_occupancy(task_id, config)
 
     def _release_google_sheet_occupancy(self, task_id: str) -> None:
+        """兼容旧私有入口，转发到当前 Sheet 占用释放方法。"""
         self.release_google_sheet_occupancy(task_id)
