@@ -52,8 +52,6 @@ def get_templates():
         # 仅列表读取迁移到 SDK；按 task_type 的页面筛选沿用现有接口语义。
         templates = _template_repository().list_page(
             page_size=1000,
-            order_field="created_at",
-            order_type="desc",
         )["items"]
 
         if task_type:

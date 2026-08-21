@@ -75,12 +75,20 @@ class SdkCrudRepository:
         return self.normalize_record(self._as_mapping(raw, "详情"))
 
     def save(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """调用远端新增/更新接口并标准化返回记录。"""
+        """调用远端新增/更新接口并标准化返回记录。
+
+        部分远端 ``ModifyOrAdd`` 接口只返回成功信封
+        （``ret_code`` / ``ret_msg`` / ``ret_count``），不携带 ``ret_obj``。
+        此时 SDK 适配器已经验证写入成功，返回本次提交的数据以兼容调用方。
+        """
+        api_payload = self.to_api_payload(payload)
         raw = self.client.call(
             self.group_name,
             "modify_or_add",
-            self.to_api_payload(payload),
+            api_payload,
         )
+        if raw is None:
+            return self.normalize_record(api_payload)
         return self.normalize_record(self._as_mapping(raw, "保存结果"))
 
     def delete(self, record_id: int) -> None:

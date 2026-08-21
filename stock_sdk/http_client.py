@@ -71,9 +71,15 @@ class SyncHttpClient:
             raise ApiTimeoutError("Request timed out") from error
         except requests.RequestException as error:
             raise ApiConnectionError(str(error)) from error
-        body = self._decode_body(response)
         if response.status_code >= 400:
+            # 错误响应不保证是 JSON；无论返回 JSON、纯文本还是 HTML，
+            # 都保留原始内容交给上层日志记录，避免丢失服务端错误原因。
+            try:
+                body = response.json() if response.content else ""
+            except ValueError:
+                body = response.text
             raise ApiHttpError(response.status_code, body)
+        body = self._decode_body(response)
         if not isinstance(body, dict):
             raise ApiResponseError("Expected a JSON object response envelope")
         return ResponseDto.from_dict(body)

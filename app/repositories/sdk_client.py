@@ -6,13 +6,14 @@ Repository 只能通过本模块调用 SDK，避免把 SDK 响应对象、配置
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Mapping
 from typing import Any
 
 from stock_sdk import StockClient
-from stock_sdk.exceptions import StockSdkError
+from stock_sdk.exceptions import ApiHttpError, StockSdkError
 
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,29 @@ class StockSdkAdapter:
             timeout=timeout,
         )
 
+    @staticmethod
+    def _safe_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+        """脱敏后返回请求载荷，供详细日志使用。"""
+        sensitive_names = (
+            "token",
+            "password",
+            "secret",
+            "authorization",
+            "credential",
+            "cookie",
+        )
+
+        def sanitize(value: Any, key: str = "") -> Any:
+            if any(name in key.lower() for name in sensitive_names):
+                return "***"
+            if isinstance(value, Mapping):
+                return {str(item_key): sanitize(item_value, str(item_key)) for item_key, item_value in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [sanitize(item) for item in value]
+            return value
+
+        return sanitize(payload)
+
     def call(self, group_name: str, operation: str, payload: Mapping[str, Any]) -> Any:
         """调用一个 SDK 接口，并仅返回解包后的 ``ret_obj``。
 
@@ -108,14 +132,39 @@ class StockSdkAdapter:
 
         try:
             response = method(dict(payload))
+        except ApiHttpError as exc:
+            safe_payload = self._safe_payload(payload)
+            try:
+                payload_text = json.dumps(safe_payload, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                payload_text = repr(safe_payload)
+            logger.error(
+                "远程数据接口 HTTP 请求失败: group=%s operation=%s "
+                "status_code=%s response_body=%r request_payload=%s",
+                group_name,
+                operation,
+                exc.status_code,
+                exc.body,
+                payload_text,
+                exc_info=True,
+            )
+            raise SdkDataAccessError(
+                f"远程数据服务 HTTP {exc.status_code}: {exc.body}"
+            ) from exc
         except StockSdkError as exc:
             logger.warning(
-                "远程数据接口调用失败: group=%s operation=%s error=%s",
+                "远程数据接口调用失败: group=%s operation=%s error=%s "
+                "message=%s request_payload=%s",
                 group_name,
                 operation,
                 exc.__class__.__name__,
+                str(exc),
+                json.dumps(self._safe_payload(payload), ensure_ascii=False, default=str),
+                exc_info=True,
             )
-            raise SdkDataAccessError("远程数据服务暂不可用") from exc
+            raise SdkDataAccessError(
+                f"远程数据服务暂不可用: {exc}"
+            ) from exc
 
         if not getattr(response, "is_success", False):
             code = getattr(response, "ret_code", None)

@@ -120,17 +120,19 @@ def create_scheduled_task():
                     'success': False,
                     'message': f'任务参数必须是有效的JSON格式: {e}'
                 }), 400
-        
-        task = _scheduled_task_repository().save({
+
+        d = {
             'name': data['name'],
             'description': data.get('description', ''),
             'cron_expression': data['cron_expression'],
             'task_type': data['task_type'],
             'task_function': data['task_function'],
             'task_params': task_params,
-            'is_active': data.get('is_active', True),
-        })
-        
+            'is_active': 1 if data.get('is_active', True) else 0,
+        }
+
+        task = _scheduled_task_repository().save(d)
+
         # 如果任务是活跃的，添加到调度器
         if task.get('is_active') and scheduler_service.is_running:
             scheduler_service.add_job(task)

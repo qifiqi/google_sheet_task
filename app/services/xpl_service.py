@@ -700,35 +700,201 @@ class XPLAnalyzer:
         start_index = maximum_drawdown[maximum_drawdown['start_drawdown'] < maximum_drawdown['index_drawdown']]
         return len(start_index['start_drawdown']) / len(maximum_drawdown['start_drawdown'])
 
+    # def maximum_number_of_backtest_repair_days(self, data_df):
+    #     """
+    #         # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
+    #     """
+    #
+    #     data_df['previous_max'] = data_df['net_value'].expanding().max().shift(1)
+    #     #
+    #     # # 按年份分组处理
+    #     # yearly_groups = data_df.groupby('year')
+    #     #
+    #     # max_net_value_count = {}
+    #     #
+    #     # for year, year_df in yearly_groups:
+    #     #     if len(year_df) == 0:
+    #     #         continue
+    #     #     # mode_values = year_df['previous_max'].mode()
+    #     #     mode_freq = year_df['previous_max'].value_counts().max()
+    #     #
+    #     #     max_net_value_count[year] = int(mode_freq)
+    #     #
+    #     # return max_net_value_count
+    #
+    #     return int(data_df['previous_max'].value_counts().max())
+    #     # d_max = data_df['previous_max'].max()
+    #     # return data_df[data_df['previous_max'] == d_max]['previous_max'].count()
+
+
     def maximum_number_of_backtest_repair_days(self, data_df):
         """
-            # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
+        最大回测修复天数（整体区间）
+
+        含义：
+            在完整的考察区间内，基金净值从某一个峰值下跌后，重新回到该峰值水平
+            所需要的【最长】天数。
+
+        通俗理解：
+            "从山顶跌到谷底再爬回山顶，最久的一次花了多少天？"
+
+        为什么重要：
+            - 衡量基金的"抗跌修复能力"
+            - 修复天数越短，说明基金越能快速从下跌中恢复
+            - 对于投资者来说，修复天数过长意味着资金可能被长期套牢
+
+        计算逻辑：
+            1. 记录当前遇到过的最高净值（peak）
+            2. 逐日遍历净值序列：
+               a. 如果当日净值 >= peak（创新高或回到前高）：
+                  - 说明修复完成！记录本轮修复天数
+                  - 更新peak为当日净值（新的历史最高）
+                  - 重置修复天数计数器为0
+               b. 如果当日净值 < peak（仍在回撤中）：
+                  - 修复天数 +1（多跌了一天）
+            3. 返回所有修复周期中的最大天数
+
+        注意：
+            - 只统计【已完成】的修复周期
+            - 如果区间结束时仍未修复，不纳入统计
+            - 回撤修复天数从【跌破前高后的第一个交易日】开始计算
+
+        参数：
+            data_df: pandas.DataFrame，必须包含 'net_value' 列（净值数据）
+
+        返回：
+            int: 最大回测修复天数（已完成修复周期中的最大值）
+
+        示例：
+            净值序列: [1.00, 1.50, 1.40, 1.30, 1.20, 1.50, 1.60]
+            修复周期1: 1.50 → 1.20 → 1.50，耗时 3天（索引2,3,4）
+            修复周期2: 1.60 未完成修复，不计入
+            返回: 3
         """
+        net_values = data_df['net_value'].values
+        if len(net_values) < 2:
+            return 0
 
-        data_df['previous_max'] = data_df['net_value'].expanding().max().shift(1)
-        #
-        # # 按年份分组处理
-        # yearly_groups = data_df.groupby('year')
-        #
-        # max_net_value_count = {}
-        #
-        # for year, year_df in yearly_groups:
-        #     if len(year_df) == 0:
-        #         continue
-        #     # mode_values = year_df['previous_max'].mode()
-        #     mode_freq = year_df['previous_max'].value_counts().max()
-        #
-        #     max_net_value_count[year] = int(mode_freq)
-        #
-        # return max_net_value_count
+        # peak: 当前历史最高净值（记录"山顶"的位置）
+        peak = net_values[0]
 
-        return int(data_df['previous_max'].value_counts().max())
-        # d_max = data_df['previous_max'].max()
-        # return data_df[data_df['previous_max'] == d_max]['previous_max'].count()
+        # repair_days: 当前回撤已经持续的天数（正在"爬山"的天数）
+        repair_days = 0
+
+        # max_repair_days: 历史所有修复周期中的最大天数（最终答案）
+        max_repair_days = 0
+
+        # 从第二个交易日开始遍历（第一天没有历史参照）
+        for i in range(1, len(net_values)):
+            if net_values[i] >= peak:
+                # 情况1：净值回到前高或创新高 → 修复完成！
+                # 判断本次修复是否刷新了最长记录
+                if repair_days > max_repair_days:
+                    max_repair_days = repair_days
+
+                # 更新历史最高净值（新的"山顶"）
+                peak = net_values[i]
+
+                # 重置修复天数计数器（开始新的回撤周期）
+                repair_days = 0
+            else:
+                # 情况2：净值低于历史最高 → 仍在回撤中
+                # 修复天数+1（又跌了一天，离山顶更远了）
+                repair_days += 1
+
+        return max_repair_days
+
+    def yearly_max_repair_days(self, data_df):
+        """
+        按年计算最大回测修复天数
+
+        含义：
+            将完整的考察区间按【自然年份】拆分，分别计算每一年的最大回测修复天数。
+
+        使用场景：
+            - 评估基金在不同年份的修复能力变化
+            - 比较基金在牛市、熊市中的表现差异
+            - 识别基金在某些年份是否存在异常（修复天数突然变长）
+
+        核心逻辑（重要！）：
+            1. 年份拆分：按'date'列将数据分为2020年、2021年、2022年...
+            2. 【跨年累积】：上一年未修复的回撤，会累积到下一年的数据中继续计算
+            3. 每一年统计该年度内【完成修复】的周期中，最大的修复天数
+
+        为什么要跨年累积？
+            - 假设2020年12月31日净值1.50，2021年1月跌到1.30
+            - 如果2021年6月才回到1.50，修复天数应跨年计算
+            - 如果每年重置peak，会低估修复天数
+
+        参数：
+            data_df: pandas.DataFrame，必须包含 'date' 列（日期）和 'net_value' 列（净值）
+
+        返回：
+            dict: {年份: 该年最大修复天数}
+
+        示例：
+            2019年: 最大回测修复天数 = 0天（无完成修复）
+            2020年: 最大回测修复天数 = 10天
+            2021年: 最大回测修复天数 = 5天
+
+        输出格式：
+            {2019: 0, 2020: 10, 2021: 5}
+        """
+        # 步骤1：按日期排序，确保时间顺序正确
+        data_df = data_df.sort_values('date')
+
+        # 步骤2：提取年份，用于分组
+        data_df['year'] = data_df['date'].dt.year
+
+        yearly_result = {}
+
+        # peak: 跨年维护的历史最高净值（不因年份切换而重置！）
+        peak = None
+
+        # repair_days: 跨年维护的当前回撤天数（不因年份切换而重置！）
+        repair_days = 0
+
+        # 步骤3：按年份分组遍历（年份从小到大）
+        for year, year_df in data_df.groupby('year', sort=True):
+            net_values = year_df['net_value'].values
+
+            # 判断是否为第一年
+            if peak is None:
+                # 第一年：用该年第一天的净值初始化peak
+                peak = net_values[0]
+                # 从该年第二天开始遍历（第一天没有历史参照）
+                start_idx = 1
+            else:
+                # 非第一年：peak保持上一年末的历史最高值
+                # 从该年第一天开始遍历（要继承上年的修复状态）
+                start_idx = 0
+
+            # 该年度的最大修复天数（初始为0）
+            max_repair_days = 0
+
+            # 步骤4：遍历该年每一天的净值
+            for i in range(start_idx, len(net_values)):
+                if net_values[i] >= peak:
+                    # 修复完成！
+                    if repair_days > max_repair_days:
+                        max_repair_days = repair_days
+
+                    # 更新历史最高峰值
+                    peak = net_values[i]
+
+                    # 重置回撤计数器
+                    repair_days = 0
+                else:
+                    # 仍在回撤中，回撤天数+1
+                    repair_days += 1
+
+            # 步骤5：记录该年的最大修复天数
+            yearly_result[year] = max_repair_days
+
+        return yearly_result
 
     def exceeding_maximum_number_of_backtest_repair_days(self, index_data, start_data):
         """
-            # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
         """
 
         # start_index_data = {}
@@ -1479,10 +1645,14 @@ class XPLAnalyzer:
             )
             excess_of_promissory_note = (monthly_excess_return_diff_mean * 12) / (monthly_excess_returns_diff.std() * np.sqrt(12))
 
-
-            # 最大回测修复天数 = （出现净值最多次数的天数）（每年）(index，start)
+            # 在完整的考察区间内，基金净值从某一个峰值下跌后，重新回到该峰值水平 所需要的【最长】天数。
             index_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(index_df)
             start_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(start_df)
+
+            # 将完整的考察区间按【自然年份】拆分，分别计算每一年的最大回测修复天数。 取最大值
+            year_index_yearly_max_repair_days = self.yearly_max_repair_days(index_df)
+            year_start_yearly_max_repair_days = self.yearly_max_repair_days(start_df)
+
 
             # 超额最大回测修复天数 = start - index
             data_df_2 = pd.DataFrame()
@@ -1529,7 +1699,8 @@ class XPLAnalyzer:
                 "start_maximum_number_of_backtest_repair_days": start_maximum_number_of_backtest_repair_days,
                 # 最大回测修复天数 start
                 "excess_maximum_number_of_backtest_repair_days": excess_maximum_number_of_backtest_repair_days,
-                # 超额最大回测修复天数
+                "year_index_yearly_max_repair_days": year_index_yearly_max_repair_days,
+                "year_start_yearly_max_repair_days": year_start_yearly_max_repair_days,
             }
 
             # 打印调试信息

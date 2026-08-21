@@ -63,7 +63,7 @@ class GoogleSheetRegistryService:
             "table_type": normalized_table_type,
             "registry_scope": google_sheet_registry_scope(normalized_table_type),
             "remark": (remark or '').strip() or None,
-            "is_active": bool(is_active),
+            "is_active": int(is_active),
         })
 
     def update_sheet(self, sheet_id: int, **payload):
