@@ -130,6 +130,14 @@ class StockSdkAdapter:
                 f"stock_sdk 未提供接口: {group_name}.{operation}"
             ) from exc
 
+        # 所有 Repository 的 SDK HTTP 请求都汇集到这里；仅记录字段名，避免日志泄漏
+        # Token、收益序列及任务参数等可能很大的敏感请求内容。
+        logger.info(
+            "SDK HTTP 调用开始: group=%s operation=%s payload_fields=%s",
+            group_name,
+            operation,
+            ",".join(sorted(str(key) for key in payload)),
+        )
         try:
             response = method(dict(payload))
         except ApiHttpError as exc:
