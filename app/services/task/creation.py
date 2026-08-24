@@ -18,7 +18,7 @@ from app.services.google_sheet_token_service import (
     get_google_sheet_token_service,
 )
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
-from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
+from app.services.stock_metadata_service import lookup_stock_metadata, save_stock_metadata
 from app.services.kline_service import KlineService
 from app.utils.database import transaction_required
 from app.utils.logger import get_logger, get_task_logger
@@ -240,10 +240,10 @@ class TaskCreationMixin:
                 allow_in_use=(task_type in ("backtest_training", "backtest_multi_product")),
             )
             for stock_item in _stock_metadata_items_from_config(config):
-                upsert_stock_metadata_in_session(stock_item)
+                save_stock_metadata(stock_item)
 
         config_str = json.dumps(config) if isinstance(config, dict) else str(config)
-        # 任务主记录通过远程 CRUD 创建；本地事务仅覆盖仍保留的元数据缓存。
+        # 任务主记录和股票元数据均通过远程 CRUD 创建。
         _task_repository.save({
             "id": task_id,
             "name": name,
@@ -418,7 +418,7 @@ class TaskCreationMixin:
                 stock_metadata.get("stock_name") or stock_metadata.get("name") or ""
             ).strip()
             if stock_metadata:
-                upsert_stock_metadata_in_session({
+                save_stock_metadata({
                     **stock_metadata,
                     "stock_code": stock_code,
                     "stock_name": stock_name,

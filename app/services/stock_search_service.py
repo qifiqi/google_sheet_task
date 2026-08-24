@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.extensions import db
 from app.services.stock_metadata_service import bulk_upsert_stock_metadata
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.market import MARKET_LABELS, market_type_from_eastmoney, normalize_market_type
@@ -71,7 +70,7 @@ class StockSearchService:
 
     @staticmethod
     def save_metadata(results: list[dict[str, Any]]) -> None:
-        """持久化 API 查询结果；任务解析不在这里开启额外事务。"""
+        """通过远程 CRUD 持久化 API 查询结果。"""
         bulk_upsert_stock_metadata([
             {
                 "stock_code": item["code"],
@@ -85,7 +84,6 @@ class StockSearchService:
             for item in results
             if item["market_type"]
         ])
-        db.session.commit()
 
     @staticmethod
     def _normalize_requested_market(value: str | None) -> str | None:

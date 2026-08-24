@@ -1,21 +1,19 @@
-"""股票元数据的本地持久化与远程 CRUD 辅助函数。"""
+"""股票元数据的远程 CRUD 辅助函数。"""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from app.extensions import db
 from app.models import StockMetadata
 from app.repositories.stock_metadata_repository import StockMetadataRepository
-from app.utils.database import transaction_required
 from app.utils.logger import get_logger
 from app.utils.market import normalize_market_type
 
 
 logger = get_logger(__name__)
 
-# 仅用于按 ID 读取和单条保存；业务键查询/批量 upsert 暂无远端筛选接口支撑。
+# 所有写入统一通过远端 ModifyOrAdd；重复约束由远端接口处理。
 _remote_repository = StockMetadataRepository()
 
 
@@ -61,11 +59,7 @@ def get_stock_metadata_by_id(record_id: int) -> dict[str, Any] | None:
 
 
 def save_stock_metadata(item: Any) -> dict[str, Any]:
-    """通过远程 CRUD 保存一条股票元数据。
-
-    更新已有记录时调用方必须提供远端主键。按业务键查询和 upsert 依赖服务端
-    筛选接口，当前刻意不以拉取全表的方式模拟，仍保留本地实现。
-    """
+    """通过远程 ModifyOrAdd 保存一条股票元数据。"""
     payload = normalize_stock_payload(item)
     if not payload:
         raise ValueError("股票元数据不能为空")
@@ -74,38 +68,14 @@ def save_stock_metadata(item: Any) -> dict[str, Any]:
     return _remote_repository.save_metadata(payload)
 
 
-def upsert_stock_metadata_in_session(stock_item: Any) -> StockMetadata | None:
-    """按股票代码和市场类型在本地事务中 upsert，供批量同步流程使用。"""
+def upsert_stock_metadata_in_session(stock_item: Any) -> dict[str, Any] | None:
+    """兼容旧调用名称，实际通过远程 ModifyOrAdd 写入。"""
     payload = normalize_stock_payload(stock_item)
     if not payload:
         return None
-
-    stock_code = payload["stock_code"]
-    market_type = payload["market_type"]
-
-    for pending in db.session.new:
-        if not isinstance(pending, StockMetadata):
-            continue
-        if pending.stock_code == stock_code and pending.market_type == market_type:
-            for key, value in payload.items():
-                setattr(pending, key, value)
-            logger.debug("已同步待提交股票元数据: %s %s", stock_code, payload["stock_name"])
-            return pending
-
-    query = StockMetadata.query.filter(StockMetadata.stock_code == stock_code)
-    query = query.filter(StockMetadata.market_type == market_type)
-
-    with db.session.no_autoflush:
-        record = query.order_by(StockMetadata.updated_at.desc(), StockMetadata.id.desc()).first()
-    if record is None:
-        record = StockMetadata(**payload)
-        db.session.add(record)
-    else:
-        for key, value in payload.items():
-            setattr(record, key, value)
-
-    logger.debug("已同步股票元数据: %s %s", payload["stock_code"], payload["stock_name"])
-    return record
+    result = _remote_repository.save_metadata(payload)
+    logger.debug("已通过远程接口同步股票元数据: %s %s", payload["stock_code"], payload["stock_name"])
+    return result
 
 
 def lookup_stock_metadata(stock_code: Any, market_type: Any = None) -> dict[str, Any]:
@@ -125,9 +95,8 @@ def lookup_stock_metadata(stock_code: Any, market_type: Any = None) -> dict[str,
     return record.to_dict()
 
 
-@transaction_required
-def upsert_stock_metadata(stock_item: Any) -> StockMetadata | None:
-    """写入或更新一条股票元数据记录。"""
+def upsert_stock_metadata(stock_item: Any) -> dict[str, Any] | None:
+    """兼容旧调用入口，写入统一通过远程 CRUD。"""
     return upsert_stock_metadata_in_session(stock_item)
 
 
