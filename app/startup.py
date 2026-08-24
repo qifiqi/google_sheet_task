@@ -232,12 +232,29 @@ def ensure_backtest_runtime_schema():
 
 
 def ensure_task_result_return_schema():
+    """补齐老库的收益序列拆分字段；旧 returns_json 不再写入。"""
     inspector = inspect(db.engine)
-    if 'task_results_return' not in inspector.get_table_names():
+    table_name = next(
+        (name for name in ("t_param_task_results_return", "task_results_return")
+         if name in inspector.get_table_names()),
+        None,
+    )
+    if not table_name:
         return
-    columns = {column['name'] for column in inspector.get_columns('task_results_return')}
-    if 'returns_json' not in columns:
-        _add_column('task_results_return', 'returns_json', 'TEXT')
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    definitions = {
+        "stock_code": "VARCHAR(20)",
+        "stock_name": "VARCHAR(20)",
+        "start_return_date": "DATE",
+        "end_return_date": "DATE",
+        "return_length": "INTEGER",
+    }
+    changed = False
+    for name, definition in definitions.items():
+        if name not in columns:
+            _add_column(table_name, name, definition)
+            changed = True
+    if changed:
         db.session.commit()
 
 

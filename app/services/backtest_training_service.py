@@ -24,6 +24,7 @@ from app.utils.task_error_utils import (
     unwrap_exception,
 )
 from app.utils.kline_validation import require_kline_rows
+from app.utils.return_series import build_return_series_fields
 from app.services.kline_service import KlineService
 from app.utils.market import normalize_market_type
 
@@ -762,22 +763,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
     ):
         """保存任务结果到数据库，包含重试逻辑"""
 
-        def build_returns_json(return_rows):
-            dates = []
-            index_returns = []
-            start_returns = []
-            for item in return_rows or []:
-                dates.append(item.get('stock_date') or item.get('date'))
-                index_returns.append(item.get('index_return'))
-                start_returns.append(item.get('start_return'))
-            return json.dumps({
-                "dates": dates,
-                "index_returns": index_returns,
-                "start_returns": start_returns,
-            }, ensure_ascii=False, allow_nan=False)
-
         def save_result_operation():
-            safe_parameters = self._sanitize_json_value(parameters)
+            safe_parameters = self._normalize_result_parameters(parameters)
             safe_result = self._sanitize_json_value(result)
             task_result = TaskResult(
                 task_id=self.task_id,
@@ -788,9 +775,20 @@ class BacktestTrainingService(BaseGoogleSheetService):
             )
             db.session.add(task_result)
             if return_date:
+                series_fields = build_return_series_fields(
+                    return_date,
+                    stock_code=safe_parameters.get("stock_code"),
+                    stock_name=(
+                        safe_parameters.get("stock_name")
+                        or safe_parameters.get("name")
+                        or safe_parameters.get("stock_code")
+                    ),
+                )
+                if not series_fields:
+                    raise ValueError("收益序列缺少有效日期")
                 return_series = TaskResultReturn(
                     task_id=self.task_id,
-                    returns_json=build_returns_json(return_date),
+                    **series_fields,
                 )
                 db.session.add(return_series)
                 db.session.flush()
@@ -1023,4 +1021,5 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     data.append(d)
 
         return data, len(all_kline) + 20,KLINE_DATA_MAP
+
 

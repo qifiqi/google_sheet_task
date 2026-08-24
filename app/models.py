@@ -497,19 +497,25 @@ class TaskResultReturn(db.Model):
     )
     stock_code = db.Column(db.String(20), nullable=False, index=True)
     stock_name = db.Column(db.String(20), nullable=False, index=True)
+    start_return_date = db.Column(db.Date, nullable=False, comment="策略起始日期")
+    end_return_date = db.Column(db.Date, nullable=False, comment="策略结束日期")
+    return_length = db.Column(db.Integer, nullable=False, comment="收益列长度")
     stock_date = db.Column(db.Text, comment="日期")
     index_return = db.Column(db.Text, comment="指数收益")
     start_return = db.Column(db.Text, comment="策略起始收益")
-    returns_json = db.Column(db.Text, comment="收益曲线JSON，按列存储 dates/index_returns/start_returns")
 
     def to_dict(self):
         return {
             "id": self.id,
             "task_id": self.task_id,
+            "stock_code": self.stock_code,
+            "stock_name": self.stock_name,
+            "start_return_date": self.start_return_date.isoformat() if self.start_return_date else None,
+            "end_return_date": self.end_return_date.isoformat() if self.end_return_date else None,
+            "return_length": self.return_length,
             "stock_date": self.stock_date,
             "index_return": self.index_return,
             "start_return": self.start_return,
-            "returns_json": self.returns_json,
         }
 
 

@@ -23,6 +23,7 @@ from app.services.task.error_handling import format_task_error_message, record_t
 from app.services.xpl_service import xpl_analyzer
 from app.utils.db_retry import db_retry_manager, safe_db_operation
 from app.utils.task_error_utils import unwrap_exception
+from app.utils.return_series import build_return_series_fields, parse_return_series_fields
 from app.utils.market import normalize_market_type as normalize_supported_market_type
 
 
@@ -407,7 +408,7 @@ def _get_return_date_for_task_result(task_result: TaskResult) -> list[dict[str, 
     if task_result.return_series_id:
         return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
         if return_series:
-            return _parse_returns_json(return_series.returns_json)
+            return parse_return_series_fields(return_series)
     return _extract_return_date_from_result_payload(_parse_json(task_result.result, {}))
 
 
@@ -945,7 +946,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         return_date: list[dict[str, Any]] | None = None,
     ):
         def save_result_operation():
-            safe_parameters = self._sanitize_json_value(parameters)
+            safe_parameters = self._normalize_result_parameters(parameters)
             safe_result_payload = dict(result) if isinstance(result, dict) else {}
             weighted_calculate_metrics = _build_weighted_product_metrics(return_date or [], safe_parameters.get("ratio"))
             safe_result_payload = _set_weighted_metrics_on_result_payload(
@@ -963,9 +964,20 @@ class BacktestMultiProductService(BacktestTrainingService):
             db.session.add(task_result)
             db.session.flush()
             if return_date:
+                series_fields = build_return_series_fields(
+                    return_date,
+                    stock_code=safe_parameters.get("stock_code"),
+                    stock_name=(
+                        safe_parameters.get("stock_name")
+                        or safe_parameters.get("product_name")
+                        or safe_parameters.get("stock_code")
+                    ),
+                )
+                if not series_fields:
+                    raise ValueError("收益序列缺少有效日期")
                 return_series = TaskResultReturn(
                     task_id=self.task_id,
-                    returns_json=_build_returns_json(return_date),
+                    **series_fields,
                 )
                 db.session.add(return_series)
                 db.session.flush()
@@ -1262,3 +1274,4 @@ def build_multi_product_global_preview_payload(
     }
     _set_global_preview_cache(cache_key, payload)
     return payload
+

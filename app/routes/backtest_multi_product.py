@@ -25,6 +25,7 @@ from app.services.backtest_multi_product_service import (
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 from app.utils.auth import login_required, permission_required
 from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
+from app.utils.return_series import parse_return_series_fields
 
 
 bp = Blueprint("backtest_multi_product", __name__, url_prefix="/backtest-multi-product")
@@ -316,10 +317,13 @@ def get_task_result_detail(task_result_id):
     daily_returns = {}
     if task_result.return_series_id:
         return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
-        if return_series and return_series.returns_json:
-            parsed_returns = _parse_json(return_series.returns_json, {})
-            if isinstance(parsed_returns, dict):
-                daily_returns = parsed_returns
+        if return_series:
+            rows = parse_return_series_fields(return_series)
+            daily_returns = {
+                "dates": [row["date"] for row in rows],
+                "index_returns": [row.get("index_return") for row in rows],
+                "start_returns": [row.get("start_return") for row in rows],
+            }
 
     task_config = _parse_json(task.config, {})
     products = task_config.get("products") if isinstance(task_config, dict) else []

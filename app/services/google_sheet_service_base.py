@@ -84,6 +84,29 @@ class BaseGoogleSheetService:
 
         return value
 
+    def _normalize_result_parameters(self, parameters: Any) -> dict[str, Any]:
+        """Ensure persisted result parameters always contain stock_code."""
+        safe = self._sanitize_json_value(parameters)
+        normalized = dict(safe) if isinstance(safe, dict) else {"parameters": safe}
+        stock_code = (
+            normalized.get("stock_code")
+            or normalized.get("stock_no")
+            or normalized.get("symbol")
+            or (self.config or {}).get("stock_code")
+        )
+        if not stock_code and self.task and self.task.config:
+            try:
+                task_config = (
+                    self.task.config
+                    if isinstance(self.task.config, dict)
+                    else json.loads(self.task.config)
+                )
+                stock_code = task_config.get("stock_code") if isinstance(task_config, dict) else None
+            except (TypeError, ValueError):
+                stock_code = None
+        normalized["stock_code"] = str(stock_code or "").strip()
+        return normalized
+
 
     def _is_cancel_requested(self) -> bool:
         if self.stop_event and self.stop_event.is_set():

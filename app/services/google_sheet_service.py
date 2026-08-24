@@ -8,7 +8,8 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db
+from app.models import Task, TaskResult, TaskResultReturn, db
+from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -394,6 +395,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             return {
                 "analyze_result": analyze_result,
                 "flat_result": flat_result,
+                "_return_date": return_data,
             }
         except checkForErrors:
             raise
@@ -1040,7 +1042,7 @@ class GoogleSheetService(BaseGoogleSheetService):
     def _save_task_result(self, step_index: int, parameters: List, result: Dict, success: bool):
         """保存任务结果到数据库，包含重试逻辑"""
         def save_result_operation():
-            safe_parameters = self._sanitize_json_value(parameters)
+            safe_parameters = self._normalize_result_parameters(parameters)
             safe_result = self._sanitize_json_value(result)
             task_result = TaskResult(
                 task_id=self.task_id,
@@ -1050,6 +1052,17 @@ class GoogleSheetService(BaseGoogleSheetService):
                 success=success
             )
             db.session.add(task_result)
+            return_rows = extract_return_rows(result)
+            series_fields = build_return_series_fields(
+                return_rows,
+                stock_code=safe_parameters.get("stock_code") if isinstance(safe_parameters, dict) else None,
+                stock_name=(safe_parameters.get("stock_name") if isinstance(safe_parameters, dict) else None),
+            )
+            if series_fields:
+                return_series = TaskResultReturn(task_id=self.task_id, **series_fields)
+                db.session.add(return_series)
+                db.session.flush()
+                task_result.return_series_id = return_series.id
             db.session.commit()
         
         try:
@@ -1093,3 +1106,4 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             self._log_error(f"计算参数组合失败，索引: {index}, 错误: {str(e)}")
             raise
+

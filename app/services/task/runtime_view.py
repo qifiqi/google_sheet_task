@@ -10,6 +10,7 @@ from app.extensions import db
 import json
 
 from app.models import Task, TaskLog, TaskResult, TaskResultReturn
+from app.utils.return_series import parse_return_series_fields
 
 from app.services.task.dashboard_query import TaskDashboardQueryService
 
@@ -175,21 +176,11 @@ class TaskRuntimeViewService:
             else None
         )
         if series_row:
-            try:
-                series = json.loads(series_row.returns_json)
-                dates = series.get("dates") or []
-                index_returns = series.get("index_returns") or []
-                start_returns = series.get("start_returns") or []
-                return_chart = [
-                    {
-                        "date": date,
-                        "index_return": index_returns[index] if index < len(index_returns) else None,
-                        "strategy_return": start_returns[index] if index < len(start_returns) else None,
-                    }
-                    for index, date in enumerate(dates)
-                ][-120:]
-            except (TypeError, ValueError):
-                return_chart = []
+            return_chart = [
+                {"date": item["date"], "index_return": item.get("index_return"),
+                 "strategy_return": item.get("start_return")}
+                for item in parse_return_series_fields(series_row)
+            ][-120:]
         if not return_chart:
             returns = (
                 TaskResultReturn.query.filter_by(task_id=task_id)
