@@ -53,6 +53,20 @@ def test_database_source_uses_internal_rows_when_range_is_covered():
     assert {row["data_source"] for row in rows} == {"database"}
 
 
+def test_kline_limit_keeps_latest_rows_in_chronological_order():
+    service = KlineService(dfcf_api=_DfcfApi())
+    service.read_internal_kline_data = lambda **_kwargs: [
+        *_rows("2024-01-01", "2024-01-02"),
+        *_rows("2024-01-03", "2024-01-04"),
+    ]
+
+    rows = service.get_kline_data(
+        "600000", "cn", 2, data_source="database", start_date="2024-01-01", end_date="2024-01-04"
+    )
+
+    assert [row["stock_date"] for row in rows] == ["2024-01-03", "2024-01-04"]
+
+
 def test_non_cn_en_markets_never_access_internal_kline_service(monkeypatch):
     service = KlineService(dfcf_api=_DfcfApi())
     service.stock_client = type("Client", (), {

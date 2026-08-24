@@ -247,7 +247,7 @@ class KlineService:
                 DATA_SOURCE_DATABASE,
             )
         if self._covers_range(internal_rows, start_date, end_date, limit):
-            return internal_rows[:limit]
+            return internal_rows[-limit:]
         # database/internal 是“优先读内置库”的兼容写法；不足时仍按默认 DFCF 回退。
         if source == DATA_SOURCE_DATABASE:
             source = DATA_SOURCE_DFCF
@@ -272,7 +272,7 @@ class KlineService:
                 source=source,
                 adjust_type=adjust_type,
             )
-        return normalized_rows[:limit]
+        return normalized_rows[-limit:]
 
     @staticmethod
     def normalize_data_source(value: Any, available_sources: dict[str, Any] | None = None) -> str:
