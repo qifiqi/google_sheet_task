@@ -26,6 +26,8 @@ from app.services.task.error_handling import format_task_error_message, record_t
 from app.services.xpl_service import xpl_analyzer
 from app.utils.db_retry import db_retry_manager, safe_db_operation
 from app.utils.task_error_utils import unwrap_exception
+from app.utils.return_series import build_return_series_fields, parse_return_series_fields
+from app.utils.market import normalize_market_type as normalize_supported_market_type
 
 
 BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
@@ -62,11 +64,7 @@ SUMMARY_ROW_DEFS = [
 
 
 def normalize_market_type(value: Any) -> str:
-    """将页面市场标识归一为回测服务使用的 ``cn`` 或 ``en``。"""
-    normalized = str(value or "").strip().lower()
-    if normalized in {"en", "us", "usa"}:
-        return "en"
-    return "cn"
+    return normalize_supported_market_type(value, "cn")
 
 
 def normalize_price_mode(value: Any) -> str:
@@ -440,7 +438,7 @@ def _get_return_date_for_task_result(task_result: TaskResult) -> list[dict[str, 
     if task_result.return_series_id:
         return_series = _task_result_return_repository.get(task_result.return_series_id)
         if return_series:
-            return _parse_returns_json(return_series.get("returns_json"))
+            return parse_return_series_fields(return_series)
     return _extract_return_date_from_result_payload(_parse_json(task_result.result, {}))
 
 
@@ -991,15 +989,16 @@ class BacktestMultiProductService(BacktestTrainingService):
     ):
         """保存单个产品结果及收益序列，并写入按比例计算的加权指标。"""
         def save_result_operation():
-            """将当前产品结果与收益明细写入远程任务结果存储。"""
-            safe_parameters = self._sanitize_json_value(parameters)
+            safe_parameters = self._normalize_result_parameters(parameters)
             safe_result_payload = dict(result) if isinstance(result, dict) else {}
             weighted_calculate_metrics = _build_weighted_product_metrics(return_date or [], safe_parameters.get("ratio"))
             safe_result_payload = _set_weighted_metrics_on_result_payload(
                 safe_result_payload,
                 weighted_calculate_metrics,
             )
-            safe_result = self._sanitize_json_value(safe_result_payload)
+            safe_result = self._sanitize_json_value(
+                self._prepare_result_for_persistence(safe_result_payload)
+            )
             task_result = _task_result_repository.save({
                 "task_id": self.task_id,
                 "step_index": step_index,
@@ -1008,21 +1007,37 @@ class BacktestMultiProductService(BacktestTrainingService):
                 "success": success,
             })
             if return_date:
-                return_series = _task_result_return_repository.save({
-                    "task_id": self.task_id,
-                    "returns_json": _build_returns_json(return_date),
-                })
+                series_fields = build_return_series_fields(
+                    return_date,
+                    stock_code=safe_parameters.get("stock_code"),
+                    stock_name=(
+                        safe_parameters.get("stock_name")
+                        or safe_parameters.get("product_name")
+                        or safe_parameters.get("stock_code")
+                    ),
+                )
+                if not series_fields:
+                    raise ValueError("收益序列缺少有效日期")
+                return_series = TaskResultReturn(
+                    task_id=self.task_id,
+                    **series_fields,
+                )
+                db.session.add(return_series)
+                db.session.flush()
                 _task_result_repository.save({
                     **task_result,
-                    "return_series_id": return_series.get("id"),
+                    "return_series_id": return_series.id,
                 })
+            db.session.commit()
 
         try:
             context_app = self.app or current_app
             with context_app.app_context():
                 safe_db_operation(save_result_operation)
         except Exception as exc:
+            db.session.rollback()
             self._log_error(f"保存多品任务结果失败: {exc}")
+            raise
 
     def _build_product_config(self, config_data: dict[str, Any], product: dict[str, Any]) -> dict[str, Any]:
         """将全局配置与产品专属 Sheet、股票和行情配置合并。"""
@@ -1048,6 +1063,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             price_mode=product.get("price_mode") or config_data.get("price_mode", "vwap_price"),
             adjust_type=product.get("kline_adjustment", "forward"),
             data_source=product.get("kline_data_source") or config_data.get("kline_data_source", "dfcf"),
+            exchange_market=product.get("exchange_market"),
         )
         kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
         return {
@@ -1096,6 +1112,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         price_mode: str = "vwap_price",
         adjust_type: str | None = None,
         data_source: str = "dfcf",
+        exchange_market: str | None = None,
     ) -> list[dict[str, Any]]:
         """按日期范围获取并投影产品 K 线，统一处理市场和价格字段。"""
         price_field = {
@@ -1119,19 +1136,15 @@ class BacktestMultiProductService(BacktestTrainingService):
         # else:
         #     klines = self.YF_api.get_kline_data(stock_code, "10y", adjust_type=adjust_type)
 
-        resolved_code = stock_code
-        resolved_market = None
-        if market_type == "cn":
-            resolved_code, resolved_market = self._resolve_dfcf_stock_quote(stock_code)
         klines = self.kline_service.get_kline_data(
-            resolved_code,
+            stock_code,
             market_type,
             limit,
             data_source=data_source,
             start_date=start_date,
             end_date=end_date,
             adjust_type=adjust_type,
-            exchange_market=resolved_market,
+            exchange_market=exchange_market,
         )
 
         if not klines:

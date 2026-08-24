@@ -10,6 +10,7 @@ from app.models import StockMetadata
 from app.repositories.stock_metadata_repository import StockMetadataRepository
 from app.utils.database import transaction_required
 from app.utils.logger import get_logger
+from app.utils.market import normalize_market_type
 
 
 logger = get_logger(__name__)
@@ -24,13 +25,8 @@ def _strip_text(value: Any) -> str:
 
 
 def _normalize_market_type(value: Any) -> str:
-    """将多种市场别名归一为股票元数据使用的市场代码。"""
-    text = _strip_text(value).lower()
-    if text in {"cn", "a", "a股", "ashare", "china"}:
-        return "cn"
-    if text in {"us", "en", "美股", "usa"}:
-        return "us"
-    return ""
+    normalized = normalize_market_type(value)
+    return "us" if normalized == "en" else (normalized or "")
 
 
 def normalize_stock_payload(item: Any) -> dict[str, Any]:

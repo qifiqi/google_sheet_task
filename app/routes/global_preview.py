@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from io import BytesIO
 from queue import Queue
 from threading import Thread
 from time import perf_counter
 from urllib.parse import quote
-from zipfile import ZIP_STORED, ZipFile
+from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
 from flask import Blueprint, Response, current_app, g, jsonify, render_template, request, send_file, stream_with_context
 
@@ -170,8 +171,11 @@ def _stream_stock_export_zip(task_id, task_name):
                         stock_started_at = perf_counter()
                         workbook = _build_global_preview_workbook(stock_payload)
                         filename = f"{_safe_filename(f'{task_name}_{stock_code}', stock_code)}.xlsx"
-                        # 直接写入当前 ZIP 条目，避免每支股票额外保留一份 xlsx 字节副本。
-                        with archive.open(filename, "w") as xlsx_file:
+                        # 显式设置 ZIP 条目时间，Windows 解压后会以此作为 Excel 修改时间。
+                        # 仍直接写入 ZIP 条目，避免每支股票额外保留一份 xlsx 字节副本。
+                        zip_info = ZipInfo(filename, date_time=datetime.now().timetuple()[:6])
+                        zip_info.compress_type = ZIP_STORED
+                        with archive.open(zip_info, "w") as xlsx_file:
                             workbook.save(xlsx_file)
                         flask_app.logger.info(
                             "全局预览导出单股票完成: task_id=%s stock=%s results=%s elapsed=%.2fs",

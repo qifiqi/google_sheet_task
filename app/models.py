@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 import json
 
@@ -6,6 +6,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import foreign
 
 from app.extensions import db
+from app.utils.market import MARKET_DEFAULT_COMMISSIONS, MARKET_LABELS
 
 
 def _json_object_or_empty(raw):
@@ -180,6 +181,32 @@ class GoogleSheetTableType(str, Enum):
             cls.BACKTEST_TRAINING: "单品回测",
         }
         return [{"value": item.value, "label": labels[item]} for item in cls]
+
+
+class StockMarketType(str, Enum):
+    CN = "cn"
+    EN = "en"
+    CA = "ca"
+    KR = "kr"
+    JP = "jp"
+    HK = "hk"
+    UK = "uk"
+    FR = "fr"
+    DE = "de"
+    SG = "sg"
+    AU = "au"
+    MY = "my"
+
+    @classmethod
+    def choices(cls):
+        return [
+            {
+                "value": item.value,
+                "label": MARKET_LABELS[item.value],
+                "default_commission": MARKET_DEFAULT_COMMISSIONS[item.value],
+            }
+            for item in cls
+        ]
 
 
 class GoogleSheetTokenTaskType(str, Enum):
@@ -390,6 +417,9 @@ class Task(db.Model):
 class TaskLog(db.Model):
     """任务日志模型"""
 
+    # 即使旧库尚未完成迁移，也要避免把整条收益序列写入日志字段。
+    MAX_MESSAGE_LENGTH = 4000
+
     __tablename__ = "t_param_task_logs"
     __table_args__ = (
         db.Index("idx_task_logs_task_timestamp", "task_id", "timestamp"),
@@ -405,6 +435,15 @@ class TaskLog(db.Model):
     level = db.Column(db.String(20), default="info", comment="日志级别")
     message = db.Column(db.Text, nullable=False, comment="日志内容")
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="日志时间")
+
+    @classmethod
+    def normalize_message(cls, message) -> str:
+        """将日志内容限制在可控长度，避免大结果或异常堆栈撑爆数据库字段。"""
+        text = "" if message is None else str(message)
+        if len(text) <= cls.MAX_MESSAGE_LENGTH:
+            return text
+        suffix = "...（日志已截断）"
+        return text[: cls.MAX_MESSAGE_LENGTH - len(suffix)] + suffix
 
     def to_dict(self):
         """将任务日志转换为接口响应字典。"""
@@ -489,20 +528,38 @@ class TaskResultReturn(db.Model):
         index=True,
         comment="关联任务ID",
     )
-    stock_date = db.Column(db.String(50), comment="日期")
-    index_return = db.Column(db.Float, comment="指数收益")
-    start_return = db.Column(db.Float, comment="策略起始收益")
-    returns_json = db.Column(db.Text, comment="收益曲线JSON，按列存储 dates/index_returns/start_returns")
+    stock_code = db.Column(db.String(20), nullable=False, default="UNKNOWN", index=True)
+    stock_name = db.Column(db.String(20), nullable=False, default="未知股票", index=True)
+    start_return_date = db.Column(
+        db.Date,
+        nullable=False,
+        default=date(1970, 1, 1),
+        comment="策略起始日期",
+    )
+    end_return_date = db.Column(
+        db.Date,
+        nullable=False,
+        default=date(1970, 1, 1),
+        comment="策略结束日期",
+    )
+    return_length = db.Column(db.Integer, nullable=False, default=0, comment="收益列长度")
+    stock_date = db.Column(db.Text, comment="日期")
+    index_return = db.Column(db.Text, comment="指数收益")
+    start_return = db.Column(db.Text, comment="策略起始收益")
 
     def to_dict(self):
         """将任务收益序列记录转换为字典。"""
         return {
             "id": self.id,
             "task_id": self.task_id,
+            "stock_code": self.stock_code,
+            "stock_name": self.stock_name,
+            "start_return_date": self.start_return_date.isoformat() if self.start_return_date else None,
+            "end_return_date": self.end_return_date.isoformat() if self.end_return_date else None,
+            "return_length": self.return_length,
             "stock_date": self.stock_date,
             "index_return": self.index_return,
             "start_return": self.start_return,
-            "returns_json": self.returns_json,
         }
 
 

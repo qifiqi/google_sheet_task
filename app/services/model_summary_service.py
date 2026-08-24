@@ -101,6 +101,7 @@ BACKTEST_SUMMARY_METRICS = [
     ("drawdown_annual_max_drawdown", "年最大回撤"),
     ("drawdown_max_repair_days", "最大修复天数"),
     ("drawdown_excess_max_repair_days", "超额最大修复天数"),
+    ("drawdown_year_max_repair_days", "年最大回测修复天数"),
     ("ratio_sharpe_ratio", "夏普比率"),
     ("ratio_kama_ratio", "卡玛比率"),
     ("ratio_sortino_ratio", "所提诺比率"),
@@ -814,6 +815,25 @@ def _normalize_backtest_display_value(value: Any) -> str:
     return _normalize_scientific_text(text)
 
 
+def _max_yearly_repair_days(yearly_repair_days: Any) -> float | None:
+    if not isinstance(yearly_repair_days, dict):
+        return None
+    values = [
+        number
+        for value in yearly_repair_days.values()
+        for number in [_safe_number(value)]
+        if number is not None
+    ]
+    return max(values) if values else None
+
+
+def _format_backtest_repair_days(value: Any) -> str:
+    number = _safe_number(value)
+    if number is None:
+        return ""
+    return str(int(number)) if number.is_integer() else str(number)
+
+
 def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[str, str]:
     """从回测计算指标生成固定列集合的展示值。"""
     excess_all = _all_entry(calculate_metrics.get("excess_returns"))
@@ -871,6 +891,9 @@ def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[s
         max_drawdown = None
 
     total_max_drawdown = ((calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {})
+    year_start_max_repair_days = _max_yearly_repair_days(
+        calculate_metrics.get("year_start_yearly_max_repair_days")
+    )
     return {
         "absolute_annualized_return": _format_backtest_percent(excess_all.get("start_annualized_return")),
         "absolute_profit_year_percentage": _format_backtest_percent(calculate_metrics.get("start_profit_annual")),
@@ -895,6 +918,7 @@ def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[s
         ),
         "drawdown_max_repair_days": str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or ""),
         "drawdown_excess_max_repair_days": str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or ""),
+        "drawdown_year_max_repair_days": _format_backtest_repair_days(year_start_max_repair_days),
         "ratio_sharpe_ratio": _format_backtest_number(start_sharpe_all.get("sharpe_ratio")),
         "ratio_kama_ratio": _format_backtest_number(start_kama_all.get("kama_ratio")),
         "ratio_sortino_ratio": _format_backtest_number(start_sotino_all.get("sotino_ratio")),
@@ -964,6 +988,9 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
             max_drawdown = None
 
         total_max_drawdown = ((calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {})
+        year_start_max_repair_days = _max_yearly_repair_days(
+            calculate_metrics.get("year_start_yearly_max_repair_days")
+        )
         period_text = str(excess_all.get("start_end_date") or "")
         rows = [
             ("年化收益", _format_backtest_percent(excess_all.get("start_annualized_return"))),
@@ -991,6 +1018,7 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
             ),
             ("最大修复天数", str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or "")),
             ("超额最大修复天数", str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or "")),
+            ("年最大回测修复天数", _format_backtest_repair_days(year_start_max_repair_days)),
             ("夏普比率", _format_backtest_number(start_sharpe_all.get("sharpe_ratio"))),
             ("卡玛比率", _format_backtest_number(start_kama_all.get("kama_ratio"))),
             ("所提诺比率", _format_backtest_number(start_sotino_all.get("sotino_ratio"))),
@@ -1009,7 +1037,7 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
 
     period_text = str(summary_df.iat[1, 1] or "").strip()
     rows = []
-    for row_index in range(3, 23):
+    for row_index in range(3, 3 + len(BACKTEST_SUMMARY_METRICS)):
         metric = str(summary_df.iat[row_index, 1] or "").strip()
         if not metric:
             continue

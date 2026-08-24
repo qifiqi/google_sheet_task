@@ -10,6 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, db, TaskResultReturn
 from app.repositories.task_result_repository import TaskResultRepository
+from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -563,7 +564,10 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         if success:
                             success_count += 1
-                            self._log_info(f'第 {current_step} 个参数组合执行成功，{result}')
+                            self._log_info(
+                                f'第 {current_step} 个参数组合执行成功，'
+                                f'结果摘要: {self._summarize_result_for_log(result)}'
+                            )
                         else:
                             self._log_warning(f'第 {current_step} 个参数组合执行失败')
                             failed_count += 1
@@ -929,6 +933,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         # _result['start_return_xpl'] = _start_return_xpl
                         _result['analyze_result'] = analyze_result
                         _result[f"flat_result"] = flat_result
+                        _result['_return_date'] = _return_data
 
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
@@ -966,15 +971,31 @@ class GoogleSheetService(BaseGoogleSheetService):
         def save_result_operation():
             """保存当前 C7 组合的结果和收益明细。"""
             _index_start_return_date = None
-            safe_parameters = self._sanitize_json_value(parameters)
-            safe_result = self._sanitize_json_value(result)
-            _task_result_repository.save({
+            safe_parameters = self._normalize_result_parameters(parameters)
+            safe_result = self._sanitize_json_value(
+                self._prepare_result_for_persistence(result)
+            )
+            task_result = _task_result_repository.save({
                 "task_id": self.task_id,
                 "step_index": step_index,
                 "parameters": safe_parameters,
                 "result": safe_result,
                 "success": success,
             })
+            series_fields = build_return_series_fields(
+                extract_return_rows(result),
+                stock_code=safe_parameters.get("stock_code"),
+                stock_name=safe_parameters.get("stock_name"),
+            )
+            if series_fields:
+                return_series = TaskResultReturn(task_id=self.task_id, **series_fields)
+                db.session.add(return_series)
+                db.session.flush()
+                _task_result_repository.save({
+                    **task_result,
+                    "return_series_id": return_series.id,
+                })
+            db.session.commit()
 
         try:
             if self.app:
@@ -985,8 +1006,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                 with current_app.app_context():
                     safe_db_operation(save_result_operation)
         except Exception as e:
+            db.session.rollback()
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
+            raise
 
     def _get_custom_kline_data(
         self,

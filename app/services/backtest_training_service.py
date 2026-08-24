@@ -7,9 +7,8 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, db
+from app.models import Task, TaskResultReturn, db
 from app.repositories.task_result_repository import TaskResultRepository
-from app.repositories.task_result_return_repository import TaskResultReturnRepository
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
@@ -26,10 +25,11 @@ from app.utils.task_error_utils import (
     unwrap_exception,
 )
 from app.utils.kline_validation import require_kline_rows
+from app.utils.return_series import build_return_series_fields
 from app.services.kline_service import KlineService
+from app.utils.market import normalize_market_type
 
 _task_result_repository = TaskResultRepository()
-_task_result_return_repository = TaskResultReturnRepository()
 
 
 class BacktestTrainingService(BaseGoogleSheetService):
@@ -49,13 +49,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _normalize_market_type(value):
-        """将页面或历史配置中的市场标识归一为 cn 或 en。"""
-        normalized = str(value or '').strip().lower()
-        if normalized == 'cn':
-            return 'cn'
-        if normalized in ('en', 'us', 'usa'):
-            return 'en'
-        return 'cn'
+        return normalize_market_type(value, 'cn')
 
     @staticmethod
     def _is_c7_0_3(config_data):
@@ -111,35 +105,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
             'parameter_positions': get_value('c7_parameter_positions', ['A1', 'B1']),
             'check_positions': get_value('c7_check_positions', ['D2', 'D3']),
         }
-
-    def _resolve_dfcf_stock_quote(self, stock_code, exchange_market=None):
-        """解析东方财富股票代码及市场号，优先复用任务已传入的市场号。"""
-        stock_query = str(stock_code or '').strip()
-        market = str(exchange_market or '').strip()
-        if market:
-            return stock_query.upper(), market
-
-        stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_query, 10)
-        if isinstance(stock_config, dict):
-            raise ValueError(f"股票{stock_query}搜索失败: {stock_config.get('error') or stock_config}")
-        if not stock_config:
-            raise ValueError(f"未找到股票 {stock_query}")
-
-        query_upper = stock_query.upper()
-        selected = next(
-            (
-                item for item in stock_config
-                if str(item.get('code') or '').strip().upper() == query_upper
-            ),
-            stock_config[0],
-        )
-        resolved_code = str(selected.get('code') or '').strip().upper()
-        market = str(selected.get('market') or '').strip()
-        if not resolved_code or not market:
-            raise ValueError(f"股票{stock_query}搜索结果缺少 code 或 market: {selected}")
-        if resolved_code != stock_query:
-            self._log_info(f"股票 {stock_query} 已解析为代码 {resolved_code}, market={market}")
-        return resolved_code, market
 
     @staticmethod
     def _normalize_year_values(values, field_name):
@@ -487,7 +452,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                         if success:
                             success_count += 1
-                            self._log_info(f'第 {current_step} 个参数组合执行成功，{result}')
+                            self._log_info(
+                                f'第 {current_step} 个参数组合执行成功，'
+                                f'结果摘要: {self._summarize_result_for_log(result)}'
+                            )
                         else:
                             self._log_warning(f'第 {current_step} 个参数组合执行失败')
                             failed_count += 1
@@ -809,25 +777,11 @@ class BacktestTrainingService(BaseGoogleSheetService):
     ):
         """保存任务结果到数据库，包含重试逻辑"""
 
-        def build_returns_json(return_rows):
-            """将收益明细整理为可写入远端结果记录的 JSON 结构。"""
-            dates = []
-            index_returns = []
-            start_returns = []
-            for item in return_rows or []:
-                dates.append(item.get('stock_date') or item.get('date'))
-                index_returns.append(item.get('index_return'))
-                start_returns.append(item.get('start_return'))
-            return json.dumps({
-                "dates": dates,
-                "index_returns": index_returns,
-                "start_returns": start_returns,
-            }, ensure_ascii=False, allow_nan=False)
-
         def save_result_operation():
-            """保存单品回测结果及关联的收益序列。"""
-            safe_parameters = self._sanitize_json_value(parameters)
-            safe_result = self._sanitize_json_value(result)
+            safe_parameters = self._normalize_result_parameters(parameters)
+            safe_result = self._sanitize_json_value(
+                self._prepare_result_for_persistence(result)
+            )
             task_result = _task_result_repository.save({
                 "task_id": self.task_id,
                 "step_index": step_index,
@@ -836,14 +790,28 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 "success": success,
             })
             if return_date:
-                return_series = _task_result_return_repository.save({
-                    "task_id": self.task_id,
-                    "returns_json": build_returns_json(return_date),
-                })
+                series_fields = build_return_series_fields(
+                    return_date,
+                    stock_code=safe_parameters.get("stock_code"),
+                    stock_name=(
+                        safe_parameters.get("stock_name")
+                        or safe_parameters.get("name")
+                        or safe_parameters.get("stock_code")
+                    ),
+                )
+                if not series_fields:
+                    raise ValueError("收益序列缺少有效日期")
+                return_series = TaskResultReturn(
+                    task_id=self.task_id,
+                    **series_fields,
+                )
+                db.session.add(return_series)
+                db.session.flush()
                 _task_result_repository.save({
                     **task_result,
-                    "return_series_id": return_series.get("id"),
+                    "return_series_id": return_series.id,
                 })
+            db.session.commit()
 
         try:
             if self.app:
@@ -854,8 +822,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 with current_app.app_context():
                     safe_db_operation(save_result_operation)
         except Exception as e:
+            db.session.rollback()
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
+            raise
 
     def _get_all_parameters(
         self,
@@ -960,19 +930,15 @@ class BacktestTrainingService(BaseGoogleSheetService):
         #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         # else:
         #     klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
-        resolved_code = stock_code
-        resolved_market = exchange_market
-        resolved_code, resolved_market = self._resolve_dfcf_stock_quote(stock_code, exchange_market)
-
         klines = self.kline_service.get_kline_data(
-            resolved_code,
+            stock_code,
             market_type,
             limit,
             data_source=data_source,
             start_date=start_date,
             end_date=effective_end_date,
             adjust_type=adjust_type,
-            exchange_market=resolved_market,
+            exchange_market=exchange_market,
         )
         if klines and klines[0].get("stock_code"):
             stock_code = klines[0]["stock_code"]

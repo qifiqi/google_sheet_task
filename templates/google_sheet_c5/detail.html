@@ -1270,6 +1270,8 @@
             {label: '统计方式', value: formatCountMode(config.count_mode || 'total'), icon: 'bi-calculator'},
             {label: '价格类型', value: formatPriceMode(config.price_mode || 'vwap_price'), icon: 'bi-currency-exchange'},
             {label: '市场类型', value: formatMarketType(config.market_type || 'cn'), icon: 'bi-graph-up-arrow'},
+            {label: '市场代码', value: config.exchange_market || config.market || '-', icon: 'bi-building'},
+            {label: '数据源', value: config.kline_data_source || config.data_source || '-', icon: 'bi-database'},
             {label: '时间范围类型', value: dateRangeModeDisplay, icon: 'bi-clock-history'},
             {label: '数据时间范围', value: dateRange, icon: 'bi-calendar-range'},
             {label: '移除的近年区间', value: formatExcludedYears(config.exclude_recent_years), icon: 'bi-x-circle'},

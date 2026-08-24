@@ -26,7 +26,6 @@ class XPLAnalyzer:
         self.data = []
         self.metrics = {}
 
-
     @staticmethod
     def monthly_maximum_drawdown(df):
         """
@@ -75,7 +74,6 @@ class XPLAnalyzer:
             result['year_maximum_drawdown'].append(_)
 
         return result
-
 
     @staticmethod
     def calculate_max_drawdown_by_year_and_total(df):
@@ -339,7 +337,7 @@ class XPLAnalyzer:
                 # Record monthly data
                 monthly_data.append({
                     'year_month': month,  # 年月 Year and month
-                    'monthly_return': round(monthly_return,4),  # 月收益率 Monthly return
+                    'monthly_return': round(monthly_return, 4),  # 月收益率 Monthly return
                     'year': current_month_end['year'],  # 年份 Year
                     'date': current_month_end['date']  # 日期 Date
                 })
@@ -363,7 +361,7 @@ class XPLAnalyzer:
                 - 键为时间段标识（如'all', 'year_1_2023'等）
                   Keys are period identifiers (e.g., 'all', 'year_1_2023', etc.)
                 - 值为包含夏普比率、年化标准差、平均月收益率等指标的字典
-                  Values are dictionaries containing Sharpe ratio, annualized standard deviation, 
+                  Values are dictionaries containing Sharpe ratio, annualized standard deviation,
                   average monthly return, etc.
         """
         # 计算月度收益率数据
@@ -518,7 +516,7 @@ class XPLAnalyzer:
     def calculate_sotino_ratio(self, monthly_data: pd.DataFrame):
         """
             所提诺比例
-            月均年化收益率/下行标准差	
+            月均年化收益率/下行标准差
                 # 下行边准差	所有月低于0的收益率的标准差*√12
                 下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
                月均年化收益率	月均收益率*12（所有月）
@@ -568,7 +566,7 @@ class XPLAnalyzer:
         """
             盈利年百分比 = 年收益率大于0/区间总年份
             returns_rate 年度收益率列表 回报率
-            
+
         """
 
         annual_return = [i for i in returns_rate if i['annual_return'] > 0]
@@ -647,7 +645,7 @@ class XPLAnalyzer:
             (
                     excess_return['start_monthly_return'] -
                     excess_return['index_monthly_return']
-            ),4
+            ), 4
         )
         excess_return['date'] = excess_return['date'].dt.strftime("%Y/%m/%d")
         excess_return['index_date'] = excess_return['index_date'].dt.strftime("%Y/%m/%d")
@@ -725,7 +723,6 @@ class XPLAnalyzer:
     #     return int(data_df['previous_max'].value_counts().max())
     #     # d_max = data_df['previous_max'].max()
     #     # return data_df[data_df['previous_max'] == d_max]['previous_max'].count()
-
 
     def maximum_number_of_backtest_repair_days(self, data_df):
         """
@@ -1272,7 +1269,6 @@ class XPLAnalyzer:
 
             return _data, _data_result, sheet_df
 
-
         if 'C5' in title:
             last_now_num = google_sheet.get_last_row("A")
             if last_now_num < 10:
@@ -1529,7 +1525,7 @@ class XPLAnalyzer:
 
         return result, analyze_result
 
-    def get_calculate_metrics_v1(self,data):
+    def get_calculate_metrics_v1(self, data):
         """执行 V1 格式数据的指标计算。"""
         return self._calculate_metrics_v1(data)
 
@@ -1643,7 +1639,8 @@ class XPLAnalyzer:
             monthly_excess_returns_diff = monthly_excess_returns['monthly_excess_return_diff'].mask(
                 monthly_excess_returns['monthly_excess_return_diff'] > 0, 0
             )
-            excess_of_promissory_note = (monthly_excess_return_diff_mean * 12) / (monthly_excess_returns_diff.std() * np.sqrt(12))
+            excess_of_promissory_note = (monthly_excess_return_diff_mean * 12) / (
+                        monthly_excess_returns_diff.std() * np.sqrt(12))
 
             # 在完整的考察区间内，基金净值从某一个峰值下跌后，重新回到该峰值水平 所需要的【最长】天数。
             index_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(index_df)
@@ -1652,7 +1649,6 @@ class XPLAnalyzer:
             # 将完整的考察区间按【自然年份】拆分，分别计算每一年的最大回测修复天数。 取最大值
             year_index_yearly_max_repair_days = self.yearly_max_repair_days(index_df)
             year_start_yearly_max_repair_days = self.yearly_max_repair_days(start_df)
-
 
             # 超额最大回测修复天数 = start - index
             data_df_2 = pd.DataFrame()
@@ -1752,6 +1748,18 @@ class XPLAnalyzer:
     def _format_export_metric(value, format_spec):
         """按给定格式输出指标，缺失值统一展示为占位符。"""
         return '--' if value is None else f"{value:{format_spec}}"
+
+    @staticmethod
+    def _max_yearly_repair_days(yearly_repair_days):
+        """返回年度最大修复天数中的最大值。"""
+        if not isinstance(yearly_repair_days, dict):
+            return None
+        values = [
+            value for value in yearly_repair_days.values()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value)
+        ]
+        return max(values) if values else None
 
     def format_export_file_data(self, data):
         """将分析结果整理为 XPL 导出文件需要的二维数据。"""
@@ -1855,10 +1863,17 @@ class XPLAnalyzer:
 
         excess_sharp = analyze_result.get('excess_sharp')
         excess_of_promissory_note = analyze_result.get('excess_of_promissory_note')
+        # 最大回测修复天数
         start_maximum_number_of_backtest_repair_days = analyze_result.get(
             'start_maximum_number_of_backtest_repair_days')
         excess_maximum_number_of_backtest_repair_days = analyze_result.get(
             'excess_maximum_number_of_backtest_repair_days')
+        year_index_max_repair_days = self._max_yearly_repair_days(
+            analyze_result.get('year_index_yearly_max_repair_days')
+        )
+        year_start_max_repair_days = self._max_yearly_repair_days(
+            analyze_result.get('year_start_yearly_max_repair_days')
+        )
 
         data_1_2d = [
             ["标的", "", "", ""],
@@ -1881,6 +1896,8 @@ class XPLAnalyzer:
             ["回撤", "年最大回撤", "", f"-{start_drawdown:.2%}"],
             ["回撤", "最大修复天数", "", f"{start_maximum_number_of_backtest_repair_days}"],
             ["回撤", "超额最大修复天数", "", f"{excess_maximum_number_of_backtest_repair_days}"],
+            ["回撤", "年最大回测修复天数", self._format_export_metric(year_index_max_repair_days, '.0f'),
+             self._format_export_metric(year_start_max_repair_days, '.0f')],
             ["比率", "夏普比率", self._format_export_metric(index_sharpe_ratio, '.2'),
              self._format_export_metric(start_sharpe_ratio, '.2')],  # 注意：数字后面有空格
             ["比率", "卡玛比率", self._format_export_metric(index_kama_ratio, '.2'),
@@ -1946,7 +1963,7 @@ class XPLAnalyzer:
         data_4_start_row = 3
         data_4_end_row = data_4_start_row + len(data_4_2d)
 
-        target_df.iloc[0:23, 0:4] = data_1_2d
+        target_df.iloc[0:len(data_1_2d), 0:4] = data_1_2d
         target_df.iloc[24:29, 0:data_2_col_num] = data_2_2d
         target_df.iloc[30:35, 0:data3_col_num] = data_3_2d
         target_df.iloc[data_4_start_row:data_4_end_row, 9:12] = data_4_2d
@@ -1989,7 +2006,7 @@ if __name__ == "__main__":
     df2 = pd.DataFrame(parsed_data)
     df2['index_return'] = df2['daily_return']
     df2['start_return'] = df2['daily_return']
-    print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')),ensure_ascii=False,indent=4))
+    print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')), ensure_ascii=False, indent=4))
     # print(json.dumps(xpl_analyzer._calculate_metrics_v1(df.to_dict(orient='records')),ensure_ascii=False))
     # print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')),ensure_ascii=False))
     # xpl_analyzer._calculate_metrics(parsed_data)

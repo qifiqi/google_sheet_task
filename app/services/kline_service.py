@@ -11,7 +11,9 @@ from datetime import datetime, timedelta
 import logging
 from typing import Any, Callable, Iterable
 from app.repositories.stock_market_data_repository import StockMarketDataRepository
+from app.services.stock_search_service import StockSearchService
 from app.utils.dfcf_api import DFCJStockApi
+from app.utils.market import normalize_market_type, supports_internal_kline, yahoo_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,7 @@ class KlineService:
         """装配外部行情源与内部 K 线 SDK 仓储，便于替换和定向测试。"""
         self.dfcf_api = dfcf_api or DFCJStockApi()
         self.stock_data_repository = stock_data_repository or StockMarketDataRepository()
+        self.stock_search_service = StockSearchService(dfcf_api=self.dfcf_api)
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
         self.sources: dict[str, Callable[[dict[str, Any]], Iterable[dict[str, Any]]]] = {
@@ -117,6 +120,8 @@ class KlineService:
 
     def read_internal_kline_data(self, **_kwargs: Any) -> list[dict[str, Any]]:
         """经 Repository 从远端读取内置 K 线，并转换成统一字段。"""
+        if not supports_internal_kline(_kwargs.get("market_type")):
+            return []
         stock_code = _kwargs.get("stock_code")
 
         if str(stock_code).isdigit():
@@ -149,6 +154,8 @@ class KlineService:
 
     def write_internal_kline_data(self, rows: list[dict[str, Any]], **_kwargs: Any) -> list[Any]:
         """经 Repository 并发写入远端内置 K 线，仅处理前复权数据。"""
+        if not supports_internal_kline(_kwargs.get("market_type")):
+            return []
         if _kwargs.get("adjust_type") != 'forward':
             return []
 
@@ -220,23 +227,26 @@ class KlineService:
         """按数据源和市场读取指定股票、日期范围内的 K 线数据。"""
         source = self.normalize_data_source(data_source, self.sources)
         code = str(stock_code or "").strip().upper()
+        market_type = normalize_market_type(market_type, "cn")
         if not code:
             raise ValueError("股票代码不能为空")
         limit = max(1, int(limit or 1))
 
-        internal_rows = self._normalize_rows(
-            self.read_internal_kline_data(
-                stock_code=code,
-                market_type=market_type,
-                limit=limit,
-                start_date=start_date,
-                end_date=end_date,
-                adjust_type=adjust_type,
-            ),
-            code,
-            stock_name,
-            DATA_SOURCE_DATABASE,
-        )
+        internal_rows = []
+        if source == DATA_SOURCE_DATABASE and supports_internal_kline(market_type):
+            internal_rows = self._normalize_rows(
+                self.read_internal_kline_data(
+                    stock_code=code,
+                    market_type=market_type,
+                    limit=limit,
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust_type=adjust_type,
+                ),
+                code,
+                stock_name,
+                DATA_SOURCE_DATABASE,
+            )
         if self._covers_range(internal_rows, start_date, end_date, limit):
             return internal_rows[:limit]
         # database/internal 是“优先读内置库”的兼容写法；不足时仍按默认 DFCF 回退。
@@ -255,7 +265,7 @@ class KlineService:
             end_date,
         )
         normalized_rows = self._normalize_rows(rows, code, resolved_name, source)
-        if normalized_rows:
+        if normalized_rows and supports_internal_kline(market_type):
             self.write_internal_kline_data(
                 normalized_rows,
                 stock_code=code,
@@ -289,7 +299,14 @@ class KlineService:
         end_date: str | None,
     ) -> tuple[Iterable[dict[str, Any]], str]:
         """按指定行情源获取 K 线，并统一返回数据及解析出的股票名称。"""
-        if source in {DATA_SOURCE_YAHOO, DATA_SOURCE_TDX}:
+        if source == DATA_SOURCE_TDX:
+            exchange, resolved_name, resolved_code = (
+                str(exchange_market or ""),
+                str(stock_name or ""),
+                code,
+            )
+        elif source == DATA_SOURCE_YAHOO:
+            # Yahoo ticker 由代码和业务市场即可确定，不再调用东方财富搜索。
             exchange, resolved_name, resolved_code = (
                 str(exchange_market or ""),
                 str(stock_name or ""),
@@ -336,7 +353,11 @@ class KlineService:
     def _fetch_yahoo(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
         """调用 Yahoo Finance 行情源获取 K 线。"""
         return self._get_yahoo_api().get_kline_data(
-            request["stock_code"],
+            yahoo_symbol(
+                request["stock_code"],
+                request.get("market_type"),
+                request.get("exchange_market"),
+            ),
             "10y",
             adjust_type=request.get("adjust_type"),
         )
@@ -398,35 +419,20 @@ class KlineService:
         exchange_market: str | None,
         stock_name: str | None,
     ) -> tuple[str, str, str]:
-        """解析外部行情请求使用的交易所代码、股票名称和规范代码。"""
-        normalized_market = str(market_type or "cn").strip().lower()
-        if normalized_market not in {"cn", "a股", "china"}:
-            if stock_name:
-                return str(exchange_market or "105"), str(stock_name), code
-            try:
-                matches = self.dfcf_api.get_search_list_by_stock_code(code, 10) or []
-                match = next((item for item in matches if str(item.get("code") or "").upper() == code), matches[0] if matches else {})
-                return (
-                    str(exchange_market or match.get("market") or "105"),
-                    str(match.get("shortName") or match.get("name") or ""),
-                    str(match.get("code") or code).strip().upper(),
-                )
-            except Exception as exc:
-                logger.warning("解析股票名称失败 code=%s: %s", code, exc)
-                return str(exchange_market or "105"), "", code
-        if exchange_market:
-            return str(exchange_market), str(stock_name or ""), code
-        try:
-            matches = self.dfcf_api.get_search_list_by_stock_code(code, 10) or []
-            match = next((item for item in matches if str(item.get("code") or "").upper() == code), matches[0] if matches else {})
-            return (
-                str(match.get("market") or "1"),
-                str(stock_name or match.get("shortName") or ""),
-                str(match.get("code") or code).strip().upper(),
+        resolved = self.stock_search_service.resolve_stock(code, market_type)
+        selected_exchange_market = str(exchange_market or "").strip()
+        if selected_exchange_market and selected_exchange_market != resolved["exchange_market"]:
+            logger.warning(
+                "任务传入交易市场与查询结果不一致 code=%s provided=%s resolved=%s",
+                code,
+                selected_exchange_market,
+                resolved["exchange_market"],
             )
-        except Exception as exc:
-            logger.warning("解析股票市场信息失败 code=%s: %s", code, exc)
-            return "1", str(stock_name or ""), code
+        return (
+            resolved["exchange_market"],
+            str(stock_name or resolved["name"]),
+            resolved["code"],
+        )
 
     def _get_qq_api(self) -> Any:
         """延迟创建 QQ 行情客户端，避免未使用时初始化网络依赖。"""

@@ -101,6 +101,29 @@ class BaseGoogleSheetService:
 
         return value
 
+    def _normalize_result_parameters(self, parameters: Any) -> dict[str, Any]:
+        """Ensure persisted result parameters always contain stock_code."""
+        safe = self._sanitize_json_value(parameters)
+        normalized = dict(safe) if isinstance(safe, dict) else {"parameters": safe}
+        stock_code = (
+            normalized.get("stock_code")
+            or normalized.get("stock_no")
+            or normalized.get("symbol")
+            or (self.config or {}).get("stock_code")
+        )
+        if not stock_code and self.task and self.task.config:
+            try:
+                task_config = (
+                    self.task.config
+                    if isinstance(self.task.config, dict)
+                    else json.loads(self.task.config)
+                )
+                stock_code = task_config.get("stock_code") if isinstance(task_config, dict) else None
+            except (TypeError, ValueError):
+                stock_code = None
+        normalized["stock_code"] = str(stock_code or "").strip()
+        return normalized
+
 
     def _is_cancel_requested(self) -> bool:
         """同时检查进程内停止事件与远端任务取消状态。"""
@@ -213,7 +236,6 @@ class BaseGoogleSheetService:
     def _save_to_database(self, level: str, message: str):
         """在可用应用上下文中调用仓储保存任务日志。"""
         def save_log_operation():
-            """通过远程仓储写入单条任务日志。"""
             _task_log_repository.save({"task_id": self.task_id, "level": level, "message": message})
 
         try:
@@ -226,7 +248,47 @@ class BaseGoogleSheetService:
                 with current_app.app_context():
                     safe_db_operation(save_log_operation)
         except Exception:
+            # 提交失败后 SQLAlchemy session 会处于 failed state；必须回滚，
+            # 否则后续任务结果写入会触发 PendingRollbackError。
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
             pass
+
+    def _summarize_result_for_log(self, result: Any) -> str:
+        """返回不包含收益序列的短结果摘要，避免将大对象写入任务日志。"""
+        if not isinstance(result, dict):
+            return str(result)[:1000]
+
+        summary = {}
+        for key, value in result.items():
+            if key in {"_return_date", "return_date", "returns_json"}:
+                continue
+            if isinstance(value, (list, tuple, dict)):
+                summary[key] = f"<{type(value).__name__}, len={len(value)}>"
+            else:
+                summary[key] = value
+        return json.dumps(
+            self._sanitize_json_value(summary),
+            ensure_ascii=False,
+            default=str,
+        )[:1000]
+
+    @classmethod
+    def _prepare_result_for_persistence(cls, result: Any):
+        """移除已单独保存到 TaskResultReturn 的收益明细，保留结果指标。"""
+        if isinstance(result, dict):
+            return {
+                key: cls._prepare_result_for_persistence(value)
+                for key, value in result.items()
+                if key not in {"_return_date", "return_date", "returns_json"}
+            }
+        if isinstance(result, list):
+            return [cls._prepare_result_for_persistence(value) for value in result]
+        if isinstance(result, tuple):
+            return [cls._prepare_result_for_persistence(value) for value in result]
+        return result
 
     def _log_info(self, message: str, log_type: str = 'general', **kwargs):
         """记录 info 级任务日志。"""

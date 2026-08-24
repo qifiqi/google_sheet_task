@@ -426,6 +426,8 @@ def test_extract_backtest_uses_global_preview_model_value_columns():
                     "start_maximum_drawdown": {"total_maximum_drawdown": {"drawdown": -0.18}},
                     "start_maximum_number_of_backtest_repair_days": 33,
                     "excess_maximum_number_of_backtest_repair_days": 21,
+                    "year_index_yearly_max_repair_days": {"2024": 8, "2025": 13},
+                    "year_start_yearly_max_repair_days": {"2024": 11, "2025": 19},
                     "start_kama_ratio": [{"year": "all", "kama_ratio": 2.2}],
                     "start_sotino_ratio": [{"year": "all", "sotino_ratio": 1.7}],
                     "excess_sharp": 0.88,
@@ -443,6 +445,7 @@ def test_extract_backtest_uses_global_preview_model_value_columns():
     assert rows[0].metrics["absolute_annualized_return"] == "12.00%"
     assert rows[0].metrics["relative_annualized_excess_return"] == "4.00%"
     assert rows[0].metrics["ratio_sharpe_ratio"] == "1.23"
+    assert rows[0].metrics["drawdown_year_max_repair_days"] == "19"
     assert "index_annualized_rate" not in rows[0].metrics
 
 

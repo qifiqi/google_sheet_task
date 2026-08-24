@@ -7,7 +7,7 @@
 import json
 import os
 
-from sqlalchemy import Boolean, String, cast, case, func, inspect, text, update
+from sqlalchemy import Boolean, String, Text, cast, case, func, inspect, text, update
 from werkzeug.security import generate_password_hash
 
 from app.config import PERMISSIONS, init_config
@@ -243,14 +243,100 @@ def ensure_backtest_runtime_schema():
 
 
 def ensure_task_result_return_schema():
-    """补齐任务收益序列表及其查询索引。"""
+    """补齐老库的收益序列拆分字段；旧 returns_json 不再写入。"""
     inspector = inspect(db.engine)
-    if 'task_results_return' not in inspector.get_table_names():
+    table_name = next(
+        (name for name in ("t_param_task_results_return", "task_results_return")
+         if name in inspector.get_table_names()),
+        None,
+    )
+    if not table_name:
         return
-    columns = {column['name'] for column in inspector.get_columns('task_results_return')}
-    if 'returns_json' not in columns:
-        _add_column('task_results_return', 'returns_json', 'TEXT')
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    definitions = {
+        "stock_code": "VARCHAR(20)",
+        "stock_name": "VARCHAR(20)",
+        "start_return_date": "DATE",
+        "end_return_date": "DATE",
+        "return_length": "INTEGER",
+    }
+    changed = False
+    for name, definition in definitions.items():
+        if name not in columns:
+            _add_column(table_name, name, definition)
+            changed = True
+    if changed:
         db.session.commit()
+
+
+def ensure_task_log_schema():
+    """兼容旧库，将任务日志内容列升级为 TEXT。"""
+    inspector = inspect(db.engine)
+    table_name = "t_param_task_logs"
+    if table_name not in inspector.get_table_names():
+        return
+
+    message_column = next(
+        (column for column in inspector.get_columns(table_name) if column["name"] == "message"),
+        None,
+    )
+    if message_column is None or isinstance(message_column["type"], Text):
+        return
+
+    quoted_table = _quoted_identifier(table_name)
+    quoted_column = _quoted_identifier("message")
+    dialect_name = db.engine.dialect.name
+    if dialect_name == "mysql":
+        db.session.execute(text(
+            f"ALTER TABLE {quoted_table} MODIFY COLUMN {quoted_column} TEXT NOT NULL"
+        ))
+    elif dialect_name == "postgresql":
+        db.session.execute(text(
+            f"ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} TYPE TEXT"
+        ))
+    else:
+        return
+    db.session.commit()
+
+
+def ensure_task_result_payload_schema():
+    """兼容旧 MySQL 库，扩大任务结果 JSON 字段容量。"""
+    inspector = inspect(db.engine)
+    table_name = "t_param_task_results"
+    if table_name not in inspector.get_table_names():
+        return
+
+    columns = {
+        column["name"]: column
+        for column in inspector.get_columns(table_name)
+    }
+    dialect_name = db.engine.dialect.name
+    if dialect_name == "mysql":
+        payload_columns = [name for name in ("result", "parameters") if name in columns]
+        if not payload_columns:
+            return
+        needs_upgrade = any(
+            str(columns[name]["type"]).upper() not in {"MEDIUMTEXT", "LONGTEXT"}
+            for name in payload_columns
+        )
+        if needs_upgrade:
+            clauses = ", ".join(
+                f"MODIFY COLUMN {_quoted_identifier(name)} MEDIUMTEXT NULL"
+                for name in payload_columns
+            )
+            db.session.execute(text(
+                f"ALTER TABLE {_quoted_identifier(table_name)} {clauses}"
+            ))
+    elif dialect_name == "postgresql":
+        for name in ("result", "parameters", "error_message"):
+            if name in columns and not isinstance(columns[name]["type"], Text):
+                db.session.execute(text(
+                    f"ALTER TABLE {_quoted_identifier(table_name)} "
+                    f"ALTER COLUMN {_quoted_identifier(name)} TYPE TEXT"
+                ))
+    else:
+        return
+    db.session.commit()
 
 
 def ensure_navigation_menu_schema():
@@ -643,6 +729,8 @@ def _initialize_database_schema():
         ensure_task_result_schema,
         ensure_scheduled_task_schema,
         ensure_task_result_return_schema,
+        ensure_task_log_schema,
+        ensure_task_result_payload_schema,
         ensure_task_result_summary_index_schema,
         ensure_stock_metadata_schema,
         ensure_backtest_runtime_schema,

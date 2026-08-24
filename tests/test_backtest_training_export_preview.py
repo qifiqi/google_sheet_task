@@ -5,6 +5,7 @@ from urllib.parse import unquote
 from app.extensions import db
 from app.models import Task, TaskResult
 from app.routes.backtest_training import _build_backtest_result_export_data
+from app.services.backtest_training_api_service import _extract_summary_rows
 from app.services.xpl_service import xpl_analyzer
 
 
@@ -84,12 +85,36 @@ def test_export_preview_matches_export_formatter(app_factory, monkeypatch):
         assert all(len(row) == 20 for row in payload["rows"])
         assert payload["rows"] == expected_rows
         assert payload["filename"] == expected_export_data["filename"]
+        yearly_repair_days_row = next(
+            row for row in payload["rows"] if row[1] == "年最大回测修复天数"
+        )
+        metrics = expected_export_data["analyze_result"]
+        assert yearly_repair_days_row[2] == str(
+            max(metrics["year_index_yearly_max_repair_days"].values())
+        )
+        assert yearly_repair_days_row[3] == str(
+            max(metrics["year_start_yearly_max_repair_days"].values())
+        )
 
         page_response = app.test_client().get(
             f"/backtest-training/result/{task_result.id}/export-preview?result_page=1"
         )
         assert page_response.status_code == 200
         assert b"copyAllButton" in page_response.data
+
+
+def test_global_preview_uses_largest_yearly_repair_days():
+    _period_text, rows = _extract_summary_rows({
+        "year_index_yearly_max_repair_days": {"2023": 4, "2024": 8},
+        "year_start_yearly_max_repair_days": {"2023": 6, "2024": 10},
+    }, "C3")
+
+    yearly_repair_days_row = next(
+        row for row in rows if row["metric"] == "年最大回测修复天数"
+    )
+
+    assert yearly_repair_days_row["index_value"] == "8"
+    assert yearly_repair_days_row["model_value"] == "10"
 
 
 def test_export_preview_download_uses_same_export_data(app_factory, monkeypatch):
