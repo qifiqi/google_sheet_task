@@ -27,23 +27,39 @@ class TaskLogMixin:
         """
         try:
             if has_app_context():
-                log = TaskLog(task_id=task_id, level=level, message=message)
+                log = TaskLog(
+                    task_id=task_id,
+                    level=level,
+                    message=TaskLog.normalize_message(message),
+                )
                 db.session.add(log)
                 db.session.commit()
                 return
 
             if app:
                 with app.app_context():
-                    log = TaskLog(task_id=task_id, level=level, message=message)
+                    log = TaskLog(
+                        task_id=task_id,
+                        level=level,
+                        message=TaskLog.normalize_message(message),
+                    )
                     db.session.add(log)
                     db.session.commit()
                 return
 
             with current_app.app_context():
-                log = TaskLog(task_id=task_id, level=level, message=message)
+                log = TaskLog(
+                    task_id=task_id,
+                    level=level,
+                    message=TaskLog.normalize_message(message),
+                )
                 db.session.add(log)
                 db.session.commit()
         except Exception as exc:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
             logger.error("添加任务日志失败: %s", exc)
 
     def get_task_logs(self, task_id: str, limit: int = 500) -> list[dict]:

@@ -316,7 +316,10 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         if success:
                             success_count += 1
-                            self._log_info(f'第 {current_step} 个参数组合执行成功，{result}')
+                            self._log_info(
+                                f'第 {current_step} 个参数组合执行成功，'
+                                f'结果摘要: {self._summarize_result_for_log(result)}'
+                            )
                         else:
                             self._log_warning(f'第 {current_step} 个参数组合执行失败')
                             failed_count += 1
@@ -393,7 +396,9 @@ class GoogleSheetService(BaseGoogleSheetService):
         def save_result_operation():
             _index_start_return_date = None
             safe_parameters = self._normalize_result_parameters(parameters)
-            safe_result = self._sanitize_json_value(result)
+            safe_result = self._sanitize_json_value(
+                self._prepare_result_for_persistence(result)
+            )
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
@@ -423,8 +428,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                 with current_app.app_context():
                     safe_db_operation(save_result_operation)
         except Exception as e:
+            db.session.rollback()
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
+            raise
 
 
 

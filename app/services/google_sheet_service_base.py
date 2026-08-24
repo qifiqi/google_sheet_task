@@ -208,7 +208,11 @@ class BaseGoogleSheetService:
 
     def _save_to_database(self, level: str, message: str):
         def save_log_operation():
-            log = TaskLog(task_id=self.task_id, level=level, message=message)
+            log = TaskLog(
+                task_id=self.task_id,
+                level=level,
+                message=TaskLog.normalize_message(message),
+            )
             db.session.add(log)
             db.session.commit()
 
@@ -222,7 +226,47 @@ class BaseGoogleSheetService:
                 with current_app.app_context():
                     safe_db_operation(save_log_operation)
         except Exception:
+            # 提交失败后 SQLAlchemy session 会处于 failed state；必须回滚，
+            # 否则后续任务结果写入会触发 PendingRollbackError。
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
             pass
+
+    def _summarize_result_for_log(self, result: Any) -> str:
+        """返回不包含收益序列的短结果摘要，避免将大对象写入任务日志。"""
+        if not isinstance(result, dict):
+            return str(result)[:1000]
+
+        summary = {}
+        for key, value in result.items():
+            if key in {"_return_date", "return_date", "returns_json"}:
+                continue
+            if isinstance(value, (list, tuple, dict)):
+                summary[key] = f"<{type(value).__name__}, len={len(value)}>"
+            else:
+                summary[key] = value
+        return json.dumps(
+            self._sanitize_json_value(summary),
+            ensure_ascii=False,
+            default=str,
+        )[:1000]
+
+    @classmethod
+    def _prepare_result_for_persistence(cls, result: Any):
+        """移除已单独保存到 TaskResultReturn 的收益明细，保留结果指标。"""
+        if isinstance(result, dict):
+            return {
+                key: cls._prepare_result_for_persistence(value)
+                for key, value in result.items()
+                if key not in {"_return_date", "return_date", "returns_json"}
+            }
+        if isinstance(result, list):
+            return [cls._prepare_result_for_persistence(value) for value in result]
+        if isinstance(result, tuple):
+            return [cls._prepare_result_for_persistence(value) for value in result]
+        return result
 
     def _log_info(self, message: str, log_type: str = 'general', **kwargs):
         self._log('info', message, log_type, **kwargs)

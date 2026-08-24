@@ -953,7 +953,9 @@ class BacktestMultiProductService(BacktestTrainingService):
                 safe_result_payload,
                 weighted_calculate_metrics,
             )
-            safe_result = self._sanitize_json_value(safe_result_payload)
+            safe_result = self._sanitize_json_value(
+                self._prepare_result_for_persistence(safe_result_payload)
+            )
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
@@ -990,7 +992,9 @@ class BacktestMultiProductService(BacktestTrainingService):
             with context_app.app_context():
                 safe_db_operation(save_result_operation)
         except Exception as exc:
+            db.session.rollback()
             self._log_error(f"保存多品任务结果失败: {exc}")
+            raise
 
     def _build_product_config(self, config_data: dict[str, Any], product: dict[str, Any]) -> dict[str, Any]:
         product_config = dict(config_data)

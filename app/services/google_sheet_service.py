@@ -1043,7 +1043,9 @@ class GoogleSheetService(BaseGoogleSheetService):
         """保存任务结果到数据库，包含重试逻辑"""
         def save_result_operation():
             safe_parameters = self._normalize_result_parameters(parameters)
-            safe_result = self._sanitize_json_value(result)
+            safe_result = self._sanitize_json_value(
+                self._prepare_result_for_persistence(result)
+            )
             task_result = TaskResult(
                 task_id=self.task_id,
                 step_index=step_index,
@@ -1076,8 +1078,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                 with current_app.app_context():
                     safe_db_operation(save_result_operation)
         except Exception as e:
+            db.session.rollback()
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
+            raise
             # 注意：这里不能使用_push_log，因为可能导致循环调用
 
     def _get_parameter_combination_by_index(self, parameters: List[List], index: int) -> List:
