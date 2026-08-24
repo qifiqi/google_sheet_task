@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..http_client import ApiGroup
-from ..models import IdRequestDto, RequsetPageDto, t_param_backtest_sheet_run_locks
+from ..models import GetParamBacktestSheetRunLocksListRequestDto, IdRequestDto, t_param_backtest_sheet_run_locks
 from ..response import ResponseDto
 from ._metadata import endpoint
 
@@ -21,7 +21,7 @@ class ParambacktestsheetrunlocksApi(ApiGroup):
     @endpoint('POST', '/api/ParamBacktestSheetRunLocks/GetDataByPageList')
     def get_data_by_page_list(
         self,
-        request: RequsetPageDto | Mapping[str, Any],
+        request: GetParamBacktestSheetRunLocksListRequestDto | Mapping[str, Any],
     ) -> ResponseDto[Any]:
         return self._call('POST', '/api/ParamBacktestSheetRunLocks/GetDataByPageList', json_body=request)
 

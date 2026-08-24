@@ -9,6 +9,15 @@ from typing import Any
 from ..model_base import SerializableModel
 
 @dataclass
+class GetParamTaskResultsListRequestDto(SerializableModel):
+    page_index: int | None = None
+    page_size: int | None = None
+    order_field: str | None = None
+    order_type: str | None = None
+    success: bool | None = None
+    task_ids: list[str] | None = None
+
+@dataclass
 class t_param_task_results(SerializableModel):
     id: int | None = None
     task_id: str | None = None
@@ -20,4 +29,4 @@ class t_param_task_results(SerializableModel):
     error_message: str | None = None
     timestamp: str | None = None
 
-__all__ = ['t_param_task_results']
+__all__ = ['GetParamTaskResultsListRequestDto', 't_param_task_results']

@@ -6,9 +6,9 @@ from io import BytesIO
 
 from flask import Blueprint, g, jsonify, request, send_file
 
-from app.extensions import db
-from app.models import Task
+from app.models import TaskType
 from app.repositories.task_repository import TaskRepository
+from app.repositories.task_result_repository import TaskResultRepository
 from app.services.export_file_service import (
     EXCEL_MIMETYPE,
     BatchExportFile,
@@ -33,6 +33,7 @@ logger = get_logger(__name__)
 task_api_bp = Blueprint('task_api', __name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
 _task_repository = TaskRepository()
+_task_result_repository = TaskResultRepository()
 
 TASK_ACTION_LABELS = {
     "view": "查看",
@@ -92,8 +93,8 @@ def tasks():
                 base_view_decision = authorize_task_type_action(current_user, "view", None)
                 if not base_view_decision["allowed"]:
                     return _task_permission_denied("view", "全部", base_view_decision)
-                # TODO: 可见任务类型依赖 ParamTasks/Query 的服务端 distinct 查询。
-                distinct_task_types = [item[0] for item in Task.query.with_entities(Task.task_type).distinct().all()]
+                # SDK 没有 distinct 能力，使用平台声明的任务类型集合进行权限过滤。
+                distinct_task_types = [item["value"] for item in TaskType.choices(include_system=True)]
                 allowed_task_types = filter_task_types_by_action(current_user, "view", distinct_task_types)
 
             default_page = page or 1
@@ -422,7 +423,7 @@ def batch_export_task_results():
 
     流程概览：
       1. 参数校验（数量上限、任务存在性、用户权限）
-      2. 一次 SQL 批量查询所有 TaskResult（替代原来的 N+1 循环）
+      2. 通过 ParamTaskResults HTTP 批量查询所有任务结果
       3. 按 task_name 排序后组装 merged_results
       4. 调用 build_batch_export_file 生成 Excel
       5. 返回带 Content-Length 的 send_file 响应（前端可展示进度条）
@@ -446,10 +447,24 @@ def batch_export_task_results():
                 "message": f"合并导出最多支持 {BATCH_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个",
             }), 400
 
-        # ② 查询任务对象并逐条校验权限
-        tasks = Task.query.filter(Task.id.in_(task_ids)).all()
+        # ② SDK 不支持 ids 条件，按所有已知任务类型读取最近 100 条，再在业务层匹配 ID。
+        task_types = [item["value"] for item in TaskType.choices(include_system=True)]
+        candidate_tasks = _task_repository.list_tasks(
+            page_size=100,
+            task_types=task_types,
+            order_field="created_at",
+            order_type="desc",
+        )["items"]
+        requested_ids = {str(task_id) for task_id in task_ids}
+        tasks = [task for task in candidate_tasks if str(task.id) in requested_ids]
         if not tasks:
             return jsonify({"status": "error", "message": "未找到匹配任务"}), 404
+        missing_ids = requested_ids - {str(task.id) for task in tasks}
+        if missing_ids:
+            return jsonify({
+                "status": "error",
+                "message": f"未找到任务: {', '.join(sorted(missing_ids))}",
+            }), 404
 
         current_user = getattr(g, "current_user", None)
         for t in tasks:
@@ -457,33 +472,34 @@ def batch_export_task_results():
             if not decision["allowed"]:
                 return _task_permission_denied("view", t.task_type, decision, task_id=t.id)
 
-        # ③ 批量查询 TaskResult
-        #    只选择导出需要的列（task_id, step_index, result），跳过 parameters（巨大JSON，
-        #    包含 kline 数据，单行 ~10KB）、return_series_id、error_message、timestamp 等无关列。
-        #    导出场景数据量大（~100MB/万行），避免读取无关的大字段。
+        # ③ 通过 HTTP 按多个任务 UUID 查询 TaskResult，按 timestamp 倒序。
         _t_query = time.time()
-        from app.models import TaskResult
-        _slim_stmt = (
-            db.session.query(
-                TaskResult.task_id,
-                TaskResult.step_index,
-                TaskResult.result,
+        raw_rows = []
+        result_page_index = 1
+        while True:
+            result_page = _task_result_repository.list_results(
+                page_index=result_page_index,
+                page_size=200,
+                task_ids=[str(task_id) for task_id in task_ids],
+                order_field="timestamp",
+                order_type="desc",
             )
-            .filter(TaskResult.task_id.in_(task_ids))
-            .order_by(TaskResult.task_id, TaskResult.step_index.asc())
-            .statement
-        )
-        with db.engine.connect() as conn:
-            with conn.begin():
-                raw_rows = conn.execute(_slim_stmt).fetchall()
+            raw_rows.extend(result_page["items"])
+            if not result_page["items"] or len(raw_rows) >= result_page["total"]:
+                break
+            result_page_index += 1
         logger.info(f"[batch-export] DB query: {time.time()-_t_query:.2f}s, {len(raw_rows)} rows")
 
         # ④ 按 task_name 排序后组装 merged_results
         #    将原始行转为导出所需的 dict 格式（不含 parameters，kline_range 默认为 "-"）
         tasks.sort(key=lambda t: t.name or "")
         result_map: dict[str, list] = {}
-        for task_id, step_index, result_json in raw_rows:
-            parsed_result = json.loads(result_json) if result_json else {}
+        for result_item in raw_rows:
+            task_id = result_item.get("task_id")
+            step_index = result_item.get("step_index")
+            parsed_result = result_item.get("result") or {}
+            if isinstance(parsed_result, str):
+                parsed_result = json.loads(parsed_result) if parsed_result else {}
             result_map.setdefault(task_id, []).append({
                 "task_id": task_id,
                 "step_index": step_index,

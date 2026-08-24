@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app.models import TaskResult
 from app.repositories.task_result_repository import TaskResultRepository
 
 _task_result_repository = TaskResultRepository()
@@ -12,7 +11,7 @@ class TaskResultMixin:
     """封装任务结果读取逻辑。"""
 
     def save_task_result(self, payload):
-        """写入一条任务结果；按 task_id 的列表查询仍等待专用 Query。"""
+        """写入一条任务结果。"""
         return _task_result_repository.save(payload)
 
     def get_task_result(self, result_id: int):
@@ -33,27 +32,47 @@ class TaskResultMixin:
 
         传入分页参数时返回分页结构，否则返回完整结果列表。
         """
-        # TODO: 按 task_id、步骤和成功状态读取必须等待 ParamTaskResults/Query，
-        # 当前保留 ORM 查询以维持页面语义，禁止 SDK 全表筛选替代。
-        query = (
-            TaskResult.query.filter_by(task_id=task_id)
-            .order_by(TaskResult.step_index.asc())
-        )
-
         if page is not None and per_page is not None:
-            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-            items = [result.to_dict() for result in pagination.items]
-            total = pagination.total
-            success_total = query.filter_by(success=True).count()
+            page_data = _task_result_repository.list_results(
+                page_index=max(1, int(page)),
+                page_size=max(1, int(per_page)),
+                task_ids=[task_id],
+                order_field="timestamp",
+                order_type="desc",
+            )
+            success_data = _task_result_repository.list_results(
+                page_index=1,
+                page_size=1,
+                success=True,
+                task_ids=[task_id],
+                order_field="timestamp",
+                order_type="desc",
+            )
+            total = page_data["total"]
+            success_total = success_data["total"]
             failed_total = total - success_total
+            pages = (total + max(1, int(per_page)) - 1) // max(1, int(per_page)) if total else 0
             return {
-                "items": items,
+                "items": [item.to_dict() for item in page_data["items"]],
                 "total": total,
-                "pages": pagination.pages,
-                "current_page": page,
-                "per_page": per_page,
+                "pages": pages,
+                "current_page": max(1, int(page)),
+                "per_page": max(1, int(per_page)),
                 "total_success": success_total,
                 "total_failed": failed_total,
             }
 
-        return [result.to_dict() for result in query.all()]
+        page_index = 1
+        results = []
+        while True:
+            page_data = _task_result_repository.list_results(
+                page_index=page_index,
+                page_size=200,
+                task_ids=[task_id],
+                order_field="timestamp",
+                order_type="desc",
+            )
+            results.extend(item.to_dict() for item in page_data["items"])
+            if not page_data["items"] or len(results) >= page_data["total"]:
+                return results
+            page_index += 1

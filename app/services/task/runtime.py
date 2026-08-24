@@ -8,8 +8,6 @@ from datetime import datetime
 from typing import Any
 
 from flask import current_app
-from app.extensions import db
-from app.models import BacktestSheetRunLock, Task
 from app.repositories.backtest_sheet_run_lock_repository import BacktestSheetRunLockRepository
 from app.repositories.sdk_client import SdkDuplicateKeyError
 from app.repositories.task_repository import TaskRepository
@@ -28,6 +26,7 @@ from app.utils.task_error_utils import unwrap_exception
 logger = get_logger(__name__)
 _task_repository = TaskRepository()
 _backtest_sheet_lock_repository = BacktestSheetRunLockRepository()
+BACKTEST_TASK_TYPES = ["backtest_training", "backtest_multi_product"]
 
 
 class TaskRuntimeMixin:
@@ -127,7 +126,7 @@ class TaskRuntimeMixin:
         """判断任务类型是否需要回测 Sheet 运行锁。"""
         return task_type in {"backtest_training", "backtest_multi_product"}
 
-    def _get_task_config_dict(self, task: Task | None) -> dict[str, Any]:
+    def _get_task_config_dict(self, task: Any | None) -> dict[str, Any]:
         """兼容字典和 ORM 任务对象，安全取得配置字典。"""
         if not task:
             return {}
@@ -151,21 +150,24 @@ class TaskRuntimeMixin:
         spreadsheet_id: str,
         *,
         exclude_task_id: str | None = None,
-    ) -> Task | None:
+    ) -> Any | None:
         """查找正在使用同一 spreadsheet_id 的运行中回测任务。"""
         if not spreadsheet_id:
             return None
 
-        # TODO: 按状态/类型查询等待 ParamTasks/Query，禁止 SDK 全表筛选替代。
-        running_tasks = (
-            Task.query.populate_existing()
-            .filter(
-                Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
-                Task.status == "running",
-            )
-            .all()
-        )
+        # SDK 暂不支持按配置字段筛选，因此取最近 100 条后在业务层判断 Sheet 冲突。
+        running_tasks = _task_repository.list_tasks(
+            page_size=100,
+            task_types=BACKTEST_TASK_TYPES,
+            statuses=["running"],
+            order_field="created_at",
+            order_type="desc",
+        )["items"]
+
         for task in running_tasks:
+            # 再次校验返回记录的 task_type，避免远端筛选异常时把其他任务当成回测任务。
+            if not self._is_backtest_task_type(task.get("task_type")):
+                continue
             if exclude_task_id and task.id == exclude_task_id:
                 continue
             config = self._get_task_config_dict(task)
@@ -178,7 +180,7 @@ class TaskRuntimeMixin:
         spreadsheet_ids: list[str],
         *,
         exclude_task_id: str | None = None,
-    ) -> Task | None:
+    ) -> Any | None:
         """依次检查多个 Sheet 是否已有其他运行中回测任务。"""
         for spreadsheet_id in spreadsheet_ids:
             running_task = self._find_running_backtest_task_for_spreadsheet(
@@ -277,48 +279,6 @@ class TaskRuntimeMixin:
         config_data = self._get_task_config_dict(task)
         for spreadsheet_id in self._extract_backtest_spreadsheet_ids(config_data):
             self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
-
-    def _start_next_pending_backtest_task(self, finished_task_id: str, app) -> None:
-        """在任务结束后启动同一 Sheet 最早创建的待执行回测任务。"""
-        finished_task = _task_repository.get(finished_task_id)
-        finished_config = self._get_task_config_dict(finished_task)
-        spreadsheet_ids = self._extract_backtest_spreadsheet_ids(finished_config)
-        if not spreadsheet_ids:
-            return
-
-        if self._find_running_backtest_task_for_spreadsheets(
-            spreadsheet_ids,
-            exclude_task_id=finished_task_id,
-        ):
-            return
-
-        # TODO: 指定条件的 pending 队列等待 ParamTasks/Query。
-        pending_tasks = Task.query.filter(
-            Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
-            Task.status == "pending",
-            Task.id != finished_task_id,
-        ).order_by(Task.created_at.asc(), Task.id.asc()).all()
-        for pending_task in pending_tasks:
-            pending_config = self._get_task_config_dict(pending_task)
-            pending_spreadsheet_ids = self._extract_backtest_spreadsheet_ids(pending_config)
-            if not set(spreadsheet_ids).intersection(pending_spreadsheet_ids):
-                continue
-
-            pending_task_id = pending_task.id
-            transition_message = (
-                f"回测任务 {finished_task_id} 结束，启动同 sheet 的下一个待执行任务: "
-                f"{pending_task_id}"
-            )
-            logger.info(transition_message)
-            self.add_task_log(finished_task_id, "info", transition_message, app)
-            self.add_task_log(
-                pending_task_id,
-                "info",
-                transition_message,
-                app,
-            )
-            self.start_task(pending_task_id)
-            return
 
     def _get_config(self, key: str, default: Any = None) -> Any:
         """动态获取配置，确保运行期修改能实时生效。"""
@@ -706,7 +666,6 @@ class TaskRuntimeMixin:
                 task_logger.info("任务执行器退出")
                 return
 
-            should_start_next_backtest = False
             with app.app_context():
                 finished_task = _task_repository.get(task_id)
                 finished_config = self._get_task_config_dict(finished_task)
@@ -721,12 +680,7 @@ class TaskRuntimeMixin:
                             finished_spreadsheet_id,
                             task_id,
                         )
-                    should_start_next_backtest = True
             self._cleanup_runtime_state(task_id, task_logger=task_logger)
-            if should_start_next_backtest:
-                with app.app_context():
-                    with self.backtest_sheet_start_lock:
-                        self._start_next_pending_backtest_task(task_id, app)
             task_logger.info("任务执行器退出")
 
     def _execute_google_sheet_task(self, task_id: str, app) -> None:

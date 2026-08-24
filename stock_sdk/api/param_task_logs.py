@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..http_client import ApiGroup
-from ..models import IdRequestDto, RequsetPageDto, t_param_task_logs
+from ..models import GetParamTaskLogsListRequestDto, IdRequestDto, ParamTaskIdRequestDto, t_param_task_logs
 from ..response import ResponseDto
 from ._metadata import endpoint
 
@@ -14,14 +14,14 @@ class ParamtasklogsApi(ApiGroup):
     @endpoint('POST', '/api/ParamTaskLogs/Delete')
     def delete(
         self,
-        request: IdRequestDto | Mapping[str, Any],
+        request: ParamTaskIdRequestDto | Mapping[str, Any],
     ) -> ResponseDto[Any]:
         return self._call('POST', '/api/ParamTaskLogs/Delete', json_body=request)
 
     @endpoint('POST', '/api/ParamTaskLogs/GetDataByPageList')
     def get_data_by_page_list(
         self,
-        request: RequsetPageDto | Mapping[str, Any],
+        request: GetParamTaskLogsListRequestDto | Mapping[str, Any],
     ) -> ResponseDto[Any]:
         return self._call('POST', '/api/ParamTaskLogs/GetDataByPageList', json_body=request)
 

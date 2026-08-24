@@ -24,6 +24,7 @@ from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
 from app.repositories.task_result_summary_index_repository import TaskResultSummaryIndexRepository
 from app.repositories.task_log_repository import TaskLogRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.task_result_repository import TaskResultRepository
 from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.xpl_service import xpl_analyzer
 from app.utils.logger import get_logger
@@ -34,6 +35,7 @@ logger = get_logger(__name__)
 _summary_index_repository = TaskResultSummaryIndexRepository()
 _task_log_repository = TaskLogRepository()
 _task_repository = TaskRepository()
+_task_result_repository = TaskResultRepository()
 
 SUPPORTED_TASK_TYPES = ("google_sheet", "google_sheet_C4", "google_sheet_C5", "backtest_training")
 MODEL_SUMMARY_REBUILD_TASK_TYPE = "model_summary_rebuild"
@@ -201,6 +203,19 @@ def _parse_json(raw: Any, default: Any) -> Any:
         return json.loads(raw) if raw else default
     except (TypeError, json.JSONDecodeError):
         return default
+
+
+def _parse_result_timestamp(value: Any) -> datetime | None:
+    """把 TaskResult HTTP 返回的时间文本转换为汇总计算使用的时间对象。"""
+    if isinstance(value, datetime):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
 
 
 def _safe_number(value: Any) -> float | None:
@@ -1134,40 +1149,55 @@ class ModelSummaryService:
             # 远程 CRUD 已逐条提交；保留参数以兼容旧调用方。
             return summary
 
+    @staticmethod
+    def _list_summary_indexes(**filters: Any) -> list[dict[str, Any]]:
+        """分页读取远程汇总索引，删除和去重前先收集完整数据。"""
+        page_index = 1
+        records: list[dict[str, Any]] = []
+        while True:
+            page = _summary_index_repository.list_indexes(
+                page_index=page_index,
+                page_size=200,
+                **filters,
+            )
+            items = page["items"]
+            records.extend(items)
+            if not items or page_index * 200 >= page["total"]:
+                return records
+            page_index += 1
+
     def _upsert_task_result_locked(self, task_result_id: int, *, commit: bool = True) -> int:
         """在索引锁内同步单条结果对应的汇总记录并清理过期模型键。"""
-        # TODO: 任务结果与既有索引的关联查询等待 ParamTaskResults/Query 和索引查询接口。
-        record = (
-            db.session.query(Task, TaskResult)
-            .join(TaskResult, TaskResult.task_id == Task.id)
-            .filter(TaskResult.id == task_result_id)
-            .first()
-        )
-        if not record:
+        result = _task_result_repository.get(int(task_result_id))
+        if not result:
             return 0
-        task, result = record
+        task = _task_repository.get(result.get("task_id"))
+        if not task:
+            return 0
+        result.timestamp = _parse_result_timestamp(result.get("timestamp"))
         rows = _extract_candidate_records(task, result)
         existing = {
-            item.model_key: item
-            for item in TaskResultSummaryIndex.query.filter_by(task_result_id=result.id).all()
+            str(item.get("model_key") or ""): item
+            for item in self._list_summary_indexes(task_result_id=int(task_result_id))
         }
         changed_task_ids = set()
         for row in rows:
             item = existing.get(row.model_key)
             _summary_index_repository.save(self._summary_index_payload(
                 row,
-                record_id=item.id if item else None,
-                is_best=bool(item.is_best) if item else False,
+                record_id=item.get("id") if item else None,
+                is_best=bool(item.get("is_best")) if item else False,
             ))
             changed_task_ids.add(row.task_id)
 
         stale_keys = set(existing) - {row.model_key for row in rows}
         for key in stale_keys:
-            changed_task_ids.add(existing[key].task_id)
-            _summary_index_repository.delete(existing[key].id)
+            changed_task_ids.add(str(existing[key].get("task_id") or ""))
+            _summary_index_repository.delete(int(existing[key]["id"]))
 
         for changed_task_id in changed_task_ids:
-            self._keep_only_best_for_task(changed_task_id)
+            if changed_task_id:
+                self._keep_only_best_for_task(changed_task_id)
         # 远程 CRUD 已逐条提交；保留参数以兼容旧调用方。
         return len(rows)
 
@@ -1199,13 +1229,8 @@ class ModelSummaryService:
     ) -> dict[str, int]:
         """按筛选条件执行索引重建、可选清空和每任务最优记录去重。"""
         if reset:
-            # TODO: 按 task_id/task_type 查索引 ID 需要专用 Query；当前保留原筛选语义。
-            delete_query = TaskResultSummaryIndex.query
-            if task_id:
-                delete_query = delete_query.filter(TaskResultSummaryIndex.task_id == task_id)
-            if task_type:
-                delete_query = delete_query.filter(TaskResultSummaryIndex.task_type == task_type)
-            reset_ids = [item.id for item in delete_query.all()]
+            reset_items = self._list_summary_indexes(task_id=task_id, task_type=task_type)
+            reset_ids = [int(item["id"]) for item in reset_items if item.get("id") is not None]
             for index_id in reset_ids:
                 _summary_index_repository.delete(index_id)
             deleted = len(reset_ids)
@@ -1326,22 +1351,21 @@ class ModelSummaryService:
         return job.copy()
 
     def _active_rebuild_job(self) -> dict[str, Any] | None:
-        """查询当前仍处于待执行或执行中的索引重建作业。"""
-        task = (
-            Task.query
-            .filter(
-                Task.task_type == MODEL_SUMMARY_REBUILD_TASK_TYPE,
-                Task.status.in_(ACTIVE_REBUILD_TASK_STATUSES),
-            )
-            .order_by(Task.created_at.desc(), Task.id.desc())
-            .first()
-        )
+        """通过 HTTP 查询当前仍处于待执行或执行中的索引重建作业。"""
+        tasks = _task_repository.list_tasks(
+            page_size=1,
+            task_types=[MODEL_SUMMARY_REBUILD_TASK_TYPE],
+            statuses=list(ACTIVE_REBUILD_TASK_STATUSES),
+            order_field="created_at",
+            order_type="desc",
+        )["items"]
+        task = tasks[0] if tasks else None
         if not task:
             return None
 
-        job = self._job_from_task(task.id)
+        job = self._job_from_task(task.get("id"))
         if job:
-            job["message"] = f"已有索引重建任务正在执行: {task.id}"
+            job["message"] = f"已有索引重建任务正在执行: {task.get('id')}"
         return job
 
     def get_rebuild_job(self, job_id: str) -> dict[str, Any] | None:
@@ -1356,13 +1380,13 @@ class ModelSummaryService:
         """返回最近一次索引重建作业，支持服务重启后的记录回溯。"""
         with self._jobs_lock:
             if not self._jobs:
-                task = (
-                    Task.query
-                    .filter_by(task_type=MODEL_SUMMARY_REBUILD_TASK_TYPE)
-                    .order_by(Task.created_at.desc())
-                    .first()
-                )
-                return self._job_from_task(task.id) if task else None
+                tasks = _task_repository.list_tasks(
+                    page_size=1,
+                    task_types=[MODEL_SUMMARY_REBUILD_TASK_TYPE],
+                    order_field="created_at",
+                    order_type="desc",
+                )["items"]
+                return self._job_from_task(tasks[0].get("id")) if tasks else None
             job = max(self._jobs.values(), key=lambda item: item.get("started_at") or "")
             return self._job_with_task_status(dict(job))
 
@@ -1749,44 +1773,32 @@ class ModelSummaryService:
 
     def _upsert_batch(self, batch: list[tuple[Task, TaskResult]]) -> int:
         """同步一批结果的汇总索引，并删除不再存在的模型键。"""
-        # TODO: 结果与索引批量关联查询等待 ParamTaskResults/Query 与索引查询接口。
-        result_ids = [result.id for _task, result in batch]
-        existing_items = (
-            TaskResultSummaryIndex.query
-            .filter(TaskResultSummaryIndex.task_result_id.in_(result_ids))
-            .all()
-            if result_ids
-            else []
-        )
-        existing = {
-            (item.task_result_id, item.model_key): item
-            for item in existing_items
-        }
-        seen_keys = set()
         changed_task_ids = set()
         indexed = 0
 
         for task, result in batch:
             rows = _extract_candidate_records(task, result)
             indexed += len(rows)
+            existing = {
+                str(item.get("model_key") or ""): item
+                for item in self._list_summary_indexes(task_result_id=int(result.id))
+            }
             for row in rows:
-                key = (row.task_result_id, row.model_key)
-                seen_keys.add(key)
-                item = existing.get(key)
+                item = existing.pop(row.model_key, None)
                 _summary_index_repository.save(self._summary_index_payload(
                     row,
-                    record_id=item.id if item else None,
-                    is_best=bool(item.is_best) if item else False,
+                    record_id=item.get("id") if item else None,
+                    is_best=bool(item.get("is_best")) if item else False,
                 ))
                 changed_task_ids.add(row.task_id)
-
-        for key, item in existing.items():
-            if key not in seen_keys:
-                changed_task_ids.add(item.task_id)
-                _summary_index_repository.delete(item.id)
+            for item in existing.values():
+                if item.get("id") is not None:
+                    changed_task_ids.add(str(item.get("task_id") or ""))
+                    _summary_index_repository.delete(int(item["id"]))
 
         for changed_task_id in changed_task_ids:
-            self._keep_only_best_for_task(changed_task_id)
+            if changed_task_id:
+                self._keep_only_best_for_task(changed_task_id)
         return indexed
 
     def _load_rebuild_task_ids(
@@ -1794,72 +1806,86 @@ class ModelSummaryService:
         task_type: str | None = None,
         task_id: str | None = None,
     ) -> list[str]:
-        """读取符合重建条件且已经结束的任务 ID 列表。"""
-        query = db.session.query(Task.id).filter(Task.status.in_(FINISHED_TASK_STATUSES))
-        if task_type:
-            query = query.filter(Task.task_type == task_type)
-        else:
-            query = query.filter(Task.task_type.in_(SUPPORTED_TASK_TYPES))
+        """通过 ParamTasks 读取符合重建条件且已经结束的任务 ID 列表。"""
         if task_id:
-            query = query.filter(Task.id == task_id)
-        rows = (
-            query
-            .order_by(Task.created_at.asc(), Task.id.asc())
-            .all()
-        )
-        return [row[0] for row in rows]
+            task = _task_repository.get(task_id)
+            return [str(task_id)] if task and task.get("status") in FINISHED_TASK_STATUSES else []
+        page_index = 1
+        task_ids: list[str] = []
+        while True:
+            page = _task_repository.list_tasks(
+                page_index=page_index,
+                page_size=200,
+                task_types=[task_type] if task_type else list(SUPPORTED_TASK_TYPES),
+                statuses=list(FINISHED_TASK_STATUSES),
+                order_field="created_at",
+                order_type="asc",
+            )
+            task_ids.extend(str(item["id"]) for item in page["items"] if item.get("id"))
+            if not page["items"] or page_index * 200 >= page["total"]:
+                return task_ids
+            page_index += 1
 
     def _upsert_task_batch(self, task_ids: list[str]) -> dict[str, int]:
         """重建一组任务的索引，只保留每任务/周期的最佳候选记录。"""
         if not task_ids:
             return {"processed": 0, "processed_tasks": 0, "candidate_records": 0}
 
-        # TODO: 任务和结果按 task_id 联合查询等待 ParamTasks/Query 与 ParamTaskResults/Query。
-        batch = (
-            db.session.query(Task, TaskResult)
-            .join(TaskResult, TaskResult.task_id == Task.id)
-            .options(
-                Load(Task).load_only(Task.id, Task.name, Task.task_type, Task.config),
-                Load(TaskResult).load_only(
-                    TaskResult.id,
-                    TaskResult.task_id,
-                    TaskResult.parameters,
-                    TaskResult.result,
-                    TaskResult.success,
-                    TaskResult.timestamp,
-                ),
-            )
-            .filter(Task.id.in_(task_ids), TaskResult.success == True)
-            .order_by(Task.id.asc(), TaskResult.id.asc())
-            .all()
-        )
         best_by_group: dict[tuple[str, str], SummaryRecord] = {}
         candidate_records = 0
+        processed = 0
 
-        for task, result in batch:
-            for row in _extract_candidate_records(task, result):
-                candidate_records += 1
-                key = (row.task_id, _summary_record_group_key(row))
-                current = best_by_group.get(key)
-                if current is None or self._is_better_record(row, current):
-                    best_by_group[key] = row
+        for task_id in task_ids:
+            task = _task_repository.get(task_id)
+            if not task:
+                continue
+            results = self._list_task_results(task_id)
+            processed += len(results)
+            for result in results:
+                if not result.get("success"):
+                    continue
+                result.timestamp = _parse_result_timestamp(result.get("timestamp"))
+                for row in _extract_candidate_records(task, result):
+                    candidate_records += 1
+                    key = (row.task_id, _summary_record_group_key(row))
+                    current = best_by_group.get(key)
+                    if current is None or self._is_better_record(row, current):
+                        best_by_group[key] = row
 
-        existing_index_ids = [
-            item.id
-            for item in TaskResultSummaryIndex.query.filter(
-                TaskResultSummaryIndex.task_id.in_(task_ids)
-            ).all()
+        existing_items = [
+            item
+            for task_id in task_ids
+            for item in self._list_summary_indexes(task_id=task_id)
         ]
-        for index_id in existing_index_ids:
-            _summary_index_repository.delete(index_id)
+        for item in existing_items:
+            if item.get("id") is not None:
+                _summary_index_repository.delete(int(item["id"]))
 
         for row in best_by_group.values():
             _summary_index_repository.save(self._summary_index_payload(row, is_best=True))
         return {
-            "processed": len(batch),
+            "processed": processed,
             "processed_tasks": len(task_ids),
             "candidate_records": candidate_records,
         }
+
+    @staticmethod
+    def _list_task_results(task_id: str) -> list[Any]:
+        """按单个任务 ID 分页读取结果，避免跨任务全表查询。"""
+        page_index = 1
+        results: list[Any] = []
+        while True:
+            page = _task_result_repository.list_results(
+                page_index=page_index,
+                page_size=200,
+                task_ids=[str(task_id)],
+                order_field="timestamp",
+                order_type="desc",
+            )
+            results.extend(page["items"])
+            if not page["items"] or page_index * 200 >= page["total"]:
+                return results
+            page_index += 1
 
     def _is_better_record(self, candidate: SummaryRecord, current: SummaryRecord) -> bool:
         """按指标值、结果时间和结果 ID 比较两个汇总候选记录。"""
@@ -1970,74 +1996,55 @@ class ModelSummaryService:
         }
 
     def _count_index_rows(self, task_type: str | None = None, task_id: str | None = None) -> int:
-        """按可选任务类型和任务 ID 统计当前汇总索引行数。"""
-        query = TaskResultSummaryIndex.query
-        if task_id:
-            query = query.filter(TaskResultSummaryIndex.task_id == task_id)
-        if task_type:
-            query = query.filter(TaskResultSummaryIndex.task_type == task_type)
-        return query.count()
+        """按可选任务类型和任务 ID 统计远程汇总索引行数。"""
+        return len(self._list_summary_indexes(task_id=task_id, task_type=task_type))
 
     def _dedupe_best_per_task(self, task_type: str | None = None, task_id: str | None = None) -> int:
-        """借助窗口排序删除每任务/周期分组中的非最佳重复索引。"""
-        group_expression = _summary_index_group_expression()
-        ranked_query = db.session.query(
-            TaskResultSummaryIndex.id.label("id"),
-            func.row_number().over(
-                partition_by=(TaskResultSummaryIndex.task_id, group_expression),
-                order_by=(
-                    func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                    TaskResultSummaryIndex.best_metric_value.desc(),
-                    TaskResultSummaryIndex.id.desc(),
-                ),
-            ).label("row_number"),
-        )
-        if task_id:
-            ranked_query = ranked_query.filter(TaskResultSummaryIndex.task_id == task_id)
-        if task_type:
-            ranked_query = ranked_query.filter(TaskResultSummaryIndex.task_type == task_type)
-        ranked = ranked_query.subquery()
-        duplicate_ids = db.session.query(ranked.c.id).filter(ranked.c.row_number > 1)
-        duplicate_ids = [item[0] for item in duplicate_ids.all()]
+        """在业务层按任务和周期选最佳远程索引，再逐条删除重复记录。"""
+        records = self._list_summary_indexes(task_id=task_id, task_type=task_type)
+        best_by_group: dict[tuple[str, str], dict[str, Any]] = {}
+        duplicate_ids: list[int] = []
+        for item in records:
+            group_key = str(
+                item.get("period_key")
+                or item.get("year_label")
+                or item.get("kline_range")
+                or ""
+            )
+            key = (str(item.get("task_id") or ""), group_key)
+            current = best_by_group.get(key)
+            if current is None or self._is_better_index_item(item, current):
+                if current and current.get("id") is not None:
+                    duplicate_ids.append(int(current["id"]))
+                best_by_group[key] = item
+            elif item.get("id") is not None:
+                duplicate_ids.append(int(item["id"]))
         for index_id in duplicate_ids:
             _summary_index_repository.delete(index_id)
-        best_ids = [
-            item[0]
-            for item in db.session.query(ranked.c.id).filter(ranked.c.row_number == 1).all()
-        ]
-        for index_id in best_ids:
-            item = _summary_index_repository.get(index_id)
-            if item:
+        for item in best_by_group.values():
+            if not item.get("is_best"):
                 item["is_best"] = True
                 _summary_index_repository.save(item)
         return len(duplicate_ids)
 
     def _keep_only_best_for_task(self, task_id: str) -> None:
-        """对单个任务按周期保留最佳索引，并移除其余候选。"""
-        # TODO: task_id 分组排序依赖汇总索引 Query，当前仅保留本地筛选语义。
-        rows = (
-            TaskResultSummaryIndex.query
-            .filter_by(task_id=task_id)
-            .order_by(
-                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                TaskResultSummaryIndex.best_metric_value.desc(),
-                TaskResultSummaryIndex.period_key.asc(),
-                TaskResultSummaryIndex.year_label.asc(),
-                TaskResultSummaryIndex.kline_range.asc(),
-                TaskResultSummaryIndex.id.desc(),
+        """对单个任务按周期保留最佳远程索引，并删除其余候选。"""
+        self._dedupe_best_per_task(task_id=task_id)
+
+    @staticmethod
+    def _is_better_index_item(candidate: dict[str, Any], current: dict[str, Any]) -> bool:
+        """比较远程索引项，保持数据库窗口排序的时间、指标、ID 优先级。"""
+        candidate_time = _parse_result_timestamp(candidate.get("result_timestamp")) or datetime.min
+        current_time = _parse_result_timestamp(current.get("result_timestamp")) or datetime.min
+        if candidate_time != current_time:
+            return candidate_time > current_time
+        candidate_value = _safe_number(candidate.get("best_metric_value"))
+        current_value = _safe_number(current.get("best_metric_value"))
+        if candidate_value != current_value:
+            return (candidate_value if candidate_value is not None else float("-inf")) > (
+                current_value if current_value is not None else float("-inf")
             )
-            .all()
-        )
-        seen_groups: set[str] = set()
-        for row in rows:
-            group_key = row.period_key or row.year_label or row.kline_range or ""
-            if group_key not in seen_groups and row.best_metric_value is not None:
-                seen_groups.add(group_key)
-                payload = self._summary_index_model_payload(row)
-                payload["is_best"] = True
-                _summary_index_repository.save(payload)
-                continue
-            _summary_index_repository.delete(row.id)
+        return int(candidate.get("id") or 0) > int(current.get("id") or 0)
 
     def _update_rebuild_task(
         self,

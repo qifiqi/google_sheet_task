@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..http_client import ApiGroup
-from ..models import IdRequestDto, RequsetPageDto, t_param_task_result_summary_index
+from ..models import GetParamTaskResultSummaryIndexListRequestDto, IdRequestDto, t_param_task_result_summary_index
 from ..response import ResponseDto
 from ._metadata import endpoint
 
@@ -21,7 +21,7 @@ class ParamtaskresultsummaryindexApi(ApiGroup):
     @endpoint('POST', '/api/ParamTaskResultSummaryIndex/GetDataByPageList')
     def get_data_by_page_list(
         self,
-        request: RequsetPageDto | Mapping[str, Any],
+        request: GetParamTaskResultSummaryIndexListRequestDto | Mapping[str, Any],
     ) -> ResponseDto[Any]:
         return self._call('POST', '/api/ParamTaskResultSummaryIndex/GetDataByPageList', json_body=request)
 

@@ -15,7 +15,6 @@ from app.extensions import db
 from app.models import (
     BacktestProductResultCache,
     BacktestSheetRunLock,
-    GoogleSheetToken,
     NavigationMenuItem,
     Permission,
     Role,
@@ -33,6 +32,10 @@ from app.navigation import (
     flatten_navigation_items,
     sync_navigation_permissions,
 )
+from app.repositories.backtest_sheet_run_lock_repository import BacktestSheetRunLockRepository
+from app.repositories.google_sheet_repository import GoogleSheetRepository
+from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepository
+from app.repositories.task_repository import TaskRepository
 from app.utils.logger import get_logger, initialize_logging
 
 
@@ -372,33 +375,63 @@ def ensure_navigation_menu_schema():
 
 
 def reset_google_sheet_token_occupancy():
-    """应用启动时清零遗留的 Token 实时占用计数。"""
-    if GoogleSheetToken.query.filter(GoogleSheetToken.current_in_use_count != 0).count() > 0:
-        GoogleSheetToken.query.update({'current_in_use_count': 0}, synchronize_session=False)
-        db.session.commit()
+    """应用启动时通过 HTTP 清零遗留的 Token 实时占用计数。"""
+    repository = GoogleSheetTokenRepository()
+    for token in repository.list_public(include_context=True):
+        if int(token.get('current_in_use_count') or 0) != 0:
+            repository.save({**token, 'current_in_use_count': 0})
 
 
 def reset_google_sheet_occupancy():
-    """应用启动时清理旧 Sheet 展示占用字段。"""
-    from app.models import GoogleSheet
-
-    if GoogleSheet.query.filter(GoogleSheet.is_in_use == True).count() > 0:
-        GoogleSheet.query.update({'is_in_use': False, 'current_task_id': None}, synchronize_session=False)
-        db.session.commit()
+    """应用启动时通过 HTTP 清理旧 Sheet 展示占用字段。"""
+    repository = GoogleSheetRepository()
+    # 先分页获取完整记录，再逐条更新，避免依赖本地 ORM 批量更新。
+    for sheet in repository.list_all():
+        if sheet.get('is_in_use') or sheet.get('current_task_id'):
+            repository.save({
+                **sheet,
+                'is_in_use': False,
+                'current_task_id': None,
+            })
 
 
 def cleanup_stale_backtest_sheet_run_locks():
-    """删除任务已结束或不存在时遗留的回测 Sheet 运行锁。"""
-    stale_locks = (
-        BacktestSheetRunLock.query.outerjoin(Task, BacktestSheetRunLock.task_id == Task.id)
-        .filter((Task.id.is_(None)) | (Task.status != 'running'))
-        .all()
-    )
-    if not stale_locks:
-        return
-    for lock in stale_locks:
-        db.session.delete(lock)
-    db.session.commit()
+    """通过 HTTP 删除任务已结束或不存在时遗留的回测 Sheet 运行锁。"""
+    task_repository = TaskRepository()
+    lock_repository = BacktestSheetRunLockRepository()
+    running_task_ids = _list_remote_task_ids(task_repository, statuses=['running'])
+    page_index = 1
+    stale_lock_ids: list[int] = []
+    while True:
+        page = lock_repository.list_locks(page_index=page_index, page_size=100)
+        locks = page['items']
+        for lock in locks:
+            if str(lock.get('task_id') or '') not in running_task_ids:
+                stale_lock_ids.append(int(lock['id']))
+        if not locks or page_index * 100 >= page['total']:
+            break
+        page_index += 1
+    for lock_id in stale_lock_ids:
+        lock_repository.delete(lock_id)
+
+
+def _list_remote_task_ids(repository, *, statuses: list[str]) -> set[str]:
+    """分页读取指定状态任务 ID，避免启动修复只检查首 100 条记录。"""
+    task_ids: set[str] = set()
+    page_index = 1
+    while True:
+        page = repository.list_tasks(
+            page_index=page_index,
+            page_size=100,
+            statuses=statuses,
+            order_field='created_at',
+            order_type='desc',
+        )
+        items = page['items']
+        task_ids.update(str(task.get('id')) for task in items if task.get('id'))
+        if not items or page_index * 100 >= page['total']:
+            return task_ids
+        page_index += 1
 
 
 def register_shell_context(app):
@@ -413,7 +446,6 @@ def register_shell_context(app):
             'TaskResult': TaskResult,
             'SystemConfig': SystemConfig,
             'ScheduledTask': ScheduledTask,
-            'GoogleSheetToken': GoogleSheetToken,
             'BacktestProductResultCache': BacktestProductResultCache,
             'BacktestSheetRunLock': BacktestSheetRunLock,
         }
@@ -647,7 +679,7 @@ def _normalize_nav_label(key, label):
 
 
 def check_and_cleanup_dead_tasks(app):
-    """将本进程不存在的运行中任务标记为待恢复状态。
+    """将本进程不存在的远端运行中任务标记为待恢复状态。
 
     ``TaskManager.running_tasks`` 是进程内内存状态；Web 进程重启后必须以数据库
     任务状态为准重新协调，不能继续把这些任务视为仍在执行。
@@ -657,20 +689,34 @@ def check_and_cleanup_dead_tasks(app):
     logger = get_logger('startup')
     with app.app_context():
         try:
-            running_tasks = Task.query.filter_by(status='running').all()
+            task_repository = TaskRepository()
+            page_index = 1
+            running_tasks = []
+            while True:
+                page = task_repository.list_tasks(
+                    page_index=page_index,
+                    page_size=100,
+                    statuses=['running'],
+                    order_field='created_at',
+                    order_type='desc',
+                )
+                running_tasks.extend(page['items'])
+                if not page['items'] or page_index * 100 >= page['total']:
+                    break
+                page_index += 1
             for task in running_tasks:
-                status_check = task_manager.check_local_task_status(task.id)
+                status_check = task_manager.check_local_task_status(task.get('id'))
                 if not status_check.get('can_restart'):
                     continue
-                task.status = 'pending'
-                task.error_message = None
-                task.end_time = None
+                task['status'] = 'pending'
+                task['error_message'] = None
+                task['end_time'] = None
+                task_repository.save(task)
                 task_manager.add_task_log(
-                    task.id,
+                    task.get('id'),
                     'info',
                     f"应用重启时检测到任务中断，已重置为待启动状态: {status_check.get('restart_reason')}",
                 )
-            db.session.commit()
         except Exception as exc:
             logger.error(f'检查任务状态时出错: {exc}')
 

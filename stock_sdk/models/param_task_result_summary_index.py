@@ -9,6 +9,20 @@ from typing import Any
 from ..model_base import SerializableModel
 
 @dataclass
+class GetParamTaskResultSummaryIndexListRequestDto(SerializableModel):
+    page_index: int | None = None
+    page_size: int | None = None
+    order_field: str | None = None
+    order_type: str | None = None
+    task_id: str | None = None
+    task_result_id: int | None = None
+    task_type: str | None = None
+    is_best: bool | None = None
+    stock_code: str | None = None
+    market_type: str | None = None
+    period_key: str | None = None
+
+@dataclass
 class t_param_task_result_summary_index(SerializableModel):
     id: int | None = None
     task_id: str | None = None
@@ -32,4 +46,4 @@ class t_param_task_result_summary_index(SerializableModel):
     created_at: str | None = None
     updated_at: str | None = None
 
-__all__ = ['t_param_task_result_summary_index']
+__all__ = ['GetParamTaskResultSummaryIndexListRequestDto', 't_param_task_result_summary_index']

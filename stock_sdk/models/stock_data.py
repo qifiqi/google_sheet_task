@@ -15,6 +15,7 @@ class GetListHisPageRequestDto(SerializableModel):
 @dataclass
 class GetStockDataAllListRequestDto(SerializableModel):
     begin_date: str | None = None
+    end_time: str | None = None
     stock_code: str | None = None
 
 @dataclass

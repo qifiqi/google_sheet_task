@@ -33,16 +33,22 @@ class TaskQueryService:
         task_type: Optional[str] = None,
         task_types: Optional[list[str]] = None,
     ) -> list[dict[str, Any]]:
-        """按任务类型读取全部任务，复杂筛选暂保留数据库端执行。"""
-        # TODO: 任务类型筛选与排序依赖 ParamTasks/Query，不能用 SDK 全量分页替代。
-        query = Task.query
-        if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
-        elif task_type:
-            query = query.filter_by(task_type=task_type)
-
-        tasks = query.order_by(Task.created_at.desc()).all()
-        return [task.to_dict() for task in tasks]
+        """按任务类型通过 ParamTasks HTTP 分页读取任务。"""
+        types = task_types or ([task_type] if task_type else None)
+        page_index = 1
+        records: list[dict[str, Any]] = []
+        while True:
+            page = _task_repository.list_tasks(
+                page_index=page_index,
+                page_size=100,
+                task_types=types,
+                order_field="created_at",
+                order_type="desc",
+            )
+            records.extend(page["items"])
+            if not page["items"] or len(records) >= page["total"]:
+                return records
+            page_index += 1
 
     def get_tasks_paginated(
         self,
@@ -53,11 +59,22 @@ class TaskQueryService:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
     ) -> dict[str, Any]:
-        """在数据库端完成分页、筛选和统计，返回任务列表页所需数据。"""
-        # TODO: 分页筛选、统计和耗时聚合依赖 ParamTasks/Query，等待服务端查询能力。
+        """通过 ParamTasks HTTP 获取列表；统计字段暂沿用仪表盘数据库聚合。"""
         page = max(page or 1, 1)
         per_page = max(min(per_page or 10, 100), 1)
 
+        types = task_types or ([task_type] if task_type else None)
+        remote_page = _task_repository.list_tasks(
+            page_index=page,
+            page_size=per_page,
+            task_types=types,
+            statuses=[status] if status and status != "all" else None,
+            keyword=keyword.strip() if keyword and keyword.strip() else None,
+            order_field="created_at",
+            order_type="desc",
+        )
+
+        # 仪表盘统计暂未迁移到 SDK；保留原有聚合，避免改变现有页面契约。
         query = Task.query
         if task_types:
             query = query.filter(Task.task_type.in_(task_types))
@@ -65,10 +82,7 @@ class TaskQueryService:
             query = query.filter(Task.task_type == task_type)
 
         if status and status != "all":
-            if status == "pending":
-                query = query.filter(Task.status == "pending", Task.current_step > 0)
-            else:
-                query = query.filter(Task.status == status)
+            query = query.filter(Task.status == status)
 
         if keyword:
             keyword = keyword.strip()
@@ -82,13 +96,9 @@ class TaskQueryService:
                     )
                 )
 
-        ordered_query = query.order_by(Task.created_at.desc())
-        pagination = ordered_query.paginate(
-            page=page,
-            per_page=per_page,
-            error_out=False,
-        )
-        items = [task.to_dict() for task in pagination.items]
+        remote_total = remote_page["total"]
+        pages = (remote_total + per_page - 1) // per_page if remote_total else 0
+        items = remote_page["items"]
 
         today_start = datetime.now().replace(
             hour=0,
@@ -105,7 +115,7 @@ class TaskQueryService:
             func.count(case((Task.status == 'running', 1))).label('running'),
             func.count(case((Task.status == 'error', 1))).label('error'),
             func.count(case(
-                (and_(Task.status == 'pending', Task.current_step > 0), 1)
+                (Task.status == 'pending', 1)
             )).label('pending'),
             func.count(case(
                 (and_(Task.created_at >= today_start, Task.created_at < tomorrow_start), 1)
@@ -144,14 +154,14 @@ class TaskQueryService:
         return {
             "tasks": items,
             "pagination": {
-                "page": pagination.page,
-                "per_page": pagination.per_page,
-                "total": pagination.total,
-                "pages": pagination.pages,
-                "has_prev": pagination.has_prev,
-                "has_next": pagination.has_next,
-                "prev_num": pagination.prev_num,
-                "next_num": pagination.next_num,
+                "page": page,
+                "per_page": per_page,
+                "total": remote_total,
+                "pages": pages,
+                "has_prev": page > 1,
+                "has_next": page < pages,
+                "prev_num": page - 1 if page > 1 else None,
+                "next_num": page + 1 if page < pages else None,
             },
             "statistics": {
                 "total_tasks": total,

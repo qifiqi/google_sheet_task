@@ -827,7 +827,8 @@ class NavigationMenuItem(db.Model):
         return data
 
 
-class GoogleSheetToken(db.Model):
+if False:  # GoogleSheetToken 已完全迁移至 ParamGoogleSheetTokens HTTP，保留 ORM 源码仅供历史数据库排查。
+ class GoogleSheetToken(db.Model):
     """Google Sheet token pool model."""
 
     __tablename__ = "t_param_google_sheet_tokens"

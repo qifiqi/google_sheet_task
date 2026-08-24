@@ -69,3 +69,33 @@ class TaskRepository(SdkCrudRepository):
             except json.JSONDecodeError:
                 result["config"] = {}
         return RemoteTaskRecord(result)
+
+    def list_tasks(
+        self,
+        *,
+        page_index: int = 1,
+        page_size: int = 100,
+        task_types: list[str] | None = None,
+        statuses: list[str] | None = None,
+        keyword: str | None = None,
+        created_from: str | None = None,
+        order_field: str = "created_at",
+        order_type: str = "desc",
+    ) -> dict[str, Any]:
+        """按 ParamTasks 查询条件读取任务；排序只使用一个字段。"""
+        payload: dict[str, Any] = {
+            "page_index": max(1, int(page_index)),
+            "page_size": max(1, int(page_size)),
+            "order_field": order_field,
+            "order_type": order_type,
+        }
+        if task_types:
+            payload["task_types"] = task_types
+        if statuses:
+            payload["statuses"] = statuses
+        if keyword:
+            payload["keyword"] = keyword
+        if created_from:
+            payload["created_from"] = created_from
+        raw = self.client.call(self.group_name, "get_data_by_page_list", payload)
+        return self._normalize_page(raw)

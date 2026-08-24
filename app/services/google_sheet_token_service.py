@@ -4,9 +4,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from app.extensions import db
-from app.models import GoogleSheetToken, GoogleSheetTokenTaskType, Task
+from app.models import GoogleSheetTokenTaskType
 from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepository
+from app.repositories.task_repository import TaskRepository
 from app.repositories.sdk_client import SdkFilterUnavailableError
 from app.services.config_manager import get_config_manager
 from app.utils.logger import get_logger
@@ -18,8 +18,9 @@ RANDOM_TOKEN_VALUE = "__random__"
 
 class GoogleSheetTokenService:
     def __init__(self, repository: GoogleSheetTokenRepository | None = None):
-        """注入 Token 远程 CRUD 仓储；运行态占用逻辑仍使用本地 ORM。"""
+        """注入 Token 远程 CRUD 仓储。"""
         self._repository = repository or GoogleSheetTokenRepository()
+        self._task_repository = TaskRepository()
 
     @staticmethod
     def _normalize_token_task_type(task_type: Optional[str], default: Optional[str] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value) -> Optional[str]:
@@ -28,14 +29,26 @@ class GoogleSheetTokenService:
 
     def _build_live_usage_snapshot(self):
         """统计运行任务使用的 Token 数和全局实时占用总数。"""
-        # TODO: 运行任务筛选依赖 ParamTasks/Query，禁止 SDK 全表筛选。
         token_usage: Dict[int, int] = {}
         current_total = 0
 
-        running_tasks = Task.query.filter_by(status='running').all()
+        page_index = 1
+        running_tasks = []
+        while True:
+            page = self._task_repository.list_tasks(
+                page_index=page_index,
+                page_size=100,
+                statuses=["running"],
+                order_field="created_at",
+                order_type="desc",
+            )
+            running_tasks.extend(page["items"])
+            if not page["items"] or page_index * 100 >= page["total"]:
+                break
+            page_index += 1
         for task in running_tasks:
             try:
-                config = json.loads(task.config) if isinstance(task.config, str) else (task.config or {})
+                config = task.get("config") or {}
             except Exception:
                 continue
 
@@ -57,17 +70,17 @@ class GoogleSheetTokenService:
             "current_total": current_total,
         }
 
-    def _assert_token_usage_available(self, token: GoogleSheetToken, current_in_use: int):
+    def _assert_token_usage_available(self, token: dict[str, Any], current_in_use: int):
         """校验指定 Token 已启用且未超过自身并发占用上限。"""
         if not token:
             raise ValueError("所选 Token 不存在")
-        if not token.is_active:
-            raise ValueError(f"Token [{token.name}] 已被禁用，请更换 Token")
+        if not token.get("is_active"):
+            raise ValueError(f"Token [{token.get('name')}] 已被禁用，请更换 Token")
 
-        max_usage = int(token.max_usage_count or 0)
+        max_usage = int(token.get("max_usage_count") or 0)
         if max_usage > 0 and int(current_in_use) >= max_usage:
             raise ValueError(
-                f"Token [{token.name}] 已达到最大占用次数 ({current_in_use}/{max_usage})，请更换 Token"
+                f"Token [{token.get('name')}] 已达到最大占用次数 ({current_in_use}/{max_usage})，请更换 Token"
             )
 
     def reconcile_in_use_counts(self):
@@ -75,11 +88,11 @@ class GoogleSheetTokenService:
         snapshot = self._build_live_usage_snapshot()
         token_usage = snapshot["token_usage"]
 
-        tokens = GoogleSheetToken.query.all()
+        tokens = self._repository.list_public(include_context=True)
         for token in tokens:
-            token.current_in_use_count = int(token_usage.get(int(token.id), 0))
-
-        db.session.commit()
+            expected = int(token_usage.get(int(token["id"]), 0))
+            if int(token.get("current_in_use_count") or 0) != expected:
+                self._repository.save({**token, "current_in_use_count": expected})
 
     def list_tokens(self, task_type: Optional[str] = None):
         """读取 Token 列表。
@@ -111,41 +124,41 @@ class GoogleSheetTokenService:
         """导入 Token 内容并创建或更新可用的 Token 注册记录。"""
         normalized_task_type = self._normalize_token_task_type(task_type)
         normalized_context = self._load_token_context(token_context=token_context, token_file=token_file)
-        token = GoogleSheetToken.query.filter_by(
-            token_context=normalized_context,
-            task_type=normalized_task_type,
-        ).first()
+        token = next(
+            (
+                item for item in self._repository.list_public(include_context=True)
+                if item.get("token_context") == normalized_context
+                and item.get("task_type") == normalized_task_type
+            ),
+            None,
+        )
         is_new = token is None
 
         if token is None:
-            token = GoogleSheetToken(
-                name=(name or "").strip() or self._build_default_name(),
-                task_type=normalized_task_type,
-                token_file="",
-                token_context=normalized_context,
-                max_usage_count=max(0, int(max_usage_count or 0)),
-                is_active=True,
-            )
-            db.session.add(token)
-            db.session.flush()
-            token.token_file = self._build_runtime_token_file(token.id)
+            token = self._repository.save({
+                "name": (name or "").strip() or self._build_default_name(),
+                "task_type": normalized_task_type,
+                "token_file": "",
+                "token_context": normalized_context,
+                "max_usage_count": max(0, int(max_usage_count or 0)),
+                "is_active": True,
+            })
+            token["token_file"] = self._build_runtime_token_file(token["id"])
         else:
-            token.name = (name or "").strip() or token.name or self._build_default_name(token.id)
-            token.task_type = normalized_task_type
-            token.token_context = normalized_context
-            token.is_active = True
+            token["name"] = (name or "").strip() or token.get("name") or self._build_default_name(token["id"])
+            token["task_type"] = normalized_task_type
+            token["token_context"] = normalized_context
+            token["is_active"] = True
             if max_usage_count is not None:
-                token.max_usage_count = max(0, int(max_usage_count))
-            if not token.token_file:
-                db.session.flush()
-                token.token_file = self._build_runtime_token_file(token.id)
+                token["max_usage_count"] = max(0, int(max_usage_count))
+            if not token.get("token_file"):
+                token["token_file"] = self._build_runtime_token_file(token["id"])
 
-        db.session.flush()
         self.ensure_token_file(token)
-        db.session.commit()
+        token = self._repository.save(token)
 
-        logger.info("Imported Google Sheet token successfully: %s", token.name)
-        return token.to_dict(), is_new
+        logger.info("Imported Google Sheet token successfully: %s", token.get("name"))
+        return self._repository.public_record(token), is_new
 
     def update_token(self, token_id: int, **payload):
         """通过远程 CRUD 更新 Token 的常规字段。
@@ -199,15 +212,15 @@ class GoogleSheetTokenService:
         # 当前占用与历史使用次数语义不同，分别从本地运行态统计。
         self.reconcile_in_use_counts()
         global_max_usage = self._get_global_max_usage()
-        current_total = db.session.query(
-            db.func.coalesce(db.func.sum(GoogleSheetToken.current_in_use_count), 0)
-        ).scalar() or 0
-        total_usage = db.session.query(
-            db.func.coalesce(db.func.sum(GoogleSheetToken.task_usage_count), 0)
-        ).scalar() or 0
-        active_count = GoogleSheetToken.query.filter_by(is_active=True).count()
+        tokens = self._repository.list_public()
+        current_total = sum(int(token.get("current_in_use_count") or 0) for token in tokens)
+        total_usage = sum(int(token.get("task_usage_count") or 0) for token in tokens)
+        active_tokens = [token for token in tokens if token.get("is_active")]
+        active_count = len(active_tokens)
         available_count = sum(
-            1 for token in GoogleSheetToken.query.filter_by(is_active=True).all() if token.is_available()
+            1 for token in active_tokens
+            if int(token.get("max_usage_count") or 0) <= 0
+            or int(token.get("current_in_use_count") or 0) < int(token.get("max_usage_count") or 0)
         )
         return {
             "current_total_in_use": int(current_total),
@@ -237,9 +250,9 @@ class GoogleSheetTokenService:
         token_file = self.ensure_token_file(token)
 
         resolved = dict(config)
-        resolved["token_id"] = token.id
+        resolved["token_id"] = token.get("id")
         resolved["token_file"] = token_file
-        resolved["token_name"] = token.name
+        resolved["token_name"] = token.get("name")
         if token_selection == RANDOM_TOKEN_VALUE:
             resolved["token_selection_mode"] = RANDOM_TOKEN_VALUE
         return resolved
@@ -260,14 +273,14 @@ class GoogleSheetTokenService:
         if not token_id:
             return
 
-        token = GoogleSheetToken.query.get(int(token_id))
+        token = self._repository.get(int(token_id))
         if not token:
             raise ValueError("所选 Token 不存在")
         expected_task_type = self._normalize_token_task_type(config.get("token_task_type"))
-        actual_task_type = token.task_type or GoogleSheetTokenTaskType.GOOGLE_SHEET.value
+        actual_task_type = token.get("task_type") or GoogleSheetTokenTaskType.GOOGLE_SHEET.value
         if expected_task_type and actual_task_type != expected_task_type:
-            raise ValueError(f"Token [{token.name}] 不适用于当前任务类型")
-        current_in_use = int(snapshot["token_usage"].get(int(token.id), 0))
+            raise ValueError(f"Token [{token.get('name')}] 不适用于当前任务类型")
+        current_in_use = int(snapshot["token_usage"].get(int(token.get("id")), 0))
         self._assert_token_usage_available(token, current_in_use)
 
     def increment_usage(self, token_id: Optional[int]):
@@ -278,31 +291,29 @@ class GoogleSheetTokenService:
         snapshot = self._build_live_usage_snapshot()
         self._assert_global_usage_available(current_total=snapshot["current_total"])
 
-        token = GoogleSheetToken.query.get(int(token_id))
+        token = self._repository.get(int(token_id))
         if not token:
             raise ValueError("所选 Token 不存在")
-        current_in_use = int(snapshot["token_usage"].get(int(token.id), 0))
+        current_in_use = int(snapshot["token_usage"].get(int(token.get("id")), 0))
         self._assert_token_usage_available(token, current_in_use)
 
-        token.task_usage_count = int(token.task_usage_count or 0) + 1
-        token.current_in_use_count = current_in_use + 1
-        token.last_used_at = datetime.now()
-        db.session.commit()
-        return token
+        token["task_usage_count"] = int(token.get("task_usage_count") or 0) + 1
+        token["current_in_use_count"] = current_in_use + 1
+        token["last_used_at"] = datetime.now().isoformat()
+        return self._repository.save(token)
 
     def release_usage(self, token_id: Optional[int]):
         """在任务结束后释放 Token 实时占用。"""
         if not token_id:
             return None
 
-        token = GoogleSheetToken.query.get(int(token_id))
+        token = self._repository.get(int(token_id))
         if not token:
             return None
 
-        token.current_in_use_count = max(0, int(token.current_in_use_count or 0) - 1)
-        token.last_used_at = datetime.now()
-        db.session.commit()
-        return token
+        token["current_in_use_count"] = max(0, int(token.get("current_in_use_count") or 0) - 1)
+        token["last_used_at"] = datetime.now().isoformat()
+        return self._repository.save(token)
 
     def _load_token_context(self, token_context: Optional[str] = None, token_file: Optional[str] = None):
         """从请求内容或本地文件读取并校验 Token 凭据文本。"""
@@ -325,20 +336,19 @@ class GoogleSheetTokenService:
 
         return json.dumps(parsed, ensure_ascii=False, indent=2)
 
-    def ensure_token_file(self, token: GoogleSheetToken):
+    def ensure_token_file(self, token: Dict[str, Any]):
         """确保 Token 内容已写入任务可读取的本地运行时文件。"""
-        runtime_path = Path(token.token_file or self._build_runtime_token_file(token.id))
+        runtime_path = Path(token.get("token_file") or self._build_runtime_token_file(int(token["id"])))
         if not runtime_path.is_absolute():
             runtime_path = Path.cwd() / runtime_path
 
         runtime_path.parent.mkdir(parents=True, exist_ok=True)
         runtime_path_str = str(runtime_path.relative_to(Path.cwd())).replace("\\", "/")
-        if token.token_file != runtime_path_str:
-            token.token_file = runtime_path_str
-            db.session.flush()
+        token["token_file"] = runtime_path_str
 
-        if not runtime_path.exists() or runtime_path.read_text(encoding="utf-8") != token.token_context:
-            runtime_path.write_text(token.token_context, encoding="utf-8")
+        token_context = str(token.get("token_context") or "")
+        if not runtime_path.exists() or runtime_path.read_text(encoding="utf-8") != token_context:
+            runtime_path.write_text(token_context, encoding="utf-8")
 
         return runtime_path_str
 
@@ -349,13 +359,13 @@ class GoogleSheetTokenService:
         if str(token_selection) == RANDOM_TOKEN_VALUE:
             return self._pick_random_available_token(snapshot=snapshot, task_type=normalized_task_type)
 
-        token = GoogleSheetToken.query.get(int(token_selection))
+        token = self._repository.get(int(token_selection))
         if not token:
             raise ValueError("所选 Token 不存在")
-        actual_task_type = token.task_type or GoogleSheetTokenTaskType.GOOGLE_SHEET.value
+        actual_task_type = token.get("task_type") or GoogleSheetTokenTaskType.GOOGLE_SHEET.value
         if normalized_task_type and actual_task_type != normalized_task_type:
-            raise ValueError(f"Token [{token.name}] 不属于 {normalized_task_type} 分组")
-        current_in_use = int(snapshot["token_usage"].get(int(token.id), 0))
+            raise ValueError(f"Token [{token.get('name')}] 不属于 {normalized_task_type} 分组")
+        current_in_use = int(snapshot["token_usage"].get(int(token.get("id")), 0))
         self._assert_token_usage_available(token, current_in_use)
         return token
 
@@ -364,18 +374,19 @@ class GoogleSheetTokenService:
         snapshot = snapshot or self._build_live_usage_snapshot()
         token_usage = snapshot["token_usage"]
         normalized_task_type = self._normalize_token_task_type(task_type)
-        tokens = GoogleSheetToken.query.filter_by(
-            is_active=True,
-            task_type=normalized_task_type,
-        ).order_by(
-            GoogleSheetToken.current_in_use_count.asc(),
-            GoogleSheetToken.task_usage_count.asc(),
-            GoogleSheetToken.id.asc(),
-        ).all()
+        tokens = [
+            token for token in self._repository.list_public()
+            if token.get("is_active") and token.get("task_type") == normalized_task_type
+        ]
+        tokens.sort(key=lambda token: (
+            int(token.get("current_in_use_count") or 0),
+            int(token.get("task_usage_count") or 0),
+            int(token.get("id") or 0),
+        ))
         available = []
         for token in tokens:
-            current_in_use = int(token_usage.get(int(token.id), 0))
-            max_usage = int(token.max_usage_count or 0)
+            current_in_use = int(token_usage.get(int(token.get("id")), 0))
+            max_usage = int(token.get("max_usage_count") or 0)
             if max_usage <= 0 or current_in_use < max_usage:
                 available.append((token, current_in_use))
         if not available:
@@ -394,9 +405,7 @@ class GoogleSheetTokenService:
             return
 
         if current_total is None:
-            current_total = db.session.query(
-                db.func.coalesce(db.func.sum(GoogleSheetToken.current_in_use_count), 0)
-            ).scalar() or 0
+            current_total = self._build_live_usage_snapshot()["current_total"]
         if int(current_total) >= max_usage:
             raise ValueError(
                 f"所有 Token 当前占用次数已达到系统上限({max_usage})，停止生成任务"

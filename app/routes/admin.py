@@ -2,11 +2,10 @@ from urllib.parse import quote
 
 from flask import Blueprint, Response, current_app, g, jsonify, render_template, request
 
-from app.extensions import db
 from app.services.model_summary_service import model_summary_service
 from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
-from app.models import Task, GoogleSheetTableType, TaskStatus, TaskType
+from app.models import GoogleSheetTableType, TaskStatus, TaskType
 from app.repositories.task_repository import TaskRepository
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
@@ -47,14 +46,23 @@ def _task_permission_denied(action: str, task_type: str | None, decision: dict, 
 @admin_bp.route('/')
 def dashboard():
     """管理面板首页"""
-    # 获取任务统计
-    total_tasks = Task.query.count()
-    completed_tasks = Task.query.filter_by(status='completed').count()
-    running_tasks = Task.query.filter_by(status='running').count()
-    error_tasks = Task.query.filter_by(status='error').count()
-    
-    # 获取最近的任务
-    recent_tasks = Task.query.order_by(Task.created_at.desc()).limit(10).all()
+    # 任务主表统计统一通过 ParamTasks HTTP 获取，避免管理员页面直连数据库。
+    total_tasks = _task_repository.list_tasks(page_size=1)["total"]
+    def count_status(status: str) -> int:
+        return _task_repository.list_tasks(
+            page_size=1,
+            statuses=[status],
+            order_field="created_at",
+            order_type="desc",
+        )["total"]
+    completed_tasks = count_status("completed")
+    running_tasks = count_status("running")
+    error_tasks = count_status("error")
+    recent_tasks = _task_repository.list_tasks(
+        page_size=10,
+        order_field="created_at",
+        order_type="desc",
+    )["items"]
     
     return render_template('admin/dashboard.html', 
                          total_tasks=total_tasks,
