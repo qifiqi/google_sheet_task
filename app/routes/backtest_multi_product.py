@@ -15,9 +15,10 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import load_only
 
 from app.extensions import db
-from app.models import TaskResult, TaskResultReturn
+from app.models import TaskResult
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
+from app.repositories.task_result_return_repository import TaskResultReturnRepository
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
@@ -34,6 +35,7 @@ bp = Blueprint("backtest_multi_product", __name__, url_prefix="/backtest-multi-p
 legacy_bp = Blueprint("backtest_multi_product_legacy", __name__, url_prefix="/backtest-multi")
 _task_repository = TaskRepository()
 _task_result_repository = TaskResultRepository()
+_task_result_return_repository = TaskResultReturnRepository()
 
 TASK_ACTION_LABELS = {
     "view": "查看",
@@ -340,7 +342,7 @@ def get_task_result_detail(task_result_id):
 
     daily_returns = {}
     if task_result.return_series_id:
-        return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
+        return_series = _task_result_return_repository.get(task_result.return_series_id)
         if return_series:
             rows = parse_return_series_fields(return_series)
             daily_returns = {

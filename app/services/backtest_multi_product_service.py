@@ -14,7 +14,7 @@ from typing import Any
 
 from flask import current_app
 from app.extensions import db
-from app.models import BacktestProductResultCache, Task, TaskResult, TaskResultReturn
+from app.models import BacktestProductResultCache, Task, TaskResult
 from app.repositories.task_result_repository import TaskResultRepository
 from app.repositories.task_result_return_repository import TaskResultReturnRepository
 from app.repositories.backtest_product_result_cache_repository import BacktestProductResultCacheRepository
@@ -1018,24 +1018,20 @@ class BacktestMultiProductService(BacktestTrainingService):
                 )
                 if not series_fields:
                     raise ValueError("收益序列缺少有效日期")
-                return_series = TaskResultReturn(
-                    task_id=self.task_id,
+                return_series = _task_result_return_repository.save({
+                    "task_id": self.task_id,
                     **series_fields,
-                )
-                db.session.add(return_series)
-                db.session.flush()
+                })
                 _task_result_repository.save({
                     **task_result,
-                    "return_series_id": return_series.id,
+                    "return_series_id": return_series["id"],
                 })
-            db.session.commit()
 
         try:
             context_app = self.app or current_app
             with context_app.app_context():
                 safe_db_operation(save_result_operation)
         except Exception as exc:
-            db.session.rollback()
             self._log_error(f"保存多品任务结果失败: {exc}")
             raise
 

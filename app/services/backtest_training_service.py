@@ -7,8 +7,9 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResultReturn, db
+from app.models import Task
 from app.repositories.task_result_repository import TaskResultRepository
+from app.repositories.task_result_return_repository import TaskResultReturnRepository
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
@@ -30,6 +31,7 @@ from app.services.kline_service import KlineService
 from app.utils.market import normalize_market_type
 
 _task_result_repository = TaskResultRepository()
+_task_result_return_repository = TaskResultReturnRepository()
 
 
 class BacktestTrainingService(BaseGoogleSheetService):
@@ -801,17 +803,14 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 )
                 if not series_fields:
                     raise ValueError("收益序列缺少有效日期")
-                return_series = TaskResultReturn(
-                    task_id=self.task_id,
+                return_series = _task_result_return_repository.save({
+                    "task_id": self.task_id,
                     **series_fields,
-                )
-                db.session.add(return_series)
-                db.session.flush()
+                })
                 _task_result_repository.save({
                     **task_result,
-                    "return_series_id": return_series.id,
+                    "return_series_id": return_series["id"],
                 })
-            db.session.commit()
 
         try:
             if self.app:
@@ -822,7 +821,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 with current_app.app_context():
                     safe_db_operation(save_result_operation)
         except Exception as e:
-            db.session.rollback()
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
             raise
