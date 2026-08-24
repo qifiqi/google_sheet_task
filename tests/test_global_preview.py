@@ -1,3 +1,4 @@
+from datetime import datetime
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -113,6 +114,8 @@ def test_global_preview_exports_multiple_c7_0_3_stocks_as_zip(app_factory, monke
         assert response.mimetype == "application/zip"
         with ZipFile(BytesIO(response.data)) as archive:
             assert archive.namelist() == ["自定义导出名_AAPL.xlsx", "自定义导出名_MSFT.xlsx"]
+            entry_modified_at = datetime(*archive.getinfo("自定义导出名_AAPL.xlsx").date_time)
+            assert entry_modified_at.year >= datetime.now().year - 1
 
 
 def test_c7_0_3_global_preview_groups_results_by_stock_and_year(app_factory, monkeypatch):

@@ -9,3 +9,5 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
     assert 'id="btn-analyze-v2"' in response.get_data(as_text=True)
     assert 'date / index_return / start_return' in response.get_data(as_text=True)
     assert 'xlsx-js-style' in response.get_data(as_text=True)
+    assert 'function applyV2ExportStyles' in response.get_data(as_text=True)
+    assert 'XLSX.writeFile(workbook, defaultFilename' in response.get_data(as_text=True)

@@ -6,7 +6,6 @@ from datetime import datetime
 from io import BytesIO
 import json
 import math
-import re
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from flask import Blueprint, current_app, g, jsonify, render_template, request, send_file
@@ -24,9 +23,7 @@ from app.services.backtest_multi_product_service import (
     normalize_multi_product_config,
 )
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
-from app.services.stock_metadata_service import bulk_upsert_stock_metadata
 from app.utils.auth import login_required, permission_required
-from app.utils.dfcf_api import DFCJStockApi
 from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
 
 
@@ -49,10 +46,6 @@ def _sanitize_json_value(value):
     if isinstance(value, list):
         return [_sanitize_json_value(item) for item in value]
     return value
-
-
-def _strip_html_tags(value):
-    return re.sub(r"<[^>]+>", "", str(value or "")).strip()
 
 
 def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None):
@@ -232,56 +225,6 @@ def import_excel():
     except Exception as exc:
         current_app.logger.exception("Failed to import multi-product backtest Excel")
         return jsonify({"status": "error", "message": f"Excel 解析失败：{exc}"}), 500
-
-
-@bp.route("/api/search-stocks", methods=["GET"])
-@login_required
-@permission_required("backtest:view")
-def search_stocks():
-    keyword = (request.args.get("q") or "").strip()
-    page_size = request.args.get("page_size", default=10, type=int) or 10
-    page_size = max(1, min(page_size, 20))
-    if len(keyword) < 1:
-        return jsonify({"status": "success", "keyword": keyword, "results": []})
-
-    raw_results = DFCJStockApi().get_search_list_by_stock_code(keyword, page_size=page_size)
-    if isinstance(raw_results, dict) and raw_results.get("error"):
-        return jsonify({"status": "error", "message": raw_results.get("error") or "股票搜索失败"}), 502
-
-    normalized_results = []
-    for item in raw_results or []:
-        if item.get("status") not in (10, "10", None):
-            continue
-        code = _strip_html_tags(item.get("code"))
-        short_name = _strip_html_tags(item.get("shortName"))
-        security_type_name = _strip_html_tags(item.get("securityTypeName"))
-        if not code:
-            continue
-        normalized_results.append({
-            "source": item.get("source"),
-            "code": code,
-            "name": short_name,
-            "security_type_name": security_type_name,
-            "market": item.get("market"),
-            "label": " · ".join(part for part in [code, short_name, security_type_name] if part),
-            "status": item.get("status"),
-        })
-
-    bulk_upsert_stock_metadata([
-        {
-            "stock_code": item.get("code"),
-            "stock_name": item.get("name"),
-            "market_type": item.get("market") or item.get("marketType"),
-            "exchange_market": item.get("market"),
-            "security_type_name": item.get("security_type_name"),
-            "source": item.get("source"),
-            "raw": item,
-        }
-        for item in normalized_results
-    ])
-    db.session.commit()
-
-    return jsonify({"status": "success", "keyword": keyword, "results": normalized_results})
 
 
 @bp.route("/api/task-results/<task_id>", methods=["GET"])

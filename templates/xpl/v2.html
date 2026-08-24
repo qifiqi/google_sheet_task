@@ -213,7 +213,7 @@
                 <i class="bi bi-layout-text-sidebar-reverse me-1"></i>V2 数据明细（展开/收起）
             </button>
             <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
-                <i class="bi bi-download me-1"></i>导出并下载
+                <i class="bi bi-download me-1"></i>导出 Excel
             </button>
         </div>
     </div>
@@ -650,7 +650,7 @@
             </div>
             <div class="col-lg-6">
                 <div class="card h-100">
-                    <div class="card-header py-2"><h6 class="card-title mb-0">最大回测修复天数（index / start / excess）</h6></div>
+                    <div class="card-header py-2"><h6 class="card-title mb-0">最大回测修复天数（含年度最大值）</h6></div>
                     <div class="card-body p-2">
                         <div style="height:320px;">
                             <canvas id="chart-repair-days"></canvas>
@@ -968,6 +968,72 @@
         }
     }
 
+    function applyV2ExportStyles(sheet) {
+        const border = {
+            top: {style: 'thin', color: {rgb: 'D0D0D0'}},
+            bottom: {style: 'thin', color: {rgb: 'D0D0D0'}},
+            left: {style: 'thin', color: {rgb: 'D0D0D0'}},
+            right: {style: 'thin', color: {rgb: 'D0D0D0'}}
+        };
+        const titleStyle = {
+            font: {name: 'Microsoft YaHei', sz: 12, bold: true},
+            fill: {fgColor: {rgb: 'F7E1A1'}},
+            alignment: {horizontal: 'center', vertical: 'center'},
+            border
+        };
+        const headerStyle = {
+            font: {name: 'Microsoft YaHei', sz: 11, bold: true},
+            fill: {fgColor: {rgb: 'FCECC5'}},
+            alignment: {horizontal: 'center', vertical: 'center'},
+            border
+        };
+        const firstColumnStyle = {
+            font: {name: 'Microsoft YaHei', sz: 10, bold: true},
+            fill: {fgColor: {rgb: 'F7E1A1'}},
+            alignment: {horizontal: 'center', vertical: 'center'},
+            border
+        };
+        const bodyStyle = {
+            font: {name: 'Microsoft YaHei', sz: 10},
+            alignment: {horizontal: 'center', vertical: 'center'},
+            border
+        };
+        const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+
+        for (let row = range.s.r; row <= range.e.r; row += 1) {
+            for (let column = range.s.c; column <= range.e.c; column += 1) {
+                const address = XLSX.utils.encode_cell({r: row, c: column});
+                const cell = sheet[address];
+                if (!cell || cell.v === '') continue;
+                cell.s = bodyStyle;
+            }
+        }
+
+        for (let column = 0; column < 4; column += 1) {
+            const address = XLSX.utils.encode_cell({r: 0, c: column});
+            const cell = sheet[address] || {t: 's', v: ''};
+            cell.s = titleStyle;
+            sheet[address] = cell;
+        }
+        [2, 24, 30].forEach(row => {
+            for (let column = 0; column <= range.e.c; column += 1) {
+                const cell = sheet[XLSX.utils.encode_cell({r: row, c: column})];
+                if (cell && cell.v !== '') cell.s = headerStyle;
+            }
+        });
+        for (let row = 3; row <= 23; row += 1) {
+            const cell = sheet[XLSX.utils.encode_cell({r: row, c: 0})];
+            if (cell && cell.v !== '') cell.s = firstColumnStyle;
+        }
+
+        sheet['!cols'] = [
+            {wch: 16}, {wch: 28}, {wch: 16}, {wch: 18},
+            {wch: 4}, {wch: 4}, {wch: 4}, {wch: 4}, {wch: 4},
+            {wch: 16}, {wch: 16}, {wch: 16}
+        ];
+        sheet['!freeze'] = {xSplit: 0, ySplit: 3, topLeftCell: 'A4', activePane: 'bottomLeft', state: 'frozen'};
+    }
+
     async function exportV1Details() {
         if (!state.lastResults) {
             showAlert('请先完成分析再导出', 'warning');
@@ -980,7 +1046,8 @@
         try {
             const filenameSafeTitle = (state.spreadsheetTitle || 'v1').replaceAll(/[\\/:*?"<>|]/g, '_');
             const filenameSafeSheet = (state.lastSheetName || 'sheet').replaceAll(/[\\/:*?"<>|]/g, '_');
-            const defaultFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
+            const defaultFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.xlsx`;
+            const sourceFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
 
             const resp = await fetch('/xpl/export', {
                 method: 'POST',
@@ -989,7 +1056,7 @@
                     'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
                 },
                 body: JSON.stringify({
-                    filename:defaultFilename,
+                    filename: sourceFilename,
                     filename_title:filenameSafeTitle,
                     analyze_result: state.lastResults
                 })
@@ -1001,50 +1068,11 @@
                 throw new Error(api.message || `HTTP error! status: ${resp.status}`);
             }
 
-            const blob = await resp.blob();
-            
-            // Try to use File System Access API (only works in secure contexts with user gesture)
-            if (window.showSaveFilePicker && location.protocol === 'https:' && navigator.userAgent.includes('Chrome')) {
-                try {
-                    const fileHandle = await window.showSaveFilePicker({
-                        suggestedName: defaultFilename,
-                        types: [{
-                            description: 'CSV files',
-                            accept: { 'text/csv': ['.csv'] }
-                        }]
-                    });
-                    const writable = await fileHandle.createWritable();
-                    await writable.write(blob);
-                    await writable.close();
-                    showAlert('文件已保存', 'success');
-                    return;
-                } catch (err) {
-                    if (err.name !== 'AbortError') {
-                        console.warn('File System Access API failed, falling back to download:', err);
-                    } else {
-                        showAlert('用户取消了保存操作', 'info');
-                        return;
-                    }
-                }
-            }
-            
-            // Fallback: Create download with prompt for filename
-            const userFilename = prompt('请输入文件名:', defaultFilename);
-            if (userFilename === null) {
-                showAlert('用户取消了保存操作', 'info');
-                return;
-            }
-            
-            const finalFilename = userFilename.trim() || defaultFilename;
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = finalFilename.endsWith('.csv') ? finalFilename : finalFilename + '.csv';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(url);
-            showAlert(`文件已下载: ${finalFilename}`, 'success');
+            const workbook = XLSX.read(await resp.text(), {type: 'string'});
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            applyV2ExportStyles(sheet);
+            XLSX.writeFile(workbook, defaultFilename, {compression: true});
+            showAlert(`文件已下载: ${defaultFilename}`, 'success');
         } catch (e) {
             if (e.name !== 'AbortError') {
                 showAlert('导出失败：' + (e.message || '未知错误'), 'danger');
@@ -1356,6 +1384,16 @@
         }
     }
 
+    function maxYearlyRepairDays(yearlyRepairDays) {
+        if (!yearlyRepairDays || typeof yearlyRepairDays !== 'object' || Array.isArray(yearlyRepairDays)) {
+            return null;
+        }
+        const values = Object.values(yearlyRepairDays)
+            .map(Number)
+            .filter(Number.isFinite);
+        return values.length ? Math.max(...values) : null;
+    }
+
     function fillScalarsTable(tbodyId, r) {
         const tbody = document.getElementById(tbodyId);
         if (!tbody) return;
@@ -1373,7 +1411,9 @@
             start_monthly_return_volatility: '策略月收益率波动率',
             index_maximum_number_of_backtest_repair_days: '指数最大回测天数',
             start_maximum_number_of_backtest_repair_days: '策略最大回测天数',
-            excess_maximum_number_of_backtest_repair_days: '超额最大回测天数'
+            excess_maximum_number_of_backtest_repair_days: '超额最大回测天数',
+            year_index_yearly_max_repair_days: '指数年最大回测修复天数',
+            year_start_yearly_max_repair_days: '策略年最大回测修复天数'
         };
 
         const scalarKeys = [
@@ -1391,13 +1431,19 @@
             'excess_maximum_number_of_backtest_repair_days'
         ];
 
-        scalarKeys.forEach(k => {
-            if (r[k] === undefined) return;
+        const scalarValues = [
+            ...scalarKeys.map(k => [k, r[k]]),
+            ['year_index_yearly_max_repair_days', maxYearlyRepairDays(r.year_index_yearly_max_repair_days)],
+            ['year_start_yearly_max_repair_days', maxYearlyRepairDays(r.year_start_yearly_max_repair_days)]
+        ];
+
+        scalarValues.forEach(([k, value]) => {
+            if (value === undefined || value === null) return;
             const tr = document.createElement('tr');
-            let v = r[k];
+            let v = value;
             if (k.includes('profit_annual') || k.includes('outperform_year') || k.includes('winning_rate')) {
                 v = fmtPct(v, 2);
-            } else if (k.includes('maximum_number_of_backtest_repair_days')) {
+            } else if (k.includes('repair_days')) {
                 v = fmtInt(v);
             } else if (typeof v === 'number') {
                 v = fmtNum(v, 6);
@@ -1781,7 +1827,9 @@
         return [
             ['index', r.index_maximum_number_of_backtest_repair_days],
             ['start', r.start_maximum_number_of_backtest_repair_days],
-            ['excess', r.excess_maximum_number_of_backtest_repair_days]
+            ['excess', r.excess_maximum_number_of_backtest_repair_days],
+            ['year_index_max', maxYearlyRepairDays(r.year_index_yearly_max_repair_days)],
+            ['year_start_max', maxYearlyRepairDays(r.year_start_yearly_max_repair_days)]
         ].filter(([, value]) => value !== undefined && value !== null && !Number.isNaN(Number(value)));
     }
 

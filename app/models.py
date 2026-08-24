@@ -6,6 +6,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import foreign
 
 from app.extensions import db
+from app.utils.market import MARKET_DEFAULT_COMMISSIONS, MARKET_LABELS
 
 
 def _json_object_or_empty(raw):
@@ -172,6 +173,32 @@ class GoogleSheetTableType(str, Enum):
             cls.BACKTEST_TRAINING: "单品回测",
         }
         return [{"value": item.value, "label": labels[item]} for item in cls]
+
+
+class StockMarketType(str, Enum):
+    CN = "cn"
+    EN = "en"
+    CA = "ca"
+    KR = "kr"
+    JP = "jp"
+    HK = "hk"
+    UK = "uk"
+    FR = "fr"
+    DE = "de"
+    SG = "sg"
+    AU = "au"
+    MY = "my"
+
+    @classmethod
+    def choices(cls):
+        return [
+            {
+                "value": item.value,
+                "label": MARKET_LABELS[item.value],
+                "default_commission": MARKET_DEFAULT_COMMISSIONS[item.value],
+            }
+            for item in cls
+        ]
 
 
 class GoogleSheetTokenTaskType(str, Enum):
@@ -468,9 +495,11 @@ class TaskResultReturn(db.Model):
         index=True,
         comment="关联任务ID",
     )
-    stock_date = db.Column(db.String(50), comment="日期")
-    index_return = db.Column(db.Float, comment="指数收益")
-    start_return = db.Column(db.Float, comment="策略起始收益")
+    stock_code = db.Column(db.String(20), nullable=False, index=True)
+    stock_name = db.Column(db.String(20), nullable=False, index=True)
+    stock_date = db.Column(db.Text, comment="日期")
+    index_return = db.Column(db.Text, comment="指数收益")
+    start_return = db.Column(db.Text, comment="策略起始收益")
     returns_json = db.Column(db.Text, comment="收益曲线JSON，按列存储 dates/index_returns/start_returns")
 
     def to_dict(self):

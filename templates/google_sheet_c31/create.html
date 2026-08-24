@@ -159,12 +159,7 @@
                                         </div>
                                         <div class="col-md-2 mb-3">
                                             <label class="form-label d-block">市场</label>
-                                            <div class="btn-group w-100" role="group" aria-label="市场类型">
-                                                <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" checked>
-                                                <label class="btn btn-outline-primary" for="market_type_cn">A股</label>
-                                                <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="en">
-                                                <label class="btn btn-outline-primary" for="market_type_us">美股</label>
-                                            </div>
+                                            <select class="form-select" id="market_type"></select>
                                             <div class="form-text">选择回测市场</div>
                                         </div>
                                         <div class="col-md-3 mb-3">
@@ -558,6 +553,16 @@
     const TASK_TYPE = 'google_sheet_C31';
     const STORAGE_KEY = 'google_sheet_c31_form_data';
     const PAGE_LABEL = '3.1';
+
+    async function loadStockMarkets(selectedValue = 'cn') {
+        const select = document.getElementById('market_type');
+        const response = await fetch('/api/meta/enums');
+        const payload = await response.json();
+        select.innerHTML = (payload?.data?.stock_markets || []).map((market) =>
+            `<option value="${market.value}">${market.label}</option>`
+        ).join('');
+        select.value = normalizeMarketTypeValue(selectedValue);
+    }
     const GOOGLE_SHEET_TABLE_TYPE = 'c3';
 
     let googleSheetTokens = [];
@@ -818,7 +823,7 @@
     }
 
     function normalizeMarketTypeValue(value) {
-        return value === 'us' || value === 'en' || value === '美股' ? 'en' : 'cn';
+        return String(value || '').trim().toLowerCase();
     }
 
     // 从模板加载数据
@@ -863,12 +868,6 @@
                 // }
                 // if (config.proxy_url) {
                 //     document.getElementById('proxy_url').value = config.proxy_url;
-                // }
-                // if (config.market_type) {
-                //     const mtInput = document.querySelector(`input[name="market_type"][value="${config.market_type}"]`);
-                //     if (mtInput) {
-                //         mtInput.checked = true;
-                //     }
                 // }
                 // if (config.date_range_mode !== undefined) {
                 //     applyDateRangeModes(config.date_range_mode);
@@ -1226,7 +1225,8 @@
     }
 
     // 页面加载完成后绑定事件
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
+        await loadStockMarkets();
         bindEvents();
         loadGoogleSheets();
         // “更多配置”已移除，暂不初始化 Token 列表；保留函数供后续恢复。
@@ -1311,33 +1311,10 @@
             }
         }
 
-        const marketTypeCnInput = document.getElementById('market_type_cn');
-        const currentMarketType = normalizeMarketTypeValue(
-            document.querySelector('input[name="market_type"]:checked')?.value
-        );
         const currentPriceMode = document.getElementById('price_mode')?.value || 'vwap_price';
         const currentAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
-        if (marketTypeCnInput) {
-            const marketTypeCol = marketTypeCnInput.closest('.col-md-2');
-            if (marketTypeCol) {
-                marketTypeCol.innerHTML = `
-                    <label class="form-label d-block">市场</label>
-                    <div class="btn-group w-100" role="group" aria-label="市场类型">
-                        <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" checked>
-                        <label class="btn btn-outline-primary" for="market_type_cn">A股</label>
-                        <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="en">
-                        <label class="btn btn-outline-primary" for="market_type_us">美股</label>
-                    </div>
-                    <div class="form-text">选择后会按英文值传给后端</div>
-                `;
-                const targetMarketInput = marketTypeCol.querySelector(`input[name="market_type"][value="${currentMarketType}"]`);
-                if (targetMarketInput) {
-                    targetMarketInput.checked = true;
-                }
-            }
-        }
         if (!document.getElementById('price_mode')) {
-            const marketTypeCol = document.getElementById('market_type_cn')?.closest('.col-md-2');
+            const marketTypeCol = document.getElementById('market_type')?.closest('.col-md-2');
             const priceModeCol = document.createElement('div');
             priceModeCol.className = 'col-md-3 mb-3';
             priceModeCol.innerHTML = `
@@ -1356,7 +1333,7 @@
             if (priceModeSelect) priceModeSelect.value = currentPriceMode;
         }
         if (!document.getElementById('kline_adjustment')) {
-            const marketTypeCol = document.getElementById('market_type_cn')?.closest('.col-md-2');
+            const marketTypeCol = document.getElementById('market_type')?.closest('.col-md-2');
             const adjustmentCol = document.createElement('div');
             adjustmentCol.className = 'col-md-2 mb-3';
             adjustmentCol.innerHTML = `
@@ -1374,7 +1351,7 @@
             if (adjustmentSelect) adjustmentSelect.value = currentAdjustment;
         }
         if (!document.getElementById('kline_data_source')) {
-            const marketTypeCol = document.getElementById('market_type_cn')?.closest('.col-md-2');
+            const marketTypeCol = document.getElementById('market_type')?.closest('.col-md-2');
             if (marketTypeCol) {
                 const sourceCol = document.createElement('div');
                 sourceCol.className = 'col-md-2 mb-3';
@@ -1585,12 +1562,7 @@
         // refreshDateRangeModeAvailability();
         // applyRecentYears(normalized.recent_years);
         // updateRecentYearsVisibility();
-        if (normalized.market_type) {
-            const mtInput = document.querySelector(`input[name="market_type"][value="${normalizeMarketTypeValue(normalized.market_type)}"]`);
-            if (mtInput) {
-                mtInput.checked = true;
-            }
-        }
+        if (normalized.market_type) document.getElementById('market_type').value = normalizeMarketTypeValue(normalized.market_type);
         const priceModeSelect = document.getElementById('price_mode');
         if (priceModeSelect) {
             priceModeSelect.value = normalized.price_mode || 'vwap_price';
@@ -1826,9 +1798,7 @@
             }
         });
 
-        document.querySelectorAll('input[name="market_type"]').forEach(function(field) {
-            field.addEventListener('change', debouncedSaveFormData);
-        });
+        document.getElementById('market_type')?.addEventListener('change', debouncedSaveFormData);
 
         document.querySelectorAll('#sheet-config-list .sheet-config-item').forEach(function(item) {
             bindSheetConfigItemEvents(item, debouncedSaveFormData);
@@ -2076,7 +2046,6 @@
         // const proxyUrl = document.getElementById('proxy_url').value;
         // const countMode = document.querySelector('input[name="count_mode"]:checked')?.value || 'total';
         // const priceMode = document.querySelector('input[name="price_mode"]:checked')?.value || 'kp_price';
-        // const marketType = document.querySelector('input[name="market_type"]:checked')?.value || 'cn';
         // const dateRangeModes = getSelectedDateRangeModes();
         // const recentYears = getRecentYearsPayload();
         // const endDate = document.getElementById('end_date')?.value || null;
@@ -2102,7 +2071,7 @@
         }
 
         const taskDescription = document.getElementById('task_description').value.trim();
-        const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+        const marketType = normalizeMarketTypeValue(document.getElementById('market_type')?.value);
         const priceMode = document.getElementById('price_mode')?.value || 'vwap_price';
         const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
         const endDate = document.getElementById('end_date')?.value?.trim() || '';
@@ -2226,7 +2195,7 @@
             task_description: document.getElementById('task_description').value,
             stock_code: getStockCode(),
             end_date: document.getElementById('end_date')?.value || '',
-            market_type: normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value),
+            market_type: normalizeMarketTypeValue(document.getElementById('market_type')?.value),
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
@@ -2282,12 +2251,7 @@
                 const param6El = document.getElementById('param6');
                 if (formData.param6 && param6El) param6El.value = formData.param6;
 
-                if (formData.market_type) {
-                    const mtInput = document.querySelector(`input[name="market_type"][value="${normalizeMarketTypeValue(formData.market_type)}"]`);
-                    if (mtInput) {
-                        mtInput.checked = true;
-                    }
-                }
+                if (formData.market_type) document.getElementById('market_type').value = normalizeMarketTypeValue(formData.market_type);
                 if (formData.price_mode) {
                     const priceModeSelect = document.getElementById('price_mode');
                     if (priceModeSelect) priceModeSelect.value = formData.price_mode;
@@ -2366,7 +2330,7 @@
             const baseTaskName = document.getElementById('task_name').value.trim();
             const taskDescription = document.getElementById('task_description').value.trim();
             const stockCodeValue = getStockCode();
-            const marketType = normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value);
+            const marketType = normalizeMarketTypeValue(document.getElementById('market_type')?.value);
             const priceMode = document.getElementById('price_mode')?.value || 'vwap_price';
             const klineAdjustment = document.getElementById('kline_adjustment')?.value || 'forward';
             const endDate = document.getElementById('end_date')?.value?.trim() || '';

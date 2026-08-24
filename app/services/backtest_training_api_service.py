@@ -786,6 +786,17 @@ def _percent_display(value):
     return f"{0 if parsed == 0 else parsed:.2%}"
 
 
+def _max_yearly_repair_days(yearly_repair_days):
+    if not isinstance(yearly_repair_days, dict):
+        return None
+    values = [
+        value for value in yearly_repair_days.values()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        and math.isfinite(value)
+    ]
+    return max(values) if values else None
+
+
 def _metric_year_key(value):
     text = str(value if value is not None else "").strip()
     if not text or text.lower() == "all":
@@ -978,6 +989,12 @@ def _extract_summary_rows(calculate_metrics, model_name):
         max_drawdown = _derive_year_max_excess_drawdown(calculate_metrics)
 
         total_max_drawdown = ((calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {})
+        year_index_max_repair_days = _max_yearly_repair_days(
+            calculate_metrics.get("year_index_yearly_max_repair_days")
+        )
+        year_start_max_repair_days = _max_yearly_repair_days(
+            calculate_metrics.get("year_start_yearly_max_repair_days")
+        )
 
         period_text = excess_all.get("start_end_date", "")
         rows = [
@@ -996,6 +1013,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
             {"category": "回撤", "metric": "年最大回撤", "index_value": "", "model_value": _negative_percent_display(total_max_drawdown.get("drawdown")) if total_max_drawdown.get("drawdown") is not None else ""},
             {"category": "回撤", "metric": "最大修复天数", "index_value": "", "model_value": str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or "")},
             {"category": "回撤", "metric": "超额最大修复天数", "index_value": "", "model_value": str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or "")},
+            {"category": "回撤", "metric": "年最大回测修复天数", "index_value": str(year_index_max_repair_days) if year_index_max_repair_days is not None else "", "model_value": str(year_start_max_repair_days) if year_start_max_repair_days is not None else ""},
             {"category": "比率", "metric": "夏普比率", "index_value": _fmt_number(index_sharpe_all.get("sharpe_ratio")), "model_value": _fmt_number(start_sharpe_all.get("sharpe_ratio"))},
             {"category": "比率", "metric": "卡玛比率", "index_value": _fmt_number(index_kama_all.get("kama_ratio")), "model_value": _fmt_number(start_kama_all.get("kama_ratio"))},
             {"category": "比率", "metric": "所提诺比率", "index_value": _fmt_number(index_sotino_all.get("sotino_ratio")), "model_value": _fmt_number(start_sotino_all.get("sotino_ratio"))},

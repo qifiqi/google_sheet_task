@@ -22,6 +22,7 @@ from app.services.stock_metadata_service import lookup_stock_metadata, upsert_st
 from app.services.kline_service import KlineService
 from app.utils.database import safe_create, transaction_required
 from app.utils.logger import get_logger, get_task_logger
+from app.utils.market import normalize_market_type
 
 logger = get_logger(__name__)
 
@@ -158,6 +159,9 @@ class TaskCreationMixin:
         if not isinstance(config, dict):
             return config
         normalized = dict(config)
+        market_type = normalize_market_type(normalized.get("market_type"))
+        if market_type:
+            normalized["market_type"] = market_type
         if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
             normalized["kline_data_source"] = KlineService.normalize_data_source(

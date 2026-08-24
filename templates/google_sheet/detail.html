@@ -713,10 +713,12 @@
             configItems.splice(2, 0, { label: 'Sheet Title', value: config.title || config.spreadsheet_title || '-', icon: 'bi-type' });
             const endDateIcon = 'bi-calendar-event';
             const marketTypeIcon = 'bi-graph-up-arrow';
-            if (config.end_date || config.market_type) {
+            if (config.end_date || config.market_type || config.exchange_market || config.market || config.kline_data_source || config.data_source) {
                 configItems.push(
                     { label: '结束日期', value: config.end_date || '无', icon: endDateIcon },
-                    { label: '市场类型', value: config.market_type || '无', icon: marketTypeIcon }
+                    { label: '市场类型', value: config.market_type || '无', icon: marketTypeIcon },
+                    { label: '市场代码', value: config.exchange_market || config.market || '无', icon: 'bi-building' },
+                    { label: '数据源', value: config.kline_data_source || config.data_source || '无', icon: 'bi-database' }
                 );
             }
             configItems.forEach(item => {

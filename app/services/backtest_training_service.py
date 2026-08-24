@@ -25,6 +25,7 @@ from app.utils.task_error_utils import (
 )
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService
+from app.utils.market import normalize_market_type
 
 
 class BacktestTrainingService(BaseGoogleSheetService):
@@ -42,12 +43,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     @staticmethod
     def _normalize_market_type(value):
-        normalized = str(value or '').strip().lower()
-        if normalized == 'cn':
-            return 'cn'
-        if normalized in ('en', 'us', 'usa'):
-            return 'en'
-        return 'cn'
+        return normalize_market_type(value, 'cn')
 
     @staticmethod
     def _is_c7_0_3(config_data):
@@ -98,34 +94,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
             'parameter_positions': get_value('c7_parameter_positions', ['A1', 'B1']),
             'check_positions': get_value('c7_check_positions', ['D2', 'D3']),
         }
-
-    def _resolve_dfcf_stock_quote(self, stock_code, exchange_market=None):
-        stock_query = str(stock_code or '').strip()
-        market = str(exchange_market or '').strip()
-        if market:
-            return stock_query.upper(), market
-
-        stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_query, 10)
-        if isinstance(stock_config, dict):
-            raise ValueError(f"股票{stock_query}搜索失败: {stock_config.get('error') or stock_config}")
-        if not stock_config:
-            raise ValueError(f"未找到股票 {stock_query}")
-
-        query_upper = stock_query.upper()
-        selected = next(
-            (
-                item for item in stock_config
-                if str(item.get('code') or '').strip().upper() == query_upper
-            ),
-            stock_config[0],
-        )
-        resolved_code = str(selected.get('code') or '').strip().upper()
-        market = str(selected.get('market') or '').strip()
-        if not resolved_code or not market:
-            raise ValueError(f"股票{stock_query}搜索结果缺少 code 或 market: {selected}")
-        if resolved_code != stock_query:
-            self._log_info(f"股票 {stock_query} 已解析为代码 {resolved_code}, market={market}")
-        return resolved_code, market
 
     @staticmethod
     def _normalize_year_values(values, field_name):
@@ -941,19 +909,15 @@ class BacktestTrainingService(BaseGoogleSheetService):
         #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
         # else:
         #     klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
-        resolved_code = stock_code
-        resolved_market = exchange_market
-        resolved_code, resolved_market = self._resolve_dfcf_stock_quote(stock_code, exchange_market)
-
         klines = self.kline_service.get_kline_data(
-            resolved_code,
+            stock_code,
             market_type,
             limit,
             data_source=data_source,
             start_date=start_date,
             end_date=effective_end_date,
             adjust_type=adjust_type,
-            exchange_market=resolved_market,
+            exchange_market=exchange_market,
         )
         if klines and klines[0].get("stock_code"):
             stock_code = klines[0]["stock_code"]

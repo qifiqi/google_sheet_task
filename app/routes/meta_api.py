@@ -4,6 +4,7 @@ from app.models import (
     GoogleSheetTableType,
     GoogleSheetTokenTaskType,
     NavigationMenuItem,
+    StockMarketType,
     TaskStatus,
     TaskType,
 )
@@ -38,6 +39,7 @@ def get_enums():
         "task_statuses": TaskStatus.choices(),
         "task_status_editable": TaskStatus.editable_choices(),
         "task_types": TaskType.choices(),
+        "stock_markets": StockMarketType.choices(),
     })
 
 

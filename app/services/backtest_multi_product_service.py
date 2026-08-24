@@ -23,6 +23,7 @@ from app.services.task.error_handling import format_task_error_message, record_t
 from app.services.xpl_service import xpl_analyzer
 from app.utils.db_retry import db_retry_manager, safe_db_operation
 from app.utils.task_error_utils import unwrap_exception
+from app.utils.market import normalize_market_type as normalize_supported_market_type
 
 
 BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
@@ -55,10 +56,7 @@ SUMMARY_ROW_DEFS = [
 
 
 def normalize_market_type(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized in {"en", "us", "usa"}:
-        return "en"
-    return "cn"
+    return normalize_supported_market_type(value, "cn")
 
 
 def normalize_price_mode(value: Any) -> str:
@@ -1004,6 +1002,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             price_mode=product.get("price_mode") or config_data.get("price_mode", "vwap_price"),
             adjust_type=product.get("kline_adjustment", "forward"),
             data_source=product.get("kline_data_source") or config_data.get("kline_data_source", "dfcf"),
+            exchange_market=product.get("exchange_market"),
         )
         kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
         return {
@@ -1050,6 +1049,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         price_mode: str = "vwap_price",
         adjust_type: str | None = None,
         data_source: str = "dfcf",
+        exchange_market: str | None = None,
     ) -> list[dict[str, Any]]:
         price_field = {
             "kp_price": "stock_kp",
@@ -1072,19 +1072,15 @@ class BacktestMultiProductService(BacktestTrainingService):
         # else:
         #     klines = self.YF_api.get_kline_data(stock_code, "10y", adjust_type=adjust_type)
 
-        resolved_code = stock_code
-        resolved_market = None
-        if market_type == "cn":
-            resolved_code, resolved_market = self._resolve_dfcf_stock_quote(stock_code)
         klines = self.kline_service.get_kline_data(
-            resolved_code,
+            stock_code,
             market_type,
             limit,
             data_source=data_source,
             start_date=start_date,
             end_date=end_date,
             adjust_type=adjust_type,
-            exchange_market=resolved_market,
+            exchange_market=exchange_market,
         )
 
         if not klines:

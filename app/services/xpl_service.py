@@ -22,9 +22,9 @@ class XPLAnalyzer:
     """
 
     def __init__(self):
+        """初始化分析过程中复用的数据容器和指标缓存。"""
         self.data = []
         self.metrics = {}
-
 
     @staticmethod
     def monthly_maximum_drawdown(df):
@@ -74,7 +74,6 @@ class XPLAnalyzer:
             result['year_maximum_drawdown'].append(_)
 
         return result
-
 
     @staticmethod
     def calculate_max_drawdown_by_year_and_total(df):
@@ -338,7 +337,7 @@ class XPLAnalyzer:
                 # Record monthly data
                 monthly_data.append({
                     'year_month': month,  # 年月 Year and month
-                    'monthly_return': round(monthly_return,4),  # 月收益率 Monthly return
+                    'monthly_return': round(monthly_return, 4),  # 月收益率 Monthly return
                     'year': current_month_end['year'],  # 年份 Year
                     'date': current_month_end['date']  # 日期 Date
                 })
@@ -362,7 +361,7 @@ class XPLAnalyzer:
                 - 键为时间段标识（如'all', 'year_1_2023'等）
                   Keys are period identifiers (e.g., 'all', 'year_1_2023', etc.)
                 - 值为包含夏普比率、年化标准差、平均月收益率等指标的字典
-                  Values are dictionaries containing Sharpe ratio, annualized standard deviation, 
+                  Values are dictionaries containing Sharpe ratio, annualized standard deviation,
                   average monthly return, etc.
         """
         # 计算月度收益率数据
@@ -517,7 +516,7 @@ class XPLAnalyzer:
     def calculate_sotino_ratio(self, monthly_data: pd.DataFrame):
         """
             所提诺比例
-            月均年化收益率/下行标准差	
+            月均年化收益率/下行标准差
                 # 下行边准差	所有月低于0的收益率的标准差*√12
                 下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
                月均年化收益率	月均收益率*12（所有月）
@@ -567,7 +566,7 @@ class XPLAnalyzer:
         """
             盈利年百分比 = 年收益率大于0/区间总年份
             returns_rate 年度收益率列表 回报率
-            
+
         """
 
         annual_return = [i for i in returns_rate if i['annual_return'] > 0]
@@ -646,7 +645,7 @@ class XPLAnalyzer:
             (
                     excess_return['start_monthly_return'] -
                     excess_return['index_monthly_return']
-            ),4
+            ), 4
         )
         excess_return['date'] = excess_return['date'].dt.strftime("%Y/%m/%d")
         excess_return['index_date'] = excess_return['index_date'].dt.strftime("%Y/%m/%d")
@@ -699,35 +698,200 @@ class XPLAnalyzer:
         start_index = maximum_drawdown[maximum_drawdown['start_drawdown'] < maximum_drawdown['index_drawdown']]
         return len(start_index['start_drawdown']) / len(maximum_drawdown['start_drawdown'])
 
+    # def maximum_number_of_backtest_repair_days(self, data_df):
+    #     """
+    #         # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
+    #     """
+    #
+    #     data_df['previous_max'] = data_df['net_value'].expanding().max().shift(1)
+    #     #
+    #     # # 按年份分组处理
+    #     # yearly_groups = data_df.groupby('year')
+    #     #
+    #     # max_net_value_count = {}
+    #     #
+    #     # for year, year_df in yearly_groups:
+    #     #     if len(year_df) == 0:
+    #     #         continue
+    #     #     # mode_values = year_df['previous_max'].mode()
+    #     #     mode_freq = year_df['previous_max'].value_counts().max()
+    #     #
+    #     #     max_net_value_count[year] = int(mode_freq)
+    #     #
+    #     # return max_net_value_count
+    #
+    #     return int(data_df['previous_max'].value_counts().max())
+    #     # d_max = data_df['previous_max'].max()
+    #     # return data_df[data_df['previous_max'] == d_max]['previous_max'].count()
+
     def maximum_number_of_backtest_repair_days(self, data_df):
         """
-            # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
+        最大回测修复天数（整体区间）
+
+        含义：
+            在完整的考察区间内，基金净值从某一个峰值下跌后，重新回到该峰值水平
+            所需要的【最长】天数。
+
+        通俗理解：
+            "从山顶跌到谷底再爬回山顶，最久的一次花了多少天？"
+
+        为什么重要：
+            - 衡量基金的"抗跌修复能力"
+            - 修复天数越短，说明基金越能快速从下跌中恢复
+            - 对于投资者来说，修复天数过长意味着资金可能被长期套牢
+
+        计算逻辑：
+            1. 记录当前遇到过的最高净值（peak）
+            2. 逐日遍历净值序列：
+               a. 如果当日净值 >= peak（创新高或回到前高）：
+                  - 说明修复完成！记录本轮修复天数
+                  - 更新peak为当日净值（新的历史最高）
+                  - 重置修复天数计数器为0
+               b. 如果当日净值 < peak（仍在回撤中）：
+                  - 修复天数 +1（多跌了一天）
+            3. 返回所有修复周期中的最大天数
+
+        注意：
+            - 只统计【已完成】的修复周期
+            - 如果区间结束时仍未修复，不纳入统计
+            - 回撤修复天数从【跌破前高后的第一个交易日】开始计算
+
+        参数：
+            data_df: pandas.DataFrame，必须包含 'net_value' 列（净值数据）
+
+        返回：
+            int: 最大回测修复天数（已完成修复周期中的最大值）
+
+        示例：
+            净值序列: [1.00, 1.50, 1.40, 1.30, 1.20, 1.50, 1.60]
+            修复周期1: 1.50 → 1.20 → 1.50，耗时 3天（索引2,3,4）
+            修复周期2: 1.60 未完成修复，不计入
+            返回: 3
         """
+        net_values = data_df['net_value'].values
+        if len(net_values) < 2:
+            return 0
 
-        data_df['previous_max'] = data_df['net_value'].expanding().max().shift(1)
-        #
-        # # 按年份分组处理
-        # yearly_groups = data_df.groupby('year')
-        #
-        # max_net_value_count = {}
-        #
-        # for year, year_df in yearly_groups:
-        #     if len(year_df) == 0:
-        #         continue
-        #     # mode_values = year_df['previous_max'].mode()
-        #     mode_freq = year_df['previous_max'].value_counts().max()
-        #
-        #     max_net_value_count[year] = int(mode_freq)
-        #
-        # return max_net_value_count
+        # peak: 当前历史最高净值（记录"山顶"的位置）
+        peak = net_values[0]
 
-        return int(data_df['previous_max'].value_counts().max())
-        # d_max = data_df['previous_max'].max()
-        # return data_df[data_df['previous_max'] == d_max]['previous_max'].count()
+        # repair_days: 当前回撤已经持续的天数（正在"爬山"的天数）
+        repair_days = 0
+
+        # max_repair_days: 历史所有修复周期中的最大天数（最终答案）
+        max_repair_days = 0
+
+        # 从第二个交易日开始遍历（第一天没有历史参照）
+        for i in range(1, len(net_values)):
+            if net_values[i] >= peak:
+                # 情况1：净值回到前高或创新高 → 修复完成！
+                # 判断本次修复是否刷新了最长记录
+                if repair_days > max_repair_days:
+                    max_repair_days = repair_days
+
+                # 更新历史最高净值（新的"山顶"）
+                peak = net_values[i]
+
+                # 重置修复天数计数器（开始新的回撤周期）
+                repair_days = 0
+            else:
+                # 情况2：净值低于历史最高 → 仍在回撤中
+                # 修复天数+1（又跌了一天，离山顶更远了）
+                repair_days += 1
+
+        return max_repair_days
+
+    def yearly_max_repair_days(self, data_df):
+        """
+        按年计算最大回测修复天数
+
+        含义：
+            将完整的考察区间按【自然年份】拆分，分别计算每一年的最大回测修复天数。
+
+        使用场景：
+            - 评估基金在不同年份的修复能力变化
+            - 比较基金在牛市、熊市中的表现差异
+            - 识别基金在某些年份是否存在异常（修复天数突然变长）
+
+        核心逻辑（重要！）：
+            1. 年份拆分：按'date'列将数据分为2020年、2021年、2022年...
+            2. 【跨年累积】：上一年未修复的回撤，会累积到下一年的数据中继续计算
+            3. 每一年统计该年度内【完成修复】的周期中，最大的修复天数
+
+        为什么要跨年累积？
+            - 假设2020年12月31日净值1.50，2021年1月跌到1.30
+            - 如果2021年6月才回到1.50，修复天数应跨年计算
+            - 如果每年重置peak，会低估修复天数
+
+        参数：
+            data_df: pandas.DataFrame，必须包含 'date' 列（日期）和 'net_value' 列（净值）
+
+        返回：
+            dict: {年份: 该年最大修复天数}
+
+        示例：
+            2019年: 最大回测修复天数 = 0天（无完成修复）
+            2020年: 最大回测修复天数 = 10天
+            2021年: 最大回测修复天数 = 5天
+
+        输出格式：
+            {2019: 0, 2020: 10, 2021: 5}
+        """
+        # 步骤1：按日期排序，确保时间顺序正确
+        data_df = data_df.sort_values('date')
+
+        # 步骤2：提取年份，用于分组
+        data_df['year'] = data_df['date'].dt.year
+
+        yearly_result = {}
+
+        # peak: 跨年维护的历史最高净值（不因年份切换而重置！）
+        peak = None
+
+        # repair_days: 跨年维护的当前回撤天数（不因年份切换而重置！）
+        repair_days = 0
+
+        # 步骤3：按年份分组遍历（年份从小到大）
+        for year, year_df in data_df.groupby('year', sort=True):
+            net_values = year_df['net_value'].values
+
+            # 判断是否为第一年
+            if peak is None:
+                # 第一年：用该年第一天的净值初始化peak
+                peak = net_values[0]
+                # 从该年第二天开始遍历（第一天没有历史参照）
+                start_idx = 1
+            else:
+                # 非第一年：peak保持上一年末的历史最高值
+                # 从该年第一天开始遍历（要继承上年的修复状态）
+                start_idx = 0
+
+            # 该年度的最大修复天数（初始为0）
+            max_repair_days = 0
+
+            # 步骤4：遍历该年每一天的净值
+            for i in range(start_idx, len(net_values)):
+                if net_values[i] >= peak:
+                    # 修复完成！
+                    if repair_days > max_repair_days:
+                        max_repair_days = repair_days
+
+                    # 更新历史最高峰值
+                    peak = net_values[i]
+
+                    # 重置回撤计数器
+                    repair_days = 0
+                else:
+                    # 仍在回撤中，回撤天数+1
+                    repair_days += 1
+
+            # 步骤5：记录该年的最大修复天数
+            yearly_result[year] = max_repair_days
+
+        return yearly_result
 
     def exceeding_maximum_number_of_backtest_repair_days(self, index_data, start_data):
         """
-            # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
         """
 
         # start_index_data = {}
@@ -739,6 +903,7 @@ class XPLAnalyzer:
         return start_data - index_data
 
     def get_xpl(self, data: List[Dict[str, Any]], date='date', val='daily_return'):
+        """根据日期和日收益数据计算 XPL 指标。"""
         if not data:
             return {}
 
@@ -881,6 +1046,7 @@ class XPLAnalyzer:
 
     @staticmethod
     def _has_dual_return_columns(data: List[Dict[str, Any]]) -> bool:
+        """判断输入记录是否同时包含指数和策略两列收益率。"""
         return any(
             "index_return" in row and "start_return" in row
             for row in data
@@ -889,6 +1055,7 @@ class XPLAnalyzer:
 
     @staticmethod
     def _parse_return_value(value: Any) -> float:
+        """解析数值或百分号文本形式的单期收益率。"""
         if isinstance(value, str):
             value = value.strip()
             if '%' in value:
@@ -899,6 +1066,7 @@ class XPLAnalyzer:
 
     @classmethod
     def _sanitize_for_json(cls, value: Any) -> Any:
+        """递归清理 NaN、时间对象和 NumPy 标量，使分析结果可 JSON 编码。"""
         if isinstance(value, dict):
             return {key: cls._sanitize_for_json(item) for key, item in value.items()}
         if isinstance(value, list):
@@ -1039,6 +1207,7 @@ class XPLAnalyzer:
 
     def get_google_sheet_data(self, spreadsheet_id: str, google_sheet_name: str) -> tuple[Any, dict[
         Any, Any], pd.DataFrame] | None:
+        """读取 Google Sheet 数据并转换为分析所需的数据框。"""
         google_sheet = self._init_google_sheet(spreadsheet_id, google_sheet_name)
         title = google_sheet.title.upper()
 
@@ -1099,7 +1268,6 @@ class XPLAnalyzer:
                 _data_result[item['result_key_C']] = item['result_values_D']
 
             return _data, _data_result, sheet_df
-
 
         if 'C5' in title:
             last_now_num = google_sheet.get_last_row("A")
@@ -1238,6 +1406,7 @@ class XPLAnalyzer:
         }
 
         def pick_all(items, key="year", value="all"):
+            """从筛选项中选取指定年份或 all 对应的全部值。"""
             if not isinstance(items, list):
                 return {}
             for item in items:
@@ -1246,6 +1415,7 @@ class XPLAnalyzer:
             return {}
 
         def safe_value(value):
+            """将空值和非有限浮点数转换为可 JSON 序列化的空值。"""
             if value is None:
                 return 0
             if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
@@ -1355,7 +1525,8 @@ class XPLAnalyzer:
 
         return result, analyze_result
 
-    def get_calculate_metrics_v1(self,data):
+    def get_calculate_metrics_v1(self, data):
+        """执行 V1 格式数据的指标计算。"""
         return self._calculate_metrics_v1(data)
 
     def _calculate_metrics_v1(self, data) -> Dict[str, Any]:
@@ -1468,12 +1639,16 @@ class XPLAnalyzer:
             monthly_excess_returns_diff = monthly_excess_returns['monthly_excess_return_diff'].mask(
                 monthly_excess_returns['monthly_excess_return_diff'] > 0, 0
             )
-            excess_of_promissory_note = (monthly_excess_return_diff_mean * 12) / (monthly_excess_returns_diff.std() * np.sqrt(12))
+            excess_of_promissory_note = (monthly_excess_return_diff_mean * 12) / (
+                        monthly_excess_returns_diff.std() * np.sqrt(12))
 
-
-            # 最大回测修复天数 = （出现净值最多次数的天数）（每年）(index，start)
+            # 在完整的考察区间内，基金净值从某一个峰值下跌后，重新回到该峰值水平 所需要的【最长】天数。
             index_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(index_df)
             start_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(start_df)
+
+            # 将完整的考察区间按【自然年份】拆分，分别计算每一年的最大回测修复天数。 取最大值
+            year_index_yearly_max_repair_days = self.yearly_max_repair_days(index_df)
+            year_start_yearly_max_repair_days = self.yearly_max_repair_days(start_df)
 
             # 超额最大回测修复天数 = start - index
             data_df_2 = pd.DataFrame()
@@ -1520,7 +1695,8 @@ class XPLAnalyzer:
                 "start_maximum_number_of_backtest_repair_days": start_maximum_number_of_backtest_repair_days,
                 # 最大回测修复天数 start
                 "excess_maximum_number_of_backtest_repair_days": excess_maximum_number_of_backtest_repair_days,
-                # 超额最大回测修复天数
+                "year_index_yearly_max_repair_days": year_index_yearly_max_repair_days,
+                "year_start_yearly_max_repair_days": year_start_yearly_max_repair_days,
             }
 
             # 打印调试信息
@@ -1554,6 +1730,7 @@ class XPLAnalyzer:
 
     @staticmethod
     def _resolve_export_model_name(data, analyze_result):
+        """从导出数据、文件标题和 Sheet 名中识别对应模型版本。"""
         sheet_result = analyze_result.get('sheet_result', {}) if isinstance(analyze_result, dict) else {}
         sources = [
             data.get('model_name', ''),
@@ -1569,9 +1746,23 @@ class XPLAnalyzer:
 
     @staticmethod
     def _format_export_metric(value, format_spec):
+        """按给定格式输出指标，缺失值统一展示为占位符。"""
         return '--' if value is None else f"{value:{format_spec}}"
 
+    @staticmethod
+    def _max_yearly_repair_days(yearly_repair_days):
+        """返回年度最大修复天数中的最大值。"""
+        if not isinstance(yearly_repair_days, dict):
+            return None
+        values = [
+            value for value in yearly_repair_days.values()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value)
+        ]
+        return max(values) if values else None
+
     def format_export_file_data(self, data):
+        """将分析结果整理为 XPL 导出文件需要的二维数据。"""
         analyze_result = data.get('analyze_result')
         model_name = self._resolve_export_model_name(data, analyze_result)
 
@@ -1672,10 +1863,17 @@ class XPLAnalyzer:
 
         excess_sharp = analyze_result.get('excess_sharp')
         excess_of_promissory_note = analyze_result.get('excess_of_promissory_note')
+        # 最大回测修复天数
         start_maximum_number_of_backtest_repair_days = analyze_result.get(
             'start_maximum_number_of_backtest_repair_days')
         excess_maximum_number_of_backtest_repair_days = analyze_result.get(
             'excess_maximum_number_of_backtest_repair_days')
+        year_index_max_repair_days = self._max_yearly_repair_days(
+            analyze_result.get('year_index_yearly_max_repair_days')
+        )
+        year_start_max_repair_days = self._max_yearly_repair_days(
+            analyze_result.get('year_start_yearly_max_repair_days')
+        )
 
         data_1_2d = [
             ["标的", "", "", ""],
@@ -1698,6 +1896,8 @@ class XPLAnalyzer:
             ["回撤", "年最大回撤", "", f"-{start_drawdown:.2%}"],
             ["回撤", "最大修复天数", "", f"{start_maximum_number_of_backtest_repair_days}"],
             ["回撤", "超额最大修复天数", "", f"{excess_maximum_number_of_backtest_repair_days}"],
+            ["回撤", "年最大回测修复天数", self._format_export_metric(year_index_max_repair_days, '.0f'),
+             self._format_export_metric(year_start_max_repair_days, '.0f')],
             ["比率", "夏普比率", self._format_export_metric(index_sharpe_ratio, '.2'),
              self._format_export_metric(start_sharpe_ratio, '.2')],  # 注意：数字后面有空格
             ["比率", "卡玛比率", self._format_export_metric(index_kama_ratio, '.2'),
@@ -1763,7 +1963,7 @@ class XPLAnalyzer:
         data_4_start_row = 3
         data_4_end_row = data_4_start_row + len(data_4_2d)
 
-        target_df.iloc[0:23, 0:4] = data_1_2d
+        target_df.iloc[0:len(data_1_2d), 0:4] = data_1_2d
         target_df.iloc[24:29, 0:data_2_col_num] = data_2_2d
         target_df.iloc[30:35, 0:data3_col_num] = data_3_2d
         target_df.iloc[data_4_start_row:data_4_end_row, 9:12] = data_4_2d
@@ -1771,6 +1971,7 @@ class XPLAnalyzer:
         return target_df
 
     def export_file(self, data):
+        """根据分析结果生成可下载的 XPL Excel 文件。"""
         if not data:
             raise ValueError("data不能为空")
 
@@ -1805,7 +2006,7 @@ if __name__ == "__main__":
     df2 = pd.DataFrame(parsed_data)
     df2['index_return'] = df2['daily_return']
     df2['start_return'] = df2['daily_return']
-    print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')),ensure_ascii=False,indent=4))
+    print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')), ensure_ascii=False, indent=4))
     # print(json.dumps(xpl_analyzer._calculate_metrics_v1(df.to_dict(orient='records')),ensure_ascii=False))
     # print(json.dumps(xpl_analyzer._calculate_metrics_v1(df2.to_dict(orient='records')),ensure_ascii=False))
     # xpl_analyzer._calculate_metrics(parsed_data)

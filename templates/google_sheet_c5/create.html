@@ -366,13 +366,7 @@
                                                     </div>
                                                     <div class="col-md-3">
                                                         <label class="form-label d-block">市场类型</label>
-                                                        <div class="btn-group d-flex" role="group" aria-label="Market type">
-                                                            <input type="radio" class="btn-check" name="market_type" id="market_type_us" value="us" autocomplete="off">
-                                                            <label class="btn btn-outline-primary flex-fill" for="market_type_us">美股</label>
-
-                                                            <input type="radio" class="btn-check" name="market_type" id="market_type_cn" value="cn" autocomplete="off" checked>
-                                                            <label class="btn btn-outline-primary flex-fill" for="market_type_cn">A股</label>
-                                                        </div>
+                                                        <select class="form-select" id="market_type"></select>
                                                     </div>
                                                     <div class="col-md-3">
                                                         <label class="form-label" for="kline_adjustment">K线复权</label>
@@ -666,6 +660,16 @@
     let googleSheetRandomValue = '__random__';
     let pendingTokenSelection = null;
 
+    async function loadStockMarkets(selectedValue = 'cn') {
+        const select = document.getElementById('market_type');
+        const response = await fetch('/api/meta/enums');
+        const payload = await response.json();
+        select.innerHTML = (payload?.data?.stock_markets || []).map((market) =>
+            `<option value="${market.value}">${market.label}</option>`
+        ).join('');
+        select.value = selectedValue;
+    }
+
     let currentTaskId = null;
     let eventSource = null;
     let productCodes = [];
@@ -733,12 +737,7 @@
                     }
                 }
 
-                if (config.market_type) {
-                    const mtInput = document.querySelector(`input[name="market_type"][value="${config.market_type}"]`);
-                    if (mtInput) {
-                        mtInput.checked = true;
-                    }
-                }
+                if (config.market_type) document.getElementById('market_type').value = config.market_type;
                 if (config.kline_adjustment) {
                     const adjustSelect = document.getElementById('kline_adjustment');
                     if (adjustSelect) adjustSelect.value = config.kline_adjustment;
@@ -1105,7 +1104,8 @@
     }
 
     // 页面加载完成后绑定事件
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
+        await loadStockMarkets();
         bindEvents();
         loadGoogleSheets();
         loadGoogleSheetTokens();
@@ -1370,12 +1370,7 @@
         if (priceModeSelect) {
             priceModeSelect.value = normalized.price_mode || 'vwap_price';
         }
-        if (normalized.market_type) {
-            const mtInput = document.querySelector(`input[name="market_type"][value="${normalized.market_type}"]`);
-            if (mtInput) {
-                mtInput.checked = true;
-            }
-        }
+        if (normalized.market_type) document.getElementById('market_type').value = normalized.market_type;
         if (normalized.kline_adjustment) {
             const adjustSelect = document.getElementById('kline_adjustment');
             if (adjustSelect) adjustSelect.value = normalized.kline_adjustment;
@@ -1519,7 +1514,7 @@
         const customMode = isCustomKlineMode();
         const countModeTotal = document.getElementById('count_mode_total');
         const countModeRadios = document.querySelectorAll('input[name="count_mode"]');
-        const marketTypeRadios = document.querySelectorAll('input[name="market_type"]');
+        const marketTypeSelect = document.getElementById('market_type');
         const dateRangeFull = document.getElementById('date_range_full');
         const dateRangeRecent = document.getElementById('date_range_recent');
         const recentYearsContainer = document.getElementById('recent_years_container');
@@ -1531,15 +1526,11 @@
         }
         countModeRadios.forEach(radio => setControlDisabled(radio, customMode));
 
-        marketTypeRadios.forEach(radio => {
-            if (customMode) {
-                radio.checked = false;
-            } else if (!document.querySelector('input[name="market_type"]:checked')) {
-                const cnInput = document.getElementById('market_type_cn');
-                if (cnInput) cnInput.checked = true;
-            }
-            setControlDisabled(radio, customMode);
-        });
+        if (marketTypeSelect) {
+            if (customMode) marketTypeSelect.value = '';
+            else if (!marketTypeSelect.value) marketTypeSelect.value = 'cn';
+            setControlDisabled(marketTypeSelect, customMode);
+        }
 
         ['price_mode', 'kline_adjustment', 'start_date', 'end_date'].forEach(id => {
             setControlDisabled(document.getElementById(id), customMode);
@@ -1732,9 +1723,7 @@
             bindSheetConfigItemEvents(item, debouncedSaveFormData);
         });
 
-        document.querySelectorAll('input[name="market_type"]').forEach(function(field) {
-            field.addEventListener('change', debouncedSaveFormData);
-        });
+        document.getElementById('market_type')?.addEventListener('change', debouncedSaveFormData);
 
         // 添加一组表格配置（仅用于前端展示，实际提交仍使用第一组带有固定ID的配置）
         const addSheetConfigBtn = document.getElementById('add-sheet-config-btn');
@@ -2047,7 +2036,7 @@
         const isCustomKline = klineSource === 'custom';
         const countMode = isCustomKline ? 'total' : (document.querySelector('input[name="count_mode"]:checked')?.value || 'total');
         const priceMode = isCustomKline ? null : (document.getElementById('price_mode')?.value || 'vwap_price');
-        const marketType = isCustomKline ? null : (document.querySelector('input[name="market_type"]:checked')?.value || 'cn');
+        const marketType = isCustomKline ? null : (document.getElementById('market_type')?.value || 'cn');
         const klineAdjustment = isCustomKline ? null : (document.getElementById('kline_adjustment')?.value || 'forward');
         const dateRangeModes = isCustomKline ? [] : getSelectedDateRangeModes();
         const startDate = isCustomKline ? null : (document.getElementById('start_date')?.value || null);
@@ -2220,7 +2209,7 @@
             kline_source: document.querySelector('input[name="kline_source"]:checked')?.value || 'auto',
             count_mode: document.querySelector('input[name="count_mode"]:checked')?.value || 'total',
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
-            market_type: document.querySelector('input[name="market_type"]:checked')?.value || 'cn',
+            market_type: document.getElementById('market_type')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
             kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
             date_range_mode: getSelectedDateRangeModes(),
@@ -2267,12 +2256,7 @@
                 const param3El = document.getElementById('param3');
                 if (formData.param3 && param3El) param3El.value = formData.param3;
 
-                if (formData.market_type) {
-                    const mtInput = document.querySelector(`input[name="market_type"][value="${formData.market_type}"]`);
-                    if (mtInput) {
-                        mtInput.checked = true;
-                    }
-                }
+                if (formData.market_type) document.getElementById('market_type').value = formData.market_type;
                 if (formData.kline_source) {
                     const sourceInput = document.querySelector(`input[name="kline_source"][value="${formData.kline_source}"]`);
                     if (sourceInput) {
@@ -2372,7 +2356,7 @@
             const isCustomKline = klineSource === 'custom';
             const countMode = isCustomKline ? 'total' : (document.querySelector('input[name="count_mode"]:checked')?.value || 'total');
             const priceMode = isCustomKline ? null : (document.getElementById('price_mode')?.value || 'vwap_price');
-            const marketType = isCustomKline ? null : (document.querySelector('input[name="market_type"]:checked')?.value || 'cn');
+            const marketType = isCustomKline ? null : (document.getElementById('market_type')?.value || 'cn');
             const klineAdjustment = isCustomKline ? null : (document.getElementById('kline_adjustment')?.value || 'forward');
             const dateRangeModes = isCustomKline ? [] : getSelectedDateRangeModes();
             const startDate = isCustomKline ? null : (document.getElementById('start_date')?.value || null);

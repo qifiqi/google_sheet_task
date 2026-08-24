@@ -30,6 +30,8 @@ class _DfcfApi:
         self.calls = []
 
     def get_search_list_by_stock_code(self, stock_code, _page_size):
+        if stock_code == "AAPL":
+            return [{"code": stock_code, "market": "105", "shortName": "Apple"}]
         return [{"code": stock_code, "market": "1", "shortName": "浦发银行"}]
 
     def get_stock_kline_data(self, stock_code, market, limit, **kwargs):
@@ -51,7 +53,18 @@ def test_database_source_uses_internal_rows_when_range_is_covered():
     assert {row["data_source"] for row in rows} == {"database"}
 
 
-def test_default_dfcf_source_still_prefers_internal_rows():
+def test_non_cn_en_markets_never_access_internal_kline_service(monkeypatch):
+    service = KlineService(dfcf_api=_DfcfApi())
+    service.stock_client = type("Client", (), {
+        "stock_data": type("Source", (), {"get_data_all_list": lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not read"))})(),
+        "stock_data_us": type("Source", (), {"get_data_all_list": lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not read"))})(),
+    })()
+
+    assert service.read_internal_kline_data(stock_code="7203", market_type="jp") == []
+    assert service.write_internal_kline_data([], stock_code="7203", market_type="jp", adjust_type="forward") == []
+
+
+def test_default_dfcf_source_uses_eastmoney_after_search():
     dfcf = _DfcfApi()
     service = KlineService(dfcf_api=dfcf)
     service.read_internal_kline_data = lambda **_kwargs: _rows("2024-01-01", "2024-01-31")
@@ -60,8 +73,8 @@ def test_default_dfcf_source_still_prefers_internal_rows():
         "600000", "cn", 100, start_date="2024-01-01", end_date="2024-01-31"
     )
 
-    assert not dfcf.calls
-    assert {row["data_source"] for row in rows} == {"database"}
+    assert dfcf.calls == [("600000", "1", 100, {"adjust_type": None})]
+    assert {row["data_source"] for row in rows} == {"dfcf"}
 
 
 def test_database_source_falls_back_to_dfcf_and_persists_external_rows():
