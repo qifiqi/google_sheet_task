@@ -1199,6 +1199,12 @@ class GoogleSheetService(BaseGoogleSheetService):
                 raise Exception(
                     f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
+        # 外部数据源可能返回配置区间外的历史K线；从这里开始，所有后续
+        # 区间拆分、写入 Sheet 和收益计算都只使用用户指定时间范围内的数据。
+        klines = [
+            kline for kline in klines
+            if start_date <= kline['stock_date'] <= end_date
+        ]
         all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
         all_kline = require_kline_rows(
             parameter,
@@ -1249,7 +1255,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         if count_mode != 'n_plus_1' or 'recent' not in date_range_mode:
             for i, v1 in enumerate(parameters[1]):
                 for j, v2 in enumerate(parameters[2]):
-                    Kline_key = f'{_end_year}-{_start_date}'
+                    Kline_key = f'{_end_year_1}-{_start_date}'
                     d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
                     if stock_name:
                         d['stock_name'] = stock_name
@@ -1266,7 +1272,9 @@ class GoogleSheetService(BaseGoogleSheetService):
             return data, len(all_kline) + 20,KLINE_DATA_MAP
 
         if 'recent' in date_range_mode:
-            total_years = (_end_year_1 - _start_date) + 1
+            # 起止年份差就是可生成的近年区间数量；首尾年份相差 5 年时，
+            # 应生成近 1 年到近 5 年，不能额外生成近 6 年的区间。
+            total_years = max(0, _end_year_1 - _start_date)
             for year in range(1, total_years + 1):
                 # 如果当前年份在排除列表中，跳过
                 if year in exclude_recent_years:
@@ -1276,8 +1284,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                 # if year != 0:
                 #     _year = year - 1
 
-                _end_data = f"{_end_year_1}{end_date[4:]}"
-                _start_data = f"{_end_year_1 - year}{end_date[4:]}"
+                _end_data = end_date
+                _start_data = max(start_date, f"{_end_year_1 - year}{end_date[4:]}")
+                if _start_data > _end_data:
+                    continue
                 kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
                 if not kline:
                     continue

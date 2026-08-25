@@ -1,4 +1,5 @@
 import json
+from datetime import date, timedelta
 
 from requests.exceptions import SSLError
 
@@ -35,6 +36,23 @@ def _kline_rows_with_vwap():
     ]
 
 
+def _daily_kline_rows(start_date, end_date):
+    current = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    rows = []
+    while current <= end:
+        rows.append({
+            "stock_date": current.isoformat(),
+            "stock_kp": 9,
+            "stock_sp": 10,
+            "stock_zg": 11,
+            "stock_zd": 8,
+            "stock_vwap": 10,
+        })
+        current += timedelta(days=1)
+    return rows
+
+
 def _assert_cx_vwap_uses_dfcf_for_en_market(service):
     service.YF_api.get_kline_data = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         AssertionError("Yahoo should not be used for vwap_price")
@@ -67,6 +85,35 @@ def test_c5_vwap_uses_dfcf_for_en_market(app_factory):
 def test_c7_vwap_uses_dfcf_for_en_market(app_factory):
     with app_factory.app_context():
         _assert_cx_vwap_uses_dfcf_for_en_market(C7GoogleSheetService({}, "task-id"))
+
+
+def test_c5_c7_kline_processing_is_limited_to_configured_date_range():
+    configured_start = "2021-08-01"
+    configured_end = "2026-08-01"
+    source_rows = _daily_kline_rows("2020-08-01", "2026-08-10")
+
+    for service_class in (C5GoogleSheetService, C7GoogleSheetService):
+        service = service_class({}, "task-id")
+        service.kline_service.get_kline_data = lambda *_args, **_kwargs: source_rows
+
+        _combinations, _column_length, kline_map = service._get_all_parameters(
+            "600000",
+            "n_plus_1",
+            "sp_price",
+            configured_end,
+            configured_start,
+            "cn",
+            ["recent"],
+            [],
+            [["600000"], [1], [2]],
+        )
+
+        assert set(kline_map) == {"2026-2025", "2026-2024", "2026-2023", "2026-2022", "2026-2021"}
+        assert all(
+            configured_start <= row["stock_date"] <= configured_end
+            for kline in kline_map.values()
+            for row in kline
+        )
 
 
 def test_record_task_exception_stores_trace_id_summary_and_full_log(app_factory):
