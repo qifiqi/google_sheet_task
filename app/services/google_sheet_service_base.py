@@ -11,6 +11,7 @@ from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation
 from app.utils.db_stock_api import StockAPIClient
+from app.utils.market import infer_market_type, normalize_stock_code
 from app.utils.logger import get_logger
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 
@@ -104,7 +105,12 @@ class BaseGoogleSheetService:
                 stock_code = task_config.get("stock_code") if isinstance(task_config, dict) else None
             except (TypeError, ValueError):
                 stock_code = None
-        normalized["stock_code"] = str(stock_code or "").strip()
+        effective_market = normalized.get("market_type") or self._get_return_series_market_type(normalized)
+        normalized["stock_code"] = normalize_stock_code(
+            stock_code,
+            effective_market or infer_market_type(stock_code),
+            normalized.get("exchange_market") or self._get_return_series_exchange_market(normalized),
+        )
         return normalized
 
     def _get_return_series_market_type(self, parameters: Any):

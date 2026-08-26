@@ -20,7 +20,7 @@ def test_upsert_stock_metadata_normalizes_search_result(app_factory):
             "source": "test",
         })
 
-        item = StockMetadata.query.filter_by(stock_code="600519", market_type="cn").one()
+        item = StockMetadata.query.filter_by(stock_code="600519.SS", market_type="cn").one()
         assert item.stock_name == "贵州茅台"
         assert item.exchange_market == "1"
 
@@ -66,7 +66,7 @@ def test_upsert_stock_metadata_reuses_pending_record_before_autoflush(app_factor
         db.session.commit()
 
         assert first.id == second.id
-        item = StockMetadata.query.filter_by(stock_code="688188", market_type="cn").one()
+        item = StockMetadata.query.filter_by(stock_code="688188.SS", market_type="cn").one()
         assert item.stock_name == "柏楚电子"
         assert item.source == "second"
 
@@ -108,5 +108,5 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
         )
 
         assert combinations[0]["stock_name"] == "贵州茅台"
-        item = StockMetadata.query.filter_by(stock_code="600519", market_type="cn").one()
+        item = StockMetadata.query.filter_by(stock_code="600519.SS", market_type="cn").one()
         assert item.stock_name == "贵州茅台"

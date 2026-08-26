@@ -665,6 +665,14 @@ class GoogleSheetService(BaseGoogleSheetService):
             adjust_type=adjust_type,
         )
         stock_name = str(klines[0].get("stock_name") or "") if klines else ""
+        parameter = str(klines[0].get("stock_code") or parameter) if klines else parameter
+        if stock_name:
+            upsert_stock_metadata_in_session({
+                "stock_code": parameter,
+                "stock_name": stock_name,
+                "market_type": market_type,
+                "source": "google_sheet_c4",
+            })
         klines = require_kline_rows(
             parameter,
             market_type,

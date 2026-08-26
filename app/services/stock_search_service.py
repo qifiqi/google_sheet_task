@@ -8,7 +8,13 @@ from typing import Any
 from app.extensions import db
 from app.services.stock_metadata_service import bulk_upsert_stock_metadata
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.market import MARKET_LABELS, market_type_from_eastmoney, normalize_market_type
+from app.utils.market import (
+    MARKET_LABELS,
+    market_type_from_eastmoney,
+    normalize_market_type,
+    normalize_stock_code,
+    strip_stock_code_suffix,
+)
 
 
 class StockSearchService:
@@ -30,7 +36,10 @@ class StockSearchService:
             return []
 
         page_size = max(1, min(int(page_size or 10), 20))
-        raw_results = self.dfcf_api.get_search_list_by_stock_code(keyword, page_size)
+        # 东方财富搜索不识别项目统一后缀，调用前还原为其原生代码。
+        raw_results = self.dfcf_api.get_search_list_by_stock_code(
+            strip_stock_code_suffix(keyword), page_size
+        )
         if isinstance(raw_results, dict):
             raise RuntimeError(raw_results.get("error") or "股票搜索失败")
 
@@ -51,7 +60,8 @@ class StockSearchService:
         if not requested_market:
             raise ValueError("任务市场类型不能为空")
 
-        results = self.search_stocks(code, market_type=requested_market, page_size=20)
+        source_code = strip_stock_code_suffix(code)
+        results = self.search_stocks(source_code, market_type=requested_market, page_size=20)
         result = next(
             (
                 item for item in results
@@ -103,13 +113,15 @@ class StockSearchService:
     @staticmethod
     def _codes_match(left: str, right: str, market_type: str) -> bool:
         """比较业务代码；港股兼容东方财富五位代码与 Yahoo 四位代码。"""
-        left_code = str(left or "").strip().upper()
-        right_code = str(right or "").strip().upper()
+        left_code = normalize_stock_code(left, market_type)
+        right_code = normalize_stock_code(right, market_type)
         if left_code == right_code:
             return True
-        if market_type != "hk" or not left_code.isdigit() or not right_code.isdigit():
+        left_base = strip_stock_code_suffix(left_code)
+        right_base = strip_stock_code_suffix(right_code)
+        if market_type != "hk" or not left_base.isdigit() or not right_base.isdigit():
             return False
-        return left_code.lstrip("0").zfill(4) == right_code.lstrip("0").zfill(4)
+        return left_base.lstrip("0").zfill(4) == right_base.lstrip("0").zfill(4)
 
     def _normalize_result(self, raw: Any) -> dict[str, Any] | None:
         if not isinstance(raw, dict) or raw.get("status") not in (10, "10", None):
@@ -124,16 +136,17 @@ class StockSearchService:
             security_type_name,
         )
         name = self._strip_html_tags(raw.get("shortName") or raw.get("name"))
+        normalized_code = normalize_stock_code(code, market_type, exchange_market)
         return {
             "source": raw.get("source"),
-            "code": code.upper(),
+            "code": normalized_code,
             "name": name,
             "security_type_name": security_type_name,
             "market": exchange_market,
             "exchange_market": exchange_market,
             "market_type": market_type,
             "is_exact_match": bool(raw.get("isExactMatch")),
-            "label": " · ".join(part for part in [code.upper(), name, security_type_name] if part),
+            "label": " · ".join(part for part in [normalized_code, name, security_type_name] if part),
             "status": raw.get("status"),
             "inner_code": raw.get("innerCode"),
             "pinyin": raw.get("pinyin"),

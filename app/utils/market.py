@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -58,8 +59,8 @@ EASTMONEY_MARKET_TYPES = {
 }
 
 STOCK_CODE_SUFFIXES = {
-    # 美股标准代码不使用后缀；A 股后缀由 normalize_stock_code 按交易所/代码规则处理。
-    "en": "",
+    # A 股后缀由 normalize_stock_code 按交易所/代码规则处理。
+    "en": ".US",
     "ca": ".TO",
     "kr": ".KS",
     "jp": ".T",
@@ -70,6 +71,11 @@ STOCK_CODE_SUFFIXES = {
     "sg": ".SI",
     "au": ".AX",
     "my": ".KL",
+}
+
+STANDARD_SUFFIX_MARKETS = {
+    ".SS": "cn", ".SH": "cn", ".SZ": "cn", ".BJ": "cn",
+    **{suffix.upper(): market for market, suffix in STOCK_CODE_SUFFIXES.items()},
 }
 
 # 历史名称兼容：后缀规则是项目统一证券代码格式，不再是 Yahoo 专属规则。
@@ -88,20 +94,65 @@ def market_type_from_eastmoney(market: Any, security_type_name: Any = None) -> s
     return normalize_market_type(security_type_name)
 
 
+def split_stock_code(stock_code: Any) -> tuple[str, str | None]:
+    """拆分项目标准代码，返回无后缀代码与标准后缀。"""
+    code = str(stock_code or "").strip().upper()
+    if "." not in code:
+        return code, None
+    base, suffix = code.rsplit(".", 1)
+    suffix = f".{suffix}"
+    return (base, suffix) if suffix in STANDARD_SUFFIX_MARKETS else (code, None)
+
+
+def infer_market_type(stock_code: Any, default: Any = None) -> str | None:
+    """从标准代码后缀推断市场；没有后缀时使用默认值或代码形态。"""
+    _base, suffix = split_stock_code(stock_code)
+    if suffix:
+        return STANDARD_SUFFIX_MARKETS[suffix]
+    return normalize_market_type(default) or (
+        "cn" if str(stock_code or "").strip().isdigit() else "en"
+    )
+
+
+def strip_stock_code_suffix(stock_code: Any) -> str:
+    """还原为外部数据源常用的无后缀代码。"""
+    return split_stock_code(stock_code)[0]
+
+
+def exchange_market_from_stock_code(stock_code: Any, default: Any = None) -> str:
+    """从统一代码推导东方财富/交易所市场编号。"""
+    _base, suffix = split_stock_code(stock_code)
+    if suffix == ".SS" or suffix == ".SH":
+        return "1"
+    if suffix in {".SZ", ".BJ"}:
+        return "0"
+    return str(default or "").strip()
+
+
 def normalize_stock_code(
     stock_code: Any,
     market_type: Any,
     exchange_market: Any = None,
 ) -> str:
-    """生成项目统一证券代码格式，例如 ``600519.SS``、``0700.HK``、``AAPL``。"""
-    code = str(stock_code or "").strip().upper()
-    market = normalize_market_type(market_type)
-    if not code or not market or market == "en":
+    """生成项目统一证券代码格式，例如 ``600519.SS``、``0700.HK``、``AAPL.US``。"""
+    original_code = str(stock_code or "").strip().upper()
+    code, existing_suffix = split_stock_code(original_code)
+    market = infer_market_type(stock_code, market_type)
+    if not code or not market:
         return code
-    if "." in code:
-        return f"{code[:-3]}.SS" if code.endswith(".SH") else code
+    # 旧任务可能只留下中文名称而没有 stock_code；不能伪造成 "名称.US"。
+    # 正常证券代码仅在无后缀时由字母、数字和连字符组成。
+    if code == "UNKNOWN" or not re.fullmatch(r"[A-Z0-9-]+", code):
+        return original_code
+    # 保留数据源已给出的、当前映射表外的有效交易所后缀（如韩国 KOSDAQ 的 .KQ）。
+    if "." in original_code and existing_suffix is None:
+        return original_code
     if market == "cn":
         exchange = str(exchange_market or "").strip()
+        if existing_suffix in {".SS", ".SH"}:
+            return f"{code}.SS"
+        if existing_suffix in {".SZ", ".BJ"}:
+            return f"{code}{existing_suffix}"
         if exchange == "1" or code.startswith(("6", "68")):
             return f"{code}.SS"
         if exchange == "0" or code.startswith(("0", "2", "3")):
@@ -115,9 +166,17 @@ def normalize_stock_code(
     return f"{code}{suffix}" if suffix else code
 
 
+def to_yahoo_ticker(stock_code: Any, market_type: Any, exchange_market: Any = None) -> str:
+    """将项目标准证券代码转换为 Yahoo 所需 ticker；美股不带 ``.US`` 后缀。"""
+    code = normalize_stock_code(stock_code, market_type, exchange_market)
+    if infer_market_type(code, market_type) == "en" and code.endswith(".US"):
+        return code[:-3]
+    return code
+
+
 def yahoo_symbol(stock_code: Any, market_type: Any, exchange_market: Any = None) -> str:
-    """Yahoo 适配层兼容入口；统一证券代码规则由 normalize_stock_code 定义。"""
-    return normalize_stock_code(stock_code, market_type, exchange_market)
+    """Yahoo 适配层兼容入口。"""
+    return to_yahoo_ticker(stock_code, market_type, exchange_market)
 
 
 def supports_internal_kline(market_type: Any) -> bool:

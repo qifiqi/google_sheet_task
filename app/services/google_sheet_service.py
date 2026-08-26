@@ -713,6 +713,15 @@ class GoogleSheetService(BaseGoogleSheetService):
             end_date=end_date,
             adjust_type=adjust_type,
         )
+        stock_code = str(klines[0].get("stock_code") or stock_code) if klines else stock_code
+        stock_name = str(klines[0].get("stock_name") or "") if klines else ""
+        if stock_name:
+            upsert_stock_metadata_in_session({
+                "stock_code": stock_code,
+                "stock_name": stock_name,
+                "market_type": market_type,
+                "source": "google_sheet_c3",
+            })
 
         klines = require_kline_rows(
             stock_code,

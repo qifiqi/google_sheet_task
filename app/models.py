@@ -7,6 +7,7 @@ from sqlalchemy.orm import foreign
 
 from app.extensions import db
 from app.utils.market import MARKET_DEFAULT_COMMISSIONS, MARKET_LABELS
+from app.utils.market import infer_market_type, normalize_stock_code
 
 
 def _json_object_or_empty(raw):
@@ -234,7 +235,7 @@ def google_sheet_registry_scope(table_type: str | None) -> str:
 
 
 def summary_market_type(stock_code: str | None) -> str:
-    return "cn" if str(stock_code or "").strip().isdigit() else "us"
+    return "cn" if infer_market_type(stock_code) == "cn" else "us"
 
 
 class TaskStatus(str, Enum):
@@ -905,7 +906,33 @@ def _sync_google_sheet_registry_scope(_mapper, _connection, target):
 @event.listens_for(TaskResultSummaryIndex, "before_insert")
 @event.listens_for(TaskResultSummaryIndex, "before_update")
 def _sync_summary_market_type(_mapper, _connection, target):
+    target.stock_code = normalize_stock_code(
+        target.stock_code,
+        target.market_type or infer_market_type(target.stock_code),
+    )
     target.market_type = summary_market_type(target.stock_code)
+
+
+@event.listens_for(TaskResultReturn, "before_insert")
+@event.listens_for(TaskResultReturn, "before_update")
+def _normalize_return_series_stock_code(_mapper, _connection, target):
+    """收益序列即使绕过 service 创建，也始终保存项目标准股票代码。"""
+    if target.stock_code and target.stock_code != "UNKNOWN":
+        target.stock_code = normalize_stock_code(
+            target.stock_code,
+            infer_market_type(target.stock_code),
+        )
+
+
+@event.listens_for(StockMetadata, "before_insert")
+@event.listens_for(StockMetadata, "before_update")
+def _normalize_stock_metadata_code(_mapper, _connection, target):
+    """元数据表直接写入时同样执行标准化，防止绕过 upsert helper。"""
+    target.stock_code = normalize_stock_code(
+        target.stock_code,
+        target.market_type or infer_market_type(target.stock_code),
+        target.exchange_market,
+    )
 
 
 class ScheduledTask(db.Model):

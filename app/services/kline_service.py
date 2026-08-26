@@ -15,7 +15,15 @@ from stock_sdk import StockClient
 
 from app.services.stock_search_service import StockSearchService
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.market import normalize_market_type, normalize_stock_code, supports_internal_kline
+from app.utils.market import (
+    exchange_market_from_stock_code,
+    infer_market_type,
+    normalize_market_type,
+    normalize_stock_code,
+    strip_stock_code_suffix,
+    supports_internal_kline,
+    to_yahoo_ticker,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +130,7 @@ class KlineService:
         """读取内置 K 线库的占位接口，接入数据库时覆盖此方法。"""
         if not supports_internal_kline(_kwargs.get("market_type")):
             return []
-        stock_code = _kwargs.get("stock_code")
+        stock_code = strip_stock_code_suffix(_kwargs.get("stock_code"))
 
         if str(stock_code).isdigit():
             data = self.stock_client.stock_data.get_data_all_list({
@@ -159,7 +167,7 @@ class KlineService:
         if _kwargs.get("adjust_type") != 'forward':
             return []
 
-        stock_code = _kwargs.get("stock_code")
+        stock_code = strip_stock_code_suffix(_kwargs.get("stock_code"))
         if str(stock_code).isdigit(): # A 股美股不同接口
             stock_data = self.stock_client.stock_data
 
@@ -225,8 +233,11 @@ class KlineService:
         stock_name: str | None = None,
     ) -> list[dict[str, Any]]:
         source = self.normalize_data_source(data_source, self.sources)
-        code = str(stock_code or "").strip().upper()
-        market_type = normalize_market_type(market_type, "cn")
+        raw_code = str(stock_code or "").strip().upper()
+        market_type = infer_market_type(raw_code, market_type or "cn")
+        code = normalize_stock_code(raw_code, market_type, exchange_market)
+        source_code = strip_stock_code_suffix(code)
+        exchange_market = exchange_market or exchange_market_from_stock_code(code)
         if not code:
             raise ValueError("股票代码不能为空")
         limit = max(1, int(limit or 1))
@@ -235,7 +246,7 @@ class KlineService:
         if source == DATA_SOURCE_DATABASE and supports_internal_kline(market_type):
             internal_rows = self._normalize_rows(
                 self.read_internal_kline_data(
-                    stock_code=code,
+                    stock_code=source_code,
                     market_type=market_type,
                     limit=limit,
                     start_date=start_date,
@@ -245,6 +256,8 @@ class KlineService:
                 code,
                 stock_name,
                 DATA_SOURCE_DATABASE,
+                market_type=market_type,
+                exchange_market=exchange_market,
             )
         if self._covers_range(internal_rows, start_date, end_date, limit):
             return internal_rows[-limit:]
@@ -254,7 +267,7 @@ class KlineService:
 
         rows, resolved_name = self._fetch_external(
             source,
-            code,
+            source_code,
             market_type,
             limit,
             adjust_type,
@@ -263,11 +276,15 @@ class KlineService:
             start_date,
             end_date,
         )
-        normalized_rows = self._normalize_rows(rows, code, resolved_name, source)
+        normalized_rows = self._normalize_rows(
+            rows, code, resolved_name, source,
+            market_type=market_type,
+            exchange_market=exchange_market,
+        )
         if normalized_rows and supports_internal_kline(market_type):
             self.write_internal_kline_data(
                 normalized_rows,
-                stock_code=code,
+                stock_code=source_code,
                 market_type=market_type,
                 source=source,
                 adjust_type=adjust_type,
@@ -298,20 +315,27 @@ class KlineService:
     ) -> tuple[Iterable[dict[str, Any]], str]:
         if source == DATA_SOURCE_TDX:
             exchange, resolved_name, resolved_code = (
-                str(exchange_market or ""),
+                str(exchange_market or exchange_market_from_stock_code(code)),
                 str(stock_name or ""),
                 code,
             )
         elif source == DATA_SOURCE_YAHOO:
             # Yahoo ticker 由代码和业务市场即可确定，不再调用东方财富搜索。
             exchange, resolved_name, resolved_code = (
-                str(exchange_market or ""),
+                str(exchange_market or exchange_market_from_stock_code(code)),
                 str(stock_name or ""),
                 code,
             )
-        else:
+        elif source in {DATA_SOURCE_DFCF, DATA_SOURCE_QQ}:
             exchange, resolved_name, resolved_code = self._resolve_exchange_and_name(
                 code, market_type, exchange_market, stock_name
+            )
+        else:
+            # 可注册数据源没有东方财富的证券检索能力，直接接收其原生代码。
+            exchange, resolved_name, resolved_code = (
+                str(exchange_market or exchange_market_from_stock_code(code)),
+                str(stock_name or ""),
+                code,
             )
         handler = self.sources.get(source)
         if handler is None:
@@ -347,7 +371,7 @@ class KlineService:
 
     def _fetch_yahoo(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
         return self._get_yahoo_api().get_kline_data(
-            normalize_stock_code(
+            to_yahoo_ticker(
                 request["stock_code"],
                 request.get("market_type"),
                 request.get("exchange_market"),
@@ -425,7 +449,8 @@ class KlineService:
         return (
             resolved["exchange_market"],
             str(stock_name or resolved["name"]),
-            resolved["code"],
+            # 这里是东方财富、腾讯等数据源适配边界，必须传原生代码。
+            strip_stock_code_suffix(resolved["code"]),
         )
 
     def _get_qq_api(self) -> Any:
@@ -467,6 +492,8 @@ class KlineService:
         stock_code: str,
         stock_name: str | None,
         source: str,
+        market_type: str | None = None,
+        exchange_market: str | None = None,
     ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for raw in rows or []:
@@ -494,7 +521,11 @@ class KlineService:
                 values = {key: float(value) for key, value in values.items()}
             except (TypeError, ValueError):
                 continue
-            code = str(raw.get("stock_code") or raw.get("code") or stock_code).strip().upper()
+            code = normalize_stock_code(
+                raw.get("stock_code") or raw.get("code") or stock_code,
+                market_type,
+                exchange_market,
+            )
             name = str(raw.get("stock_name") or raw.get("name") or stock_name or "").strip()
             row = dict(raw)
             volume = raw.get("stock_cjl", raw.get("volume", raw.get("vol", 0))) or 0
