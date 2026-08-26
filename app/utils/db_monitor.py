@@ -9,7 +9,9 @@ from typing import Dict, Any, List
 from sqlalchemy import inspect
 
 from app.extensions import db
-from app.models import Task, TaskResult, TaskLog, TaskTemplate, SystemConfig
+from app.models import Task, TaskResult, TaskLog
+from app.repositories.config_repository import SystemConfigRepository
+from app.repositories.template_repository import TaskTemplateRepository
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -58,10 +60,10 @@ class DatabaseMonitor:
                     'note': '日志已改为文件存储，此表数据为历史遗留'
                 },
                 'task_templates': {
-                    'count': TaskTemplate.query.count(),
+                    'count': len(TaskTemplateRepository().list_all()),
                 },
                 'system_configs': {
-                    'count': SystemConfig.query.count(),
+                    'count': len(SystemConfigRepository().list_all()),
                 }
             }
         except Exception as e:

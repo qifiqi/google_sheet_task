@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.models import StockMetadata
 from app.repositories.stock_metadata_repository import StockMetadataRepository
 from app.utils.logger import get_logger
 from app.utils.market import normalize_market_type
@@ -79,20 +78,12 @@ def upsert_stock_metadata_in_session(stock_item: Any) -> dict[str, Any] | None:
 
 
 def lookup_stock_metadata(stock_code: Any, market_type: Any = None) -> dict[str, Any]:
-    """按业务键从本地库查询最新元数据；远端暂不具备等价筛选接口。"""
+    """按业务键从远端查询最新元数据。"""
     code = _strip_text(stock_code).upper()
     if not code:
         return {}
     normalized_market_type = _normalize_market_type(market_type) or ("cn" if code.isdigit() else "us")
-    record = (
-        StockMetadata.query
-        .filter(StockMetadata.stock_code == code, StockMetadata.market_type == normalized_market_type)
-        .order_by(StockMetadata.updated_at.desc(), StockMetadata.id.desc())
-        .first()
-    )
-    if not record:
-        return {}
-    return record.to_dict()
+    return _remote_repository.find_latest(code, normalized_market_type) or {}
 
 
 def upsert_stock_metadata(stock_item: Any) -> dict[str, Any] | None:

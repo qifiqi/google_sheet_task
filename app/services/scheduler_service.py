@@ -395,14 +395,14 @@ class SchedulerService:
     def _update_next_run_time(self, scheduled_task):
         """更新下次执行时间"""
         try:
-            cron_expression = scheduled_task.get("cron_expression") if isinstance(scheduled_task, dict) else scheduled_task.cron_expression
+            if not isinstance(scheduled_task, dict):
+                logger.error("定时任务必须由远端 Repository 返回字典记录")
+                return None
+            cron_expression = scheduled_task.get("cron_expression")
             cron = croniter(cron_expression, datetime.now())
             next_time = cron.get_next(datetime)
-            if isinstance(scheduled_task, dict):
-                scheduled_task["next_run_time"] = next_time.isoformat()
-                return _scheduled_task_repository.save(scheduled_task)
-            scheduled_task.next_run_time = next_time
-            db.session.commit()
+            scheduled_task["next_run_time"] = next_time.isoformat()
+            return _scheduled_task_repository.save(scheduled_task)
         except Exception as e:
             logger.error(f"更新下次执行时间失败: {e}")
     

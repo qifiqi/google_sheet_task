@@ -17,6 +17,7 @@ class GetParamTaskResultSummaryIndexListRequestDto(SerializableModel):
     task_id: str | None = None
     task_result_id: int | None = None
     task_type: str | None = None
+    task_types: list[str] | None = None
     market_type: str | None = None
     stock_keyword: str | None = None
     period_key: str | None = None
@@ -24,6 +25,8 @@ class GetParamTaskResultSummaryIndexListRequestDto(SerializableModel):
     best_metric_value_gt: float | None = None
     result_timestamp_from: str | None = None
     result_timestamp_to: str | None = None
+    best_only: bool | None = None
+    summary_type: str | None = None
 
 @dataclass
 class t_param_task_result_summary_index(SerializableModel):

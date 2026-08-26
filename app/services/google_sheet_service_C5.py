@@ -293,7 +293,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 total_combinations += len(combinations)
 
             # 更新任务总步数
-            task = self._save_remote_task(task, total_steps=total_combinations)
+            self._save_remote_task(task, total_steps=total_combinations)
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -377,7 +377,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         )
 
                         # 更新当前步数为组合级别
-                        task = self._save_remote_task(task, current_step=current_step)
+                        self._save_remote_task(task, current_step=current_step)
 
                         # 保存结果到数据库
                         stock_name = str(combination.get('stock_name') or '').strip()

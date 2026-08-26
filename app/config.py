@@ -152,7 +152,7 @@ Config = get_config_class()
 
 def init_config():
     """初始化缺失的系统默认配置，保留已有管理员修改的配置值。"""
-    from app.models import SystemConfig
+    from app.repositories.config_repository import SystemConfigRepository
     from app.services.config_manager import get_config_manager
 
     config_manager = get_config_manager()
@@ -440,8 +440,9 @@ def init_config():
     }
 
     existing_configs = {
-        row.key: row.description
-        for row in SystemConfig.query.with_entities(SystemConfig.key, SystemConfig.description).all()
+        str(row.get("key")): row.get("description")
+        for row in SystemConfigRepository().list_all()
+        if row.get("key")
     }
     for key, item in default_configs.items():
         value = item['value']

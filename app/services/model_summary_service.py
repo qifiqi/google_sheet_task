@@ -14,13 +14,8 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import func, or_
-from sqlalchemy.orm import Load
-
 from flask import has_app_context
 
-from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
 from app.repositories.task_result_summary_index_repository import TaskResultSummaryIndexRepository
 from app.repositories.task_log_repository import TaskLogRepository
 from app.repositories.task_repository import TaskRepository
@@ -376,16 +371,6 @@ def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
 def _summary_record_group_key(row: SummaryRecord) -> str:
     """返回汇总记录用于分组的最优周期标识。"""
     return row.period_key or row.year_label or row.kline_range or ""
-
-
-def _summary_index_group_expression():
-    """构造与 Python 分组键一致的数据库侧分组表达式。"""
-    return func.coalesce(
-        func.nullif(TaskResultSummaryIndex.period_key, ""),
-        func.nullif(TaskResultSummaryIndex.year_label, ""),
-        func.nullif(TaskResultSummaryIndex.kline_range, ""),
-        "",
-    )
 
 
 def _json_text(value: Any) -> str:
@@ -1452,126 +1437,89 @@ class ModelSummaryService:
                 })
 
     def query(self, user: Any, filters: dict[str, Any]) -> dict[str, Any]:
-        """按用户权限和筛选条件分页查询汇总结果及统计信息。"""
+        """通过远端汇总接口完成筛选、去重、排序、聚合和分页。"""
         page = max(int(filters.get("page") or 1), 1)
         per_page = min(max(int(filters.get("per_page") or 50), 1), 200)
         task_type = str(filters.get("task_type") or "").strip()
-        result_date_from = str(filters.get("result_date_from") or "").strip()
-        result_date_to = str(filters.get("result_date_to") or "").strip()
-        stock_code = str(filters.get("stock_code") or "").strip()
+        stock_keyword = str(filters.get("stock_code") or "").strip()
         market_type = _normalize_market_type(filters.get("market_type"))
-        excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
-        period_filter = str(filters.get("period_filter") or "").strip()
+        period_key = str(filters.get("period_filter") or "").strip()
         best_only = str(filters.get("best_only", "true")).lower() not in {"false", "0", "no"}
-
-        if not best_only:
-            return self._query_all_results(user, filters, page, per_page, task_type, stock_code)
-
-        query = TaskResultSummaryIndex.query
-
-        allowed_types = filter_task_types_by_action(user, "view", SUPPORTED_TASK_TYPES)
-        if not allowed_types:
-            return self._empty_response(page, per_page)
-
-        if task_type:
-            if task_type not in allowed_types:
-                return self._empty_response(page, per_page, columns=self._columns_for_task_type(task_type))
-            query = query.filter(TaskResultSummaryIndex.task_type == task_type)
-        else:
-            visible_types = [
-                allowed_type
-                for allowed_type in allowed_types
-                if normalize_task_type(allowed_type) != "backtest_training"
-            ]
-            if not visible_types:
-                return self._empty_response(page, per_page)
-            query = query.filter(TaskResultSummaryIndex.task_type.in_(visible_types))
-
-        query = self._apply_stock_keyword_filter(query, stock_code)
-        query = self._apply_market_type_filter(query, market_type)
-
-        if period_filter:
-            query = query.filter(TaskResultSummaryIndex.period_key == period_filter)
-
-        if excess_return_min is not None:
-            query = query.filter(TaskResultSummaryIndex.best_metric_value > excess_return_min)
-
-        # 添加时间范围查询
-        if result_date_from:
-            try:
-                from_date = datetime.strptime(result_date_from, "%Y-%m-%d")
-                query = query.filter(TaskResultSummaryIndex.result_timestamp >= from_date)
-            except ValueError:
-                pass  # 忽略无效的日期格式
-
-        if result_date_to:
-            try:
-                to_date = datetime.strptime(result_date_to, "%Y-%m-%d")
-                # 包含结束日期的整天
-                to_date = to_date.replace(hour=23, minute=59, second=59)
-                query = query.filter(TaskResultSummaryIndex.result_timestamp <= to_date)
-            except ValueError:
-                pass  # 忽略无效的日期格式
-
-        task_id = str(filters.get("task_id") or "").strip()
-        if task_id:
-            query = query.filter(TaskResultSummaryIndex.task_id == task_id)
-
-        result_id = filters.get("result_id")
-        if result_id:
-            query = query.filter(TaskResultSummaryIndex.task_result_id == int(result_id))
-
         summary_type = str(filters.get("summary_type") or "task").strip().lower()
         if summary_type not in {"task", "stock"}:
             summary_type = "task"
 
-        if summary_type == "stock":
-            query = query.filter(TaskResultSummaryIndex.is_best == True)
-            query = query.filter(
-                TaskResultSummaryIndex.stock_code.isnot(None),
-                TaskResultSummaryIndex.stock_code != "",
-            )
-            query = self._stock_summary_query(query)
+        allowed_types = filter_task_types_by_action(user, "view", SUPPORTED_TASK_TYPES)
+        if not allowed_types:
+            return self._empty_response(page, per_page)
+        if task_type:
+            if task_type not in allowed_types:
+                return self._empty_response(page, per_page, columns=self._columns_for_task_type(task_type))
+            visible_types = [task_type]
         else:
-            query = query.order_by(
-                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                TaskResultSummaryIndex.best_metric_value.desc(),
-                TaskResultSummaryIndex.id.desc(),
-            )
-        # 优化：只提取 summary 需要的字段，避免全量 to_dict() 和重复转换
-        summary_query = query.with_entities(
-            TaskResultSummaryIndex.stock_code,
-            TaskResultSummaryIndex.task_id,
-            TaskResultSummaryIndex.best_metric_value,
+            visible_types = [
+                item for item in allowed_types
+                if normalize_task_type(item) != "backtest_training"
+            ]
+            if not visible_types:
+                return self._empty_response(page, per_page)
+
+        result_timestamp_from = self._parse_filter_date(filters.get("result_date_from"))
+        result_timestamp_to = self._parse_filter_date(filters.get("result_date_to"), end_of_day=True)
+        result_id = filters.get("result_id")
+        try:
+            task_result_id = int(result_id) if result_id else None
+        except (TypeError, ValueError):
+            task_result_id = None
+
+        remote = _summary_index_repository.get_data_summary(
+            page_index=page,
+            page_size=per_page,
+            task_type=task_type or None,
+            task_types=visible_types,
+            stock_keyword=stock_keyword or None,
+            market_type=market_type or None,
+            period_key=period_key or None,
+            is_best=True if summary_type == "stock" else None,
+            best_only=best_only,
+            summary_type=summary_type,
+            best_metric_value_gt=_normalize_excess_return_min(filters.get("excess_return_min")),
+            result_timestamp_from=result_timestamp_from,
+            result_timestamp_to=result_timestamp_to,
+            task_id=str(filters.get("task_id") or "").strip() or None,
+            task_result_id=task_result_id,
         )
-        summary_items = [
-            {
-                "stock_code": row[0],
-                "task_id": row[1],
-                "best_metric_value": row[2],
-            }
-            for row in summary_query.all()
-        ]
-        summary = self._summary_from_items(summary_items)
-        # 直接使用分页查询，避免重复查询
-        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-
-
+        total = int(remote["total"])
+        pages = math.ceil(total / per_page) if total else 0
         return {
             "status": "success",
-            "summary_type": summary_type,
+            "summary_type": remote["summary_type"],
             "columns": self._columns_for_task_type(task_type),
-            "summary": summary,
-            "items": [item.to_dict() for item in pagination.items],
+            "summary": remote["summary"],
+            "items": remote["items"],
             "pagination": {
                 "page": page,
                 "per_page": per_page,
-                "total": pagination.total,
-                "pages": pagination.pages,
-                "has_prev": pagination.has_prev,
-                "has_next": pagination.has_next,
+                "total": total,
+                "pages": pages,
+                "has_prev": page > 1,
+                "has_next": page < pages,
             },
         }
+
+    @staticmethod
+    def _parse_filter_date(value: Any, *, end_of_day: bool = False) -> str | None:
+        """将页面日期转换为远端查询使用的 ISO 时间；无效值保持忽略语义。"""
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.strptime(text, "%Y-%m-%d")
+        except ValueError:
+            return None
+        if end_of_day:
+            parsed = parsed.replace(hour=23, minute=59, second=59)
+        return parsed.isoformat()
 
     def export_csv(self, user: Any, filters: dict[str, Any]) -> dict[str, Any]:
         """复用分页查询逐页收集可见结果，并生成 CSV 导出内容。"""
@@ -1633,13 +1581,6 @@ class ModelSummaryService:
             "result_timestamp": row.result_timestamp,
         }
 
-    @staticmethod
-    def _summary_index_model_payload(item: TaskResultSummaryIndex) -> dict[str, Any]:
-        """将仅用于查询的本地索引对象转换为远程保存载荷。"""
-        payload = item.to_dict()
-        payload["metrics_json"] = payload.pop("metrics", {})
-        return payload
-
     def _record_to_dict(self, row: SummaryRecord) -> dict[str, Any]:
         """将内部汇总记录转换为页面与 CSV 共用的字典 DTO。"""
         return {
@@ -1663,112 +1604,6 @@ class ModelSummaryService:
             "result_timestamp": row.result_timestamp.isoformat() if row.result_timestamp else None,
             "created_at": None,
             "updated_at": None,
-        }
-
-    def _query_all_results(
-        self,
-        user: Any,
-        filters: dict[str, Any],
-        page: int,
-        per_page: int,
-        task_type: str,
-        stock_code: str,
-    ) -> dict[str, Any]:
-        """按股票代码从原始任务结果即时构建全量预览分页数据。"""
-        columns = self._columns_for_task_type(task_type)
-        market_type = _normalize_market_type(filters.get("market_type"))
-        excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
-        period_filter = str(filters.get("period_filter") or "").strip()
-        if not stock_code:
-            return {
-                "status": "error",
-                "message": "查询全部结果时必须输入单个股票代码",
-            }
-
-        allowed_types = filter_task_types_by_action(user, "view", SUPPORTED_TASK_TYPES)
-        if not allowed_types:
-            return self._empty_response(page, per_page, columns=columns)
-        if task_type:
-            if task_type not in allowed_types:
-                return self._empty_response(page, per_page, columns=columns)
-            visible_types = [task_type]
-        else:
-            visible_types = [
-                allowed_type
-                for allowed_type in allowed_types
-                if normalize_task_type(allowed_type) != "backtest_training"
-            ]
-        if not visible_types:
-            return self._empty_response(page, per_page, columns=columns)
-
-        task_id = str(filters.get("task_id") or "").strip()
-        result_id = filters.get("result_id")
-        task_query = db.session.query(Task.id).filter(Task.task_type.in_(visible_types))
-        if task_id:
-            task_query = task_query.filter(Task.id == task_id)
-        task_query = task_query.filter(or_(
-            Task.name.ilike(f"%{stock_code}%"),
-            Task.config.ilike(f"%{stock_code}%"),
-        ))
-        matched_task_ids = [row[0] for row in task_query.all()]
-        if not matched_task_ids:
-            return self._empty_response(page, per_page, columns=columns)
-
-        query = (
-            db.session.query(Task, TaskResult)
-            .join(TaskResult, TaskResult.task_id == Task.id)
-            .options(
-                Load(Task).load_only(Task.id, Task.name, Task.task_type, Task.config),
-                Load(TaskResult).load_only(
-                    TaskResult.id,
-                    TaskResult.task_id,
-                    TaskResult.parameters,
-                    TaskResult.result,
-                    TaskResult.success,
-                    TaskResult.timestamp,
-                ),
-            )
-            .filter(Task.id.in_(matched_task_ids), TaskResult.success == True)
-        )
-        if result_id:
-            query = query.filter(TaskResult.id == int(result_id))
-
-        rows: list[SummaryRecord] = []
-        for task, result in query.order_by(TaskResult.timestamp.desc(), TaskResult.id.desc()).all():
-            rows.extend(
-                row
-                for row in _extract_candidate_records(task, result)
-                if _matches_market_type(row.stock_code, market_type)
-            )
-        if excess_return_min is not None:
-            rows = [
-                row
-                for row in rows
-                if row.best_metric_value is not None and row.best_metric_value > excess_return_min
-            ]
-        if period_filter:
-            rows = [row for row in rows if row.period_key == period_filter]
-
-        total = len(rows)
-        start = (page - 1) * per_page
-        paged_rows = rows[start:start + per_page]
-        pages = math.ceil(total / per_page) if total else 0
-        records = [self._record_to_dict(row) for row in rows]
-        summary = self._summary_from_items(records)
-        return {
-            "status": "success",
-            "summary_type": str(filters.get("summary_type") or "task"),
-            "columns": columns,
-            "summary": summary,
-            "items": [self._record_to_dict(row) for row in paged_rows],
-            "pagination": {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "pages": pages,
-                "has_prev": page > 1,
-                "has_next": page < pages,
-            },
         }
 
     def _upsert_batch(self, batch: list[tuple[Task, TaskResult]]) -> int:
@@ -1902,52 +1737,6 @@ class ModelSummaryService:
         if candidate_timestamp != current_timestamp:
             return candidate_timestamp > current_timestamp
         return candidate.task_result_id > current.task_result_id
-
-    def _stock_summary_query(self, query):
-        """将索引查询收敛为每只股票最近且指标最优的一条记录。"""
-        subquery = (
-            query
-            .with_entities(
-                TaskResultSummaryIndex.id.label("id"),
-                func.row_number().over(
-                    partition_by=TaskResultSummaryIndex.stock_code,
-                    order_by=(
-                        func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                        TaskResultSummaryIndex.best_metric_value.desc(),
-                        TaskResultSummaryIndex.id.desc(),
-                    ),
-                ).label("row_number"),
-            )
-            .subquery()
-        )
-        return (
-            TaskResultSummaryIndex.query
-            .join(subquery, TaskResultSummaryIndex.id == subquery.c.id)
-            .filter(subquery.c.row_number == 1)
-            .order_by(
-                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                TaskResultSummaryIndex.best_metric_value.desc(),
-                TaskResultSummaryIndex.stock_code.asc(),
-                TaskResultSummaryIndex.id.desc(),
-            )
-        )
-
-    def _apply_market_type_filter(self, query, market_type: str):
-        """按规范化市场类型附加索引查询条件。"""
-        if not market_type:
-            return query
-        return query.filter(TaskResultSummaryIndex.market_type == market_type)
-
-    def _apply_stock_keyword_filter(self, query, stock_keyword: str):
-        """在股票代码、名称和任务名中应用模糊关键词筛选。"""
-        if not stock_keyword:
-            return query
-        pattern = f"%{stock_keyword}%"
-        return query.filter(or_(
-            TaskResultSummaryIndex.stock_code.ilike(pattern),
-            TaskResultSummaryIndex.stock_name.ilike(pattern),
-            TaskResultSummaryIndex.task_name.ilike(pattern),
-        ))
 
     def _summary_from_items(self, items) -> dict[str, int]:
         """统计结果列表中的股票、任务和不同超额收益阈值数量。"""

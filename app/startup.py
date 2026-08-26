@@ -33,9 +33,11 @@ from app.navigation import (
     sync_navigation_permissions,
 )
 from app.repositories.backtest_sheet_run_lock_repository import BacktestSheetRunLockRepository
+from app.repositories.config_repository import SystemConfigRepository
 from app.repositories.google_sheet_repository import GoogleSheetRepository
 from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepository
 from app.repositories.task_repository import TaskRepository
+from app.repositories.task_result_summary_index_repository import TaskResultSummaryIndexRepository
 from app.utils.logger import get_logger, initialize_logging
 
 
@@ -108,9 +110,11 @@ def ensure_google_sheet_registry_schema():
 
     from app.models import GoogleSheet, google_sheet_registry_scope
 
-    for sheet in GoogleSheet.query.all():
-        sheet.registry_scope = google_sheet_registry_scope(sheet.table_type)
-    db.session.commit()
+    sheet_repository = GoogleSheetRepository()
+    for sheet in sheet_repository.list_all():
+        registry_scope = google_sheet_registry_scope(sheet.get("table_type"))
+        if sheet.get("registry_scope") != registry_scope:
+            sheet_repository.save({**sheet, "registry_scope": registry_scope})
 
     current_inspector = inspect(db.engine)
     index_names = {index['name'] for index in current_inspector.get_indexes('google_sheet')}
@@ -212,12 +216,13 @@ def ensure_task_result_summary_index_schema():
         db.session.commit()
     from app.models import summary_market_type
 
-    for item in TaskResultSummaryIndex.query.filter(
-        (TaskResultSummaryIndex.market_type.is_(None))
-        | (TaskResultSummaryIndex.market_type == "")
-    ).all():
-        item.market_type = summary_market_type(item.stock_code)
-    db.session.commit()
+    summary_repository = TaskResultSummaryIndexRepository()
+    for item in summary_repository.list_all():
+        if not item.get("market_type"):
+            summary_repository.save({
+                **item,
+                "market_type": summary_market_type(item.get("stock_code")),
+            })
     indexes = {index['name'] for index in inspector.get_indexes('task_result_summary_index')}
     if 'idx_result_summary_type_market_best' not in indexes:
         market_index = next(
@@ -511,14 +516,15 @@ def init_rbac():
 def init_navigation_menu():
     """幂等写入默认导航，并兼容旧版 ``nav_menu`` 系统配置。"""
     logger = get_logger('navigation')
-    nav_config = SystemConfig.query.filter_by(key='nav_menu').first()
+    config_repository = SystemConfigRepository()
+    nav_config = config_repository.get_by_key('nav_menu')
     has_existing_items = NavigationMenuItem.query.count() > 0
     source_menu = DEFAULT_NAVIGATION_MENU
     should_seed_missing = not has_existing_items
 
-    if nav_config and nav_config.value:
+    if nav_config and nav_config.get('value'):
         try:
-            nav_data = json.loads(nav_config.value)
+            nav_data = json.loads(nav_config.get('value'))
             if isinstance(nav_data, list) and nav_data:
                 source_menu = nav_data
                 should_seed_missing = True
@@ -534,7 +540,7 @@ def init_navigation_menu():
         _seed_missing_default_navigation_items(default_rows, permission_map, existing)
         sync_navigation_permissions(NavigationMenuItem.query.all())
         if nav_config:
-            db.session.delete(nav_config)
+            config_repository.delete(int(nav_config['id']))
         db.session.commit()
         return
 
@@ -566,7 +572,7 @@ def init_navigation_menu():
             item.sort_order = row.get('sort_order') or 0
 
     if nav_config:
-        db.session.delete(nav_config)
+        config_repository.delete(int(nav_config['id']))
 
     sync_navigation_permissions(NavigationMenuItem.query.all())
     db.session.commit()

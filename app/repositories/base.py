@@ -67,7 +67,7 @@ class SdkCrudRepository:
                 return records
             page_index += 1
 
-    def get(self, record_id: int) -> dict[str, Any] | None:
+    def get(self, record_id: int | str) -> dict[str, Any] | None:
         """按主键读取一条记录，未找到时返回 ``None``。"""
         raw = self.client.call(self.group_name, "get_info_by_id", {"id": self.normalize_id(record_id)})
         if raw is None:

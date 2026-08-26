@@ -12,7 +12,7 @@ from .param_backtest_sheet_run_locks import GetParamBacktestSheetRunLocksListReq
 from .param_google_sheet import t_param_google_sheet
 from .param_google_sheet_tokens import t_param_google_sheet_tokens
 from .param_scheduled_tasks import t_param_scheduled_tasks
-from .param_stock_metadata import t_param_stock_metadata
+from .param_stock_metadata import GetParamStockMetadataListRequestDto, t_param_stock_metadata
 from .param_system_configs import t_param_system_configs
 from .param_task_logs import GetParamTaskLogsListRequestDto, ParamTaskIdRequestDto, t_param_task_logs
 from .param_task_result_summary_index import GetParamTaskResultSummaryIndexListRequestDto, t_param_task_result_summary_index
@@ -56,6 +56,7 @@ __all__ = [
  't_param_google_sheet',
  't_param_google_sheet_tokens',
  't_param_scheduled_tasks',
+ 'GetParamStockMetadataListRequestDto',
  't_param_stock_metadata',
  't_param_system_configs',
  'GetParamTaskLogsListRequestDto',

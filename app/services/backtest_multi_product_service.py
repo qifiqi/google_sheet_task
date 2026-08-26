@@ -14,7 +14,7 @@ from typing import Any
 
 from flask import current_app
 from app.extensions import db
-from app.models import BacktestProductResultCache, Task, TaskResult
+from app.models import Task, TaskResult
 from app.repositories.task_result_repository import TaskResultRepository
 from app.repositories.task_result_return_repository import TaskResultReturnRepository
 from app.repositories.backtest_product_result_cache_repository import BacktestProductResultCacheRepository
@@ -651,10 +651,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             return False
         for parameter in parameters:
             cache_key = cls._build_fixed_product_cache_key(config_data, product, parameter)
-            exists = BacktestProductResultCache.query.filter_by(
-                batch_id=batch_id,
-                cache_key=cache_key,
-            ).first()
+            exists = _cache_repository.find_by_business_key(batch_id, cache_key)
             if not exists:
                 return False
         return True
@@ -665,22 +662,19 @@ class BacktestMultiProductService(BacktestTrainingService):
         product: dict[str, Any],
         parameter: list[Any],
     ) -> dict[str, Any] | None:
-        """按业务键读取固定产品缓存；查询接口未就绪前保留现有兼容路径。"""
+        """按业务键读取固定产品缓存。"""
         batch_id = str(config_data.get("fixed_product_batch_id") or "").strip()
         if not batch_id or not _is_fixed_product(product):
             return None
         cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
-        cache_entry = BacktestProductResultCache.query.filter_by(
-            batch_id=batch_id,
-            cache_key=cache_key,
-        ).first()
+        cache_entry = _cache_repository.find_by_business_key(batch_id, cache_key)
         if not cache_entry:
             return None
         return {
-            "result_json": cache_entry.result_json,
-            "returns_json": cache_entry.returns_json,
-            "source_task_id": cache_entry.source_task_id,
-            "source_step_index": cache_entry.source_step_index,
+            "result_json": cache_entry.get("result_json"),
+            "returns_json": cache_entry.get("returns_json"),
+            "source_task_id": cache_entry.get("source_task_id"),
+            "source_step_index": cache_entry.get("source_step_index"),
         }
 
     def _save_fixed_product_cache(
@@ -698,7 +692,6 @@ class BacktestMultiProductService(BacktestTrainingService):
             return
 
         cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
-        # TODO: 命中判断等待 QueryByBusinessKey，禁止分页拉全表筛选；直接尝试幂等写入。
         try:
             _cache_repository.save({
                 "batch_id": batch_id,
@@ -836,7 +829,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         products = config_data["products"]
         parameter_count = len(products[0]["parameters"])
         total_steps = parameter_count * len(products)
-        task = self._save_remote_task(task, total_steps=total_steps)
+        self._save_remote_task(task, total_steps=total_steps)
         self._log_info(f"将执行 {parameter_count} 个参数方案、{len(products)} 个产品，共 {total_steps} 步")
 
         start_index = self._resolve_resume_start_index(task)

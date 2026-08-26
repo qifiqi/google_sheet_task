@@ -37,3 +37,16 @@ class StockMetadataRepository(SdkCrudRepository):
     def save_metadata(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """以股票元数据的字段协议保存一条远端记录。"""
         return self.save(self.to_api_payload(payload))
+
+    def find_latest(self, stock_code: str, market_type: str) -> dict[str, Any] | None:
+        """按股票代码和市场精确读取最新一条远端元数据。"""
+        raw = self.client.call(self.group_name, "get_data_by_page_list", {
+            "page_index": 1,
+            "page_size": 1,
+            "order_field": "updated_at",
+            "order_type": "desc",
+            "stock_code": str(stock_code).strip().upper(),
+            "market_type": str(market_type).strip(),
+        })
+        page = self._normalize_page(raw)
+        return page["items"][0] if page["items"] else None
