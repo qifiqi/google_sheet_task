@@ -15,14 +15,22 @@ class GetParamTaskResultsReturnListRequestDto(SerializableModel):
     order_field: str | None = None
     order_type: str | None = None
     task_id: str | None = None
+    stock_code: str | None = None
+    stock_name: str | None = None
+    start_return_date: str | None = None
+    end_return_date: str | None = None
 
 @dataclass
 class t_param_task_results_return(SerializableModel):
     id: int | None = None
     task_id: str | None = None
+    stock_code: str | None = None
+    stock_name: str | None = None
+    start_return_date: str | None = None
+    end_return_date: str | None = None
+    return_length: int | None = None
     stock_date: str | None = None
-    index_return: float | None = None
-    start_return: float | None = None
-    returns_json: str | None = None
+    index_return: str | None = None
+    start_return: str | None = None
 
 __all__ = ['GetParamTaskResultsReturnListRequestDto', 't_param_task_results_return']

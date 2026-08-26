@@ -25,6 +25,13 @@ class ParamtaskresultsummaryindexApi(ApiGroup):
     ) -> ResponseDto[Any]:
         return self._call('POST', '/api/ParamTaskResultSummaryIndex/GetDataByPageList', json_body=request)
 
+    @endpoint('POST', '/api/ParamTaskResultSummaryIndex/GetDataSummary')
+    def get_data_summary(
+        self,
+        request: GetParamTaskResultSummaryIndexListRequestDto | Mapping[str, Any],
+    ) -> ResponseDto[Any]:
+        return self._call('POST', '/api/ParamTaskResultSummaryIndex/GetDataSummary', json_body=request)
+
     @endpoint('POST', '/api/ParamTaskResultSummaryIndex/GetInfoById')
     def get_info_by_id(
         self,

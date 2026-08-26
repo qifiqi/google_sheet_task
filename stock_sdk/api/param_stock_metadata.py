@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..http_client import ApiGroup
-from ..models import IdRequestDto, RequsetPageDto, t_param_stock_metadata
+from ..models import GetParamStockMetadataListRequestDto, IdRequestDto, t_param_stock_metadata
 from ..response import ResponseDto
 from ._metadata import endpoint
 
@@ -21,7 +21,7 @@ class ParamstockmetadataApi(ApiGroup):
     @endpoint('POST', '/api/ParamStockMetadata/GetDataByPageList')
     def get_data_by_page_list(
         self,
-        request: RequsetPageDto | Mapping[str, Any],
+        request: GetParamStockMetadataListRequestDto | Mapping[str, Any],
     ) -> ResponseDto[Any]:
         return self._call('POST', '/api/ParamStockMetadata/GetDataByPageList', json_body=request)
 

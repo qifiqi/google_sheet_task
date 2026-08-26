@@ -15,6 +15,8 @@ class GetParamTaskLogsListRequestDto(SerializableModel):
     order_field: str | None = None
     order_type: str | None = None
     task_id: str | None = None
+    level: str | None = None
+    timestamp: str | None = None
 
 @dataclass
 class ParamTaskIdRequestDto(SerializableModel):

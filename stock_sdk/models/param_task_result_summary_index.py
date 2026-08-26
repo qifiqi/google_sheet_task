@@ -17,10 +17,13 @@ class GetParamTaskResultSummaryIndexListRequestDto(SerializableModel):
     task_id: str | None = None
     task_result_id: int | None = None
     task_type: str | None = None
-    is_best: bool | None = None
-    stock_code: str | None = None
     market_type: str | None = None
+    stock_keyword: str | None = None
     period_key: str | None = None
+    is_best: bool | None = None
+    best_metric_value_gt: float | None = None
+    result_timestamp_from: str | None = None
+    result_timestamp_to: str | None = None
 
 @dataclass
 class t_param_task_result_summary_index(SerializableModel):
