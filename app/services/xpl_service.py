@@ -293,7 +293,7 @@ class XPLAnalyzer:
             'sharpe_ratio': sharpe_ratio,  # 夏普比率 Sharpe ratio
             'annual_std_dev': annual_std,  # 年化标准差 Annualized standard deviation (%)
             'avg_monthly_return': avg_monthly_return,  # 平均月收益率 Average monthly return (%)
-            'monthly_std_dev': monthly_std,  # 月度标准差 Monthly standard deviation (%)
+            'monthly_std_dev': monthly_std,  # 月收益率标准差 Monthly standard deviation (%)
             'month_count': len(monthly_subset),  # 月数 Number of months
             'start_date': monthly_subset['date'].min().strftime('%Y-%m'),  # 开始时间 Start date
             'end_date': monthly_subset['date'].max().strftime('%Y-%m')  # 结束时间 End date
@@ -1574,7 +1574,9 @@ class XPLAnalyzer:
             # 当天收益率 = (当天净值 / 前一天净值) - 1
             index_df['daily_return'] = (index_df['net_value'] / index_df['net_value'].shift(1)) - 1
             start_df['daily_return'] = (start_df['net_value'] / start_df['net_value'].shift(1)) - 1
-
+            # # 回撤
+            # index_df['drawdown'] = index_df['net_value'] / index_df['net_value'].cummax() - 1
+            # start_df['drawdown'] = start_df['net_value'] / start_df['net_value'].cummax() - 1
 
             # 3. 计算各项指标
             # Calculate various metrics
@@ -1674,12 +1676,147 @@ class XPLAnalyzer:
             # )
 
             # 累计回报率
-            index_cumulative_return = index_df['index_return'][-1]
-            start_cumulative_return = start_df['start_return'][-1]
+            index_cumulative_return = index_df['index_return'].iloc[-1]
+            start_cumulative_return = start_df['start_return'].iloc[-1]
 
-            # 滚动收益率
-            index_rolling_return = self.calculate_rolling_return(index_df)
-            start_rolling_return = self.calculate_rolling_return(start_df)
+            # 1.3 滚动收益（月度窗口）
+            # 3个月滚动
+            index_rolling_return_3 = self.calculate_rolling_return(index_monthly_returns_rate,3)
+            start_rolling_return_3 = self.calculate_rolling_return(start_monthly_returns_rate,3)
+            # 6个月滚动
+            index_rolling_return_6 = self.calculate_rolling_return(index_monthly_returns_rate,6)
+            start_rolling_return_6 = self.calculate_rolling_return(start_monthly_returns_rate,6)
+            # 12个月滚动
+            index_rolling_return_12 = self.calculate_rolling_return(index_monthly_returns_rate,12)
+            start_rolling_return_12 = self.calculate_rolling_return(start_monthly_returns_rate,12)
+
+
+            # 四、月度收益分布
+            # 总月数
+            total_months = len(index_monthly_returns_rate)
+            # 盈利月数（绝对收益率）
+            index_profit_months = len(index_monthly_returns_rate[index_monthly_returns_rate['monthly_return'] > 0])
+            start_profit_months = len(start_monthly_returns_rate[start_monthly_returns_rate['monthly_return'] > 0])
+            # 亏损月数（绝对收益率）
+            index_loss_months = len(index_monthly_returns_rate[index_monthly_returns_rate['monthly_return'] < 0])
+            start_loss_months = len(start_monthly_returns_rate[start_monthly_returns_rate['monthly_return'] < 0])
+            # 月盈利百分比
+            index_profit_percentage = index_profit_months / total_months
+            start_profit_percentage = start_profit_months / total_months
+            # 平均月收益率
+            # 月收益率标准差
+            # 这两个在index_sharpe_ratios[all] 内
+            # 'avg_monthly_return': avg_monthly_return,  # 平均月收益率 Average monthly return (%)
+            # 'monthly_std_dev': monthly_std,  # 月收益率标准差 Monthly standard deviation (%)
+
+            # 最大单月收益 （收益率最高月份）
+            index_max_monthly_return = index_monthly_returns_rate['monthly_return'].max()
+            start_max_monthly_return = start_monthly_returns_rate['monthly_return'].max()
+            # 最大单月亏损 （收益率最低月份）
+            index_max_monthly_loss = index_monthly_returns_rate['monthly_return'].min()
+            start_max_monthly_loss = start_monthly_returns_rate['monthly_return'].min()
+
+
+            # 4.2 月度收益区间分布
+            # 收益区间
+            # < -5%
+            # -5%~-2%
+            # -2%~0%
+            # 0%~2%
+            # 2%~5%
+            # 5%~10%
+            # >10%
+            monthly_bins = [-1, -0.05, -0.02, 0, 0.02, 0.05, 0.10, 1]
+            monthly_labels = ['<-5%', '-5%~-2%', '-2%~0%', '0%~2%', '2%~5%', '5%~10%', '>10%']
+            index_monthly_distribution, index_monthly_distribution_pct, total = self.calculate_distribution(
+                index_monthly_returns_rate, "monthly_return",bins=monthly_bins,labels=monthly_labels
+            )
+            start_monthly_distribution, start_monthly_distribution_pct, total = self.calculate_distribution(
+                start_monthly_returns_rate,"monthly_return",bins=monthly_bins, labels=monthly_labels
+            )
+
+            # 日度收益分布
+            # 总交易日
+            total_trading_days = len(index_df['daily_return'])
+            # 盈利天数
+            index_profit_days = len(index_df[index_df['daily_return'] > 0])
+            start_profit_days = len(start_df[start_df['daily_return'] > 0])
+            # 亏损天数
+            index_loss_days = len(index_df[index_df['daily_return'] < 0])
+            start_loss_days = len(start_df[start_df['daily_return'] < 0])
+            # 日盈利百分比
+            index_profit_percentage = index_profit_days / total_trading_days
+            start_profit_percentage = start_profit_days / total_trading_days
+            # 日均收益率
+            index_mean_daily_return = index_df['daily_return'].mean()
+            start_mean_daily_return = start_df['daily_return'].mean()
+            # 日收益率峰度
+            index_mean_daily_kurtosis = index_df['daily_return'].kurt()
+            start_mean_daily_kurtosis = start_df['daily_return'].kurt()
+            # 日收益率偏度
+            index_mean_daily_skewness = index_df['daily_return'].skew()
+            start_mean_daily_skewness = start_df['daily_return'].skew()
+            # 日收益率标准差
+            index_daily_return_std = index_df['daily_return'].std()
+            start_daily_return_std = start_df['daily_return'].std()
+
+            # 5.2 盈亏比分析（日收益率）
+            # 平均盈利日收益（盈利天数 avg） / 盈利天数
+            index_avg_profit_day_return = index_df['daily_return'][index_df['daily_return'] > 0].mean()
+            start_avg_profit_day_return = start_df['daily_return'][start_df['daily_return'] > 0].mean()
+            # 平均亏损日收益
+            index_avg_loss_day_return = index_df['daily_return'][index_df['daily_return'] < 0].mean()
+            start_avg_loss_day_return = start_df['daily_return'][start_df['daily_return'] < 0].mean()
+            # 盈亏比(平均盈利/平均亏损)
+            index_profit_loss_ratio = index_avg_profit_day_return / index_avg_loss_day_return
+            start_profit_loss_ratio = start_avg_profit_day_return / start_avg_loss_day_return
+            # 单笔最大盈利/最大亏损 最大盈利天数据/最大亏损天
+            index_max_profit_day = index_df['daily_return'][index_df['daily_return'] > 0].max()
+            start_max_profit_day = start_df['daily_return'][start_df['daily_return'] > 0].max()
+            index_max_loss_day = index_df['daily_return'][index_df['daily_return'] < 0].min()
+            start_max_loss_day = start_df['daily_return'][start_df['daily_return'] < 0].min()
+
+
+
+
+            # 5.3 日度收益区间分布（当日收益率列）
+            # 收益区间
+            # <-2%
+            # -2%~-1%
+            # -1%~-0.2%
+            # -0.2%~0.2%
+            # 0.2%~1%
+            # 1%~2%
+            # >2%
+            # index_df['return_range'] = pd.cut(index_df['daily_return'], bins=bins, labels=labels)
+            # start_df['return_range'] = pd.cut(start_df['daily_return'], bins=bins, labels=labels)
+            days_bins = [-1, -0.05, -0.03, -0.01, 0, 0.01, 0.03, 0.05, 1]
+            days_labels = ['<-5%', '-5%~-3%', '-3%~-1%', '-1%~0%', '0%~1%', '1%~3%', '3%~5%', '>5%']
+            index_days_distribution, index_days_distribution_pct, days_total = self.calculate_distribution(
+                index_monthly_returns_rate, "daily_return",bins=days_bins,labels=days_labels
+            )
+            start_days_distribution, start_days_distribution_pct, days_total = self.calculate_distribution(
+                start_monthly_returns_rate,"daily_return",bins=days_bins, labels=days_labels
+            )
+
+
+            # 1. 单日跌幅 > 5% 的次数
+            index_dd_count = (index_df['daily_return'] < -0.05).sum()
+            start_dd_count = (start_df['daily_return'] < -0.05).sum()
+
+            # 2. 单日跌幅 > 5% 的频率
+            index_dd_freq = (index_df['daily_return'] < -0.05).mean()
+            start_dd_freq = (start_df['daily_return'] < -0.05).mean()
+
+            # 3. 最大单日跌幅
+            index_max_daily_loss = index_df['daily_return'].min()
+            start_max_daily_loss = start_df['daily_return'].min()
+
+
+
+            # 5. 跌幅分布统计
+            index_return_dist = index_df['return_range'].value_counts().sort_index()
+            start_return_dist = start_df['return_range'].value_counts().sort_index()
 
             # 构建返回结果
             # Build return results
@@ -1722,6 +1859,26 @@ class XPLAnalyzer:
                 "start_cumulative_return": start_cumulative_return,
                 "index_annualized_rates":index_annualized_rates,
                 "start_annualized_rates": start_annualized_rates,
+                "index_rolling_return_3": index_rolling_return_3,
+                "start_rolling_return_3": start_rolling_return_3,
+                "index_rolling_return_6": index_rolling_return_6,
+                "start_rolling_return_6": start_rolling_return_6,
+                "index_rolling_return_12": index_rolling_return_12,
+                "start_rolling_return_12": start_rolling_return_12,
+                "index_loss_days": index_loss_days,
+                "start_loss_days": start_loss_days,
+                "index_profit_days": index_profit_days,
+                "start_profit_days": start_profit_days,
+                "index_mean_daily_return": index_mean_daily_return,
+                "start_mean_daily_return": start_mean_daily_return,
+                "index_daily_return_std": index_daily_return_std,
+                "start_daily_return_std": start_daily_return_std,
+                "index_mean_daily_kurtosis": index_mean_daily_kurtosis,
+                "start_mean_daily_kurtosis": start_mean_daily_kurtosis,
+                "index_mean_daily_skewness": index_mean_daily_skewness,
+                "start_mean_daily_skewness": start_mean_daily_skewness,
+                "index_profit_percentage":index_profit_percentage,
+                "start_profit_percentage": start_profit_percentage,
             }
 
             # 打印调试信息
@@ -2011,14 +2168,67 @@ class XPLAnalyzer:
 
         return csv_buffer, 'text/csv'
 
-    def calculate_rolling_return(self, df):
-        # return 全部区间，三月分组，平均值 区间年份 》 5年
-        pass
+    def calculate_rolling_return(self, df, months=3):
+        """
+        按月份计算滚动平均收益率
+
+        Args:
+            df: 包含 'date' 和 'monthly_return' 列的DataFrame
+            months: 滚动月份，如 3、6、12（默认3）
+
+        Returns:
+            dict: 包含滚动平均收益率及统计信息
+        """
+
+        total_months = len(df)
+        total_years = total_months / 12
+
+        if total_months < 60:
+            return {
+                'status': 'failed',
+                'reason': f'数据不足5年，当前仅{total_years:.1f}年',
+                'total_months': total_months,
+                'total_years': total_years,
+            }
+
+        roll_col = f'roll_{months}m'
+        df[roll_col] = df['monthly_return'].rolling(window=months).mean()
+
+        return df.dropna(subset=[roll_col]).reset_index(drop=True)
 
 
+    def calculate_distribution(self, returns_df, col='monthly_return', bins=None,labels=None):
+        """
+        收益区间分布
 
+        参数：
+            monthly_returns_df: 包含 'monthly_return' 列的DataFrame
 
+        返回：
+            dict: 各区间统计
+        """
+        # 定义区间边界和标签
+        if bins is None:
+            bins = [-1, -0.05, -0.02, 0, 0.02, 0.05, 0.10, 1]
 
+        if labels is None:
+            labels = ['<-5%', '-5%~-2%', '-2%~0%', '0%~2%', '2%~5%', '5%~10%', '>10%']
+
+        # 切割数据
+        returns_df['return_range'] = pd.cut(
+            returns_df[col],
+            bins=bins,
+            labels=labels
+        )
+
+        # 统计各区间频次
+        distribution = returns_df['return_range'].value_counts().sort_index()
+
+        # 计算占比
+        total = len(returns_df)
+        distribution_pct = (distribution / total * 100).round(2)
+
+        return distribution, distribution_pct, total
 
 # 创建全局实例
 xpl_analyzer = XPLAnalyzer()
