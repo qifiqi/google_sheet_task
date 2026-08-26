@@ -30,7 +30,11 @@ from app.utils.market import normalize_market_type
 
 
 class BacktestTrainingService(BaseGoogleSheetService):
-    """回测数据服务 - backtest_training_service.py"""
+    """单品回测执行服务。
+
+    一个任务可以包含多个年份区间和参数组合；这里负责把这些组合逐个
+    写入 Google Sheet、读取结果，并把每一步落库，因而支持断点恢复。
+    """
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
@@ -137,8 +141,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
     def execute_task(self):
         """执行回测数据任务"""
         try:
-
-            # 统一使用应用上下文
+            # 后台线程没有请求上下文，所有数据库和配置访问都必须在应用上下文内完成。
             context_app = self.app or current_app
             with context_app.app_context():
                 task = db.session.get(Task, self.task_id)
@@ -155,7 +158,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     self._log_info(f'task {self.task_id} cancellation requested')
                     return 'cancelled'
 
-                # 解析配置
+                # 先合并系统默认配置，再用任务配置覆盖，保证历史任务也能使用最新默认值。
                 if isinstance(task.config, str):
                     try:
                         config_data = json.loads(task.config)
@@ -169,7 +172,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 config_data = {**config_manager.get_google_sheet_config(), **config_data}
                 config_data = normalize_backtest_training_config(config_data)
 
-                # 推送任务开始日志
+                # 连接只初始化一次；后续每个参数组合复用该连接并按需切换输入数据。
                 self._log_info('开始执行Google Sheet任务')
 
                 # 初始化Google Sheet连接
@@ -193,6 +196,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     self._log_info(f'task {self.task_id} cancellation requested')
                     return 'cancelled'
 
+                # get_bdl 负责组合预计算、断点跳过、逐步执行及结果持久化。
                 success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data)
                 # 根据任务状态决定返回结果
                 if task_status == 'cancelled':
@@ -227,7 +231,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             except:
                 pass
 
-            # 其他异常情况
+            # 其他异常情况：保留原始异常链，并记录结构化摘要供任务详情和看门狗使用。
             root = unwrap_exception(e) or e
             try:
                 record = record_task_exception(self.task_id, e, "execute_task", self.app)
@@ -344,6 +348,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             total_combinations = 0
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
 
+            # 行情数据和参数组合在执行前一次性预计算，避免每个组合重复请求行情接口。
             combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
                 full_years,
                 recent_years,
@@ -367,7 +372,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
 
-            # 检查是否从断点恢复（按组合级别）
+            # 断点以组合索引为粒度；已成功落库的组合不会再次写 Sheet 或产生重复结果。
             start_index = self._resolve_resume_start_index(task)
             self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
 
@@ -431,7 +436,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     task.current_step = current_step
                     db_retry_manager.commit_with_retry(db.session)
 
-                    # 执行单个参数组合
+                    # 单个组合内部会根据 K 线是否变化决定是否重写输入列，只更新必要的单元格。
                     try:
                         success, result, return_date = self._execute_parameter_combination(
                             column_A_length,
@@ -454,7 +459,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                         cache_parameters['combination'] = combination
                         kline = KLINE_DATA_MAP.get(combination['Kline_key'], None)
-                        # 保存结果到数据库
+                        # 结果与参数使用同一个 step_index 保存，保证重启时能准确识别已完成组合。
                         self._save_task_result(current_step - 1, {
                             **combination,
                             'stock_code':combination['stock_code'],
@@ -555,6 +560,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             ).upper()
             result_value_render_option = 'UNFORMATTED_VALUE' if is_c7 else 'FORMATTED_VALUE'
 
+            # 仅当 K 线来源变化（或首次执行）时重写行情列；同源组合只改参数，减少 Sheet IO。
             def set_googl_val(initial_result_sleep=None):
                 _combination = cache_parameters['combination']
                 cache_Kline_key = _combination.get('Kline_key',"")
@@ -611,6 +617,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 self._log_info(f"向Google Sheet写入参数: {self.google_sheet.title} 长度：{len(cell_updates)}")
                 self.google_sheet.update_jumped_cells(cell_updates)
 
+            # 先写入参数并触发模型计算，再读取结果区域和收益序列。
             set_googl_val()
 
             merged_return_range_a1 = (

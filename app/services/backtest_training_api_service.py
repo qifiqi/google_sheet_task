@@ -1078,12 +1078,18 @@ def _query_global_preview_results(task_id, result_ids=None):
 
 
 def _build_global_preview_payload_from_results(task, task_results):
+    """将单产品 TaskResult 转换为全局预览使用的表格数据格式。
+
+    单产品页面以“股票 + 年份区间”分组、以每条成功结果作为动态列；
+    行指标来自 XPL 摘要格式化逻辑，缺失结果仍保留列以便用户识别失败步骤。
+    """
     task_config = task.to_dict().get("config") or {}
 
     groups = OrderedDict()
     success_count = 0
     failed_count = 0
 
+    # 先建立分组和动态列，再填充指标行，保证失败结果也能在预览中占位。
     for task_result in task_results:
         parameters = json.loads(task_result.parameters) if task_result.parameters else {}
         year_key = str(parameters.get("year") or parameters.get("Kline_key") or "未分组")
@@ -1127,6 +1133,7 @@ def _build_global_preview_payload_from_results(task, task_results):
             group["failed_results"] += 1
             continue
 
+        # C3/C4/C5/C7 结果都可能包在 analyze_result 中，统一取 calculate_metrics。
         calculate_metrics = (
             (result_core.get("calculate_metrics") or result_core.get("analyze_result"))
             if isinstance(result_core, dict)
@@ -1145,6 +1152,7 @@ def _build_global_preview_payload_from_results(task, task_results):
         if period_text and not group["period"]:
             group["period"] = period_text
 
+        # 同一指标跨多个结果列合并为一行；没有该列值时使用空字符串而非误报为 0。
         for summary_row in summary_rows:
             row_key = f"{summary_row['category']}::{summary_row['metric']}"
             row = group["rows"].setdefault(row_key, {
@@ -1157,6 +1165,7 @@ def _build_global_preview_payload_from_results(task, task_results):
                 row["index_value"] = summary_row["index_value"]
             row["values"][column_key] = summary_row["model_value"]
 
+    # 序列化阶段固定列顺序，并把内部 OrderedDict 转成前端可直接消费的 JSON 结构。
     serialized_groups = []
     for group_key in sorted(groups.keys(), reverse=True):
         group = groups[group_key]

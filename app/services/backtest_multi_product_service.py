@@ -671,7 +671,11 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
 
 
 class BacktestMultiProductService(BacktestTrainingService):
-    """Multi-product backtest service with independent product sheets."""
+    """多品回测执行服务。
+
+    多品任务按“参数方案 × 产品”展开执行；每个产品使用独立 Sheet，
+    最终结果再按产品比例合成为组合收益。固定产品支持同批缓存复用。
+    """
 
     @staticmethod
     def _build_fixed_product_cache_key(
@@ -863,12 +867,14 @@ class BacktestMultiProductService(BacktestTrainingService):
                     self._log_info(f"任务 {self.task_id} 已被取消，停止执行")
                     return "cancelled"
 
+                # 多品配置在执行前统一归一化，确保产品级字段和任务级默认值格式一致。
                 raw_config = _parse_json(task.config, {})
                 config_data = {
                     **get_config_manager().get_google_sheet_config(),
                     **normalize_multi_product_config(raw_config),
                 }
                 self.task_name = task.name
+                # _execute_products 负责展开执行矩阵；组合收益由预览阶段按比例聚合。
                 result = self._execute_products(task, config_data)
                 if result == "completed":
                     self.task_ok_to_dd("多品数据回测任务执行完成")
@@ -886,6 +892,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             return "error"
 
     def _execute_products(self, task: Task, config_data: dict[str, Any]) -> str:
+        """按产品和参数方案执行，并为每个步骤保存可恢复结果。"""
         products = config_data["products"]
         parameter_count = len(products[0]["parameters"])
         total_steps = parameter_count * len(products)
@@ -893,6 +900,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         db_retry_manager.commit_with_retry(db.session)
         self._log_info(f"将执行 {parameter_count} 个参数方案、{len(products)} 个产品，共 {total_steps} 步")
 
+        # current_step 与 TaskResult.step_index 都是全局步骤索引，而不是单个产品内索引。
         start_index = self._resolve_resume_start_index(task)
         sheet_kline_cache: dict[str, dict[str, Any]] = {}
         kline_cache: dict[int, dict[str, Any]] = {}
@@ -922,6 +930,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                 sheet_cache_key = self._build_sheet_cache_key(product)
                 parameter = product["parameters"][group_index]
                 product_config = self._build_product_config(config_data, product)
+                # 固定产品在同批任务中结果不变，命中缓存即可直接落库，避免重复访问外部 Sheet。
                 cached_fixed_result = self._get_fixed_product_cache(config_data, product, parameter)
                 if cached_fixed_result:
                     self._update_task_progress(current_step)
@@ -940,6 +949,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     processed_index += 1
                     self._log_info(f"第 {current_step} 步执行成功（缓存复用）")
                     continue
+                # 非缓存路径切换到当前产品的 Sheet；行情按 product_index 缓存，参数组合继续复用。
                 self._init_google_sheet(product_config)
                 kline_info = kline_cache.get(product_index)
                 if not kline_info:
@@ -994,6 +1004,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     kline = kline_info["kline"]
                     column_A_length = len(kline)
 
+                    # 每一步先保存明细结果，再写入固定产品缓存，保证任务结果始终可恢复。
                     self._save_task_result(current_step - 1, {
                         **combination,
                         "kline": [kline[0], kline[-1]],
@@ -1233,6 +1244,12 @@ def build_multi_product_global_preview_payload(
     task_id: str,
     ratios_override: list[Any] | None = None,
 ) -> dict[str, Any] | None:
+    """构建多品全局预览的统一 payload。
+
+    预览按 ``parameter_group_index`` 组织参数方案，而不是按执行步骤展示；
+    每个方案同时保留原始单产品指标、比例后单产品指标和组合指标，供页面
+    表格与 Excel 导出共用同一份数据格式。
+    """
     task = db.session.get(Task, task_id)
     if not task or task.task_type != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
         return None
@@ -1245,6 +1262,7 @@ def build_multi_product_global_preview_payload(
             product["ratio"] = normalize_ratio_display(
                 ratio.get("ratio") if isinstance(ratio, dict) else ratio
             )
+    # 结果必须按 step_index 稳定排序，后续按产品索引归位时才能保持执行顺序。
     results = (
         TaskResult.query
         .filter_by(task_id=task_id)
@@ -1268,6 +1286,7 @@ def build_multi_product_global_preview_payload(
     success_count = 0
     failed_count = 0
 
+    # 第一阶段只建立“方案 -> 产品结果”索引；组合指标和展示行在第二阶段统一计算。
     for result in results:
         parameters = _parse_json(result.parameters, {})
         group_index = int(parameters.get("parameter_group_index") or 0)
@@ -1307,6 +1326,7 @@ def build_multi_product_global_preview_payload(
             ),
         }
 
+    # 第二阶段补齐比例指标、组合指标和页面行定义，避免在产品循环中重复聚合。
     serialized_groups = []
     for group in groups.values():
         portfolio_metrics = _derive_metrics(_build_portfolio_metrics(
@@ -1343,6 +1363,7 @@ def build_multi_product_global_preview_payload(
                 product_result["weighted_metrics"] = weighted_metrics
             weighted_metrics_by_product[product_index] = weighted_metrics
 
+        # SUMMARY_ROW_DEFS 是前后端共享的行契约；缺少指数字段的指标以 "-" 展示。
         rows = []
         for category, metric, index_key, result_key, value_type in SUMMARY_ROW_DEFS:
             product_values = []
