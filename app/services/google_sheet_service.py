@@ -735,6 +735,15 @@ class GoogleSheetService(BaseGoogleSheetService):
             end_date=end_date,
             adjust_type=adjust_type,
         )
+        stock_code = str(klines[0].get("stock_code") or stock_code) if klines else stock_code
+        stock_name = str(klines[0].get("stock_name") or "") if klines else ""
+        if stock_name:
+            upsert_stock_metadata_in_session({
+                "stock_code": stock_code,
+                "stock_name": stock_name,
+                "market_type": market_type,
+                "source": "google_sheet_c3",
+            })
 
         klines = require_kline_rows(
             stock_code,
@@ -1073,6 +1082,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 return_rows,
                 stock_code=safe_parameters.get("stock_code") if isinstance(safe_parameters, dict) else None,
                 stock_name=(safe_parameters.get("stock_name") if isinstance(safe_parameters, dict) else None),
+                market_type=self._get_return_series_market_type(safe_parameters),
+                exchange_market=self._get_return_series_exchange_market(safe_parameters),
             )
             if series_fields:
                 return_series = _task_result_return_repository.save({

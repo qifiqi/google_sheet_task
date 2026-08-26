@@ -13,6 +13,7 @@ from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation
 from app.utils.db_stock_api import StockAPIClient
+from app.utils.market import infer_market_type, normalize_stock_code
 from app.utils.logger import get_logger
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 
@@ -121,8 +122,39 @@ class BaseGoogleSheetService:
                 stock_code = task_config.get("stock_code") if isinstance(task_config, dict) else None
             except (TypeError, ValueError):
                 stock_code = None
-        normalized["stock_code"] = str(stock_code or "").strip()
+        effective_market = normalized.get("market_type") or self._get_return_series_market_type(normalized)
+        normalized["stock_code"] = normalize_stock_code(
+            stock_code,
+            effective_market or infer_market_type(stock_code),
+            normalized.get("exchange_market") or self._get_return_series_exchange_market(normalized),
+        )
         return normalized
+
+    def _get_return_series_market_type(self, parameters: Any):
+        """优先使用参数中的市场代码，缺失时回退到任务配置。"""
+        return self._get_return_series_config_value(parameters, "market_type")
+
+    def _get_return_series_exchange_market(self, parameters: Any):
+        """获取 Yahoo ticker 所需的交易所市场编号。"""
+        return self._get_return_series_config_value(parameters, "exchange_market")
+
+    def _get_return_series_config_value(self, parameters: Any, key: str):
+        if isinstance(parameters, dict) and parameters.get(key):
+            return parameters[key]
+        if isinstance(self.config, dict) and self.config.get(key):
+            return self.config[key]
+        if self.task and self.task.config:
+            try:
+                task_config = (
+                    self.task.config
+                    if isinstance(self.task.config, dict)
+                    else json.loads(self.task.config)
+                )
+                if isinstance(task_config, dict):
+                    return task_config.get(key)
+            except (TypeError, ValueError):
+                pass
+        return None
 
 
     def _is_cancel_requested(self) -> bool:

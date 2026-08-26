@@ -6,7 +6,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import foreign
 
 from app.extensions import db
-from app.utils.market import MARKET_DEFAULT_COMMISSIONS, MARKET_LABELS
+from app.utils.market import MARKET_DEFAULT_COMMISSIONS, MARKET_LABELS, infer_market_type
 
 
 def _json_object_or_empty(raw):
@@ -245,8 +245,8 @@ def google_sheet_registry_scope(table_type: str | None) -> str:
 
 
 def summary_market_type(stock_code: str | None) -> str:
-    """根据股票代码格式推断汇总结果所属市场。"""
-    return "cn" if str(stock_code or "").strip().isdigit() else "us"
+    """根据标准股票代码推断汇总结果所属市场。"""
+    return "cn" if infer_market_type(stock_code) == "cn" else "us"
 
 
 class TaskStatus(str, Enum):
@@ -939,7 +939,7 @@ def _sync_google_sheet_registry_scope(_mapper, _connection, target):
 @event.listens_for(TaskResultSummaryIndex, "before_insert")
 @event.listens_for(TaskResultSummaryIndex, "before_update")
 def _sync_summary_market_type(_mapper, _connection, target):
-    """在汇总索引写入前同步由股票代码推导的市场类型。"""
+    """在本地 DDL 兼容模型写入前同步由股票代码推导的市场类型。"""
     target.market_type = summary_market_type(target.stock_code)
 
 

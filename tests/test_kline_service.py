@@ -53,6 +53,20 @@ def test_database_source_uses_internal_rows_when_range_is_covered():
     assert {row["data_source"] for row in rows} == {"database"}
 
 
+def test_kline_limit_keeps_latest_rows_in_chronological_order():
+    service = KlineService(dfcf_api=_DfcfApi())
+    service.read_internal_kline_data = lambda **_kwargs: [
+        *_rows("2024-01-01", "2024-01-02"),
+        *_rows("2024-01-03", "2024-01-04"),
+    ]
+
+    rows = service.get_kline_data(
+        "600000", "cn", 2, data_source="database", start_date="2024-01-01", end_date="2024-01-04"
+    )
+
+    assert [row["stock_date"] for row in rows] == ["2024-01-03", "2024-01-04"]
+
+
 def test_non_cn_en_markets_never_access_internal_kline_service(monkeypatch):
     service = KlineService(dfcf_api=_DfcfApi())
     service.stock_client = type("Client", (), {
@@ -100,9 +114,10 @@ def test_external_source_is_normalized_and_persisted():
     persisted = []
     service.write_internal_kline_data = lambda rows, **kwargs: persisted.append((rows, kwargs))
 
-    rows = service.get_kline_data("600000", "cn", 100, data_source="dfcf")
+    rows = service.get_kline_data("600000.SS", "cn", 100, data_source="dfcf")
 
-    assert rows[0]["stock_code"] == "600000"
+    assert dfcf.calls == [("600000", "1", 100, {"adjust_type": None})]
+    assert rows[0]["stock_code"] == "600000.SS"
     assert rows[0]["stock_name"] == "浦发银行"
     assert rows[0]["stock_kp"] == 10.0
     assert rows[0]["stock_sp"] == 11.0
@@ -204,7 +219,7 @@ def test_tdx_source_fetches_a_share_daily_kline_and_persists(monkeypatch):
     service = KlineService(dfcf_api=_DfcfApi())
     service.write_internal_kline_data = lambda rows, **kwargs: persisted.append((rows, kwargs))
 
-    rows = service.get_kline_data("600519", "cn", 1, data_source="tdx", adjust_type="forward")
+    rows = service.get_kline_data("600519.SS", "cn", 1, data_source="tdx", adjust_type="forward")
 
     assert _TdxClient.calls == [("sh", "600519", "daily", 1, "qfq")]
     assert rows[0]["stock_name"] == "Moutai"
@@ -234,10 +249,11 @@ def test_qq_source_passes_us_market_type_to_qq_api():
     qq_api = _QqApi()
     service = KlineService(dfcf_api=_DfcfApi(), qq_api=qq_api)
 
-    service.get_kline_data("AAPL", "en", 2, data_source="qq", exchange_market="105", stock_name="Apple")
+    rows = service.get_kline_data("AAPL.US", "en", 2, data_source="qq", exchange_market="105", stock_name="Apple")
 
     assert qq_api.request == (
         "AAPL",
         "105",
         {"limit": 2, "adjust_type": None, "market_type": "en"},
     )
+    assert {row["stock_code"] for row in rows} == {"AAPL.US"}

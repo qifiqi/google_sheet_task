@@ -24,6 +24,7 @@ from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.xpl_service import xpl_analyzer
 from app.utils.logger import get_logger
 from app.utils.task_authorization import filter_task_types_by_action, normalize_task_type
+from app.utils.market import infer_market_type, normalize_stock_code, strip_stock_code_suffix
 
 
 logger = get_logger(__name__)
@@ -437,8 +438,8 @@ def _normalize_market_type(value: Any) -> str:
 
 
 def _is_cn_stock_code(stock_code: Any) -> bool:
-    """通过纯数字代码规则识别 A 股股票代码。"""
-    return bool(re.fullmatch(r"\d+", str(stock_code or "").strip()))
+    """通过去除标准后缀后的纯数字规则识别 A 股股票代码。"""
+    return bool(re.fullmatch(r"\d+", strip_stock_code_suffix(stock_code)))
 
 
 def _matches_market_type(stock_code: Any, market_type: str) -> bool:
@@ -448,7 +449,7 @@ def _matches_market_type(stock_code: Any, market_type: str) -> bool:
     text = str(stock_code or "").strip()
     if not text:
         return False
-    is_cn = _is_cn_stock_code(text)
+    is_cn = infer_market_type(text) == "cn"
     return is_cn if market_type == "cn" else not is_cn
 
 
@@ -547,40 +548,45 @@ def _extract_stock_code(task: Task, parameters: Any) -> str:
     )
 
     config = _parse_json(task.config, {})
+
+    def standardize(value: Any) -> str:
+        market_type = config.get("market_type") if isinstance(config, dict) else None
+        return normalize_stock_code(value, market_type or infer_market_type(value))
+
     if isinstance(parameters, dict):
         direct = _first_text_value(parameters, ("stock_code", "stock_no", "code", "symbol"))
         if direct:
-            return direct.upper()
+            return standardize(direct)
         config_from_parameters = parameters.get("config")
         if isinstance(config_from_parameters, dict):
             config = {**config, **config_from_parameters} if isinstance(config, dict) else config_from_parameters
 
     parsed = _stock_code_from_task_name(task.task_type, parameter_task_name)
     if parsed:
-        return parsed
+        return standardize(parsed)
 
     if isinstance(config, dict):
         direct = _first_text_value(config, ("stock_code", "stock_no", "code", "symbol"))
         if direct:
-            return direct.upper()
+            return standardize(direct)
         parsed = _stock_code_from_task_name(
             task.task_type,
             _first_text_value(config, ("task_name", "name", "base_task_name", "taskName")),
         )
         if parsed:
-            return parsed
+            return standardize(parsed)
 
     parsed = _stock_code_from_task_name(task.task_type, task.name)
     if parsed:
-        return parsed
+        return standardize(parsed)
 
     direct = _first_text_value(parameters, ("stock_code", "stock_no", "code", "symbol"))
     if direct:
-        return direct.upper()
+        return standardize(direct)
     if isinstance(config, dict):
         direct = _first_text_value(config, ("stock_code", "stock_no", "code", "symbol"))
         if direct:
-            return direct.upper()
+            return standardize(direct)
     return str(task.id).strip().upper()
 
 

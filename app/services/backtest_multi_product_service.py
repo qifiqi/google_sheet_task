@@ -27,7 +27,11 @@ from app.services.xpl_service import xpl_analyzer
 from app.utils.db_retry import db_retry_manager, safe_db_operation
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.return_series import build_return_series_fields, parse_return_series_fields
-from app.utils.market import normalize_market_type as normalize_supported_market_type
+from app.utils.market import (
+    infer_market_type,
+    normalize_market_type as normalize_supported_market_type,
+    normalize_stock_code,
+)
 
 
 BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
@@ -185,7 +189,15 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
     for index, product in enumerate(products, start=1):
         if not isinstance(product, dict):
             raise ValueError(f"产品 {index} 配置格式不正确")
-        stock_code = str(product.get("stock_code") or "").strip().upper()
+        raw_stock_code = str(product.get("stock_code") or "").strip().upper()
+        market_type = normalize_market_type(
+            product.get("market_type") or config.get("market_type")
+        ) or infer_market_type(raw_stock_code)
+        stock_code = normalize_stock_code(
+            raw_stock_code,
+            market_type,
+            product.get("exchange_market") or config.get("exchange_market"),
+        )
         if not stock_code:
             raise ValueError(f"产品 {index} 缺少股票代码")
         parameters = product.get("parameters")
@@ -204,7 +216,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "product_index": index - 1,
             "product_name": str(product.get("product_name") or product.get("name") or stock_code).strip(),
             "stock_code": stock_code,
-            "market_type": normalize_market_type(product.get("market_type")),
+            "market_type": market_type,
             "price_mode": normalize_price_mode(product.get("price_mode") or config.get("price_mode")),
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
             "kline_data_source": product.get("kline_data_source") or config.get("kline_data_source") or "dfcf",
@@ -1008,6 +1020,8 @@ class BacktestMultiProductService(BacktestTrainingService):
                         or safe_parameters.get("product_name")
                         or safe_parameters.get("stock_code")
                     ),
+                    market_type=self._get_return_series_market_type(safe_parameters),
+                    exchange_market=self._get_return_series_exchange_market(safe_parameters),
                 )
                 if not series_fields:
                     raise ValueError("收益序列缺少有效日期")

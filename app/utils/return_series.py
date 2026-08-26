@@ -6,6 +6,8 @@ import json
 from datetime import date, datetime
 from typing import Any, Iterable
 
+from app.utils.market import normalize_market_type, normalize_stock_code
+
 
 def _as_date(value: Any) -> date | None:
     if isinstance(value, datetime):
@@ -26,6 +28,8 @@ def build_return_series_fields(
     *,
     stock_code: Any,
     stock_name: Any,
+    market_type: Any = None,
+    exchange_market: Any = None,
 ) -> dict[str, Any] | None:
     rows = [row for row in (return_rows or []) if isinstance(row, dict)]
     if not rows:
@@ -37,8 +41,18 @@ def build_return_series_fields(
     valid_dates = [value for value in parsed_dates if value is not None]
     if not valid_dates:
         return None
+    raw_stock_code = str(stock_code or "").strip()
+    normalized_market_type = normalize_market_type(
+        market_type,
+        "cn" if raw_stock_code.isdigit() else "en",
+    )
+    formatted_stock_code = normalize_stock_code(
+        raw_stock_code or "UNKNOWN",
+        normalized_market_type,
+        exchange_market,
+    )
     return {
-        "stock_code": str(stock_code or "").strip() or "UNKNOWN",
+        "stock_code": formatted_stock_code,
         "stock_name": str(stock_name or stock_code or "未知股票").strip() or "未知股票",
         "start_return_date": min(valid_dates),
         "end_return_date": max(valid_dates),

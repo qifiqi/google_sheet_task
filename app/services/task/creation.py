@@ -22,7 +22,7 @@ from app.services.stock_metadata_service import lookup_stock_metadata, save_stoc
 from app.services.kline_service import KlineService
 from app.utils.database import transaction_required
 from app.utils.logger import get_logger, get_task_logger
-from app.utils.market import normalize_market_type
+from app.utils.market import infer_market_type, normalize_market_type, normalize_stock_code
 
 logger = get_logger(__name__)
 _task_repository = TaskRepository()
@@ -169,6 +169,12 @@ class TaskCreationMixin:
         market_type = normalize_market_type(normalized.get("market_type"))
         if market_type:
             normalized["market_type"] = market_type
+        if normalized.get("stock_code"):
+            normalized["stock_code"] = normalize_stock_code(
+                normalized["stock_code"],
+                market_type or infer_market_type(normalized["stock_code"]),
+                normalized.get("exchange_market"),
+            )
         if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
             normalized["kline_data_source"] = KlineService.normalize_data_source(
@@ -414,6 +420,16 @@ class TaskCreationMixin:
             if not stock_code:
                 continue
             stock_metadata = stock_metadata_by_code.get(stock_code.upper()) or {}
+            stock_market_type = normalize_market_type(
+                stock_metadata.get("market_type")
+                or stock_metadata.get("marketType")
+                or shared_config.get("market_type")
+            ) or infer_market_type(stock_code)
+            stock_code = normalize_stock_code(
+                stock_code,
+                stock_market_type,
+                stock_metadata.get("exchange_market") or stock_metadata.get("market"),
+            )
             stock_name = str(
                 stock_metadata.get("stock_name") or stock_metadata.get("name") or ""
             ).strip()
@@ -422,7 +438,7 @@ class TaskCreationMixin:
                     **stock_metadata,
                     "stock_code": stock_code,
                     "stock_name": stock_name,
-                    "market_type": stock_metadata.get("market_type") or stock_metadata.get("marketType") or shared_config.get("market_type", "cn"),
+                    "market_type": stock_market_type,
                     "source": stock_metadata.get("source") or "task_config",
                 })
 
@@ -457,7 +473,7 @@ class TaskCreationMixin:
                             "title": sheet_title or None,
                             "stock_code": stock_code,
                             "stock_name": stock_name,
-                            "market_type": shared_config.get("market_type", "cn"),
+                            "market_type": stock_market_type,
                             "kline_adjustment": shared_config.get("kline_adjustment", "forward"),
                             "end_date": end_date,
                             "year_n": year_n,

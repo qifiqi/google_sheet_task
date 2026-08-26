@@ -50,7 +50,7 @@ def test_extract_c3_uses_return_beats_as_best_metric():
     assert rows[0].metrics["return_rate"] == 0.12
     assert rows[0].metrics["annualized_rate"] == 0.2
     assert rows[0].metrics["return_beats"] == pytest.approx(0.07)
-    assert rows[0].stock_code == "XME"
+    assert rows[0].stock_code == "XME.US"
 
 
 def test_extract_c3_includes_stock_name_from_task_config():
@@ -189,7 +189,7 @@ def test_extract_c5_uses_returnbeats_with_fallback():
     rows = extract_summary_records(task, result)
 
     assert len(rows) == 1
-    assert rows[0].stock_code == "AAPL"
+    assert rows[0].stock_code == "AAPL.US"
     assert rows[0].best_metric_name == "ReturnBeats"
     assert round(rows[0].best_metric_value, 4) == 0.12
     assert rows[0].metrics["start_sharpe_ratio"] == 2.1
@@ -333,7 +333,7 @@ def test_extract_c4_maps_d2_to_d20_metric_cells():
     rows = extract_summary_records(task, result)
 
     assert len(rows) == 1
-    assert rows[0].stock_code == "600519"
+    assert rows[0].stock_code == "600519.SS"
     assert rows[0].best_metric_value == 0.1
     assert rows[0].metrics["return_rate"] == 0.01
     assert rows[0].metrics["turnover_rate"] == 0.09
@@ -378,7 +378,7 @@ def test_extract_c5_falls_back_to_prefixed_task_name_when_stock_code_missing():
 
     rows = extract_summary_records(task, result)
 
-    assert rows[0].stock_code == "600776"
+    assert rows[0].stock_code == "600776.SS"
 
 
 def test_extract_c5_prefers_parameter_stock_code_before_task_name():
@@ -390,7 +390,7 @@ def test_extract_c5_prefers_parameter_stock_code_before_task_name():
 
     rows = extract_summary_records(task, result)
 
-    assert rows[0].stock_code == "QQQ"
+    assert rows[0].stock_code == "QQQ.US"
 
 
 def test_extract_backtest_uses_global_preview_model_value_columns():
@@ -485,7 +485,7 @@ def test_extract_backtest_fills_metrics_from_calculate_metrics_when_export_forma
 
     rows = extract_summary_records(task, result)
 
-    assert rows[0].stock_code == "NVDA"
+    assert rows[0].stock_code == "NVDA.US"
     assert rows[0].best_metric_value == pytest.approx(2.5353)
     assert rows[0].metrics["absolute_annualized_return"] == "32.00%"
     assert rows[0].metrics["absolute_profit_year_percentage"] == "80.00%"
@@ -518,7 +518,7 @@ def test_extract_backtest_uses_parameter_stock_code_when_task_name_has_rerun_suf
 
     rows = extract_summary_records(task, result)
 
-    assert rows[0].stock_code == "688226"
+    assert rows[0].stock_code == "688226.SS"
 
 
 def test_extract_backtest_strips_brackets_from_task_name_when_stock_code_missing():
@@ -894,8 +894,8 @@ def test_query_filters_summary_by_market_type(app_factory):
             {"market_type": "us", "summary_type": "task", "page": 1, "per_page": 10},
         )
 
-        assert [item["stock_code"] for item in cn_payload["items"]] == ["600519"]
-        assert [item["stock_code"] for item in us_payload["items"]] == ["AAPL"]
+        assert [item["stock_code"] for item in cn_payload["items"]] == ["600519.SS"]
+        assert [item["stock_code"] for item in us_payload["items"]] == ["AAPL.US"]
 
 
 def test_query_filters_summary_by_stock_name(app_factory):
@@ -917,7 +917,7 @@ def test_query_filters_summary_by_stock_name(app_factory):
         )
 
         assert payload["pagination"]["total"] == 1
-        assert payload["items"][0]["stock_code"] == "600776"
+        assert payload["items"][0]["stock_code"] == "600776.SS"
         assert payload["items"][0]["stock_name"] == "东方通信"
 
 
@@ -939,7 +939,7 @@ def test_query_filters_by_return_beats_threshold(app_factory):
         )
 
         assert payload["pagination"]["total"] == 1
-        assert [item["stock_code"] for item in payload["items"]] == ["AAPL"]
+        assert [item["stock_code"] for item in payload["items"]] == ["AAPL.US"]
         assert payload["items"][0]["best_metric_value"] == pytest.approx(0.35)
 
 
@@ -1017,8 +1017,8 @@ def test_query_all_results_filters_by_market_type(app_factory):
             },
         )
 
-        assert [item["stock_code"] for item in cn_payload["items"]] == ["600776"]
-        assert [item["stock_code"] for item in us_payload["items"]] == ["AAPL"]
+        assert [item["stock_code"] for item in cn_payload["items"]] == ["600776.SS"]
+        assert [item["stock_code"] for item in us_payload["items"]] == ["AAPL.US"]
 
 
 def test_export_csv_uses_query_filters_and_ignores_pagination(app_factory):
@@ -1042,7 +1042,7 @@ def test_export_csv_uses_query_filters_and_ignores_pagination(app_factory):
         rows = list(csv.DictReader(io.StringIO(payload["content"])))
         assert [row["任务名"] for row in rows] == ["600519", "600519"]
         assert [row["结果 ID"] for row in rows] == ["21", "20"]
-        assert all(row["产品/股票"] == "600519" for row in rows)
+        assert all(row["产品/股票"] == "600519.SS" for row in rows)
         assert "000001" not in payload["content"]
 
 
@@ -1274,7 +1274,7 @@ def test_export_model_summary_api_returns_csv_download(app_factory, monkeypatch)
     assert "filename*=UTF-8''%E4%B8%9C%E6%96%B9%E9%80%9A%E4%BF%A1_%E5%85%A8%E9%83%A8%E7%BB%93%E6%9E%9C.csv" in response.headers["Content-Disposition"]
     text = response.data.decode("utf-8-sig")
     rows = list(csv.DictReader(io.StringIO(text)))
-    assert rows[0]["产品/股票"] == "600519"
+    assert rows[0]["产品/股票"] == "600519.SS"
     assert rows[0]["return beats"] == "19.00%"
 
 

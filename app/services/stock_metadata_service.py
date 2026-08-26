@@ -7,7 +7,12 @@ from typing import Any
 
 from app.repositories.stock_metadata_repository import StockMetadataRepository
 from app.utils.logger import get_logger
-from app.utils.market import normalize_market_type
+from app.utils.market import (
+    infer_market_type,
+    normalize_market_type,
+    normalize_stock_code,
+    strip_stock_code_suffix,
+)
 
 
 logger = get_logger(__name__)
@@ -34,10 +39,12 @@ def normalize_stock_payload(item: Any) -> dict[str, Any]:
     stock_name = _strip_text(item.get("stock_name") or item.get("name") or item.get("shortName"))
     if not stock_code or not stock_name:
         return {}
-    market_type = _normalize_market_type(item.get("market_type") or item.get("marketType") or item.get("market"))
+    raw_market_type = item.get("market_type") or item.get("marketType") or item.get("market")
+    market_type = _normalize_market_type(raw_market_type)
     if not market_type:
-        market_type = "cn" if stock_code.isdigit() else "us"
+        market_type = "cn" if infer_market_type(stock_code) == "cn" else "us"
     exchange_market = _strip_text(item.get("exchange_market") or item.get("market") or item.get("jys"))
+    stock_code = normalize_stock_code(stock_code, market_type, exchange_market)
     security_type_name = _strip_text(item.get("security_type_name") or item.get("securityTypeName"))
     source = _strip_text(item.get("source") or "unknown")
     raw_payload = item.get("raw") if "raw" in item else item
@@ -82,8 +89,17 @@ def lookup_stock_metadata(stock_code: Any, market_type: Any = None) -> dict[str,
     code = _strip_text(stock_code).upper()
     if not code:
         return {}
-    normalized_market_type = _normalize_market_type(market_type) or ("cn" if code.isdigit() else "us")
-    return _remote_repository.find_latest(code, normalized_market_type) or {}
+    normalized_market_type = _normalize_market_type(market_type) or (
+        "cn" if infer_market_type(code) == "cn" else "us"
+    )
+    code = normalize_stock_code(code, normalized_market_type)
+    record = _remote_repository.find_latest(code, normalized_market_type)
+    # 历史远端数据可能是无后缀代码，精确查询一次作为兼容回退。
+    if not record:
+        legacy_code = strip_stock_code_suffix(code)
+        if legacy_code != code:
+            record = _remote_repository.find_latest(legacy_code, normalized_market_type)
+    return record or {}
 
 
 def upsert_stock_metadata(stock_item: Any) -> dict[str, Any] | None:
