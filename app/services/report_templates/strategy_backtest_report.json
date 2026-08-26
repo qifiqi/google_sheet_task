@@ -1,0 +1,63 @@
+{
+  "validation": {
+    "required_fields": ["report_type", "title", "metadata", "sections", "charts", "calculation_notes", "conclusion"],
+    "report_types": ["RPT", "ZRPT"],
+    "required_metadata_fields": ["report_id", "model_version", "price_type", "generated_at", "date_range", "total_trading_days", "risk_free_rate"],
+    "conditions": [
+      {"field": "report_type", "equals": "ZRPT", "required_fields": ["weight_allocation"]},
+      {"field": "report_type", "equals": "RPT", "required_fields": ["weight_allocation"], "table_row_count": {"field": "weight_allocation", "equals": 1}}
+    ]
+  },
+  "styles": {
+    "document": {
+      "page_width_inches": 8.5,
+      "page_height_inches": 11,
+      "margins_inches": {"left": 1.25, "right": 1.25, "top": 1, "bottom": 1},
+      "font_name": "Microsoft YaHei",
+      "normal_font_size": 10.5,
+      "normal_space_after_pt": 6,
+      "normal_line_spacing": 1.25
+    },
+    "headings": {
+      "Title": {"font_size": 22, "color": "1F4E79", "space_before_pt": 0, "space_after_pt": 12, "keep_with_next": false},
+      "Heading 1": {"font_size": 15, "color": "1F4E79", "space_before_pt": 14, "space_after_pt": 6, "keep_with_next": true},
+      "Heading 2": {"font_size": 12, "color": "2F5597", "space_before_pt": 10, "space_after_pt": 6, "keep_with_next": true}
+    },
+    "metadata": {"alignment": "left"},
+    "footer": {"text": "{title}", "alignment": "center", "font_size": 8, "color": "808080"},
+    "table": {
+      "style": "Table Grid",
+      "font_name": "Microsoft YaHei",
+      "font_size": 9,
+      "alignment": "center",
+      "header_fill": "1F4E79",
+      "header_font_color": "FFFFFF",
+      "alternate_fill": "F3F6FA",
+      "repeat_header_row": true,
+      "allow_row_break_across_pages": false
+    },
+    "chart": {"width_inches": 6, "caption_font_size": 9, "caption_alignment": "center"}
+  },
+  "metadata_fields": [
+    {"label": "报告编号", "source": "metadata.report_id"},
+    {"label": "模型版本", "source": "metadata.model_version"},
+    {"label": "价格类型", "source": "metadata.price_type"},
+    {"label": "生成日期", "source": "metadata.generated_at"},
+    {"label": "数据区间", "source": "metadata.date_range"},
+    {"label": "总交易日", "source": "metadata.total_trading_days"},
+    {"label": "无风险利率", "source": "metadata.risk_free_rate"}
+  ],
+  "blocks": [
+    {"type": "title", "source": "title"},
+    {"type": "metadata"},
+    {"type": "text", "text": "权重分配："},
+    {"type": "table", "source": "weight_allocation", "header_fill": false},
+    {"type": "sections", "source": "sections"},
+    {"type": "heading", "text": "九、分析图表", "level": 1},
+    {"type": "charts", "source": "charts"},
+    {"type": "heading", "text": "十、指标计算说明", "level": 1},
+    {"type": "notes", "source": "calculation_notes"},
+    {"type": "heading", "text": "十一、结论", "level": 1},
+    {"type": "paragraphs", "source": "conclusion"}
+  ]
+}

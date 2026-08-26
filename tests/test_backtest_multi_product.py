@@ -23,8 +23,12 @@ from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     BacktestMultiProductService,
     _GLOBAL_PREVIEW_CACHE,
+    _build_portfolio_return_date,
+    _cumulative_returns_to_daily_returns,
+    _daily_returns_to_cumulative_returns,
     _derive_metrics,
     _fmt_value,
+    _weight_return_date,
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
 )
@@ -52,6 +56,39 @@ def _base_product(index, ratio="50"):
     }
 
 
+def test_daily_return_weighting_rebuilds_cumulative_returns_by_default():
+    first_product_returns = [
+        {"date": "2026-01-01", "index_return": 0.1, "start_return": 0.1},
+        {"date": "2026-01-02", "index_return": 0.21, "start_return": 0.21},
+    ]
+    second_product_returns = [
+        {"date": "2026-01-01", "index_return": 0.2, "start_return": 0.2},
+        {"date": "2026-01-02", "index_return": 0.44, "start_return": 0.44},
+    ]
+    products = [
+        {"product_index": 0, "ratio": "50"},
+        {"product_index": 1, "ratio": "50"},
+    ]
+
+    daily_returns = _cumulative_returns_to_daily_returns(first_product_returns)
+    restored_returns = _daily_returns_to_cumulative_returns(daily_returns)
+    weighted_product = _weight_return_date(first_product_returns, "50", False)
+    portfolio_returns = _build_portfolio_return_date({
+        0: {"return_date": first_product_returns},
+        1: {"return_date": second_product_returns},
+    }, products)
+    legacy_portfolio_returns = _build_portfolio_return_date({
+        0: {"return_date": first_product_returns},
+        1: {"return_date": second_product_returns},
+    }, products, True)
+
+    assert daily_returns[1]["start_return"] == pytest.approx(0.1)
+    assert restored_returns[-1]["start_return"] == pytest.approx(0.21)
+    assert weighted_product[-1]["start_return"] == pytest.approx(0.1025)
+    assert portfolio_returns[-1]["start_return"] == pytest.approx(0.3225)
+    assert legacy_portfolio_returns[-1]["start_return"] == pytest.approx(0.325)
+
+
 def test_normalize_multi_product_config_allows_ratio_total_not_equal_100():
     config = {
         "start_date": "2024-01-01",
@@ -63,6 +100,20 @@ def test_normalize_multi_product_config_allows_ratio_total_not_equal_100():
 
     assert [product["ratio"] for product in normalized["products"]] == ["60", "30"]
     assert [product["price_mode"] for product in normalized["products"]] == ["sp_price", "sp_price"]
+    assert normalized["use_legacy_cumulative_return_weighting"] is False
+
+
+def test_normalize_multi_product_config_allows_legacy_cumulative_return_weighting():
+    config = {
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "use_legacy_cumulative_return_weighting": True,
+        "products": [_base_product(0), _base_product(1)],
+    }
+
+    normalized = normalize_multi_product_config(config)
+
+    assert normalized["use_legacy_cumulative_return_weighting"] is True
 
 
 def test_normalize_multi_product_config_defaults_to_vwap_price():

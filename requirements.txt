@@ -21,6 +21,8 @@ yfinance
 easy-tdx
 openpyxl
 xlsxwriter
+python-docx
+Pillow
 PyJWT>=2.0
 dingtalk-stream
 pymysql

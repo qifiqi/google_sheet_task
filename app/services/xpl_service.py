@@ -1570,6 +1570,12 @@ class XPLAnalyzer:
             start_df = df.copy()
             start_df['net_value'] = 1 * (1 + start_df['start_return'])
 
+            # 当天收益率
+            # 当天收益率 = (当天净值 / 前一天净值) - 1
+            index_df['daily_return'] = (index_df['net_value'] / index_df['net_value'].shift(1)) - 1
+            start_df['daily_return'] = (start_df['net_value'] / start_df['net_value'].shift(1)) - 1
+
+
             # 3. 计算各项指标
             # Calculate various metrics
             index_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(index_df)
@@ -1593,6 +1599,18 @@ class XPLAnalyzer:
 
             start_monthly_returns_rate = self.calculate_monthly_return_data(start_df)
             start_monthly_returns_rate = pd.DataFrame(start_monthly_returns_rate)
+
+            # 月超额收益
+            monthly_excess_returns = self.calculate_monthly_excess_return(index_monthly_returns_rate,
+                                                                          start_monthly_returns_rate)
+            monthly_excess_returns_dict = monthly_excess_returns[
+                ['year_month', 'date', 'monthly_excess_return_diff', 'start_monthly_return', 'index_monthly_return', ]
+            ].to_dict(orient='records')
+
+            # 月超额收益百分比
+            monthly_excess_return_percentage = self.calculate_monthly_excess_return_percentage(monthly_excess_returns)
+            # 月超额波动率
+            monthly_excess_volatility = self.calculate_monthly_excess_volatility(monthly_excess_returns)
 
             # 索提诺比例
             index_sotino_ratio = self.calculate_sotino_ratio(index_monthly_returns_rate)
@@ -1618,17 +1636,6 @@ class XPLAnalyzer:
             ].to_dict(orient='records')
             # 跑赢年份
             outperform_year = self.calculate_outperform_year(excess_returns_df)
-
-            # 月超额收益
-            monthly_excess_returns = self.calculate_monthly_excess_return(index_monthly_returns_rate,
-                                                                          start_monthly_returns_rate)
-            monthly_excess_returns_dict = monthly_excess_returns[
-                ['year_month', 'date', 'monthly_excess_return_diff', 'start_monthly_return', 'index_monthly_return', ]
-            ].to_dict(orient='records')
-            # 月超额收益百分比
-            monthly_excess_return_percentage = self.calculate_monthly_excess_return_percentage(monthly_excess_returns)
-            # 月超额波动率
-            monthly_excess_volatility = self.calculate_monthly_excess_volatility(monthly_excess_returns)
 
             # 超额回撤胜率
             excess_drawdown_winning_rate = self.calculate_excess_drawdown_winning_rate(index_maximum_drawdown,
@@ -1665,6 +1672,14 @@ class XPLAnalyzer:
             # excess_maximum_number_of_backtest_repair_days = self.exceeding_maximum_number_of_backtest_repair_days(
             #     index_maximum_number_of_backtest_repair_days, start_maximum_number_of_backtest_repair_days
             # )
+
+            # 累计回报率
+            index_cumulative_return = index_df['index_return'][-1]
+            start_cumulative_return = start_df['start_return'][-1]
+
+            # 滚动收益率
+            index_rolling_return = self.calculate_rolling_return(index_df)
+            start_rolling_return = self.calculate_rolling_return(start_df)
 
             # 构建返回结果
             # Build return results
@@ -1703,6 +1718,10 @@ class XPLAnalyzer:
                 "excess_maximum_number_of_backtest_repair_days": excess_maximum_number_of_backtest_repair_days,
                 "year_index_yearly_max_repair_days": year_index_yearly_max_repair_days,
                 "year_start_yearly_max_repair_days": year_start_yearly_max_repair_days,
+                "index_cumulative_return": index_cumulative_return,
+                "start_cumulative_return": start_cumulative_return,
+                "index_annualized_rates":index_annualized_rates,
+                "start_annualized_rates": start_annualized_rates,
             }
 
             # 打印调试信息
@@ -1991,6 +2010,14 @@ class XPLAnalyzer:
         csv_buffer.seek(0)
 
         return csv_buffer, 'text/csv'
+
+    def calculate_rolling_return(self, df):
+        # return 全部区间，三月分组，平均值 区间年份 》 5年
+        pass
+
+
+
+
 
 
 # 创建全局实例

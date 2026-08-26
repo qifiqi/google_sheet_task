@@ -273,6 +273,15 @@
                         <strong id="ratioTotal">0%</strong>
                     </div>
                 </div>
+                <div class="col-12">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" id="useLegacyCumulativeReturnWeighting" type="checkbox">
+                        <label class="form-check-label" for="useLegacyCumulativeReturnWeighting">
+                            使用旧版累计收益率加权算法
+                        </label>
+                        <div class="form-text">默认按当天收益率加权后复利计算；勾选后使用累计收益率直接乘比例的旧算法。</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1064,6 +1073,9 @@ async function createTask() {
                         token_type: 'file',
                         token_id: Number(tokenIdSelect.value),
                         fixed_product_batch_id: batchId,
+                        use_legacy_cumulative_return_weighting: document.getElementById(
+                            'useLegacyCumulativeReturnWeighting'
+                        ).checked,
                         products: groupProducts
                     }
                 })

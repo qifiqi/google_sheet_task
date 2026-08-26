@@ -104,8 +104,12 @@ def _global_preview_cache_key(
     task_id: str,
     products: list[dict[str, Any]],
     results: list[TaskResult],
+    use_legacy_cumulative_return_weighting: bool,
 ) -> tuple[Any, ...]:
-    ratio_signature = tuple(normalize_ratio_display(product.get("ratio")) for product in products)
+    ratio_signature = (
+        *(normalize_ratio_display(product.get("ratio")) for product in products),
+        use_legacy_cumulative_return_weighting,
+    )
     result_signature = tuple(
         (
             result.id,
@@ -213,6 +217,9 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
         **config,
         "start_date": start_date,
         "end_date": end_date,
+        "use_legacy_cumulative_return_weighting": _use_legacy_cumulative_return_weighting(
+            config.get("use_legacy_cumulative_return_weighting")
+        ),
         "products": normalized_products,
     }
 
@@ -382,6 +389,64 @@ def _scale_return_date(
     return scaled
 
 
+def _use_legacy_cumulative_return_weighting(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _cumulative_returns_to_daily_returns(
+    return_date: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return_map = _return_date_by_date(return_date)
+    previous_index_net_value = Decimal("1")
+    previous_start_net_value = Decimal("1")
+    daily_returns = []
+    for date, row in sorted(return_map.items()):
+        index_net_value = Decimal("1") + Decimal(str(row["index_return"]))
+        start_net_value = Decimal("1") + Decimal(str(row["start_return"]))
+        if previous_index_net_value == 0 or previous_start_net_value == 0:
+            raise ValueError("前一天净值为 0，无法计算当天收益率")
+        daily_returns.append({
+            "date": date,
+            "index_return": float(index_net_value / previous_index_net_value - 1),
+            "start_return": float(start_net_value / previous_start_net_value - 1),
+        })
+        previous_index_net_value = index_net_value
+        previous_start_net_value = start_net_value
+    return daily_returns
+
+
+def _daily_returns_to_cumulative_returns(
+    return_date: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return_map = _return_date_by_date(return_date)
+    index_net_value = Decimal("1")
+    start_net_value = Decimal("1")
+    cumulative_returns = []
+    for date, row in sorted(return_map.items()):
+        index_net_value *= Decimal("1") + Decimal(str(row["index_return"]))
+        start_net_value *= Decimal("1") + Decimal(str(row["start_return"]))
+        cumulative_returns.append({
+            "date": date,
+            "index_return": float(index_net_value - 1),
+            "start_return": float(start_net_value - 1),
+        })
+    return cumulative_returns
+
+
+def _weight_return_date(
+    return_date: list[dict[str, Any]],
+    ratio: Any,
+    use_legacy_cumulative_return_weighting: bool,
+) -> list[dict[str, Any]]:
+    if use_legacy_cumulative_return_weighting:
+        return _scale_return_date(return_date, ratio)
+    daily_return_date = _cumulative_returns_to_daily_returns(return_date)
+    weighted_daily_return_date = _scale_return_date(daily_return_date, ratio)
+    return _daily_returns_to_cumulative_returns(weighted_daily_return_date)
+
+
 def _build_returns_json(return_date: list[dict[str, Any]]) -> str:
     dates = []
     index_returns = []
@@ -457,6 +522,7 @@ def _return_date_by_date(return_date: list[dict[str, Any]]) -> dict[str, dict[st
 def _build_portfolio_return_date(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
+    use_legacy_cumulative_return_weighting: bool = False,
 ) -> list[dict[str, Any]]:
     product_return_maps: list[tuple[dict[str, dict[str, float]], Decimal]] = []
     common_dates: set[str] | None = None
@@ -467,6 +533,13 @@ def _build_portfolio_return_date(
         return_map = _return_date_by_date(product_result.get("return_date") or [])
         if not return_map:
             return []
+        if not use_legacy_cumulative_return_weighting:
+            return_map = _return_date_by_date(
+                _cumulative_returns_to_daily_returns([
+                    {"date": date, **returns}
+                    for date, returns in sorted(return_map.items())
+                ])
+            )
         common_dates = set(return_map) if common_dates is None else common_dates & set(return_map)
         product_return_maps.append((return_map, parse_ratio(product.get("ratio")) / RATIO_BASE))
 
@@ -486,14 +559,21 @@ def _build_portfolio_return_date(
             "index_return": float(index_total),
             "start_return": float(start_total),
         })
-    return return_date
+    if use_legacy_cumulative_return_weighting:
+        return return_date
+    return _daily_returns_to_cumulative_returns(return_date)
 
 
 def _build_portfolio_metrics(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
+    use_legacy_cumulative_return_weighting: bool = False,
 ) -> dict[str, Any]:
-    return_date = _build_portfolio_return_date(product_results, products)
+    return_date = _build_portfolio_return_date(
+        product_results,
+        products,
+        use_legacy_cumulative_return_weighting,
+    )
     if not return_date:
         return {}
     calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(return_date)
@@ -503,11 +583,16 @@ def _build_portfolio_metrics(
 def _build_weighted_product_metrics(
     return_date: list[dict[str, Any]],
     ratio: Any,
+    use_legacy_cumulative_return_weighting: bool = False,
 ) -> dict[str, Any]:
-    scaled = _scale_return_date(return_date, ratio)
-    if not scaled:
+    weighted_return_date = _weight_return_date(
+        return_date,
+        ratio,
+        use_legacy_cumulative_return_weighting,
+    )
+    if not weighted_return_date:
         return {}
-    calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(scaled)
+    calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(weighted_return_date)
     return calculate_metrics if isinstance(calculate_metrics, dict) else {}
 
 
@@ -705,6 +790,9 @@ class BacktestMultiProductService(BacktestTrainingService):
             "product_index": int(product["product_index"]),
             "product_name": product["product_name"],
             "ratio": product["ratio"],
+            "use_legacy_cumulative_return_weighting": config_data[
+                "use_legacy_cumulative_return_weighting"
+            ],
             "parameter_group_index": group_index,
             "kline": [dates[0], dates[-1]] if dates else [],
             "start_date": config_data["start_date"],
@@ -878,6 +966,9 @@ class BacktestMultiProductService(BacktestTrainingService):
                     "product_index": product_index,
                     "product_name": product["product_name"],
                     "ratio": product["ratio"],
+                    "use_legacy_cumulative_return_weighting": config_data[
+                        "use_legacy_cumulative_return_weighting"
+                    ],
                     "parameter_group_index": group_index,
                 }
                 self._log_step(
@@ -960,7 +1051,13 @@ class BacktestMultiProductService(BacktestTrainingService):
         def save_result_operation():
             safe_parameters = self._normalize_result_parameters(parameters)
             safe_result_payload = dict(result) if isinstance(result, dict) else {}
-            weighted_calculate_metrics = _build_weighted_product_metrics(return_date or [], safe_parameters.get("ratio"))
+            weighted_calculate_metrics = _build_weighted_product_metrics(
+                return_date or [],
+                safe_parameters.get("ratio"),
+                _use_legacy_cumulative_return_weighting(
+                    safe_parameters.get("use_legacy_cumulative_return_weighting")
+                ),
+            )
             safe_result_payload = _set_weighted_metrics_on_result_payload(
                 safe_result_payload,
                 weighted_calculate_metrics,
@@ -1154,7 +1251,15 @@ def build_multi_product_global_preview_payload(
         .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
         .all()
     )
-    cache_key = _global_preview_cache_key(task_id, products, results)
+    use_legacy_cumulative_return_weighting = _use_legacy_cumulative_return_weighting(
+        config.get("use_legacy_cumulative_return_weighting")
+    )
+    cache_key = _global_preview_cache_key(
+        task_id,
+        products,
+        results,
+        use_legacy_cumulative_return_weighting,
+    )
     cached_payload = _get_global_preview_cache(cache_key)
     if cached_payload is not None:
         return cached_payload
@@ -1204,7 +1309,11 @@ def build_multi_product_global_preview_payload(
 
     serialized_groups = []
     for group in groups.values():
-        portfolio_metrics = _derive_metrics(_build_portfolio_metrics(group["product_results"], products))
+        portfolio_metrics = _derive_metrics(_build_portfolio_metrics(
+            group["product_results"],
+            products,
+            use_legacy_cumulative_return_weighting,
+        ))
         weighted_metrics_by_product: dict[int, dict[str, Any]] = {}
         metrics_by_product: dict[int, dict[str, Any]] = {}
         for product in products:
@@ -1214,11 +1323,21 @@ def build_multi_product_global_preview_payload(
             weighted_metrics = product_result.get("weighted_metrics") or {}
             current_ratio = (products[product_index] if product_index < len(products) else {}).get("ratio")
             saved_ratio = str((product_result.get("parameters") or {}).get("ratio") or "").strip()
-            if not weighted_metrics or saved_ratio != str(current_ratio or "").strip():
+            saved_weighting_mode = (product_result.get("parameters") or {}).get(
+                "use_legacy_cumulative_return_weighting"
+            )
+            if (
+                not weighted_metrics
+                or saved_ratio != str(current_ratio or "").strip()
+                or saved_weighting_mode is None
+                or _use_legacy_cumulative_return_weighting(saved_weighting_mode)
+                != use_legacy_cumulative_return_weighting
+            ):
                 weighted_metrics = _derive_metrics(
                     _build_weighted_product_metrics(
                         product_result.get("return_date") or [],
                         current_ratio,
+                        use_legacy_cumulative_return_weighting,
                     )
                 )
                 product_result["weighted_metrics"] = weighted_metrics
