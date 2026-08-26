@@ -788,6 +788,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                         or safe_parameters.get("name")
                         or safe_parameters.get("stock_code")
                     ),
+                    market_type=self._get_return_series_market_type(safe_parameters),
+                    exchange_market=self._get_return_series_exchange_market(safe_parameters),
                 )
                 if not series_fields:
                     raise ValueError("收益序列缺少有效日期")

@@ -57,7 +57,9 @@ EASTMONEY_MARKET_TYPES = {
     "116": "hk", "155": "uk", "176": "jp", "177": "kr", "185": "de", "186": "fr",
 }
 
-YAHOO_SUFFIXES = {
+STOCK_CODE_SUFFIXES = {
+    # 美股标准代码不使用后缀；A 股后缀由 normalize_stock_code 按交易所/代码规则处理。
+    "en": "",
     "ca": ".TO",
     "kr": ".KS",
     "jp": ".T",
@@ -69,6 +71,9 @@ YAHOO_SUFFIXES = {
     "au": ".AX",
     "my": ".KL",
 }
+
+# 历史名称兼容：后缀规则是项目统一证券代码格式，不再是 Yahoo 专属规则。
+YAHOO_SUFFIXES = STOCK_CODE_SUFFIXES
 
 
 def normalize_market_type(value: Any, default: str | None = None) -> str | None:
@@ -83,12 +88,18 @@ def market_type_from_eastmoney(market: Any, security_type_name: Any = None) -> s
     return normalize_market_type(security_type_name)
 
 
-def yahoo_symbol(stock_code: Any, market_type: Any, exchange_market: Any = None) -> str:
-    """将东方财富返回的股票代码转换为 Yahoo Finance ticker。"""
+def normalize_stock_code(
+    stock_code: Any,
+    market_type: Any,
+    exchange_market: Any = None,
+) -> str:
+    """生成项目统一证券代码格式，例如 ``600519.SS``、``0700.HK``、``AAPL``。"""
     code = str(stock_code or "").strip().upper()
     market = normalize_market_type(market_type)
-    if not code or not market or market == "en" or "." in code:
+    if not code or not market or market == "en":
         return code
+    if "." in code:
+        return f"{code[:-3]}.SS" if code.endswith(".SH") else code
     if market == "cn":
         exchange = str(exchange_market or "").strip()
         if exchange == "1" or code.startswith(("6", "68")):
@@ -100,8 +111,13 @@ def yahoo_symbol(stock_code: Any, market_type: Any, exchange_market: Any = None)
         return code
     if market == "hk":
         code = code.lstrip("0").zfill(4)
-    suffix = YAHOO_SUFFIXES.get(market)
+    suffix = STOCK_CODE_SUFFIXES.get(market)
     return f"{code}{suffix}" if suffix else code
+
+
+def yahoo_symbol(stock_code: Any, market_type: Any, exchange_market: Any = None) -> str:
+    """Yahoo 适配层兼容入口；统一证券代码规则由 normalize_stock_code 定义。"""
+    return normalize_stock_code(stock_code, market_type, exchange_market)
 
 
 def supports_internal_kline(market_type: Any) -> bool:

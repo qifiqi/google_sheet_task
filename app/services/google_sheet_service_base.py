@@ -107,6 +107,32 @@ class BaseGoogleSheetService:
         normalized["stock_code"] = str(stock_code or "").strip()
         return normalized
 
+    def _get_return_series_market_type(self, parameters: Any):
+        """优先使用参数中的市场代码，缺失时回退到任务配置。"""
+        return self._get_return_series_config_value(parameters, "market_type")
+
+    def _get_return_series_exchange_market(self, parameters: Any):
+        """获取 Yahoo ticker 所需的交易所市场编号。"""
+        return self._get_return_series_config_value(parameters, "exchange_market")
+
+    def _get_return_series_config_value(self, parameters: Any, key: str):
+        if isinstance(parameters, dict) and parameters.get(key):
+            return parameters[key]
+        if isinstance(self.config, dict) and self.config.get(key):
+            return self.config[key]
+        if self.task and self.task.config:
+            try:
+                task_config = (
+                    self.task.config
+                    if isinstance(self.task.config, dict)
+                    else json.loads(self.task.config)
+                )
+                if isinstance(task_config, dict):
+                    return task_config.get(key)
+            except (TypeError, ValueError):
+                pass
+        return None
+
 
     def _is_cancel_requested(self) -> bool:
         if self.stop_event and self.stop_event.is_set():

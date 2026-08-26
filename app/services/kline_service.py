@@ -15,7 +15,7 @@ from stock_sdk import StockClient
 
 from app.services.stock_search_service import StockSearchService
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.market import normalize_market_type, supports_internal_kline, yahoo_symbol
+from app.utils.market import normalize_market_type, normalize_stock_code, supports_internal_kline
 
 logger = logging.getLogger(__name__)
 
@@ -347,7 +347,7 @@ class KlineService:
 
     def _fetch_yahoo(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
         return self._get_yahoo_api().get_kline_data(
-            yahoo_symbol(
+            normalize_stock_code(
                 request["stock_code"],
                 request.get("market_type"),
                 request.get("exchange_market"),

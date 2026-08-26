@@ -411,6 +411,8 @@ class GoogleSheetService(BaseGoogleSheetService):
                 extract_return_rows(result),
                 stock_code=safe_parameters.get("stock_code"),
                 stock_name=safe_parameters.get("stock_name"),
+                market_type=self._get_return_series_market_type(safe_parameters),
+                exchange_market=self._get_return_series_exchange_market(safe_parameters),
             )
             if series_fields:
                 return_series = TaskResultReturn(task_id=self.task_id, **series_fields)
