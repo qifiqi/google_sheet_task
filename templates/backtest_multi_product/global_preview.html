@@ -611,7 +611,7 @@ async function saveRatios() {
 }
 
 async function exportPreview() {
-    let exportUrl = `/backtest-multi-product/api/global-preview/${encodeURIComponent(TASK_ID)}/export`;
+    let exportUrl = `/api/exports/global-previews/${encodeURIComponent(TASK_ID)}`;
     if (hasUnsavedRatioPreview && !ratioInputsDirty) {
         const ratios = collectRatioValues().map((ratio, index) => ({ product_index: index, ratio }));
         exportUrl += `?ratios=${encodeURIComponent(JSON.stringify(ratios))}`;

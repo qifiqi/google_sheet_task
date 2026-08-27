@@ -77,7 +77,6 @@ def analyze_data():
         }), 500
 
 
-@xpl_bp.route('/export', methods=['POST'])
 def export_file():
     try:
         data = request.get_json()

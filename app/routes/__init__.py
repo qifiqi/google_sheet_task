@@ -22,6 +22,7 @@ def register_blueprints(app):
     from app.routes.global_preview import bp as global_preview_bp
     from app.routes.meta_api import meta_api_bp
     from app.routes.auth_api import auth_api_bp
+    from app.routes.export_api import export_api_bp
 
     app.register_blueprint(auth_pages_bp)
     app.register_blueprint(xpl_bp, url_prefix='/xpl')
@@ -46,3 +47,4 @@ def register_blueprints(app):
     app.register_blueprint(global_preview_bp)
     app.register_blueprint(meta_api_bp, url_prefix='/api')
     app.register_blueprint(auth_api_bp, url_prefix='/api')
+    app.register_blueprint(export_api_bp, url_prefix='/api/exports')

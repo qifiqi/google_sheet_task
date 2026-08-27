@@ -192,9 +192,6 @@ def _stream_stock_export_zip(task_id, task_name):
     return generate()
 
 
-@bp.route("/api/tasks/<task_id>/export", methods=["GET"])
-@login_required
-@permission_required("backtest:view")
 def export_preview(task_id):
     task, error_response = _load_backtest_task_or_response(task_id)
     if error_response:

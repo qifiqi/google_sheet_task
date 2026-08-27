@@ -869,7 +869,7 @@
         try {
             const defaultFilename = `${state.exportBaseName || 'backtest_result'}_details.csv`;
 
-            const resp = await fetch('/xpl/export', {
+            const resp = await fetch('/api/exports/xpl', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

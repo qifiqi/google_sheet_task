@@ -865,7 +865,7 @@
                 ? `${exportBaseName}_details.csv`
                 : `${exportBaseName}.csv`;
 
-            const resp = await fetch(`/backtest-training/api/task-result/${encodeURIComponent(state.resultId)}/export-preview/download`);
+            const resp = await fetch(`/api/exports/backtest-results/${encodeURIComponent(state.resultId)}`);
 
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({}));

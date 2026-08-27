@@ -191,7 +191,7 @@
         const button = document.getElementById('downloadButton');
         button.disabled = true;
         try {
-            const response = await fetch(`/backtest-training/api/task-result/${encodeURIComponent(RESULT_ID)}/export-preview/download`);
+            const response = await fetch(`/api/exports/backtest-results/${encodeURIComponent(RESULT_ID)}`);
             if (!response.ok) {
                 const payload = await response.json().catch(() => ({}));
                 throw new Error(payload.message || '下载失败');

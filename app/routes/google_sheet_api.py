@@ -1,6 +1,6 @@
 import time
 
-from flask import Blueprint, redirect, request, jsonify, url_for
+from flask import Blueprint, request, jsonify
 
 from app.models import GoogleSheetToken, GoogleSheetTableType, db
 from app.services.google_sheet_registry_service import get_google_sheet_registry_service
@@ -266,11 +266,3 @@ def delete_google_sheet_token(token_id):
         db.session.rollback()
         logger.error(f"删除Google Sheet Token失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@google_sheet_api_bp.route("/<task_id>/export", methods=["GET"])
-@login_required
-@permission_required('task:view')
-def export_global_preview(task_id):
-    """兼容旧导出路径，实际导出逻辑在 task_api.export_task_results。"""
-    return redirect(url_for("task_api.export_task_results", task_id=task_id))

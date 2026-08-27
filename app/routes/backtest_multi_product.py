@@ -495,9 +495,6 @@ def _build_global_preview_workbook(payload: dict[str, object]):
     return workbook
 
 
-@bp.route("/api/global-preview/<task_id>/export", methods=["GET"])
-@login_required
-@permission_required("backtest:view")
 def export_global_preview(task_id):
     _, error_response = _load_multi_product_task_or_response(task_id, action="view")
     if error_response:
@@ -529,9 +526,6 @@ def export_global_preview(task_id):
     )
 
 
-@bp.route("/api/global-preview/batch-export", methods=["POST"])
-@login_required
-@permission_required("backtest:view")
 def batch_export_global_preview():
     data = request.get_json(silent=True) or {}
     task_ids, error_response = _validate_batch_global_preview_task_ids(data.get("task_ids"))

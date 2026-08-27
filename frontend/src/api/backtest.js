@@ -6,4 +6,4 @@ export const getTaskResults = (taskId, params) => rawApi.get(`/backtest-training
 export const getTaskResult = (id) => rawApi.get(`/backtest-training/api/task-result/${id}`)
 export const getTaskSummary = (taskId) => rawApi.get(`/backtest-training/api/task-summary/${taskId}`)
 export const getGlobalPreview = (taskId) => rawApi.get(`/backtest-training/api/global-preview/${taskId}`)
-export const exportGlobalPreview = (taskId) => rawApi.get(`/backtest-training/api/global-preview/${taskId}/export`, { responseType: 'blob' })
+export const exportGlobalPreview = (taskId) => rawApi.get(`/api/exports/global-previews/${taskId}`, { responseType: 'blob' })

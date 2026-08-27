@@ -1803,7 +1803,7 @@
             try {
                 const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
                 const saveTarget = await prepareExcelSaveTarget(defaultFilename);
-                const response = await fetch(`/api/tasks/${encodeURIComponent(currentTaskId)}/export`);
+                const response = await fetch(`/api/exports/tasks/${encodeURIComponent(currentTaskId)}`);
                 if (!response.ok) {
                     const text = await response.text();
                     let message = `导出失败，状态码 ${response.status}`;

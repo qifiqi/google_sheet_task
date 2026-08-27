@@ -8,4 +8,4 @@ export function getTaskResults(taskId, params) { return rawApi.get(`${BASE}/task
 export function getTaskResult(resultId) { return rawApi.get(`${BASE}/task-result/${resultId}`) }
 export function getGlobalPreview(taskId) { return rawApi.get(`${BASE}/global-preview/${taskId}`) }
 export function updateRatios(taskId, data) { return rawApi.put(`${BASE}/global-preview/${taskId}/ratios`, data) }
-export function exportGlobalPreview(taskId) { return rawApi.get(`${BASE}/global-preview/${taskId}/export`, { responseType: 'blob' }) }
+export function exportGlobalPreview(taskId) { return rawApi.get(`/api/exports/global-previews/${taskId}`, { responseType: 'blob' }) }

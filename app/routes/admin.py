@@ -201,9 +201,6 @@ def model_summary_api():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-@admin_bp.route('/api/model-summary/export')
-@login_required
-@permission_required('task:view')
 def export_model_summary_api():
     """按当前查询条件导出单模型汇总 CSV。"""
     try:

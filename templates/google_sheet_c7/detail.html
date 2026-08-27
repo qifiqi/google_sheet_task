@@ -1838,7 +1838,7 @@
             try {
                 const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
                 const saveTarget = await prepareExcelSaveTarget(defaultFilename);
-                const response = await fetch(`/api/tasks/${encodeURIComponent(currentTaskId)}/export`);
+                const response = await fetch(`/api/exports/tasks/${encodeURIComponent(currentTaskId)}`);
                 if (!response.ok) {
                     const text = await response.text();
                     let message = `导出失败，状态码 ${response.status}`;
@@ -1872,7 +1872,7 @@
             try {
                 const defaultFilename = ensureZipExtension(`${currentTaskData?.name || currentTaskId}_按股票代码导出.zip`);
                 const saveTarget = await prepareZipSaveTarget(defaultFilename);
-                const response = await fetch(`/api/tasks/${encodeURIComponent(currentTaskId)}/export-by-stock-code`);
+                const response = await fetch(`/api/exports/tasks/${encodeURIComponent(currentTaskId)}/stocks`);
                 if (!response.ok) {
                     const text = await response.text();
                     let message = `导出失败，状态码 ${response.status}`;

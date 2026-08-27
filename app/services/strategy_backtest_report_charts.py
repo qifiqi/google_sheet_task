@@ -105,6 +105,87 @@ def generate_demo_charts(output_dir: str | Path) -> dict[str, str]:
     return {title: str(path) for title, path in charts.items()}
 
 
+def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -> dict[str, str]:
+    """根据真实回测数据生成报告图表，返回图表标题到 PNG 路径的映射。"""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    dates = chart_data.get("dates") or []
+    if not dates:
+        raise ValueError("报告图表至少需要一条日期数据")
+
+    charts = {
+        "累计净值曲线": output_dir / "累计净值曲线.png",
+        "最大回撤曲线": output_dir / "最大回撤曲线.png",
+        "超额收益曲线": output_dir / "超额收益曲线.png",
+        "分年度收益": output_dir / "分年度收益.png",
+        "日收益分布": output_dir / "日收益分布.png",
+        "月度超额分布": output_dir / "月度超额分布.png",
+    }
+    # 所有序列统一补齐到日期长度，保证绘图坐标不会错位。
+    index_nav = _numeric_series(chart_data.get("index_nav"), len(dates), 1.0)
+    strategy_nav = _numeric_series(chart_data.get("strategy_nav"), len(dates), 1.0)
+    index_drawdown = _drawdown_series(index_nav)
+    strategy_drawdown = _drawdown_series(strategy_nav)
+    excess_nav = _numeric_series(chart_data.get("excess_nav"), len(dates), 0.0)
+    _draw_line_chart(
+        charts["累计净值曲线"], "累计净值曲线", dates,
+        [("指数", index_nav, BLUE), ("策略", strategy_nav, ORANGE)], "净值",
+    )
+    _draw_line_chart(
+        charts["最大回撤曲线"], "最大回撤曲线", dates,
+        [("指数", index_drawdown, BLUE), ("策略", strategy_drawdown, ORANGE)], "回撤",
+    )
+    _draw_line_chart(
+        charts["超额收益曲线"], "累计超额收益曲线", dates,
+        [("累计超额收益", excess_nav, RED)], "超额收益",
+    )
+    annual_returns = chart_data.get("annual_returns") or {"years": [], "index": [], "strategy": []}
+    _draw_grouped_bar_chart(charts["分年度收益"], "分年度收益", annual_returns)
+    _draw_dual_histogram(
+        charts["日收益分布"], "日收益率分布",
+        {"index": _finite_values(chart_data.get("index_daily_returns")),
+         "strategy": _finite_values(chart_data.get("strategy_daily_returns"))},
+    )
+    _draw_histogram(
+        charts["月度超额分布"], "月度超额分布",
+        _finite_values(chart_data.get("monthly_excess_returns")), "月度超额收益",
+    )
+    return {title: str(path) for title, path in charts.items()}
+
+
+def _numeric_series(values: Any, length: int, default: float) -> list[float]:
+    result = []
+    for value in list(values or [])[:length]:
+        try:
+            number = float(value)
+            result.append(number if math.isfinite(number) else default)
+        except (TypeError, ValueError):
+            result.append(default)
+    return result + [default] * max(0, length - len(result))
+
+
+def _finite_values(values: Any) -> list[float]:
+    result = []
+    for value in list(values or []):
+        try:
+            number = float(value)
+            if math.isfinite(number):
+                result.append(number)
+        except (TypeError, ValueError):
+            continue
+    return result or [0.0]
+
+
+def _drawdown_series(values: list[float]) -> list[float]:
+    # 回撤以历史最高净值为基准，输出小于等于 0 的比例序列。
+    peak = values[0] if values else 1.0
+    result = []
+    for value in values:
+        peak = max(peak, value)
+        result.append(value / peak - 1 if peak else 0.0)
+    return result
+
+
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     font_paths = [
         r"C:\Windows\Fonts\msyhbd.ttc" if bold else r"C:\Windows\Fonts\msyh.ttc",
@@ -180,7 +261,7 @@ def _draw_histogram(path: Path, title: str, values: list[float], x_label: str) -
     left, top, right, bottom = _plot_area()
     bin_count = 16
     minimum, maximum = min(values), max(values)
-    bin_width = (maximum - minimum) / bin_count
+    bin_width = (maximum - minimum) / bin_count or 1.0
     counts = [0] * bin_count
     for value in values:
         index = min(int((value - minimum) / bin_width), bin_count - 1)
@@ -214,7 +295,7 @@ def _draw_dual_histogram(path: Path, title: str, data: dict[str, list[float]]) -
     values = data["index"] + data["strategy"]
     bin_count = 18
     minimum, maximum = min(values), max(values)
-    bin_width = (maximum - minimum) / bin_count
+    bin_width = (maximum - minimum) / bin_count or 1.0
     histogram_counts = []
     for _, _, _, series, _ in panels:
         counts = [0] * bin_count

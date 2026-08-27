@@ -897,7 +897,7 @@
             const filenameSafeSheet = (state.lastSheetName || 'sheet').replaceAll(/[\\/:*?"<>|]/g, '_');
             const defaultFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
 
-            const resp = await fetch('/xpl/export', {
+            const resp = await fetch('/api/exports/xpl', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

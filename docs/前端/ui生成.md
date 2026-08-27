@@ -433,7 +433,7 @@
 - 回测任务结果列表：`/backtest-training/api/task-results/<task_id>`
 - 回测单结果：`/backtest-training/api/task-result/<id>`
 - 回测全局预览：`/backtest-training/api/global-preview/<task_id>`
-- 回测全局预览导出：`/backtest-training/api/global-preview/<task_id>/export`
+- 回测全局预览导出：`/api/exports/global-previews/<task_id>`
 
 ## 七、页面树 + 组件树
 

@@ -196,7 +196,7 @@ async function exportPreview() {
     const query = exportName ? `?export_name=${encodeURIComponent(exportName)}` : '';
     const button = document.getElementById('exportBtn');
     button.disabled = true; button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>正在导出';
-    const response = await fetch(`/global-preview/api/tasks/${encodeURIComponent(currentTaskId)}/export${query}`);
+    const response = await fetch(`/api/exports/global-previews/${encodeURIComponent(currentTaskId)}${query}`);
     if (!response.ok) { button.disabled = false; button.innerHTML = '<i class="bi bi-file-earmark-arrow-down me-1"></i>导出'; return showMessage('导出失败'); }
     const contentDisposition = response.headers.get('Content-Disposition') || '';
     const utf8Filename = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);

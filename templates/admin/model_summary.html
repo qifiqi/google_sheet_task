@@ -1005,7 +1005,7 @@
         confirmButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中`;
         document.getElementById("statusText").textContent = "正在生成 CSV...";
         try {
-            const response = await fetch(`/admin/api/model-summary/export?${params.toString()}`, {
+            const response = await fetch(`/api/exports/model-summary?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${getToken()}` },
             });
             if (!response.ok) {

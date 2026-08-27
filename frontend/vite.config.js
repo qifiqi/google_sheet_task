@@ -33,10 +33,6 @@ export default defineConfig({
         target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
-      '/xpl/export': {
-        target: 'http://127.0.0.1:5000',
-        changeOrigin: true,
-      },
       '/xpl/v1/analyze': {
         target: 'http://127.0.0.1:5000',
         changeOrigin: true,

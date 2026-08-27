@@ -339,9 +339,6 @@ def get_task_results(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@task_api_bp.route('/tasks/<task_id>/export', methods=['GET'])
-@login_required
-@permission_required('task:view')
 def export_task_results(task_id):
     """导出任务结果。"""
     try:
@@ -373,9 +370,6 @@ def export_task_results(task_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@task_api_bp.route('/tasks/<task_id>/export-by-stock-code', methods=['GET'])
-@login_required
-@permission_required('task:view')
 def export_c7_results_by_stock_code(task_id):
     """按股票代码拆分 C7 结果，并以 ZIP 文件下载。"""
     try:
@@ -409,9 +403,6 @@ def export_c7_results_by_stock_code(task_id):
 BATCH_EXPORT_MAX_TASKS = 10
 
 
-@task_api_bp.route('/tasks/batch-export', methods=['POST'])
-@login_required
-@permission_required('task:view')
 def batch_export_task_results():
     """批量合并导出多个 C3 任务结果。
 
