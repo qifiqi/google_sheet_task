@@ -1,6 +1,12 @@
 from app.services.google_sheet_service_C5 import GoogleSheetService
 
 
+def test_c5_resume_starts_after_last_completed_combination():
+    assert GoogleSheetService._get_resume_start_index(0, 6) == 0
+    assert GoogleSheetService._get_resume_start_index(5, 6) == 5
+    assert GoogleSheetService._get_resume_start_index(6, 6) == 6
+
+
 def test_c5_deduplicates_same_parameters_and_kline_period():
     service = object.__new__(GoogleSheetService)
     logs = []

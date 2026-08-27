@@ -222,6 +222,12 @@ def test_c7_deduplicates_same_parameters_and_kline_period():
     assert "跳过重复 C7 参数组合" in logs[0]
 
 
+def test_c7_resume_starts_after_last_completed_combination():
+    assert GoogleSheetService._get_resume_start_index(0, 6) == 0
+    assert GoogleSheetService._get_resume_start_index(5, 6) == 5
+    assert GoogleSheetService._get_resume_start_index(6, 6) == 6
+
+
 def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
     service = GoogleSheetService({}, "task-id")
     rows = []

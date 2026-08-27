@@ -40,6 +40,11 @@ class GoogleSheetService(BaseGoogleSheetService):
         self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
 
     @staticmethod
+    def _get_resume_start_index(current_step: int | None, total_combinations: int) -> int:
+        """返回下一条待执行组合的下标。"""
+        return min(max(int(current_step or 0), 0), total_combinations)
+
+    @staticmethod
     def _to_decimal_ratio(value: Any) -> float:
         """Convert percentage-like values into decimal ratios for outbound payloads."""
         if value in (None, ""):
@@ -294,9 +299,12 @@ class GoogleSheetService(BaseGoogleSheetService):
             self._log_info(f'将执行 {total_combinations} 个参数组合')
 
             # 检查是否从断点恢复（按组合级别）
-            start_index = task.current_step - 1 if task.current_step >= 1 else 0
-            if start_index < 0:
-                start_index = 0
+            # current_step 表示已完成的组合数；断点恢复必须从下一条开始，
+            # 否则每次 watchdog 重启都会重复执行并写入最后一个已完成组合。
+            start_index = self._get_resume_start_index(
+                task.current_step,
+                total_combinations,
+            )
             self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
 
             # 重置成功/失败计数器；如需精确恢复已完成组合数，可在外部通过历史结果统计
