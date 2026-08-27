@@ -896,7 +896,7 @@ class PerformanceMetricsMixin:
         return start_data - index_data
 
 
-    def _calculate_metrics_v1(self, data) -> Dict[str, Any]:
+    def _calculate_metrics_v1(self, data, *, return_dataframes: bool = False):
         """
         计算各项指标
         Calculate various metrics
@@ -905,10 +905,12 @@ class PerformanceMetricsMixin:
             data:
 
         Returns:
-            Dict[str, Any]: 包含计算结果的字典
-                          Dictionary containing calculation results
+            dict or tuple: 默认返回原指标字典；开启 ``return_dataframes`` 时，
+                返回 ``(metrics, index_df, start_df, excess_df)``。
         """
         if not data:
+            if return_dataframes:
+                return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
             return {}
 
         try:
@@ -934,9 +936,15 @@ class PerformanceMetricsMixin:
             base_df['excess_return'] = base_df['start_return'] - base_df['index_return']
 
             # 如果需要分别提取（但建议直接用 base_df）
-            index_df = base_df[['index_net']].rename(columns={'index_net': 'net_value'})
-            start_df = base_df[['start_net']].rename(columns={'start_net': 'net_value'})
-            excess_df = base_df[['excess_net']].rename(columns={'excess_net': 'net_value'})
+            index_df = base_df[
+                ['date', 'year', 'month', 'year_month', 'index_return', 'index_net']
+            ].rename(columns={'index_net': 'net_value'})
+            start_df = base_df[
+                ['date', 'year', 'month', 'year_month', 'start_return', 'start_net']
+            ].rename(columns={'start_net': 'net_value'})
+            excess_df = base_df[
+                ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_net']
+            ].rename(columns={'excess_net': 'net_value'})
 
 
             # 当天收益率
@@ -1051,14 +1059,14 @@ class PerformanceMetricsMixin:
 
             # 1.3 滚动收益（月度窗口）
             # 3个月滚动
-            index_rolling_return_3 = self.calculate_rolling_return(index_monthly_returns_rate,3)
-            start_rolling_return_3 = self.calculate_rolling_return(start_monthly_returns_rate,3)
+            index_rolling_return_3 = self.calculate_rolling_return(index_monthly_returns_rate, months=3)
+            start_rolling_return_3 = self.calculate_rolling_return(start_monthly_returns_rate, months=3)
             # 6个月滚动
-            index_rolling_return_6 = self.calculate_rolling_return(index_monthly_returns_rate,6)
-            start_rolling_return_6 = self.calculate_rolling_return(start_monthly_returns_rate,6)
+            index_rolling_return_6 = self.calculate_rolling_return(index_monthly_returns_rate, months=6)
+            start_rolling_return_6 = self.calculate_rolling_return(start_monthly_returns_rate, months=6)
             # 12个月滚动
-            index_rolling_return_12 = self.calculate_rolling_return(index_monthly_returns_rate,12)
-            start_rolling_return_12 = self.calculate_rolling_return(start_monthly_returns_rate,12)
+            index_rolling_return_12 = self.calculate_rolling_return(index_monthly_returns_rate, months=12)
+            start_rolling_return_12 = self.calculate_rolling_return(start_monthly_returns_rate, months=12)
 
 
             # 四、月度收益分布
@@ -1350,10 +1358,14 @@ class PerformanceMetricsMixin:
             logger.debug("月超额收益百分比: %s", json.dumps(monthly_excess_return_percentage, indent=4, default=str))
             logger.debug("月超额波动率: %s", json.dumps(monthly_excess_volatility, indent=4, default=str))
             logger.debug("超额回撤胜率: %s", json.dumps(excess_drawdown_winning_rate, indent=4, default=str))
+            if return_dataframes:
+                return result, index_df, start_df, excess_df
             return result
 
         except Exception as e:
             logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
+            if return_dataframes:
+                return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
             return {}
 
     def calculate_rolling_return(self, df,col="monthly_return", months=3):

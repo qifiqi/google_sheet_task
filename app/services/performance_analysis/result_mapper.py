@@ -3,6 +3,9 @@
 import math
 from typing import Any, Dict, List, Tuple
 
+from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
+from app.services.performance_analysis.response_dto import MetricsV1ResponseDTO
+
 
 class PerformanceResultMapperMixin:
     def get_return_analysis_v1(self, data: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -187,3 +190,23 @@ class PerformanceResultMapperMixin:
         """执行 V1 格式数据的指标计算。"""
         return self._calculate_metrics_v1(data)
 
+    def get_calculate_metrics_v1_with_dataframes(
+        self,
+        returns: List[Dict[str, Any]],
+        runtime_params: MetricsRuntimeParamsDTO | None = None,
+    ) -> MetricsV1ResponseDTO:
+        """返回 V1 指标，以及指数、策略和超额收益序列。
+
+        ``runtime_params`` 作为后续市场阶段指标的配置入口，当前暂不应用其中的阈值。
+        """
+        _ = runtime_params
+        metrics, index_df, start_df, excess_df = self._calculate_metrics_v1(
+            returns,
+            return_dataframes=True,
+        )
+        return MetricsV1ResponseDTO(
+            metrics=metrics,
+            index_df=index_df,
+            start_df=start_df,
+            excess_df=excess_df,
+        )
