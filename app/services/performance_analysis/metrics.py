@@ -924,12 +924,20 @@ class PerformanceMetricsMixin:
             df['month'] = df['date'].dt.month
             df['year_month'] = df['date'].dt.strftime('%Y-%m')
 
-            # 计算净值
-            # Calculate net value
-            index_df = df.copy()
-            index_df['net_value'] = 1 * (1 + index_df['index_return'])
-            start_df = df.copy()
-            start_df['net_value'] = 1 * (1 + start_df['start_return'])
+            # 先复制一份基础数据
+            base_df = df.copy()
+
+            # 批量计算所有净值
+            base_df['index_net'] = 1 + base_df['index_return']
+            base_df['start_net'] = 1 + base_df['start_return']
+            base_df['excess_net'] = 1 + base_df['start_return'] - base_df['index_return']
+            base_df['excess_return'] = base_df['start_return'] - base_df['index_return']
+
+            # 如果需要分别提取（但建议直接用 base_df）
+            index_df = base_df[['index_net']].rename(columns={'index_net': 'net_value'})
+            start_df = base_df[['start_net']].rename(columns={'start_net': 'net_value'})
+            excess_df = base_df[['excess_net']].rename(columns={'excess_net': 'net_value'})
+
 
             # 当天收益率
             # 当天收益率 = (当天净值 / 前一天净值) - 1
@@ -948,12 +956,13 @@ class PerformanceMetricsMixin:
             start_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(start_df)
             start_returns_rate = self.calculate_year_returns(start_df)
             start_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(start_df)
+            # 年化收益率
+            index_annualized_rates = self.annualized_rate_return(index_df)
+            start_annualized_rates = self.annualized_rate_return(start_df)
 
             # 卡玛比率
-            index_annualized_rates = self.annualized_rate_return(index_df)
             index_kama_ratio = self.calculate_kama_ratio(index_annualized_rates, index_maximum_drawdown)
 
-            start_annualized_rates = self.annualized_rate_return(start_df)
             start_kama_ratio = self.calculate_kama_ratio(start_annualized_rates, start_maximum_drawdown)
 
             # 计算月度收益率
@@ -1137,9 +1146,6 @@ class PerformanceMetricsMixin:
             index_max_loss_day = index_df['daily_return'][index_df['daily_return'] < 0].min()
             start_max_loss_day = start_df['daily_return'][start_df['daily_return'] < 0].min()
 
-
-
-
             # 5.3 日度收益区间分布（当日收益率列）
             # 收益区间
             # <-2%
@@ -1159,6 +1165,85 @@ class PerformanceMetricsMixin:
             start_days_distribution, start_days_distribution_pct, days_total = self.calculate_distribution(
                 start_monthly_returns_rate,"daily_return",bins=days_bins, labels=days_labels
             )
+
+            # 六、超额收益分析
+            # 6.1 超额收益统计
+            # 累计超额(策略-指数)
+
+            cumulative_excess = excess_df['excess_return'].iloc[-1]
+            # 年化超额 TODO:累计超额计算
+            annualized_excess_returns = self.annualized_rate_return(excess_df)
+            # 月超额收益均值
+            average_monthly_excess_return = monthly_excess_returns['monthly_excess_return_diff'].mean()
+            # 月超额收益标准差 （不乘 根号12）
+            monthly_excess_return_standard_deviation = monthly_excess_returns['monthly_excess_return_diff'].std()
+            # 月超额胜率(>0)
+            monthly_excess_win_rate = (monthly_excess_returns['monthly_excess_return_diff'] > 0).mean()
+            # 最大单月超额
+            max_monthly_excess = monthly_excess_returns['monthly_excess_return_diff'].max()
+
+
+            # 6.2 超额收益区间分布
+            # 超额区间
+            # <-2%
+            # -2%~0%
+            # 0%~2%
+            # 2%~5%
+            # >5%
+            # 超额收益区间分布（5个区间）
+            excess_bins = [-1, -0.02, 0, 0.02, 0.05, 1]
+            excess_labels = ['<-2%', '-2%~0%', '0%~2%', '2%~5%', '>5%']
+
+            excess_distribution, excess_distribution_pct, excess_total = self.calculate_distribution(
+                monthly_excess_returns,
+                "monthly_excess_return_diff",
+                bins=excess_bins,
+                labels=excess_labels
+            )
+
+            # 6.3 滚动超额胜率（月度窗口） （超额收益率列）
+            # 3个月滚动
+            excess_rolling_return_3 = self.calculate_rolling_return(monthly_excess_returns,"monthly_excess_return_diff",3)
+            # 6个月滚动
+            excess_rolling_return_6 = self.calculate_rolling_return(monthly_excess_returns,"monthly_excess_return_diff" ,6)
+            # 12个月滚动
+            excess_rolling_return_12 = self.calculate_rolling_return(monthly_excess_returns,"monthly_excess_return_diff",12)
+
+
+            #  七、极端行情表现
+            # 7.1 市场下跌阶段（指数月收益 < -2%）(可配)
+            # 指标
+            # 下跌月数 （亏损月 < -2%，平均值）
+            # 平均收益
+            # 策略胜率（只看下跌月份数（策略 》 指数）/总下跌月份数）
+            # 7.2 市场上涨阶段（指数月收益 > +2%）
+            # 指标
+            # 上涨月数
+            # 平均收益
+            # 策略胜率
+            # 7.3 极端单日表现
+            # 指标
+            # 最大单日涨幅
+            # 最大单日跌幅
+            # 涨幅>2%的天数
+            # 跌幅>2%的天数
+            # 涨跌比(涨>2%/跌>2%)
+
+
+            # 八、资金曲线特征
+            # 初始净值
+            index_net_value_left = index_df['net_value'].iloc[0]
+            start_net_value_left = start_df['net_value'].iloc[0]
+            # 期末净值
+            index_net_value_right = index_df['net_value'].iloc[-1]
+            start_net_value_right = start_df['net_value'].iloc[-1]
+
+            # 最大涨幅区间(连续)
+            # 最大跌幅区间(连续)
+            # 'max_loss': 最大连续下跌幅度,
+            # 'max_gain': 最大连续上涨幅度,
+            index_consecutive  = self.calc_consecutive_extremes(index_df['net_value'])
+            start_consecutive = self.calc_consecutive_extremes(start_df['net_value'])
 
 
             # 1. 单日跌幅 > 5% 的次数
@@ -1271,12 +1356,13 @@ class PerformanceMetricsMixin:
             logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
             return {}
 
-    def calculate_rolling_return(self, df, months=3):
+    def calculate_rolling_return(self, df,col="monthly_return", months=3):
         """
         按月份计算滚动平均收益率
 
         Args:
             df: 包含 'date' 和 'monthly_return' 列的DataFrame
+            col: 使用收益列
             months: 滚动月份，如 3、6、12（默认3）
 
         Returns:
@@ -1295,7 +1381,7 @@ class PerformanceMetricsMixin:
             }
 
         roll_col = f'roll_{months}m'
-        df[roll_col] = df['monthly_return'].rolling(window=months).mean()
+        df[roll_col] = df[col].rolling(window=months).mean()
 
         return df.dropna(subset=[roll_col]).reset_index(drop=True)
 
@@ -1333,4 +1419,134 @@ class PerformanceMetricsMixin:
 
         return distribution, distribution_pct, total
 
+    def calc_consecutive_extremes(self,net_series):
+        """
+        计算净值曲线的连续上涨和连续下跌区间
+
+        参数:
+            net_series: 净值序列 (pandas Series)
+
+        返回:
+            dict: {
+                'max_gain': 最大连续上涨幅度,
+                'gain_start_idx': 上涨起始索引,
+                'gain_end_idx': 上涨结束索引,
+                'gain_duration': 上涨持续天数,
+                'max_loss': 最大连续下跌幅度,
+                'loss_start_idx': 下跌起始索引,
+                'loss_end_idx': 下跌结束索引,
+                'loss_duration': 下跌持续天数
+            }
+        """
+        # 计算每日收益率
+        returns = net_series.pct_change().fillna(0)
+
+        # ---------- 计算连续上涨 ----------
+        # 标记上涨日 (收益率 > 0)
+        is_up = returns > 0
+
+        # 分组：连续上涨的段
+        up_groups = (is_up != is_up.shift()).cumsum()
+        up_groups = up_groups[is_up]  # 只保留上涨段
+
+        # 统计每段连续上涨的持续天数和涨幅
+        up_segments = []
+        for group_id in up_groups.unique():
+            group_mask = up_groups == group_id
+            segment_indices = up_groups[group_mask].index
+
+            if len(segment_indices) == 0:
+                continue
+
+            start_idx = segment_indices[0]
+            end_idx = segment_indices[-1]
+            duration = len(segment_indices)
+
+            # 计算该段累计涨幅
+            if start_idx > 0:
+                start_net = net_series.iloc[start_idx - 1]  # 上涨前一天的净值
+            else:
+                start_net = 1  # 从第一天开始，初始净值为1
+
+            gain = net_series.iloc[end_idx] / start_net - 1
+
+            up_segments.append({
+                'start': start_idx,
+                'end': end_idx,
+                'duration': duration,
+                'change': gain
+            })
+
+        # 找出最大涨幅段
+        if up_segments:
+            max_gain_segment = max(up_segments, key=lambda x: x['change'])
+            max_gain = max_gain_segment['change']
+            gain_start = max_gain_segment['start']
+            gain_end = max_gain_segment['end']
+            gain_duration = max_gain_segment['duration']
+        else:
+            max_gain = 0
+            gain_start = None
+            gain_end = None
+            gain_duration = 0
+
+        # ---------- 计算连续下跌 ----------
+        # 标记下跌日 (收益率 < 0)
+        is_down = returns < 0
+
+        # 分组：连续下跌的段
+        down_groups = (is_down != is_down.shift()).cumsum()
+        down_groups = down_groups[is_down]  # 只保留下跌段
+
+        # 统计每段连续下跌的持续天数和跌幅
+        down_segments = []
+        for group_id in down_groups.unique():
+            group_mask = down_groups == group_id
+            segment_indices = down_groups[group_mask].index
+
+            if len(segment_indices) == 0:
+                continue
+
+            start_idx = segment_indices[0]
+            end_idx = segment_indices[-1]
+            duration = len(segment_indices)
+
+            # 计算该段累计跌幅
+            if start_idx > 0:
+                start_net = net_series.iloc[start_idx - 1]  # 下跌前一天的净值
+            else:
+                start_net = 1  # 从第一天开始，初始净值为1
+
+            loss = 1 - net_series.iloc[end_idx] / start_net  # 正数表示跌幅
+
+            down_segments.append({
+                'start': start_idx,
+                'end': end_idx,
+                'duration': duration,
+                'change': loss
+            })
+
+        # 找出最大跌幅段
+        if down_segments:
+            max_loss_segment = max(down_segments, key=lambda x: x['change'])
+            max_loss = max_loss_segment['change']
+            loss_start = max_loss_segment['start']
+            loss_end = max_loss_segment['end']
+            loss_duration = max_loss_segment['duration']
+        else:
+            max_loss = 0
+            loss_start = None
+            loss_end = None
+            loss_duration = 0
+
+        return {
+            'max_gain': max_gain,
+            'gain_start_idx': gain_start,
+            'gain_end_idx': gain_end,
+            'gain_duration': gain_duration,
+            'max_loss': max_loss,
+            'loss_start_idx': loss_start,
+            'loss_end_idx': loss_end,
+            'loss_duration': loss_duration
+        }
     pass
