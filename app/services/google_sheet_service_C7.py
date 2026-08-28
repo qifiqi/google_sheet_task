@@ -28,7 +28,7 @@ from app.utils.task_error_utils import (
     unwrap_exception,
 )
 from app.utils.kline_validation import require_kline_rows
-from app.services.kline_service import KlineService
+from app.services.kline_service import KlineService, get_kline_price_field
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
@@ -116,33 +116,6 @@ class GoogleSheetService(BaseGoogleSheetService):
     def _get_c7_write_end_column(layout: Dict[str, Any]) -> str:
         return layout.get("close_column") or layout.get("value_column") or layout["date_column"]
 
-    @staticmethod
-    def _project_c7_kline_row(kline_row, price_mode, random_price_range="high_low", random_generator=None):
-        price_field = {
-            "kp_price": "stock_kp",
-            "vwap_price": "stock_vwap",
-            "ohlc_price": "stock_sp",
-        }.get(price_mode, "stock_sp")
-        if price_mode == "random_price":
-            range_fields = {
-                "high_low": ("stock_zd", "stock_zg"),
-                "open_close": ("stock_kp", "stock_sp"),
-            }
-            lower_field, upper_field = range_fields[random_price_range]
-            lower, upper = sorted((float(kline_row[lower_field]), float(kline_row[upper_field])))
-            generator = random_generator or random
-            stock_val = generator.uniform(lower, upper)
-        else:
-            stock_val = kline_row[price_field]
-        return {
-            "stock_date": kline_row["stock_date"],
-            "stock_val": stock_val,
-            "stock_kp": kline_row.get("stock_kp"),
-            "stock_zg": kline_row.get("stock_zg"),
-            "stock_zd": kline_row.get("stock_zd"),
-            "stock_sp": kline_row.get("stock_sp"),
-        }
-
     def _expand_random_price_groups(self, combinations, kline_data_map, price_mode, random_price_range, random_group_count):
         if price_mode != "random_price":
             return combinations, kline_data_map
@@ -158,12 +131,13 @@ class GoogleSheetService(BaseGoogleSheetService):
                         f"{self.task_id}:{combination.get('stock_code', '')}:"
                         f"{source_key}:{random_price_range}:{random_group}"
                     )
-                    grouped_map[group_key] = [
-                        self._project_c7_kline_row(
-                            row, price_mode, random_price_range, random_generator
-                        )
-                        for row in source_kline
-                    ]
+                    grouped_map[group_key] = KlineService.build_price_rows(
+                        source_kline,
+                        price_mode,
+                        include_ohlc=True,
+                        random_price_range=random_price_range,
+                        random_generator=random_generator,
+                    )
                 item = dict(combination)
                 item["Kline_key"] = group_key
                 item["year"] = group_key
@@ -195,7 +169,7 @@ class GoogleSheetService(BaseGoogleSheetService):
     @staticmethod
     def _validate_c7_ohlc_rows(rows):
         for index, row in enumerate(rows, start=1):
-            for field in ("stock_kp", "stock_zg", "stock_zd", "stock_sp"):
+            for field in ("open", "high", "low", "close"):
                 if row.get(field) in (None, ""):
                     raise ValueError(f"C7.0.3 K线第 {index} 条缺少 OHLC 字段 {field}")
 
@@ -207,7 +181,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
         for index, row in enumerate(kline_rows, start=1):
             try:
-                close_price = float(row["stock_sp"])
+                close_price = float(row["close"])
             except (KeyError, TypeError, ValueError) as error:
                 raise ValueError(f"C7.0.3 K线第 {index} 条收盘价无效") from error
             if close_price <= 0:
@@ -735,10 +709,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                             cell_num = layout["start_row"] + index
                             cell_updates[f'{layout["date_column"]}{cell_num}'] = item.get("stock_date", "")
                             if layout["version"] == "c7_0_3":
-                                cell_updates[f'{layout["open_column"]}{cell_num}'] = item.get("stock_kp", "")
-                                cell_updates[f'{layout["high_column"]}{cell_num}'] = item.get("stock_zg", "")
-                                cell_updates[f'{layout["low_column"]}{cell_num}'] = item.get("stock_zd", "")
-                                cell_updates[f'{layout["close_column"]}{cell_num}'] = item.get("stock_sp", "")
+                                cell_updates[f'{layout["open_column"]}{cell_num}'] = item.get("open", "")
+                                cell_updates[f'{layout["high_column"]}{cell_num}'] = item.get("high", "")
+                                cell_updates[f'{layout["low_column"]}{cell_num}'] = item.get("low", "")
+                                cell_updates[f'{layout["close_column"]}{cell_num}'] = item.get("close", "")
                             else:
                                 cell_updates[f'{layout["value_column"]}{cell_num}'] = item.get("stock_val", "")
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title} 长度：{len(cell_updates)}")
@@ -1034,12 +1008,12 @@ class GoogleSheetService(BaseGoogleSheetService):
         for row_num in range(start_row, last_row + 1):
             stock_date = values.get(f"{input_column_a}{row_num}")
             if ohlc_columns:
-                stock_kp = values.get(f"{ohlc_columns['open_column']}{row_num}")
-                stock_zg = values.get(f"{ohlc_columns['high_column']}{row_num}")
-                stock_zd = values.get(f"{ohlc_columns['low_column']}{row_num}")
-                stock_sp = values.get(f"{ohlc_columns['close_column']}{row_num}")
-                stock_val = stock_sp
-                empty_row = all(value in (None, "") for value in (stock_date, stock_kp, stock_zg, stock_zd, stock_sp))
+                open_price = values.get(f"{ohlc_columns['open_column']}{row_num}")
+                high_price = values.get(f"{ohlc_columns['high_column']}{row_num}")
+                low_price = values.get(f"{ohlc_columns['low_column']}{row_num}")
+                close_price = values.get(f"{ohlc_columns['close_column']}{row_num}")
+                stock_val = close_price
+                empty_row = all(value in (None, "") for value in (stock_date, open_price, high_price, low_price, close_price))
             else:
                 stock_val = values.get(f"{input_column_b}{row_num}")
                 empty_row = stock_date in (None, "") and stock_val in (None, "")
@@ -1051,10 +1025,10 @@ class GoogleSheetService(BaseGoogleSheetService):
             }
             if ohlc_columns:
                 row.update({
-                    "stock_kp": stock_kp,
-                    "stock_zg": stock_zg,
-                    "stock_zd": stock_zd,
-                    "stock_sp": stock_sp,
+                    "open": open_price,
+                    "high": high_price,
+                    "low": low_price,
+                    "close": close_price,
                 })
             rows.append(row)
 
@@ -1089,35 +1063,8 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="dfcf"):
 
-        def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
-            # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            # 根据price_mode决定使用开盘价、收盘价或加权平均价
-            def _project_kline_row(kline_row):
-                projection_mode = 'sp_price' if price_mode == 'random_price' else price_mode
-                return self._project_c7_kline_row(kline_row, projection_mode, random_price_range)
-            
-            if market_type == 'cn':
-                if _year:
-                    return [
-                        _project_kline_row(k)
-                        for k in klines if int(k['stock_date'][:4]) == _year
-                    ]
-                return [
-                    _project_kline_row(k)
-                    for k in klines
-                    if _start_date_1 <= k['stock_date'] <= _end_date_1
-                ]
-            else:
-                if _year:
-                    return [
-                        _project_kline_row(k)
-                        for k in klines if int(k['stock_date'][:4]) == _year
-                    ]
-                return [
-                    _project_kline_row(k)
-                    for k in klines
-                    if _start_date_1 <= k['stock_date'] <= _end_date_1
-                ]
+        # random_price 分组展开前先按收盘价占位取价；分组随机取价在 _expand_random_price_groups 里做
+        projection_mode = 'sp_price' if price_mode == 'random_price' else price_mode
 
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
@@ -1175,13 +1122,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                 "source": "google_sheet_c7",
             })
 
-        price_field = {
-            'kp_price': 'stock_kp',
-            'sp_price': 'stock_sp',
-            'vwap_price': 'stock_vwap',
-            'ohlc_price': 'stock_sp',
-            'random_price': 'stock_zg' if random_price_range == 'high_low' else 'stock_sp',
-        }.get(price_mode, 'stock_vwap')
+        price_field = get_kline_price_field(price_mode)
+        if price_mode == 'random_price':
+            # 随机价格模式的取值字段随 random_price_range 变化，属于 C7 特例
+            price_field = 'high' if random_price_range == 'high_low' else 'close'
         klines = require_kline_rows(
             parameter,
             market_type,
@@ -1223,7 +1167,9 @@ class GoogleSheetService(BaseGoogleSheetService):
             kline for kline in klines
             if start_date <= kline['stock_date'] <= end_date
         ]
-        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
+        all_kline = KlineService.build_price_rows(
+            klines, projection_mode, start_date=start_date, end_date=end_date, include_ohlc=True
+        )
         all_kline = require_kline_rows(
             parameter,
             market_type,
@@ -1306,7 +1252,9 @@ class GoogleSheetService(BaseGoogleSheetService):
                 _start_data = max(start_date, f"{_end_year_1 - year}{end_date[4:]}")
                 if _start_data > _end_data:
                     continue
-                kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
+                kline = KlineService.build_price_rows(
+                    klines, projection_mode, start_date=_start_data, end_date=_end_data, include_ohlc=True
+                )
                 if not kline:
                     continue
                 Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
@@ -1324,7 +1272,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         if 'full' in date_range_mode:
             _all_kline = [k for k in klines if start_date <= k['stock_date'] <= end_date]
             for year in range(_start_date, _end_year_1 + 1):
-                kline = _get_kline(_all_kline, _year=year)
+                kline = KlineService.build_price_rows(_all_kline, projection_mode, year=year, include_ohlc=True)
                 Kline_key = year
                 if not kline:
                     continue

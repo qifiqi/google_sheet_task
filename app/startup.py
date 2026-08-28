@@ -429,6 +429,17 @@ def init_rbac():
             perm.route_path = route_path
     db.session.commit()
 
+    # 接口级细粒度权限已移除，只保留页面权限（page:*）；
+    # 这里幂等清理历史遗留的非 page 权限行及其角色关联。
+    legacy_permissions = Permission.query.filter(~Permission.code.like('page:%')).all()
+    if legacy_permissions:
+        for role in Role.query.all():
+            role.permissions = [p for p in role.permissions if p.code.startswith('page:')]
+        for perm in legacy_permissions:
+            db.session.delete(perm)
+        db.session.commit()
+        logger.info('已清理 %d 个历史接口级权限', len(legacy_permissions))
+
     admin_role = Role.query.filter_by(code='admin').first()
     if not admin_role:
         admin_role = Role(name='管理员', code='admin', description='系统管理员，拥有全部权限', is_system=True)
@@ -751,7 +762,7 @@ def bootstrap_app(app):
     with app.app_context():
         # _initialize_database_schema()
         _recover_runtime_resources()
-        # _initialize_system_metadata()
+        _initialize_system_metadata()
 
     check_and_cleanup_dead_tasks(app)
     _start_background_components(app)

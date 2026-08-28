@@ -181,27 +181,27 @@ class DFCJStockApi:
                 logger.warning(f"K线原始数据字段数量不足: {line}")
                 return None
 
-            stock_cjl = float(data[5])
+            volume = float(data[5])
             # 东方财富 A 股成交量单位为“手”，需要换算成股；港股代码也常为纯数字，
             # 不能仅按 stock_code.isdigit() 判断，否则会把港股 VWAP 压低约 100 倍。
             if self._is_a_share_market(stock_type, stock_code):
-                stock_cjl *= 100
+                volume *= 100
 
-            stock_cje = float(data[6]) if len(data) > 6 else 0
+            amount = float(data[6]) if len(data) > 6 else 0
             return {
                 "stock_code": stock_code,
                 "stock_date": data[0],
-                "stock_kp": round(float(data[1]), 3),
-                "stock_sp": round(float(data[2]), 3),
-                "stock_zg": round(float(data[3]), 3),
-                "stock_zd": round(float(data[4]), 3),
-                "stock_cjl": stock_cjl,
-                "stock_cje": round(stock_cje, 3),
-                "stock_vwap": round(stock_cje / stock_cjl, 3) if stock_cjl > 0 else 0.0,
-                "stock_zf": round(float(data[7]), 3) if len(data) > 7 else 0,
-                "stock_zdf": round(float(data[8]), 3) if len(data) > 8 else 0,
-                "stock_zde": round(float(data[9]), 3) if len(data) > 9 else 0,
-                "stock_hsl": round(float(data[10]), 3) if len(data) > 10 else 0,
+                "open": round(float(data[1]), 3),
+                "close": round(float(data[2]), 3),
+                "high": round(float(data[3]), 3),
+                "low": round(float(data[4]), 3),
+                "volume": volume,
+                "amount": round(amount, 3),
+                "vwap": round(amount / volume, 3) if volume > 0 else 0.0,
+                "amplitude": round(float(data[7]), 3) if len(data) > 7 else 0,
+                "pct_change": round(float(data[8]), 3) if len(data) > 8 else 0,
+                "change": round(float(data[9]), 3) if len(data) > 9 else 0,
+                "turnover_rate": round(float(data[10]), 3) if len(data) > 10 else 0,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
         except Exception:

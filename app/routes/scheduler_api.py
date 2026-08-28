@@ -6,7 +6,7 @@ from app.extensions import db
 from app.models import ScheduledTask
 from app.services.scheduler_service import scheduler_service
 from app.utils.logger import get_logger
-from app.utils.auth import login_required, permission_required
+from app.utils.auth import login_required
 
 logger = get_logger(__name__)
 
@@ -14,7 +14,6 @@ scheduler_api_bp = Blueprint('scheduler_api', __name__)
 
 @scheduler_api_bp.route('/api/admin/scheduler/stats', methods=['GET'])
 @login_required
-@permission_required('scheduler:view')
 def get_scheduler_stats():
     """获取调度器统计信息"""
     try:
@@ -43,7 +42,6 @@ def get_scheduler_stats():
 
 @scheduler_api_bp.route('/api/admin/scheduler/tasks', methods=['GET'])
 @login_required
-@permission_required('scheduler:view')
 def get_scheduled_tasks():
     """获取定时任务列表"""
     try:
@@ -77,7 +75,6 @@ def get_scheduled_tasks():
 
 @scheduler_api_bp.route('/api/admin/scheduler/tasks', methods=['POST'])
 @login_required
-@permission_required('scheduler:manage')
 def create_scheduled_task():
     """创建定时任务"""
     try:
@@ -148,7 +145,6 @@ def create_scheduled_task():
 
 @scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>', methods=['PUT'])
 @login_required
-@permission_required('scheduler:manage')
 def update_scheduled_task(task_id):
     """更新定时任务"""
     try:
@@ -207,7 +203,6 @@ def update_scheduled_task(task_id):
 
 @scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>', methods=['DELETE'])
 @login_required
-@permission_required('scheduler:manage')
 def delete_scheduled_task(task_id):
     """删除定时任务"""
     try:
@@ -239,7 +234,6 @@ def delete_scheduled_task(task_id):
 
 @scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>/toggle', methods=['POST'])
 @login_required
-@permission_required('scheduler:manage')
 def toggle_scheduled_task(task_id):
     """切换定时任务状态"""
     try:
@@ -277,7 +271,6 @@ def toggle_scheduled_task(task_id):
 
 @scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>/run', methods=['POST'])
 @login_required
-@permission_required('scheduler:manage')
 def run_scheduled_task_now(task_id):
     """立即执行定时任务"""
     try:
@@ -322,7 +315,6 @@ def run_scheduled_task_now(task_id):
 
 @scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>/status', methods=['GET'])
 @login_required
-@permission_required('scheduler:view')
 def get_task_execution_status(task_id):
     """获取任务执行状态"""
     try:
@@ -357,7 +349,6 @@ def get_task_execution_status(task_id):
 
 @scheduler_api_bp.route('/api/admin/scheduler/status', methods=['GET'])
 @login_required
-@permission_required('scheduler:view')
 def get_scheduler_status():
     """获取调度器状态"""
     try:

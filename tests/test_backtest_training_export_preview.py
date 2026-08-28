@@ -33,10 +33,6 @@ def _add_result(task_type="backtest_training", calculate_metrics=None):
 
 def _allow_backtest_view(monkeypatch):
     monkeypatch.setenv("AUTH_ENABLED", "false")
-    monkeypatch.setattr(
-        "app.routes.backtest_training.authorize_task_type_action",
-        lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-    )
 
 
 def _exportable_metrics():

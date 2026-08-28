@@ -8,7 +8,7 @@ import json
 import math
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from flask import Blueprint, current_app, g, jsonify, render_template, request, send_file
+from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -23,18 +23,14 @@ from app.services.backtest_multi_product_service import (
     normalize_multi_product_config,
 )
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
-from app.utils.auth import login_required, permission_required
-from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
+from app.utils.auth import login_required
+from app.utils.task_types import normalize_task_type
 from app.utils.return_series import parse_return_series_fields
 
 
 bp = Blueprint("backtest_multi_product", __name__, url_prefix="/backtest-multi-product")
 legacy_bp = Blueprint("backtest_multi_product_legacy", __name__, url_prefix="/backtest-multi")
 
-TASK_ACTION_LABELS = {
-    "view": "查看",
-    "create": "创建",
-}
 
 BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS = 10
 
@@ -49,31 +45,12 @@ def _sanitize_json_value(value):
     return value
 
 
-def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None):
-    action_label = TASK_ACTION_LABELS.get(action, action)
-    normalized_type = decision.get("task_type") or str(task_type or "unknown")
-    missing_permissions = decision.get("missing_permissions") or []
-    missing_text = "、".join(missing_permissions) if missing_permissions else "未知"
-    message = f"权限不足，无法{action_label}{normalized_type}任务；当前缺少: {missing_text}"
-    return jsonify({
-        "status": "error",
-        "message": message,
-        "action": action,
-        "task_type": normalized_type,
-        "task_id": task_id,
-        "required_permissions": decision.get("required_permissions") or [],
-        "missing_permissions": missing_permissions,
-    }), 403
 
 
 def _load_multi_product_task_or_response(task_id: str, action: str = "view"):
     task = db.session.get(Task, task_id)
     if not task:
         return None, (jsonify({"status": "error", "message": "任务不存在"}), 404)
-
-    decision = authorize_task_type_action(getattr(g, "current_user", None), action, task.task_type)
-    if not decision["allowed"]:
-        return None, _task_permission_denied(action, task.task_type, decision, task_id=task_id)
 
     if normalize_task_type(task.task_type) != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
         return None, (jsonify({
@@ -213,7 +190,6 @@ legacy_bp.add_url_rule("/result/<int:result_id>", view_func=result_page)
 
 @bp.route("/api/import-excel", methods=["POST"])
 @login_required
-@permission_required("backtest:create")
 def import_excel():
     excel_file = request.files.get("file")
     if not excel_file or not excel_file.filename:
@@ -230,7 +206,6 @@ def import_excel():
 
 @bp.route("/api/task-results/<task_id>", methods=["GET"])
 @login_required
-@permission_required("backtest:view")
 def get_task_results_by_task_id(task_id):
     _, error_response = _load_multi_product_task_or_response(task_id, action="view")
     if error_response:
@@ -281,7 +256,6 @@ def get_task_results_by_task_id(task_id):
 
 @bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
 @login_required
-@permission_required("backtest:view")
 def get_task_result_detail(task_result_id):
     task_result = db.session.get(TaskResult, task_result_id)
     if not task_result:
@@ -347,7 +321,6 @@ def get_task_result_detail(task_result_id):
 
 @bp.route("/api/global-preview/<task_id>", methods=["GET"])
 @login_required
-@permission_required("backtest:view")
 def get_global_preview(task_id):
     _, error_response = _load_multi_product_task_or_response(task_id, action="view")
     if error_response:
@@ -360,7 +333,6 @@ def get_global_preview(task_id):
 
 @bp.route("/api/global-preview/<task_id>/calculate-ratios", methods=["POST"])
 @login_required
-@permission_required("backtest:view")
 def calculate_ratios(task_id):
     _, error_response = _load_multi_product_task_or_response(task_id, action="view")
     if error_response:
@@ -380,7 +352,6 @@ def calculate_ratios(task_id):
 
 @bp.route("/api/global-preview/<task_id>/ratios", methods=["PUT"])
 @login_required
-@permission_required("backtest:create")
 def update_ratios(task_id):
     task, error_response = _load_multi_product_task_or_response(task_id, action="create")
     if error_response:

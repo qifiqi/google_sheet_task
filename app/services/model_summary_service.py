@@ -24,7 +24,7 @@ from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
 from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.xpl_service import xpl_analyzer
 from app.utils.logger import get_logger
-from app.utils.task_authorization import filter_task_types_by_action, normalize_task_type
+from app.utils.task_types import normalize_task_type
 from app.utils.market import infer_market_type, normalize_stock_code, strip_stock_code_suffix
 from app.utils.value_parser import parse_int, parse_percent_like
 
@@ -1448,11 +1448,7 @@ class ModelSummaryService:
 
         query = TaskResultSummaryIndex.query
 
-        allowed_types = (
-            SUPPORTED_TASK_TYPES
-            if ignore_permissions
-            else filter_task_types_by_action(user, "view", SUPPORTED_TASK_TYPES)
-        )
+        allowed_types = SUPPORTED_TASK_TYPES
         if not allowed_types:
             return self._empty_response(page, per_page)
 
@@ -1662,11 +1658,7 @@ class ModelSummaryService:
                 "message": "查询全部结果时必须输入单个股票代码",
             }
 
-        allowed_types = (
-            SUPPORTED_TASK_TYPES
-            if ignore_permissions
-            else filter_task_types_by_action(user, "view", SUPPORTED_TASK_TYPES)
-        )
+        allowed_types = SUPPORTED_TASK_TYPES
         if not allowed_types:
             return self._empty_response(page, per_page, columns=columns)
         if task_type:

@@ -51,17 +51,17 @@ def test_eastmoney_parse_kline_calculates_vwap_for_numeric_stock_code():
         "600000",
     )
 
-    assert row["stock_kp"] == 10.123
-    assert row["stock_sp"] == 11.568
-    assert row["stock_zg"] == 12.444
-    assert row["stock_zd"] == 9.222
-    assert row["stock_cjl"] == 50000
-    assert row["stock_cje"] == 110000
-    assert row["stock_vwap"] == 2.2
-    assert row["stock_zf"] == 3.457
-    assert row["stock_zdf"] == 10.556
-    assert row["stock_zde"] == 1.988
-    assert row["stock_hsl"] == 0.555
+    assert row["open"] == 10.123
+    assert row["close"] == 11.568
+    assert row["high"] == 12.444
+    assert row["low"] == 9.222
+    assert row["volume"] == 50000
+    assert row["amount"] == 110000
+    assert row["vwap"] == 2.2
+    assert row["amplitude"] == 3.457
+    assert row["pct_change"] == 10.556
+    assert row["change"] == 1.988
+    assert row["turnover_rate"] == 0.555
 
 
 def test_multi_product_normalize_preserves_product_kline_adjustment():
@@ -104,11 +104,11 @@ def test_c4_us_market_uses_yahoo_adjustment(monkeypatch):
                 "adjust_type": adjust_type,
             }
             return [
-                {"stock_date": f"2023-12-{day:02d}", "stock_sp": 9, "stock_kp": 8}
+                {"stock_date": f"2023-12-{day:02d}", "close": 9, "open": 8}
                 for day in range(1, 31)
             ] + [
-                {"stock_date": "2024-01-01", "stock_sp": 10, "stock_kp": 9},
-                {"stock_date": "2024-01-02", "stock_sp": 11, "stock_kp": 10},
+                {"stock_date": "2024-01-01", "close": 10, "open": 9},
+                {"stock_date": "2024-01-02", "close": 11, "open": 10},
             ]
 
     class FakeDFCFApi:
@@ -212,17 +212,17 @@ def test_yahoo_parse_single_ticker_uses_ticker_hint_and_adjusted_close_for_cje()
         {
             "stock_code": "AAPL",
             "stock_date": "2024-01-01",
-            "stock_kp": 20.0,
-            "stock_sp": 20.0,
-            "stock_zg": 22.0,
-            "stock_zd": 18.0,
-            "stock_cjl": 5,
-            "stock_cje": 100.0,
-            "stock_vwap": 20.0,
-            "stock_zf": 22.222,
-            "stock_zdf": 0.0,
-            "stock_zde": 0.0,
-            "stock_hsl": 0.0,
+            "open": 20.0,
+            "close": 20.0,
+            "high": 22.0,
+            "low": 18.0,
+            "volume": 5,
+            "amount": 100.0,
+            "vwap": 20.0,
+            "amplitude": 22.222,
+            "pct_change": 0.0,
+            "change": 0.0,
+            "turnover_rate": 0.0,
             "timestamp": rows[0]["timestamp"],
         }
     ]

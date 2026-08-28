@@ -20,17 +20,17 @@ def _kline_rows_with_vwap():
     return [
         {
             "stock_date": f"2024-01-{day:02d}",
-            "stock_kp": 9,
-            "stock_sp": 10,
-            "stock_vwap": 12,
+            "open": 9,
+            "close": 10,
+            "vwap": 12,
         }
         for day in range(1, 32)
     ] + [
         {
             "stock_date": f"2024-02-{day:02d}",
-            "stock_kp": 9,
-            "stock_sp": 10,
-            "stock_vwap": 12,
+            "open": 9,
+            "close": 10,
+            "vwap": 12,
         }
         for day in range(1, 16)
     ]
@@ -43,11 +43,11 @@ def _daily_kline_rows(start_date, end_date):
     while current <= end:
         rows.append({
             "stock_date": current.isoformat(),
-            "stock_kp": 9,
-            "stock_sp": 10,
-            "stock_zg": 11,
-            "stock_zd": 8,
-            "stock_vwap": 10,
+            "open": 9,
+            "close": 10,
+            "high": 11,
+            "low": 8,
+            "vwap": 10,
         })
         current += timedelta(days=1)
     return rows

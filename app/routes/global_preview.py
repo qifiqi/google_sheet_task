@@ -10,7 +10,7 @@ from time import perf_counter
 from urllib.parse import quote
 from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
-from flask import Blueprint, Response, current_app, g, jsonify, render_template, request, send_file, stream_with_context
+from flask import Blueprint, Response, current_app, jsonify, render_template, request, send_file, stream_with_context
 
 from app.extensions import db
 from app.models import Task
@@ -22,8 +22,8 @@ from app.services.backtest_training_api_service import (
     get_global_preview_result_ids_by_stock,
     split_global_preview_payload_by_stock,
 )
-from app.utils.auth import login_required, permission_required
-from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
+from app.utils.auth import login_required
+from app.utils.task_types import normalize_task_type
 
 
 bp = Blueprint("global_preview", __name__, url_prefix="/global-preview")
@@ -42,11 +42,6 @@ def _load_backtest_task_or_response(task_id):
     task = db.session.get(Task, task_id)
     if not task:
         return None, _task_error("任务不存在", 404)
-
-    decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task.task_type)
-    if not decision["allowed"]:
-        missing_permissions = "、".join(decision.get("missing_permissions") or []) or "未知"
-        return None, _task_error(f"权限不足，当前缺少: {missing_permissions}", 403)
 
     return task, None
 
@@ -74,7 +69,6 @@ def page():
 
 @bp.route("/api/tasks/<task_id>", methods=["GET"])
 @login_required
-@permission_required("backtest:view")
 def get_preview(task_id):
     task, error_response = _load_backtest_task_or_response(task_id)
     if error_response:
@@ -96,7 +90,6 @@ def get_preview(task_id):
 
 @bp.route("/api/tasks/<task_id>/preview-group", methods=["POST"])
 @login_required
-@permission_required("backtest:view")
 def get_preview_group(task_id):
     task, error_response = _load_backtest_task_or_response(task_id)
     if error_response:

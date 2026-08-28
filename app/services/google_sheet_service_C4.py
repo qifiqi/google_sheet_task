@@ -611,32 +611,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     @staticmethod
     def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None, data_source=None):
-
-        def _get_kline(klines, year=None,_start_date=None, _end_date=None):
-            # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            price_field = 'stock_kp' if market_type == 'cn' else 'stock_sp'
-            if market_type == 'cn':
-                if year:
-                    return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                        for k in klines if int(k['stock_date'][:4]) == year
-                    ]
-                return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                    for k in klines
-                    if _start_date <= k['stock_date'] <= _end_date
-                ]
-            else:
-                if year:
-                    return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                        for k in klines if int(k['stock_date'][:4]) == year
-                    ]
-                return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                    for k in klines
-                    if _start_date <= k['stock_date'] <= _end_date
-                ]
+        # C4 固定按市场取价：A股用开盘价、美股用收盘价；投影与过滤统一走 KlineService.build_price_rows
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
@@ -679,7 +654,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             klines,
             context="原始K线",
             min_rows=30,
-            price_field='stock_kp' if market_type == 'cn' else 'stock_sp',
+            price_field='open' if market_type == 'cn' else 'close',
         )
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
@@ -687,7 +662,10 @@ class GoogleSheetService(BaseGoogleSheetService):
             raise ValueError(
                 f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内"
             )
-        all_kline = _get_kline(klines, _start_date=start_date, _end_date=end_date)
+        all_kline = KlineService.build_price_rows(
+            klines, None, start_date=start_date, end_date=end_date,
+            price_field='open' if market_type == 'cn' else 'close',
+        )
         all_kline = require_kline_rows(
             parameter,
             market_type,
@@ -714,7 +692,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                     _end_data = f"{_end_year_1-_i}{end_date[4:]}"
                     _start_data = f"{_end_year_1 - i}{end_date[4:]}"
                     d = {}
-                    kline = _get_kline(klines, _start_data, _end_data)
+                    # 历史行为：此处原将日期串按位置传入 year 形参，年份匹配恒为空，保持现状
+                    kline = KlineService.build_price_rows(
+                        klines, None, year=_start_data,
+                        price_field='open' if market_type == 'cn' else 'close',
+                    )
                     if kline:
                         d['stock_code'] = parameter
                         if stock_name:
@@ -727,7 +709,10 @@ class GoogleSheetService(BaseGoogleSheetService):
             all_kline = [ k for k in klines if start_date <= k['stock_date'] <= end_date]
             for i in range(_start_date, _end_year_1 + 1):
                 d = {}
-                kline = _get_kline(all_kline,year=i)
+                kline = KlineService.build_price_rows(
+                    all_kline, None, year=i,
+                    price_field='open' if market_type == 'cn' else 'close',
+                )
                 if kline and len(kline) > 30:
                     d['stock_code'] = parameter
                     if stock_name:

@@ -25,9 +25,9 @@ def _kline_rows(start_date: str, end_date: str):
     while current <= end:
         rows.append({
             "stock_date": current.strftime("%Y-%m-%d"),
-            "stock_sp": 10,
-            "stock_kp": 9,
-            "stock_vwap": 12,
+            "close": 10,
+            "open": 9,
+            "vwap": 12,
         })
         current += timedelta(days=1)
     return rows

@@ -40,6 +40,13 @@ class _FakeTaskManager:
 
     def restart_task(self, task_id, resume_from_checkpoint=True):
         self.restarts.append((task_id, resume_from_checkpoint))
+        # 与真实 TaskManager.restart_task 契约一致：重启前先把任务重置为 pending，
+        # 看门狗随后通过 _mark_restart_running 将其同步为 running。
+        task = db.session.get(Task, task_id)
+        if task:
+            task.status = "pending"
+            task.error_message = None
+            db.session.commit()
         return {"status": "success"}
 
     def start_task(self, task_id):

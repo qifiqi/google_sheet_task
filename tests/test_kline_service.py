@@ -10,17 +10,17 @@ def _rows(start, end):
     return [
         {
             "stock_date": start,
-            "stock_kp": 10,
-            "stock_sp": 11,
-            "stock_zg": 12,
-            "stock_zd": 9,
+            "open": 10,
+            "close": 11,
+            "high": 12,
+            "low": 9,
         },
         {
             "stock_date": end,
-            "stock_kp": 11,
-            "stock_sp": 12,
-            "stock_zg": 13,
-            "stock_zd": 10,
+            "open": 11,
+            "close": 12,
+            "high": 13,
+            "low": 10,
         },
     ]
 
@@ -119,10 +119,10 @@ def test_external_source_is_normalized_and_persisted():
     assert dfcf.calls == [("600000", "1", 100, {"adjust_type": None})]
     assert rows[0]["stock_code"] == "600000.SS"
     assert rows[0]["stock_name"] == "浦发银行"
-    assert rows[0]["stock_kp"] == 10.0
-    assert rows[0]["stock_sp"] == 11.0
-    assert rows[0]["stock_zg"] == 12.0
-    assert rows[0]["stock_zd"] == 9.0
+    assert rows[0]["open"] == 10.0
+    assert rows[0]["close"] == 11.0
+    assert rows[0]["high"] == 12.0
+    assert rows[0]["low"] == 9.0
     assert persisted[0][1]["source"] == "dfcf"
 
 
@@ -224,8 +224,8 @@ def test_tdx_source_fetches_a_share_daily_kline_and_persists(monkeypatch):
     assert _TdxClient.calls == [("sh", "600519", "daily", 1, "qfq")]
     assert rows[0]["stock_name"] == "Moutai"
     assert rows[0]["stock_date"] == "2024-01-31"
-    assert rows[0]["stock_cjl"] == 100.0
-    assert rows[0]["stock_cje"] == 160000.0
+    assert rows[0]["volume"] == 100.0
+    assert rows[0]["amount"] == 160000.0
     assert rows[0]["data_source"] == "tdx"
     assert persisted[0][1]["source"] == "tdx"
 

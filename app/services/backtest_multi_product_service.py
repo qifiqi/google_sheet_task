@@ -1189,11 +1189,6 @@ class BacktestMultiProductService(BacktestTrainingService):
         data_source: str = "dfcf",
         exchange_market: str | None = None,
     ) -> list[dict[str, Any]]:
-        price_field = {
-            "kp_price": "stock_kp",
-            "sp_price": "stock_sp",
-            "vwap_price": "stock_vwap",
-        }.get(price_mode, "stock_vwap")
         market_type = normalize_market_type(market_type)
         start_year = int(start_date[:4])
         end_year = int(end_date[:4])
@@ -1230,11 +1225,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                 f"股票{stock_code} 设定区间 [{start_date}, {end_date}] "
                 f"不在K线数据范围 [{data_start_date}, {data_end_date}] 内"
             )
-        kline = [
-            {"stock_date": item["stock_date"], "stock_val": item[price_field]}
-            for item in klines
-            if start_date <= item["stock_date"] <= end_date
-        ]
+        kline = self.kline_service.build_price_rows(klines, price_mode, start_date=start_date, end_date=end_date)
         if len(kline) < 100:
             raise ValueError(f"股票{stock_code} 数据量不足，K线数据量小于100条")
         return kline

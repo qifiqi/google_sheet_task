@@ -198,11 +198,11 @@
         var securitySearchTimer = null;
         var securitySearchRequestId = 0;
         var volatilityPriceBases = {
-          vwap: { field: "stock_vwap", label: "VWAP" },
-          open: { field: "stock_kp", label: "开盘价" },
-          close: { field: "stock_sp", label: "收盘价" },
-          high: { field: "stock_zg", label: "最高价" },
-          low: { field: "stock_zd", label: "最低价" },
+          vwap: { field: "vwap", label: "VWAP" },
+          open: { field: "open", label: "开盘价" },
+          close: { field: "close", label: "收盘价" },
+          high: { field: "high", label: "最高价" },
+          low: { field: "low", label: "最低价" },
         };
 
         form.verify({
@@ -390,19 +390,19 @@
             var volume = multiplier === null ? null : values[4] * multiplier;
             uniqueRows[fields[0]] = {
               stock_date: fields[0],
-              stock_vwap: volume > 0 ? roundVwap(values[5] / volume) : null,
-              stock_kp: values[0],
-              stock_sp: values[1],
-              stock_zg: values[2],
-              stock_zd: values[3],
-              stock_cjl_raw: values[4],
+              vwap: volume > 0 ? roundVwap(values[5] / volume) : null,
+              open: values[0],
+              close: values[1],
+              high: values[2],
+              low: values[3],
+              volume_raw: values[4],
               volume_unit: volumeUnit === "hand" ? "手" : volumeUnit === "share" ? "股" : "不确定",
-              stock_cjl: volume,
-              stock_cje: values[5],
-              stock_zf: values[6],
-              stock_zdf: values[7],
-              stock_zde: values[8],
-              stock_hsl: values[9],
+              volume: volume,
+              amount: values[5],
+              amplitude: values[6],
+              pct_change: values[7],
+              change: values[8],
+              turnover_rate: values[9],
               is_final: String(klt) === "101" && fields[0] === getToday() ? "待确认" : "是",
             };
           });
@@ -456,7 +456,7 @@
         // 波动率采用相邻价格简单收益率绝对值的算术平均。
         function calculateAbsoluteVolatility(rows, priceField) {
           var prices = rows
-            .map(function (row) { return Number(row[priceField || "stock_vwap"]); })
+            .map(function (row) { return Number(row[priceField || "vwap"]); })
             .filter(function (price) { return Number.isFinite(price) && price > 0; });
           if (prices.length < 2) {
             return null;
@@ -619,7 +619,7 @@
         // 平均成交额使用每根有效 K 线的成交额算术平均。
         function calculateAverageTurnover(rows) {
           var amounts = rows
-            .map(function (row) { return Number(row.stock_cje); })
+            .map(function (row) { return Number(row.amount); })
             .filter(function (amount) { return Number.isFinite(amount) && amount >= 0; });
           if (!amounts.length) {
             return null;
@@ -801,64 +801,64 @@
                 },
               },
               {
-                field: "stock_kp",
+                field: "open",
                 title: "开盘",
                 width: 100,
-                templet: function (item) { return formatNumber(item.stock_kp, 2); },
+                templet: function (item) { return formatNumber(item.open, 2); },
               },
               {
-                field: "stock_sp",
+                field: "close",
                 title: "收盘",
                 width: 100,
-                templet: function (item) { return formatNumber(item.stock_sp, 2); },
+                templet: function (item) { return formatNumber(item.close, 2); },
               },
               {
-                field: "stock_zg",
+                field: "high",
                 title: "最高",
                 width: 100,
-                templet: function (item) { return formatNumber(item.stock_zg, 2); },
+                templet: function (item) { return formatNumber(item.high, 2); },
               },
               {
-                field: "stock_zd",
+                field: "low",
                 title: "最低",
                 width: 100,
-                templet: function (item) { return formatNumber(item.stock_zd, 2); },
+                templet: function (item) { return formatNumber(item.low, 2); },
               },
               {
-                field: "stock_cjl_raw",
+                field: "volume_raw",
                 title: "成交量",
                 width: 120,
-                templet: function (item) { return item.stock_cjl_raw.toLocaleString("en-US"); },
+                templet: function (item) { return item.volume_raw.toLocaleString("en-US"); },
               },
               {
-                field: "stock_cje",
+                field: "amount",
                 title: "成交额",
                 width: 150,
-                templet: function (item) { return item.stock_cje.toLocaleString("en-US"); },
+                templet: function (item) { return item.amount.toLocaleString("en-US"); },
               },
               {
-                field: "stock_zf",
+                field: "amplitude",
                 title: "振幅%",
                 width: 90,
-                templet: function (item) { return formatNumber(item.stock_zf, 2); },
+                templet: function (item) { return formatNumber(item.amplitude, 2); },
               },
               {
-                field: "stock_zdf",
+                field: "pct_change",
                 title: "涨跌幅%",
                 width: 100,
-                templet: function (item) { return formatNumber(item.stock_zdf, 2); },
+                templet: function (item) { return formatNumber(item.pct_change, 2); },
               },
               {
-                field: "stock_hsl",
+                field: "turnover_rate",
                 title: "换手率%",
                 width: 100,
-                templet: function (item) { return formatNumber(item.stock_hsl, 2); },
+                templet: function (item) { return formatNumber(item.turnover_rate, 2); },
               },
               {
-                field: "stock_vwap",
+                field: "vwap",
                 title: "VWAP",
                 width: 110,
-                templet: function (item) { return formatNumber(item.stock_vwap, 4); },
+                templet: function (item) { return formatNumber(item.vwap, 4); },
               },
             ]],
             data: displayRows,
@@ -1044,18 +1044,18 @@
               queryData.secid.split(".")[1],
               safeExportText(queryData.stockName),
               item.stock_date,
-              item.stock_vwap,
-              item.stock_kp,
-              item.stock_sp,
-              item.stock_zg,
-              item.stock_zd,
-              item.stock_cjl_raw,
-              item.stock_cjl,
-              item.stock_cje,
-              item.stock_zf,
-              item.stock_zdf,
-              item.stock_zde,
-              item.stock_hsl,
+              item.vwap,
+              item.open,
+              item.close,
+              item.high,
+              item.low,
+              item.volume_raw,
+              item.volume,
+              item.amount,
+              item.amplitude,
+              item.pct_change,
+              item.change,
+              item.turnover_rate,
             ]);
           });
           var analysisRows = [

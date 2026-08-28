@@ -3,7 +3,7 @@ from app.services.config_manager import get_config_manager
 from app.models import NavigationMenuItem, SystemConfig, db
 from app.navigation import sync_navigation_permissions
 from app.utils.logger import get_logger
-from app.utils.auth import login_required, permission_required
+from app.utils.auth import login_required
 
 logger = get_logger(__name__)
 
@@ -11,14 +11,11 @@ config_api_bp = Blueprint('config_api', __name__)
 
 @config_api_bp.route('/config', methods=['GET'])
 @login_required
-@permission_required('config:view')
 def get_config():
     """获取系统配置"""
     try:
         config_manager = get_config_manager()
-        config_manager.refresh_cache()
-        configs = config_manager.get_all_configs()
-        logger.debug(f"返回配置数据: {configs}")
+        configs = config_manager.get_all_configs(force_refresh=True)
         return jsonify({"status": "success", "config": configs})
     except Exception as e:
         logger.error(f"获取配置失败: {str(e)}")
@@ -26,7 +23,6 @@ def get_config():
 
 @config_api_bp.route('/config', methods=['POST'])
 @login_required
-@permission_required('config:manage')
 def update_config():
     """更新系统配置"""
     try:
@@ -34,12 +30,11 @@ def update_config():
         if not data:
             return jsonify({"status": "error", "message": "请求数据为空"}), 400
 
-        logger.info(f"接收到配置更新请求: {data}")
+        logger.info(f"接收到配置更新请求: {len(data)} 个配置项, keys={list(data.keys())}")
 
         config_manager = get_config_manager()
         success = config_manager.update_configs(data)
         if success:
-            config_manager.refresh_cache()
             logger.info("配置更新成功，缓存已刷新")
             return jsonify({"status": "success", "message": "配置更新成功，已立即生效"})
         return jsonify({"status": "error", "message": "配置更新失败"}), 500
@@ -49,7 +44,6 @@ def update_config():
 
 @config_api_bp.route('/config/validate', methods=['GET'])
 @login_required
-@permission_required('config:view')
 def validate_config():
     """验证配置状态"""
     try:
@@ -60,7 +54,7 @@ def validate_config():
         for config in configs:
             db_configs[config.key] = config.value
 
-        cache_configs = config_manager._cache.copy()
+        cache_configs = config_manager.get_cache_snapshot()
         gs_config = config_manager.get_google_sheet_config()
 
         return jsonify({
@@ -79,7 +73,6 @@ def validate_config():
 
 @config_api_bp.route('/system-configs', methods=['GET'])
 @login_required
-@permission_required('config:view')
 def list_system_configs():
     """获取 system_configs 配置列表"""
     try:
@@ -94,7 +87,6 @@ def list_system_configs():
 
 @config_api_bp.route('/system-configs/<string:key>', methods=['PUT'])
 @login_required
-@permission_required('config:manage')
 def update_system_config(key):
     """更新单条配置"""
     try:
@@ -205,7 +197,6 @@ def _validate_navigation_payload(data, item_id=None):
 
 @config_api_bp.route('/navigation-menu-items', methods=['GET'])
 @login_required
-@permission_required('navigation:view')
 def list_navigation_menu_items():
     """获取侧边栏路由表"""
     try:
@@ -225,7 +216,6 @@ def list_navigation_menu_items():
 
 @config_api_bp.route('/navigation-menu-items', methods=['POST'])
 @login_required
-@permission_required('navigation:manage')
 def create_navigation_menu_item():
     """新增侧边栏路由表记录，默认不可见，避免新页面直接暴露"""
     try:
@@ -252,7 +242,6 @@ def create_navigation_menu_item():
 
 @config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['PUT'])
 @login_required
-@permission_required('navigation:manage')
 def update_navigation_menu_item(item_id):
     """更新侧边栏路由表记录"""
     try:
@@ -282,7 +271,6 @@ def update_navigation_menu_item(item_id):
 
 @config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['DELETE'])
 @login_required
-@permission_required('navigation:manage')
 def delete_navigation_menu_item(item_id):
     """删除侧边栏路由表记录"""
     try:
@@ -304,7 +292,6 @@ def delete_navigation_menu_item(item_id):
 
 @config_api_bp.route('/logs', methods=['GET'])
 @login_required
-@permission_required('config:view')
 def get_logs():
     """获取系统日志"""
     try:
@@ -381,7 +368,6 @@ def get_logs():
 
 @config_api_bp.route('/logs/latest', methods=['GET'])
 @login_required
-@permission_required('config:view')
 def get_latest_logs():
     """获取最新的日志"""
     try:

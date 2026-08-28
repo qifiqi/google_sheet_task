@@ -24,7 +24,7 @@ from app.utils.yf_api import YFApi
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
-from app.services.kline_service import KlineService
+from app.services.kline_service import KlineService, get_kline_price_field
 
 logger = get_logger(__name__)
 
@@ -626,37 +626,6 @@ class GoogleSheetService(BaseGoogleSheetService):
 
 
 
-        def _get_kline(klines, _year=None, _start_date_1=None, _end_date_1=None):
-            # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            # 根据price_mode决定使用开盘价、收盘价或加权平均价
-            price_field = {
-                'kp_price': 'stock_kp',
-                'vwap_price': 'stock_vwap',
-            }.get(price_mode, 'stock_sp')
-
-            if market_type == 'cn':
-                if _year:
-                    return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                        for k in klines if int(k['stock_date'][:4]) == _year
-                    ]
-                return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                    for k in klines
-                    if _start_date_1 <= k['stock_date'] <= _end_date_1
-                ]
-            else:
-                if _year:
-                    return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                        for k in klines if int(k['stock_date'][:4]) == _year
-                    ]
-                return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                    for k in klines
-                    if _start_date_1 <= k['stock_date'] <= _end_date_1
-                ]
-
         year_text = str(year_n or '1y').strip().lower()
         year_count = 1
         if year_text.endswith('y'):
@@ -729,11 +698,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             klines,
             context="原始K线",
             min_rows=100,
-            price_field={
-                'kp_price': 'stock_kp',
-                'sp_price': 'stock_sp',
-                'vwap_price': 'stock_vwap',
-            }.get(price_mode, 'stock_vwap'),
+            price_field=get_kline_price_field(price_mode),
         )
 
         # 获取K线数据的时间范围
@@ -753,7 +718,9 @@ class GoogleSheetService(BaseGoogleSheetService):
             raise Exception(
                 f"股票{stock_code} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
-        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
+        all_kline = self.kline_service.build_price_rows(
+            klines, price_mode, start_date=start_date, end_date=end_date
+        )
         all_kline = require_kline_rows(
             stock_code,
             market_type,

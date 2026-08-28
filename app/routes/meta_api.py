@@ -62,15 +62,7 @@ def get_nav():
     def has_nav_permission(required_permission, _item):
         if not required_permission:
             return True
-        if required_permission in user_perms:
-            return True
-
-        if required_permission.endswith(':view'):
-            manage_permission = f"{required_permission.split(':', 1)[0]}:manage"
-            if manage_permission in user_perms:
-                return True
-
-        return False
+        return required_permission in user_perms
 
     def filter_nav(items):
         result = []

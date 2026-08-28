@@ -187,10 +187,6 @@ def test_multi_product_batch_export_global_preview_returns_zip(app_factory, monk
         _add_multi_product_task("multi-batch-1", name="多品:组合/1")
         monkeypatch.setenv("AUTH_ENABLED", "false")
         monkeypatch.setattr(
-            "app.routes.backtest_multi_product.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
-        monkeypatch.setattr(
             "app.routes.backtest_multi_product.build_multi_product_global_preview_payload",
             lambda task_id: {"task": {"name": task_id}, "products": [], "groups": []},
         )
@@ -230,10 +226,6 @@ def test_multi_product_batch_export_global_preview_rejects_unfinished_task(app_f
     with app.app_context():
         _add_multi_product_task("multi-running", status="running")
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.backtest_multi_product.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
         response = app.test_client().post(
             "/backtest-multi-product/api/global-preview/batch-export",
             json={"task_ids": ["multi-running"]},
@@ -400,22 +392,6 @@ def test_multi_product_result_detail_includes_daily_returns_from_return_series(a
             created_at=datetime.now(),
         )
         db.session.add(task)
-        db.session.add_all([
-            Permission(
-                name="查看任务",
-                code="task:view",
-                group="task",
-                description="查看任务",
-                route_path="/admin/tasks",
-            ),
-            Permission(
-                name="查看回测任务",
-                code="backtest:view",
-                group="backtest",
-                description="查看回测任务",
-                route_path="/backtest/list",
-            ),
-        ])
         return_series = TaskResultReturn(
             task_id=task.id,
             returns_json=json.dumps({
@@ -470,10 +446,6 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
             created_at=datetime.now(),
         )
         db.session.add(task)
-        db.session.add_all([
-            Permission(name="查看任务2", code="task:view", group="task", description="查看任务", route_path="/admin/tasks"),
-            Permission(name="查看回测任务2", code="backtest:view", group="backtest", description="查看回测任务", route_path="/backtest/list"),
-        ])
         task_result = TaskResult(
             task_id=task.id,
             step_index=0,

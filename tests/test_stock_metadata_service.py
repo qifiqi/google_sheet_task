@@ -89,8 +89,8 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
             return [
                 {
                     "stock_date": (start + timedelta(days=index)).isoformat(),
-                    "stock_kp": 100 + index,
-                    "stock_sp": 100 + index,
+                    "open": 100 + index,
+                    "close": 100 + index,
                 }
                 for index in range(100)
             ]

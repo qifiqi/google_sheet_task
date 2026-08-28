@@ -10,7 +10,7 @@
         <button class="btn btn-outline-secondary" type="button" onclick="loadNavigationItems()">
             <i class="bi bi-arrow-clockwise"></i> 刷新
         </button>
-        <button class="btn btn-primary" type="button" data-permission="navigation:manage" onclick="openCreateNavigationModal()">
+        <button class="btn btn-primary" type="button" onclick="openCreateNavigationModal()">
             <i class="bi bi-plus-lg"></i> 新增路由
         </button>
     </div>
@@ -225,7 +225,7 @@ function renderNavigationTable() {
                 <td>${Number(item.sort_order || 0)}</td>
                 <td>${item.is_visible ? '<span class="badge bg-success">显示</span>' : '<span class="badge bg-secondary">隐藏</span>'}</td>
                 <td class="text-end">
-                    <button class="btn btn-sm btn-outline-primary" type="button" onclick="openEditNavigationModal(${item.id})" data-permission="navigation:manage">编辑</button>
+                    <button class="btn btn-sm btn-outline-primary" type="button" onclick="openEditNavigationModal(${item.id})">编辑</button>
                 </td>
             </tr>
         `;

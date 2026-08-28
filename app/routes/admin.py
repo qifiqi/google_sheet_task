@@ -8,35 +8,12 @@ from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.models import Task, GoogleSheetTableType, TaskStatus, TaskType
 from app.utils.logger import get_logger
-from app.utils.auth import login_required, permission_required
-from app.utils.task_authorization import authorize_task_type_action
+from app.utils.auth import login_required
 
 logger = get_logger(__name__)
 
 admin_bp = Blueprint('admin', __name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
-
-TASK_ACTION_LABELS = {
-    "view": "查看",
-}
-
-
-def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None):
-    action_label = TASK_ACTION_LABELS.get(action, action)
-    normalized_type = decision.get("task_type") or str(task_type or "unknown")
-    missing_permissions = decision.get("missing_permissions") or []
-    missing_text = "、".join(missing_permissions) if missing_permissions else "未知"
-    message = f"权限不足，无法{action_label}{normalized_type}任务；当前缺少: {missing_text}"
-
-    return jsonify({
-        "success": False,
-        "error": message,
-        "task_id": task_id,
-        "task_type": normalized_type,
-        "action": action,
-        "required_permissions": decision.get("required_permissions") or [],
-        "missing_permissions": missing_permissions,
-    }), 403
 
 
 @admin_bp.route('/')
@@ -126,7 +103,6 @@ def roles():
 
 @admin_bp.route('/api/scheduler/status')
 @login_required
-@permission_required('scheduler:view')
 def scheduler_status():
     """获取异步任务执行状态API"""
     try:
@@ -174,7 +150,6 @@ def scheduler_status():
 
 @admin_bp.route('/api/dashboard/overview')
 @login_required
-@permission_required('task:view')
 def dashboard_overview():
     """管理后台仪表盘总览数据"""
     try:
@@ -190,7 +165,6 @@ def dashboard_overview():
 
 @admin_bp.route('/api/model-summary')
 @login_required
-@permission_required('task:view')
 def model_summary_api():
     """单模型汇总数据查询。"""
     try:
@@ -227,7 +201,6 @@ def export_model_summary_api():
 
 @admin_bp.route('/api/model-summary/rebuild', methods=['POST'])
 @login_required
-@permission_required('database:model_summary', 'database:manage')
 def rebuild_model_summary_api():
     """重建单模型汇总索引。"""
     try:
@@ -249,7 +222,6 @@ def rebuild_model_summary_api():
 
 @admin_bp.route('/api/model-summary/rebuild/status')
 @login_required
-@permission_required('database:model_summary', 'database:manage')
 def model_summary_rebuild_status_api():
     """查询单模型汇总索引后台重建状态。"""
     job_id = request.args.get('job_id')
@@ -261,17 +233,12 @@ def model_summary_rebuild_status_api():
 
 @admin_bp.route('/api/tasks/<task_id>/runtime-detail')
 @login_required
-@permission_required('task:view')
 def task_runtime_detail(task_id):
     """管理后台任务运行细节"""
     try:
         task = db.session.get(Task, task_id)
         if not task:
             return jsonify({'success': False, 'error': 'task not found'}), 404
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("view", task.task_type, decision, task_id=task_id)
 
         return jsonify({
             'success': True,
@@ -283,7 +250,6 @@ def task_runtime_detail(task_id):
 
 @admin_bp.route('/api/scheduler/cleanup', methods=['POST'])
 @login_required
-@permission_required('scheduler:manage')
 def cleanup_completed_tasks():
     """清理已完成的异步任务记录"""
     try:

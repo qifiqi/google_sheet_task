@@ -6,7 +6,7 @@ from app.models import GoogleSheetToken, GoogleSheetTableType, db
 from app.services.google_sheet_registry_service import get_google_sheet_registry_service
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_token_service import get_google_sheet_token_service, RANDOM_TOKEN_VALUE
-from app.utils.auth import login_required, permission_required
+from app.utils.auth import login_required
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -55,7 +55,6 @@ def _get_worksheets_with_cache(spreadsheet_id: str, token_file: str, proxy_url: 
 
 @google_sheet_api_bp.route('/google-sheet/worksheets', methods=['POST'])
 @login_required
-@permission_required('google_sheet:view')
 def get_worksheets():
     """获取Google Sheet中的所有工作表名称"""
     try:
@@ -81,7 +80,6 @@ def get_worksheets():
 
 @google_sheet_api_bp.route('/google-sheets', methods=['GET', 'POST'])
 @login_required
-@permission_required('google_sheet:view', 'google_sheet:manage')
 def google_sheets():
     """Google Sheet 配置表列表/创建"""
     try:
@@ -125,7 +123,6 @@ def google_sheets():
 
 @google_sheet_api_bp.route('/google-sheets/<int:sheet_id>', methods=['GET', 'PUT', 'DELETE'])
 @login_required
-@permission_required('google_sheet:view', 'google_sheet:manage')
 def google_sheet_detail(sheet_id):
     """Google Sheet 配置详情"""
     try:
@@ -160,7 +157,6 @@ def google_sheet_detail(sheet_id):
 
 @google_sheet_api_bp.route('/google-sheet-tokens', methods=['GET'])
 @login_required
-@permission_required('google_sheet:view')
 def list_google_sheet_tokens():
     """获取Google Sheet Token列表"""
     try:
@@ -178,7 +174,6 @@ def list_google_sheet_tokens():
 
 @google_sheet_api_bp.route('/google-sheet-tokens/<int:token_id>', methods=['GET', 'PUT'])
 @login_required
-@permission_required('google_sheet:view', 'google_sheet:manage')
 def google_sheet_token_detail(token_id):
     """获取或更新 Google Sheet Token"""
     try:
@@ -215,7 +210,6 @@ def google_sheet_token_detail(token_id):
 
 @google_sheet_api_bp.route('/google-sheet-tokens/import', methods=['POST'])
 @login_required
-@permission_required('google_sheet:manage')
 def import_google_sheet_token():
     """Add or import a Google Sheet token"""
     try:
@@ -251,7 +245,6 @@ def import_google_sheet_token():
 
 @google_sheet_api_bp.route('/google-sheet-tokens/<int:token_id>', methods=['DELETE'])
 @login_required
-@permission_required('google_sheet:manage')
 def delete_google_sheet_token(token_id):
     """删除 Google Sheet Token"""
     try:

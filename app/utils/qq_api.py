@@ -381,31 +381,31 @@ class QQStockApi:
             # 计算涨跌额和涨跌幅（腾讯接口不直接提供，用收盘-开盘估算）
             # 注意：严格来说涨跌幅应用昨收计算，但腾讯接口不提供昨收
             # 这里先用开盘价近似（仅供展示，不影响核心OHLCV数据）
-            stock_zde = round(close_price - open_price, 4)
+            change = round(close_price - open_price, 4)
             if open_price != 0:
-                stock_zdf = round((stock_zde / open_price) * 100, 2)
+                pct_change = round((change / open_price) * 100, 2)
             else:
-                stock_zdf = 0.0
+                pct_change = 0.0
 
             # 振幅%
             if low_price != 0:
-                stock_zf = round(((high_price - low_price) / low_price) * 100, 2)
+                amplitude = round(((high_price - low_price) / low_price) * 100, 2)
             else:
-                stock_zf = 0.0
+                amplitude = 0.0
 
             return {
                 'stock_code': stock_code,
                 'stock_date': date_str,
-                'stock_kp': round(open_price, 2),
-                'stock_sp': round(close_price, 2),
-                'stock_zg': round(high_price, 2),
-                'stock_zd': round(low_price, 2),
-                'stock_cjl': volume,
-                'stock_cje': round(turnover_amount, 2),
-                'stock_zf': stock_zf,
-                'stock_zdf': stock_zdf,
-                'stock_zde': round(stock_zde, 2),
-                'stock_hsl': turnover_rate,
+                'open': round(open_price, 2),
+                'close': round(close_price, 2),
+                'high': round(high_price, 2),
+                'low': round(low_price, 2),
+                'volume': volume,
+                'amount': round(turnover_amount, 2),
+                'amplitude': amplitude,
+                'pct_change': pct_change,
+                'change': round(change, 2),
+                'turnover_rate': turnover_rate,
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             }
         except Exception:

@@ -25,7 +25,7 @@ from app.utils.task_error_utils import (
 )
 from app.utils.kline_validation import require_kline_rows
 from app.utils.return_series import build_return_series_fields
-from app.services.kline_service import KlineService
+from app.services.kline_service import KlineService, get_kline_price_field
 from app.utils.market import normalize_market_type
 
 
@@ -63,7 +63,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         index_returns = []
         for index, item in enumerate(kline, start=1):
             try:
-                close_price = float(item['stock_sp'])
+                close_price = float(item['close'])
             except (KeyError, TypeError, ValueError) as error:
                 raise ValueError(f'C7.0.3 第 {index} 条K线收盘价无效') from error
             if close_price <= 0:
@@ -76,7 +76,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
     @staticmethod
     def _validate_c7_0_3_kline(kline):
         for index, item in enumerate(kline, start=1):
-            for field in ('stock_kp', 'stock_zg', 'stock_zd', 'stock_sp'):
+            for field in ('open', 'high', 'low', 'close'):
                 if item.get(field) in (None, ''):
                     raise ValueError(f'C7.0.3 第 {index} 条K线缺少字段 {field}')
 
@@ -593,10 +593,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                         stock_date = item.get('stock_date', "")
                         if is_c7_0_3:
                             cell_updates[f"{c7_0_3_config['date_column']}{cell_num}"] = stock_date
-                            cell_updates[f"{c7_0_3_config['open_column']}{cell_num}"] = item.get('stock_kp')
-                            cell_updates[f"{c7_0_3_config['high_column']}{cell_num}"] = item.get('stock_zg')
-                            cell_updates[f"{c7_0_3_config['low_column']}{cell_num}"] = item.get('stock_zd')
-                            cell_updates[f"{c7_0_3_config['close_column']}{cell_num}"] = item.get('stock_sp')
+                            cell_updates[f"{c7_0_3_config['open_column']}{cell_num}"] = item.get('open')
+                            cell_updates[f"{c7_0_3_config['high_column']}{cell_num}"] = item.get('high')
+                            cell_updates[f"{c7_0_3_config['low_column']}{cell_num}"] = item.get('low')
+                            cell_updates[f"{c7_0_3_config['close_column']}{cell_num}"] = item.get('close')
                         else:
                             cell_updates[f"{input_column_d}{cell_num}"] = stock_date
                             cell_updates[f"{input_column_v}{cell_num}"] = item.get('stock_val', "")
@@ -845,51 +845,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if include_full_year_range and not full_years:
             raise ValueError("include_full_year_range=true 时必须传入 full_years")
 
-        def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
-            # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            # 根据price_mode决定使用开盘价、收盘价或加权平均价
-            price_field = {
-                'kp_price': 'stock_kp',
-                'sp_price': 'stock_sp',
-                'vwap_price': 'stock_vwap',
-                'ohlc_price': 'stock_sp',
-            }.get(price_mode, 'stock_vwap')
-
-            def _project_kline_row(kline):
-                row = {'stock_date': kline['stock_date'], 'stock_val': kline[price_field]}
-                if include_ohlc:
-                    row.update({
-                        'stock_kp': kline.get('stock_kp'),
-                        'stock_zg': kline.get('stock_zg'),
-                        'stock_zd': kline.get('stock_zd'),
-                        'stock_sp': kline.get('stock_sp'),
-                    })
-                return row
-            
-            if market_type == 'cn':
-                if _year:
-                    return [
-                        _project_kline_row(k)
-                        for k in klines if int(k['stock_date'][:4]) == _year
-                    ]
-                return [
-                    _project_kline_row(k)
-                    for k in klines
-                    if _start_date_1 <= k['stock_date'] <= _end_date_1
-                ]
-            else:
-                if _year:
-                    return [
-                        _project_kline_row(k)
-                        for k in klines if int(k['stock_date'][:4]) == _year
-                    ]
-                return [
-                    _project_kline_row(k)
-                    for k in klines
-                    if _start_date_1 <= k['stock_date'] <= _end_date_1
-                ]
-
-
         end_dt = datetime.now() - timedelta(days=1)
         effective_end_date = end_date or end_dt.strftime("%Y-%m-%d")
         year_count = 1
@@ -945,12 +900,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             klines,
             context="原始K线",
             min_rows=1,
-            price_field={
-                'kp_price': 'stock_kp',
-                'sp_price': 'stock_sp',
-                'vwap_price': 'stock_vwap',
-                'ohlc_price': 'stock_sp',
-            }.get(price_mode, 'stock_vwap'),
+            price_field=get_kline_price_field(price_mode),
         )
 
         # 获取K线数据的时间范围
@@ -982,7 +932,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if len(klines) < 30:
             raise Exception(f"股票{stock_code} 数据量不足,k 线数据量小于30条，无法在模型正确产生数据，或者联系开发")
 
-        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=effective_end_date)
+        all_kline = self.kline_service.build_price_rows(
+            klines, price_mode, start_date=start_date, end_date=effective_end_date, include_ohlc=include_ohlc
+        )
         data = []
 
         KLINE_DATA_MAP = {}
@@ -995,7 +947,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
                 if _start_data < data_start_date:
                     _start_data = data_start_date
-                kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
+                kline = self.kline_service.build_price_rows(
+                    klines, price_mode, start_date=_start_data, end_date=_end_data, include_ohlc=include_ohlc
+                )
                 self._require_kline_data(stock_code, Kline_key, kline)
                 for item in parameters:
                     d = {"parameter": item, 'stock_code': stock_code, 'year': Kline_key,'Kline_key':Kline_key}
@@ -1014,7 +968,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
             ]
             self._require_kline_data(stock_code, range_start_year, range_kline)
             range_start_date = range_kline[0]['stock_date']
-            kline = _get_kline(klines, _start_date_1=range_start_date, _end_date_1=effective_end_date)
+            kline = self.kline_service.build_price_rows(
+                klines, price_mode, start_date=range_start_date, end_date=effective_end_date,
+                include_ohlc=include_ohlc,
+            )
             Kline_key = f'{range_start_year}-{range_end_year}'
             self._require_kline_data(stock_code, Kline_key, kline)
             for item in parameters:
@@ -1025,7 +982,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         elif full_years:
             _all_kline = [k for k in klines if start_date <= k['stock_date'] <= effective_end_date]
             for year in full_years:
-                kline = _get_kline(_all_kline, _year=year)
+                kline = self.kline_service.build_price_rows(_all_kline, price_mode, year=year, include_ohlc=include_ohlc)
                 Kline_key = year
                 self._require_kline_data(stock_code, Kline_key, kline)
 

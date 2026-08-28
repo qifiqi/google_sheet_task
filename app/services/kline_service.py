@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 from datetime import datetime, timedelta
 import logging
 from typing import Any, Callable, Iterable
@@ -27,6 +28,31 @@ from app.utils.market import (
 
 logger = logging.getLogger(__name__)
 
+# K线数据行的标准价格字段名，与远程行情数据保持一致，不要重命名：
+# open 开盘价、high 最高价、low 最低价、close 收盘价、vwap 加权平均价。
+KLINE_PRICE_FIELD_BY_MODE = {
+    "kp_price": "open",
+    "sp_price": "close",
+    "vwap_price": "vwap",
+    # OHLC 四价模式的主收益序列仍按收盘价取值
+    "ohlc_price": "close",
+}
+
+# 未知/缺失价格类型的兜底字段，与任务配置默认 price_mode=vwap_price 对应。
+DEFAULT_KLINE_PRICE_FIELD = "vwap"
+
+# random_price 模式可用的取值区间字段对。
+RANDOM_PRICE_RANGE_FIELDS = {
+    "high_low": ("low", "high"),
+    "open_close": ("open", "close"),
+}
+
+
+def get_kline_price_field(price_mode: Any) -> str:
+    """按任务价格类型(price_mode)返回标准K线价格字段；整个项目只允许这一份映射。"""
+    return KLINE_PRICE_FIELD_BY_MODE.get(str(price_mode or "").strip().lower(), DEFAULT_KLINE_PRICE_FIELD)
+
+
 DATA_SOURCE_DFCF = "dfcf"
 DATA_SOURCE_QQ = "qq"
 DATA_SOURCE_YAHOO = "yahoo"
@@ -41,13 +67,31 @@ VALID_DATA_SOURCES = {
 }
 
 
+def _resolve_stock_base_url() -> str | None:
+    """STOCK_BASE_URL 单一来源：应用配置（由 config.py 从环境变量镜像）。
+
+    未配置时返回 None，交由 StockClient 使用 SDK 自身默认地址；
+    业务层不再硬编码兜底地址。
+    """
+    try:
+        from flask import current_app
+        configured = current_app.config.get("STOCK_BASE_URL", "")
+    except RuntimeError:
+        configured = ""
+    return configured or os.environ.get("STOCK_BASE_URL") or None
+
+
 class KlineService:
     """按统一格式读取、标准化并可回填 K 线数据。"""
 
     def __init__(self, dfcf_api: Any | None = None, qq_api: Any | None = None, yahoo_api: Any | None = None):
         self.dfcf_api = dfcf_api or DFCJStockApi()
         self.stock_search_service = StockSearchService(dfcf_api=self.dfcf_api)
-        self.stock_client = StockClient(base_url=os.environ.get("STOCK_BASE_URL", "http://172.18.20.20:8081"))
+        stock_base_url = _resolve_stock_base_url()
+        if stock_base_url:
+            self.stock_client = StockClient(base_url=stock_base_url)
+        else:
+            self.stock_client = StockClient()
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
         self.sources: dict[str, Callable[[dict[str, Any]], Iterable[dict[str, Any]]]] = {
@@ -67,6 +111,56 @@ class KlineService:
         if not source or not callable(handler):
             raise ValueError("数据源名称和处理函数不能为空")
         self.sources[source] = handler
+
+    @staticmethod
+    def build_price_rows(
+        klines: Iterable[dict[str, Any]] | None,
+        price_mode: str | None,
+        *,
+        price_field: str | None = None,
+        year: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        include_ohlc: bool = False,
+        random_price_range: str | None = None,
+        random_generator: Any = None,
+    ) -> list[dict[str, Any]]:
+        """按 price_mode 取价，把 K 线行投影成可直接写入表格的价格序列。
+
+        输出行固定为 {stock_date, stock_val}；include_ohlc=True 时附带 open/high/low/close。
+        price_field 为空时按 price_mode 映射价格字段；year 非空按年份过滤（与 int(stock_date[:4]) 直接比较），
+        否则 start_date/end_date 任一非空按闭区间过滤；都未传则不过滤。
+        random_price 模式在 random_price_range 对应的高低/开收区间内取随机值，
+        random_generator 用于随机价格分组复现同一序列。
+        """
+        resolved_field = price_field or get_kline_price_field(price_mode)
+        normalized_mode = str(price_mode or "").strip().lower()
+        projected: list[dict[str, Any]] = []
+        for kline in klines or []:
+            date = kline["stock_date"]
+            if year:
+                if int(date[:4]) != year:
+                    continue
+            elif start_date is not None or end_date is not None:
+                if not (start_date <= date <= end_date):
+                    continue
+            if normalized_mode == "random_price":
+                lower_field, upper_field = RANDOM_PRICE_RANGE_FIELDS[random_price_range]
+                lower, upper = sorted((float(kline[lower_field]), float(kline[upper_field])))
+                generator = random_generator or random
+                stock_val = generator.uniform(lower, upper)
+            else:
+                stock_val = kline[resolved_field]
+            row = {"stock_date": date, "stock_val": stock_val}
+            if include_ohlc:
+                row.update({
+                    "open": kline.get("open"),
+                    "high": kline.get("high"),
+                    "low": kline.get("low"),
+                    "close": kline.get("close"),
+                })
+            projected.append(row)
+        return projected
 
     @staticmethod
     def get_stock_market(code):
@@ -149,12 +243,12 @@ class KlineService:
                 "stock_date": raw.get("stock_date"),
                 "stock_code": raw.get("stock_code"),
                 "stock_name": raw.get("stock_name"),
-                "stock_kp": raw.get("stock_open"),
-                "stock_zg": raw.get("stock_max"),
-                "stock_zd": raw.get("stock_min"),
-                "stock_sp": raw.get("stock_close"),
-                "stock_cjl": raw.get("stock_volume"),
-                "stock_cje": raw.get("stock_volume_price")
+                "open": raw.get("stock_open"),
+                "high": raw.get("stock_max"),
+                "low": raw.get("stock_min"),
+                "close": raw.get("stock_close"),
+                "volume": raw.get("stock_volume"),
+                "amount": raw.get("stock_volume_price")
             } for raw in data.ret_obj
         ]
 
@@ -190,14 +284,14 @@ class KlineService:
             data = {
                 "stock_code": stock_code,
                 "stock_name": row.get("stock_name"),
-                "stock_open": row.get("stock_kp"),
-                "stock_max": row.get("stock_zg"),
-                "stock_min": row.get("stock_zd"),
-                "stock_close": row.get("stock_sp"),
-                "stock_volume": row.get("stock_cjl"),
-                "stock_volume_price": row.get("stock_cje"),
-                "stock_limit": row.get("stock_zdf"),
-                "stock_limit_price": row.get("stock_zde"),
+                "stock_open": row.get("open"),
+                "stock_max": row.get("high"),
+                "stock_min": row.get("low"),
+                "stock_close": row.get("close"),
+                "stock_volume": row.get("volume"),
+                "stock_volume_price": row.get("amount"),
+                "stock_limit": row.get("pct_change"),
+                "stock_limit_price": row.get("change"),
                 "stock_date": row.get("stock_date")
             }
             loop = asyncio.get_event_loop()
@@ -502,20 +596,20 @@ class KlineService:
             date = raw.get("stock_date") or raw.get("date") or raw.get("trade_date") or raw.get("datetime")
             if not date:
                 continue
-            open_value = raw.get("stock_kp", raw.get("open"))
-            close_value = raw.get("stock_sp", raw.get("close"))
-            high_value = raw.get("stock_zg", raw.get("high"))
-            low_value = raw.get("stock_zd", raw.get("low"))
+            open_value = raw.get("open")
+            close_value = raw.get("close")
+            high_value = raw.get("high")
+            low_value = raw.get("low")
             # 兼容旧的测试/数据库记录：只有开收盘时用两者推导高低价。
             if high_value in (None, "") and open_value not in (None, "") and close_value not in (None, ""):
                 high_value = max(float(open_value), float(close_value))
             if low_value in (None, "") and open_value not in (None, "") and close_value not in (None, ""):
                 low_value = min(float(open_value), float(close_value))
             values = {
-                "stock_kp": open_value,
-                "stock_sp": close_value,
-                "stock_zg": high_value,
-                "stock_zd": low_value,
+                "open": open_value,
+                "close": close_value,
+                "high": high_value,
+                "low": low_value,
             }
             try:
                 values = {key: float(value) for key, value in values.items()}
@@ -528,36 +622,32 @@ class KlineService:
             )
             name = str(raw.get("stock_name") or raw.get("name") or stock_name or "").strip()
             row = dict(raw)
-            volume = raw.get("stock_cjl", raw.get("volume", raw.get("vol", 0))) or 0
+            volume = raw.get("volume", raw.get("vol", 0)) or 0
             try:
                 volume = float(volume)
             except (TypeError, ValueError):
                 volume = 0.0
-            stock_cje = raw.get("stock_cje", raw.get("amount", 0)) or 0
+            amount = raw.get("amount", 0) or 0
             try:
-                stock_cje = float(stock_cje)
+                amount = float(amount)
             except (TypeError, ValueError):
-                stock_cje = 0.0
-            stock_vwap_raw = raw.get("stock_vwap")
+                amount = 0.0
+            vwap_raw = raw.get("vwap")
             try:
-                stock_vwap = float(stock_vwap_raw) if stock_vwap_raw not in (None, "") else (
-                    stock_cje / volume if volume else values["stock_sp"]
+                vwap = float(vwap_raw) if vwap_raw not in (None, "") else (
+                    amount / volume if volume else values["close"]
                 )
             except (TypeError, ValueError):
-                stock_vwap = values["stock_sp"]
+                vwap = values["close"]
             row.update(
                 {
                     **values,
                     "stock_code": code,
                     "stock_name": name,
                     "stock_date": str(date)[:10],
-                    "open": values["stock_kp"],
-                    "close": values["stock_sp"],
-                    "high": values["stock_zg"],
-                    "low": values["stock_zd"],
-                    "stock_cjl": volume,
-                    "stock_cje": stock_cje,
-                    "stock_vwap": stock_vwap,
+                    "volume": volume,
+                    "amount": amount,
+                    "vwap": vwap,
                     "data_source": source,
                     "timestamp": raw.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }

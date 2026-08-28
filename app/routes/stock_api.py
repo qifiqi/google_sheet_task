@@ -1,14 +1,13 @@
 from flask import Blueprint, jsonify, request
 
 from app.services.stock_search_service import StockSearchService
-from app.utils.auth import login_required, permission_required
+from app.utils.auth import login_required
 
 stock_api_bp = Blueprint("stock_api", __name__)
 
 
 @stock_api_bp.route("/search-stocks", methods=["GET"])
 @login_required
-@permission_required("backtest:view")
 def search_stocks():
     """股票搜索查询接口，不参与任务创建和 Sheet 占用检查。"""
     keyword = (request.args.get("q") or "").strip()

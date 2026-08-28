@@ -28,10 +28,6 @@ def test_global_preview_supports_all_c_series_backtests(app_factory, monkeypatch
     with app.app_context():
         _add_task("legacy-preview", "backtest_training", "{}")
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.global_preview.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
         response = app.test_client().get("/global-preview/api/tasks/legacy-preview")
 
         assert response.status_code == 200
@@ -44,10 +40,6 @@ def test_global_preview_supports_google_sheet_c7_tasks(app_factory, monkeypatch)
     with app.app_context():
         _add_task("c7-preview", "google_sheet_C7", "{}")
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.global_preview.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
         monkeypatch.setattr(
             "app.routes.global_preview._build_global_preview_initial_payload",
             lambda _task_id: {"group_mode": "year", "groups": [], "default_group_key": "", "preview": {"task": {}, "summary": {}, "groups": []}},
@@ -90,10 +82,6 @@ def test_global_preview_exports_multiple_c7_0_3_stocks_as_zip(app_factory, monke
             '{"c7_model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
         )
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.global_preview.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
         db.session.add_all([
             TaskResult(
                 task_id="c7-preview-export", step_index=0,

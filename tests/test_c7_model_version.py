@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from app.services.google_sheet_client import GoogleSheet
+from app.services.kline_service import KlineService
 from app.services.google_sheet_service_C7 import GoogleSheetService
 
 
@@ -74,18 +75,18 @@ def test_c7_v03_uses_ohlc_layout_and_c5_result_range(monkeypatch):
             {
                 "stock_date": "2025-01-01",
                 "stock_val": 10,
-                "stock_kp": 9,
-                "stock_zg": 11,
-                "stock_zd": 8,
-                "stock_sp": 10,
+                "open": 9,
+                "high": 11,
+                "low": 8,
+                "close": 10,
             },
             {
                 "stock_date": "2025-01-02",
                 "stock_val": 11,
-                "stock_kp": 10,
-                "stock_zg": 12,
-                "stock_zd": 9,
-                "stock_sp": 11,
+                "open": 10,
+                "high": 12,
+                "low": 9,
+                "close": 11,
             },
         ]
     }
@@ -154,17 +155,17 @@ def test_c7_v03_rewrites_kline_when_stock_changes(monkeypatch):
     kline = [{
         "stock_date": "2025-01-01",
         "stock_val": 10,
-        "stock_kp": 9,
-        "stock_zg": 11,
-        "stock_zd": 8,
-        "stock_sp": 10,
+        "open": 9,
+        "high": 11,
+        "low": 8,
+        "close": 10,
     }, {
         "stock_date": "2025-01-02",
         "stock_val": 11,
-        "stock_kp": 10,
-        "stock_zg": 12,
-        "stock_zd": 9,
-        "stock_sp": 11,
+        "open": 10,
+        "high": 12,
+        "low": 9,
+        "close": 11,
     }]
     success, _result = service._execute_parameter_combination(
         10,
@@ -236,11 +237,11 @@ def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
         current_date = first_date + timedelta(days=offset)
         rows.append({
             "stock_date": current_date.isoformat(),
-            "stock_kp": 10,
-            "stock_zg": 14,
-            "stock_zd": 8,
-            "stock_sp": 12,
-            "stock_vwap": 11,
+            "open": 10,
+            "high": 14,
+            "low": 8,
+            "close": 12,
+            "vwap": 11,
         })
 
     monkeypatch.setattr(
@@ -279,21 +280,24 @@ def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
 
 def test_c7_random_open_close_handles_close_above_open(monkeypatch):
     monkeypatch.setattr(
-        "app.services.google_sheet_service_C7.random.uniform",
+        "app.services.kline_service.random.uniform",
         lambda low, high: (low, high),
     )
 
-    projected = GoogleSheetService._project_c7_kline_row(
-        {
-            "stock_date": "2026-01-01",
-            "stock_kp": 10,
-            "stock_zg": 13,
-            "stock_zd": 8,
-            "stock_sp": 12,
-        },
+    projected = KlineService.build_price_rows(
+        [
+            {
+                "stock_date": "2026-01-01",
+                "open": 10,
+                "high": 13,
+                "low": 8,
+                "close": 12,
+            }
+        ],
         "random_price",
-        "open_close",
-    )
+        include_ohlc=True,
+        random_price_range="open_close",
+    )[0]
 
     assert projected["stock_val"] == (10, 12)
 
@@ -311,10 +315,10 @@ def test_c7_random_groups_are_stable_for_task_restart():
     kline_map = {
         "2026-2025": [{
             "stock_date": "2026-01-01",
-            "stock_kp": 10,
-            "stock_zg": 14,
-            "stock_zd": 8,
-            "stock_sp": 12,
+            "open": 10,
+            "high": 14,
+            "low": 8,
+            "close": 12,
             "stock_val": 12,
         }]
     }
@@ -338,19 +342,19 @@ def test_c7_uses_first_available_kline_when_listing_is_newer_than_start_date(mon
         current_date = first_date + timedelta(days=offset)
         rows.append({
             "stock_date": current_date.isoformat(),
-            "stock_kp": 10,
-            "stock_zg": 11,
-            "stock_zd": 9,
-            "stock_sp": 10,
-            "stock_vwap": 10,
+            "open": 10,
+            "high": 11,
+            "low": 9,
+            "close": 10,
+            "vwap": 10,
         })
     rows.append({
         "stock_date": "2026-08-05",
-        "stock_kp": 11,
-        "stock_zg": 12,
-        "stock_zd": 10,
-        "stock_sp": 11,
-        "stock_vwap": 11,
+        "open": 11,
+        "high": 12,
+        "low": 10,
+        "close": 11,
+        "vwap": 11,
     })
 
     monkeypatch.setattr(

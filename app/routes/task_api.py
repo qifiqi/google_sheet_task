@@ -19,44 +19,13 @@ from app.services.export_file_service import (
     sanitize_export_filename,
 )
 from app.services.task import TaskRuntimeViewService, task_manager
-from app.utils.auth import login_required, permission_required
+from app.utils.auth import login_required
 from app.utils.logger import get_logger
-from app.utils.task_authorization import (
-    authorize_task_type_action,
-    filter_task_dicts_by_action,
-    filter_task_types_by_action,
-)
 
 logger = get_logger(__name__)
 
 task_api_bp = Blueprint('task_api', __name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
-
-TASK_ACTION_LABELS = {
-    "view": "查看",
-    "create": "创建",
-    "delete": "删除",
-    "cancel": "取消",
-    "restart": "重启",
-}
-
-
-def _task_permission_denied(action: str, task_type: str | None, decision: dict, task_id: str | None = None):
-    action_label = TASK_ACTION_LABELS.get(action, action)
-    normalized_type = decision.get("task_type") or str(task_type or "全部")
-    missing_permissions = decision.get("missing_permissions") or []
-    missing_text = "、".join(missing_permissions) if missing_permissions else "未知"
-    message = f"权限不足，无法{action_label}{normalized_type}任务；当前缺少: {missing_text}"
-
-    return jsonify({
-        "status": "error",
-        "message": message,
-        "task_id": task_id,
-        "task_type": normalized_type,
-        "action": action,
-        "required_permissions": decision.get("required_permissions") or [],
-        "missing_permissions": missing_permissions,
-    }), 403
 
 
 def _get_task_or_404(task_id: str):
@@ -67,7 +36,6 @@ def _get_task_or_404(task_id: str):
 
 @task_api_bp.route('/tasks', methods=['GET', 'POST'])
 @login_required
-@permission_required('task:view', 'task:create')
 def tasks():
     """获取任务列表 / 创建任务"""
     try:
@@ -77,19 +45,10 @@ def tasks():
             per_page = request.args.get('per_page', type=int)
             task_status = request.args.get('status')
             keyword = request.args.get('keyword', '', type=str)
-            current_user = getattr(g, "current_user", None)
             allowed_task_types = None
 
-            if task_type:
-                decision = authorize_task_type_action(current_user, "view", task_type)
-                if not decision["allowed"]:
-                    return _task_permission_denied("view", task_type, decision)
-            else:
-                base_view_decision = authorize_task_type_action(current_user, "view", None)
-                if not base_view_decision["allowed"]:
-                    return _task_permission_denied("view", "全部", base_view_decision)
-                distinct_task_types = [item[0] for item in Task.query.with_entities(Task.task_type).distinct().all()]
-                allowed_task_types = filter_task_types_by_action(current_user, "view", distinct_task_types)
+            if not task_type:
+                allowed_task_types = [item[0] for item in Task.query.with_entities(Task.task_type).distinct().all()]
 
             default_page = page or 1
             default_per_page = per_page or 10
@@ -129,7 +88,6 @@ def tasks():
                 status=task_status,
                 keyword=keyword,
             )
-            data["tasks"] = filter_task_dicts_by_action(current_user, "view", data.get("tasks", []))
             return jsonify({
                 "status": "success",
                 "tasks": data["tasks"],
@@ -144,9 +102,6 @@ def tasks():
             description = data.get('description', '')
             task_type = data.get('task_type', 'google_sheet')
             current_user = getattr(g, "current_user", None)
-            decision = authorize_task_type_action(current_user, "create", task_type)
-            if not decision["allowed"]:
-                return _task_permission_denied("create", task_type, decision)
             response, status_code = task_manager.create_and_start_task(
                 name,
                 description,
@@ -167,13 +122,9 @@ def tasks():
 
 @task_api_bp.route('/tasks/batch-create', methods=['POST'])
 @login_required
-@permission_required('task:create')
 def batch_create_tasks():
     """C31 批量创建接口"""
     try:
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "create", "google_sheet")
-        if not decision["allowed"]:
-            return _task_permission_denied("create", "google_sheet", decision)
 
         data = request.get_json() or {}
         logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
@@ -195,7 +146,6 @@ def batch_create_tasks():
 
 @task_api_bp.route('/tasks/<task_id>', methods=['GET', 'DELETE'])
 @login_required
-@permission_required('task:view', 'task:delete')
 def task_detail(task_id):
     """获取/删除任务详情"""
     try:
@@ -204,9 +154,6 @@ def task_detail(task_id):
             return error_response, status_code
 
         action = "view" if request.method == 'GET' else "delete"
-        decision = authorize_task_type_action(getattr(g, "current_user", None), action, task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied(action, task_obj.task_type, decision, task_id=task_id)
 
         if request.method == 'GET':
             task = task_manager.get_task_status(task_id)
@@ -224,17 +171,12 @@ def task_detail(task_id):
 
 @task_api_bp.route('/tasks/<task_id>/config', methods=['PUT'])
 @login_required
-@permission_required('task:create')
 def update_task_config(task_id):
     """更新任务配置"""
     try:
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "create", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("create", task_obj.task_type, decision, task_id=task_id)
 
         data = request.get_json()
         if not data:
@@ -262,17 +204,12 @@ def update_task_config(task_id):
 
 @task_api_bp.route('/tasks/<task_id>/cancel', methods=['POST'])
 @login_required
-@permission_required('task:cancel')
 def cancel_task(task_id):
     """取消任务"""
     try:
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "cancel", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("cancel", task_obj.task_type, decision, task_id=task_id)
 
         success = task_manager.cancel_task(task_id)
         if success:
@@ -284,17 +221,12 @@ def cancel_task(task_id):
 
 @task_api_bp.route('/tasks/<task_id>/logs', methods=['GET'])
 @login_required
-@permission_required('task:view')
 def get_task_logs(task_id):
     """获取任务日志"""
     try:
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
 
         logs = task_manager.get_task_logs(task_id)
         return jsonify({"status": "success", "logs": logs})
@@ -304,17 +236,12 @@ def get_task_logs(task_id):
 
 @task_api_bp.route('/tasks/<task_id>/results', methods=['GET'])
 @login_required
-@permission_required('task:view')
 def get_task_results(task_id):
     """获取任务结果"""
     try:
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
 
         page = request.args.get('page', type=int)
         per_page = request.args.get('per_page', type=int)
@@ -346,10 +273,6 @@ def export_task_results(task_id):
         if not task_obj:
             return error_response, status_code
 
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
-
         results = task_manager.get_task_results(task_id)
         export_file = build_task_export(task_obj, results)
         buffer = BytesIO()
@@ -376,10 +299,6 @@ def export_c7_results_by_stock_code(task_id):
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
 
         results = task_manager.get_task_results(task_id)
         export_file = build_c7_stock_code_export_archive(task_obj, results)
@@ -436,12 +355,6 @@ def batch_export_task_results():
         tasks = Task.query.filter(Task.id.in_(task_ids)).all()
         if not tasks:
             return jsonify({"status": "error", "message": "未找到匹配任务"}), 404
-
-        current_user = getattr(g, "current_user", None)
-        for t in tasks:
-            decision = authorize_task_type_action(current_user, "view", t.task_type)
-            if not decision["allowed"]:
-                return _task_permission_denied("view", t.task_type, decision, task_id=t.id)
 
         # ③ 批量查询 TaskResult
         #    只选择导出需要的列（task_id, step_index, result），跳过 parameters（巨大JSON，
@@ -592,17 +505,12 @@ def batch_export_task_results():
 
 @task_api_bp.route('/tasks/<task_id>/status-check', methods=['GET'])
 @login_required
-@permission_required('task:view')
 def check_task_status(task_id):
     """检查任务本地状态"""
     try:
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
 
         status_check = task_manager.check_local_task_status(task_id)
         return jsonify({"status": "success", "status_check": status_check})
@@ -612,26 +520,12 @@ def check_task_status(task_id):
 
 @task_api_bp.route('/tasks/<task_id>/stop-confirmation', methods=['GET'])
 @login_required
-@permission_required('task:view')
 def get_task_stop_confirmation(task_id):
     """确认任务是否已经完全停止"""
     try:
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(
-            getattr(g, "current_user", None),
-            "view",
-            task_obj.task_type,
-        )
-        if not decision["allowed"]:
-            return _task_permission_denied(
-                "view",
-                task_obj.task_type,
-                decision,
-                task_id=task_id,
-            )
 
         stop_confirmation = runtime_view_service.build_stop_confirmation(task_id)
 
@@ -645,17 +539,12 @@ def get_task_stop_confirmation(task_id):
 
 @task_api_bp.route('/tasks/<task_id>/restart', methods=['POST'])
 @login_required
-@permission_required('task:restart')
 def restart_task(task_id):
     """重启任务"""
     try:
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "restart", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("restart", task_obj.task_type, decision, task_id=task_id)
 
         data = request.get_json() or {}
         resume_from_checkpoint = data.get('resume_from_checkpoint', True)
@@ -670,17 +559,12 @@ def restart_task(task_id):
 
 @task_api_bp.route('/tasks/<task_id>/create-restart', methods=['POST'])
 @login_required
-@permission_required('task:restart')
 def create_restart_task_api(task_id):
     """基于原任务创建新的重启任务"""
     try:
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "restart", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("restart", task_obj.task_type, decision, task_id=task_id)
 
         new_task_id = task_manager.create_restart_task(task_id)
 
@@ -710,17 +594,12 @@ def create_restart_task_api(task_id):
 
 @task_api_bp.route('/tasks/<task_id>/system-logs', methods=['GET'])
 @login_required
-@permission_required('task:view')
 def get_task_system_logs(task_id):
     """获取任务相关的系统日志"""
     try:
         task_obj, error_response, status_code = _get_task_or_404(task_id)
         if not task_obj:
             return error_response, status_code
-
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_obj.task_type)
-        if not decision["allowed"]:
-            return _task_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
 
         import os
         import re

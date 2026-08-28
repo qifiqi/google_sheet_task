@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify
 from app.utils.logger import get_logger
-from app.utils.auth import login_required, permission_required
+from app.utils.auth import login_required
 from app.utils.db_monitor import DatabaseMonitor
 
 logger = get_logger(__name__)
@@ -9,7 +9,6 @@ database_api_bp = Blueprint('database_api', __name__)
 
 @database_api_bp.route('/database/status', methods=['GET'])
 @login_required
-@permission_required('database:manage')
 def get_database_status():
     """获取数据库状态"""
     try:
@@ -21,7 +20,6 @@ def get_database_status():
 
 @database_api_bp.route('/database/vacuum', methods=['POST'])
 @login_required
-@permission_required('database:manage')
 def vacuum_database():
     """压缩数据库"""
     try:
@@ -35,7 +33,6 @@ def vacuum_database():
 
 @database_api_bp.route('/database/suggestions', methods=['GET'])
 @login_required
-@permission_required('database:manage')
 def get_optimization_suggestions():
     """获取数据库优化建议"""
     try:

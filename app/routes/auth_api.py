@@ -6,7 +6,7 @@ from app.models import NavigationMenuItem, Permission, Role, Task, User, db, rol
 from app.navigation import sync_navigation_permissions
 from app.utils.auth import (
     create_access_token, create_refresh_token, decode_token,
-    login_required, permission_required, extract_token_version,
+    login_required, extract_token_version,
 )
 from app.utils.api_response import success, error
 import jwt
@@ -125,7 +125,6 @@ def change_password():
 
 @auth_api_bp.route('/admin/users', methods=['GET'])
 @login_required
-@permission_required('user:view', 'user:manage')
 def list_users():
     users = User.query.all()
     return success(data=[u.to_dict() for u in users])
@@ -133,7 +132,6 @@ def list_users():
 
 @auth_api_bp.route('/admin/users', methods=['POST'])
 @login_required
-@permission_required('user:manage')
 def create_user():
     data = request.get_json() or {}
     username = data.get('username', '').strip()
@@ -162,7 +160,6 @@ def create_user():
 
 @auth_api_bp.route('/admin/users/<int:user_id>', methods=['PUT'])
 @login_required
-@permission_required('user:manage')
 def update_user(user_id):
     user = User.query.get(user_id)
     if not user:
@@ -185,7 +182,6 @@ def update_user(user_id):
 
 @auth_api_bp.route('/admin/users/<int:user_id>', methods=['DELETE'])
 @login_required
-@permission_required('user:manage')
 def delete_user(user_id):
     user = User.query.get(user_id)
     if not user:
@@ -204,7 +200,6 @@ def delete_user(user_id):
 
 @auth_api_bp.route('/admin/roles', methods=['GET'])
 @login_required
-@permission_required('user:view', 'user:manage')
 def list_roles():
     roles = Role.query.all()
     return success(data=[r.to_dict(include_permissions=True) for r in roles])
@@ -212,7 +207,6 @@ def list_roles():
 
 @auth_api_bp.route('/admin/roles', methods=['POST'])
 @login_required
-@permission_required('user:manage')
 def create_role():
     data = request.get_json() or {}
     name = data.get('name', '').strip()
@@ -233,7 +227,6 @@ def create_role():
 
 @auth_api_bp.route('/admin/roles/<int:role_id>', methods=['PUT'])
 @login_required
-@permission_required('user:manage')
 def update_role(role_id):
     role = Role.query.get(role_id)
     if not role:
@@ -252,7 +245,6 @@ def update_role(role_id):
 
 @auth_api_bp.route('/admin/roles/<int:role_id>', methods=['DELETE'])
 @login_required
-@permission_required('user:manage')
 def delete_role(role_id):
     role = Role.query.get(role_id)
     if not role:
@@ -270,7 +262,6 @@ def delete_role(role_id):
 
 @auth_api_bp.route('/admin/permissions', methods=['GET'])
 @login_required
-@permission_required('user:view', 'user:manage')
 def list_permissions():
     sync_navigation_permissions(NavigationMenuItem.query.all())
     db.session.commit()

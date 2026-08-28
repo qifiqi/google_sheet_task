@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
-from flask import Blueprint, current_app, jsonify, render_template, request, send_file, g
+from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 from sqlalchemy.orm import load_only
 from app.extensions import db
 from app.models import Task, TaskResult
@@ -15,8 +15,8 @@ from app.services.backtest_training_api_service import _sanitize_json_value, \
     _build_global_preview_payload, _build_global_preview_workbook, _validate_batch_global_preview_task_ids, \
     _build_zip_member_name
 from app.services.xpl_service import xpl_analyzer
-from app.utils.auth import login_required, permission_required
-from app.utils.task_authorization import authorize_task_type_action, normalize_task_type
+from app.utils.auth import login_required
+from app.utils.task_types import normalize_task_type
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
 legacy_bp = Blueprint("backtest_training_legacy", __name__, url_prefix="/backtest")
@@ -69,7 +69,6 @@ legacy_bp.add_url_rule("/result/<int:result_id>/export-preview", view_func=resul
 
 @bp.route("/api/import-excel", methods=["POST"])
 @login_required
-@permission_required('backtest:create')
 def import_excel():
     excel_file = request.files.get("file")
     if not excel_file or not excel_file.filename:
@@ -99,7 +98,6 @@ def import_excel():
 
 @bp.route("/api/task-results/<task_id>", methods=["GET"])
 @login_required
-@permission_required('backtest:view')
 def get_task_results_by_task_id(task_id):
     """Return paginated task result summaries for the detail page."""
     _, error_response = _load_backtest_task_or_response(task_id, action="view")
@@ -161,7 +159,6 @@ def get_task_results_by_task_id(task_id):
 
 @bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
 @login_required
-@permission_required('backtest:view')
 def get_task_result_detail(task_result_id):
     """Return the full task result payload for the result page."""
     task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
@@ -178,7 +175,6 @@ def get_task_result_detail(task_result_id):
 
 @bp.route("/api/task-result/<int:task_result_id>/export-preview", methods=["GET"])
 @login_required
-@permission_required('backtest:view')
 def get_task_result_export_preview(task_result_id):
     task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
     if error_response:
@@ -226,7 +222,6 @@ def download_task_result_export_preview(task_result_id):
 
 @bp.route("/api/task-summary/<task_id>", methods=["GET"])
 @login_required
-@permission_required('backtest:view')
 def get_task_summary(task_id):
     task, error_response = _load_backtest_task_or_response(task_id, action="view")
     if error_response:
@@ -263,7 +258,6 @@ def get_task_summary(task_id):
 
 @bp.route("/api/global-preview/<task_id>", methods=["GET"])
 @login_required
-@permission_required('backtest:view')
 def get_global_preview(task_id):
     _, error_response = _load_backtest_task_or_response(task_id, action="view")
     if error_response:

@@ -96,24 +96,18 @@ pytest tests/test_specific.py::test_name
 
 `run.py`
 
-`run.py` 不是一个薄壳，但启动期修复逻辑现在已经明显下沉到：
+启动编排已整体下沉到 `app/startup.py`，`run.py` 只负责创建应用并调用 `bootstrap_app(app)`。`bootstrap_app` 依次执行：
 
-- `app/startup.py`
+- `_prepare_runtime_directories()` / `initialize_logging()`
+- `_recover_runtime_resources()`：重置 token / Google Sheet 占用与回测锁（进程内状态）
+- `_initialize_system_metadata()`：幂等播种默认配置（`init_config`）、RBAC（`init_rbac`，含默认管理员）和导航菜单
+- `check_and_cleanup_dead_tasks(app)`：把数据库里 running 但本进程无线程的任务重置为待启动
+- `_start_background_components(app)`：调度器 + 任务看门狗线程
 
-`run.py` 仍然负责串起这些启动动作，核心包括：
+注意：
 
-- 初始化日志
-- `db.create_all()`
-- `ensure_google_sheet_token_schema()`
-- `ensure_user_schema()`
-- `ensure_task_schema()`
-- `reset_google_sheet_token_occupancy()`
-- `reset_google_sheet_occupancy()`
-- `init_config2()`
-- `init_rbac()`
-- `check_and_cleanup_dead_tasks()`
-- `init_scheduler()`
-- `init_task_watchdog()`
+- 表结构不在启动期创建。新环境需先执行 `flask init_db`（兼容兜底）或 `flask db upgrade`（标准迁移），否则 `_initialize_system_metadata()` 会因缺表失败。
+- `_initialize_database_schema()` 在 `bootstrap_app` 中保持注释状态，仅在 CLI `flask init_db` 中调用。
 
 任何影响任务状态、token 占用、RBAC、用户字段、看门狗行为的修改，都要同时评估：
 
@@ -334,6 +328,15 @@ C5 / C7 支持 `config.kline_source`：
 
 不要在业务代码里散落地直接读取环境变量，尤其是运行时配置。已有代码绝大多数通过 `get_config_manager()` 或 `TaskManager._get_config()` 获取。
 
+### config_manager 的类型与缓存规则（2026-08 重构后）
+
+- **类型往返**：写入时字符串原样入库，bool/None/数字/容器统一 `json.dumps`；读取时对字符串先尝试 `json.loads`，并对历史 `str(True)/str(False)/str(None)` 产物（`"True"/"False"/"None"`）做兼容还原。因此 `get_config` 对布尔配置返回真正的 `bool`，不要自己写 `== 'true'` 之类的字符串判断。
+- **布尔解析统一入口**：`config_manager.coerce_bool(value, default)`。新增布尔配置消费方一律用它，不要再造 `.lower() in (...)` 局部解析（历史上曾有 7-8 种写法并存）。
+- **负缓存**：数据库中确认不存在的 key 会以哨兵缓存，后续 `get_config` 直接返回 default、不再查库。注意这意味着运行期新插入的 `SystemConfig` 行（绕过 `set_config` 直接 ORM 写入）在本进程内可能读不到，写配置必须走 `set_config`/`update_configs` 或写后 `refresh_cache()`。
+- **线程安全**：`_cache` 由 `RLock` 保护；`_load_configs` 持锁执行。任务线程、看门狗线程、请求线程并发调用是安全的。
+- **`get_all_configs()` / `get_google_sheet_config()` 默认读缓存**，不再每次全表刷新；需要强一致的管理端入口显式传 `force_refresh=True`。不要在任务参数循环内反复调用这两个方法（每次都是全量字典拷贝）。
+- **日志脱敏**：key 含 `token/secret/password/credential/apikey` 的配置值在日志中打码；`set_config` 的 INFO 日志只记 key。新增敏感配置时沿用该命名约定即可被自动打码。
+
 ## 数据模型
 
 `app/models.py`
@@ -439,6 +442,12 @@ raise
 - `TaskManager` 生产实现已经迁移到 `app/services/task/facade.py` + `app/services/task/*`
 - backtest 搜索接口位于 `app/routes/backtest_training.py` 的 `search_stocks()`
 - 东方财富 K 线代理开关来自 `SystemConfig.dfcf_kline_proxy_enabled`
+- K 线字段标准命名（全项目统一英文 schema，无兼容层）：
+  - K 线数据行统一使用：`open` 开盘、`high` 最高、`low` 最低、`close` 收盘、`volume` 成交量、`amount` 成交额、`vwap` 加权平均价；`stock_date`/`stock_code`/`stock_name` 保留。所有消费 K 线的代码直接读这些字段。
+  - 推送远程的 wire 字段名保持不变：内置库读写（stock_sdk）的 `stock_open`/`stock_max`/`stock_min`/`stock_close`/`stock_volume`/`stock_volume_price`/`stock_limit`/`stock_limit_price`，以及 `db_stock_api.py` payload 键；`KlineService.read_internal_kline_data`/`write_internal_kline_data` 负责两套命名的翻译。
+  - 价格类型 `price_mode`（`kp_price`/`sp_price`/`vwap_price`/`ohlc_price`，C7 另有 `random_price`）到价格字段的映射唯一入口是 `app/services/kline_service.py` 的 `get_kline_price_field()`；按价格取序列统一走 `KlineService.build_price_rows()`（取价 + 年份/区间过滤 + 投影 stock_val，可选 OHLC/随机价），不要在 service 里再写取价/投影包装；未知 price_mode 兜底 `vwap`。
+  - C4 不走 price_mode，固定按市场取价（A股 `open`、美股 `close`），通过 `build_price_rows(price_field=...)` 直传字段。
+  - C7 的 `random_price` 在 `_expand_random_price_groups` 里按 `random_price_range` 分组取随机值（`high_low` 在 low~high 间随机，`open_close` 在 open~close 间随机），随机种子按任务+股票+分组固定，保证可复现。
 
 ## 不要做的事
 

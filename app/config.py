@@ -59,6 +59,7 @@ class BaseConfig:
     PUBLIC_BASE_URL = ''
 
     BASE_URL = 'http://localhost:5000'
+    STOCK_BASE_URL = ''
     TASK_TIMEOUT = 3600
     LOG_LEVEL = 'INFO'
     LOG_FILE = LOGS_DIR / 'app.log'
@@ -88,6 +89,9 @@ class BaseConfig:
         )
         cls.PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
         cls.BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
+        # 股票 SDK(StockClient/KlineService) 的服务地址，单一来源：环境变量 STOCK_BASE_URL。
+        # 未配置时保持空串，由 stock_sdk 使用其默认地址。
+        cls.STOCK_BASE_URL = os.environ.get('STOCK_BASE_URL', '')
         cls.TASK_TIMEOUT = _get_int('TASK_TIMEOUT', 3600)
         cls.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
         cls.LOG_FILE = cls.LOGS_DIR / 'app.log'
@@ -150,6 +154,10 @@ def init_config():
         'google_sheet_token_global_max_usage': {
             'value': 0,
             'description': 'Google token 全局总占用上限，0 表示不限制。',
+        },
+        'google_sheet_http_timeout': {
+            'value': 30,
+            'description': 'Google Sheet 请求默认 HTTP 超时，单位秒。',
         },
         'backtest_training_token_id': {
             'value': '',
@@ -434,32 +442,9 @@ def init_config():
 # RBAC 权限定义，格式：(group, code, name, route_path)
 # route_path 仅供后台展示，标记该权限对应的前端路由入口
 # run.py 启动时幂等插入到数据库
+# 仅保留页面权限（page:*），接口级细粒度权限已移除；
+# 页面权限同时由导航菜单表通过 sync_navigation_permissions 幂等同步。
 PERMISSIONS = [
-    ('task',         'task:view',           '查看任务/日志/结果',    '/admin/tasks'),
-    ('task',         'task:create',         '创建任务',              '/task/create'),
-    ('task',         'task:cancel',         '取消任务',              None),
-    ('task',         'task:restart',        '重启任务',              None),
-    ('task',         'task:delete',         '删除任务',              None),
-    ('template',     'template:view',       '查看模板',              '/admin/templates'),
-    ('template',     'template:manage',     '管理模板',              '/admin/templates'),
-    ('google_sheet', 'google_sheet:view',   '查看 Google Sheet',     '/admin/google-sheets'),
-    ('google_sheet', 'google_sheet:manage', '管理 Google Sheet',     '/admin/google-sheets'),
-    ('google_sheet', 'google_sheet:c3',     '访问 Google Sheet C3',  '/task/list?version=c3'),
-    ('google_sheet', 'google_sheet:c4',     '访问 Google Sheet C4',  '/task/list?version=c4'),
-    ('google_sheet', 'google_sheet:c5',     '访问 Google Sheet C5',  '/task/list?version=c5'),
-    ('google_sheet', 'google_sheet:c7',     '访问 Google Sheet c7',  '/task/list?version=c7'),
-    ('config',       'config:view',         '查看系统配置',          '/admin/config'),
-    ('config',       'config:manage',       '修改系统配置',          '/admin/config'),
-    ('navigation',   'navigation:view',     '查看路由表',            '/admin/navigation'),
-    ('navigation',   'navigation:manage',   '管理路由表',            '/admin/navigation'),
-    ('scheduler',    'scheduler:view',      '查看定时任务',          '/admin/scheduler'),
-    ('scheduler',    'scheduler:manage',    '管理定时任务',          '/admin/scheduler'),
-    ('database',     'database:manage',     '数据库操作',            None),
-    ('database',     'database:model_summary','单模型汇总索引重建',   '/admin/model-summary'),
-    ('user',         'user:view',           '查看用户列表',          '/admin/users'),
-    ('user',         'user:manage',         '管理用户/角色/权限',    '/admin/users'),
-    ('backtest',     'backtest:view',       '查看回测任务',          '/backtest/list'),
-    ('backtest',     'backtest:create',     '创建回测任务',          '/backtest/create'),
     ('page',         'page:admin:dashboard',    '访问仪表盘页面',         '/admin'),
     ('page',         'page:admin:tasks',        '访问任务管理页面',       '/admin/tasks'),
     ('page',         'page:admin:templates',    '访问任务模板页面',       '/admin/templates'),

@@ -905,7 +905,8 @@ def test_create_and_start_releases_sheet_when_start_fails(app_factory):
         assert refreshed.current_task_id is None
 
 
-def test_dashboard_overview_filters_unauthorized_task_types(app_factory):
+def test_dashboard_overview_includes_all_task_types(app_factory):
+    """接口级权限过滤已移除：仪表盘对登录用户展示全部任务类型。"""
     with app_factory.app_context():
         _create_task(task_id="task-c3", status="completed")
         c4_task = Task(
@@ -921,15 +922,14 @@ def test_dashboard_overview_filters_unauthorized_task_types(app_factory):
         db.session.add(c4_task)
         db.session.commit()
 
-        user = _FakeUser({"task:view", "google_sheet:c3"})
+        user = _FakeUser(set())
         overview = TaskRuntimeViewService(TaskManager()).build_dashboard_overview(user)
 
-        assert overview["summary"]["total_tasks"] == 1
+        assert overview["summary"]["total_tasks"] == 2
         assert overview["summary"]["completed_tasks"] == 1
-        assert overview["summary"]["running_tasks"] == 0
-        assert overview["task_type_distribution"] == {"google_sheet": 1}
-        assert len(overview["recent_tasks"]) == 1
-        assert overview["recent_tasks"][0]["task_type"] == "google_sheet"
+        assert overview["summary"]["running_tasks"] == 1
+        assert overview["task_type_distribution"] == {"google_sheet": 1, "google_sheet_c4": 1}
+        assert len(overview["recent_tasks"]) == 2
 
 
 def test_dashboard_query_service_aggregates_by_sql(app_factory):

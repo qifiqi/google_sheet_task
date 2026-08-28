@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 
 from flask import Flask
-from stock_sdk import StockClient
 
 try:
     from dotenv import load_dotenv
@@ -60,8 +59,6 @@ def create_app():
 
     db.init_app(app)
     migrate.init_app(app, db)
-
-    app.stock_client = StockClient(base_url=app.config.get('STOCK_BASE_URL', ''))
 
     from app.services.config_manager import get_config_manager
     get_config_manager().init_app(app)

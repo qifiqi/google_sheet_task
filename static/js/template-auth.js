@@ -193,13 +193,7 @@
         if (!code) {
             return true;
         }
-        // 接口权限保留为元数据，不再限制页面内操作；只有页面权限参与访问控制。
-        if (!String(code).startsWith("page:")) {
-            return true;
-        }
-        if (code === "task:any") {
-            return currentPermissions.some((permission) => String(permission).startsWith("task:"));
-        }
+        // 系统仅保留页面权限（page:*），全部通过页面权限表控制访问。
         return currentPermissions.includes(code);
     }
 

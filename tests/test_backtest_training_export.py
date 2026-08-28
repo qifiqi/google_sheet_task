@@ -6,7 +6,7 @@ from openpyxl import Workbook
 
 from app.extensions import db
 from app.models import Task
-from app.routes.backtest_training import (
+from app.services.backtest_training_api_service import (
     _build_global_preview_workbook,
     _extract_summary_rows,
     _negative_percent_display,
@@ -30,10 +30,6 @@ def test_batch_export_global_preview_returns_zip(app_factory, monkeypatch):
     with app.app_context():
         _add_backtest_task("single-batch-1", name="单品:回测/1")
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.backtest_training.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
         monkeypatch.setattr(
             "app.routes.backtest_training._build_global_preview_payload",
             lambda task_id: {"task": {"name": task_id}, "groups": []},
@@ -74,10 +70,6 @@ def test_batch_export_global_preview_rejects_unfinished_task(app_factory, monkey
     with app.app_context():
         _add_backtest_task("single-running", status="running")
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.backtest_training.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
         response = app.test_client().post(
             "/backtest-training/api/global-preview/batch-export",
             json={"task_ids": ["single-running"]},
@@ -94,10 +86,6 @@ def test_batch_export_global_preview_allows_more_than_ten_tasks(app_factory, mon
         for task_id in task_ids:
             _add_backtest_task(task_id)
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.backtest_training.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
         monkeypatch.setattr(
             "app.routes.backtest_training._build_global_preview_payload",
             lambda task_id: {"task": {"name": task_id}, "groups": []},

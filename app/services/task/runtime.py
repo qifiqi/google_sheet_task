@@ -445,7 +445,7 @@ class TaskRuntimeMixin:
                     self.add_task_log(task_id, "info", error_msg)
                     return False
 
-        max_concurrent = int(self._get_config("max_concurrent_tasks", 5))
+        max_concurrent = int(self._get_config("max_concurrent_tasks", 20))
         if len(self.running_tasks) >= max_concurrent:
             error_msg = (
                 f"任务队列已满，无法启动任务 (当前运行: {len(self.running_tasks)}, "

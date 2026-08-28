@@ -2,7 +2,7 @@ import json
 
 from app.extensions import db
 from app.models import Task, TaskResult
-from app.routes.backtest_training import _extract_task_result_payload
+from app.services.backtest_training_api_service import _extract_task_result_payload
 from app.services.backtest_parameter_utils import normalize_c3_parameter_row
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.task.facade import TaskManager
@@ -73,10 +73,6 @@ def test_task_result_api_includes_configured_stock_code(app_factory, monkeypatch
         db.session.commit()
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.backtest_training.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
         response = app.test_client().get(
             f"/backtest-training/api/task-result/{task_result.id}"
         )
@@ -112,10 +108,6 @@ def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypat
         db.session.commit()
 
         monkeypatch.setenv("AUTH_ENABLED", "false")
-        monkeypatch.setattr(
-            "app.routes.backtest_training.authorize_task_type_action",
-            lambda _user, _action, task_type: {"allowed": True, "task_type": task_type},
-        )
         response = app.test_client().get(
             f"/backtest-training/api/task-result/{task_result.id}"
         )

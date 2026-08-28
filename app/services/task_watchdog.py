@@ -30,7 +30,7 @@ from sqlalchemy import and_, inspect, not_, or_
 from app.config import Config
 from app.extensions import db
 from app.models import Task, TaskLog
-from app.services.config_manager import get_config_manager
+from app.services.config_manager import coerce_bool, get_config_manager
 from app.services.task import task_manager
 from app.utils.task_error_utils import (
     GOOGLE_SHEET_EXECUTION_ERROR_PREFIX,
@@ -134,7 +134,7 @@ class TaskWatchdog:
 
     def _load_runtime_config(self, app) -> _WatchdogConfig:
         return _WatchdogConfig(
-            enabled=bool(self._get_config(app, "watchdog_enabled", True)),
+            enabled=coerce_bool(self._get_config(app, "watchdog_enabled", True), True),
             interval_seconds=int(
                 self._get_config(
                     app, "watchdog_interval_seconds", DEFAULT_INTERVAL_SECONDS

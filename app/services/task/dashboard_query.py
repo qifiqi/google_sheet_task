@@ -8,19 +8,18 @@ from datetime import datetime, timedelta
 from sqlalchemy import func
 
 from app.models import Task
-from app.utils.task_authorization import filter_task_types_by_action
 
 
 class TaskDashboardQueryService:
     """集中处理管理后台任务仪表盘聚合查询。"""
 
-    def get_allowed_task_types(self, user, action: str = "view") -> list[str]:
+    def get_allowed_task_types(self, user=None, action: str = "view") -> list[str]:
         distinct_task_types = [
             item[0]
             for item in Task.query.with_entities(Task.task_type).distinct().all()
             if item and item[0]
         ]
-        return filter_task_types_by_action(user, action, distinct_task_types)
+        return distinct_task_types
 
     def build_empty_overview(self, now: datetime, days: int = 7) -> dict:
         daily_trend = self._build_empty_daily_trend(now, days=days)

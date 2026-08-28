@@ -5,7 +5,7 @@ import pytest
 
 from app.extensions import db
 from app.models import BacktestProductResultCache, TaskResult, TaskResultReturn
-from app.routes.backtest_training import _get_summary_derived_value
+from app.services.backtest_training_api_service import _get_summary_derived_value
 from app.services.backtest_multi_product_service import (
     BacktestMultiProductService,
     normalize_multi_product_config,
@@ -21,9 +21,9 @@ def _kline_rows(start_date, end_date):
     while current <= end:
         rows.append({
             "stock_date": current.strftime("%Y-%m-%d"),
-            "stock_kp": 9,
-            "stock_sp": 10,
-            "stock_vwap": 12,
+            "open": 9,
+            "close": 10,
+            "vwap": 12,
         })
         current += timedelta(days=1)
     return rows
@@ -235,8 +235,8 @@ def test_backtest_c7_0_3_uses_ohlc_and_close_for_index_returns(monkeypatch):
     monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
     kline_rows = _kline_rows("2023-01-01", "2024-02-15")
     for row in kline_rows:
-        row.update({"stock_zg": 11, "stock_zd": 8})
-    next(row for row in kline_rows if row["stock_date"] == "2023-02-16")["stock_sp"] = 12
+        row.update({"high": 11, "low": 8})
+    next(row for row in kline_rows if row["stock_date"] == "2023-02-16")["close"] = 12
     monkeypatch.setattr(service.dfcf_api, "get_stock_kline_data", lambda *_args, **_kwargs: kline_rows)
 
     _combinations, _column_length, kline_map = service._get_all_parameters(
@@ -245,7 +245,7 @@ def test_backtest_c7_0_3_uses_ohlc_and_close_for_index_returns(monkeypatch):
     )
 
     kline = kline_map["2024-2023"]
-    assert {"stock_kp", "stock_zg", "stock_zd", "stock_sp"}.issubset(kline[0])
+    assert {"open", "high", "low", "close"}.issubset(kline[0])
     assert service._calculate_c7_0_3_index_returns(kline)[1] == pytest.approx(0.2)
 
 
@@ -289,8 +289,8 @@ def test_backtest_c7_0_3_execution_writes_ohlc_and_handles_first_div_zero(monkey
     monkeypatch.setattr(service, "_get_execution_poll_delay", lambda *_args: 0)
 
     kline = [
-        {"stock_date": "2025-01-01", "stock_kp": 9, "stock_zg": 11, "stock_zd": 8, "stock_sp": 10, "stock_val": 10},
-        {"stock_date": "2025-01-02", "stock_kp": 10, "stock_zg": 12, "stock_zd": 9, "stock_sp": 11, "stock_val": 11},
+        {"stock_date": "2025-01-01", "open": 9, "high": 11, "low": 8, "close": 10, "stock_val": 10},
+        {"stock_date": "2025-01-02", "open": 10, "high": 12, "low": 9, "close": 11, "stock_val": 11},
     ]
     success, _result, return_date = service._execute_parameter_combination(
         10,

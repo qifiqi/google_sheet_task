@@ -22,7 +22,7 @@ from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
-from app.services.kline_service import KlineService
+from app.services.kline_service import KlineService, get_kline_price_field
 
 
 logger = get_logger(__name__)
@@ -794,37 +794,6 @@ class GoogleSheetService(BaseGoogleSheetService):
 
     def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="dfcf"):
 
-        def _get_kline(klines, _year=None,_start_date_1=None, _end_date_1=None):
-            # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            # 根据price_mode决定使用开盘价、收盘价或加权平均价
-            price_field = {
-                'kp_price': 'stock_kp',
-                'vwap_price': 'stock_vwap',
-            }.get(price_mode, 'stock_sp')
-            
-            if market_type == 'cn':
-                if _year:
-                    return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                        for k in klines if int(k['stock_date'][:4]) == _year
-                    ]
-                return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                    for k in klines
-                    if _start_date_1 <= k['stock_date'] <= _end_date_1
-                ]
-            else:
-                if _year:
-                    return [
-                        {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                        for k in klines if int(k['stock_date'][:4]) == _year
-                    ]
-                return [
-                    {'stock_date': k['stock_date'], 'stock_val': k[price_field]}
-                    for k in klines
-                    if _start_date_1 <= k['stock_date'] <= _end_date_1
-                ]
-
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
@@ -882,11 +851,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 "source": "google_sheet_c5",
             })
 
-        price_field = {
-            'kp_price': 'stock_kp',
-            'sp_price': 'stock_sp',
-            'vwap_price': 'stock_vwap',
-        }.get(price_mode, 'stock_vwap')
+        price_field = get_kline_price_field(price_mode)
         klines = require_kline_rows(
             parameter,
             market_type,
@@ -937,7 +902,9 @@ class GoogleSheetService(BaseGoogleSheetService):
             kline for kline in klines
             if start_date <= kline['stock_date'] <= end_date
         ]
-        all_kline = _get_kline(klines, _start_date_1=start_date, _end_date_1=end_date)
+        all_kline = self.kline_service.build_price_rows(
+            klines, price_mode, start_date=start_date, end_date=end_date
+        )
         all_kline = require_kline_rows(
             parameter,
             market_type,
@@ -1017,7 +984,9 @@ class GoogleSheetService(BaseGoogleSheetService):
                 _start_data = max(start_date, f"{_end_year_1 - year}{end_date[4:]}")
                 if _start_data > _end_data:
                     continue
-                kline = _get_kline(klines, _start_date_1=_start_data, _end_date_1=_end_data)
+                kline = self.kline_service.build_price_rows(
+                    klines, price_mode, start_date=_start_data, end_date=_end_data
+                )
                 if not kline:
                     continue
                 Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
@@ -1035,7 +1004,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         if 'full' in date_range_mode:
             _all_kline = [k for k in klines if start_date <= k['stock_date'] <= end_date]
             for year in range(_start_date, _end_year_1 + 1):
-                kline = _get_kline(_all_kline, _year=year)
+                kline = self.kline_service.build_price_rows(_all_kline, price_mode, year=year)
                 Kline_key = year
                 if not kline:
                     continue
