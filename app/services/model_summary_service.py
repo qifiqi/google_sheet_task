@@ -26,6 +26,7 @@ from app.services.xpl_service import xpl_analyzer
 from app.utils.logger import get_logger
 from app.utils.task_authorization import filter_task_types_by_action, normalize_task_type
 from app.utils.market import infer_market_type, normalize_stock_code, strip_stock_code_suffix
+from app.utils.value_parser import parse_int, parse_percent_like
 
 
 logger = get_logger(__name__)
@@ -189,6 +190,7 @@ class SummaryRecord:
 
 
 def _parse_json(raw: Any, default: Any) -> Any:
+    """处理_parse_json相关逻辑。"""
     if isinstance(raw, (dict, list)):
         return raw
     try:
@@ -197,30 +199,16 @@ def _parse_json(raw: Any, default: Any) -> Any:
         return default
 
 
-def _safe_number(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        number = float(value)
-        return number if math.isfinite(number) else None
-    text = str(value).strip().replace(",", "").replace("$", "")
-    if not text or text == "-":
-        return None
-    try:
-        if text.endswith("%"):
-            return float(text[:-1]) / 100
-        return float(text)
-    except (TypeError, ValueError):
-        return None
+_safe_number = parse_percent_like
 
 
 def _fmt_percent_like(value: Any) -> float | None:
+    """处理_fmt_percent_like相关逻辑。"""
     return _safe_number(value)
 
 
 def _normalize_scientific_text(text: str) -> str:
+    """处理_normalize_scientific_text相关逻辑。"""
     if not SCIENTIFIC_NOTATION_RE.fullmatch(text):
         return text
     try:
@@ -236,6 +224,7 @@ def _normalize_scientific_text(text: str) -> str:
 
 
 def _summary_key_from_label(label: str) -> str:
+    """处理_summary_key_from_label相关逻辑。"""
     text = str(label or "").strip()
     if text in BACKTEST_SUMMARY_KEY_BY_LABEL:
         return BACKTEST_SUMMARY_KEY_BY_LABEL[text]
@@ -244,6 +233,7 @@ def _summary_key_from_label(label: str) -> str:
 
 
 def _first_dict_value(payload: Any) -> dict[str, Any]:
+    """处理_first_dict_value相关逻辑。"""
     if not isinstance(payload, dict) or not payload:
         return {}
     value = next(iter(payload.values()))
@@ -251,6 +241,7 @@ def _first_dict_value(payload: Any) -> dict[str, Any]:
 
 
 def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
+    """处理_all_entry相关逻辑。"""
     if not isinstance(items, list):
         return {}
     for item in items:
@@ -260,6 +251,7 @@ def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
 
 
 def _kline_range(parameters: Any) -> str:
+    """处理_kline_range相关逻辑。"""
     params = parameters if isinstance(parameters, dict) else {}
     kline = params.get("kline")
     if not isinstance(kline, list):
@@ -275,14 +267,18 @@ def _kline_range(parameters: Any) -> str:
 
 
 def _normalize_year_number(value: str) -> int | None:
+    """处理_normalize_year_number相关逻辑。"""
     text = str(value or "").strip()
     if not re.fullmatch(r"\d{2}|\d{4}", text):
         return None
-    year = int(text)
+    year = parse_int(text)
+    if year is None:
+        return None
     return 2000 + year if year < 100 else year
 
 
 def _period_key_from_year_label(value: Any) -> str:
+    """处理_period_key_from_year_label相关逻辑。"""
     text = str(value or "").strip()
     if not text:
         return ""
@@ -306,6 +302,7 @@ def _period_key_from_year_label(value: Any) -> str:
 
 
 def _period_key_from_year_n(value: Any) -> str:
+    """处理_period_key_from_year_n相关逻辑。"""
     text = str(value or "").strip().lower()
     match = re.fullmatch(r"([13])\s*y", text)
     if not match:
@@ -314,6 +311,7 @@ def _period_key_from_year_n(value: Any) -> str:
 
 
 def _period_key_from_c3_task_name(task_name: Any) -> str:
+    """处理_period_key_from_c3_task_name相关逻辑。"""
     text = _strip_task_name_bracket_content(task_name)
     if not text:
         return ""
@@ -324,6 +322,7 @@ def _period_key_from_c3_task_name(task_name: Any) -> str:
 
 
 def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
+    """处理_period_key_for_record相关逻辑。"""
     period_key = _period_key_from_year_label(year_label)
     if period_key:
         return period_key
@@ -341,10 +340,12 @@ def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
 
 
 def _summary_record_group_key(row: SummaryRecord) -> str:
+    """处理_summary_record_group_key相关逻辑。"""
     return row.period_key or row.year_label or row.kline_range or ""
 
 
 def _summary_index_group_expression():
+    """处理_summary_index_group_expression相关逻辑。"""
     return func.coalesce(
         func.nullif(TaskResultSummaryIndex.period_key, ""),
         func.nullif(TaskResultSummaryIndex.year_label, ""),
@@ -354,10 +355,12 @@ def _summary_index_group_expression():
 
 
 def _json_text(value: Any) -> str:
+    """处理_json_text相关逻辑。"""
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
 def _csv_text(value: Any) -> str:
+    """处理_csv_text相关逻辑。"""
     if value in (None, ""):
         return ""
     if isinstance(value, (dict, list)):
@@ -366,6 +369,7 @@ def _csv_text(value: Any) -> str:
 
 
 def _format_csv_metric(value: Any, format_name: str | None = None) -> str:
+    """处理_format_csv_metric相关逻辑。"""
     if value in (None, ""):
         return ""
     if not format_name and isinstance(value, str):
@@ -381,6 +385,7 @@ def _format_csv_metric(value: Any, format_name: str | None = None) -> str:
 
 
 def _format_csv_parameter_summary(value: Any) -> str:
+    """处理_format_csv_parameter_summary相关逻辑。"""
     if isinstance(value, dict):
         parameter_value = value.get("parameter")
         if isinstance(parameter_value, list):
@@ -398,10 +403,12 @@ def _format_csv_parameter_summary(value: Any) -> str:
 
 
 def _interval_display_value(item: dict[str, Any]) -> str:
+    """处理_interval_display_value相关逻辑。"""
     return _csv_text(item.get("kline_range") or item.get("year_label"))
 
 
 def _normalize_market_type(value: Any) -> str:
+    """处理_normalize_market_type相关逻辑。"""
     text = str(value or "").strip().lower()
     if text in {"cn", "a", "a股", "ashare", "china"}:
         return "cn"
@@ -411,10 +418,12 @@ def _normalize_market_type(value: Any) -> str:
 
 
 def _is_cn_stock_code(stock_code: Any) -> bool:
+    """处理_is_cn_stock_code相关逻辑。"""
     return bool(re.fullmatch(r"\d+", strip_stock_code_suffix(stock_code)))
 
 
 def _matches_market_type(stock_code: Any, market_type: str) -> bool:
+    """处理_matches_market_type相关逻辑。"""
     if not market_type:
         return True
     text = str(stock_code or "").strip()
@@ -425,6 +434,7 @@ def _matches_market_type(stock_code: Any, market_type: str) -> bool:
 
 
 def _normalize_excess_return_min(value: Any) -> float | None:
+    """处理_normalize_excess_return_min相关逻辑。"""
     if value in (None, ""):
         return None
     number = _safe_number(value)
@@ -434,6 +444,7 @@ def _normalize_excess_return_min(value: Any) -> float | None:
 
 
 def _parameter_summary(parameters: Any) -> dict[str, Any]:
+    """处理_parameter_summary相关逻辑。"""
     if isinstance(parameters, dict):
         summary = {
             "stock_code": parameters.get("stock_code"),
@@ -452,6 +463,7 @@ def _parameter_summary(parameters: Any) -> dict[str, Any]:
 
 
 def _first_text_value(payload: Any, keys: tuple[str, ...]) -> str:
+    """处理_first_text_value相关逻辑。"""
     if not isinstance(payload, dict):
         return ""
     for key in keys:
@@ -462,6 +474,7 @@ def _first_text_value(payload: Any, keys: tuple[str, ...]) -> str:
 
 
 def _display_model_name(raw_name: Any, task_type: str | None = None) -> str:
+    """处理_display_model_name相关逻辑。"""
     text = str(raw_name or "").strip()
     lower_text = text.lower()
     normalized = normalize_task_type(task_type)
@@ -473,6 +486,7 @@ def _display_model_name(raw_name: Any, task_type: str | None = None) -> str:
 
 
 def _strip_task_name_bracket_content(value: Any) -> str:
+    """处理_strip_task_name_bracket_content相关逻辑。"""
     text = str(value or "").strip()
     if not text:
         return ""
@@ -485,6 +499,7 @@ def _strip_task_name_bracket_content(value: Any) -> str:
 
 
 def _stock_code_from_task_name(task_type: str | None, task_name: str | None) -> str:
+    """处理_stock_code_from_task_name相关逻辑。"""
     text = _strip_task_name_bracket_content(task_name)
     if not text:
         return ""
@@ -505,6 +520,7 @@ def _stock_code_from_task_name(task_type: str | None, task_name: str | None) -> 
 
 
 def _extract_stock_code(task: Task, parameters: Any) -> str:
+    """处理_extract_stock_code相关逻辑。"""
     normalized = normalize_task_type(task.task_type)
     parameter_task_name = _first_text_value(
         parameters,
@@ -514,6 +530,7 @@ def _extract_stock_code(task: Task, parameters: Any) -> str:
     config = _parse_json(task.config, {})
 
     def standardize(value: Any) -> str:
+        """处理standardize相关逻辑。"""
         market_type = config.get("market_type") if isinstance(config, dict) else None
         return normalize_stock_code(value, market_type or infer_market_type(value))
 
@@ -555,12 +572,14 @@ def _extract_stock_code(task: Task, parameters: Any) -> str:
 
 
 def _extract_stock_name(parameters: Any) -> str:
+    """处理_extract_stock_name相关逻辑。"""
     if not isinstance(parameters, dict):
         return ""
     return _first_text_value(parameters, ("stock_name", "name_cn", "product_name"))
 
 
 def _stock_name_from_config(task: Task, parameters: Any, stock_code: str) -> str:
+    """处理_stock_name_from_config相关逻辑。"""
     stock_name = _extract_stock_name(parameters)
     if stock_name:
         return stock_name
@@ -581,6 +600,7 @@ def _stock_name_from_config(task: Task, parameters: Any, stock_code: str) -> str
 
 
 def _extract_candidate_records(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """处理_extract_candidate_records相关逻辑。"""
     return [
         row
         for row in extract_summary_records(task, result)
@@ -589,6 +609,7 @@ def _extract_candidate_records(task: Task, result: TaskResult) -> list[SummaryRe
 
 
 def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float]:
+    """处理_extract_return_analysis_metrics相关逻辑。"""
     flat_result = payload.get("flat_result")
     if isinstance(flat_result, dict):
         payload = {**payload, **flat_result}
@@ -634,6 +655,7 @@ def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float
 
 
 def _first_safe_number(*values: Any) -> float | None:
+    """处理_first_safe_number相关逻辑。"""
     for value in values:
         number = _safe_number(value)
         if number is not None:
@@ -642,6 +664,7 @@ def _first_safe_number(*values: Any) -> float | None:
 
 
 def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """处理_extract_c3相关逻辑。"""
     parameters = _parse_json(result.parameters, [])
     payload = _parse_json(result.result, {})
     if not isinstance(payload, dict):
@@ -680,6 +703,7 @@ def _extract_c3(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
 
 def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """处理_extract_c4_c5相关逻辑。"""
     parameters = _parse_json(result.parameters, {})
     payload = _parse_json(result.result, {})
     if not isinstance(payload, dict):
@@ -742,10 +766,12 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
 
 def _extract_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """处理_extract_c5相关逻辑。"""
     return _extract_c4_c5(task, result)
 
 
 def _format_backtest_percent(value: Any) -> str:
+    """处理_format_backtest_percent相关逻辑。"""
     number = _safe_number(value)
     if number is None:
         return ""
@@ -753,6 +779,7 @@ def _format_backtest_percent(value: Any) -> str:
 
 
 def _format_backtest_number(value: Any) -> str:
+    """处理_format_backtest_number相关逻辑。"""
     number = _safe_number(value)
     if number is None:
         return ""
@@ -760,11 +787,13 @@ def _format_backtest_number(value: Any) -> str:
 
 
 def _negative_number(value: Any) -> float | None:
+    """处理_negative_number相关逻辑。"""
     number = _safe_number(value)
     return -number if number is not None else None
 
 
 def _normalize_backtest_display_value(value: Any) -> str:
+    """处理_normalize_backtest_display_value相关逻辑。"""
     text = str(value or "").strip()
     if not text:
         return ""
@@ -774,6 +803,7 @@ def _normalize_backtest_display_value(value: Any) -> str:
 
 
 def _max_yearly_repair_days(yearly_repair_days: Any) -> float | None:
+    """处理_max_yearly_repair_days相关逻辑。"""
     if not isinstance(yearly_repair_days, dict):
         return None
     values = [
@@ -786,6 +816,7 @@ def _max_yearly_repair_days(yearly_repair_days: Any) -> float | None:
 
 
 def _format_backtest_repair_days(value: Any) -> str:
+    """处理_format_backtest_repair_days相关逻辑。"""
     number = _safe_number(value)
     if number is None:
         return ""
@@ -793,6 +824,7 @@ def _format_backtest_repair_days(value: Any) -> str:
 
 
 def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[str, str]:
+    """处理_extract_backtest_metric_values相关逻辑。"""
     excess_all = _all_entry(calculate_metrics.get("excess_returns"))
     index_profit_monthly_all = _all_entry(calculate_metrics.get("index_profit_monthly"))
     start_profit_monthly_all = _all_entry(calculate_metrics.get("start_profit_monthly"))
@@ -885,10 +917,13 @@ def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[s
 
 
 def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name: str) -> tuple[str, list[dict[str, str]]]:
+    """处理_extract_backtest_summary_rows相关逻辑。"""
     def _safe_all_entry(items: Any) -> dict[str, Any]:
+        """处理_safe_all_entry相关逻辑。"""
         return _all_entry(items, "year")
 
     def _fallback_rows() -> tuple[str, list[dict[str, str]]]:
+        """处理_fallback_rows相关逻辑。"""
         excess_all = _safe_all_entry(calculate_metrics.get("excess_returns"))
         index_profit_monthly_all = _safe_all_entry(calculate_metrics.get("index_profit_monthly"))
         start_profit_monthly_all = _safe_all_entry(calculate_metrics.get("start_profit_monthly"))
@@ -1003,6 +1038,7 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
 
 
 def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """处理_extract_backtest相关逻辑。"""
     parameters = _parse_json(result.parameters, {})
     payload = _parse_json(result.result, {})
     core = _first_dict_value(payload)
@@ -1049,6 +1085,7 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
 
 
 def extract_summary_records(task: Task, result: TaskResult) -> list[SummaryRecord]:
+    """处理extract_summary_records相关逻辑。"""
     if not result.success:
         return []
     normalized = normalize_task_type(task.task_type) or str(task.task_type or "")
@@ -1067,11 +1104,13 @@ class ModelSummaryService:
     """维护和查询单模型汇总索引。"""
 
     def __init__(self):
+        """初始化实例状态。"""
         self._jobs: dict[str, dict[str, Any]] = {}
         self._jobs_lock = threading.Lock()
         self._index_lock = threading.RLock()
 
     def upsert_task_result(self, task_result_id: int, *, commit: bool = True) -> int:
+        """处理upsert_task_result相关逻辑。"""
         with self._index_lock:
             return self._upsert_task_result_locked(task_result_id, commit=commit)
 
@@ -1086,6 +1125,7 @@ class ModelSummaryService:
             return summary
 
     def _upsert_task_result_locked(self, task_result_id: int, *, commit: bool = True) -> int:
+        """处理_upsert_task_result_locked相关逻辑。"""
         record = (
             db.session.query(Task, TaskResult)
             .join(TaskResult, TaskResult.task_id == Task.id)
@@ -1129,6 +1169,7 @@ class ModelSummaryService:
         reset: bool = False,
         progress_task_id: str | None = None,
     ) -> dict[str, int]:
+        """处理rebuild相关逻辑。"""
         with self._index_lock:
             return self._rebuild_locked(
                 task_type=task_type,
@@ -1146,6 +1187,7 @@ class ModelSummaryService:
         reset: bool = False,
         progress_task_id: str | None = None,
     ) -> dict[str, int]:
+        """处理_rebuild_locked相关逻辑。"""
         if reset:
             delete_query = TaskResultSummaryIndex.query
             if task_id:
@@ -1215,6 +1257,7 @@ class ModelSummaryService:
         reset: bool = False,
         created_by_user_id: int | None = None,
     ) -> dict[str, Any]:
+        """处理start_rebuild_job相关逻辑。"""
         with self._jobs_lock:
             active_job = self._active_rebuild_job()
             if active_job:
@@ -1272,6 +1315,7 @@ class ModelSummaryService:
         return job.copy()
 
     def _active_rebuild_job(self) -> dict[str, Any] | None:
+        """处理_active_rebuild_job相关逻辑。"""
         task = (
             Task.query
             .filter(
@@ -1290,6 +1334,7 @@ class ModelSummaryService:
         return job
 
     def get_rebuild_job(self, job_id: str) -> dict[str, Any] | None:
+        """处理get_rebuild_job相关逻辑。"""
         with self._jobs_lock:
             job = self._jobs.get(job_id)
             if job:
@@ -1297,6 +1342,7 @@ class ModelSummaryService:
         return self._job_from_task(job_id)
 
     def latest_rebuild_job(self) -> dict[str, Any] | None:
+        """处理latest_rebuild_job相关逻辑。"""
         with self._jobs_lock:
             if not self._jobs:
                 task = (
@@ -1310,6 +1356,7 @@ class ModelSummaryService:
             return self._job_with_task_status(dict(job))
 
     def _run_rebuild_job(self, app, job_id: str) -> None:
+        """处理_run_rebuild_job相关逻辑。"""
         with self._jobs_lock:
             job = self._jobs[job_id]
             params = dict(job["params"])
@@ -1369,7 +1416,14 @@ class ModelSummaryService:
                     "finished_at": datetime.now().isoformat(),
                 })
 
-    def query(self, user: Any, filters: dict[str, Any]) -> dict[str, Any]:
+    def query(
+        self,
+        user: Any,
+        filters: dict[str, Any],
+        *,
+        ignore_permissions: bool = False,
+    ) -> dict[str, Any]:
+        """处理query相关逻辑。"""
         page = max(int(filters.get("page") or 1), 1)
         per_page = min(max(int(filters.get("per_page") or 50), 1), 200)
         task_type = str(filters.get("task_type") or "").strip()
@@ -1382,11 +1436,23 @@ class ModelSummaryService:
         best_only = str(filters.get("best_only", "true")).lower() not in {"false", "0", "no"}
 
         if not best_only:
-            return self._query_all_results(user, filters, page, per_page, task_type, stock_code)
+            return self._query_all_results(
+                user,
+                filters,
+                page,
+                per_page,
+                task_type,
+                stock_code,
+                ignore_permissions=ignore_permissions,
+            )
 
         query = TaskResultSummaryIndex.query
 
-        allowed_types = filter_task_types_by_action(user, "view", SUPPORTED_TASK_TYPES)
+        allowed_types = (
+            SUPPORTED_TASK_TYPES
+            if ignore_permissions
+            else filter_task_types_by_action(user, "view", SUPPORTED_TASK_TYPES)
+        )
         if not allowed_types:
             return self._empty_response(page, per_page)
 
@@ -1490,7 +1556,14 @@ class ModelSummaryService:
             },
         }
 
-    def export_csv(self, user: Any, filters: dict[str, Any]) -> dict[str, Any]:
+    def export_csv(
+        self,
+        user: Any,
+        filters: dict[str, Any],
+        *,
+        ignore_permissions: bool = False,
+    ) -> dict[str, Any]:
+        """处理export_csv相关逻辑。"""
         export_filters = dict(filters)
         export_filters["page"] = 1
         export_filters["per_page"] = 200
@@ -1499,7 +1572,11 @@ class ModelSummaryService:
         summary_type = str(export_filters.get("summary_type") or "task").strip().lower() or "task"
 
         while True:
-            payload = self.query(user, export_filters)
+            payload = self.query(
+                user,
+                export_filters,
+                ignore_permissions=ignore_permissions,
+            )
             if payload.get("status") != "success":
                 return payload
 
@@ -1520,6 +1597,7 @@ class ModelSummaryService:
         }
 
     def _apply_record(self, item: TaskResultSummaryIndex, row: SummaryRecord) -> None:
+        """处理_apply_record相关逻辑。"""
         item.task_id = row.task_id
         item.task_result_id = row.task_result_id
         item.task_type = row.task_type
@@ -1538,6 +1616,7 @@ class ModelSummaryService:
         item.result_timestamp = row.result_timestamp
 
     def _record_to_dict(self, row: SummaryRecord) -> dict[str, Any]:
+        """处理_record_to_dict相关逻辑。"""
         return {
             "id": None,
             "task_id": row.task_id,
@@ -1569,7 +1648,10 @@ class ModelSummaryService:
         per_page: int,
         task_type: str,
         stock_code: str,
+        *,
+        ignore_permissions: bool = False,
     ) -> dict[str, Any]:
+        """处理_query_all_results相关逻辑。"""
         columns = self._columns_for_task_type(task_type)
         market_type = _normalize_market_type(filters.get("market_type"))
         excess_return_min = _normalize_excess_return_min(filters.get("excess_return_min"))
@@ -1580,7 +1662,11 @@ class ModelSummaryService:
                 "message": "查询全部结果时必须输入单个股票代码",
             }
 
-        allowed_types = filter_task_types_by_action(user, "view", SUPPORTED_TASK_TYPES)
+        allowed_types = (
+            SUPPORTED_TASK_TYPES
+            if ignore_permissions
+            else filter_task_types_by_action(user, "view", SUPPORTED_TASK_TYPES)
+        )
         if not allowed_types:
             return self._empty_response(page, per_page, columns=columns)
         if task_type:
@@ -1667,6 +1753,7 @@ class ModelSummaryService:
         }
 
     def _upsert_batch(self, batch: list[tuple[Task, TaskResult]]) -> int:
+        """处理_upsert_batch相关逻辑。"""
         result_ids = [result.id for _task, result in batch]
         existing_items = (
             TaskResultSummaryIndex.query
@@ -1714,6 +1801,7 @@ class ModelSummaryService:
         task_type: str | None = None,
         task_id: str | None = None,
     ) -> list[str]:
+        """处理_load_rebuild_task_ids相关逻辑。"""
         query = db.session.query(Task.id).filter(Task.status.in_(FINISHED_TASK_STATUSES))
         if task_type:
             query = query.filter(Task.task_type == task_type)
@@ -1729,6 +1817,7 @@ class ModelSummaryService:
         return [row[0] for row in rows]
 
     def _upsert_task_batch(self, task_ids: list[str]) -> dict[str, int]:
+        """处理_upsert_task_batch相关逻辑。"""
         if not task_ids:
             return {"processed": 0, "processed_tasks": 0, "candidate_records": 0}
 
@@ -1783,6 +1872,7 @@ class ModelSummaryService:
         }
 
     def _is_better_record(self, candidate: SummaryRecord, current: SummaryRecord) -> bool:
+        """处理_is_better_record相关逻辑。"""
         candidate_value = candidate.best_metric_value
         current_value = current.best_metric_value
         if candidate_value is None:
@@ -1798,6 +1888,7 @@ class ModelSummaryService:
         return candidate.task_result_id > current.task_result_id
 
     def _stock_summary_query(self, query):
+        """处理_stock_summary_query相关逻辑。"""
         subquery = (
             query
             .with_entities(
@@ -1826,11 +1917,13 @@ class ModelSummaryService:
         )
 
     def _apply_market_type_filter(self, query, market_type: str):
+        """处理_apply_market_type_filter相关逻辑。"""
         if not market_type:
             return query
         return query.filter(TaskResultSummaryIndex.market_type == market_type)
 
     def _apply_stock_keyword_filter(self, query, stock_keyword: str):
+        """处理_apply_stock_keyword_filter相关逻辑。"""
         if not stock_keyword:
             return query
         pattern = f"%{stock_keyword}%"
@@ -1841,6 +1934,7 @@ class ModelSummaryService:
         ))
 
     def _summary_from_items(self, items) -> dict[str, int]:
+        """处理_summary_from_items相关逻辑。"""
         stock_codes: set[str] = set()
         cn_stock_codes: set[str] = set()
         us_stock_codes: set[str] = set()
@@ -1886,6 +1980,7 @@ class ModelSummaryService:
         }
 
     def _count_index_rows(self, task_type: str | None = None, task_id: str | None = None) -> int:
+        """处理_count_index_rows相关逻辑。"""
         query = TaskResultSummaryIndex.query
         if task_id:
             query = query.filter(TaskResultSummaryIndex.task_id == task_id)
@@ -1894,6 +1989,7 @@ class ModelSummaryService:
         return query.count()
 
     def _dedupe_best_per_task(self, task_type: str | None = None, task_id: str | None = None) -> int:
+        """处理_dedupe_best_per_task相关逻辑。"""
         group_expression = _summary_index_group_expression()
         ranked_query = db.session.query(
             TaskResultSummaryIndex.id.label("id"),
@@ -1925,6 +2021,7 @@ class ModelSummaryService:
         return deleted
 
     def _keep_only_best_for_task(self, task_id: str) -> None:
+        """处理_keep_only_best_for_task相关逻辑。"""
         rows = (
             TaskResultSummaryIndex.query
             .filter_by(task_id=task_id)
@@ -1960,6 +2057,7 @@ class ModelSummaryService:
         message: str | None = None,
         level: str = "info",
     ) -> None:
+        """处理_update_rebuild_task相关逻辑。"""
         task = db.session.get(Task, task_id)
         if not task:
             return
@@ -1980,6 +2078,7 @@ class ModelSummaryService:
         db.session.commit()
 
     def _job_with_task_status(self, job: dict[str, Any]) -> dict[str, Any]:
+        """处理_job_with_task_status相关逻辑。"""
         task_id = job.get("task_id") or job.get("job_id")
         task = db.session.get(Task, task_id) if task_id else None
         if task:
@@ -1992,6 +2091,7 @@ class ModelSummaryService:
         return job
 
     def _job_from_task(self, task_id: str | None) -> dict[str, Any] | None:
+        """处理_job_from_task相关逻辑。"""
         if not task_id:
             return None
         task = db.session.get(Task, task_id)
@@ -2012,9 +2112,11 @@ class ModelSummaryService:
         }
 
     def _columns_for_task_type(self, task_type: str | None) -> list[dict[str, str]]:
+        """处理_columns_for_task_type相关逻辑。"""
         return BACKTEST_SUMMARY_COLUMNS if normalize_task_type(task_type) == "backtest_training" else SUMMARY_COLUMNS
 
     def _export_filename(self, filters: dict[str, Any], summary_type: str) -> str:
+        """处理_export_filename相关逻辑。"""
         custom_filename = self._safe_filename_part(filters.get("filename"))
         if custom_filename and custom_filename != "all":
             return custom_filename if custom_filename.lower().endswith(".csv") else f"{custom_filename}.csv"
@@ -2025,6 +2127,7 @@ class ModelSummaryService:
         return f"model_summary_{summary_type}_{task_type}_{stock_code}_{timestamp}.csv"
 
     def _safe_filename_part(self, value: Any) -> str:
+        """处理_safe_filename_part相关逻辑。"""
         text = str(value or "").strip()
         if not text:
             return "all"
@@ -2032,6 +2135,7 @@ class ModelSummaryService:
         return text[:80] or "all"
 
     def _render_csv(self, columns: list[dict[str, str]], items: list[dict[str, Any]]) -> str:
+        """处理_render_csv相关逻辑。"""
         buffer = io.StringIO(newline="")
         writer = csv.writer(buffer)
         headers = (
@@ -2068,6 +2172,7 @@ class ModelSummaryService:
         key: str,
         format_name: str | None = None,
     ) -> str:
+        """处理_csv_column_value相关逻辑。"""
         value = item.get(key)
         if key == "task_type":
             return TASK_TYPE_LABELS.get(str(value or ""), _csv_text(value))
@@ -2083,6 +2188,7 @@ class ModelSummaryService:
         per_page: int,
         columns: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
+        """处理_empty_response相关逻辑。"""
         return {
             "status": "success",
             "columns": columns or SUMMARY_COLUMNS,

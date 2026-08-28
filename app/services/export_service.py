@@ -66,22 +66,27 @@ class _ZipStreamWriter:
     """将 ZipFile 输出的字节块写入队列。"""
 
     def __init__(self, output_queue: Queue):
+        """初始化实例状态。"""
         self.output_queue = output_queue
         self.position = 0
 
     def write(self, data):
+        """向输出队列写入字节数据。"""
         if data:
             self.output_queue.put(bytes(data))
             self.position += len(data)
         return len(data)
 
     def tell(self):
+        """返回当前输出位置。"""
         return self.position
 
     def flush(self):
+        """刷新输出状态。"""
         return None
 
     def writable(self):
+        """判断输出对象是否可写。"""
         return True
 
 
@@ -89,6 +94,7 @@ class ExportService:
     """统一导出业务编排；具体表格格式由现有领域构建器负责。"""
 
     def export_task_results(self, task_id: str) -> GeneratedFile:
+        """处理export_task_results相关逻辑。"""
         task = self._get_task(task_id)
         results = task_manager.get_task_results(task_id)
         if not results:
@@ -100,6 +106,7 @@ class ExportService:
         return GeneratedFile(export.filename, export.mimetype, buffer, buffer.getbuffer().nbytes)
 
     def export_task_results_by_stock(self, task_id: str) -> GeneratedFile:
+        """处理export_task_results_by_stock相关逻辑。"""
         task = self._get_task(task_id)
         results = task_manager.get_task_results(task_id)
         if str(task.task_type or "").strip().lower() != "google_sheet_c7":
@@ -110,6 +117,7 @@ class ExportService:
         return GeneratedFile(export.filename, export.mimetype, export.buffer, export.buffer.getbuffer().nbytes)
 
     def export_task_results_batch(self, task_ids: list[str]) -> GeneratedFile:
+        """处理export_task_results_batch相关逻辑。"""
         task_ids = self._validate_task_ids(task_ids)
         if len(task_ids) > MAX_BATCH_TASKS:
             raise ValueError(f"合并导出最多支持 {MAX_BATCH_TASKS} 个任务，当前选择了 {len(task_ids)} 个")
@@ -166,6 +174,7 @@ class ExportService:
         task_id: str,
         ratios_override: list[Any] | None = None,
     ) -> GeneratedFile:
+        """处理export_global_preview相关逻辑。"""
         task = self._get_task(task_id)
         payload = self._global_preview_payload(task, ratios_override=ratios_override)
         if payload is None:
@@ -183,6 +192,7 @@ class ExportService:
         task_id: str,
         ratios_override: list[Any] | None = None,
     ) -> GeneratedStream:
+        """处理export_global_preview_by_stock相关逻辑。"""
         task = self._get_task(task_id)
         payload = self._global_preview_payload(task, ratios_override=ratios_override)
         if payload is None:
@@ -195,6 +205,7 @@ class ExportService:
         )
 
     def export_global_preview_batch(self, task_ids: list[str]) -> GeneratedFile:
+        """处理export_global_preview_batch相关逻辑。"""
         task_ids = self._validate_task_ids(task_ids)
         if len(task_ids) > MAX_BATCH_TASKS:
             raise ValueError(f"批量导出最多支持 {MAX_BATCH_TASKS} 个任务，当前选择了 {len(task_ids)} 个")
@@ -226,6 +237,7 @@ class ExportService:
         )
 
     def export_backtest_result(self, result_id: int) -> GeneratedFile:
+        """处理export_backtest_result相关逻辑。"""
         task_result = TaskResult.query.filter(TaskResult.id == result_id).first()
         if not task_result:
             raise LookupError("任务结果不存在")
@@ -235,6 +247,7 @@ class ExportService:
         return GeneratedFile(export_data["filename"], mimetype, buffer, buffer.getbuffer().nbytes)
 
     def export_xpl(self, payload: dict[str, Any]) -> GeneratedFile:
+        """处理export_xpl相关逻辑。"""
         if not isinstance(payload, dict) or not payload:
             raise ValueError("请求数据不能为空")
         buffer, mimetype = xpl_analyzer.export_file(payload)
@@ -243,8 +256,19 @@ class ExportService:
             filename = f"{filename}.csv"
         return GeneratedFile(sanitize_export_filename(filename), mimetype, buffer, buffer.getbuffer().nbytes)
 
-    def export_model_summary(self, user: Any, filters: dict[str, Any]) -> GeneratedFile:
-        payload = model_summary_service.export_csv(user, filters)
+    def export_model_summary(
+        self,
+        user: Any,
+        filters: dict[str, Any],
+        *,
+        ignore_permissions: bool = False,
+    ) -> GeneratedFile:
+        """处理export_model_summary相关逻辑。"""
+        payload = model_summary_service.export_csv(
+            user,
+            filters,
+            ignore_permissions=ignore_permissions,
+        )
         if payload.get("status") != "success":
             raise ValueError(payload.get("message") or "模型汇总导出失败")
         content = "\ufeff" + (payload.get("content") or "")
@@ -256,11 +280,12 @@ class ExportService:
         return GeneratedFile(filename, CSV_MIMETYPE, buffer, len(raw))
 
     def export_backtest_word(self, payload: dict[str, Any]) -> GeneratedFile:
-        """生成多产品回测 Word 报告并返回内存字节流。"""
+        """生成策略回测 Word 报告并返回内存字节流。"""
         filename, buffer = strategy_backtest_report_service.generate_word(payload)
         return GeneratedFile(filename, DOCX_MIMETYPE, buffer, buffer.getbuffer().nbytes)
 
     def _get_task(self, task_id: str) -> Task:
+        """按 ID 获取任务。"""
         task = db.session.get(Task, task_id)
         if not task:
             raise LookupError("任务不存在")
@@ -268,6 +293,7 @@ class ExportService:
 
     @staticmethod
     def _validate_task_ids(task_ids: Any) -> list[str]:
+        """校验并规范化任务 ID 列表。"""
         if not isinstance(task_ids, list) or not task_ids:
             raise ValueError("请选择至少一个任务")
         normalized = list(dict.fromkeys(str(item).strip() for item in task_ids if str(item).strip()))
@@ -280,17 +306,20 @@ class ExportService:
         task: Task,
         ratios_override: list[Any] | None = None,
     ) -> dict[str, Any] | None:
+        """构造全局预览数据。"""
         task_type = str(task.task_type or "").strip().lower()
         if task_type == "backtest_multi_product":
             return build_multi_product_global_preview_payload(task.id, ratios_override=ratios_override)
         return _build_global_preview_payload(task.id)
 
     def _stream_stock_zip(self, payload: dict[str, Any], task_name: str):
+        """按股票流式生成 ZIP 文件。"""
         output_queue: Queue = Queue(maxsize=8)
         finished = object()
         task_id = str((payload.get("task") or {}).get("id") or "")
 
         def produce():
+            """生成并输出压缩包内容。"""
             try:
                 stock_payloads = sorted(
                     split_global_preview_payload_by_stock(payload or {}),

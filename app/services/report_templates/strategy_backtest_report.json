@@ -1,11 +1,11 @@
 {
   "validation": {
     "required_fields": ["report_type", "title", "metadata", "sections", "charts", "calculation_notes", "conclusion"],
-    "report_types": ["RPT", "ZRPT"],
+    "report_types": ["RPT-S", "RPT-M"],
     "required_metadata_fields": ["report_id", "model_version", "price_type", "generated_at", "date_range", "total_trading_days", "risk_free_rate"],
     "conditions": [
-      {"field": "report_type", "equals": "ZRPT", "required_fields": ["weight_allocation"]},
-      {"field": "report_type", "equals": "RPT", "required_fields": ["weight_allocation"], "table_row_count": {"field": "weight_allocation", "equals": 1}}
+      {"field": "report_type", "equals": "RPT-M", "required_fields": ["weight_allocation"]},
+      {"field": "report_type", "equals": "RPT-S", "required_fields": ["weight_allocation"], "table_row_count": {"field": "weight_allocation", "equals": 1}}
     ]
   },
   "styles": {

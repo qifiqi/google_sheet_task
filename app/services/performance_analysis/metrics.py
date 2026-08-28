@@ -335,6 +335,51 @@ class PerformanceMetricsMixin:
                 previous_month_data = month_df
 
         return monthly_data
+
+
+    @staticmethod
+    def calculate_weekly_return_data(df):
+        """
+        计算周度收益率数据
+        周收益率 = (周末净值 / 上周末净值 - 1)
+        """
+        weekly_data = []
+
+        # 按年周分组（使用ISO周历）
+        # 创建year_week列用于分组
+        df['year_week'] = df['date'].dt.strftime('%Y-W%W')
+
+        weekly_groups = df.groupby('year_week')
+        previous_week_data = None
+
+        for week, week_df in weekly_groups:
+            if len(week_df) > 0:
+                # 取当周最后一个数据点（周末）
+                current_week_end = week_df.iloc[-1]
+
+                # 确定比较基准
+                if previous_week_data is None:
+                    # 第一周，使用净值1作为基准
+                    comparison_point = 1
+                else:
+                    # 使用上周最后一个数据点作为基准
+                    comparison_point = previous_week_data.iloc[-1]['net_value']
+
+                # 计算周度收益率
+                weekly_return = (current_week_end['net_value'] / comparison_point - 1)
+
+                # 记录周度数据
+                weekly_data.append({
+                    'year_week': week,
+                    'weekly_return': round(weekly_return, 4),
+                    'year': current_week_end['year'],
+                    'date': current_week_end['date']
+                })
+
+                previous_week_data = week_df
+
+        return weekly_data
+
     def calculate_sharpe_ratios_by_periods(self, df):
         """
         计算不同时间段的夏普比率
@@ -501,59 +546,166 @@ class PerformanceMetricsMixin:
             })
 
         return kama_ratios
+    #
+    # def calculate_sotino_ratio(self, monthly_data):
+    #     """
+    #         修改 下行边准差  月 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (12)
+    #                         周 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (52)
+    #                             周均年化收益率	周均收益率*52（所有周）
+    #
+    #         索提诺比例
+    #         月均年化收益率/下行标准差（
+    #             # 下行边准差	所有月低于0的收益率的标准差*√12
+    #             下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
+    #            月均年化收益率	月均收益率*12（所有月）
+    #     """
+    #     sotino_ratios = []
+    #     # 计算月度收益率数据
+    #     monthly_data_df = monthly_data.copy()
+    #     monthly_groups = monthly_data_df.groupby('year')
+    #     for year, year_df in monthly_groups:
+    #         average_monthly_annualized_return = year_df['monthly_return'].mean() * 12
+    #         # monthly_return_0 = year_df[year_df['monthly_return'] < 0]['monthly_return']
+    #         monthly_return_0 = year_df['monthly_return'].mask(
+    #             year_df['monthly_return'] > 0, 0
+    #         )
+    #
+    #         downside_standard_deviation = 0
+    #         sotino_ratio = 0
+    #
+    #         if len(monthly_return_0) > 1:
+    #             downside_standard_deviation = monthly_return_0.std() * np.sqrt(12)
+    #             sotino_ratio = average_monthly_annualized_return / downside_standard_deviation
+    #
+    #         sotino_ratios.append({
+    #             "year": year,
+    #             "sotino_ratio": sotino_ratio,
+    #             "average_monthly_annualized_return": average_monthly_annualized_return,
+    #             "downside_standard_deviation": downside_standard_deviation
+    #         })
+    #
+    #     average_monthly_annualized_return = monthly_data_df['monthly_return'].mean() * 12
+    #     # downside_standard_deviation = monthly_data_df[monthly_data_df['monthly_return'] < 0][
+    #     #                                   'monthly_return'].std() * np.sqrt(12)
+    #     downside_standard_deviation_monthly_return = monthly_data_df['monthly_return'].mask(
+    #         monthly_data_df['monthly_return'] > 0, 0
+    #     )
+    #     downside_standard_deviation = downside_standard_deviation_monthly_return.std() * np.sqrt(12)
+    #     sotino_ratio = average_monthly_annualized_return / downside_standard_deviation
+    #     sotino_ratios.append({
+    #         "year": "all",
+    #         "sotino_ratio": sotino_ratio,
+    #         "average_monthly_annualized_return": average_monthly_annualized_return,
+    #         "downside_standard_deviation": downside_standard_deviation
+    #     })
+    #     return sotino_ratios
 
-    def calculate_sotino_ratio(self, monthly_data: pd.DataFrame):
+    def calculate_sotino_ratio(self, data, frequency='monthly'):
         """
-            TODO 下行边准差  月 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (12)
-                            周 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (52)
-                                周均年化收益率	周均收益率*52（所有周）
+        计算索提诺比率（Sortino Ratio）
 
-            索提诺比例
-            月均年化收益率/下行标准差（
-                # 下行边准差	所有月低于0的收益率的标准差*√12
-                下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
-               月均年化收益率	月均收益率*12（所有月）
+        参数:
+            data: DataFrame，需包含 'year' 列和收益率列
+            frequency: 'monthly' 或 'weekly'，决定计算周期
+
+        返回:
+            list: 每年及整体的索提诺比率计算结果
+
+        以实现 下行边准差  月 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (12)
+                        周 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (52)
+                            周均年化收益率	周均收益率*52（所有周）
+
+        索提诺比例
+        月均年化收益率/下行标准差（
+            # 下行边准差	所有月低于0的收益率的标准差*√12
+            下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
+           月均年化收益率	月均收益率*12（所有月）
         """
-        sotino_ratios = []
-        # 计算月度收益率数据
-        monthly_data_df = monthly_data.copy()
-        monthly_groups = monthly_data_df.groupby('year')
-        for year, year_df in monthly_groups:
-            average_monthly_annualized_return = year_df['monthly_return'].mean() * 12
-            # monthly_return_0 = year_df[year_df['monthly_return'] < 0]['monthly_return']
-            monthly_return_0 = year_df['monthly_return'].mask(
-                year_df['monthly_return'] > 0, 0
+        sortino_ratios = []
+
+        # ==================== 1. 设置周期参数 ====================
+        if frequency == 'weekly':
+            periods_per_year = 52
+            return_col = 'weekly_return'  # 周度收益率列名
+        else:  # 默认月度
+            periods_per_year = 12
+            return_col = 'monthly_return'  # 月度收益率列名
+
+        # ==================== 2. 数据准备 ====================
+        data_df = data.copy()
+
+        # ==================== 3. 按年计算 ====================
+        yearly_groups = data_df.groupby('year')
+
+        for year, year_df in yearly_groups:
+            # 3.1 计算年化收益率
+            avg_return = year_df[return_col].mean()
+            annualized_return = avg_return * periods_per_year
+
+            # 3.2 提取下行收益率（仅负收益，正收益设为0）
+            negative_returns = year_df[return_col].mask(
+                year_df[return_col] > 0, 0
             )
 
-            downside_standard_deviation = 0
-            sotino_ratio = 0
+            # 3.3 计算下行标准差
+            # 公式: SQRT(SUMSQ(负收益率) / COUNT(所有收益率)) * SQRT(周期数)
+            if len(negative_returns) > 1:
+                sum_sq = (negative_returns ** 2).sum()  # 平方和
+                count = len(negative_returns)  # 总月份/周数
+                monthly_downside_std = np.sqrt(sum_sq / count)
+                downside_std = monthly_downside_std * np.sqrt(periods_per_year)
 
-            if len(monthly_return_0) > 1:
-                downside_standard_deviation = monthly_return_0.std() * np.sqrt(12)
-                sotino_ratio = average_monthly_annualized_return / downside_standard_deviation
+                # 3.4 计算索提诺比率
+                sortino_ratio = annualized_return / downside_std if downside_std != 0 else 0
+            else:
+                downside_std = 0
+                sortino_ratio = 0
 
-            sotino_ratios.append({
+            # 3.5 保存结果
+            sortino_ratios.append({
                 "year": year,
-                "sotino_ratio": sotino_ratio,
-                "average_monthly_annualized_return": average_monthly_annualized_return,
-                "downside_standard_deviation": downside_standard_deviation
+                "sortino_ratio": sortino_ratio,
+                "annualized_return": annualized_return,
+                "downside_std": downside_std,
+                "avg_return": avg_return,
+                "negative_count": (negative_returns < 0).sum()  # 负收益月份/周数
             })
 
-        average_monthly_annualized_return = monthly_data_df['monthly_return'].mean() * 12
-        # downside_standard_deviation = monthly_data_df[monthly_data_df['monthly_return'] < 0][
-        #                                   'monthly_return'].std() * np.sqrt(12)
-        downside_standard_deviation_monthly_return = monthly_data_df['monthly_return'].mask(
-            monthly_data_df['monthly_return'] > 0, 0
+        # ==================== 4. 计算整体（所有年份汇总） ====================
+        # 4.1 整体年化收益率
+        overall_avg_return = data_df[return_col].mean()
+        overall_annualized_return = overall_avg_return * periods_per_year
+
+        # 4.2 整体下行收益率
+        overall_negative_returns = data_df[return_col].mask(
+            data_df[return_col] > 0, 0
         )
-        downside_standard_deviation = downside_standard_deviation_monthly_return.std() * np.sqrt(12)
-        sotino_ratio = average_monthly_annualized_return / downside_standard_deviation
-        sotino_ratios.append({
+
+        # 4.3 整体下行标准差
+        if len(overall_negative_returns) > 1:
+            overall_sum_sq = (overall_negative_returns ** 2).sum()
+            overall_count = len(overall_negative_returns)
+            overall_monthly_downside_std = np.sqrt(overall_sum_sq / overall_count)
+            overall_downside_std = overall_monthly_downside_std * np.sqrt(periods_per_year)
+
+            overall_sortino_ratio = overall_annualized_return / overall_downside_std if overall_downside_std != 0 else 0
+        else:
+            overall_downside_std = 0
+            overall_sortino_ratio = 0
+
+        # 4.4 保存整体结果
+        sortino_ratios.append({
             "year": "all",
-            "sotino_ratio": sotino_ratio,
-            "average_monthly_annualized_return": average_monthly_annualized_return,
-            "downside_standard_deviation": downside_standard_deviation
+            "sortino_ratio": overall_sortino_ratio,
+            "annualized_return": overall_annualized_return,
+            "downside_std": overall_downside_std,
+            "avg_return": overall_avg_return,
+            "negative_count": (overall_negative_returns < 0).sum()
         })
-        return sotino_ratios
+
+        return sortino_ratios
+
+
 
     def calculate_profit_annual_percentage(self, returns_rate):
         """
@@ -980,6 +1132,12 @@ class PerformanceMetricsMixin:
             start_monthly_returns_rate = self.calculate_monthly_return_data(start_df)
             start_monthly_returns_rate = pd.DataFrame(start_monthly_returns_rate)
 
+            # 计算周收益率
+            index_weekly_returns_rate = self.calculate_weekly_return_data(index_df)
+            index_weekly_returns_rate = pd.DataFrame(index_weekly_returns_rate)
+
+            start_weekly_returns_rate = self.calculate_weekly_return_data(start_df)
+            start_weekly_returns_rate = pd.DataFrame(start_weekly_returns_rate)
             # 月超额收益
             monthly_excess_returns = self.calculate_monthly_excess_return(index_monthly_returns_rate,
                                                                           start_monthly_returns_rate)
@@ -992,9 +1150,13 @@ class PerformanceMetricsMixin:
             # 月超额波动率
             monthly_excess_volatility = self.calculate_monthly_excess_volatility(monthly_excess_returns)
 
-            # 索提诺比例
-            index_sotino_ratio = self.calculate_sotino_ratio(index_monthly_returns_rate)
-            start_sotino_ratio = self.calculate_sotino_ratio(start_monthly_returns_rate)
+            # 索提诺比例-月
+            index_monthly_sotino_ratio = self.calculate_sotino_ratio(index_monthly_returns_rate)
+            start_monthly_sotino_ratio = self.calculate_sotino_ratio(start_monthly_returns_rate)
+
+            # 索提诺比例-周
+            index_weekly_sotino_ratio = self.calculate_sotino_ratio(index_weekly_returns_rate,"weekly")
+            start_weekly_sotino_ratio = self.calculate_sotino_ratio(start_weekly_returns_rate,"weekly")
 
             # 盈利年百分比（不需要每年）
             index_profit_annual = self.calculate_profit_annual_percentage(index_returns_rate)
@@ -1123,8 +1285,8 @@ class PerformanceMetricsMixin:
             index_loss_days = len(index_df[index_df['daily_return'] < 0])
             start_loss_days = len(start_df[start_df['daily_return'] < 0])
             # 日盈利百分比
-            index_profit_percentage = index_profit_days / total_trading_days
-            start_profit_percentage = start_profit_days / total_trading_days
+            index_days_profit_percentage = index_profit_days / total_trading_days
+            start_days_profit_percentage = start_profit_days / total_trading_days
             # 日均收益率
             index_mean_daily_return = index_df['daily_return'].mean()
             start_mean_daily_return = start_df['daily_return'].mean()
@@ -1283,17 +1445,17 @@ class PerformanceMetricsMixin:
                 "start_sharpe_ratios": start_sharpe_ratios,  # 模型夏普比率
 
                 "index_kama_ratio": index_kama_ratio,  # 卡玛比率
-                "index_sotino_ratio": index_sotino_ratio,  # 索提诺比例
+                "index_sotino_ratio": index_monthly_sotino_ratio,  # 索提诺比例
                 "index_profit_annual": index_profit_annual,  # 盈利年百分比（不需要每年）
                 "index_profit_monthly": index_profit_monthly,  # 盈利月百分比
                 "index_monthly_return_volatility": index_monthly_return_volatility,
-
+                "index_weekly_sotino_ratio":index_weekly_sotino_ratio,
                 "start_kama_ratio": start_kama_ratio,
-                "start_sotino_ratio": start_sotino_ratio,
+                "start_sotino_ratio": start_monthly_sotino_ratio,
                 "start_profit_annual": start_profit_annual,
                 "start_profit_monthly": start_profit_monthly,
                 "start_monthly_return_volatility": start_monthly_return_volatility,
-
+                "start_weekly_sotino_ratio":start_weekly_sotino_ratio,
                 "excess_returns": excess_returns,  # 年超额收益
                 "outperform_year": outperform_year,  # 跑赢年份
                 "monthly_excess_returns": monthly_excess_returns_dict,  # 月超额收益
@@ -1319,10 +1481,33 @@ class PerformanceMetricsMixin:
                 "start_rolling_return_6": start_rolling_return_6,
                 "index_rolling_return_12": index_rolling_return_12,
                 "start_rolling_return_12": start_rolling_return_12,
+                # 四、月度收益分布
+                "total_months":total_months,
+                "index_profit_months":index_profit_months,
+                "start_profit_months": start_profit_months,
+                "index_loss_months": index_loss_months,
+                "start_loss_months": start_loss_months,
+                "index_profit_percentage":index_profit_percentage,
+                "start_profit_percentage": start_profit_percentage,
+
+                "index_max_monthly_return": index_max_monthly_return,
+                "start_max_monthly_return": start_max_monthly_return,
+                "index_max_monthly_loss":index_max_monthly_loss,
+                "start_max_monthly_loss": start_max_monthly_loss,
+
+                "index_monthly_distribution": index_monthly_distribution,
+                "start_monthly_distribution": start_monthly_distribution,
+                "index_monthly_distribution_pct":index_monthly_distribution_pct,
+                "start_monthly_distribution_pct": start_monthly_distribution_pct,
+
+                # 日度收益分布
+                "total_trading_days": total_trading_days,
                 "index_loss_days": index_loss_days,
                 "start_loss_days": start_loss_days,
                 "index_profit_days": index_profit_days,
                 "start_profit_days": start_profit_days,
+                "index_days_profit_percentage": index_days_profit_percentage,
+                "start_days_profit_percentage": start_days_profit_percentage,
                 "index_mean_daily_return": index_mean_daily_return,
                 "start_mean_daily_return": start_mean_daily_return,
                 "index_daily_return_std": index_daily_return_std,
@@ -1331,8 +1516,36 @@ class PerformanceMetricsMixin:
                 "start_mean_daily_kurtosis": start_mean_daily_kurtosis,
                 "index_mean_daily_skewness": index_mean_daily_skewness,
                 "start_mean_daily_skewness": start_mean_daily_skewness,
-                "index_profit_percentage":index_profit_percentage,
-                "start_profit_percentage": start_profit_percentage,
+
+                "index_avg_profit_day_return": index_avg_profit_day_return,
+                "start_avg_profit_day_return": start_avg_profit_day_return,
+                "index_avg_loss_day_return":index_avg_loss_day_return,
+                "start_avg_loss_day_return": start_avg_loss_day_return,
+                "index_profit_loss_ratio": index_profit_loss_ratio,
+                "start_profit_loss_ratio": start_profit_loss_ratio,
+                "index_max_profit_day": index_max_profit_day,
+                "start_max_profit_day": start_max_profit_day,
+                "index_max_loss_day": index_max_loss_day,
+                "start_max_loss_day": start_max_loss_day,
+                "index_days_distribution": index_days_distribution,
+                "start_days_distribution": start_days_distribution,
+                "index_days_distribution_pct": index_days_distribution_pct,
+                "start_days_distribution_pct": start_days_distribution_pct,
+                # 六、超额收益分析
+                "cumulative_excess": cumulative_excess,
+                "annualized_excess_returns": annualized_excess_returns,
+                "average_monthly_excess_return": average_monthly_excess_return,
+                "monthly_excess_return_standard_deviation":monthly_excess_return_standard_deviation,
+                "monthly_excess_win_rate":monthly_excess_win_rate,
+                "max_monthly_excess":max_monthly_excess,
+
+                "excess_distribution":excess_distribution,
+                "excess_distribution_pct":excess_distribution_pct,
+
+                "excess_rolling_return_3":excess_rolling_return_3,
+                "excess_rolling_return_6":excess_rolling_return_6,
+                "excess_rolling_return_12":excess_rolling_return_12,
+
             }
 
             # 打印调试信息
@@ -1344,12 +1557,12 @@ class PerformanceMetricsMixin:
             logger.debug("模型月度收益率: %s", json.dumps(start_returns_rate, indent=4, default=str))
             logger.debug("模型夏普比率: %s", json.dumps(start_sharpe_ratios, indent=4, default=str))
             logger.debug("指数卡玛比率: %s", json.dumps(index_kama_ratio, indent=4, default=str))
-            logger.debug("模型索提诺比例: %s", json.dumps(index_sotino_ratio, indent=4, default=str))
+            logger.debug("模型索提诺比例: %s", json.dumps(index_monthly_sotino_ratio, indent=4, default=str))
             logger.debug("指数盈利年百分比（不需要每年）: %s", json.dumps(index_profit_annual, indent=4, default=str))
             logger.debug("模型盈利月百分比: %s", json.dumps(index_profit_monthly, indent=4, default=str))
             logger.debug("指数月度收益率波动率: %s", json.dumps(index_monthly_return_volatility, indent=4, default=str))
             logger.debug("模型卡玛比率: %s", json.dumps(start_kama_ratio, indent=4, default=str))
-            logger.debug("模型索提诺比例: %s", json.dumps(start_sotino_ratio, indent=4, default=str))
+            logger.debug("模型索提诺比例: %s", json.dumps(start_monthly_sotino_ratio, indent=4, default=str))
             logger.debug("模型盈利年百分比（不需要每年）: %s", json.dumps(start_profit_annual, indent=4, default=str))
             logger.debug("模型盈利月百分比: %s", json.dumps(start_profit_monthly, indent=4, default=str))
             logger.debug("模型月度收益率波动率: %s", json.dumps(start_monthly_return_volatility, indent=4, default=str))
