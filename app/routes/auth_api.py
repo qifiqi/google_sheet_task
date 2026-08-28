@@ -44,7 +44,8 @@ def login():
     if not user.is_active:
         return error('账号已被禁用')
 
-    user.token_version = int(user.token_version or 0) + 1
+    # 登录不递增 token_version：同一账号多端登录互不影响。
+    # 版本号仅在登出/改密/管理员重置时递增以吊销存量令牌。
     token_version = int(user.token_version or 0)
     user.last_login = datetime.utcnow()
     db.session.commit()
@@ -76,8 +77,11 @@ def refresh():
     if int(user.token_version or 0) != token_version:
         return error('登录状态已失效，请重新登录', http_status=401)
 
+    # 滑动续期：refresh 时轮换 refresh_token，活跃用户不再被 7 天硬上限强制下线。
+    current_version = int(user.token_version or 0)
     return success(data={
-        'access_token': create_access_token(user.id, token_version=int(user.token_version or 0)),
+        'access_token': create_access_token(user.id, token_version=current_version),
+        'refresh_token': create_refresh_token(user.id, token_version=current_version),
         'user': user.to_dict(include_permissions=True),
     })
 
@@ -117,8 +121,10 @@ def change_password():
         return error('旧密码错误')
 
     user.password_hash = generate_password_hash(new_pwd)
+    # 改密后吊销所有存量会话（含当前会话），需重新登录。
+    user.token_version = int(user.token_version or 0) + 1
     db.session.commit()
-    return success(message='密码修改成功')
+    return success(message='密码修改成功，所有已登录会话已失效，请重新登录')
 
 
 # ==================== User Management ====================
@@ -172,6 +178,8 @@ def update_user(user_id):
         user.is_active = data['is_active']
     if 'password' in data and data['password']:
         user.password_hash = generate_password_hash(data['password'])
+        # 管理员重置密码后吊销该用户所有存量会话。
+        user.token_version = int(user.token_version or 0) + 1
     if 'role_ids' in data:
         user.roles = Role.query.filter(Role.id.in_(data['role_ids'])).all()
     if 'is_alert_oncall' in data or 'role_ids' in data:

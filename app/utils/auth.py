@@ -16,7 +16,17 @@ SAFE_AUTH_DISABLED_ENVS = {'development'}
 
 
 def _get_secret():
+    """JWT 签名密钥：优先环境变量（部署时固定，重启/换库不变），其次数据库配置，最后默认值。
+
+    启动期 validate_auth_runtime_settings 与本函数读取同一环境变量，
+    避免出现"校验用 A、签名用 B"的断裂。
+    """
+    env_secret = os.environ.get('JWT_SECRET_KEY', '').strip()
+    if env_secret:
+        return env_secret
     cm = get_config_manager()
+    # 环境变量未配置时回退数据库配置/默认值（生产环境应由
+    # validate_auth_runtime_settings 在启动期拒绝默认密钥）。
     return cm.get_config('JWT_SECRET_KEY', DEFAULT_JWT_SECRET)
 
 

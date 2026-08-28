@@ -16,5 +16,8 @@ services:
     environment:
       APP_ENV: production
       FLASK_DEBUG: "false"
+      # JWT 签名密钥：部署机 .env 里必须配置强随机值并保持不变，
+      # 变更会导致所有已签发令牌失效（全员重新登录）。
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
     user: "1000:1000"  # 添加这一行，使用普通用户运行
     stop_grace_period: 45s

@@ -260,7 +260,8 @@
         }
 
         const data = payload.data || {};
-        setTokens(data.access_token, refreshToken);
+        // 后端会轮换 refresh_token（滑动续期），一并更新；兼容旧版仅返回 access_token 的情况。
+        setTokens(data.access_token, data.refresh_token || refreshToken);
         currentUser = data.user || currentUser;
         currentPermissions = Array.isArray(data.user?.permissions) ? data.user.permissions : currentPermissions;
         updateUserPanels();
