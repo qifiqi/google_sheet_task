@@ -1080,12 +1080,12 @@ class PerformanceMetricsMixin:
 
             # 先复制一份基础数据
             base_df = df.copy()
+            base_df['excess_return'] = base_df['start_return'] - base_df['index_return']
 
             # 批量计算所有净值
-            base_df['index_net'] = 1 + base_df['index_return']
-            base_df['start_net'] = 1 + base_df['start_return']
-            base_df['excess_net'] = 1 + base_df['start_return'] - base_df['index_return']
-            base_df['excess_return'] = base_df['start_return'] - base_df['index_return']
+            base_df['index_net'] = 1 * (1 + base_df['index_return'])
+            base_df['start_net'] = 1 * (1 + base_df['start_return'])
+            base_df['excess_net'] = 1 * (1 + base_df['excess_return'])
 
             # 如果需要分别提取（但建议直接用 base_df）
             index_df = base_df[
