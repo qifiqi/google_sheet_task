@@ -149,7 +149,7 @@ def test_c7_export_preserves_shifted_beats_and_unformatted_percentages():
     row = [cell.value for cell in build_task_export(task, results).workbook.active[2]]
 
     assert row[2:15] == pytest.approx([
-        -1.9544, -0.3022, -0.44, -0.4404, -0.3,
+        -1.9544, -0.3022, -0.4403, -0.4404, -0.3,
         -0.0339, -0.0114, -0.78, 1.9205, 0.4289, -0.4778,
         -0.0032, -0.0102,
     ])

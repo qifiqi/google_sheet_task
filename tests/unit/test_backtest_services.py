@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from app.utils.return_series import parse_return_series_fields
 from app.extensions import db
 from app.models import BacktestProductResultCache, TaskResult, TaskResultReturn
 from app.services.backtest_training_api_service import _get_summary_derived_value
@@ -41,6 +42,32 @@ def _product(index, *, parameters=None, is_fixed=False):
     }
 
 
+class _RecordingKlineService:
+    """记录 get_kline_data 调用并可选禁止证券解析的 KlineService 替身。"""
+
+    def __init__(self, rows, allow_resolve=True):
+        self.calls = []
+        self._rows = rows
+
+        class _Search:
+            def __init__(self, allow):
+                self._allow = allow
+
+            def resolve_stock(self, *_args, **_kwargs):
+                if not self._allow:
+                    raise AssertionError("selected stock should not be searched again")
+
+        self.stock_search_service = _Search(allow_resolve)
+
+    def get_kline_data(self, stock_code, market_type, limit, **kwargs):
+        self.calls.append((stock_code, market_type, limit, kwargs))
+        return list(self._rows)
+
+    def build_price_rows(self, klines, price_mode, **kwargs):
+        from app.services.kline_service import KlineService
+
+        return KlineService.build_price_rows(klines, price_mode, **kwargs)
+
 def test_backtest_training_save_result_persists_return_series(app_factory):
     app = app_factory
     with app.app_context():
@@ -59,20 +86,18 @@ def test_backtest_training_save_result_persists_return_series(app_factory):
 
         result = TaskResult.query.filter_by(task_id="task-id").one()
         series = db.session.get(TaskResultReturn, result.return_series_id)
-        payload = json.loads(series.returns_json)
+        rows = parse_return_series_fields(series)
 
         assert result.success is True
-        assert payload["dates"] == ["2024-01-01", "2024-01-02"]
-        assert payload["index_returns"] == [0.1, 0.3]
+        assert [row["date"] for row in rows] == ["2024-01-01", "2024-01-02"]
+        assert [row["index_return"] for row in rows] == [0.1, 0.3]
 
 
 def test_backtest_training_full_range_uses_configured_end_date(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
-    monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
     monkeypatch.setattr(
-        service.dfcf_api,
-        "get_stock_kline_data",
-        lambda *_args, **_kwargs: _kline_rows("2022-01-01", "2025-12-31"),
+        service, "kline_service",
+        _RecordingKlineService(_kline_rows("2022-01-01", "2024-06-30")),
     )
 
     combinations, _column_length, kline_map = service._get_all_parameters(
@@ -95,11 +120,9 @@ def test_backtest_training_full_range_uses_configured_end_date(monkeypatch):
 
 def test_backtest_training_short_listing_history_recent_years_is_allowed(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
-    monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
     monkeypatch.setattr(
-        service.dfcf_api,
-        "get_stock_kline_data",
-        lambda *_args, **_kwargs: _kline_rows("2023-06-01", "2025-12-31"),
+        service, "kline_service",
+        _RecordingKlineService(_kline_rows("2023-06-01", "2025-06-30")),
     )
 
     combinations, _column_length, kline_map = service._get_all_parameters(
@@ -141,15 +164,12 @@ def test_backtest_training_vwap_uses_dfcf_for_en_market(monkeypatch):
     assert search_calls == ["SOXX"]
 
 
-def test_backtest_training_selected_cn_quote_skips_stock_search():
+def test_backtest_training_selected_cn_quote_skips_stock_search(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
-    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-        AssertionError("selected stock should not be searched again")
+    fake_kline = _RecordingKlineService(
+        _kline_rows("2023-01-01", "2024-02-15"), allow_resolve=False
     )
-    kline_calls = []
-    service.dfcf_api.get_stock_kline_data = lambda *args, **_kwargs: (
-        kline_calls.append(args) or _kline_rows("2023-01-01", "2024-02-15")
-    )
+    monkeypatch.setattr(service, "kline_service", fake_kline)
 
     service._get_all_parameters(
         [],
@@ -160,18 +180,17 @@ def test_backtest_training_selected_cn_quote_skips_stock_search():
         end_date="2024-02-15",
     )
 
-    assert kline_calls[0][:2] == ("600000", "1")
+    code, market_type, _limit, kwargs = fake_kline.calls[0]
+    assert (code, market_type) == ("600000", "cn")
+    assert kwargs.get("exchange_market") == "1"
 
 
-def test_backtest_training_selected_en_vwap_quote_skips_stock_search():
+def test_backtest_training_selected_en_vwap_quote_skips_stock_search(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
-    service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-        AssertionError("selected stock should not be searched again")
+    fake_kline = _RecordingKlineService(
+        _kline_rows("2023-01-01", "2024-02-15"), allow_resolve=False
     )
-    kline_calls = []
-    service.dfcf_api.get_stock_kline_data = lambda *args, **_kwargs: (
-        kline_calls.append(args) or _kline_rows("2023-01-01", "2024-02-15")
-    )
+    monkeypatch.setattr(service, "kline_service", fake_kline)
 
     service._get_all_parameters(
         [],
@@ -184,7 +203,9 @@ def test_backtest_training_selected_en_vwap_quote_skips_stock_search():
         end_date="2024-02-15",
     )
 
-    assert kline_calls[0][:2] == ("SOXX", "105")
+    code, market_type, _limit, kwargs = fake_kline.calls[0]
+    assert (code, market_type) == ("SOXX", "en")
+    assert kwargs.get("exchange_market") == "105"
 
 
 def test_backtest_sheet_config_supports_c7():
@@ -232,12 +253,13 @@ def test_backtest_sheet_config_supports_c7_0_3():
 
 def test_backtest_c7_0_3_uses_ohlc_and_close_for_index_returns(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
-    monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
-    kline_rows = _kline_rows("2023-01-01", "2024-02-15")
+    kline_rows = _kline_rows("2023-01-02", "2024-02-15")
     for row in kline_rows:
         row.update({"high": 11, "low": 8})
     next(row for row in kline_rows if row["stock_date"] == "2023-02-16")["close"] = 12
-    monkeypatch.setattr(service.dfcf_api, "get_stock_kline_data", lambda *_args, **_kwargs: kline_rows)
+    monkeypatch.setattr(
+        service, "kline_service", _RecordingKlineService(kline_rows)
+    )
 
     _combinations, _column_length, kline_map = service._get_all_parameters(
         [], [1], [["2.3", "3"]], "600000", price_mode="ohlc_price",

@@ -24,7 +24,6 @@ def test_ensure_google_sheet_registry_schema_is_portable(app_factory):
 
 
 def test_ensure_scheduled_task_schema_adds_lock_fields_to_legacy_table(app_factory):
-    db.session.execute(text("DROP TABLE scheduled_tasks"))
     db.session.execute(
         text(
             """
@@ -104,7 +103,6 @@ def test_cleanup_stale_backtest_sheet_run_locks_keeps_running_task_locks(app_fac
 
 
 def test_ensure_task_result_summary_index_schema_adds_period_key_to_legacy_table(app_factory):
-    db.session.execute(text("DROP TABLE task_result_summary_index"))
     db.session.execute(
         text(
             """

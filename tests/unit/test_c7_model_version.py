@@ -251,7 +251,7 @@ def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
     monkeypatch.setattr(
         service.dfcf_api,
         "get_search_list_by_stock_code",
-        lambda _stock_code, _limit: [{"market": "1", "shortName": "测试股票"}],
+        lambda _stock_code, _limit: [{"code": _stock_code, "market": "1", "shortName": "测试股票", "status": 10}],
     )
     monkeypatch.setattr(
         service.dfcf_api,
@@ -365,7 +365,7 @@ def test_c7_uses_first_available_kline_when_listing_is_newer_than_start_date(mon
     monkeypatch.setattr(
         service.dfcf_api,
         "get_search_list_by_stock_code",
-        lambda _stock_code, _limit: [{"market": "1", "shortName": "测试股票"}],
+        lambda _stock_code, _limit: [{"code": _stock_code, "market": "1", "shortName": "测试股票", "status": 10}],
     )
     monkeypatch.setattr(
         service.dfcf_api,

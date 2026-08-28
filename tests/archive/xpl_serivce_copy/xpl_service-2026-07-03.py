@@ -516,7 +516,7 @@ class XPLAnalyzer:
 
     def calculate_sotino_ratio(self, monthly_data: pd.DataFrame):
         """
-            所提诺比例
+            索提诺比例
             月均年化收益率/下行标准差	
                 # 下行边准差	所有月低于0的收益率的标准差*√12
                 下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
@@ -1358,7 +1358,7 @@ class XPLAnalyzer:
             start_monthly_returns_rate = self.calculate_monthly_return_data(start_df)
             start_monthly_returns_rate = pd.DataFrame(start_monthly_returns_rate)
 
-            # 所提诺比例
+            # 索提诺比例
             index_sotino_ratio = self.calculate_sotino_ratio(index_monthly_returns_rate)
             start_sotino_ratio = self.calculate_sotino_ratio(start_monthly_returns_rate)
 
@@ -1404,8 +1404,8 @@ class XPLAnalyzer:
             excess_sharp = (monthly_excess_return_diff_mean * 12) / (
                     monthly_excess_return_standard_deviation * np.sqrt(12))
 
-            # 超额所提诺 = 月超额收益（均值） * 12 / (下行月超额收益率标准差 * 根号12) (老版本移除)
-            # 超额所提诺 = 月超额收益（均值） * 12 / (月超额收益率标准差 * 根号12)(大于0的设置0)
+            # 超额索提诺 = 月超额收益（均值） * 12 / (下行月超额收益率标准差 * 根号12) (老版本移除)
+            # 超额索提诺 = 月超额收益（均值） * 12 / (月超额收益率标准差 * 根号12)(大于0的设置0)
             monthly_excess_returns_diff = monthly_excess_returns['monthly_excess_return_diff'].mask(
                 monthly_excess_returns['monthly_excess_return_diff'] > 0, 0
             )
@@ -1437,7 +1437,7 @@ class XPLAnalyzer:
                 "start_sharpe_ratios": start_sharpe_ratios,  # 模型夏普比率
 
                 "index_kama_ratio": index_kama_ratio,  # 卡玛比率
-                "index_sotino_ratio": index_sotino_ratio,  # 所提诺比例
+                "index_sotino_ratio": index_sotino_ratio,  # 索提诺比例
                 "index_profit_annual": index_profit_annual,  # 盈利年百分比（不需要每年）
                 "index_profit_monthly": index_profit_monthly,  # 盈利月百分比
                 "index_monthly_return_volatility": index_monthly_return_volatility,
@@ -1455,7 +1455,7 @@ class XPLAnalyzer:
                 "monthly_excess_volatility": monthly_excess_volatility,  # 月超额波动率
                 "excess_drawdown_winning_rate": excess_drawdown_winning_rate,  # 超额回撤胜率
                 "excess_sharp": excess_sharp,  # 超额夏普
-                "excess_of_promissory_note": excess_of_promissory_note,  # 超额所提诺
+                "excess_of_promissory_note": excess_of_promissory_note,  # 超额索提诺
                 "index_maximum_number_of_backtest_repair_days": index_maximum_number_of_backtest_repair_days,
                 # 最大回测修复天数 index
                 "start_maximum_number_of_backtest_repair_days": start_maximum_number_of_backtest_repair_days,
@@ -1473,12 +1473,12 @@ class XPLAnalyzer:
             logger.debug("模型月度收益率: %s", json.dumps(start_returns_rate, indent=4, default=str))
             logger.debug("模型夏普比率: %s", json.dumps(start_sharpe_ratios, indent=4, default=str))
             logger.debug("指数卡玛比率: %s", json.dumps(index_kama_ratio, indent=4, default=str))
-            logger.debug("模型所提诺比例: %s", json.dumps(index_sotino_ratio, indent=4, default=str))
+            logger.debug("模型索提诺比例: %s", json.dumps(index_sotino_ratio, indent=4, default=str))
             logger.debug("指数盈利年百分比（不需要每年）: %s", json.dumps(index_profit_annual, indent=4, default=str))
             logger.debug("模型盈利月百分比: %s", json.dumps(index_profit_monthly, indent=4, default=str))
             logger.debug("指数月度收益率波动率: %s", json.dumps(index_monthly_return_volatility, indent=4, default=str))
             logger.debug("模型卡玛比率: %s", json.dumps(start_kama_ratio, indent=4, default=str))
-            logger.debug("模型所提诺比例: %s", json.dumps(start_sotino_ratio, indent=4, default=str))
+            logger.debug("模型索提诺比例: %s", json.dumps(start_sotino_ratio, indent=4, default=str))
             logger.debug("模型盈利年百分比（不需要每年）: %s", json.dumps(start_profit_annual, indent=4, default=str))
             logger.debug("模型盈利月百分比: %s", json.dumps(start_profit_monthly, indent=4, default=str))
             logger.debug("模型月度收益率波动率: %s", json.dumps(start_monthly_return_volatility, indent=4, default=str))
@@ -1592,7 +1592,7 @@ class XPLAnalyzer:
         start_kama_ratio_all = [i for i in start_kama_ratios if i['year'] == 'all'][0]
         start_kama_ratio = start_kama_ratio_all.get('kama_ratio')
 
-        # 所提诺比率
+        # 索提诺比率
         index_sotino_ratios = analyze_result.get('index_sotino_ratio')
         index_sotino_ratio_all = [i for i in index_sotino_ratios if i['year'] == 'all'][0]
         index_sotino_ratio = index_sotino_ratio_all.get('sotino_ratio')
@@ -1630,9 +1630,9 @@ class XPLAnalyzer:
             ["回撤", "超额最大修复天数", "", f"{excess_maximum_number_of_backtest_repair_days}"],
             ["比率", "夏普比率", f"{index_sharpe_ratio:.2}", f"{start_sharpe_ratio:.2}"],  # 注意：数字后面有空格
             ["比率", "卡玛比率", f"{index_kama_ratio:.2}", f"{start_kama_ratio:.2}"],
-            ["比率", "所提诺比率", f"{index_sotino_ratio:.2}", f"{start_sotino_ratio:.2}"],
+            ["比率", "索提诺比率", f"{index_sotino_ratio:.2}", f"{start_sotino_ratio:.2}"],
             ["夏普", "超额夏普", f"", f"{excess_sharp:.2}"],
-            ["所提诺", "超额所提诺比率", f"", f"{excess_of_promissory_note:.2}"]
+            ["索提诺", "超额索提诺比率", f"", f"{excess_of_promissory_note:.2}"]
         ]
 
         data_2_2d = [

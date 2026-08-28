@@ -64,20 +64,33 @@ flask db upgrade
 
 注意：本项目并不总是完全依赖标准迁移流。`run.py` 里还包含若干启动时 schema 修补逻辑，因此遇到线上脏库问题时要先看 `run.py`。
 
-### 测试
+### 测试（2026-08-29 重组后）
 
 ```bash
-pytest
-pytest tests/test_specific.py::test_name
+pip install -r requirements-dev.txt   # pytest（运行依赖不变）
+pytest                                 # 全量：tests/unit + tests/integration
+pytest tests/unit/test_p0_p1_refactor.py::test_name   # 定向
 ```
 
-注意：
+目录结构：
 
-- 当前仓库里的测试并不全是“开箱即跑”的纯单元测试
-- `tests/test/google_sheet_test.py`、`tests/test/token_test.py` 这类文件依赖本地 token 文件或外部环境，`pytest` 全量收集失败时不要第一时间误判为本次代码改动引入
-- 更适合作为当前主分支结构回归入口的是：
-  - `tests/test/test_p0_p1_refactor.py`
-  - 以及与本次改动直接相关的定向测试
+- `tests/unit/`：服务、工具、模型层单元测试（主力回归入口 `tests/unit/test_p0_p1_refactor.py`）
+- `tests/integration/`：通过 Flask test_client 的接口与页面集成测试
+- `tests/archive/`：历史备份（legacy_services、旧模板拷贝、demos 等），`pytest.ini` 的
+  `norecursedirs` 已排除，不参与收集，不要在里面新增正式测试
+- `pytest.ini`：统一配置。`addopts` 带 `--basetemp=.pytest_tmp`，用于绕开本机系统
+  Temp 目录 ACL 损坏（否则 setup 阶段报 `PermissionError: [WinError 5]`）
+
+约定：
+
+- 新增测试按层放入 `unit/` 或 `integration/`；修改 K 线/搜索相关测试时，fake 的东方财富
+  搜索结果必须含 `code`/`market`/`status`/`shortName`（`StockSearchService._normalize_result` 契约）
+- `tests/unit/test_xpl_service.py`、`tests/unit/test_backtest_training_export.py`、
+  `tests/integration/test_backtest_training_export_preview.py`、
+  `tests/unit/test_model_summary_service.py` 中有 10 个 `@pytest.mark.skip` 用例，
+  对应未完成的项目代码修复（metrics 日度分布/月度基线、超额回撤符号约定、
+  export-preview download 路由未注册、CSV Content-Type 重复 charset），修复后取消 skip
+- requirements.txt 仍不含 pytest，测试依赖装在 requirements-dev.txt
 
 ## 真实入口与启动流程
 
@@ -194,7 +207,7 @@ pytest tests/test_specific.py::test_name
 
 额外说明：
 
-- `tests/legacy_services/task_manager.py` 只是兼容层，不是生产实现
+- `tests/archive/legacy_services/task_manager.py` 只是兼容层，不是生产实现
 - 如果文档、脚本或测试还引用旧 `app/services/task_manager.py`，要优先确认是否只是历史残留表述
 
 ### C31 特殊逻辑

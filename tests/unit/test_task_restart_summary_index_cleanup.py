@@ -38,12 +38,18 @@ def test_delete_task_explicitly_clears_summary_index_rows(app_factory):
 
         assert TaskResultSummaryIndex.query.filter_by(task_id=task.id).count() == 1
 
+        # 结束外层只读事务，避免 SQLite 锁住嵌套 session 的删除写入
+        db.session.commit()
+
         manager = TaskManager()
+        task_id = task.id
         assert manager.delete_task(task.id) is True
 
-        assert db.session.get(Task, task.id) is None
-        assert TaskResult.query.filter_by(task_id=task.id).count() == 0
-        assert TaskResultSummaryIndex.query.filter_by(task_id=task.id).count() == 0
+        # delete_task 在嵌套 app context 的独立 session 中提交，清掉本会话缓存后再断言
+        db.session.expire_all()
+        assert db.session.get(Task, task_id) is None
+        assert TaskResult.query.filter_by(task_id=task_id).count() == 0
+        assert TaskResultSummaryIndex.query.filter_by(task_id=task_id).count() == 0
 
 
 def test_restart_from_scratch_explicitly_clears_summary_index_rows(app_factory, monkeypatch):

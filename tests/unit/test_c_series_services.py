@@ -58,7 +58,7 @@ def _assert_cx_vwap_uses_dfcf_for_en_market(service):
         AssertionError("Yahoo should not be used for vwap_price")
     )
     service.dfcf_api.get_search_list_by_stock_code = lambda *_args, **_kwargs: [
-        {"market": "105", "shortName": "半导体ETF-iShares"}
+        {"code": "SOXX", "market": "105", "shortName": "半导体ETF-iShares", "status": 10}
     ]
     service.dfcf_api.get_stock_kline_data = lambda *_args, **_kwargs: _kline_rows_with_vwap()
 
@@ -305,7 +305,7 @@ def test_c31_batch_create_transfers_market_end_date_and_adjustment(app_factory, 
         assert [config["market_type"] for config in created_configs] == ["en", "en"]
         assert [config["end_date"] for config in created_configs] == ["2026-06-30", "2026-06-30"]
         assert [config["kline_adjustment"] for config in created_configs] == ["back", "back"]
-        assert created_configs[0]["stock_code"] == "AAPL"
+        assert created_configs[0]["stock_code"] == "AAPL.US"
 
 
 def test_c31_batch_create_rejects_unaligned_sheet_count():
@@ -330,7 +330,12 @@ def test_c31_batch_create_rejects_unaligned_sheet_count():
         raise AssertionError("expected ValueError")
 
 
-def test_c5_same_kline_source_only_writes_parameters_on_second_combination(monkeypatch):
+def test_c5_same_kline_source_only_writes_parameters_on_second_combination(app_factory, monkeypatch):
+    with app_factory.app_context():
+        _run_same_kline_source_case(monkeypatch)
+
+
+def _run_same_kline_source_case(monkeypatch):
     service = C5GoogleSheetService({}, "task-id")
 
     class Sheet:
@@ -353,7 +358,9 @@ def test_c5_same_kline_source_only_writes_parameters_on_second_combination(monke
 
         def get_ranges(self, ranges):
             return {
+                "D2:D3": {"D2": "5", "D3": "6"},
                 "E2:E3": {"E2": "3", "E3": "4"},
+                "G1:H1": {"G1": "xm:1", "H1": "ml:2"},
                 "J2:L3": {"J2": "0.1", "J3": "0.2", "L2": "0.3", "L3": "0.4"},
             }
 
@@ -373,6 +380,7 @@ def test_c5_same_kline_source_only_writes_parameters_on_second_combination(monke
         "c5_parameter_positions": ["A1", "B1"],
         "c5_output_column_j": "J",
         "c5_output_column_l": "L",
+        "c5_check_positions": ["G1", "H1"],
         "market_type": "cn",
     }
     kline_map = {
@@ -405,7 +413,7 @@ def test_c5_parameter_combination_exception_records_trace_id(app_factory, monkey
             name="c5 error task",
             task_type="google_sheet_C5",
             status="running",
-            current_step=1,
+            current_step=0,
             config=json.dumps({
                 "c5_input_column_a": "A",
                 "c5_input_column_b": "B",

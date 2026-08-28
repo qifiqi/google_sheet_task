@@ -51,21 +51,21 @@ def test_global_preview_supports_google_sheet_c7_tasks(app_factory, monkeypatch)
         assert response.get_json()["supported"] is True
 
 
-def test_c7_0_3_preview_page_does_not_require_api_token(app_factory):
-    response = app_factory.test_client().get("/global-preview/c7_0_3")
+def test_single_product_preview_page_does_not_require_api_token(app_factory):
+    response = app_factory.test_client().get("/global-preview/single_product")
 
     assert response.status_code == 200
 
 
-def test_global_preview_is_registered_with_a_page_permission():
+def test_single_product_preview_is_registered_with_a_page_permission():
     item = next(
         item
         for item in flatten_navigation_items(DEFAULT_NAVIGATION_MENU)
-        if item["key"] == "global_preview_c7_0_3"
+        if item["key"] == "single_product"
     )
 
-    assert item["path"] == "/global-preview/c7_0_3"
-    assert item["permission"] == "page:global_preview:c7_0_3"
+    assert item["path"] == "/global-preview/single_product"
+    assert item["permission"] == "page:global_preview:single_product"
 
 
 def test_global_preview_uses_c7_a1_b1_as_parameter_header():
@@ -76,11 +76,14 @@ def test_global_preview_uses_c7_a1_b1_as_parameter_header():
 def test_global_preview_exports_multiple_c7_0_3_stocks_as_zip(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
-        _add_task(
-            "c7-preview-export",
-            "backtest_training",
-            '{"c7_model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
-        )
+        db.session.add(Task(
+            id="c7-preview-export",
+            name="自定义导出名",
+            task_type="backtest_training",
+            status="completed",
+            config='{"c7_model_version":"c7_0_3","sheet":{"title":"C7.0.3"}}',
+        ))
+        db.session.commit()
         monkeypatch.setenv("AUTH_ENABLED", "false")
         db.session.add_all([
             TaskResult(
@@ -94,9 +97,7 @@ def test_global_preview_exports_multiple_c7_0_3_stocks_as_zip(app_factory, monke
         ])
         db.session.commit()
 
-        response = app.test_client().get(
-            "/global-preview/api/tasks/c7-preview-export/export?export_name=自定义导出名"
-        )
+        response = app.test_client().get("/api/exports/global-previews/c7-preview-export/stocks")
 
         assert response.status_code == 200
         assert response.mimetype == "application/zip"

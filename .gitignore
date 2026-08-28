@@ -157,11 +157,7 @@ node_modules/
 
 # Docker
 docker-compose.override.yml
-test
-tests/scripts/
-migrations/
-tests/
-dockers/
+
 *.tar
 # Pytest 本地临时目录（Windows 系统 Temp ACL 损坏时用 --basetemp 重定向）
 .pytest_tmp*/

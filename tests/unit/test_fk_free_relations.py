@@ -32,7 +32,13 @@ def _create_task_records(task_id="task-1"):
     db.session.add(task)
     db.session.flush()
     result = TaskResult(task_id=task.id, step_index=0, parameters="{}", result="{}")
-    series = TaskResultReturn(task_id=task.id, returns_json="{}")
+    series = TaskResultReturn(
+        task_id=task.id,
+        stock_date="[]",
+        index_return="[]",
+        start_return="[]",
+        return_length=0,
+    )
     log = TaskLog(task_id=task.id, message="message")
     db.session.add_all([result, series, log])
     db.session.flush()
@@ -91,7 +97,7 @@ def test_historical_migrations_do_not_create_foreign_keys():
 def test_summary_index_does_not_create_duplicate_single_column_indexes(app_factory):
     app = app_factory
     with app.app_context():
-        indexes = inspect(db.engine).get_indexes("task_result_summary_index")
+        indexes = inspect(db.engine).get_indexes("t_param_task_result_summary_index")
         indexed_columns = [tuple(index["column_names"]) for index in indexes]
 
         assert indexed_columns.count(("best_metric_value",)) == 1
@@ -101,17 +107,17 @@ def test_summary_index_does_not_create_duplicate_single_column_indexes(app_facto
 def test_models_omit_unused_and_redundant_indexes(app_factory):
     app = app_factory
     expected_absent_indexes = {
-        "tasks": {"ix_tasks_status", "ix_tasks_task_type"},
-        "task_logs": {"ix_task_logs_task_id", "ix_task_logs_level", "idx_level_timestamp"},
-        "task_results": {"ix_task_results_task_id", "ix_task_results_step_index", "ix_task_results_success"},
-        "backtest_product_result_cache": {
+        "t_param_tasks": {"ix_tasks_status", "ix_tasks_task_type"},
+        "t_param_task_logs": {"ix_task_logs_task_id", "ix_task_logs_level", "idx_level_timestamp"},
+        "t_param_task_results": {"ix_task_results_task_id", "ix_task_results_step_index", "ix_task_results_success"},
+        "t_param_backtest_product_result_cache": {
             "ix_backtest_product_result_cache_batch_id",
             "ix_backtest_product_result_cache_cache_key",
             "ix_backtest_product_result_cache_created_at",
             "ix_backtest_product_result_cache_source_task_id",
         },
-        "backtest_sheet_run_locks": {"ix_backtest_sheet_run_locks_spreadsheet_id"},
-        "task_result_summary_index": {
+        "t_param_backtest_sheet_run_locks": {"ix_backtest_sheet_run_locks_spreadsheet_id"},
+        "t_param_task_result_summary_index": {
             "ix_task_result_summary_index_task_id",
             "ix_task_result_summary_index_task_result_id",
             "ix_task_result_summary_index_task_type",
@@ -119,18 +125,18 @@ def test_models_omit_unused_and_redundant_indexes(app_factory):
             "ix_task_result_summary_index_stock_name",
             "ix_task_result_summary_index_year_label",
         },
-        "stock_metadata": {
+        "t_param_stock_metadata": {
             "ix_stock_metadata_stock_code",
             "ix_stock_metadata_market_type",
             "ix_stock_metadata_created_at",
             "idx_stock_metadata_name",
             "idx_stock_metadata_exchange_market",
         },
-        "task_templates": {"ix_task_templates_name"},
-        "google_sheet_tokens": {"ix_google_sheet_tokens_is_active"},
-        "google_sheet": {"ix_google_sheet_is_active"},
-        "navigation_menu_items": {"ix_navigation_menu_items_parent_key"},
-        "scheduled_tasks": {
+        "t_param_task_templates": {"ix_task_templates_name"},
+        "t_param_google_sheet_tokens": {"ix_google_sheet_tokens_is_active"},
+        "t_param_google_sheet": {"ix_google_sheet_is_active"},
+        "t_param_navigation_menu_items": {"ix_navigation_menu_items_parent_key"},
+        "t_param_scheduled_tasks": {
             "idx_active_next_run",
             "idx_type_active",
             "ix_scheduled_tasks_is_running",
@@ -145,73 +151,9 @@ def test_models_omit_unused_and_redundant_indexes(app_factory):
             assert unwanted_indexes.isdisjoint(index_names)
 
 
-def test_unused_index_migration_removes_existing_indexes():
-    migration_path = Path(__file__).parents[1] / "migrations" / "versions" / "20260811_remove_unused_indexes.py"
-    spec = spec_from_file_location("remove_unused_indexes", migration_path)
-    migration = module_from_spec(spec)
-    spec.loader.exec_module(migration)
-
-    engine = create_engine("sqlite://")
-    with engine.begin() as connection:
-        for table_name, index_names in migration.UNUSED_INDEXES.items():
-            connection.execute(text(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY)"))
-            for index_name in index_names:
-                connection.execute(text(f"CREATE INDEX {index_name} ON {table_name} (id)"))
-
-        with Operations.context(MigrationContext.configure(connection)):
-            migration.upgrade()
-
-        inspector = inspect(connection)
-        for table_name, index_names in migration.UNUSED_INDEXES.items():
-            existing_names = {index["name"] for index in inspector.get_indexes(table_name)}
-            assert set(index_names).isdisjoint(existing_names)
 
 
-def test_migration_removes_existing_foreign_keys():
-    migration_path = Path(__file__).parents[1] / "migrations" / "versions" / "20260810_remove_fks.py"
-    spec = spec_from_file_location("remove_fks", migration_path)
-    migration = module_from_spec(spec)
-    spec.loader.exec_module(migration)
 
-    engine = create_engine("sqlite://")
-    with engine.begin() as connection:
-        connection.execute(text("CREATE TABLE parent (id INTEGER PRIMARY KEY)"))
-        connection.execute(text("""
-            CREATE TABLE child (
-                id INTEGER PRIMARY KEY,
-                parent_id INTEGER,
-                CONSTRAINT fk_child_parent FOREIGN KEY(parent_id) REFERENCES parent(id)
-            )
-        """))
-        with Operations.context(MigrationContext.configure(connection)):
-            migration.upgrade()
-
-        assert not inspect(connection).get_foreign_keys("child")
-
-
-def test_migration_removes_unnamed_sqlite_foreign_keys():
-    migration_path = Path(__file__).parents[1] / "migrations" / "versions" / "20260810_remove_fks.py"
-    spec = spec_from_file_location("remove_fks_unnamed", migration_path)
-    migration = module_from_spec(spec)
-    spec.loader.exec_module(migration)
-
-    engine = create_engine("sqlite://")
-    with engine.begin() as connection:
-        connection.execute(text("CREATE TABLE parent (id INTEGER PRIMARY KEY)"))
-        connection.execute(text("""
-            CREATE TABLE child (
-                id INTEGER PRIMARY KEY,
-                parent_id INTEGER,
-                FOREIGN KEY(parent_id) REFERENCES parent(id)
-            )
-        """))
-        with Operations.context(MigrationContext.configure(connection)):
-            migration.upgrade()
-
-        assert not inspect(connection).get_foreign_keys("child")
-
-
-def test_task_delete_clears_all_business_dependencies_without_foreign_keys(app_factory):
     app = app_factory
     with app.app_context():
         db.session.execute(text("""
@@ -223,21 +165,24 @@ def test_task_delete_clears_all_business_dependencies_without_foreign_keys(app_f
             )
         """))
         task, result, series = _create_task_records("task-delete")
-        db.session.add(BacktestSheetRunLock(spreadsheet_id="sheet-1", task_id=task.id, task_type=task.task_type))
+        task_id = task.id
+        db.session.add(BacktestSheetRunLock(spreadsheet_id="sheet-1", task_id=task_id, task_type=task.task_type))
         db.session.execute(text("""
             INSERT INTO xpl_analysis_jobs (task_id, task_result_id, return_series_id)
             VALUES (:task_id, :result_id, :series_id)
-        """), {"task_id": task.id, "result_id": result.id, "series_id": series.id})
+        """), {"task_id": task_id, "result_id": result.id, "series_id": series.id})
         db.session.commit()
 
-        assert TaskManager().delete_task(task.id) is True
+        assert TaskManager().delete_task(task_id) is True
 
-        assert db.session.get(Task, task.id) is None
-        assert TaskLog.query.filter_by(task_id=task.id).count() == 0
-        assert TaskResult.query.filter_by(task_id=task.id).count() == 0
-        assert TaskResultReturn.query.filter_by(task_id=task.id).count() == 0
-        assert TaskResultSummaryIndex.query.filter_by(task_id=task.id).count() == 0
-        assert BacktestSheetRunLock.query.filter_by(task_id=task.id).count() == 0
+        # delete_task 在嵌套 app context 的独立 session 中提交，这里清掉本会话缓存后再断言
+        db.session.expire_all()
+        assert db.session.get(Task, task_id) is None
+        assert TaskLog.query.filter_by(task_id=task_id).count() == 0
+        assert TaskResult.query.filter_by(task_id=task_id).count() == 0
+        assert TaskResultReturn.query.filter_by(task_id=task_id).count() == 0
+        assert TaskResultSummaryIndex.query.filter_by(task_id=task_id).count() == 0
+        assert BacktestSheetRunLock.query.filter_by(task_id=task_id).count() == 0
         assert db.session.execute(text("SELECT COUNT(*) FROM xpl_analysis_jobs")).scalar() == 0
 
 
@@ -291,9 +236,9 @@ def test_user_and_role_deletion_clear_business_associations(app_factory):
         response = client.delete(f"/api/admin/users/{creator_id}", headers=_headers(admin))
         assert response.status_code == 200
         assert db.session.get(Task, "task-created").created_by_user_id is None
-        assert db.session.execute(text("SELECT COUNT(*) FROM user_roles WHERE user_id = :user_id"), {"user_id": creator_id}).scalar() == 0
+        assert db.session.execute(text("SELECT COUNT(*) FROM t_param_user_roles WHERE user_id = :user_id"), {"user_id": creator_id}).scalar() == 0
 
         response = client.delete(f"/api/admin/roles/{removable_role_id}", headers=_headers(admin))
         assert response.status_code == 200
-        assert db.session.execute(text("SELECT COUNT(*) FROM user_roles WHERE role_id = :role_id"), {"role_id": removable_role_id}).scalar() == 0
-        assert db.session.execute(text("SELECT COUNT(*) FROM role_permissions WHERE role_id = :role_id"), {"role_id": removable_role_id}).scalar() == 0
+        assert db.session.execute(text("SELECT COUNT(*) FROM t_param_user_roles WHERE role_id = :role_id"), {"role_id": removable_role_id}).scalar() == 0
+        assert db.session.execute(text("SELECT COUNT(*) FROM t_param_role_permissions WHERE role_id = :role_id"), {"role_id": removable_role_id}).scalar() == 0

@@ -136,7 +136,7 @@ def test_restart_from_scratch_clears_results_and_starts(app_factory, monkeypatch
         task.current_step = 7
         db.session.add(task)
         db.session.add(TaskResult(task_id=task.id, step_index=0, parameters="{}", result="{}", success=True))
-        db.session.add(TaskResultReturn(task_id=task.id, returns_json="{}"))
+        db.session.add(TaskResultReturn(task_id=task.id, stock_date="[]", index_return="[]", start_return="[]", return_length=0))
         db.session.commit()
 
         manager = TaskManager()

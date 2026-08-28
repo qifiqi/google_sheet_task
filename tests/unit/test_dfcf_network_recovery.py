@@ -6,6 +6,7 @@ import pytest
 from requests.exceptions import ProxyError, SSLError
 
 from app.services.backtest_training_service import BacktestTrainingService
+from app.services.stock_search_service import StockSearchService
 import app.services.backtest_training_service as backtest_training_service
 from app.services.google_sheet_service_C7 import GoogleSheetService as GoogleSheetServiceC7
 from app.utils.dfcf_api import DFCJStockApi
@@ -33,20 +34,45 @@ def _kline_rows(start_date: str, end_date: str):
     return rows
 
 
-def test_backtest_resolves_cn_stock_name_to_code(monkeypatch):
-    service = BacktestTrainingService({}, "task-id")
+def test_backtest_search_service_resolves_cn_stock_name_to_code():
+    """旧的 _resolve_cn_stock_quote 已由统一 StockSearchService 取代。"""
+    service = StockSearchService(dfcf_api=_FakeDfcfApi(
+        search_results=[{"code": "002230", "market": "0", "shortName": "科大讯飞"}]
+    ))
 
-    monkeypatch.setattr(
-        service.dfcf_api,
-        "get_search_list_by_stock_code",
-        lambda stock, page_size: [{"code": "002230", "market": "0"}],
-    )
+    results = service.search_stocks("科大讯飞")
 
-    resolved_code, market = service._resolve_cn_stock_quote("科大讯飞")
+    assert results[0]["code"] == "002230.SZ"
+    assert results[0]["market_type"] == "cn"
 
-    assert resolved_code == "002230"
-    assert market == "0"
 
+class _FakeDfcfApi:
+    """按需返回搜索/K线数据的东方财富 API 替身。"""
+
+    def __init__(self, search_results=None, kline_rows=None):
+        self.search_results = search_results or []
+        self.kline_rows = kline_rows or []
+
+    def get_search_list_by_stock_code(self, *_args, **_kwargs):
+        return list(self.search_results)
+
+    def get_stock_kline_data(self, *_args, **_kwargs):
+        return list(self.kline_rows)
+
+
+class _FakeKlineService:
+    """直接返回预置 K 线的 KlineService 替身，绕过证券解析。"""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def get_kline_data(self, *_args, **_kwargs):
+        return list(self._rows)
+
+    def build_price_rows(self, klines, price_mode, **kwargs):
+        from app.services.kline_service import KlineService
+
+        return KlineService.build_price_rows(klines, price_mode, **kwargs)
 
 def test_backtest_rethrows_network_error_as_retryable():
     service = BacktestTrainingService({}, "task-id")
@@ -75,11 +101,8 @@ def test_c7_rethrows_ssl_error_as_retryable_network_error():
 def test_backtest_full_years_accept_string_values(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
     monkeypatch.setattr(backtest_training_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
     monkeypatch.setattr(
-        service.dfcf_api,
-        "get_stock_kline_data",
-        lambda _stock_code, _market, _limit, **_kwargs: _kline_rows("2023-01-01", "2025-01-10"),
+        service, "kline_service", _FakeKlineService(_kline_rows("2023-01-01", "2025-01-10"))
     )
 
     combinations, column_a_length, kline_map = service._get_all_parameters(
@@ -109,11 +132,8 @@ def test_backtest_missing_kline_range_raises_readable_error():
 def test_backtest_recent_years_use_configured_end_date(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
     monkeypatch.setattr(backtest_training_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
     monkeypatch.setattr(
-        service.dfcf_api,
-        "get_stock_kline_data",
-        lambda _stock_code, _market, _limit, **_kwargs: _kline_rows("2019-04-01", "2025-01-10"),
+        service, "kline_service", _FakeKlineService(_kline_rows("2019-04-01", "2025-01-10"))
     )
 
     combinations, _column_a_length, kline_map = service._get_all_parameters(
@@ -137,11 +157,8 @@ def test_backtest_recent_years_use_configured_end_date(monkeypatch):
 def test_backtest_recent_years_allow_short_listing_history(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
     monkeypatch.setattr(backtest_training_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
     monkeypatch.setattr(
-        service.dfcf_api,
-        "get_stock_kline_data",
-        lambda _stock_code, _market, _limit, **_kwargs: _kline_rows("2022-01-19", "2026-05-21"),
+        service, "kline_service", _FakeKlineService(_kline_rows("2022-01-19", "2026-05-21"))
     )
 
     combinations, _column_a_length, kline_map = service._get_all_parameters(
@@ -165,11 +182,8 @@ def test_backtest_recent_years_allow_short_listing_history(monkeypatch):
 def test_backtest_include_full_year_range_replaces_individual_full_years(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
     monkeypatch.setattr(backtest_training_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(service, "_resolve_cn_stock_quote", lambda stock_code: (stock_code, "1"))
     monkeypatch.setattr(
-        service.dfcf_api,
-        "get_stock_kline_data",
-        lambda _stock_code, _market, _limit, **_kwargs: _kline_rows("2022-01-04", "2025-01-10"),
+        service, "kline_service", _FakeKlineService(_kline_rows("2022-01-04", "2025-01-10"))
     )
 
     combinations, column_a_length, kline_map = service._get_all_parameters(
