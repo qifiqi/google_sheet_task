@@ -165,7 +165,7 @@
                                 data-bs-target="#tab-kama" type="button" role="tab">卡玛比率
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
-                                data-bs-target="#tab-sotino" type="button" role="tab">所提诺比例
+                                data-bs-target="#tab-sotino" type="button" role="tab">索提诺比例
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-sharpe" type="button" role="tab">夏普比率
@@ -529,7 +529,7 @@
             </div>
             <div class="col-lg-6">
                 <div class="card h-100">
-                    <div class="card-header py-2"><h6 class="card-title mb-0">所提诺比例（指数 vs 模型）</h6></div>
+                    <div class="card-header py-2"><h6 class="card-title mb-0">索提诺比例（指数 vs 模型）</h6></div>
                     <div class="card-body p-2">
                         <div style="height:320px;">
                             <canvas id="chart-sotino"></canvas>
@@ -1102,7 +1102,7 @@
             monthly_excess_volatility: '月超额波动率',
             excess_drawdown_winning_rate: '超额回撤胜率',
             excess_sharp: '超额夏普',
-            excess_of_promissory_note: '超额所提诺',
+            excess_of_promissory_note: '超额索提诺',
             index_profit_annual: '指数盈利年百分比',
             start_profit_annual: '策略盈利年百分比',
             index_monthly_return_volatility: '指数月收益率波动率',
@@ -1258,7 +1258,7 @@
         fillKamaMerged(r.index_kama_ratio, r.start_kama_ratio, 'tbl-kama');
     }
 
-    // 所提诺 tab
+    // 索提诺 tab
     function renderTabSotino(r) {
         fillSotinoMerged(r.index_sotino_ratio, r.start_sotino_ratio, 'tbl-sotino');
     }

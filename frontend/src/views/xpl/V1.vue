@@ -182,7 +182,7 @@
             </el-table>
           </el-tab-pane>
 
-          <el-tab-pane label="所提诺比例" name="sotino">
+          <el-tab-pane label="索提诺比例" name="sotino">
             <el-table :data="sotinoRows" stripe size="small" border max-height="500">
               <el-table-column prop="year" label="年份" width="80" />
               <el-table-column label="指数"><template #default="{row}">{{ fmtNum(row.index_sotino, 6) }}</template></el-table-column>
@@ -296,7 +296,7 @@
           <el-card shadow="never"><div class="xpl-v1-block-title">卡玛比率（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartKama"></canvas></div></el-card>
         </el-col>
         <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">所提诺比例（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartSotino"></canvas></div></el-card>
+          <el-card shadow="never"><div class="xpl-v1-block-title">索提诺比例（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartSotino"></canvas></div></el-card>
         </el-col>
         <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
           <el-card shadow="never"><div class="xpl-v1-block-title">月收益率波动率（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartMonthlyVol"></canvas></div></el-card>
@@ -488,7 +488,7 @@ const profitAnnualRow = computed(() => {
   return [{ index: result.value.index_profit_annual, model: result.value.start_profit_annual }]
 })
 
-const SCALAR_NAME_MAP = { outperform_year: '跑赢年份', monthly_excess_volatility: '月超额波动率', excess_drawdown_winning_rate: '超额回撤胜率', excess_sharp: '超额夏普', excess_of_promissory_note: '超额所提诺', index_profit_annual: '指数盈利年百分比', start_profit_annual: '策略盈利年百分比', index_monthly_return_volatility: '指数月收益率波动率', start_monthly_return_volatility: '策略月收益率波动率', index_maximum_number_of_backtest_repair_days: '指数最大回测天数', start_maximum_number_of_backtest_repair_days: '策略最大回测天数', excess_maximum_number_of_backtest_repair_days: '超额最大回测天数' }
+const SCALAR_NAME_MAP = { outperform_year: '跑赢年份', monthly_excess_volatility: '月超额波动率', excess_drawdown_winning_rate: '超额回撤胜率', excess_sharp: '超额夏普', excess_of_promissory_note: '超额索提诺', index_profit_annual: '指数盈利年百分比', start_profit_annual: '策略盈利年百分比', index_monthly_return_volatility: '指数月收益率波动率', start_monthly_return_volatility: '策略月收益率波动率', index_maximum_number_of_backtest_repair_days: '指数最大回测天数', start_maximum_number_of_backtest_repair_days: '策略最大回测天数', excess_maximum_number_of_backtest_repair_days: '超额最大回测天数' }
 
 const scalarsRows = computed(() => {
   if (!result.value) return []

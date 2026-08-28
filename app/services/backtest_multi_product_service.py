@@ -54,9 +54,9 @@ SUMMARY_ROW_DEFS = [
     ("回撤", "超额最大修复天数", None, "excess_maximum_number_of_backtest_repair_days", "number"),
     ("比率", "夏普比率", "index_sharpe_ratio", "start_sharpe_ratio", "number"),
     ("比率", "卡玛比率", "index_kama_ratio", "start_kama_ratio", "number"),
-    ("比率", "所提诺比率", "index_sotino_ratio", "start_sotino_ratio", "number"),
+    ("比率", "索提诺比率", "index_sotino_ratio", "start_sotino_ratio", "number"),
     ("夏普", "超额夏普", None, "excess_sharp", "number"),
-    ("所提诺", "超额所提诺比率", None, "excess_of_promissory_note", "number"),
+    ("索提诺", "超额索提诺比率", None, "excess_of_promissory_note", "number"),
 ]
 
 

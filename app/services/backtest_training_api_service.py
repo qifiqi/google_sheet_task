@@ -902,8 +902,8 @@ def _extract_summary_rows(calculate_metrics, model_name):
             "跑赢年份(百分比 )": "跑赢年份(百分比)",
             "超额最大修复天数": "超额最大修复天数",
             "最大修复天数": "最大修复天数",
-            "所提诺比率": "所提诺比率",
-            "超额所提诺比率": "超额所提诺比率",
+            "索提诺比率": "索提诺比率",
+            "超额索提诺比率": "超额索提诺比率",
         }
         return metric_aliases.get(text, text)
 
@@ -992,9 +992,9 @@ def _extract_summary_rows(calculate_metrics, model_name):
             {"category": "回撤", "metric": "年最大回测修复天数", "index_value": str(year_index_max_repair_days) if year_index_max_repair_days is not None else "", "model_value": str(year_start_max_repair_days) if year_start_max_repair_days is not None else ""},
             {"category": "比率", "metric": "夏普比率", "index_value": _fmt_number(index_sharpe_all.get("sharpe_ratio")), "model_value": _fmt_number(start_sharpe_all.get("sharpe_ratio"))},
             {"category": "比率", "metric": "卡玛比率", "index_value": _fmt_number(index_kama_all.get("kama_ratio")), "model_value": _fmt_number(start_kama_all.get("kama_ratio"))},
-            {"category": "比率", "metric": "所提诺比率", "index_value": _fmt_number(index_sotino_all.get("sotino_ratio")), "model_value": _fmt_number(start_sotino_all.get("sotino_ratio"))},
+            {"category": "比率", "metric": "索提诺比率", "index_value": _fmt_number(index_sotino_all.get("sotino_ratio")), "model_value": _fmt_number(start_sotino_all.get("sotino_ratio"))},
             {"category": "夏普", "metric": "超额夏普", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_sharp"))},
-            {"category": "所提诺", "metric": "超额所提诺比率", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_of_promissory_note"))},
+            {"category": "索提诺", "metric": "超额索提诺比率", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_of_promissory_note"))},
         ]
         return period_text, rows
 

@@ -73,10 +73,10 @@ RETURN_ANALYSIS_COLUMNS = [
     {"key": "index_sharpe_ratio", "label": "指数夏普", "format": "number"},
     {"key": "start_kama_ratio", "label": "模型卡玛比率", "format": "number"},
     {"key": "index_kama_ratio", "label": "指数卡玛比率", "format": "number"},
-    {"key": "start_sotino_ratio", "label": "模型所提诺比率", "format": "number"},
-    {"key": "index_sotino_ratio", "label": "指数所提诺比率", "format": "number"},
+    {"key": "start_sotino_ratio", "label": "模型索提诺比率", "format": "number"},
+    {"key": "index_sotino_ratio", "label": "指数索提诺比率", "format": "number"},
     {"key": "excess_sharp", "label": "超额夏普", "format": "number"},
-    {"key": "excess_of_promissory_note", "label": "超额所提诺比率", "format": "number"},
+    {"key": "excess_of_promissory_note", "label": "超额索提诺比率", "format": "number"},
 ]
 
 SUMMARY_COLUMNS = [*SUMMARY_COLUMNS, *RETURN_ANALYSIS_COLUMNS]
@@ -100,9 +100,9 @@ BACKTEST_SUMMARY_METRICS = [
     ("drawdown_year_max_repair_days", "年最大回测修复天数"),
     ("ratio_sharpe_ratio", "夏普比率"),
     ("ratio_kama_ratio", "卡玛比率"),
-    ("ratio_sortino_ratio", "所提诺比率"),
+    ("ratio_sortino_ratio", "索提诺比率"),
     ("sharpe_excess_sharpe", "超额夏普"),
-    ("sortino_excess_sortino_ratio", "超额所提诺比率"),
+    ("sortino_excess_sortino_ratio", "超额索提诺比率"),
 ]
 
 BACKTEST_SUMMARY_COLUMNS = [
@@ -1010,9 +1010,9 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
             ("年最大回测修复天数", _format_backtest_repair_days(year_start_max_repair_days)),
             ("夏普比率", _format_backtest_number(start_sharpe_all.get("sharpe_ratio"))),
             ("卡玛比率", _format_backtest_number(start_kama_all.get("kama_ratio"))),
-            ("所提诺比率", _format_backtest_number(start_sotino_all.get("sotino_ratio"))),
+            ("索提诺比率", _format_backtest_number(start_sotino_all.get("sotino_ratio"))),
             ("超额夏普", _format_backtest_number(calculate_metrics.get("excess_sharp"))),
-            ("超额所提诺比率", _format_backtest_number(calculate_metrics.get("excess_of_promissory_note"))),
+            ("超额索提诺比率", _format_backtest_number(calculate_metrics.get("excess_of_promissory_note"))),
         ]
         return period_text, [{"metric": metric, "model_value": value} for metric, value in rows]
 
