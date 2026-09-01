@@ -1,4 +1,8 @@
-"""Text-input return-series analysis adapters."""
+"""文本或内存收益序列的绩效分析适配组件。
+
+负责将调用方传入的日期与收益率记录转换为 DataFrame，并组织 XPL 等
+分析入口所需的数据；具体绩效指标仍复用本包的计算组件。
+"""
 
 import json
 import math
@@ -9,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from app.utils.logger import get_logger
+from app.utils.value_parser import _convert_pandas_to_native
 
 logger = get_logger(__name__)
 
@@ -89,7 +94,7 @@ class TextReturnAnalysisMixin:
             else:
                 metrics = self._calculate_metrics(parsed_data)
                 metrics["analysis_mode"] = "single"
-            metrics = self._sanitize_for_json(metrics)
+            metrics = self._sanitize_for_json(_convert_pandas_to_native(metrics))
 
             # 准备返回结果
             return {

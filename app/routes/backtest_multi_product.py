@@ -71,6 +71,25 @@ def _parse_json(raw, default):
         return default
 
 
+def _build_word_report_payload(task: Task, task_result: TaskResult) -> dict | None:
+    """按当前结果的参数方案构造多品 Word 报告请求。"""
+    try:
+        config = normalize_multi_product_config(task.to_dict().get("config") or {})
+    except ValueError:
+        return None
+    selected_parameters = _parse_json(task_result.parameters, {})
+    group_index = str(selected_parameters.get("parameter_group_index") or 0)
+    return {
+        "report_type": "RPT-M",
+        "task_id": task.id,
+        "group_key": group_index,
+        "ratios": [
+            {"product_index": product["product_index"], "ratio": product["ratio"]}
+            for product in config["products"]
+        ],
+    }
+
+
 def _infer_product_export_model_name(product):
     if not isinstance(product, dict):
         return "C3"
@@ -316,6 +335,7 @@ def get_task_result_detail(task_result_id):
             "daily_returns": daily_returns,
             "model_name": model_name,
         }),
+        "word_report_payload": _build_word_report_payload(task, task_result),
     })
 
 

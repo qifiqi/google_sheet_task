@@ -1,4 +1,8 @@
-"""Google Sheet adapters for performance analysis."""
+"""Google Sheet 数据读取与绩效分析适配组件。
+
+负责读取指定工作表、转换为分析所需收益数据并触发既有指标计算；
+不定义指标公式，也不负责报表渲染。
+"""
 
 from typing import Any, Dict
 
@@ -22,7 +26,7 @@ class GoogleSheetAnalysisMixin:
             # parsed_data = self._parse_input_data(data)
             _data, _data_result, sheet_df = self.get_google_sheet_data(spreadsheet_id, google_sheet_name)
             # 计算指标
-            metrics = self._calculate_metrics_v1(_data)
+            metrics = self.get_calculate_metrics_v1(_data)
 
             metrics['sheet_result'] = _data_result
             # 准备返回结果

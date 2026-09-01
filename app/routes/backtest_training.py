@@ -7,7 +7,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 from sqlalchemy.orm import load_only
 from app.extensions import db
-from app.models import Task, TaskResult
+from app.models import Task, TaskResult, TaskResultReturn
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_training_api_service import _sanitize_json_value, \
     _load_backtest_task_or_response, _load_backtest_task_result_or_response, _build_backtest_result_export_data, \
@@ -17,6 +17,7 @@ from app.services.backtest_training_api_service import _sanitize_json_value, \
 from app.services.xpl_service import xpl_analyzer
 from app.utils.auth import login_required
 from app.utils.task_types import normalize_task_type
+from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
 legacy_bp = Blueprint("backtest_training_legacy", __name__, url_prefix="/backtest")
@@ -167,9 +168,29 @@ def get_task_result_detail(task_result_id):
 
     export_data = _build_backtest_result_export_data(task_result, task)
 
+    task_config = task.to_dict().get("config") or {}
+    sheet = task_config.get("sheet") if isinstance(task_config.get("sheet"), dict) else {}
+    return_series = db.session.get(TaskResultReturn, task_result.return_series_id) if task_result.return_series_id else None
     return jsonify({
         "status": "success",
         "result": _sanitize_json_value(export_data["analyze_result"]),
+        "word_report_payload": {
+            "report_type": "RPT-S",
+            "task_id": task.id,
+            "return_series_id": task_result.return_series_id,
+            "products": [{
+                "stock_code": return_series.stock_code,
+                "product_name": return_series.stock_name,
+            }] if return_series else [],
+            "metadata": {
+                "model_version": get_backtest_model_version(
+                    sheet.get("title")
+                    or task_config.get("title")
+                    or task_config.get("spreadsheet_title")
+                ),
+                "price_type": get_price_type(task_config.get("price_mode") or task_config.get("price_type")),
+            },
+        } if task_result.return_series_id else None,
     })
 
 

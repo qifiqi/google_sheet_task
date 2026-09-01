@@ -1,10 +1,17 @@
-"""Response-shaping adapters for performance-analysis consumers."""
+"""绩效分析结果适配组件。
 
+负责调用指标计算并将原始结果整理为页面、报告等消费者需要的扁平字段、
+指标字典和 DataFrame 组合；不承担具体指标公式计算。
+"""
+import json
 import math
 from typing import Any, Dict, List, Tuple
 
+import pandas as pd
+
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis.response_dto import MetricsV1ResponseDTO
+from app.utils.value_parser import _convert_pandas_to_native
 
 
 class PerformanceResultMapperMixin:
@@ -186,9 +193,22 @@ class PerformanceResultMapperMixin:
 
         return result, analyze_result
 
-    def get_calculate_metrics_v1(self, data):
+    def get_calculate_metrics_v1(self, data) :
         """执行 V1 格式数据的指标计算。"""
-        return self._calculate_metrics_v1(data)
+        # 执行指标计算
+        result = self._calculate_metrics_v1(data)
+
+        # 将结果转换为 JSON，处理 Pandas 类型
+        if isinstance(result, pd.DataFrame):
+            return result.to_json(orient='records', date_format='iso', force_ascii=False)
+        elif isinstance(result, pd.Series):
+            return result.to_json(date_format='iso', force_ascii=False)
+        elif isinstance(result, dict):
+            # 处理字典中可能包含的 Pandas 类型
+            return _convert_pandas_to_native(result)
+        else:
+            return result
+
 
     def get_calculate_metrics_v1_with_dataframes(
         self,

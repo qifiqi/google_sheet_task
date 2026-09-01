@@ -32,6 +32,7 @@ from app.services.backtest_multi_product_service import (
     _fmt_value,
     _weight_return_date,
     build_multi_product_global_preview_payload,
+    build_multi_product_global_preview_word_payload,
     normalize_multi_product_config,
 )
 from app.services.task.facade import TaskManager
@@ -1077,6 +1078,83 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
         assert json.loads(db.session.get(Task, task.id).config)["products"][0]["ratio"] == "25"
 
 
+def test_global_preview_word_export_uses_current_ratio_portfolio_returns(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        config = normalize_multi_product_config({
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "products": [_base_product(0, "50"), _base_product(1, "50")],
+        })
+        task = Task(
+            id="multi-word-data-task",
+            name="多品 Word",
+            task_type=BACKTEST_MULTI_PRODUCT_TASK_TYPE,
+            status="completed",
+            config=json.dumps(config, ensure_ascii=False),
+            created_at=datetime.now(),
+        )
+        db.session.add(task)
+        for product_index, returns in enumerate(([
+            {"date": "2024-01-01", "index_return": 0.10, "start_return": 0.10},
+            {"date": "2024-01-02", "index_return": 0.21, "start_return": 0.21},
+        ], [
+            {"date": "2024-01-01", "index_return": 0.20, "start_return": 0.20},
+            {"date": "2024-01-02", "index_return": 0.44, "start_return": 0.44},
+        ])):
+            db.session.add(TaskResult(
+                task_id=task.id,
+                step_index=product_index,
+                parameters=json.dumps({
+                    "product_index": product_index,
+                    "parameter_group_index": 0,
+                }),
+                result=json.dumps(_task_result_payload_with_returns(0, 0, returns)),
+                success=True,
+            ))
+        db.session.commit()
+
+        payload = build_multi_product_global_preview_word_payload(
+            task.id,
+            "0",
+            ratios_override=[{"ratio": 25}, {"ratio": 75}],
+        )
+
+        assert payload["report_type"] == "RPT-M"
+        assert [product["ratio"] for product in payload["products"]] == ["25", "75"]
+        assert [item["date"] for item in payload["products"][0]["returns"]] == ["2024-01-01", "2024-01-02"]
+
+        captured = {}
+        def fake_generate_word(word_payload):
+            captured["payload"] = word_payload
+            return "RPT-M.docx", BytesIO(b"docx")
+
+        monkeypatch.setattr(
+            "app.services.export_service.strategy_backtest_report_service.generate_word",
+            fake_generate_word,
+        )
+        monkeypatch.setenv("AUTH_ENABLED", "false")
+        client = app.test_client()
+        legacy_response = client.post(
+            "/api/exports/backtest-reports/word",
+            json={"report_type": "RPT-M", "products": payload["products"]},
+        )
+        assert legacy_response.status_code == 400
+
+        response = client.post(
+            "/api/exports/backtest-reports/word",
+            json={
+                "report_type": "RPT-M",
+                "task_id": task.id,
+                "group_key": "0",
+                "ratios": [{"ratio": 50}, {"ratio": 50}],
+            },
+        )
+
+        assert response.status_code == 200
+        assert [product["ratio"] for product in captured["payload"]["products"]] == ["50", "50"]
+
+
 def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_factory, monkeypatch):
     app = app_factory
     captured_returns = []
@@ -1265,6 +1343,22 @@ def test_multi_product_derive_metrics_accepts_c7_flat_analyze_result():
     assert metrics["avg_monthly_excess_return"] == 0.03
     assert metrics["start_max_drawdown"] == -0.12
     assert metrics["start_sharpe_ratio"] == 1.2
+
+
+def test_multi_product_derive_metrics_uses_sortino_ratio_scalar_from_year_all():
+    metrics = _derive_metrics({
+        "index_sotino_ratio": [
+            {"year": 2025, "sortino_ratio": 1.2},
+            {"year": "all", "sortino_ratio": 2.34},
+        ],
+        "start_sotino_ratio": [
+            {"year": 2025, "sortino_ratio": 3.4},
+            {"year": "all", "sortino_ratio": 4.56},
+        ],
+    })
+
+    assert metrics["index_sotino_ratio"] == pytest.approx(2.34)
+    assert metrics["start_sotino_ratio"] == pytest.approx(4.56)
 
 
 def test_multi_product_global_preview_workbook_writes_percentage_cells_as_numbers():

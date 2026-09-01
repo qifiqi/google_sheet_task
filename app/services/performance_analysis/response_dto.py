@@ -1,4 +1,8 @@
-"""性能分析结果 DTO。"""
+"""绩效分析计算结果的响应 DTO 定义。
+
+封装 V1 指标字典以及指数、策略、超额三条派生收益 DataFrame，
+供报告、图表和接口响应等下游组件复用。
+"""
 
 from __future__ import annotations
 

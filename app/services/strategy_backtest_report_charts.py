@@ -233,6 +233,17 @@ def _histogram_limits(values: list[float]) -> tuple[float, float]:
     return minimum, maximum
 
 
+def _symmetric_histogram_limit(values: list[float]) -> float:
+    """返回覆盖全部数据且以 0 为中心的直方图半轴范围。
+
+    日收益率同时包含正负值时，左右面板必须使用相同的对称范围，
+    否则 X 轴偏移会放大或压缩其中一侧的波动。最小半轴保留 1%，
+    让全零或近似全零数据仍有可读的绘图区域。
+    """
+    minimum, maximum = _histogram_limits(values)
+    return max(abs(minimum), abs(maximum), 0.01) * 1.05
+
+
 def _draw_histogram(path: Path, title: str, values: list[float], x_label: str) -> None:
     figure = _new_figure()
     axis = figure.subplots()
@@ -247,9 +258,9 @@ def _draw_histogram(path: Path, title: str, values: list[float], x_label: str) -
 
 def _draw_dual_histogram(path: Path, title: str, data: dict[str, list[float]]) -> None:
     values = data["index"] + data["strategy"]
-    minimum, maximum = _histogram_limits(values)
-    # 两个子图共用边界和 y 轴，避免各自缩放造成错误的视觉比较。
-    bin_edges = linspace(minimum, maximum, 19)
+    # 两个子图共用、以 0 为中心的 X 轴和分箱边界，避免正负收益比较产生视觉偏差。
+    symmetric_limit = _symmetric_histogram_limit(values)
+    bin_edges = linspace(-symmetric_limit, symmetric_limit, 19)
     figure = _new_figure()
     left_axis, right_axis = figure.subplots(1, 2, sharey=True)
     for axis, panel_title, series, color in (
@@ -257,6 +268,9 @@ def _draw_dual_histogram(path: Path, title: str, data: dict[str, list[float]]) -
         (right_axis, "策略日收益分布", data["strategy"], ORANGE),
     ):
         axis.hist(series, bins=bin_edges, color=color, edgecolor=BACKGROUND, linewidth=0.8)
+        axis.set_xlim(-symmetric_limit, symmetric_limit)
+        # 0% 是收益率分布的关键参照点，使用浅色细线避免喧宾夺主。
+        axis.axvline(0, color="#9EADBD", linewidth=0.8)
         # 双子图需要保留各自的小标题，否则 Word 中只有“日收益分布”无法区分左右面板。
         axis.set_title(panel_title, color=TEXT, fontproperties=_font(9, bold=True), loc="left", pad=6)
         _set_axis_labels(axis, x_label="日收益率")

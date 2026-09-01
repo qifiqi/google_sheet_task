@@ -274,7 +274,25 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
     assert '粘贴数据' in response.get_data(as_text=True)
     assert '导入 Excel' in response.get_data(as_text=True)
     assert 'id="btn-analyze-v2"' in response.get_data(as_text=True)
+    assert 'id="btn-export-word"' in response.get_data(as_text=True)
+    assert 'id="word-export-options-modal"' in response.get_data(as_text=True)
+    assert '/api/search-stocks?q=${encodeURIComponent(keyword)}&page_size=10' in response.get_data(as_text=True)
+    assert "ratio: '100.00%'" in response.get_data(as_text=True)
     assert 'date / index_return / start_return' in response.get_data(as_text=True)
     assert 'xlsx-js-style' in response.get_data(as_text=True)
     assert 'function applyV2ExportStyles' in response.get_data(as_text=True)
     assert 'XLSX.writeFile(workbook, defaultFilename' in response.get_data(as_text=True)
+
+
+def test_xpl_v2_accepts_portfolio_return_rows(app_factory):
+    response = app_factory.test_client().post('/xpl/analyze', json={
+        "data": "\n".join([
+            "2024-01-01\t0.01\t0.02",
+            "2024-01-02\t0.02\t0.03",
+            "2024-01-03\t0.01\t0.01",
+        ]),
+        "time_format": "auto",
+    })
+
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "success"

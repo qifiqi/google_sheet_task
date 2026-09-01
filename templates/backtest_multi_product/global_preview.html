@@ -252,6 +252,9 @@
             <button class="btn btn-outline-success rounded-pill px-3 btn-sm" id="exportBtn" type="button">
                 <i class="bi bi-file-earmark-excel me-1"></i>导出 XLSX
             </button>
+            <button class="btn btn-outline-info rounded-pill px-3 btn-sm" id="exportWordBtn" type="button">
+                <i class="bi bi-file-earmark-word me-1"></i>导出 Word
+            </button>
             <a href="/backtest-multi-product/detail/{{ task_id }}" class="btn btn-outline-secondary rounded-pill px-3 btn-sm" id="backToDetailLink">
                 <i class="bi bi-arrow-left me-1"></i>返回详情
             </a>
@@ -632,6 +635,55 @@ async function exportPreview() {
     URL.revokeObjectURL(objectUrl);
 }
 
+async function exportWordReport() {
+    if (!previewPayload || !activeGroupKey) {
+        alert('当前没有可导出的参数方案');
+        return;
+    }
+    if (ratioInputsDirty) {
+        alert('比例已修改，请先点击“计算预览”确认结果，再导出 Word。');
+        return;
+    }
+
+    const button = document.getElementById('exportWordBtn');
+    button.disabled = true;
+    try {
+        const ratios = collectRatioValues().map((ratio, index) => ({ product_index: index, ratio }));
+        const response = await fetch('/api/exports/backtest-reports/word', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
+            },
+            body: JSON.stringify({
+                report_type: 'RPT-M',
+                task_id: TASK_ID,
+                group_key: activeGroupKey,
+                ratios
+            })
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.message || 'Word 导出失败');
+        }
+        const filename = response.headers.get('Content-Disposition')
+            ?.match(/filename[^;=\n]*=(?:UTF-8''|\")?([^;\n\"]+)/i)?.[1]
+            || 'RPT-M.docx';
+        const link = document.createElement('a');
+        const objectUrl = URL.createObjectURL(await response.blob());
+        link.href = objectUrl;
+        link.download = decodeURIComponent(filename.replace(/^\"|\"$/g, ''));
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+        alert(error.message || 'Word 导出失败');
+    } finally {
+        button.disabled = false;
+    }
+}
+
 document.getElementById('groupSelect').addEventListener('change', (event) => {
     activeGroupKey = event.target.value;
     renderActiveGroup();
@@ -643,6 +695,7 @@ document.getElementById('ratioListBody').addEventListener('input', () => {
 document.getElementById('calculateRatiosBtn').addEventListener('click', applyRatioPreview);
 document.getElementById('saveRatiosBtn').addEventListener('click', saveRatios);
 document.getElementById('exportBtn').addEventListener('click', exportPreview);
+document.getElementById('exportWordBtn').addEventListener('click', exportWordReport);
 loadGlobalPreview();
 </script>
 {% endblock %}

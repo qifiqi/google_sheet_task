@@ -2,10 +2,12 @@
 
 from datetime import date
 
+import pandas as pd
 import pytest
 
 from app.utils.task_types import KNOWN_TASK_TYPES, normalize_task_type
 from app.utils.value_parser import (
+    _convert_pandas_to_native,
     parse_date,
     parse_float,
     parse_int,
@@ -70,3 +72,24 @@ def test_parse_date_supports_iso_shapes():
     assert parse_date("2026/08/29") is None
     assert parse_date("not-a-date") is None
     assert parse_date("", default=date(1970, 1, 1)) == date(1970, 1, 1)
+
+
+def test_convert_pandas_to_native_converts_timestamp_and_nat_recursively():
+    """Pandas 日期值可安全转换为 JSON 可序列化的原生值。"""
+    result = _convert_pandas_to_native({
+        "timestamp": pd.Timestamp("2026-09-01 15:27:11"),
+        "missing": pd.NaT,
+        "nested": [pd.NaT],
+    })
+
+    assert result == {
+        "timestamp": "2026-09-01T15:27:11",
+        "missing": None,
+        "nested": [None],
+    }
+
+
+def test_convert_pandas_to_native_converts_series_to_a_json_safe_list():
+    result = _convert_pandas_to_native(pd.Series([pd.Timestamp("2026-09-01"), pd.NA, 0.01, pd.Series([1]).iloc[0]]))
+
+    assert result == ["2026-09-01T00:00:00", None, 0.01, 1]

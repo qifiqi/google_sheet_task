@@ -18,6 +18,7 @@ from app.services.performance_analysis_service import xpl_analyzer
 from app.services.strategy_backtest_report_charts import generate_report_charts
 from app.dto.strategy_backtest_report import StrategyBacktestReportRequestDTO
 from app.services.word_export_template import generate_word_document
+from app.utils.backtest_report_metadata import get_backtest_model_version
 from app.utils.return_series import parse_return_series_fields
 from app.utils.value_parser import parse_date, parse_float, parse_int, parse_ratio
 
@@ -54,7 +55,7 @@ class StrategyBacktestReportService:
                     {"type": "image", "title": title, "path": path, "caption": f"{title}（基于传入回测数据生成）"}
                     for title, path in chart_paths.items()
                 ],
-                {"type": "heading", "text": "十、指标计算说明", "level": 1},
+                # {"type": "heading", "text": "十、指标计算说明", "level": 1},
                 # {"type": "bullet_list", "items": [
                 #     "净值按每日收益率连续复合计算，月度与年度指标由 performance_analysis 统一计算。",
                 #     "超额收益按策略收益率减指数收益率计算。",
@@ -67,10 +68,20 @@ class StrategyBacktestReportService:
             generate_word_document(report_data, output_path)
             raw = output_path.read_bytes()
 
-        filename = request.filename.strip()
+        filename = request.filename or self._default_filename(request)
         if not filename.lower().endswith(".docx"):
             filename = f"{filename}.docx"
         return filename, BytesIO(raw)
+
+    def _default_filename(self, request: StrategyBacktestReportRequestDTO) -> str:
+        """按报告类型、产品代码和生成时间构造默认下载文件名。"""
+        stock_codes = [
+            str(product.get("stock_code") or "").strip().upper()
+            for product in request.products
+            if isinstance(product, dict) and str(product.get("stock_code") or "").strip()
+        ]
+        suffix = "-".join([*stock_codes, datetime.now().strftime("%Y%m%d%H%M%S")])
+        return f"{request.report_type}-{suffix}" if suffix else f"{request.report_type}-{datetime.now():%Y%m%d%H%M%S}"
 
     def _resolve_returns(self, request: StrategyBacktestReportRequestDTO) -> list[dict[str, Any]]:
         """将单品、V2 或多品输入统一为 result_mapper 所需的累计收益序列。"""
@@ -196,14 +207,10 @@ class StrategyBacktestReportService:
             raw_weights.append(value)
 
         total = sum(raw_weights)
-        if all(percent_flags) or math.isclose(total, 1.0, abs_tol=1e-8):
+        if all(percent_flags) or total <= 1:
             weights = raw_weights
-        elif math.isclose(total, 100.0, abs_tol=1e-8):
-            weights = [value / 100 for value in raw_weights]
         else:
-            raise ValueError("多品比例之和必须为 1 或 100%")
-        if not math.isclose(sum(weights), 1.0, abs_tol=1e-8):
-            raise ValueError("多品比例之和必须为 1 或 100%")
+            weights = [value / 100 for value in raw_weights]
         return weights
 
     @staticmethod
@@ -303,9 +310,12 @@ class StrategyBacktestReportService:
         first_date = dates[0].strftime("%Y-%m-%d")
         last_date = dates[-1].strftime("%Y-%m-%d")
         generated_at = datetime.now()
+        model_version = str(payload.metadata.get("model_version") or "")
+        if not model_version:
+            model_version = get_backtest_model_version(payload.metadata.get("sheet_title"))
         metadata = [
             {"label": "报告编号", "value": f"{report_type}-{generated_at:%Y%m%d}"},
-            {"label": "模型版本", "value": str(payload.metadata.get("model_version") or "")},
+            {"label": "模型版本", "value": model_version},
             {"label": "价格类型", "value": str(payload.metadata.get("price_type") or "")},
             {"label": "生成日期", "value": generated_at.strftime("%Y年%m月%d日 %H:%M")},
             {"label": "数据区间", "value": f"{first_date} 至 {last_date}"},
@@ -341,12 +351,17 @@ class StrategyBacktestReportService:
         if isinstance(products, list):
             for product in products:
                 if isinstance(product, dict):
+                    weight = str(product.get("ratio") or product.get("weight") or "").strip()
+                    if report_type == "RPT-S" and not weight:
+                        weight = "100.00%"
                     rows.append([
                         str(product.get("stock_code") or product.get("product_name") or "未命名"),
                         str(product.get("product_name") or ""),
-                        str(product.get("ratio") or product.get("weight") or ""),
+                        weight if not weight or weight.endswith("%") else f"{weight}%",
                     ])
-        return {"columns": ["股票代码", "股票名", "权重"], "rows": rows}
+        if not rows and report_type == "RPT-S":
+            rows = [["单品", "", "100.00%"]]
+        return {"columns": ["股票代码", "股票名", "权重"], "rows": rows or [["", "", ""]]}
 
     def _sections(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
         """按模板顺序合并各表格 JSON。"""
@@ -375,7 +390,12 @@ class StrategyBacktestReportService:
         strategy_months = [item["value"] for item in self._monthly_returns(result.start_df)]
         years = sorted(set(index_returns) | set(strategy_returns))
         rolling_rows = []
+        rolling_status = metrics.get("index_rolling_return_3")
+        rolling_unavailable_reason = rolling_status.get("reason") if isinstance(rolling_status, dict) else None
         for months in (3, 6, 12):
+            if rolling_unavailable_reason:
+                rolling_rows.append([f"{months}个月滚动（{rolling_unavailable_reason}）", "-", "-", "-"])
+                continue
             pairs = [
                 (mean(index_months[index:index + months]), mean(strategy_months[index:index + months]))
                 for index in range(max(0, min(len(index_months), len(strategy_months)) - months + 1))
@@ -426,8 +446,6 @@ class StrategyBacktestReportService:
             {"title": "2.1 回撤指标", "table": self._table(
                 ["指标", "指数", "策略"], [
                     ["最大回撤(MDD)", self._pct(-self._num(index_drawdown)), self._pct(-self._num(strategy_drawdown))],
-                    ["回撤持续时间(平均/天)", self._decimal(self._average_drawdown_duration(result.index_df), 1),
-                     self._decimal(self._average_drawdown_duration(result.start_df), 1)],
                     ["最大回撤修复天数(年度最大)",
                      self._integer(metrics.get("index_maximum_number_of_backtest_repair_days")),
                      self._integer(metrics.get("start_maximum_number_of_backtest_repair_days"))],
@@ -440,10 +458,6 @@ class StrategyBacktestReportService:
 
     def _risk_adjusted_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
         """构造三、风险调整收益指标章节的表格。"""
-        index_annualized = self._year_all(metrics.get("index_annualized_rates"), "annualized_return")
-        strategy_annualized = self._year_all(metrics.get("start_annualized_rates"), "annualized_return")
-        index_drawdown = self._total_metric(metrics.get("index_maximum_drawdown"), "drawdown")
-        strategy_drawdown = self._total_metric(metrics.get("start_maximum_drawdown"), "drawdown")
         return [{"table": self._table(
             ["指标", "指数", "策略"], [
                 ["夏普比率", self._decimal(self._year_all(metrics.get("index_sharpe_ratios"), "sharpe_ratio")),
@@ -454,10 +468,6 @@ class StrategyBacktestReportService:
                  self._decimal(self._year_all(metrics.get("start_sotino_ratio"), "sortino_ratio"))],
                 ["超额夏普比率", "-", self._decimal(metrics.get("excess_sharp"))],
                 ["超额索提诺比率", "-", self._decimal(metrics.get("excess_of_promissory_note"))],
-                ["信息比率", "-",
-                 self._information_ratio(self._daily_returns(result.index_df), self._daily_returns(result.start_df))],
-                ["收益回撤比", self._calmar_from_returns(index_annualized, index_drawdown),
-                 self._calmar_from_returns(strategy_annualized, strategy_drawdown)],
             ])}]
 
     def _monthly_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
@@ -571,7 +581,13 @@ class StrategyBacktestReportService:
             ["最大单月超额", self._pct(max(values, default=0))],
         ]
         excess_rolling_rows = []
+        excess_rolling_status = metrics.get("excess_rolling_return_3")
+        excess_rolling_unavailable_reason = excess_rolling_status.get("reason") if isinstance(
+            excess_rolling_status, dict) else None
         for months in (1, 3, 6, 12):
+            if excess_rolling_unavailable_reason:
+                excess_rolling_rows.append([f"{months}个月（{excess_rolling_unavailable_reason}）", "-", "-"])
+                continue
             rolling = [mean(values[index:index + months]) for index in range(max(0, len(values) - months + 1))]
             excess_rolling_rows.append([f"{months}个月", self._pct(self._mean(rolling)),
                                         self._pct(self._ratio(rolling, lambda value: value > 0))] if rolling else [
@@ -711,22 +727,6 @@ class StrategyBacktestReportService:
         return [(month, index_by_month[month], strategy_by_month[month]) for month in
                 sorted(index_by_month.keys() & strategy_by_month.keys())]
 
-    @classmethod
-    def _average_drawdown_duration(cls, frame: Any) -> float:
-        """处理_average_drawdown_duration相关逻辑。"""
-        durations, current = [], 0
-        peak = 0.0
-        for net_value in cls._net_values(frame, "index_return" if "index_return" in frame else "start_return"):
-            peak = max(peak, net_value)
-            if net_value < peak:
-                current += 1
-            elif current:
-                durations.append(current)
-                current = 0
-        if current:
-            durations.append(current)
-        return mean(durations) if durations else 0.0
-
     @staticmethod
     def _count_below(values: list[float], threshold: float) -> int:
         """处理_count_below相关逻辑。"""
@@ -784,17 +784,6 @@ class StrategyBacktestReportService:
             return 0.0
         average = mean(values)
         return mean(((value - average) / std) ** 4 for value in values) - 3
-
-    @classmethod
-    def _information_ratio(cls, index_values: list[float], strategy_values: list[float]) -> str:
-        """处理_information_ratio相关逻辑。"""
-        excess = [strategy - index for index, strategy in zip(index_values, strategy_values)]
-        return cls._decimal(cls._mean(excess) / cls._std(excess) * math.sqrt(252) if cls._std(excess) else 0.0)
-
-    @classmethod
-    def _calmar_from_returns(cls, annualized_return: Any, drawdown: Any) -> str:
-        """处理_calmar_from_returns相关逻辑。"""
-        return cls._decimal(cls._num(annualized_return) / cls._num(drawdown) if cls._num(drawdown) else 0.0)
 
     @staticmethod
     def _new_high_positions(values: list[float]) -> list[int]:

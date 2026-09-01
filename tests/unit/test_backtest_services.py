@@ -118,6 +118,31 @@ def test_backtest_training_full_range_uses_configured_end_date(monkeypatch):
     assert kline_map["2022-2024"][-1]["stock_date"] == "2024-06-30"
 
 
+def test_multi_product_kline_limit_covers_interval_from_start_to_current_date(monkeypatch):
+    class _FixedDateTime:
+        strptime = staticmethod(datetime.strptime)
+
+        @staticmethod
+        def now():
+            return datetime(2026, 9, 1)
+
+    service = BacktestMultiProductService({}, "task-id")
+    recorder = _RecordingKlineService(_kline_rows("2021-01-01", "2025-12-31"))
+    service.kline_service = recorder
+    monkeypatch.setattr("app.services.backtest_multi_product_service.datetime", _FixedDateTime)
+
+    kline = service._get_kline_by_date_range(
+        "SOXX.US",
+        "en",
+        "2021-01-01",
+        "2025-12-31",
+        price_mode="sp_price",
+    )
+
+    assert len(kline) > 100
+    assert recorder.calls[0][2] == 1548
+
+
 def test_backtest_training_short_listing_history_recent_years_is_allowed(monkeypatch):
     service = BacktestTrainingService({}, "task-id")
     monkeypatch.setattr(

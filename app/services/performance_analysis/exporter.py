@@ -1,4 +1,8 @@
-"""CSV report rendering for performance-analysis results."""
+"""绩效分析结果的 CSV 导出组件。
+
+负责从已完成的分析结果中提取指标、格式化展示值并生成 CSV 字节流；
+不负责读取原始收益数据，也不参与指标计算。
+"""
 
 import math
 from datetime import datetime

@@ -24,6 +24,7 @@ from app.services.xpl_service import xpl_analyzer
 from app.utils.db_retry import db_retry_manager, safe_db_operation
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.return_series import build_return_series_fields, parse_return_series_fields
+from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.market import (
     infer_market_type,
     normalize_market_type as normalize_supported_market_type,
@@ -577,7 +578,7 @@ def _build_portfolio_metrics(
     if not return_date:
         return {}
     calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(return_date)
-    return calculate_metrics if isinstance(calculate_metrics, dict) else {}
+    return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 
 def _build_weighted_product_metrics(
@@ -593,7 +594,7 @@ def _build_weighted_product_metrics(
     if not weighted_return_date:
         return {}
     calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(weighted_return_date)
-    return calculate_metrics if isinstance(calculate_metrics, dict) else {}
+    return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 
 def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
@@ -603,6 +604,10 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
             if value not in (None, ""):
                 return value
         return None
+
+    def _scalar_metric_value(*keys: str) -> Any:
+        value = _metric_value(*keys)
+        return value if not isinstance(value, (dict, list, tuple)) else None
 
     def _first_value(*values: Any) -> Any:
         for value in values:
@@ -663,8 +668,16 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
         "start_sharpe_ratio": _first_value(start_sharpe_all.get("sharpe_ratio"), _metric_value("start_sharpe_ratio")),
         "index_kama_ratio": _first_value(index_kama_all.get("kama_ratio"), _metric_value("index_kama_ratio")),
         "start_kama_ratio": _first_value(start_kama_all.get("kama_ratio"), _metric_value("start_kama_ratio")),
-        "index_sotino_ratio": _first_value(index_sotino_all.get("sotino_ratio"), _metric_value("index_sotino_ratio")),
-        "start_sotino_ratio": _first_value(start_sotino_all.get("sotino_ratio"), _metric_value("start_sotino_ratio")),
+        "index_sotino_ratio": _first_value(
+            index_sotino_all.get("sotino_ratio"),
+            index_sotino_all.get("sortino_ratio"),
+            _scalar_metric_value("index_sotino_ratio"),
+        ),
+        "start_sotino_ratio": _first_value(
+            start_sotino_all.get("sotino_ratio"),
+            start_sotino_all.get("sortino_ratio"),
+            _scalar_metric_value("start_sotino_ratio"),
+        ),
         "excess_sharp": calculate_metrics.get("excess_sharp"),
         "excess_of_promissory_note": calculate_metrics.get("excess_of_promissory_note"),
     }
@@ -1190,10 +1203,11 @@ class BacktestMultiProductService(BacktestTrainingService):
         exchange_market: str | None = None,
     ) -> list[dict[str, Any]]:
         market_type = normalize_market_type(market_type)
-        start_year = int(start_date[:4])
-        end_year = int(end_date[:4])
-        year_count = max(1, end_year - start_year + 1)
-        limit = max(300, year_count * (250 if market_type == "cn" else 252) + 120)
+        current_date = datetime.now().date()
+        requested_start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+        calendar_days = max(1, (current_date - requested_start_date).days)
+        trading_days_per_year = 250 if market_type == "cn" else 252
+        limit = max(300, math.ceil(calendar_days * trading_days_per_year / 365.25) + 120)
 
         # 旧的 DFCF/Yahoo 分支保留为注释参考；多品回测也统一走 KlineService。
 
@@ -1423,4 +1437,87 @@ def build_multi_product_global_preview_payload(
     }
     _set_global_preview_cache(cache_key, payload)
     return payload
+
+
+def build_multi_product_global_preview_word_payload(
+    task_id: str,
+    group_key: str,
+    ratios_override: list[Any] | None = None,
+) -> dict[str, Any] | None:
+    """构建指定参数方案的多品 Word 报告数据。"""
+    task = db.session.get(Task, task_id)
+    if not task or task.task_type != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
+        return None
+
+    config = normalize_multi_product_config(task.to_dict().get("config") or {})
+    products = config["products"]
+    if ratios_override is not None:
+        if len(ratios_override) != len(products):
+            raise ValueError("比例数量与产品数量不一致")
+        for product, ratio in zip(products, ratios_override):
+            product["ratio"] = normalize_ratio_display(
+                ratio.get("ratio") if isinstance(ratio, dict) else ratio
+            )
+
+    product_results: dict[int, dict[str, Any]] = {}
+    results = (
+        TaskResult.query
+        .filter_by(task_id=task_id, success=True)
+        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
+        .all()
+    )
+    for result in results:
+        parameters = _parse_json(result.parameters, {})
+        if str(parameters.get("parameter_group_index") or 0) != str(group_key):
+            continue
+        product_index = int(parameters.get("product_index") or 0)
+        product_results[product_index] = {
+            "return_date": _get_return_date_for_task_result(result),
+        }
+
+    missing_indexes = [
+        str(product["product_index"] + 1)
+        for product in products
+        if not product_results.get(product["product_index"], {}).get("return_date")
+    ]
+    if missing_indexes:
+        raise ValueError(f"参数方案缺少产品 {', '.join(missing_indexes)} 的收益序列")
+
+    returns = _build_portfolio_return_date(
+        product_results,
+        products,
+        _use_legacy_cumulative_return_weighting(
+            config.get("use_legacy_cumulative_return_weighting")
+        ),
+    )
+    if len(returns) < 2:
+        raise ValueError("比例组合后的共同交易日不足 2 天")
+
+    model_versions: list[str] = []
+    price_types: list[str] = []
+    word_products = []
+    for product in products:
+        sheet = product.get("sheet") if isinstance(product.get("sheet"), dict) else {}
+        model_version = get_backtest_model_version(
+            sheet.get("title") or product.get("title") or product.get("spreadsheet_title")
+        )
+        price_type = get_price_type(product.get("price_mode") or product.get("price_type"))
+        if model_version and model_version not in model_versions:
+            model_versions.append(model_version)
+        if price_type and price_type not in price_types:
+            price_types.append(price_type)
+        word_products.append({
+            "stock_code": product.get("stock_code"),
+            "product_name": product.get("product_name"),
+            "ratio": product.get("ratio"),
+            "returns": product_results[product["product_index"]]["return_date"],
+        })
+    return {
+        "report_type": "RPT-M",
+        "products": word_products,
+        "metadata": {
+            "model_version": "、".join(model_versions),
+            "price_type": "、".join(price_types),
+        },
+    }
 

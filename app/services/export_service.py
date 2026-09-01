@@ -16,6 +16,7 @@ from app.extensions import db
 from app.models import Task, TaskResult
 from app.services.backtest_multi_product_service import (
     build_multi_product_global_preview_payload,
+    build_multi_product_global_preview_word_payload,
 )
 from app.services.backtest_training_api_service import (
     _build_backtest_result_export_data,
@@ -281,6 +282,25 @@ class ExportService:
 
     def export_backtest_word(self, payload: dict[str, Any]) -> GeneratedFile:
         """生成策略回测 Word 报告并返回内存字节流。"""
+        if not isinstance(payload, dict):
+            raise ValueError("请求数据必须是 JSON 对象")
+        if str(payload.get("report_type") or "").upper() == "RPT-M":
+            task_id = str(payload.get("task_id") or "").strip()
+            group_key = payload.get("group_key")
+            ratios = payload.get("ratios")
+            if not task_id:
+                raise ValueError("RPT-M 报告必须传入 task_id")
+            if group_key in (None, ""):
+                raise ValueError("RPT-M 报告必须传入 group_key")
+            if not isinstance(ratios, list):
+                raise ValueError("RPT-M 报告的 ratios 必须是数组")
+            payload = build_multi_product_global_preview_word_payload(
+                task_id,
+                str(group_key),
+                ratios_override=ratios,
+            )
+            if payload is None:
+                raise ValueError("task_id 不是有效的多产品回测任务")
         filename, buffer = strategy_backtest_report_service.generate_word(payload)
         return GeneratedFile(filename, DOCX_MIMETYPE, buffer, buffer.getbuffer().nbytes)
 

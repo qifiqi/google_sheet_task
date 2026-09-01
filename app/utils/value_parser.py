@@ -6,7 +6,9 @@ import math
 from datetime import date, datetime
 from typing import Any
 from dateutil import parser
-
+import numpy as np
+import pandas as pd
+import json
 
 def parse_int(value: Any, *, default: int | None = None) -> int | None:
     """解析整数；空值、布尔值和非法值返回 default。"""
@@ -62,3 +64,26 @@ def parse_date(value: Any, *, default: date | None = None) -> date | None:
         return parser.parse(text).date()
     except (ValueError, TypeError, OverflowError):
         return default
+
+
+
+def _convert_pandas_to_native(obj):
+    """递归转换 Pandas 类型为 Python 原生类型"""
+    if isinstance(obj, pd.DataFrame):
+        return [_convert_pandas_to_native(row) for row in obj.to_dict(orient='records')]
+    elif isinstance(obj, pd.Series):
+        return [_convert_pandas_to_native(item) for item in obj.tolist()]
+    elif isinstance(obj, dict):
+        return {k: _convert_pandas_to_native(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_convert_pandas_to_native(item) for item in obj]
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat() if pd.notna(obj) else None
+    elif isinstance(obj, pd.Timedelta):
+        return str(obj) if pd.notna(obj) else None
+    elif isinstance(obj, np.generic):
+        return obj.item()
+    elif pd.isna(obj):
+        return None
+    else:
+        return obj

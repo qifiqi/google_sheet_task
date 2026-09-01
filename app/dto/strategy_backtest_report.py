@@ -9,7 +9,6 @@ from typing import Any
 SINGLE_PRODUCT_REPORT_TYPE = "RPT-S"
 MULTI_PRODUCT_REPORT_TYPE = "RPT-M"
 REPORT_TYPES = {SINGLE_PRODUCT_REPORT_TYPE, MULTI_PRODUCT_REPORT_TYPE}
-DEFAULT_FILENAME = "策略回测绩效分析报告.docx"
 DEFAULT_TITLE = "量化策略回测绩效分析报告"
 
 
@@ -32,7 +31,7 @@ class StrategyBacktestReportRequestDTO:
     spreadsheet_id: str | None = None
     google_sheet_name: str | None = None
     # 以下字段用于控制报告名称、展示类型和产品权重。
-    filename: str = DEFAULT_FILENAME
+    filename: str | None = None
     report_type: str = SINGLE_PRODUCT_REPORT_TYPE
     title: str = "量化策略回测绩效分析报告"
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -82,7 +81,7 @@ class StrategyBacktestReportRequestDTO:
             google_sheet_url=str(payload["google_sheet_url"]).strip() if payload.get("google_sheet_url") else None,
             spreadsheet_id=str(payload["spreadsheet_id"]).strip() if payload.get("spreadsheet_id") else None,
             google_sheet_name=str(payload["google_sheet_name"]).strip() if payload.get("google_sheet_name") else None,
-            filename=str(payload.get("filename") or DEFAULT_FILENAME),
+            filename=str(payload["filename"]).strip() if payload.get("filename") else None,
             report_type=report_type,
             title=str(payload.get("title") or DEFAULT_TITLE),
             metadata=metadata or {},

@@ -1,4 +1,8 @@
-"""Metric calculations for return and backtest performance analysis."""
+"""回测收益与绩效指标的计算组件。
+
+负责将指数、策略及超额收益序列计算为收益、风险、风险调整收益、
+回撤、分布和极端行情等原始指标；不处理请求解析、外部数据读取或输出协议。
+"""
 
 import json
 import math
@@ -1286,8 +1290,14 @@ class PerformanceMetricsMixin:
             index_rolling_return_3 = self.calculate_rolling_return(index_monthly_returns_rate, months=3)
             start_rolling_return_3 = self.calculate_rolling_return(start_monthly_returns_rate, months=3)
             # 策略胜率(跑赢指数)
-            outperform_index = start_rolling_return_3[start_rolling_return_3["roll_3m"] > index_rolling_return_3["roll_3m"]]
-            strategy_winning_rate = len(outperform_index) / len(start_rolling_return_3)
+            if isinstance(index_rolling_return_3, pd.DataFrame) and isinstance(start_rolling_return_3, pd.DataFrame):
+                outperform_index = start_rolling_return_3[
+                    start_rolling_return_3["roll_3m"] > index_rolling_return_3["roll_3m"]
+                ]
+                strategy_winning_rate = len(outperform_index) / len(start_rolling_return_3) if len(
+                    start_rolling_return_3) else 0.0
+            else:
+                strategy_winning_rate = 0.0
             # 6个月滚动
             index_rolling_return_6 = self.calculate_rolling_return(index_monthly_returns_rate, months=6)
             start_rolling_return_6 = self.calculate_rolling_return(start_monthly_returns_rate, months=6)
@@ -1388,16 +1398,18 @@ class PerformanceMetricsMixin:
             index_avg_loss_day_return = index_df['daily_return'][index_df['daily_return'] < 0].mean()
             start_avg_loss_day_return = start_df['daily_return'][start_df['daily_return'] < 0].mean()
             # 盈亏比(平均盈利/平均亏损)（绝对值）
-            index_profit_loss_ratio = index_avg_profit_day_return / index_avg_loss_day_return
-            start_profit_loss_ratio = start_avg_profit_day_return / start_avg_loss_day_return
+            index_profit_loss_ratio = index_avg_profit_day_return / index_avg_loss_day_return if \
+                index_avg_loss_day_return else 0.0
+            start_profit_loss_ratio = start_avg_profit_day_return / start_avg_loss_day_return if \
+                start_avg_loss_day_return else 0.0
             # 单笔最大盈利/最大亏损 最大盈利天数据/最大亏损天
             index_max_profit_day = index_df['daily_return'][index_df['daily_return'] > 0].max()
             index_max_loss_day = index_df['daily_return'][index_df['daily_return'] < 0].min()
             start_max_loss_day = start_df['daily_return'][start_df['daily_return'] < 0].min()
             start_max_profit_day = start_df['daily_return'][start_df['daily_return'] > 0].max()
 
-            index_max_profit_loss_ratio = index_max_profit_day / index_max_loss_day
-            start_max_profit_loss_ratio = start_max_profit_day / start_max_loss_day
+            index_max_profit_loss_ratio = index_max_profit_day / index_max_loss_day if index_max_loss_day else 0.0
+            start_max_profit_loss_ratio = start_max_profit_day / start_max_loss_day if start_max_loss_day else 0.0
 
             # 5.3 日度收益区间分布（当日收益率列）
             # 收益区间
@@ -1424,7 +1436,7 @@ class PerformanceMetricsMixin:
             # 累计超额(策略-指数)
 
             cumulative_excess = excess_df['excess_return'].iloc[-1]
-            # 年化超额 TODO:累计超额计算
+            # 年化超额
             annualized_excess_returns = self.annualized_rate_return(excess_df)
             # 月超额收益均值
             average_monthly_excess_return = monthly_excess_returns['monthly_excess_return_diff'].mean()
@@ -1484,7 +1496,8 @@ class PerformanceMetricsMixin:
                 downfall_outperform_months = outperform_months[outperform_months['monthly_return'] < -0.02]
 
                 # 占比 = 策略跑赢指数且下跌的月份 / 策略跑赢指数的总月份
-                downfall_win_rate = len(downfall_outperform_months) / index_downfall_months_len
+                downfall_win_rate = len(downfall_outperform_months) / index_downfall_months_len if \
+                    index_downfall_months_len else 0.0
             else:
                 downfall_win_rate = 0.0
 
@@ -1511,7 +1524,8 @@ class PerformanceMetricsMixin:
                 upward_outperform_months = outperform_months[outperform_months['monthly_return'] > 0.02]
 
                 # 占比 = 策略跑赢指数且下跌的月份 / 策略跑赢指数的总月份
-                upward_win_rate = len(upward_outperform_months) / start_upward_months_len
+                upward_win_rate = len(upward_outperform_months) / start_upward_months_len if \
+                    start_upward_months_len else 0.0
             else:
                 upward_win_rate = 0.0
 
@@ -1529,8 +1543,8 @@ class PerformanceMetricsMixin:
             index_daily_loss_days = len(index_df[index_df['daily_return'] < -0.02])
             start_daily_loss_days = len(start_df[start_df['daily_return'] < -0.02])
             # 涨跌比(涨>2%/跌>2%)
-            index_daily_gain_loss_ratio = index_daily_gain_days / index_daily_loss_days
-            start_daily_gain_loss_ratio = start_daily_gain_days / start_daily_loss_days
+            index_daily_gain_loss_ratio = index_daily_gain_days / index_daily_loss_days if index_daily_loss_days else 0.0
+            start_daily_gain_loss_ratio = start_daily_gain_days / start_daily_loss_days if start_daily_loss_days else 0.0
 
 
             # 八、资金曲线特征
@@ -1765,7 +1779,8 @@ class PerformanceMetricsMixin:
             months: 滚动月份，如 3、6、12（默认3）
 
         Returns:
-            dict: 包含滚动平均收益率及统计信息
+            pandas.DataFrame 或 dict：数据达到 5 年时返回滚动收益率数据；
+            不足 5 年时返回包含原因和样本量的状态信息。
         """
 
         total_months = len(df)

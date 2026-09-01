@@ -144,8 +144,12 @@
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
                     data-bs-target="#v1-details-collapse" aria-expanded="false" aria-controls="v1-details-collapse">
                 <i class="bi bi-layout-text-sidebar-reverse me-1"></i>V1 数据明细（展开/收起）</button>
-            <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
-                <i class="bi bi-download me-1"></i>导出并下载</button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
+                    <i class="bi bi-download me-1"></i>导出并下载</button>
+                <button class="btn btn-sm btn-outline-success" type="button" id="btn-export-word" disabled>
+                    <i class="bi bi-file-earmark-word me-1"></i>导出 Word</button>
+            </div>
         </div>
     </div>
     <div class="collapse" id="v1-details-collapse">
@@ -635,6 +639,7 @@
         exportBaseName: '',
         dailyReturnsJsonText: '',
         lastResults: null,
+        wordReportPayload: null,
         charts: {}
     };
 
@@ -645,6 +650,7 @@
         }
         document.getElementById('btn-reload-result')?.addEventListener('click', loadBacktestResult);
         document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
+        document.getElementById('btn-export-word')?.addEventListener('click', exportWordReport);
         document.getElementById('btn-copy-daily-returns')?.addEventListener('click', copyDailyReturns);
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         loadBacktestResult();
@@ -723,8 +729,10 @@
         if (overlay) overlay.classList.remove('d-none');
         const reloadBtn = document.getElementById('btn-reload-result');
         const exportBtn = document.getElementById('btn-export-v1');
+        const wordExportBtn = document.getElementById('btn-export-word');
         if (reloadBtn) reloadBtn.disabled = true;
         if (exportBtn) exportBtn.disabled = true;
+        if (wordExportBtn) wordExportBtn.disabled = true;
     }
 
     function hideLoading() {
@@ -732,8 +740,10 @@
         if (overlay) overlay.classList.add('d-none');
         const reloadBtn = document.getElementById('btn-reload-result');
         const exportBtn = document.getElementById('btn-export-v1');
+        const wordExportBtn = document.getElementById('btn-export-word');
         if (reloadBtn) reloadBtn.disabled = false;
         if (exportBtn) exportBtn.disabled = !state.lastResults;
+        if (wordExportBtn) wordExportBtn.disabled = !state.wordReportPayload;
    }
 
     function showAlert(message, type = 'info') {
@@ -837,9 +847,12 @@
 
             state.exportBaseName = `backtest_result_${state.resultId}`;
             state.lastResults = resultData;
+            state.wordReportPayload = data.word_report_payload || null;
             renderModelIdentity(resultData.model_name, resultData);
             const exportBtn = document.getElementById('btn-export-v1');
             if (exportBtn) exportBtn.disabled = false;
+            const wordExportBtn = document.getElementById('btn-export-word');
+            if (wordExportBtn) wordExportBtn.disabled = !state.wordReportPayload;
             renderSummary(resultData);
             renderTables(resultData);
             renderCharts(resultData);
@@ -938,6 +951,46 @@
             }
         } finally {
             if (btn) btn.disabled = false;
+        }
+    }
+
+    async function exportWordReport() {
+        if (!state.wordReportPayload) {
+            showAlert('当前参数方案缺少完整的多品收益序列', 'warning');
+            return;
+        }
+
+        const button = document.getElementById('btn-export-word');
+        button.disabled = true;
+        try {
+            const response = await fetch('/api/exports/backtest-reports/word', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                },
+                body: JSON.stringify(state.wordReportPayload)
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.message || `HTTP error! status: ${response.status}`);
+            }
+            const filename = response.headers.get('Content-Disposition')
+                ?.match(/filename[^;=\n]*=(?:UTF-8''|\")?([^;\n\"]+)/i)?.[1]
+                || 'RPT-M.docx';
+            const link = document.createElement('a');
+            const objectUrl = URL.createObjectURL(await response.blob());
+            link.href = objectUrl;
+            link.download = decodeURIComponent(filename.replace(/^\"|\"$/g, ''));
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(objectUrl);
+            showAlert('Word 报告已下载', 'success');
+        } catch (error) {
+            showAlert('Word 导出失败：' + (error.message || '未知错误'), 'danger');
+        } finally {
+            button.disabled = !state.wordReportPayload;
         }
     }
 

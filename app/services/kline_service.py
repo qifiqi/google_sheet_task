@@ -296,7 +296,6 @@ class KlineService:
             }
             loop = asyncio.get_event_loop()
             res = await loop.run_in_executor(None, stock_data.modify_or_add, data)
-            print(res, data)
             return res
 
         # 在 Flask 中获取当前事件循环
@@ -354,7 +353,7 @@ class KlineService:
                 exchange_market=exchange_market,
             )
         if self._covers_range(internal_rows, start_date, end_date, limit):
-            return internal_rows[-limit:]
+            return self._filter_rows_by_date_range(internal_rows, start_date, end_date, limit)
         # database/internal 是“优先读内置库”的兼容写法；不足时仍按默认 DFCF 回退。
         if source == DATA_SOURCE_DATABASE:
             source = DATA_SOURCE_DFCF
@@ -383,7 +382,7 @@ class KlineService:
                 source=source,
                 adjust_type=adjust_type,
             )
-        return normalized_rows[-limit:]
+        return self._filter_rows_by_date_range(normalized_rows, start_date, end_date, limit)
 
     @staticmethod
     def normalize_data_source(value: Any, available_sources: dict[str, Any] | None = None) -> str:
@@ -570,15 +569,50 @@ class KlineService:
     ) -> bool:
         if not rows:
             return False
-        dates = [str(row.get("stock_date") or "")[:10] for row in rows]
+        dates = [str(row.get("stock_date") or "") for row in rows]
         dates = [date for date in dates if date]
         if not dates:
             return False
         if not start_date and not end_date:
             return len(rows) >= limit
-        return (not start_date or min(dates) <= str(start_date)[:10]) and (
-            not end_date or max(dates) >= str(end_date)[:10]
+        start = KlineService._normalize_stock_date(start_date)
+        end = KlineService._normalize_stock_date(end_date)
+        return (not start or min(dates) <= start) and (
+            not end or max(dates) >= end
         )
+
+    @staticmethod
+    def _filter_rows_by_date_range(
+        rows: list[dict[str, Any]],
+        start_date: str | None,
+        end_date: str | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """有日期区间时按区间返回；未传区间时保持最新 ``limit`` 条的兼容行为。"""
+        if not start_date and not end_date:
+            return rows[-limit:]
+
+        start = KlineService._normalize_stock_date(start_date)
+        end = KlineService._normalize_stock_date(end_date)
+        return [
+            row for row in rows
+            if (not start or row["stock_date"] >= start)
+            and (not end or row["stock_date"] <= end)
+        ]
+
+    @staticmethod
+    def _normalize_stock_date(value: Any) -> str:
+        """将来源日期统一为 K 线标准格式 YYYY-MM-DD。"""
+        if value in (None, ""):
+            return ""
+        text = str(value).strip()
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+        except ValueError:
+            try:
+                return datetime.strptime(text, "%Y/%m/%d").date().isoformat()
+            except ValueError:
+                return ""
 
     @staticmethod
     def _normalize_rows(
@@ -594,7 +628,8 @@ class KlineService:
             if not isinstance(raw, dict):
                 continue
             date = raw.get("stock_date") or raw.get("date") or raw.get("trade_date") or raw.get("datetime")
-            if not date:
+            stock_date = KlineService._normalize_stock_date(date)
+            if not stock_date:
                 continue
             open_value = raw.get("open")
             close_value = raw.get("close")
@@ -644,7 +679,7 @@ class KlineService:
                     **values,
                     "stock_code": code,
                     "stock_name": name,
-                    "stock_date": str(date)[:10],
+                    "stock_date": stock_date,
                     "volume": volume,
                     "amount": amount,
                     "vwap": vwap,

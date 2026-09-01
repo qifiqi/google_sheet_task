@@ -118,6 +118,37 @@ def test_v1_metrics_exports_monthly_skewness_and_kurtosis():
     )) <= metrics.keys()
 
 
+def test_rolling_return_requires_five_years_without_breaking_metrics():
+    rolling = XPLAnalyzer().calculate_rolling_return(pd.DataFrame({"monthly_return": [0.01] * 37}), months=3)
+    assert rolling == {
+        "status": "failed",
+        "reason": "数据不足5年，当前仅3.1年",
+        "total_months": 37,
+        "total_years": pytest.approx(37 / 12),
+    }
+
+
+def test_v1_metrics_handles_missing_extreme_loss_days_without_division_by_zero():
+    index_net_value = start_net_value = 1.0
+    rows = []
+    for index, current_date in enumerate(pd.bdate_range("2023-05-30", periods=780)):
+        index_daily_return = 0.004 if index % 17 == 0 else (-0.003 if index % 23 == 0 else 0.0002)
+        start_daily_return = 0.005 if index % 17 == 0 else (-0.002 if index % 23 == 0 else 0.0003)
+        index_net_value *= 1 + index_daily_return
+        start_net_value *= 1 + start_daily_return
+        rows.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "index_return": index_net_value - 1,
+            "start_return": start_net_value - 1,
+        })
+
+    metrics = XPLAnalyzer().get_calculate_metrics_v1(rows)
+
+    assert metrics["index_daily_gain_loss_ratio"] == 0.0
+    assert metrics["start_daily_gain_loss_ratio"] == 0.0
+    assert metrics["downfall_win_rate"] == 0.0
+
+
 @pytest.mark.skip(reason="待修复：同 analyze 日度分布问题，metrics 计算崩溃导致 results 为空")
 def test_export_file_handles_unavailable_sortino_ratios():
     data = "\n".join(

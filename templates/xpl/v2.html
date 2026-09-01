@@ -215,6 +215,9 @@
             <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
                 <i class="bi bi-download me-1"></i>导出 Excel
             </button>
+            <button class="btn btn-sm btn-outline-success" type="button" id="btn-export-word" disabled>
+                <i class="bi bi-file-earmark-word me-1"></i>导出 Word
+            </button>
         </div>
     </div>
     <div class="collapse" id="v1-details-collapse">
@@ -680,6 +683,41 @@
     </div>
     <div class="mt-3 text-white fs-5">请求中，请稍候...</div>
 </div>
+
+<div class="modal fade" id="word-export-options-modal" tabindex="-1" aria-labelledby="word-export-options-title" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="word-export-options-title">补充 Word 报告信息</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3 position-relative">
+                    <label for="word-export-stock" class="form-label">股票</label>
+                    <input id="word-export-stock" class="form-control" autocomplete="off" placeholder="输入股票代码或名称搜索">
+                    <div id="word-export-stock-results" class="list-group position-absolute top-100 start-0 w-100 d-none"
+                         style="z-index: 2; max-height: 15rem; overflow-y: auto;"></div>
+                    <div class="form-text">请从内部股票查询结果中选择。</div>
+                </div>
+                <div class="mb-3">
+                    <label for="word-export-price-type" class="form-label">价格类型</label>
+                    <select id="word-export-price-type" class="form-select">
+                        <option value="sp_price" selected>收盘价</option>
+                        <option value="kp_price">开盘价</option>
+                        <option value="vwap_price">加权平均价</option>
+                        <option value="ohlc_price">OHLC（开高低收）</option>
+                        <option value="random_price">随机价</option>
+                    </select>
+                </div>
+                <div class="small text-body-secondary">V2 单产品报告的权重固定为 100.00%。</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" id="btn-confirm-word-export">导出 Word</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -697,6 +735,8 @@
         lastSheetName: '',
         manualDataTitle: '',
         manualDataSheetName: '',
+        wordReportPayload: null,
+        wordExportStock: null,
         charts: {}
     };
 
@@ -746,6 +786,10 @@
             updateV2PasteStatus();
         });
         document.getElementById('btn-export-v1')?.addEventListener('click', exportV1Details);
+        document.getElementById('btn-export-word')?.addEventListener('click', exportWordReport);
+        document.getElementById('word-export-stock')?.addEventListener('input', scheduleWordExportStockSearch);
+        document.getElementById('word-export-stock-results')?.addEventListener('click', selectWordExportStock);
+        document.getElementById('btn-confirm-word-export')?.addEventListener('click', confirmWordExport);
         document.getElementById('btn-copy-raw-json')?.addEventListener('click', copyRawJson);
         document.getElementById('gs-url').addEventListener('input', debounce(() => {
             const changed = updateMeta();
@@ -1082,6 +1126,141 @@
         }
     }
 
+    async function exportWordReport() {
+        if (!state.lastResults || !state.wordReportPayload) {
+            showAlert('请先完成分析再导出', 'warning');
+            return;
+        }
+
+        if (state.wordReportPayload.report_type !== 'RPT-M') {
+            showWordExportOptions();
+            return;
+        }
+
+        await downloadWordReport(state.wordReportPayload);
+    }
+
+    function showWordExportOptions() {
+        const input = document.getElementById('word-export-stock');
+        const results = document.getElementById('word-export-stock-results');
+        state.wordExportStock = null;
+        input.value = '';
+        results.innerHTML = '';
+        results.classList.add('d-none');
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('word-export-options-modal')).show();
+    }
+
+    function scheduleWordExportStockSearch() {
+        state.wordExportStock = null;
+        window.clearTimeout(state.wordExportSearchTimer);
+        state.wordExportSearchTimer = window.setTimeout(searchWordExportStocks, 250);
+    }
+
+    async function searchWordExportStocks() {
+        const input = document.getElementById('word-export-stock');
+        const results = document.getElementById('word-export-stock-results');
+        const keyword = input.value.trim();
+        if (!keyword) {
+            results.classList.add('d-none');
+            return;
+        }
+        if (state.wordExportSearchAbortController) {
+            state.wordExportSearchAbortController.abort();
+        }
+        state.wordExportSearchAbortController = new AbortController();
+        try {
+            const response = await fetch(`/api/search-stocks?q=${encodeURIComponent(keyword)}&page_size=10`, {
+                signal: state.wordExportSearchAbortController.signal
+            });
+            const data = await response.json();
+            if (!response.ok || data.status !== 'success') {
+                throw new Error(data.message || '股票搜索失败');
+            }
+            const items = Array.isArray(data.results) ? data.results : [];
+            results.innerHTML = items.length ? items.map((item) => `
+                <button type="button" class="list-group-item list-group-item-action" data-code="${escapeHtml(item.code || '')}" data-name="${escapeHtml(item.name || item.code || '')}">
+                    <span class="fw-semibold">${escapeHtml(item.code || '')}</span>
+                    <span class="ms-2 small text-body-secondary">${escapeHtml(item.label || item.name || '')}</span>
+                </button>
+            `).join('') : '<div class="list-group-item text-body-secondary small">暂无匹配结果</div>';
+            results.classList.remove('d-none');
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                results.innerHTML = `<div class="list-group-item text-danger small">${escapeHtml(error.message || '股票搜索失败')}</div>`;
+                results.classList.remove('d-none');
+            }
+        }
+    }
+
+    function selectWordExportStock(event) {
+        const item = event.target.closest('[data-code]');
+        if (!item) return;
+        state.wordExportStock = { code: item.dataset.code, name: item.dataset.name };
+        document.getElementById('word-export-stock').value = `${item.dataset.code} · ${item.dataset.name}`;
+        document.getElementById('word-export-stock-results').classList.add('d-none');
+    }
+
+    async function confirmWordExport() {
+        if (!state.wordExportStock) {
+            showAlert('请从搜索结果中选择股票', 'warning');
+            return;
+        }
+        const priceMode = document.getElementById('word-export-price-type').value;
+        const priceType = {
+            kp_price: '开盘价',
+            sp_price: '收盘价',
+            vwap_price: '加权平均价',
+            ohlc_price: 'OHLC（开高低收）',
+            random_price: '随机价'
+        }[priceMode] || '';
+        const payload = JSON.parse(JSON.stringify(state.wordReportPayload));
+        payload.products = [{
+            stock_code: state.wordExportStock.code,
+            product_name: state.wordExportStock.name,
+            ratio: '100.00%'
+        }];
+        payload.metadata = { ...(payload.metadata || {}), price_type: priceType };
+        bootstrap.Modal.getInstance(document.getElementById('word-export-options-modal'))?.hide();
+        await downloadWordReport(payload);
+    }
+
+    async function downloadWordReport(payload) {
+
+        const button = document.getElementById('btn-export-word');
+        if (button) button.disabled = true;
+        try {
+            const response = await fetch('/api/exports/backtest-reports/word', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.message || `HTTP error! status: ${response.status}`);
+            }
+            const blob = await response.blob();
+            const filename = response.headers.get('Content-Disposition')
+                ?.match(/filename[^;=\n]*=(?:UTF-8''|\")?([^;\n\"]+)/i)?.[1]
+                || '策略回测绩效分析报告.docx';
+            const link = document.createElement('a');
+            const objectUrl = URL.createObjectURL(blob);
+            link.href = objectUrl;
+            link.download = decodeURIComponent(filename.replace(/^"|"$/g, ''));
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(objectUrl);
+            showAlert('Word 报告已下载', 'success');
+        } catch (error) {
+            showAlert('Word 导出失败：' + (error.message || '未知错误'), 'danger');
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
     function escapeHtml(str) {
         return String(str)
                 .replaceAll('&', '&amp;')
@@ -1142,10 +1321,16 @@
             google_sheet_url: url,
             spreadsheet_id: spreadsheetId,
             google_sheet_name: sheetName
-        }, sheetName, state.spreadsheetTitle || 'Google Sheet');
+        }, sheetName, state.spreadsheetTitle || 'Google Sheet', {
+            report_type: 'RPT-S',
+            google_sheet_url: url,
+            spreadsheet_id: spreadsheetId,
+            google_sheet_name: sheetName,
+            metadata: { sheet_title: state.spreadsheetTitle }
+        });
     }
 
-    async function runAnalyzeV2Paste() {
+    async function runAnalyzeV2Paste(wordReportPayload = null) {
         let prepared;
         try {
             prepared = prepareV2DataRows(document.getElementById('v2-paste-data').value);
@@ -1159,10 +1344,22 @@
         await requestV2Analysis('/xpl/analyze', {
             data: prepared.text,
             time_format: 'auto'
-        }, state.manualDataSheetName || '粘贴数据', state.manualDataTitle || '手动数据');
+        }, state.manualDataSheetName || '粘贴数据', state.manualDataTitle || '手动数据',
+        wordReportPayload || {
+            report_type: 'RPT-S',
+            returns: prepared.text.split('\n').map((line) => {
+                const [date, indexReturn, startReturn] = line.split('\t');
+                return {
+                    date,
+                    index_return: Number(indexReturn),
+                    start_return: Number(startReturn)
+                };
+            }),
+            metadata: { model_version: '单产品' }
+        });
     }
 
-    async function requestV2Analysis(endpoint, body, sheetName, title) {
+    async function requestV2Analysis(endpoint, body, sheetName, title, wordReportPayload = null) {
         showLoading();
         abortController = new AbortController();
 
@@ -1191,8 +1388,11 @@
             state.lastResults = results;
             state.lastSheetName = sheetName;
             state.spreadsheetTitle = title;
+            state.wordReportPayload = wordReportPayload;
             const exportBtn = document.getElementById('btn-export-v1');
             if (exportBtn) exportBtn.disabled = false;
+            const wordExportBtn = document.getElementById('btn-export-word');
+            if (wordExportBtn) wordExportBtn.disabled = !wordReportPayload;
 
             renderSummary(results);
             renderTables(results);
