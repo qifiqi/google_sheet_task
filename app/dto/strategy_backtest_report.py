@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.performance_analysis.portfolio_combiner import normalize_weighting_mode
+
 
 SINGLE_PRODUCT_REPORT_TYPE = "RPT-S"
 MULTI_PRODUCT_REPORT_TYPE = "RPT-M"
@@ -37,6 +39,8 @@ class StrategyBacktestReportRequestDTO:
     metadata: dict[str, Any] = field(default_factory=dict)
     products: list[dict[str, Any]] = field(default_factory=list)
     weight_allocation: dict[str, Any] | None = None
+    # 多品组合口径；统一由 portfolio_combiner 归一化为 daily_compound / legacy_cumulative。
+    weighting_mode: str = "daily_compound"
     # 市场阶段阈值交给 performance_analysis 的运行参数对象。
     runtime_params: dict[str, Any] = field(default_factory=dict)
 
@@ -74,6 +78,7 @@ class StrategyBacktestReportRequestDTO:
                 raise ValueError("RPT-M 的收益来源必须配置在每个 products 项中")
             for index, product in enumerate(products or [], start=1):
                 cls._validate_source(product, product.get("returns") or [], label=f"products[{index}]")
+        weighting_mode = normalize_weighting_mode(payload.get("weighting_mode"))
         return cls(
             returns=returns,
             task_id=str(payload["task_id"]).strip() if payload.get("task_id") else None,
@@ -87,6 +92,7 @@ class StrategyBacktestReportRequestDTO:
             metadata=metadata or {},
             products=products or [],
             weight_allocation=payload.get("weight_allocation"),
+            weighting_mode=weighting_mode,
             runtime_params=runtime_params or {},
         )
 

@@ -1603,8 +1603,8 @@
             outperform_year: '跑赢年份',
             monthly_excess_volatility: '月超额波动率',
             excess_drawdown_winning_rate: '超额回撤胜率',
-            excess_sharp: '超额夏普',
-            excess_of_promissory_note: '超额索提诺',
+            excess_sharpe: '超额夏普',
+            excess_sortino: '超额索提诺',
             index_profit_annual: '指数盈利年百分比',
             start_profit_annual: '策略盈利年百分比',
             index_monthly_return_volatility: '指数月收益率波动率',
@@ -1620,8 +1620,8 @@
             'outperform_year',
             'monthly_excess_volatility',
             'excess_drawdown_winning_rate',
-            'excess_sharp',
-            'excess_of_promissory_note',
+            'excess_sharpe',
+            'excess_sortino',
             'index_profit_annual',
             'start_profit_annual',
             'index_monthly_return_volatility',
@@ -1770,7 +1770,7 @@
 
     // 索提诺 tab
     function renderTabSotino(r) {
-        fillSotinoMerged(r.index_sotino_ratio, r.start_sotino_ratio, 'tbl-sotino');
+        fillSotinoMerged(r.index_sortino_ratio, r.start_sortino_ratio, 'tbl-sotino');
     }
 
     // 夏普 tab
@@ -1884,7 +1884,7 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${item?.year ?? '-'}</td>
-                <td>${fmtNum(item?.sotino_ratio, 6)}</td>
+                <td>${fmtNum(item?.sortino_ratio, 6)}</td>
                 <td>${fmtNum(item?.average_monthly_annualized_return, 6)}</td>
                 <td>${fmtNum(item?.downside_standard_deviation, 6)}</td>
             `;
@@ -1897,8 +1897,8 @@
         if (!tbody) return;
         tbody.innerHTML = '';
 
-        const idx = idxByYear(indexList, 'sotino_ratio');
-        const st = idxByYear(startList, 'sotino_ratio');
+        const idx = idxByYear(indexList, 'sortino_ratio');
+        const st = idxByYear(startList, 'sortino_ratio');
         const years = Array.from(new Set([...idx.keys(), ...st.keys()])).filter(y => y !== 'all').sort();
 
         if (years.length === 0) {
@@ -1912,8 +1912,8 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${y}</td>
-                <td>${fmtNum(i?.sotino_ratio, 6)}</td>
-                <td>${fmtNum(s?.sotino_ratio, 6)}</td>
+                <td>${fmtNum(i?.sortino_ratio, 6)}</td>
+                <td>${fmtNum(s?.sortino_ratio, 6)}</td>
                 <td>${fmtNum(i?.average_monthly_annualized_return, 6)}</td>
                 <td>${fmtNum(s?.average_monthly_annualized_return, 6)}</td>
                 <td>${fmtNum(i?.downside_standard_deviation, 6)}</td>
@@ -2012,8 +2012,8 @@
         tbody.innerHTML = '';
 
         const rows = [
-            ['excess_sharp', r.excess_sharp],
-            ['excess_of_promissory_note', r.excess_of_promissory_note]
+            ['excess_sharpe', r.excess_sharpe],
+            ['excess_sortino', r.excess_sortino]
         ];
 
         rows.forEach(([key, value]) => {
@@ -2276,8 +2276,8 @@
                 'Kama Ratio'
         );
 
-        const sotIdx = normalizeYearSeries(r.index_sotino_ratio, 'sotino_ratio');
-        const sotSt = normalizeYearSeries(r.start_sotino_ratio, 'sotino_ratio');
+        const sotIdx = normalizeYearSeries(r.index_sortino_ratio, 'sortino_ratio');
+        const sotSt = normalizeYearSeries(r.start_sortino_ratio, 'sortino_ratio');
         const sotLabels = Array.from(new Set([...sotIdx.labels, ...sotSt.labels])).sort();
         const sotIdxVals = sotLabels.map(y => sotIdx.map.get(y) ?? null);
         const sotStVals = sotLabels.map(y => sotSt.map.get(y) ?? null);
@@ -2526,10 +2526,10 @@
         state.charts.excessMetrics = new Chart(el, {
             type: 'bar',
             data: {
-                labels: ['excess_sharp', 'excess_of_promissory_note'],
+                labels: ['excess_sharpe', 'excess_sortino'],
                 datasets: [{
                     label: 'Value',
-                    data: [r.excess_sharp ?? null, r.excess_of_promissory_note ?? null],
+                    data: [r.excess_sharpe ?? null, r.excess_sortino ?? null],
                     backgroundColor: ['rgba(13,110,253,0.5)', 'rgba(25,135,84,0.5)'],
                     borderColor: ['#0d6efd', '#198754'],
                     borderWidth: 1

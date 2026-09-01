@@ -741,8 +741,12 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             )
 
                         })
-                    calculate_metrics = self.xpl.get_calculate_metrics_v1(_return_date)
-                    _result['calculate_metrics'] = calculate_metrics
+                    from app.services.performance_analysis.facade import calculate_v1_metrics
+
+                    metrics_result = calculate_v1_metrics(_return_date, analyzer=self.xpl)
+                    # 统一存储契约：metrics_payload = {schema_version, metrics, canonical_metrics}；
+                    # 完整收益序列由 TaskResultReturn 单独存储，不在 result 中重复。
+                    _result['metrics_payload'] = metrics_result.to_json_dict(include_series=False)
                     results[f"{self.google_sheet.spreadsheet_id}__{self.google_sheet.title}"] = _result
                     return True, results, _return_date
                 else:

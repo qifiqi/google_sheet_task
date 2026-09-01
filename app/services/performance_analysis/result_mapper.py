@@ -14,11 +14,65 @@ from app.services.performance_analysis.response_dto import MetricsV1ResponseDTO
 from app.utils.value_parser import _convert_pandas_to_native
 
 
+class LegacyMetricsAdapter:
+    """将完整 V1 指标投影为 C 系列使用的扁平结果。"""
+
+    @staticmethod
+    def to_flat(metrics: dict[str, Any]) -> dict[str, Any]:
+        """从标准指标字典提取旧接口所需的核心字段。"""
+        def all_entry(value: Any) -> dict[str, Any]:
+            if isinstance(value, list):
+                return next((item for item in value if isinstance(item, dict) and str(item.get("year")) == "all"), {})
+            return {}
+
+        index_sharpe = (metrics.get("index_sharpe_ratios") or {}).get("all") or {}
+        start_sharpe = (metrics.get("start_sharpe_ratios") or {}).get("all") or {}
+        index_sortino = all_entry(metrics.get("index_sortino_ratio"))
+        start_sortino = all_entry(metrics.get("start_sortino_ratio"))
+        excess_all = all_entry(metrics.get("excess_returns"))
+        index_dd = (metrics.get("index_maximum_drawdown") or {}).get("total_maximum_drawdown") or {}
+        start_dd = (metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {}
+        return {
+            "index_annualized_return": excess_all.get("index_annualized_return"),
+            "start_annualized_return": excess_all.get("start_annualized_return"),
+            "index_profit_annual": metrics.get("index_profit_annual"),
+            "start_profit_annual": metrics.get("start_profit_annual"),
+            "index_profit_monthly_percentage": (next((x for x in metrics.get("index_profit_monthly", []) if str(x.get("year")) == "all"), {}) or {}).get("profit_monthly_percentage"),
+            "start_profit_monthly_percentage": (next((x for x in metrics.get("start_profit_monthly", []) if str(x.get("year")) == "all"), {}) or {}).get("profit_monthly_percentage"),
+            "index_avg_monthly_return": index_sharpe.get("avg_monthly_return"),
+            "start_avg_monthly_return": start_sharpe.get("avg_monthly_return"),
+            "index_monthly_std_dev": index_sharpe.get("monthly_std_dev"),
+            "start_monthly_std_dev": start_sharpe.get("monthly_std_dev"),
+            "index_annual_std_dev": index_sharpe.get("annual_std_dev"),
+            "start_annual_std_dev": start_sharpe.get("annual_std_dev"),
+            "index_monthly_return_volatility": metrics.get("index_monthly_return_volatility"),
+            "start_monthly_return_volatility": metrics.get("start_monthly_return_volatility"),
+            "annualized_return_diff": excess_all.get("annualized_return_diff"),
+            "outperform_year": metrics.get("outperform_year"),
+            "monthly_excess_return_percentage_last_return": (next((x for x in metrics.get("monthly_excess_return_percentage", []) if str(x.get("year")) == "all"), {}) or {}).get("excess_return"),
+            "avg_monthly_excess_returns": metrics.get("average_monthly_excess_return"),
+            "monthly_excess_volatility": metrics.get("monthly_excess_volatility"),
+            "start_drawdown": start_dd.get("drawdown"),
+            "index_sharpe_ratio": index_sharpe.get("sharpe_ratio"),
+            "start_sharpe_ratio": start_sharpe.get("sharpe_ratio"),
+            "index_kama_ratio": (all_entry(metrics.get("index_kama_ratio")) or {}).get("kama_ratio"),
+            "start_kama_ratio": (all_entry(metrics.get("start_kama_ratio")) or {}).get("kama_ratio"),
+            "index_sortino_ratio": index_sortino.get("sortino_ratio"),
+            "start_sortino_ratio": start_sortino.get("sortino_ratio"),
+            "excess_sharpe": metrics.get("excess_sharpe"),
+            "excess_sortino": metrics.get("excess_sortino"),
+        }
+
+
 class PerformanceResultMapperMixin:
     def get_return_analysis_v1(self, data: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
         基于与 get_calculate_metrics_v1 相同的 return 列表结构，
-        返回扁平化结构结果。
+        返回 (扁平化旧字段投影, 统一存储载荷)。
+
+        第二个返回值是 ``MetricsV1Result.to_json_dict(include_series=False)``：
+        {"schema_version", "metrics", "canonical_metrics"}，供 TaskResult
+        统一持久化；完整收益序列仍由 TaskResultReturn 单独存储。
 
         入参示例:
         [
@@ -32,7 +86,11 @@ class PerformanceResultMapperMixin:
         if not data:
             return {}, {}
 
-        analyze_result = self._calculate_metrics_v1(data)
+        from app.services.performance_analysis.facade import calculate_v1_metrics
+
+        canonical_result = calculate_v1_metrics(data, analyzer=self)
+        analyze_result = canonical_result.metrics
+        metrics_payload = canonical_result.to_json_dict(include_series=False)
         if not analyze_result:
             return {}, {}
 
@@ -67,10 +125,10 @@ class PerformanceResultMapperMixin:
             "start_sharpe_ratio": 0,
             "index_kama_ratio": 0,
             "start_kama_ratio": 0,
-            "index_sotino_ratio": 0,
-            "start_sotino_ratio": 0,
-            "excess_sharp": 0,
-            "excess_of_promissory_note": 0,
+            "index_sortino_ratio": 0,
+            "start_sortino_ratio": 0,
+            "excess_sharpe": 0,
+            "excess_sortino": 0,
         }
 
         def pick_all(items, key="year", value="all"):
@@ -107,8 +165,8 @@ class PerformanceResultMapperMixin:
         result["excess_maximum_number_of_backtest_repair_days"] = safe_value(
             analyze_result.get("excess_maximum_number_of_backtest_repair_days")
         )
-        result["excess_sharp"] = safe_value(analyze_result.get("excess_sharp"))
-        result["excess_of_promissory_note"] = safe_value(analyze_result.get("excess_of_promissory_note"))
+        result["excess_sharpe"] = safe_value(analyze_result.get("excess_sharpe"))
+        result["excess_sortino"] = safe_value(analyze_result.get("excess_sortino"))
 
         index_profit_monthly_all = pick_all(analyze_result.get("index_profit_monthly"))
         start_profit_monthly_all = pick_all(analyze_result.get("start_profit_monthly"))
@@ -186,17 +244,19 @@ class PerformanceResultMapperMixin:
         result["index_kama_ratio"] = safe_value(index_kama_ratio_all.get("kama_ratio"))
         result["start_kama_ratio"] = safe_value(start_kama_ratio_all.get("kama_ratio"))
 
-        index_sotino_ratio_all = pick_all(analyze_result.get("index_sotino_ratio"))
-        start_sotino_ratio_all = pick_all(analyze_result.get("start_sotino_ratio"))
-        result["index_sotino_ratio"] = safe_value(index_sotino_ratio_all.get("sotino_ratio"))
-        result["start_sotino_ratio"] = safe_value(start_sotino_ratio_all.get("sotino_ratio"))
+        index_sortino_ratio_all = pick_all(analyze_result.get("index_sortino_ratio"))
+        start_sortino_ratio_all = pick_all(analyze_result.get("start_sortino_ratio"))
+        result["index_sortino_ratio"] = safe_value(index_sortino_ratio_all.get("sortino_ratio"))
+        result["start_sortino_ratio"] = safe_value(start_sortino_ratio_all.get("sortino_ratio"))
 
-        return result, analyze_result
+        return result, metrics_payload
 
     def get_calculate_metrics_v1(self, data) :
         """执行 V1 格式数据的指标计算。"""
-        # 执行指标计算
-        result = self._calculate_metrics_v1(data)
+        from app.services.performance_analysis.facade import calculate_v1_metrics
+
+        # 所有新调用统一经过 V1 指标门面。
+        result = calculate_v1_metrics(data, analyzer=self).metrics
 
         # 将结果转换为 JSON，处理 Pandas 类型
         if isinstance(result, pd.DataFrame):
@@ -219,14 +279,18 @@ class PerformanceResultMapperMixin:
 
         ``runtime_params`` 作为后续市场阶段指标的配置入口，当前暂不应用其中的阈值。
         """
-        _ = runtime_params
-        metrics, index_df, start_df, excess_df = self._calculate_metrics_v1(
+        from app.services.performance_analysis.facade import calculate_v1_metrics
+
+        result = calculate_v1_metrics(
             returns,
+            runtime_params=runtime_params,
             return_dataframes=True,
+            analyzer=self,
         )
         return MetricsV1ResponseDTO(
-            metrics=metrics,
-            index_df=index_df,
-            start_df=start_df,
-            excess_df=excess_df,
+            metrics=result.metrics,
+            canonical_metrics=result.canonical_metrics,
+            index_df=result.index_df,
+            start_df=result.start_df,
+            excess_df=result.excess_df,
         )

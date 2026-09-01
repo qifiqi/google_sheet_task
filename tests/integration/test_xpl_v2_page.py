@@ -200,6 +200,9 @@ def test_multi_product_returns_are_weighted_as_daily_returns():
 def test_word_report_uses_full_template_sections_and_cumulative_nav():
     result = SimpleNamespace(
         metrics={
+            "index_cumulative_return": -0.01,
+            "start_cumulative_return": -0.01,
+            "excess_cumulative_return": 0.0,
             "index_monthly_return_skewness": 0.12,
             "start_monthly_return_skewness": 0.34,
             "index_monthly_return_kurtosis": 0.56,

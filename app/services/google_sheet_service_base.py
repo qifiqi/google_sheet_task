@@ -439,10 +439,10 @@ class BaseGoogleSheetService:
             "start_sharpe_ratio": 0,
             "index_kama_ratio": 0,
             "start_kama_ratio": 0,
-            "index_sotino_ratio": 0,
-            "start_sotino_ratio": 0,
-            "excess_sharp": 0,
-            "excess_of_promissory_note": 0,
+            "index_sortino_ratio": 0,
+            "start_sortino_ratio": 0,
+            "excess_sharpe": 0,
+            "excess_sortino": 0,
         }
 
     @retry(

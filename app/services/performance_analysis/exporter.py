@@ -47,7 +47,13 @@ class PerformanceReportExporterMixin:
 
     def format_export_file_data(self, data):
         """将分析结果整理为 XPL 导出文件需要的二维数据。"""
+        from app.services.performance_analysis.historical_metrics import upgrade_historical_metrics
+
         analyze_result = data.get('analyze_result')
+        if isinstance(analyze_result, dict):
+            # TODO: 历史 TaskResult 载荷仍是旧字段名（sotino/cumulative_excess 等），
+            # 历史数据统一迁移完成后移除该兼容升级。
+            analyze_result = upgrade_historical_metrics(analyze_result)
         model_name = self._resolve_export_model_name(data, analyze_result)
 
         excess_returns = analyze_result.get('excess_returns')
@@ -138,15 +144,15 @@ class PerformanceReportExporterMixin:
         start_kama_ratio = start_kama_ratio_all.get('kama_ratio')
 
         # 索提诺比率
-        index_sotino_ratios = analyze_result.get('index_sotino_ratio')
-        index_sotino_ratio_all = [i for i in index_sotino_ratios if i['year'] == 'all'][0]
-        index_sotino_ratio = index_sotino_ratio_all.get('sotino_ratio')
-        start_sotino_ratios = analyze_result.get('start_sotino_ratio')
-        start_sotino_ratio_all = [i for i in start_sotino_ratios if i['year'] == 'all'][0]
-        start_sotino_ratio = start_sotino_ratio_all.get('sotino_ratio')
+        index_sortino_ratios = analyze_result.get('index_sortino_ratio')
+        index_sortino_ratio_all = [i for i in index_sortino_ratios if i['year'] == 'all'][0]
+        index_sortino_ratio = index_sortino_ratio_all.get('sortino_ratio')
+        start_sortino_ratios = analyze_result.get('start_sortino_ratio')
+        start_sortino_ratio_all = [i for i in start_sortino_ratios if i['year'] == 'all'][0]
+        start_sortino_ratio = start_sortino_ratio_all.get('sortino_ratio')
 
-        excess_sharp = analyze_result.get('excess_sharp')
-        excess_of_promissory_note = analyze_result.get('excess_of_promissory_note')
+        excess_sharpe = analyze_result.get('excess_sharpe')
+        excess_sortino = analyze_result.get('excess_sortino')
         # 最大回测修复天数
         start_maximum_number_of_backtest_repair_days = analyze_result.get(
             'start_maximum_number_of_backtest_repair_days')
@@ -186,10 +192,10 @@ class PerformanceReportExporterMixin:
              self._format_export_metric(start_sharpe_ratio, '.2')],  # 注意：数字后面有空格
             ["比率", "卡玛比率", self._format_export_metric(index_kama_ratio, '.2'),
              self._format_export_metric(start_kama_ratio, '.2')],
-            ["比率", "索提诺比率", self._format_export_metric(index_sotino_ratio, '.2'),
-             self._format_export_metric(start_sotino_ratio, '.2')],
-            ["夏普", "超额夏普", f"", self._format_export_metric(excess_sharp, '.2')],
-            ["索提诺", "超额索提诺比率", f"", self._format_export_metric(excess_of_promissory_note, '.2')]
+            ["比率", "索提诺比率", self._format_export_metric(index_sortino_ratio, '.2'),
+             self._format_export_metric(start_sortino_ratio, '.2')],
+            ["夏普", "超额夏普", f"", self._format_export_metric(excess_sharpe, '.2')],
+            ["索提诺", "超额索提诺比率", f"", self._format_export_metric(excess_sortino, '.2')]
         ]
 
         data_2_2d = [

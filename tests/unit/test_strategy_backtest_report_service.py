@@ -54,18 +54,21 @@ def test_return_section_marks_rolling_returns_unavailable_before_five_years():
         index_df=pd.DataFrame({"date": dates, "index_return": [0.01, 0.02], "net_value": [1.01, 1.02]}),
         start_df=pd.DataFrame({"date": dates, "start_return": [0.02, 0.03], "net_value": [1.02, 1.03]}),
     )
+    reason = {
+        "status": "failed",
+        "reason": "数据不足5年，当前仅3.1年",
+        "total_months": 37,
+        "total_years": 37 / 12,
+    }
     metrics = {
-        "index_rolling_return_3": {
-            "status": "failed",
-            "reason": "数据不足5年，当前仅3.1年",
-            "total_months": 37,
-            "total_years": 37 / 12,
+        **{
+            f"{side}_rolling_return_{months}": dict(reason)
+            for side in ("index", "start")
+            for months in (3, 6, 12)
         },
-        "excess_rolling_return_3": {
-            "status": "failed",
-            "reason": "数据不足5年，当前仅3.1年",
-            "total_months": 37,
-            "total_years": 37 / 12,
+        **{
+            f"excess_rolling_return_{months}": dict(reason)
+            for months in (3, 6, 12)
         },
     }
 
@@ -79,7 +82,8 @@ def test_return_section_marks_rolling_returns_unavailable_before_five_years():
     ]
     excess_rows = StrategyBacktestReportService()._excess_section(metrics, result)[2]["table"]["rows"]
     assert excess_rows == [
-        ["1个月（数据不足5年，当前仅3.1年）", "-", "-"],
+        # 1 个月窗口没有 V1 滚动序列，且无月度超额数据时显示占位。
+        ["1个月", "-", "-"],
         ["3个月（数据不足5年，当前仅3.1年）", "-", "-"],
         ["6个月（数据不足5年，当前仅3.1年）", "-", "-"],
         ["12个月（数据不足5年，当前仅3.1年）", "-", "-"],

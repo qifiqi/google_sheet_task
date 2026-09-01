@@ -1,4 +1,4 @@
-"""Multi-product backtest pages and APIs."""
+"""多产品回测页面和接口。"""
 
 from __future__ import annotations
 
@@ -83,6 +83,8 @@ def _build_word_report_payload(task: Task, task_result: TaskResult) -> dict | No
         "report_type": "RPT-M",
         "task_id": task.id,
         "group_key": group_index,
+        # normalize_multi_product_config 已把历史布尔配置归一为 weighting_mode。
+        "weighting_mode": config.get("weighting_mode") or "daily_compound",
         "ratios": [
             {"product_index": product["product_index"], "ratio": product["ratio"]}
             for product in config["products"]
@@ -285,7 +287,7 @@ def get_task_result_detail(task_result_id):
 
     payload = _parse_json(task_result.result, {})
     if isinstance(payload, dict) and payload:
-        prioritized_keys = ("calculate_metrics", "weighted_calculate_metrics", "analyze_result")
+        prioritized_keys = ("metrics_payload", "calculate_metrics", "weighted_calculate_metrics", "analyze_result")
         value = next(
             (
                 item
@@ -296,15 +298,21 @@ def get_task_result_detail(task_result_id):
         )
     else:
         value = {}
-    calculate_metrics = (
-        (value.get("calculate_metrics") or value.get("analyze_result"))
-        if isinstance(value, dict)
-        else {}
-    )
+    metrics_payload = value.get("metrics_payload") if isinstance(value, dict) else None
+    if isinstance(metrics_payload, dict) and isinstance(metrics_payload.get("metrics"), dict):
+        # 统一存储契约：{schema_version, metrics, canonical_metrics}。
+        calculate_metrics = metrics_payload["metrics"]
+    else:
+        # TODO: 历史结果仍保存 calculate_metrics/analyze_result 旧键，迁移后移除回退。
+        calculate_metrics = (
+            (value.get("calculate_metrics") or value.get("analyze_result"))
+            if isinstance(value, dict)
+            else {}
+        )
     sheet_result = {
         key: item
         for key, item in value.items()
-        if key not in {"calculate_metrics", "analyze_result"}
+        if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
     } if isinstance(value, dict) else {}
 
     daily_returns = {}

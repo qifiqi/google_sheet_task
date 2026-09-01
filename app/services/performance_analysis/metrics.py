@@ -609,7 +609,7 @@ class PerformanceMetricsMixin:
 
         return kama_ratios
     #
-    # def calculate_sotino_ratio(self, monthly_data):
+    # def calculate_sortino_ratio(self, monthly_data):
     #     """
     #         修改 下行边准差  月 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (12)
     #                         周 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (52)
@@ -621,7 +621,7 @@ class PerformanceMetricsMixin:
     #             下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
     #            月均年化收益率	月均收益率*12（所有月）
     #     """
-    #     sotino_ratios = []
+    #     sortino_ratios = []
     #     # 计算月度收益率数据
     #     monthly_data_df = monthly_data.copy()
     #     monthly_groups = monthly_data_df.groupby('year')
@@ -633,15 +633,15 @@ class PerformanceMetricsMixin:
     #         )
     #
     #         downside_standard_deviation = 0
-    #         sotino_ratio = 0
+    #         sortino_ratio = 0
     #
     #         if len(monthly_return_0) > 1:
     #             downside_standard_deviation = monthly_return_0.std() * np.sqrt(12)
-    #             sotino_ratio = average_monthly_annualized_return / downside_standard_deviation
+    #             sortino_ratio = average_monthly_annualized_return / downside_standard_deviation
     #
-    #         sotino_ratios.append({
+    #         sortino_ratios.append({
     #             "year": year,
-    #             "sotino_ratio": sotino_ratio,
+    #             "sortino_ratio": sortino_ratio,
     #             "average_monthly_annualized_return": average_monthly_annualized_return,
     #             "downside_standard_deviation": downside_standard_deviation
     #         })
@@ -653,16 +653,16 @@ class PerformanceMetricsMixin:
     #         monthly_data_df['monthly_return'] > 0, 0
     #     )
     #     downside_standard_deviation = downside_standard_deviation_monthly_return.std() * np.sqrt(12)
-    #     sotino_ratio = average_monthly_annualized_return / downside_standard_deviation
-    #     sotino_ratios.append({
+    #     sortino_ratio = average_monthly_annualized_return / downside_standard_deviation
+    #     sortino_ratios.append({
     #         "year": "all",
-    #         "sotino_ratio": sotino_ratio,
+    #         "sortino_ratio": sortino_ratio,
     #         "average_monthly_annualized_return": average_monthly_annualized_return,
     #         "downside_standard_deviation": downside_standard_deviation
     #     })
-    #     return sotino_ratios
+    #     return sortino_ratios
 
-    def calculate_sotino_ratio(self, data, frequency='monthly'):
+    def calculate_sortino_ratio(self, data, frequency='monthly'):
         """
         计算索提诺比率（Sortino Ratio）
 
@@ -1147,7 +1147,7 @@ class PerformanceMetricsMixin:
             # 批量计算所有净值
             base_df['index_net'] = 1 * (1 + base_df['index_return'])
             base_df['start_net'] = 1 * (1 + base_df['start_return'])
-            base_df['excess_net'] = 1 * (1 + base_df['excess_return'])
+            base_df['excess_nav'] = 1 * (1 + base_df['excess_return'])
 
             # 如果需要分别提取（但建议直接用 base_df）
             index_df = base_df[
@@ -1157,8 +1157,8 @@ class PerformanceMetricsMixin:
                 ['date', 'year', 'month', 'year_month', 'start_return', 'start_net']
             ].rename(columns={'start_net': 'net_value'})
             excess_df = base_df[
-                ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_net']
-            ].rename(columns={'excess_net': 'net_value'})
+                ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_nav']
+            ].rename(columns={'excess_nav': 'net_value'})
 
 
             # 当天收益率
@@ -1216,12 +1216,12 @@ class PerformanceMetricsMixin:
             monthly_excess_volatility = self.calculate_monthly_excess_volatility(monthly_excess_returns)
 
             # 索提诺比例-月
-            index_monthly_sotino_ratio = self.calculate_sotino_ratio(index_monthly_returns_rate)
-            start_monthly_sotino_ratio = self.calculate_sotino_ratio(start_monthly_returns_rate)
+            index_monthly_sortino_ratio = self.calculate_sortino_ratio(index_monthly_returns_rate)
+            start_monthly_sortino_ratio = self.calculate_sortino_ratio(start_monthly_returns_rate)
 
             # 索提诺比例-周
-            index_weekly_sotino_ratio = self.calculate_sotino_ratio(index_weekly_returns_rate,"weekly")
-            start_weekly_sotino_ratio = self.calculate_sotino_ratio(start_weekly_returns_rate,"weekly")
+            index_weekly_sortino_ratio = self.calculate_sortino_ratio(index_weekly_returns_rate,"weekly")
+            start_weekly_sortino_ratio = self.calculate_sortino_ratio(start_weekly_returns_rate,"weekly")
 
             # 盈利年百分比（不需要每年）
             index_profit_annual = self.calculate_profit_annual_percentage(index_returns_rate)
@@ -1589,25 +1589,25 @@ class PerformanceMetricsMixin:
                 "start_sharpe_ratios": start_sharpe_ratios,  # 模型夏普比率
 
                 "index_kama_ratio": index_kama_ratio,  # 卡玛比率
-                "index_sotino_ratio": index_monthly_sotino_ratio,  # 索提诺比例
+                "index_sortino_ratio": index_monthly_sortino_ratio,  # 索提诺比例
                 "index_profit_annual": index_profit_annual,  # 盈利年百分比（不需要每年）
                 "index_profit_monthly": index_profit_monthly,  # 盈利月百分比
                 "index_monthly_return_volatility": index_monthly_return_volatility,
-                "index_weekly_sotino_ratio":index_weekly_sotino_ratio,
+                "index_weekly_sortino_ratio":index_weekly_sortino_ratio,
                 "start_kama_ratio": start_kama_ratio,
-                "start_sotino_ratio": start_monthly_sotino_ratio,
+                "start_sortino_ratio": start_monthly_sortino_ratio,
                 "start_profit_annual": start_profit_annual,
                 "start_profit_monthly": start_profit_monthly,
                 "start_monthly_return_volatility": start_monthly_return_volatility,
-                "start_weekly_sotino_ratio":start_weekly_sotino_ratio,
+                "start_weekly_sortino_ratio":start_weekly_sortino_ratio,
                 "excess_returns": excess_returns,  # 年超额收益
                 "outperform_year": outperform_year,  # 跑赢年份
                 "monthly_excess_returns": monthly_excess_returns_dict,  # 月超额收益
                 "monthly_excess_return_percentage": monthly_excess_return_percentage,  # 月超额收益百分比
                 "monthly_excess_volatility": monthly_excess_volatility,  # 月超额波动率
                 "excess_drawdown_winning_rate": excess_drawdown_winning_rate,  # 超额回撤胜率
-                "excess_sharp": excess_sharp,  # 超额夏普
-                "excess_of_promissory_note": excess_of_promissory_note,  # 超额索提诺
+                "excess_sharpe": excess_sharp,  # 超额夏普
+                "excess_sortino": excess_of_promissory_note,  # 超额索提诺
                 "index_maximum_number_of_backtest_repair_days": index_maximum_number_of_backtest_repair_days,
                 # 最大回测修复天数 index
                 "start_maximum_number_of_backtest_repair_days": start_maximum_number_of_backtest_repair_days,
@@ -1684,7 +1684,8 @@ class PerformanceMetricsMixin:
                 "index_days_distribution_pct": index_days_distribution_pct,
                 "start_days_distribution_pct": start_days_distribution_pct,
                 # 六、超额收益分析
-                "cumulative_excess": cumulative_excess,
+                "excess_cumulative_return": cumulative_excess,
+                "excess_nav": excess_df['net_value'].iloc[-1],
                 "annualized_excess_returns": annualized_excess_returns,
                 "average_monthly_excess_return": average_monthly_excess_return,
                 "monthly_excess_return_standard_deviation":monthly_excess_return_standard_deviation,
@@ -1745,12 +1746,12 @@ class PerformanceMetricsMixin:
             logger.debug("模型月度收益率: %s", json.dumps(start_returns_rate, indent=4, default=str))
             logger.debug("模型夏普比率: %s", json.dumps(start_sharpe_ratios, indent=4, default=str))
             logger.debug("指数卡玛比率: %s", json.dumps(index_kama_ratio, indent=4, default=str))
-            logger.debug("模型索提诺比例: %s", json.dumps(index_monthly_sotino_ratio, indent=4, default=str))
+            logger.debug("模型索提诺比例: %s", json.dumps(index_monthly_sortino_ratio, indent=4, default=str))
             logger.debug("指数盈利年百分比（不需要每年）: %s", json.dumps(index_profit_annual, indent=4, default=str))
             logger.debug("模型盈利月百分比: %s", json.dumps(index_profit_monthly, indent=4, default=str))
             logger.debug("指数月度收益率波动率: %s", json.dumps(index_monthly_return_volatility, indent=4, default=str))
             logger.debug("模型卡玛比率: %s", json.dumps(start_kama_ratio, indent=4, default=str))
-            logger.debug("模型索提诺比例: %s", json.dumps(start_monthly_sotino_ratio, indent=4, default=str))
+            logger.debug("模型索提诺比例: %s", json.dumps(start_monthly_sortino_ratio, indent=4, default=str))
             logger.debug("模型盈利年百分比（不需要每年）: %s", json.dumps(start_profit_annual, indent=4, default=str))
             logger.debug("模型盈利月百分比: %s", json.dumps(start_profit_monthly, indent=4, default=str))
             logger.debug("模型月度收益率波动率: %s", json.dumps(start_monthly_return_volatility, indent=4, default=str))

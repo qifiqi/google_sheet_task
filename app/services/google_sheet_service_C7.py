@@ -397,10 +397,10 @@ class GoogleSheetService(BaseGoogleSheetService):
             "start_sharpe_ratio": analyze_result.get("start_sharpe_ratio", 0),
             "index_kama_ratio": analyze_result.get("index_kama_ratio", 0),
             "start_kama_ratio": analyze_result.get("start_kama_ratio", 0),
-            "index_sotino_ratio": analyze_result.get("index_sotino_ratio", 0),
-            "start_sotino_ratio": analyze_result.get("start_sotino_ratio", 0),
-            "excess_sharp": analyze_result.get("excess_sharp", 0),
-            "excess_of_promissory_note": analyze_result.get("excess_of_promissory_note", 0),
+            "index_sortino_ratio": analyze_result.get("index_sortino_ratio", 0),
+            "start_sortino_ratio": analyze_result.get("start_sortino_ratio", 0),
+            "excess_sharpe": analyze_result.get("excess_sharpe", 0),
+            "excess_sortino": analyze_result.get("excess_sortino", 0),
         })
         return payload
 
@@ -904,10 +904,10 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
                         # _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
-                        flat_result, analyze_result = self.xpl.get_return_analysis_v1(_return_data)
+                        flat_result, metrics_payload = self.xpl.get_return_analysis_v1(_return_data)
                         # _result['index_return_xpl'] = _index_return_xpl
                         # _result['start_return_xpl'] = _start_return_xpl
-                        _result['analyze_result'] = analyze_result
+                        _result['metrics_payload'] = metrics_payload
                         _result[f"flat_result"] = flat_result
                         _result['_return_date'] = _return_data
 

@@ -329,7 +329,13 @@ def test_backtest_c7_0_3_execution_writes_ohlc_and_handles_first_div_zero(monkey
     service.google_sheet = sheet
     service.xpl = type(
         "XPL",
-        (), {"get_calculate_metrics_v1": lambda _self, rows: {"rows": rows}},
+        (), {
+            "get_calculate_metrics_v1": lambda _self, rows: {"rows": rows},
+            # 统一存储后，执行链路通过 V1 门面取 (metrics, 三条DataFrame) 结果。
+            "_calculate_metrics_v1": lambda _self, rows, return_dataframes=False: (
+                {"rows": rows}, None, None, None,
+            ),
+        },
     )()
     monkeypatch.setattr(service, "_interruptible_sleep", lambda _seconds: True)
     monkeypatch.setattr(service, "_get_execution_poll_delay_bounds", lambda: (0, 0))

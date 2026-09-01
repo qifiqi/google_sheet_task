@@ -21,6 +21,7 @@ from flask import has_app_context
 
 from app.extensions import db
 from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
+from app.services.performance_analysis.historical_metrics import upgrade_historical_metrics
 from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.xpl_service import xpl_analyzer
 from app.utils.logger import get_logger
@@ -73,10 +74,10 @@ RETURN_ANALYSIS_COLUMNS = [
     {"key": "index_sharpe_ratio", "label": "指数夏普", "format": "number"},
     {"key": "start_kama_ratio", "label": "模型卡玛比率", "format": "number"},
     {"key": "index_kama_ratio", "label": "指数卡玛比率", "format": "number"},
-    {"key": "start_sotino_ratio", "label": "模型索提诺比率", "format": "number"},
-    {"key": "index_sotino_ratio", "label": "指数索提诺比率", "format": "number"},
-    {"key": "excess_sharp", "label": "超额夏普", "format": "number"},
-    {"key": "excess_of_promissory_note", "label": "超额索提诺比率", "format": "number"},
+    {"key": "start_sortino_ratio", "label": "模型索提诺比率", "format": "number"},
+    {"key": "index_sortino_ratio", "label": "指数索提诺比率", "format": "number"},
+    {"key": "excess_sharpe", "label": "超额夏普", "format": "number"},
+    {"key": "excess_sortino", "label": "超额索提诺比率", "format": "number"},
 ]
 
 SUMMARY_COLUMNS = [*SUMMARY_COLUMNS, *RETURN_ANALYSIS_COLUMNS]
@@ -641,10 +642,10 @@ def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float
         "index_sharpe_ratio": "index_sharpe_ratio",
         "start_kama_ratio": "start_kama_ratio",
         "index_kama_ratio": "index_kama_ratio",
-        "start_sotino_ratio": "start_sotino_ratio",
-        "index_sotino_ratio": "index_sotino_ratio",
-        "excess_sharp": "excess_sharp",
-        "excess_of_promissory_note": "excess_of_promissory_note",
+        "start_sortino_ratio": "start_sortino_ratio",
+        "index_sortino_ratio": "index_sortino_ratio",
+        "excess_sharpe": "excess_sharpe",
+        "excess_sortino": "excess_sortino",
     }
     metrics = {}
     for output_key, source_key in field_map.items():
@@ -829,7 +830,7 @@ def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[s
     index_profit_monthly_all = _all_entry(calculate_metrics.get("index_profit_monthly"))
     start_profit_monthly_all = _all_entry(calculate_metrics.get("start_profit_monthly"))
     start_kama_all = _all_entry(calculate_metrics.get("start_kama_ratio"))
-    start_sotino_all = _all_entry(calculate_metrics.get("start_sotino_ratio"))
+    start_sortino_all = _all_entry(calculate_metrics.get("start_sortino_ratio"))
     monthly_excess_percentage_all = _all_entry(calculate_metrics.get("monthly_excess_return_percentage"))
     start_sharpe_all = (
         (calculate_metrics.get("start_sharpe_ratios") or {}).get("all")
@@ -910,9 +911,9 @@ def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[s
         "drawdown_year_max_repair_days": _format_backtest_repair_days(year_start_max_repair_days),
         "ratio_sharpe_ratio": _format_backtest_number(start_sharpe_all.get("sharpe_ratio")),
         "ratio_kama_ratio": _format_backtest_number(start_kama_all.get("kama_ratio")),
-        "ratio_sortino_ratio": _format_backtest_number(start_sotino_all.get("sotino_ratio")),
-        "sharpe_excess_sharpe": _format_backtest_number(calculate_metrics.get("excess_sharp")),
-        "sortino_excess_sortino_ratio": _format_backtest_number(calculate_metrics.get("excess_of_promissory_note")),
+        "ratio_sortino_ratio": _format_backtest_number(start_sortino_all.get("sortino_ratio")),
+        "sharpe_excess_sharpe": _format_backtest_number(calculate_metrics.get("excess_sharpe")),
+        "sortino_excess_sortino_ratio": _format_backtest_number(calculate_metrics.get("excess_sortino")),
     }
 
 
@@ -929,8 +930,8 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
         start_profit_monthly_all = _safe_all_entry(calculate_metrics.get("start_profit_monthly"))
         index_kama_all = _safe_all_entry(calculate_metrics.get("index_kama_ratio"))
         start_kama_all = _safe_all_entry(calculate_metrics.get("start_kama_ratio"))
-        index_sotino_all = _safe_all_entry(calculate_metrics.get("index_sotino_ratio"))
-        start_sotino_all = _safe_all_entry(calculate_metrics.get("start_sotino_ratio"))
+        index_sortino_all = _safe_all_entry(calculate_metrics.get("index_sortino_ratio"))
+        start_sortino_all = _safe_all_entry(calculate_metrics.get("start_sortino_ratio"))
         monthly_excess_percentage_all = _safe_all_entry(calculate_metrics.get("monthly_excess_return_percentage"))
         start_sharpe_all = (calculate_metrics.get("start_sharpe_ratios") or {}).get("all") or {}
 
@@ -1010,9 +1011,9 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
             ("年最大回测修复天数", _format_backtest_repair_days(year_start_max_repair_days)),
             ("夏普比率", _format_backtest_number(start_sharpe_all.get("sharpe_ratio"))),
             ("卡玛比率", _format_backtest_number(start_kama_all.get("kama_ratio"))),
-            ("索提诺比率", _format_backtest_number(start_sotino_all.get("sotino_ratio"))),
-            ("超额夏普", _format_backtest_number(calculate_metrics.get("excess_sharp"))),
-            ("超额索提诺比率", _format_backtest_number(calculate_metrics.get("excess_of_promissory_note"))),
+            ("索提诺比率", _format_backtest_number(start_sortino_all.get("sortino_ratio"))),
+            ("超额夏普", _format_backtest_number(calculate_metrics.get("excess_sharpe"))),
+            ("超额索提诺比率", _format_backtest_number(calculate_metrics.get("excess_sortino"))),
         ]
         return period_text, [{"metric": metric, "model_value": value} for metric, value in rows]
 
@@ -1042,7 +1043,16 @@ def _extract_backtest(task: Task, result: TaskResult) -> list[SummaryRecord]:
     parameters = _parse_json(result.parameters, {})
     payload = _parse_json(result.result, {})
     core = _first_dict_value(payload)
-    calculate_metrics = core.get("calculate_metrics") if isinstance(core.get("calculate_metrics"), dict) else {}
+    if isinstance(core, dict) and isinstance(core.get("metrics_payload"), dict):
+        # 统一存储契约：{schema_version, metrics, canonical_metrics}。
+        calculate_metrics = core["metrics_payload"].get("metrics")
+    else:
+        # TODO: 数据库历史 TaskResult 仍保存 calculate_metrics 旧键，迁移后移除回退。
+        calculate_metrics = core.get("calculate_metrics") if isinstance(core, dict) else {}
+    calculate_metrics = calculate_metrics if isinstance(calculate_metrics, dict) else {}
+    if calculate_metrics:
+        # TODO: 历史载荷字段名（sotino/cumulative_excess 等）迁移后移除该升级。
+        calculate_metrics = upgrade_historical_metrics(calculate_metrics)
     if not calculate_metrics:
         return []
 

@@ -81,7 +81,8 @@ def test_daily_return_weighting_rebuilds_cumulative_returns_by_default():
         0: {"return_date": first_product_returns},
         1: {"return_date": second_product_returns},
     }, products)
-    legacy_portfolio_returns = _build_portfolio_return_date({
+    # 旧版累计加权算法已停用：传入 legacy 标志也按日收益加权后复利计算。
+    legacy_flag_portfolio_returns = _build_portfolio_return_date({
         0: {"return_date": first_product_returns},
         1: {"return_date": second_product_returns},
     }, products, True)
@@ -90,7 +91,7 @@ def test_daily_return_weighting_rebuilds_cumulative_returns_by_default():
     assert restored_returns[-1]["start_return"] == pytest.approx(0.21)
     assert weighted_product[-1]["start_return"] == pytest.approx(0.1025)
     assert portfolio_returns[-1]["start_return"] == pytest.approx(0.3225)
-    assert legacy_portfolio_returns[-1]["start_return"] == pytest.approx(0.325)
+    assert legacy_flag_portfolio_returns[-1]["start_return"] == pytest.approx(0.3225)
 
 
 def test_normalize_multi_product_config_allows_ratio_total_not_equal_100():
@@ -104,10 +105,11 @@ def test_normalize_multi_product_config_allows_ratio_total_not_equal_100():
 
     assert [product["ratio"] for product in normalized["products"]] == ["60", "30"]
     assert [product["price_mode"] for product in normalized["products"]] == ["sp_price", "sp_price"]
-    assert normalized["use_legacy_cumulative_return_weighting"] is False
+    assert normalized["weighting_mode"] == "daily_compound"
 
 
-def test_normalize_multi_product_config_allows_legacy_cumulative_return_weighting():
+def test_normalize_multi_product_config_ignores_legacy_weighting_flag():
+    """旧版累计加权算法已停用，历史布尔配置不再改变组合算法。"""
     config = {
         "start_date": "2024-01-01",
         "end_date": "2024-12-31",
@@ -117,7 +119,7 @@ def test_normalize_multi_product_config_allows_legacy_cumulative_return_weightin
 
     normalized = normalize_multi_product_config(config)
 
-    assert normalized["use_legacy_cumulative_return_weighting"] is True
+    assert normalized["weighting_mode"] == "daily_compound"
 
 
 def test_normalize_multi_product_config_defaults_to_vwap_price():
@@ -1035,21 +1037,21 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
         assert payload["summary"]["product_count"] == 2
         row = payload["groups"][0]["rows"][0]
         assert row["metric"] == "年化收益"
-        assert row["product_values"][0]["weighted_result_value"] == "150.00%"
-        assert row["product_values"][1]["weighted_result_value"] == "4500.00%"
-        assert row["weighted_index_value"] == "3100.00%"
-        assert row["weighted_result_value"] == "4650.00%"
+        assert row["product_values"][0]["weighted_result_value"] == "125.00%"
+        assert row["product_values"][1]["weighted_result_value"] == "4142.86%"
+        assert row["weighted_index_value"] == "2961.93%"
+        assert row["weighted_result_value"] == "4553.57%"
         assert captured_returns[0] == [
             {"date": "2024-01-01", "index_return": 7.75, "start_return": 15.5},
-            {"date": "2024-01-02", "index_return": 23.25, "start_return": 31.0},
+            {"date": "2024-01-02", "index_return": 21.86931818181818, "start_return": 30.035714285714285},
         ]
         assert captured_returns[1] == [
             {"date": "2024-01-01", "index_return": 0.25, "start_return": 0.5},
-            {"date": "2024-01-02", "index_return": 0.75, "start_return": 1.0},
+            {"date": "2024-01-02", "index_return": 0.5625, "start_return": 0.75},
         ]
         assert captured_returns[2] == [
             {"date": "2024-01-01", "index_return": 7.5, "start_return": 15.0},
-            {"date": "2024-01-02", "index_return": 22.5, "start_return": 30.0},
+            {"date": "2024-01-02", "index_return": 19.09090909090909, "start_return": 26.428571428571427},
         ]
 
         workbook = _build_global_preview_workbook(payload)
@@ -1060,8 +1062,8 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
         assert sheet["F1"].value == "产品2"
         assert sheet["E2"].value == "模型结果（25%）"
         assert sheet["H2"].value == "模型结果（75%）"
-        assert sheet["E3"].value == pytest.approx(1.5)
-        assert sheet["H3"].value == pytest.approx(45)
+        assert sheet["E3"].value == pytest.approx(1.25)
+        assert sheet["H3"].value == pytest.approx(41.42857142857143)
         assert sheet["E3"].number_format == "0.00%"
         assert sheet["I2"].value == "比例计算-指数"
         assert sheet["J2"].value == "比例计算-结果"
@@ -1074,7 +1076,7 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
             task.id,
             ratios_override=[{"ratio": 50}, {"ratio": 50}],
         )
-        assert preview_payload["groups"][0]["rows"][0]["weighted_result_value"] == "3300.00%"
+        assert preview_payload["groups"][0]["rows"][0]["weighted_result_value"] == "3171.43%"
         assert json.loads(db.session.get(Task, task.id).config)["products"][0]["ratio"] == "25"
 
 
@@ -1203,7 +1205,7 @@ def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_fa
         first = TaskResult(
             task_id=task.id,
             step_index=0,
-            parameters=json.dumps({"product_index": 0, "ratio": 25, "use_legacy_cumulative_return_weighting": True, "parameter_group_index": 0}, ensure_ascii=False),
+            parameters=json.dumps({"product_index": 0, "ratio": 25, "weighting_mode": "legacy_cumulative", "parameter_group_index": 0}, ensure_ascii=False),
             result=json.dumps(_task_result_payload_with_returns_and_weighted(0.10, 0.20, 0.25, [
                 {"date": "2024-01-01", "index_return": 1, "start_return": 2},
                 {"date": "2024-01-02", "index_return": 3, "start_return": 4},
@@ -1213,7 +1215,7 @@ def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_fa
         second = TaskResult(
             task_id=task.id,
             step_index=1,
-            parameters=json.dumps({"product_index": 1, "ratio": 75, "use_legacy_cumulative_return_weighting": True, "parameter_group_index": 0}, ensure_ascii=False),
+            parameters=json.dumps({"product_index": 1, "ratio": 75, "weighting_mode": "legacy_cumulative", "parameter_group_index": 0}, ensure_ascii=False),
             result=json.dumps(_task_result_payload_with_returns_and_weighted(0.20, 0.40, 0.75, [
                 {"date": "2024-01-01", "index_return": 10, "start_return": 20},
                 {"date": "2024-01-02", "index_return": 30, "start_return": 40},
@@ -1237,16 +1239,16 @@ def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_fa
 
         row = payload["groups"][0]["rows"][0]
         assert row["product_values"][0]["weighted_result_value"] == "25.00%"
-        assert row["product_values"][1]["weighted_result_value"] == "3000.00%"
-        assert row["weighted_result_value"] == "3150.00%"
+        assert row["product_values"][1]["weighted_result_value"] == "2523.81%"
+        assert row["weighted_result_value"] == "2839.29%"
         assert captured_returns == [
             [
                 {"date": "2024-01-01", "index_return": 5.25, "start_return": 10.5},
-                {"date": "2024-01-02", "index_return": 15.75, "start_return": 21.0},
+                {"date": "2024-01-02", "index_return": 12.494318181818182, "start_return": 17.892857142857142},
             ],
             [
                 {"date": "2024-01-01", "index_return": 5.0, "start_return": 10.0},
-                {"date": "2024-01-02", "index_return": 15.0, "start_return": 20.0},
+                {"date": "2024-01-02", "index_return": 10.454545454545455, "start_return": 15.238095238095237},
             ],
         ]
         assert json.loads(db.session.get(Task, task.id).config)["products"][1]["ratio"] == "75"
@@ -1347,18 +1349,18 @@ def test_multi_product_derive_metrics_accepts_c7_flat_analyze_result():
 
 def test_multi_product_derive_metrics_uses_sortino_ratio_scalar_from_year_all():
     metrics = _derive_metrics({
-        "index_sotino_ratio": [
+        "index_sortino_ratio": [
             {"year": 2025, "sortino_ratio": 1.2},
             {"year": "all", "sortino_ratio": 2.34},
         ],
-        "start_sotino_ratio": [
+        "start_sortino_ratio": [
             {"year": 2025, "sortino_ratio": 3.4},
             {"year": "all", "sortino_ratio": 4.56},
         ],
     })
 
-    assert metrics["index_sotino_ratio"] == pytest.approx(2.34)
-    assert metrics["start_sotino_ratio"] == pytest.approx(4.56)
+    assert metrics["index_sortino_ratio"] == pytest.approx(2.34)
+    assert metrics["start_sortino_ratio"] == pytest.approx(4.56)
 
 
 def test_multi_product_global_preview_workbook_writes_percentage_cells_as_numbers():
@@ -1463,7 +1465,7 @@ def test_global_preview_reuses_in_memory_cache_for_same_ratios(app_factory, monk
         first = TaskResult(
             task_id=task.id,
             step_index=0,
-            parameters=json.dumps({"product_index": 0, "ratio": 50, "use_legacy_cumulative_return_weighting": True, "parameter_group_index": 0}, ensure_ascii=False),
+            parameters=json.dumps({"product_index": 0, "ratio": 50, "weighting_mode": "legacy_cumulative", "parameter_group_index": 0}, ensure_ascii=False),
             result=json.dumps(_task_result_payload_with_returns_and_weighted(0.10, 0.20, 1, [
                 {"date": "2024-01-01", "index_return": 1, "start_return": 2},
             ])),
@@ -1472,7 +1474,7 @@ def test_global_preview_reuses_in_memory_cache_for_same_ratios(app_factory, monk
         second = TaskResult(
             task_id=task.id,
             step_index=1,
-            parameters=json.dumps({"product_index": 1, "ratio": 50, "use_legacy_cumulative_return_weighting": True, "parameter_group_index": 0}, ensure_ascii=False),
+            parameters=json.dumps({"product_index": 1, "ratio": 50, "weighting_mode": "legacy_cumulative", "parameter_group_index": 0}, ensure_ascii=False),
             result=json.dumps(_task_result_payload_with_returns_and_weighted(0.20, 0.40, 10, [
                 {"date": "2024-01-01", "index_return": 10, "start_return": 20},
             ])),
@@ -1631,16 +1633,16 @@ def test_build_multi_product_global_preview_uses_common_dates_for_portfolio_retu
 
         row = payload["groups"][0]["rows"][0]
         assert row["metric"] == "年化收益"
-        assert row["product_values"][0]["weighted_result_value"] == "150.00%"
-        assert row["product_values"][1]["weighted_result_value"] == "7500.00%"
+        assert row["product_values"][0]["weighted_result_value"] == "125.00%"
+        assert row["product_values"][1]["weighted_result_value"] == "7134.15%"
         assert row["weighted_result_value"] == "3100.00%"
         assert [
             {"date": "2024-01-01", "index_return": 0.25, "start_return": 0.5},
-            {"date": "2024-01-02", "index_return": 0.75, "start_return": 1.0},
+            {"date": "2024-01-02", "index_return": 0.5625, "start_return": 0.75},
         ] in captured_returns
         assert [
             {"date": "2024-01-02", "index_return": 22.5, "start_return": 30.0},
-            {"date": "2024-01-03", "index_return": 37.5, "start_return": 45.0},
+            {"date": "2024-01-03", "index_return": 33.87096774193548, "start_return": 41.34146341463415},
         ] in captured_returns
         assert [
             {"date": "2024-01-02", "index_return": 23.25, "start_return": 31.0},

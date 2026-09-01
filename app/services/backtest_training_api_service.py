@@ -14,6 +14,7 @@ from sqlalchemy.orm import load_only
 
 from app.extensions import db
 from app.models import Task, TaskResult
+from app.services.performance_analysis.historical_metrics import extract_core_metrics, upgrade_historical_metrics
 from app.services.xpl_service import xpl_analyzer
 from app.utils.c7_result_normalizer import (
     C7_RAW_PERCENT_CELLS,
@@ -251,7 +252,9 @@ def _extract_task_result_payload(task_result):
                 item
                 for item in result_payload.values()
                 if isinstance(item, dict) and (
-                    "calculate_metrics" in item or "analyze_result" in item
+                    "metrics_payload" in item
+                    or "calculate_metrics" in item
+                    or "analyze_result" in item
                 )
             ),
             next((item for item in result_payload.values() if isinstance(item, dict)), {}),
@@ -261,11 +264,20 @@ def _extract_task_result_payload(task_result):
     if not isinstance(value, dict):
         return {}, {}
 
-    calculate_metrics = value.get("calculate_metrics") or value.get("analyze_result")
+    metrics_payload = value.get("metrics_payload")
+    if isinstance(metrics_payload, dict) and isinstance(metrics_payload.get("metrics"), dict):
+        # 统一存储契约：{schema_version, metrics, canonical_metrics}。
+        calculate_metrics = metrics_payload["metrics"]
+    else:
+        # TODO: 数据库历史 TaskResult 仍保存 calculate_metrics/analyze_result 旧键，
+        # 历史数据统一迁移完成后移除该回退与字段升级。
+        calculate_metrics = value.get("calculate_metrics") or value.get("analyze_result")
+        if isinstance(calculate_metrics, dict):
+            calculate_metrics = upgrade_historical_metrics(calculate_metrics)
     sheet_result = {
         key: item
         for key, item in value.items()
-        if key not in {"calculate_metrics", "analyze_result"}
+        if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
     }
     return (
         calculate_metrics if isinstance(calculate_metrics, dict) else {},
@@ -443,11 +455,11 @@ def _build_c3_summary_rows(task_id):
         )
         index_kama_all = _safe_all_entry(calculate_metrics.get("index_kama_ratio"))
         start_kama_all = _safe_all_entry(calculate_metrics.get("start_kama_ratio"))
-        index_sotino_all = _safe_all_entry(
-            calculate_metrics.get("index_sotino_ratio")
+        index_sortino_all = _safe_all_entry(
+            calculate_metrics.get("index_sortino_ratio")
         )
-        start_sotino_all = _safe_all_entry(
-            calculate_metrics.get("start_sotino_ratio")
+        start_sortino_all = _safe_all_entry(
+            calculate_metrics.get("start_sortino_ratio")
         )
         monthly_excess_percentage_all = _safe_all_entry(
             calculate_metrics.get("monthly_excess_return_percentage")
@@ -544,17 +556,17 @@ def _build_c3_summary_rows(task_id):
             "strategy_kama_ratio": _parse_percent_like_value(
                 start_kama_all.get("kama_ratio")
             ),
-            "index_sotino_ratio": _parse_percent_like_value(
-                index_sotino_all.get("sotino_ratio")
+            "index_sortino_ratio": _parse_percent_like_value(
+                index_sortino_all.get("sortino_ratio")
             ),
-            "strategy_sotino_ratio": _parse_percent_like_value(
-                start_sotino_all.get("sotino_ratio")
+            "strategy_sortino_ratio": _parse_percent_like_value(
+                start_sortino_all.get("sortino_ratio")
             ),
-            "excess_sharp": _parse_percent_like_value(
-                calculate_metrics.get("excess_sharp")
+            "excess_sharpe": _parse_percent_like_value(
+                calculate_metrics.get("excess_sharpe")
             ),
-            "excess_of_promissory_note": _parse_percent_like_value(
-                calculate_metrics.get("excess_of_promissory_note")
+            "excess_sortino": _parse_percent_like_value(
+                calculate_metrics.get("excess_sortino")
             ),
             "excess_drawdown_winning_rate": _parse_percent_like_value(
                 calculate_metrics.get("excess_drawdown_winning_rate")
@@ -651,7 +663,7 @@ def _extract_raw_sheet_metrics(result_core):
     return {
         str(key): value
         for key, value in result_core.items()
-        if key not in {"calculate_metrics", "analyze_result"}
+        if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
     }
 
 
@@ -944,8 +956,8 @@ def _extract_summary_rows(calculate_metrics, model_name):
         start_profit_monthly_all = _safe_all_entry(calculate_metrics.get("start_profit_monthly"), "year")
         index_kama_all = _safe_all_entry(calculate_metrics.get("index_kama_ratio"), "year")
         start_kama_all = _safe_all_entry(calculate_metrics.get("start_kama_ratio"), "year")
-        index_sotino_all = _safe_all_entry(calculate_metrics.get("index_sotino_ratio"), "year")
-        start_sotino_all = _safe_all_entry(calculate_metrics.get("start_sotino_ratio"), "year")
+        index_sortino_all = _safe_all_entry(calculate_metrics.get("index_sortino_ratio"), "year")
+        start_sortino_all = _safe_all_entry(calculate_metrics.get("start_sortino_ratio"), "year")
         monthly_excess_percentage_all = _safe_all_entry(
             calculate_metrics.get("monthly_excess_return_percentage"), "year"
         )
@@ -992,9 +1004,9 @@ def _extract_summary_rows(calculate_metrics, model_name):
             {"category": "回撤", "metric": "年最大回测修复天数", "index_value": str(year_index_max_repair_days) if year_index_max_repair_days is not None else "", "model_value": str(year_start_max_repair_days) if year_start_max_repair_days is not None else ""},
             {"category": "比率", "metric": "夏普比率", "index_value": _fmt_number(index_sharpe_all.get("sharpe_ratio")), "model_value": _fmt_number(start_sharpe_all.get("sharpe_ratio"))},
             {"category": "比率", "metric": "卡玛比率", "index_value": _fmt_number(index_kama_all.get("kama_ratio")), "model_value": _fmt_number(start_kama_all.get("kama_ratio"))},
-            {"category": "比率", "metric": "索提诺比率", "index_value": _fmt_number(index_sotino_all.get("sotino_ratio")), "model_value": _fmt_number(start_sotino_all.get("sotino_ratio"))},
-            {"category": "夏普", "metric": "超额夏普", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_sharp"))},
-            {"category": "索提诺", "metric": "超额索提诺比率", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_of_promissory_note"))},
+            {"category": "比率", "metric": "索提诺比率", "index_value": _fmt_number(index_sortino_all.get("sortino_ratio")), "model_value": _fmt_number(start_sortino_all.get("sortino_ratio"))},
+            {"category": "夏普", "metric": "超额夏普", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_sharpe"))},
+            {"category": "索提诺", "metric": "超额索提诺比率", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_sortino"))},
         ]
         return period_text, rows
 
@@ -1109,12 +1121,8 @@ def _build_global_preview_payload_from_results(task, task_results):
             group["failed_results"] += 1
             continue
 
-        # C3/C4/C5/C7 结果都可能包在 analyze_result 中，统一取 calculate_metrics。
-        calculate_metrics = (
-            (result_core.get("calculate_metrics") or result_core.get("analyze_result"))
-            if isinstance(result_core, dict)
-            else {}
-        )
+        # 统一存储载荷优先；历史结果回退 calculate_metrics/analyze_result 旧键。
+        calculate_metrics = extract_core_metrics(result_core)
         period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
         summary_rows = _with_excess_return_preview_row(
             summary_rows, column, calculate_metrics

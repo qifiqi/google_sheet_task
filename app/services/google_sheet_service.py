@@ -77,9 +77,9 @@ class GoogleSheetService(BaseGoogleSheetService):
                 if key in flat_result
             }
 
-        analyze_result = result.get("analyze_result")
-        if isinstance(analyze_result, dict):
-            summary["analyze_result_keys"] = len(analyze_result)
+        metrics_payload = result.get("metrics_payload")
+        if isinstance(metrics_payload, dict):
+            summary["metrics_payload_keys"] = len(metrics_payload)
 
         return json.dumps(
             self._sanitize_json_value(summary),
@@ -379,11 +379,11 @@ class GoogleSheetService(BaseGoogleSheetService):
                 return {}
 
             xpl_started = time.perf_counter()
-            flat_result, analyze_result = self.xpl.get_return_analysis_v1(return_data)
+            flat_result, metrics_payload = self.xpl.get_return_analysis_v1(return_data)
             xpl_elapsed = time.perf_counter() - xpl_started
             analysis_summary = self._summarize_return_analysis_for_log(
                 flat_result,
-                analyze_result,
+                metrics_payload,
                 len(return_data),
                 read_elapsed,
                 xpl_elapsed,
@@ -393,7 +393,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 f"{analysis_summary}"
             )
             return {
-                "analyze_result": analyze_result,
+                "metrics_payload": metrics_payload,
                 "flat_result": flat_result,
                 "_return_date": return_data,
             }
@@ -474,10 +474,10 @@ class GoogleSheetService(BaseGoogleSheetService):
             "start_sharpe_ratio": return_analysis.get("start_sharpe_ratio", 0),
             "index_kama_ratio": return_analysis.get("index_kama_ratio", 0),
             "start_kama_ratio": return_analysis.get("start_kama_ratio", 0),
-            "index_sotino_ratio": return_analysis.get("index_sotino_ratio", 0),
-            "start_sotino_ratio": return_analysis.get("start_sotino_ratio", 0),
-            "excess_sharp": return_analysis.get("excess_sharp", 0),
-            "excess_of_promissory_note": return_analysis.get("excess_of_promissory_note", 0),
+            "index_sortino_ratio": return_analysis.get("index_sortino_ratio", 0),
+            "start_sortino_ratio": return_analysis.get("start_sortino_ratio", 0),
+            "excess_sharpe": return_analysis.get("excess_sharpe", 0),
+            "excess_sortino": return_analysis.get("excess_sortino", 0),
         })
         return payload
 

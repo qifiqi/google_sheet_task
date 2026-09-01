@@ -89,7 +89,9 @@ class TextReturnAnalysisMixin:
 
             # 计算指标
             if self._has_dual_return_columns(parsed_data):
-                metrics = self._calculate_metrics_v1(parsed_data)
+                from app.services.performance_analysis.facade import calculate_v1_metrics
+
+                metrics = calculate_v1_metrics(parsed_data, analyzer=self).metrics
                 metrics["analysis_mode"] = "dual"
             else:
                 metrics = self._calculate_metrics(parsed_data)
@@ -150,7 +152,8 @@ class TextReturnAnalysisMixin:
                 # Add to results
                 results.append({
                     'date': date_str,  # 日期 Date
-                    # 'daily_return': start_return,  # 每天收益率 Daily return
+                    # 三列输入仍需保留旧页面使用的单品收益字段。
+                    'daily_return': start_return,
                     'index_return': index_return,  # 指数收益率 Index return
                     "start_return": start_return,  # 模型收益率 Start return
                 })

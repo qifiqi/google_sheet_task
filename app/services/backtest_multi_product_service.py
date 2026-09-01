@@ -1,4 +1,4 @@
-"""Multi-product backtest task service and preview helpers."""
+"""多产品回测任务服务和预览辅助工具。"""
 
 from __future__ import annotations
 
@@ -30,6 +30,17 @@ from app.utils.market import (
     normalize_market_type as normalize_supported_market_type,
     normalize_stock_code,
 )
+from app.services.performance_analysis.portfolio_combiner import (
+    cumulative_to_daily as _canonical_cumulative_to_daily,
+    daily_to_cumulative as _canonical_daily_to_cumulative,
+    combine_product_returns as _canonical_combine_product_returns,
+    normalize_weighting_mode,
+)
+from app.services.performance_analysis.historical_metrics import (
+    extract_core_metrics,
+    extract_core_weighted_metrics,
+    upgrade_historical_metrics,
+)
 
 
 BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
@@ -55,9 +66,9 @@ SUMMARY_ROW_DEFS = [
     ("回撤", "超额最大修复天数", None, "excess_maximum_number_of_backtest_repair_days", "number"),
     ("比率", "夏普比率", "index_sharpe_ratio", "start_sharpe_ratio", "number"),
     ("比率", "卡玛比率", "index_kama_ratio", "start_kama_ratio", "number"),
-    ("比率", "索提诺比率", "index_sotino_ratio", "start_sotino_ratio", "number"),
-    ("夏普", "超额夏普", None, "excess_sharp", "number"),
-    ("索提诺", "超额索提诺比率", None, "excess_of_promissory_note", "number"),
+    ("比率", "索提诺比率", "index_sortino_ratio", "start_sortino_ratio", "number"),
+    ("夏普", "超额夏普", None, "excess_sharpe", "number"),
+    ("索提诺", "超额索提诺比率", None, "excess_sortino", "number"),
 ]
 
 
@@ -105,11 +116,11 @@ def _global_preview_cache_key(
     task_id: str,
     products: list[dict[str, Any]],
     results: list[TaskResult],
-    use_legacy_cumulative_return_weighting: bool,
+    weighting_mode: str,
 ) -> tuple[Any, ...]:
     ratio_signature = (
         *(normalize_ratio_display(product.get("ratio")) for product in products),
-        use_legacy_cumulative_return_weighting,
+        normalize_weighting_mode(weighting_mode),
     )
     result_signature = tuple(
         (
@@ -214,13 +225,24 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "parameters": parameters,
         })
 
+    # 旧版累计收益直接加权算法已停用，组合算法固定为日收益加权后复利。
+    # raw_weighting_mode = config.get("weighting_mode")
+    # if raw_weighting_mode in (None, ""):
+    #     # TODO: 数据库历史任务 config 仍保存 use_legacy_cumulative_return_weighting
+    #     # 布尔字段；历史数据迁移完成后删除该回退。
+    #     raw_weighting_mode = (
+    #         "legacy_cumulative"
+    #         if _use_legacy_cumulative_return_weighting(
+    #             config.get("use_legacy_cumulative_return_weighting")
+    #         )
+    #         else "daily_compound"
+    #     )
+
     return {
         **config,
         "start_date": start_date,
         "end_date": end_date,
-        "use_legacy_cumulative_return_weighting": _use_legacy_cumulative_return_weighting(
-            config.get("use_legacy_cumulative_return_weighting")
-        ),
+        "weighting_mode": normalize_weighting_mode(config.get("weighting_mode")),
         "products": normalized_products,
     }
 
@@ -249,6 +271,7 @@ def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
         return {}
 
     prioritized_keys = (
+        "metrics_payload",
         "calculate_metrics",
         "weighted_calculate_metrics",
         "analyze_result",
@@ -257,10 +280,30 @@ def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
         if not isinstance(value, dict):
             continue
         if any(key in value for key in prioritized_keys):
+            # TODO: 数据库历史结果仍保存 calculate_metrics/analyze_result 旧键和旧
+            # 字段名（sotino/cumulative_excess 等）；历史数据迁移后可移除兼容升级。
+            for metric_key in ("calculate_metrics", "analyze_result", "weighted_calculate_metrics"):
+                if isinstance(value.get(metric_key), dict):
+                    value[metric_key] = upgrade_historical_metrics(value[metric_key])
+            metrics_payload = value.get("metrics_payload")
+            if isinstance(metrics_payload, dict):
+                legacy_metrics = metrics_payload.get("metrics")
+                if isinstance(legacy_metrics, dict):
+                    metrics_payload["metrics"] = upgrade_historical_metrics(legacy_metrics)
             return value
 
     first_value = next(iter(payload.values()), {})
     return first_value if isinstance(first_value, dict) else {}
+
+
+def _core_metrics(core: dict[str, Any]) -> dict[str, Any]:
+    """从统一存储载荷或历史键中提取完整 V1 指标。"""
+    return extract_core_metrics(core)
+
+
+def _core_weighted_metrics(core: dict[str, Any]) -> dict[str, Any]:
+    """从统一存储载荷或历史兄弟键中提取比例后单品指标。"""
+    return extract_core_weighted_metrics(core)
 
 
 def _extract_return_date_from_result_payload(result_payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -348,17 +391,18 @@ def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float
         start_drawdown = _safe_number(start_item.get("drawdown"))
         if index_drawdown is None or start_drawdown is None:
             continue
+        # 该字段属于旧预览摘要，保留正值“跌幅优势”契约；统一的
+        # drawdown_advantage 仍由统一门面以负值回撤相减得到。
         diffs.append(index_drawdown - start_drawdown)
     return max(diffs) if diffs else None
 
 
-def _negative_number(value: Any) -> float | None:
+def _canonical_drawdown(value: Any) -> float | None:
+    """将历史正值跌幅转换为负值，避免重复转换统一结果。"""
     number = _safe_number(value)
     if number is None:
         return None
-    if number == 0:
-        return 0.0
-    return -abs(number)
+    return -abs(number) if number > 0 else number
 
 
 def _fmt_value(value: Any, value_type: str) -> str:
@@ -370,82 +414,79 @@ def _fmt_value(value: Any, value_type: str) -> str:
     return f"{number:.2f}".rstrip("0").rstrip(".")
 
 
-def _scale_return_date(
-    return_date: list[dict[str, Any]],
-    ratio: Any,
-) -> list[dict[str, Any]]:
-    ratio_value = float(parse_ratio(ratio) / RATIO_BASE)
-    scaled = []
-    for item in return_date:
-        date = item.get("date") or item.get("stock_date")
-        index_return = _safe_number(item.get("index_return"))
-        start_return = _safe_number(item.get("start_return"))
-        if not date or index_return is None or start_return is None:
-            continue
-        scaled.append({
-            "date": date,
-            "index_return": index_return * ratio_value,
-            "start_return": start_return * ratio_value,
-        })
-    return scaled
+# 旧版累计收益直接加权的缩放辅助已随算法停用；统一组合器见
+# performance_analysis.portfolio_combiner。
+# def _scale_return_date(
+#     return_date: list[dict[str, Any]],
+#     ratio: Any,
+# ) -> list[dict[str, Any]]:
+#     ratio_value = float(parse_ratio(ratio) / RATIO_BASE)
+#     scaled = []
+#     for item in return_date:
+#         date = item.get("date") or item.get("stock_date")
+#         index_return = _safe_number(item.get("index_return"))
+#         start_return = _safe_number(item.get("start_return"))
+#         if not date or index_return is None or start_return is None:
+#             continue
+#         scaled.append({
+#             "date": date,
+#             "index_return": index_return * ratio_value,
+#             "start_return": start_return * ratio_value,
+#         })
+#     return scaled
 
 
 def _use_legacy_cumulative_return_weighting(value: Any) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
+    """解析历史配置中的旧布尔组合模式字段。
+
+    旧版累计加权算法已停用；TODO: 数据库历史任务 config 迁移完成后删除本函数。
+    """
+    # if isinstance(value, str):
+    #     return value.strip().lower() in {"1", "true", "yes", "on"}
+    # return bool(value)
+    _ = value
+    return False
+
+
+def _result_weighting_mode(value: Any) -> str | None:
+    """读取历史结果参数中的组合模式；None 表示历史数据未记录该字段。
+
+    旧版累计加权算法已停用；TODO: 历史结果参数迁移完成后删除本函数。
+    """
+    # if value in (None, ""):
+    #     return None
+    # if isinstance(value, bool) or (isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "on", "0", "false", "no", "off"}):
+    #     return "legacy_cumulative" if _use_legacy_cumulative_return_weighting(value) else "daily_compound"
+    # return normalize_weighting_mode(value)
+    _ = value
+    return None
 
 
 def _cumulative_returns_to_daily_returns(
     return_date: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    return_map = _return_date_by_date(return_date)
-    previous_index_net_value = Decimal("1")
-    previous_start_net_value = Decimal("1")
-    daily_returns = []
-    for date, row in sorted(return_map.items()):
-        index_net_value = Decimal("1") + Decimal(str(row["index_return"]))
-        start_net_value = Decimal("1") + Decimal(str(row["start_return"]))
-        if previous_index_net_value == 0 or previous_start_net_value == 0:
-            raise ValueError("前一天净值为 0，无法计算当天收益率")
-        daily_returns.append({
-            "date": date,
-            "index_return": float(index_net_value / previous_index_net_value - 1),
-            "start_return": float(start_net_value / previous_start_net_value - 1),
-        })
-        previous_index_net_value = index_net_value
-        previous_start_net_value = start_net_value
-    return daily_returns
+    """统一收益转换器的兼容包装。"""
+    return _canonical_cumulative_to_daily(return_date)
 
 
 def _daily_returns_to_cumulative_returns(
     return_date: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    return_map = _return_date_by_date(return_date)
-    index_net_value = Decimal("1")
-    start_net_value = Decimal("1")
-    cumulative_returns = []
-    for date, row in sorted(return_map.items()):
-        index_net_value *= Decimal("1") + Decimal(str(row["index_return"]))
-        start_net_value *= Decimal("1") + Decimal(str(row["start_return"]))
-        cumulative_returns.append({
-            "date": date,
-            "index_return": float(index_net_value - 1),
-            "start_return": float(start_net_value - 1),
-        })
-    return cumulative_returns
+    """统一复利转换器的兼容包装。"""
+    return _canonical_daily_to_cumulative(return_date)
 
 
 def _weight_return_date(
     return_date: list[dict[str, Any]],
     ratio: Any,
-    use_legacy_cumulative_return_weighting: bool,
+    weighting_mode: str,
 ) -> list[dict[str, Any]]:
-    if use_legacy_cumulative_return_weighting:
-        return _scale_return_date(return_date, ratio)
-    daily_return_date = _cumulative_returns_to_daily_returns(return_date)
-    weighted_daily_return_date = _scale_return_date(daily_return_date, ratio)
-    return _daily_returns_to_cumulative_returns(weighted_daily_return_date)
+    """使用统一组合器计算单个产品的比例贡献。"""
+    mode = normalize_weighting_mode(weighting_mode)
+    return _canonical_combine_product_returns(
+        [{"returns": return_date, "ratio": ratio}],
+        weighting_mode=mode,
+    )
 
 
 def _build_returns_json(return_date: list[dict[str, Any]]) -> str:
@@ -494,12 +535,18 @@ def _set_weighted_metrics_on_result_payload(
     result_payload: dict[str, Any],
     weighted_calculate_metrics: dict[str, Any],
 ) -> dict[str, Any]:
+    """将比例后单品指标写入统一存储载荷；旧缓存载荷回退到兄弟键。"""
     if not isinstance(result_payload, dict) or not result_payload:
         return result_payload
     first_key = next(iter(result_payload))
     value = result_payload.get(first_key)
     if isinstance(value, dict):
-        value["weighted_calculate_metrics"] = weighted_calculate_metrics
+        metrics_payload = value.get("metrics_payload")
+        if isinstance(metrics_payload, dict):
+            metrics_payload["weighted_metrics"] = weighted_calculate_metrics
+        else:
+            # 固定产品缓存命中的旧载荷没有 metrics_payload，保留兄弟键写入。
+            value["weighted_calculate_metrics"] = weighted_calculate_metrics
     return result_payload
 
 
@@ -523,57 +570,29 @@ def _return_date_by_date(return_date: list[dict[str, Any]]) -> dict[str, dict[st
 def _build_portfolio_return_date(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
-    use_legacy_cumulative_return_weighting: bool = False,
+    weighting_mode: str = "daily_compound",
 ) -> list[dict[str, Any]]:
-    product_return_maps: list[tuple[dict[str, dict[str, float]], Decimal]] = []
-    common_dates: set[str] | None = None
-
-    for product in products:
-        product_index = int(product["product_index"])
-        product_result = product_results.get(product_index) or {}
-        return_map = _return_date_by_date(product_result.get("return_date") or [])
-        if not return_map:
-            return []
-        if not use_legacy_cumulative_return_weighting:
-            return_map = _return_date_by_date(
-                _cumulative_returns_to_daily_returns([
-                    {"date": date, **returns}
-                    for date, returns in sorted(return_map.items())
-                ])
-            )
-        common_dates = set(return_map) if common_dates is None else common_dates & set(return_map)
-        product_return_maps.append((return_map, parse_ratio(product.get("ratio")) / RATIO_BASE))
-
-    if not common_dates:
-        return []
-
-    return_date = []
-    for date in sorted(common_dates):
-        index_total = Decimal("0")
-        start_total = Decimal("0")
-        for return_map, ratio in product_return_maps:
-            row = return_map[date]
-            index_total += Decimal(str(row["index_return"])) * ratio
-            start_total += Decimal(str(row["start_return"])) * ratio
-        return_date.append({
-            "date": date,
-            "index_return": float(index_total),
-            "start_return": float(start_total),
-        })
-    if use_legacy_cumulative_return_weighting:
-        return return_date
-    return _daily_returns_to_cumulative_returns(return_date)
+    """多产品统一组合器的兼容包装。"""
+    mode = normalize_weighting_mode(weighting_mode)
+    inputs = [
+        {
+            "returns": (product_results.get(int(product["product_index"])) or {}).get("return_date") or [],
+            "ratio": product.get("ratio"),
+        }
+        for product in products
+    ]
+    return _canonical_combine_product_returns(inputs, weighting_mode=mode)
 
 
 def _build_portfolio_metrics(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
-    use_legacy_cumulative_return_weighting: bool = False,
+    weighting_mode: str = "daily_compound",
 ) -> dict[str, Any]:
     return_date = _build_portfolio_return_date(
         product_results,
         products,
-        use_legacy_cumulative_return_weighting,
+        weighting_mode,
     )
     if not return_date:
         return {}
@@ -584,12 +603,12 @@ def _build_portfolio_metrics(
 def _build_weighted_product_metrics(
     return_date: list[dict[str, Any]],
     ratio: Any,
-    use_legacy_cumulative_return_weighting: bool = False,
+    weighting_mode: str = "daily_compound",
 ) -> dict[str, Any]:
     weighted_return_date = _weight_return_date(
         return_date,
         ratio,
-        use_legacy_cumulative_return_weighting,
+        weighting_mode,
     )
     if not weighted_return_date:
         return {}
@@ -623,8 +642,12 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
     )
     index_kama_all = _all_entry(calculate_metrics.get("index_kama_ratio"))
     start_kama_all = _all_entry(calculate_metrics.get("start_kama_ratio"))
-    index_sotino_all = _all_entry(calculate_metrics.get("index_sotino_ratio"))
-    start_sotino_all = _all_entry(calculate_metrics.get("start_sotino_ratio"))
+    index_sortino_all = _all_entry(
+        calculate_metrics.get("index_sortino_ratio") or calculate_metrics.get("index_sortino_ratio")
+    )
+    start_sortino_all = _all_entry(
+        calculate_metrics.get("start_sortino_ratio") or calculate_metrics.get("start_sortino_ratio")
+    )
     index_sharpe_all = (calculate_metrics.get("index_sharpe_ratios") or {}).get("all") or {}
     start_sharpe_all = (calculate_metrics.get("start_sharpe_ratios") or {}).get("all") or {}
     monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
@@ -661,25 +684,25 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
         "monthly_excess_volatility": calculate_metrics.get("monthly_excess_volatility"),
         "year_max_excess_drawdown": year_max_excess_drawdown if year_max_excess_drawdown is not None else _metric_value("max_drawdown", "year_max_excess_drawdown"),
         "excess_drawdown_winning_rate": _safe_number(calculate_metrics.get("excess_drawdown_winning_rate")),
-        "start_max_drawdown": _negative_number(_first_value(total_max_drawdown.get("drawdown"), _metric_value("start_drawdown", "start_max_drawdown"))),
+        "start_max_drawdown": _canonical_drawdown(_first_value(
+            total_max_drawdown.get("drawdown"), _metric_value("start_drawdown", "start_max_drawdown")
+        )),
         "start_maximum_number_of_backtest_repair_days": calculate_metrics.get("start_maximum_number_of_backtest_repair_days"),
         "excess_maximum_number_of_backtest_repair_days": calculate_metrics.get("excess_maximum_number_of_backtest_repair_days"),
         "index_sharpe_ratio": _first_value(index_sharpe_all.get("sharpe_ratio"), _metric_value("index_sharpe_ratio")),
         "start_sharpe_ratio": _first_value(start_sharpe_all.get("sharpe_ratio"), _metric_value("start_sharpe_ratio")),
         "index_kama_ratio": _first_value(index_kama_all.get("kama_ratio"), _metric_value("index_kama_ratio")),
         "start_kama_ratio": _first_value(start_kama_all.get("kama_ratio"), _metric_value("start_kama_ratio")),
-        "index_sotino_ratio": _first_value(
-            index_sotino_all.get("sotino_ratio"),
-            index_sotino_all.get("sortino_ratio"),
-            _scalar_metric_value("index_sotino_ratio"),
+        "index_sortino_ratio": _first_value(
+            index_sortino_all.get("sortino_ratio"),
+            _scalar_metric_value("index_sortino_ratio"),
         ),
-        "start_sotino_ratio": _first_value(
-            start_sotino_all.get("sotino_ratio"),
-            start_sotino_all.get("sortino_ratio"),
-            _scalar_metric_value("start_sotino_ratio"),
+        "start_sortino_ratio": _first_value(
+            start_sortino_all.get("sortino_ratio"),
+            _scalar_metric_value("start_sortino_ratio"),
         ),
-        "excess_sharp": calculate_metrics.get("excess_sharp"),
-        "excess_of_promissory_note": calculate_metrics.get("excess_of_promissory_note"),
+        "excess_sharpe": calculate_metrics.get("excess_sharpe"),
+        "excess_sortino": calculate_metrics.get("excess_sortino"),
     }
 
 
@@ -807,9 +830,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             "product_index": int(product["product_index"]),
             "product_name": product["product_name"],
             "ratio": product["ratio"],
-            "use_legacy_cumulative_return_weighting": config_data[
-                "use_legacy_cumulative_return_weighting"
-            ],
+            "weighting_mode": config_data["weighting_mode"],
             "parameter_group_index": group_index,
             "kline": [dates[0], dates[-1]] if dates else [],
             "start_date": config_data["start_date"],
@@ -989,9 +1010,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     "product_index": product_index,
                     "product_name": product["product_name"],
                     "ratio": product["ratio"],
-                    "use_legacy_cumulative_return_weighting": config_data[
-                        "use_legacy_cumulative_return_weighting"
-                    ],
+                    "weighting_mode": config_data["weighting_mode"],
                     "parameter_group_index": group_index,
                 }
                 self._log_step(
@@ -1078,9 +1097,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             weighted_calculate_metrics = _build_weighted_product_metrics(
                 return_date or [],
                 safe_parameters.get("ratio"),
-                _use_legacy_cumulative_return_weighting(
-                    safe_parameters.get("use_legacy_cumulative_return_weighting")
-                ),
+                normalize_weighting_mode(safe_parameters.get("weighting_mode")),
             )
             safe_result_payload = _set_weighted_metrics_on_result_payload(
                 safe_result_payload,
@@ -1274,14 +1291,12 @@ def build_multi_product_global_preview_payload(
         .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
         .all()
     )
-    use_legacy_cumulative_return_weighting = _use_legacy_cumulative_return_weighting(
-        config.get("use_legacy_cumulative_return_weighting")
-    )
+    weighting_mode = normalize_weighting_mode(config.get("weighting_mode"))
     cache_key = _global_preview_cache_key(
         task_id,
         products,
         results,
-        use_legacy_cumulative_return_weighting,
+        weighting_mode,
     )
     cached_payload = _get_global_preview_cache(cache_key)
     if cached_payload is not None:
@@ -1311,20 +1326,22 @@ def build_multi_product_global_preview_payload(
             continue
         success_count += 1
         core = _extract_result_core(result)
-        calculate_metrics = (
-            (core.get("calculate_metrics") or core.get("analyze_result"))
-            if isinstance(core, dict)
-            else {}
-        )
-        weighted_calculate_metrics = core.get("weighted_calculate_metrics") if isinstance(core, dict) else {}
+        calculate_metrics = _core_metrics(core)
+        weighted_calculate_metrics = _core_weighted_metrics(core)
         group["product_results"][product_index] = {
             "result_id": result.id,
             "step_index": result.step_index,
             "timestamp": result.timestamp.isoformat() if result.timestamp else None,
             "parameters": parameters,
             "metrics": _derive_metrics(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
+            "product_metrics": _derive_metrics(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "return_date": _get_return_date_for_task_result(result),
             "weighted_metrics": (
+                _derive_metrics(weighted_calculate_metrics)
+                if isinstance(weighted_calculate_metrics, dict) and weighted_calculate_metrics
+                else {}
+            ),
+            "weighted_product_metrics": (
                 _derive_metrics(weighted_calculate_metrics)
                 if isinstance(weighted_calculate_metrics, dict) and weighted_calculate_metrics
                 else {}
@@ -1337,7 +1354,7 @@ def build_multi_product_global_preview_payload(
         portfolio_metrics = _derive_metrics(_build_portfolio_metrics(
             group["product_results"],
             products,
-            use_legacy_cumulative_return_weighting,
+            weighting_mode,
         ))
         weighted_metrics_by_product: dict[int, dict[str, Any]] = {}
         metrics_by_product: dict[int, dict[str, Any]] = {}
@@ -1348,21 +1365,14 @@ def build_multi_product_global_preview_payload(
             weighted_metrics = product_result.get("weighted_metrics") or {}
             current_ratio = (products[product_index] if product_index < len(products) else {}).get("ratio")
             saved_ratio = str((product_result.get("parameters") or {}).get("ratio") or "").strip()
-            saved_weighting_mode = (product_result.get("parameters") or {}).get(
-                "use_legacy_cumulative_return_weighting"
-            )
-            if (
-                not weighted_metrics
-                or saved_ratio != str(current_ratio or "").strip()
-                or saved_weighting_mode is None
-                or _use_legacy_cumulative_return_weighting(saved_weighting_mode)
-                != use_legacy_cumulative_return_weighting
-            ):
+            # 仅保留日收益加权复利一种组合算法；比例未变化时复用已保存的加权指标。
+            # TODO: 历史结果参数中的 use_legacy_cumulative_return_weighting 字段迁移后删除。
+            if not weighted_metrics or saved_ratio != str(current_ratio or "").strip():
                 weighted_metrics = _derive_metrics(
                     _build_weighted_product_metrics(
                         product_result.get("return_date") or [],
                         current_ratio,
-                        use_legacy_cumulative_return_weighting,
+                        weighting_mode,
                     )
                 )
                 product_result["weighted_metrics"] = weighted_metrics
@@ -1415,6 +1425,9 @@ def build_multi_product_global_preview_payload(
             **{key: value for key, value in group.items() if key != "product_results"},
             "rows": rows,
             "result_count": len(group["product_results"]),
+            "portfolio_metrics": portfolio_metrics,
+            "product_metrics": metrics_by_product,
+            "weighted_product_metrics": weighted_metrics_by_product,
         })
 
     payload = {
@@ -1486,9 +1499,7 @@ def build_multi_product_global_preview_word_payload(
     returns = _build_portfolio_return_date(
         product_results,
         products,
-        _use_legacy_cumulative_return_weighting(
-            config.get("use_legacy_cumulative_return_weighting")
-        ),
+        normalize_weighting_mode(config.get("weighting_mode")),
     )
     if len(returns) < 2:
         raise ValueError("比例组合后的共同交易日不足 2 天")
@@ -1512,8 +1523,10 @@ def build_multi_product_global_preview_word_payload(
             "ratio": product.get("ratio"),
             "returns": product_results[product["product_index"]]["return_date"],
         })
+    weighting_mode = normalize_weighting_mode(config.get("weighting_mode"))
     return {
         "report_type": "RPT-M",
+        "weighting_mode": weighting_mode,
         "products": word_products,
         "metadata": {
             "model_version": "、".join(model_versions),

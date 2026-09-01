@@ -123,11 +123,11 @@ def test_extract_c3_includes_saved_return_analysis_metrics():
             "I18": "0%",
             "annualized_return_diff": "4%",
             "monthly_excess_return_percentage_last_return": "55%",
-            "excess_sharp": "0.88",
+            "excess_sharpe": "0.88",
             "start_profit_annual": "70%",
             "index_profit_annual": "50%",
             "start_maximum_number_of_backtest_repair_days": "33",
-            "excess_of_promissory_note": "0.77",
+            "excess_sortino": "0.77",
         },
     )
 
@@ -135,11 +135,11 @@ def test_extract_c3_includes_saved_return_analysis_metrics():
 
     assert rows[0].metrics["annualized_return_diff"] == 0.04
     assert rows[0].metrics["monthly_excess_return_percentage"] == 0.55
-    assert rows[0].metrics["excess_sharp"] == 0.88
+    assert rows[0].metrics["excess_sharpe"] == 0.88
     assert rows[0].metrics["start_profit_annual"] == 0.7
     assert rows[0].metrics["index_profit_annual"] == 0.5
     assert rows[0].metrics["start_maximum_number_of_backtest_repair_days"] == 33
-    assert rows[0].metrics["excess_of_promissory_note"] == 0.77
+    assert rows[0].metrics["excess_sortino"] == 0.77
 
 
 def test_extract_c3_includes_nested_flat_result_metrics():
@@ -152,11 +152,11 @@ def test_extract_c3_includes_nested_flat_result_metrics():
             "flat_result": {
                 "annualized_return_diff": "4%",
                 "monthly_excess_return_percentage_last_return": "55%",
-                "excess_sharp": "0.88",
+                "excess_sharpe": "0.88",
                 "start_profit_annual": "70%",
                 "index_profit_annual": "50%",
                 "start_maximum_number_of_backtest_repair_days": "33",
-                "excess_of_promissory_note": "0.77",
+                "excess_sortino": "0.77",
             },
         },
     )
@@ -165,11 +165,11 @@ def test_extract_c3_includes_nested_flat_result_metrics():
 
     assert rows[0].metrics["annualized_return_diff"] == 0.04
     assert rows[0].metrics["monthly_excess_return_percentage"] == 0.55
-    assert rows[0].metrics["excess_sharp"] == 0.88
+    assert rows[0].metrics["excess_sharpe"] == 0.88
     assert rows[0].metrics["start_profit_annual"] == 0.7
     assert rows[0].metrics["index_profit_annual"] == 0.5
     assert rows[0].metrics["start_maximum_number_of_backtest_repair_days"] == 33
-    assert rows[0].metrics["excess_of_promissory_note"] == 0.77
+    assert rows[0].metrics["excess_sortino"] == 0.77
 
 
 def test_extract_c5_uses_returnbeats_with_fallback():
@@ -237,7 +237,7 @@ def test_extract_c4_reads_nested_flat_result_metrics():
                     "annualized_return_diff": "4%",
                     "start_sharpe_ratio": "0.5363163004510634",
                     "index_sharpe_ratio": "0.4041930158167997",
-                    "excess_sharp": "0.88",
+                    "excess_sharpe": "0.88",
                 },
             }
         },
@@ -250,7 +250,7 @@ def test_extract_c4_reads_nested_flat_result_metrics():
     assert rows[0].metrics["annualized_return_diff"] == pytest.approx(0.04)
     assert rows[0].metrics["start_sharpe_ratio"] == pytest.approx(0.5363163004510634)
     assert rows[0].metrics["index_sharpe_ratio"] == pytest.approx(0.4041930158167997)
-    assert rows[0].metrics["excess_sharp"] == pytest.approx(0.88)
+    assert rows[0].metrics["excess_sharpe"] == pytest.approx(0.88)
 
 
 def test_extract_c5_keeps_flat_result_sharpe_without_xpl_payload():
@@ -351,9 +351,9 @@ def test_extract_c5_includes_saved_return_analysis_metrics():
                 "D11": "15%",
                 "annualized_return_diff": "6%",
                 "monthly_excess_return_percentage_last_return": "66%",
-                "excess_sharp": "1.23",
+                "excess_sharpe": "1.23",
                 "start_kama_ratio": "2.2",
-                "index_sotino_ratio": "1.1",
+                "index_sortino_ratio": "1.1",
                 "max_drawdown": "-8%",
             }
         },
@@ -363,9 +363,9 @@ def test_extract_c5_includes_saved_return_analysis_metrics():
 
     assert rows[0].metrics["annualized_return_diff"] == 0.06
     assert rows[0].metrics["monthly_excess_return_percentage"] == 0.66
-    assert rows[0].metrics["excess_sharp"] == 1.23
+    assert rows[0].metrics["excess_sharpe"] == 1.23
     assert rows[0].metrics["start_kama_ratio"] == 2.2
-    assert rows[0].metrics["index_sotino_ratio"] == 1.1
+    assert rows[0].metrics["index_sortino_ratio"] == 1.1
     assert rows[0].metrics["max_drawdown_analysis"] == -0.08
 
 
@@ -429,9 +429,9 @@ def test_extract_backtest_uses_global_preview_model_value_columns():
                     "year_index_yearly_max_repair_days": {"2024": 8, "2025": 13},
                     "year_start_yearly_max_repair_days": {"2024": 11, "2025": 19},
                     "start_kama_ratio": [{"year": "all", "kama_ratio": 2.2}],
-                    "start_sotino_ratio": [{"year": "all", "sotino_ratio": 1.7}],
-                    "excess_sharp": 0.88,
-                    "excess_of_promissory_note": 0.77,
+                    "start_sortino_ratio": [{"year": "all", "sortino_ratio": 1.7}],
+                    "excess_sharpe": 0.88,
+                    "excess_sortino": 0.77,
                 }
             }
         },
@@ -472,8 +472,8 @@ def test_extract_backtest_fills_metrics_from_calculate_metrics_when_export_forma
                     "monthly_excess_returns": [{"monthly_excess_return_diff": 0.02}],
                     "monthly_excess_volatility": 0.04,
                     "start_kama_ratio": [{"year": "all", "kama_ratio": 2.1}],
-                    "start_sotino_ratio": [{"year": "all", "sotino_ratio": 1.9}],
-                    "excess_sharp": 1.2,
+                    "start_sortino_ratio": [{"year": "all", "sortino_ratio": 1.9}],
+                    "excess_sharpe": 1.2,
                 }
             }
         },
