@@ -39,7 +39,7 @@ if __name__ == "__main__":
     # df['index_return'] = df['index_returns'] * 0.5
     # df['start_return'] = df['start_returns'] * 0.5
 
-    from d import data
+    from tests.d import data
 
     parsed_data = xpl_analyzer._parse_input_data(data)
     df2 = pd.DataFrame(parsed_data)

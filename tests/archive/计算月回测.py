@@ -1,7 +1,7 @@
 import pandas as pd
 
 from app.services.xpl_service import XPLAnalyzer
-from app.services.d import data
+from tests.d import data
 
 
 

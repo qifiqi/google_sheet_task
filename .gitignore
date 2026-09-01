@@ -164,3 +164,9 @@ docker-compose.override.yml
 
 # ZCode 工作区本地配置
 .zcode/
+token.json
+.docx
+.ceb
+.txt
+.csv
+.xlsx

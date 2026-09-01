@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from datetime import date, datetime
 from typing import Any
+from dateutil import parser
 
 
 def parse_int(value: Any, *, default: int | None = None) -> int | None:
@@ -48,7 +49,7 @@ def parse_ratio(value: Any, *, default: float | None = None) -> float | None:
 
 
 def parse_date(value: Any, *, default: date | None = None) -> date | None:
-    """解析 ISO 日期、datetime 或 date。"""
+    """解析多种日期格式，支持 YYYY-MM-DD、YYYY/MM/DD、MM/DD/YYYY 等"""
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -57,6 +58,7 @@ def parse_date(value: Any, *, default: date | None = None) -> date | None:
     if not text:
         return default
     try:
-        return datetime.fromisoformat(text[:10]).date()
-    except ValueError:
+        # dateutil 可以解析绝大多数常见日期格式
+        return parser.parse(text).date()
+    except (ValueError, TypeError, OverflowError):
         return default

@@ -35,8 +35,6 @@ class StrategyBacktestReportRequestDTO:
     filename: str = DEFAULT_FILENAME
     report_type: str = SINGLE_PRODUCT_REPORT_TYPE
     title: str = "量化策略回测绩效分析报告"
-    # 兼容旧调用方；报告编号始终由服务端按 report_type 和日期生成。
-    report_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     products: list[dict[str, Any]] = field(default_factory=list)
     weight_allocation: dict[str, Any] | None = None
@@ -87,7 +85,6 @@ class StrategyBacktestReportRequestDTO:
             filename=str(payload.get("filename") or DEFAULT_FILENAME),
             report_type=report_type,
             title=str(payload.get("title") or DEFAULT_TITLE),
-            report_id=str(payload["report_id"]) if payload.get("report_id") else None,
             metadata=metadata or {},
             products=products or [],
             weight_allocation=payload.get("weight_allocation"),

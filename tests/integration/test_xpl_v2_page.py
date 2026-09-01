@@ -14,10 +14,6 @@ report_charts = ModuleType("app.services.strategy_backtest_report_charts")
 report_charts.generate_report_charts = lambda *_args, **_kwargs: {}
 sys.modules.setdefault("app.services.strategy_backtest_report_charts", report_charts)
 
-report_template = ModuleType("app.services.strategy_backtest_report_template")
-report_template.generate_strategy_backtest_report = lambda *_args, **_kwargs: None
-sys.modules.setdefault("app.services.strategy_backtest_report_template", report_template)
-
 from app.services.strategy_backtest_report_service import strategy_backtest_report_service
 
 
@@ -105,7 +101,6 @@ def test_backtest_word_report_id_uses_report_type(
     payload = _report_payload(
         report_type=report_type,
         products=products,
-        metadata={"report_id": "CLIENT-SUPPLIED"},
     )
     if report_type == "RPT-M":
         payload.pop("returns")
@@ -116,7 +111,7 @@ def test_backtest_word_report_id_uses_report_type(
         _report_analysis_result(),
     )
 
-    assert report_data["metadata"]["report_id"] == expected_report_id
+    assert report_data["blocks"][0]["items"][0]["value"] == expected_report_id
 
 
 def test_v2_json_returns_are_normalized_without_a_product():
@@ -204,7 +199,16 @@ def test_multi_product_returns_are_weighted_as_daily_returns():
 
 def test_word_report_uses_full_template_sections_and_cumulative_nav():
     result = SimpleNamespace(
-        metrics={},
+        metrics={
+            "index_monthly_return_skewness": 0.12,
+            "start_monthly_return_skewness": 0.34,
+            "index_monthly_return_kurtosis": 0.56,
+            "start_monthly_return_kurtosis": 0.78,
+            "index_mean_daily_skewness": 0.21,
+            "start_mean_daily_skewness": 0.43,
+            "index_mean_daily_kurtosis": 0.65,
+            "start_mean_daily_kurtosis": 0.87,
+        },
         index_df=_Frame({
             "date": _Column([datetime(2026, 8, 20), datetime(2026, 8, 21)]),
             "index_return": _Column([0.01, -0.01]),
@@ -236,6 +240,26 @@ def test_word_report_uses_full_template_sections_and_cumulative_nav():
     assert sections[0]["subsections"][0]["table"]["rows"][0] == [
         "累计回报率", "-1.00%", "-1.00%", "0.00%",
     ]
+    monthly_summary_rows = sections[3]["subsections"][0]["table"]["rows"]
+    daily_summary_rows = sections[4]["subsections"][0]["table"]["rows"]
+    assert monthly_summary_rows[-2:] == [
+        ["月收益率偏度", "0.1200", "0.3400"],
+        ["月收益率峰度", "0.5600", "0.7800"],
+    ]
+    assert daily_summary_rows[-2:] == [
+        ["日收益率偏度", "0.2100", "0.4300"],
+        ["日收益率峰度", "0.6500", "0.8700"],
+    ]
+    assert sections[3]["subsections"][1]["table"]["columns"] == [
+        "收益区间", "指数月数", "指数占比", "策略月数", "策略占比",
+    ]
+    assert sections[4]["subsections"][2]["table"]["columns"] == [
+        "收益区间", "指数天数", "指数占比", "策略天数", "策略占比",
+    ]
+    assert sections[2]["subsections"][0]["table"]["columns"] == ["指标", "指数", "策略"]
+    excess_distribution = sections[5]["subsections"][1]["table"]
+    assert excess_distribution["columns"] == ["超额区间", "月数", "占比"]
+    assert all(len(row) == 3 for row in excess_distribution["rows"])
     assert chart_data["index_nav"] == [1.01, 0.99]
     assert chart_data["strategy_nav"] == [1.02, 0.99]
     assert chart_data["excess_nav"] == [1.01, 1.0]

@@ -22,7 +22,7 @@ easy-tdx
 openpyxl
 xlsxwriter
 python-docx
-Pillow
+matplotlib
 PyJWT>=2.0
 dingtalk-stream
 pymysql

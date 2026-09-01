@@ -145,7 +145,7 @@ class TextReturnAnalysisMixin:
                 # Add to results
                 results.append({
                     'date': date_str,  # 日期 Date
-                    'daily_return': start_return,  # 每天收益率 Daily return
+                    # 'daily_return': start_return,  # 每天收益率 Daily return
                     'index_return': index_return,  # 指数收益率 Index return
                     "start_return": start_return,  # 模型收益率 Start return
                 })

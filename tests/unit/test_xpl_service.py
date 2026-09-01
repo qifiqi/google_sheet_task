@@ -99,6 +99,25 @@ def test_analyze_replaces_non_finite_numbers_with_none():
     assert not _contains_non_finite_number(result)
 
 
+def test_v1_metrics_exports_monthly_skewness_and_kurtosis():
+    rows = [
+        {
+            "date": date.strftime("%Y-%m-%d"),
+            "index_return": 0.01 + index * 0.001 + (0.03 if index % 2 else -0.02),
+            "start_return": 0.015 + index * 0.0015 + (0.04 if index % 2 else -0.025),
+        }
+        for index, date in enumerate(pd.date_range("2021-01-01", periods=60, freq="MS"))
+    ]
+    metrics = XPLAnalyzer().get_calculate_metrics_v1(rows)
+
+    assert set((
+        "index_monthly_return_skewness",
+        "start_monthly_return_skewness",
+        "index_monthly_return_kurtosis",
+        "start_monthly_return_kurtosis",
+    )) <= metrics.keys()
+
+
 @pytest.mark.skip(reason="待修复：同 analyze 日度分布问题，metrics 计算崩溃导致 results 为空")
 def test_export_file_handles_unavailable_sortino_ratios():
     data = "\n".join(
