@@ -56,6 +56,10 @@
                     <button class="nav-link" id="import-excel-tab" data-bs-toggle="tab" data-bs-target="#import-excel-pane"
                             type="button" role="tab" aria-controls="import-excel-pane" aria-selected="false">导入 Excel</button>
                 </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-pane"
+                            type="button" role="tab" aria-controls="config-pane" aria-selected="false">参数配置</button>
+                </li>
             </ul>
             <button class="btn btn-primary mb-1" id="btn-analyze-v2" type="button" disabled>
                 <i class="bi bi-lightning-charge-fill me-1"></i>分析
@@ -122,6 +126,45 @@
                             </dl>
                             <div class="small text-body-secondary mt-2" id="v2-excel-status">请选择 .xlsx 或 .xls 文件。</div>
                         </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="config-pane" role="tabpanel" aria-labelledby="config-tab" tabindex="0">
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-downturn-threshold">市场下跌阶段阈值（指数月收益 &lt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-downturn-threshold" value="-2" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">七、极端行情表现 7.1 市场下跌阶段判定阈值，默认 -2%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-upturn-threshold">市场上涨阶段阈值（指数月收益 &gt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-upturn-threshold" value="2" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">七、极端行情表现 7.2 市场上涨阶段判定阈值，默认 2%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-daily-extreme-threshold">极端单日涨跌阈值（单日涨/跌 &gt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-daily-extreme-threshold" value="2" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">七、极端行情表现 7.3 涨幅/跌幅天数与涨跌比统计阈值，默认 2%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-daily-drawdown-threshold">单日回撤统计阈值（单日跌幅 &lt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-daily-drawdown-threshold" value="5" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">二、风险类指标 回撤发生次数/频率统计阈值，默认 5%。</div>
+                    </div>
+                    <div class="col-12 small text-body-secondary">
+                        修改后回到数据来源页签点击「分析」即可按新阈值重新计算；导出 Word 报告沿用本次分析的阈值。
                     </div>
                 </div>
             </div>
@@ -800,6 +843,11 @@
         }, 500));
         updateMeta();
         updateV2PasteStatus();
+        restoreV2RuntimeParams();
+        document.getElementById('config-downturn-threshold').addEventListener('input', saveV2RuntimeParams);
+        document.getElementById('config-upturn-threshold').addEventListener('input', saveV2RuntimeParams);
+        document.getElementById('config-daily-extreme-threshold').addEventListener('input', saveV2RuntimeParams);
+        document.getElementById('config-daily-drawdown-threshold').addEventListener('input', saveV2RuntimeParams);
         updateV2AnalyzeButton();
     });
 
@@ -1274,6 +1322,55 @@
         return document.querySelector('#v2-source-tabs .nav-link.active')?.id || '';
     }
 
+    const V2_RUNTIME_PARAMS_STORAGE_KEY = 'v2_runtime_params';
+
+    function parseV2ThresholdInput(inputId, fallback) {
+        const raw = document.getElementById(inputId)?.value?.trim();
+        if (raw === '' || raw === undefined) return fallback;
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : fallback;
+    }
+
+    function collectV2RuntimeParams() {
+        // 页面输入按百分比填写，payload 统一转换为小数阈值。
+        return {
+            market_downturn_threshold: parseV2ThresholdInput('config-downturn-threshold', -2) / 100,
+            market_upturn_threshold: parseV2ThresholdInput('config-upturn-threshold', 2) / 100,
+            daily_extreme_threshold: parseV2ThresholdInput('config-daily-extreme-threshold', 2) / 100,
+            daily_drawdown_threshold: parseV2ThresholdInput('config-daily-drawdown-threshold', 5) / 100
+        };
+    }
+
+    function saveV2RuntimeParams() {
+        try {
+            localStorage.setItem(V2_RUNTIME_PARAMS_STORAGE_KEY, JSON.stringify(collectV2RuntimeParams()));
+        } catch (e) {
+            // localStorage 不可用（隐私模式等）时忽略，配置仅在当前页面生效。
+        }
+    }
+
+    function restoreV2RuntimeParams() {
+        let saved = null;
+        try {
+            saved = JSON.parse(localStorage.getItem(V2_RUNTIME_PARAMS_STORAGE_KEY) || 'null');
+        } catch (e) {
+            saved = null;
+        }
+        if (!saved || typeof saved !== 'object') return;
+        if (Number.isFinite(saved.market_downturn_threshold)) {
+            document.getElementById('config-downturn-threshold').value = Number((saved.market_downturn_threshold * 100).toFixed(6));
+        }
+        if (Number.isFinite(saved.market_upturn_threshold)) {
+            document.getElementById('config-upturn-threshold').value = Number((saved.market_upturn_threshold * 100).toFixed(6));
+        }
+        if (Number.isFinite(saved.daily_extreme_threshold)) {
+            document.getElementById('config-daily-extreme-threshold').value = Number((saved.daily_extreme_threshold * 100).toFixed(6));
+        }
+        if (Number.isFinite(saved.daily_drawdown_threshold)) {
+            document.getElementById('config-daily-drawdown-threshold').value = Number((saved.daily_drawdown_threshold * 100).toFixed(6));
+        }
+    }
+
     function updateV2AnalyzeButton() {
         const button = document.getElementById('btn-analyze-v2');
         if (!button || abortController) return;
@@ -1317,16 +1414,19 @@
             return;
         }
 
+        const runtimeParams = collectV2RuntimeParams();
         await requestV2Analysis('/xpl/v1/analyze', {
             google_sheet_url: url,
             spreadsheet_id: spreadsheetId,
-            google_sheet_name: sheetName
+            google_sheet_name: sheetName,
+            runtime_params: runtimeParams
         }, sheetName, state.spreadsheetTitle || 'Google Sheet', {
             report_type: 'RPT-S',
             google_sheet_url: url,
             spreadsheet_id: spreadsheetId,
             google_sheet_name: sheetName,
-            metadata: { sheet_title: state.spreadsheetTitle }
+            metadata: { sheet_title: state.spreadsheetTitle },
+            runtime_params: runtimeParams
         });
     }
 
@@ -1341,9 +1441,11 @@
 
         document.getElementById('v2-paste-data').value = prepared.text;
         updateV2PasteStatus();
+        const runtimeParams = collectV2RuntimeParams();
         await requestV2Analysis('/xpl/analyze', {
             data: prepared.text,
-            time_format: 'auto'
+            time_format: 'auto',
+            runtime_params: runtimeParams
         }, state.manualDataSheetName || '粘贴数据', state.manualDataTitle || '手动数据',
         wordReportPayload || {
             report_type: 'RPT-S',
@@ -1355,7 +1457,8 @@
                     start_return: Number(startReturn)
                 };
             }),
-            metadata: { model_version: '单产品' }
+            metadata: { model_version: '单产品' },
+            runtime_params: runtimeParams
         });
     }
 

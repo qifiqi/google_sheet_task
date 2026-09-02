@@ -3,6 +3,7 @@ import math
 import pandas as pd
 import pytest
 
+from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.xpl_service import XPLAnalyzer
 from app.routes.backtest_multi_product import _infer_product_export_model_name
 from app.services.backtest_training_api_service import _infer_backtest_export_model_name
@@ -147,6 +148,126 @@ def test_v1_metrics_handles_missing_extreme_loss_days_without_division_by_zero()
     assert metrics["index_daily_gain_loss_ratio"] == 0.0
     assert metrics["start_daily_gain_loss_ratio"] == 0.0
     assert metrics["downfall_win_rate"] == 0.0
+
+
+def test_runtime_params_from_raw_parses_and_validates():
+    assert MetricsRuntimeParamsDTO.from_raw(None) == MetricsRuntimeParamsDTO()
+    assert MetricsRuntimeParamsDTO.from_raw(MetricsRuntimeParamsDTO(market_downturn_threshold=-0.03)) == \
+        MetricsRuntimeParamsDTO(market_downturn_threshold=-0.03)
+    assert MetricsRuntimeParamsDTO.from_raw({
+        "market_downturn_threshold": "-0.03",
+        "market_upturn_threshold": 0.04,
+        "daily_extreme_threshold": "0.03",
+        "daily_drawdown_threshold": 0.08,
+    }) == MetricsRuntimeParamsDTO(
+        market_downturn_threshold=-0.03,
+        market_upturn_threshold=0.04,
+        daily_extreme_threshold=0.03,
+        daily_drawdown_threshold=0.08,
+    )
+
+    with pytest.raises(ValueError):
+        MetricsRuntimeParamsDTO.from_raw("-0.02")
+    with pytest.raises(ValueError):
+        MetricsRuntimeParamsDTO.from_raw({"market_downturn_threshold": "abc"})
+    with pytest.raises(ValueError):
+        MetricsRuntimeParamsDTO.from_raw({"daily_extreme_threshold": None})
+    with pytest.raises(ValueError):
+        MetricsRuntimeParamsDTO.from_raw({
+            "market_downturn_threshold": float("nan"),
+            "market_upturn_threshold": 0.02,
+        })
+
+
+def _monthly_loss_rows(months: int = 12) -> list[dict]:
+    """构造每个指数月度收益约 -2.2%、策略同幅度的累计收益序列。"""
+    rows = []
+    index_net_value = start_net_value = 1.0
+    for index, current_date in enumerate(pd.bdate_range("2024-01-01", periods=months * 22)):
+        index_net_value *= 1 - 0.001
+        start_net_value *= 1 - 0.001
+        rows.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "index_return": index_net_value - 1,
+            "start_return": start_net_value - 1,
+        })
+    return rows
+
+
+def test_v1_metrics_applies_runtime_market_thresholds():
+    analyzer = XPLAnalyzer()
+    rows = _monthly_loss_rows()
+
+    default_metrics = analyzer.get_calculate_metrics_v1(rows)
+    strict_metrics = analyzer.get_calculate_metrics_v1(rows, runtime_params={
+        "market_downturn_threshold": -0.05,
+        "market_upturn_threshold": 0.05,
+    })
+
+    # 默认阈值 -2% 时每月都算下跌月；阈值收紧到 -5% 后不再有下跌月。
+    assert default_metrics["index_downfall_months_len"] > 0
+    assert default_metrics["market_downturn_threshold"] == pytest.approx(-0.02)
+    assert strict_metrics["index_downfall_months_len"] == 0
+    assert strict_metrics["market_downturn_threshold"] == pytest.approx(-0.05)
+    assert strict_metrics["market_upturn_threshold"] == pytest.approx(0.05)
+
+
+def test_analyze_passes_runtime_params_to_dual_metrics():
+    data = "\n".join(
+        [
+            "2025-10-31 -1.00% -0.50%",
+            "2025-11-30 -1.00% -0.50%",
+            "2025-12-31 -1.00% -0.50%",
+            "2026-01-31 -1.00% -0.50%",
+        ]
+    )
+
+    result = XPLAnalyzer().analyze(
+        data=data,
+        time_format="auto",
+        runtime_params={"market_downturn_threshold": -0.005, "market_upturn_threshold": 0.005},
+    )
+
+    assert result["status"] == "success"
+    metrics = result["results"]
+    assert metrics["analysis_mode"] == "dual"
+    assert metrics["market_downturn_threshold"] == pytest.approx(-0.005)
+    # 全部月份指数月收益约 -1%，阈值放宽到 -0.5% 后被计为下跌月。
+    assert metrics["index_downfall_months_len"] > 0
+
+
+def test_v1_metrics_applies_daily_thresholds():
+    """7.3 涨跌幅天数与单日回撤统计阈值均可配。"""
+    analyzer = XPLAnalyzer()
+    rows = []
+    index_net_value = start_net_value = 1.0
+    for index, current_date in enumerate(pd.bdate_range("2024-01-01", periods=40)):
+        daily_return = 0.03 if index % 2 else -0.03
+        index_net_value *= 1 + daily_return
+        start_net_value *= 1 + daily_return
+        rows.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "index_return": index_net_value - 1,
+            "start_return": start_net_value - 1,
+        })
+
+    default_metrics = analyzer.get_calculate_metrics_v1(rows)
+    strict_metrics = analyzer.get_calculate_metrics_v1(rows, runtime_params={
+        "daily_extreme_threshold": 0.05,
+        "daily_drawdown_threshold": 0.02,
+    })
+
+    # ±3% 的日收益：默认 2% 涨跌阈值下各约一半天数入统计（首日收益口径导致涨跌各差 1）；
+    # 阈值提高到 5% 后归零。
+    assert default_metrics["index_daily_gain_days"] == 20
+    assert default_metrics["index_daily_loss_days"] == 19
+    assert strict_metrics["index_daily_gain_days"] == 0
+    assert strict_metrics["index_daily_loss_days"] == 0
+    # 默认 5% 回撤阈值统计不到 -3% 的单日跌幅；阈值收紧到 2% 后可统计到。
+    assert default_metrics["index_dd_count"] == 0
+    assert strict_metrics["index_dd_count"] == 19
+    assert strict_metrics["daily_extreme_threshold"] == pytest.approx(0.05)
+    assert strict_metrics["daily_drawdown_threshold"] == pytest.approx(0.02)
 
 
 @pytest.mark.skip(reason="待修复：同 analyze 日度分布问题，metrics 计算崩溃导致 results 为空")

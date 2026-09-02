@@ -62,12 +62,11 @@ def test_return_section_marks_rolling_returns_unavailable_before_five_years():
     }
     metrics = {
         **{
-            f"{side}_rolling_return_{months}": dict(reason)
-            for side in ("index", "start")
+            f"rolling_return_{months}_reason": reason["reason"]
             for months in (3, 6, 12)
         },
         **{
-            f"excess_rolling_return_{months}": dict(reason)
+            f"excess_rolling_return_{months}_reason": reason["reason"]
             for months in (3, 6, 12)
         },
     }

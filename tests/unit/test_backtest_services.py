@@ -331,8 +331,9 @@ def test_backtest_c7_0_3_execution_writes_ohlc_and_handles_first_div_zero(monkey
         "XPL",
         (), {
             "get_calculate_metrics_v1": lambda _self, rows: {"rows": rows},
-            # 统一存储后，执行链路通过 V1 门面取 (metrics, 三条DataFrame) 结果。
-            "_calculate_metrics_v1": lambda _self, rows, return_dataframes=False: (
+            # 统一存储后，执行链路通过 V1 门面取 (metrics, 三条DataFrame) 结果；
+            # 门面会透传 runtime_params 等可选关键字参数，桩用 **_kwargs 兼容。
+            "_calculate_metrics_v1": lambda _self, rows, return_dataframes=False, **_kwargs: (
                 {"rows": rows}, None, None, None,
             ),
         },

@@ -251,12 +251,12 @@ class PerformanceResultMapperMixin:
 
         return result, metrics_payload
 
-    def get_calculate_metrics_v1(self, data) :
+    def get_calculate_metrics_v1(self, data, runtime_params=None):
         """执行 V1 格式数据的指标计算。"""
         from app.services.performance_analysis.facade import calculate_v1_metrics
 
         # 所有新调用统一经过 V1 指标门面。
-        result = calculate_v1_metrics(data, analyzer=self).metrics
+        result = calculate_v1_metrics(data, runtime_params=runtime_params, analyzer=self).metrics
 
         # 将结果转换为 JSON，处理 Pandas 类型
         if isinstance(result, pd.DataFrame):
@@ -277,7 +277,7 @@ class PerformanceResultMapperMixin:
     ) -> MetricsV1ResponseDTO:
         """返回 V1 指标，以及指数、策略和超额收益序列。
 
-        ``runtime_params`` 作为后续市场阶段指标的配置入口，当前暂不应用其中的阈值。
+        ``runtime_params`` 控制市场下跌、上涨阶段的判定阈值（7.1/7.2）。
         """
         from app.services.performance_analysis.facade import calculate_v1_metrics
 

@@ -11,6 +11,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 
+from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -316,6 +317,8 @@ class PerformanceMetricsMixin:
                     # If it's the first month, use the first data point of the month as base
                     # comparison_point = month_df.iloc[0]
                     # comparison_point = comparison_point['net_value']
+                    # TODO: 首月基准被硬编码为 1（而非当月第一个数据点的净值），
+                    #  首月月度收益因此包含数据起点前的累计涨跌；有单测覆盖此问题（已 skip）。
                     comparison_point = 1
                 else:
                     # 否则使用上个月最后一个数据点作为基准
@@ -495,63 +498,6 @@ class PerformanceMetricsMixin:
             # 注意：期末净值 / 期初净值
             total_return = end_value / start_value
             annualized_return = total_return ** (365 / holding_days) - 1
-
-            annualized_rate_returns.append({
-                'year': str(year),
-                'annualized_return': annualized_return,  # 收益率 Monthly return
-                'date': f"{start_date}/{end_date}"
-            })
-
-        # 计算整体年化收益率
-        if len(df) >= 2:
-            start_value = df.iloc[0]['net_value']
-            end_value = df.iloc[-1]['net_value']
-            start_date = df.iloc[0]['date']
-            end_date = df.iloc[-1]['date']
-            holding_days = (end_date - start_date).days
-
-            if holding_days > 0:
-                total_return = end_value / start_value
-                overall_annualized_return = total_return ** (365 / holding_days) - 1
-
-                # 记录年度收益数据
-                annualized_rate_returns.append({
-                    'year': "all",
-                    'annualized_return': overall_annualized_return,  # 收益率 Monthly return
-                    'date': f"{start_date}/{end_date}"
-                })
-
-        return annualized_rate_returns
-
-
-    def annual_rate_of_return(self, df):
-        """
-        计算年度收益率
-        计算公式：
-            年化收益率 = (期末净值 / 期初净值)  - 1
-
-        """
-        annualized_rate_returns = []
-
-        # 按年份分组处理
-        yearly_groups = df.groupby('year')
-
-        for year, year_df in yearly_groups:
-            if len(year_df) == 0:
-                continue
-
-            # 获取期初和期末净值
-            start_value = year_df.iloc[0]['net_value']
-            end_value = year_df.iloc[-1]['net_value']
-
-            # 计算持有天数
-            start_date = year_df.iloc[0]['date']
-            end_date = year_df.iloc[-1]['date']
-
-            # 计算年化收益率
-            # 注意：期末净值 / 期初净值
-            total_return = end_value / start_value
-            annualized_return = total_return - 1
 
             annualized_rate_returns.append({
                 'year': str(year),
@@ -1006,7 +952,8 @@ class PerformanceMetricsMixin:
                 # 修复天数+1（又跌了一天，离山顶更远了）
                 repair_days += 1
 
-        return max_repair_days
+        # 返回格式与历史版本一致：整体区间返回 int
+        return int(max_repair_days)
 
     def yearly_max_repair_days(self, data_df):
         """
@@ -1093,7 +1040,9 @@ class PerformanceMetricsMixin:
                     repair_days += 1
 
             # 步骤5：记录该年的最大修复天数
-            yearly_result[year] = max_repair_days
+            # 返回格式与历史版本一致：{int(年份): int(修复天数)}，
+            # 避免numpy int64键导致下游 JSON 序列化/数值过滤失效。
+            yearly_result[int(year)] = int(max_repair_days)
 
         return yearly_result
 
@@ -1110,13 +1059,15 @@ class PerformanceMetricsMixin:
         return start_data - index_data
 
 
-    def _calculate_metrics_v1(self, data, *, return_dataframes: bool = False):
+    def _calculate_metrics_v1(self, data, *, return_dataframes: bool = False, runtime_params=None):
         """
         计算各项指标
         Calculate various metrics
 
         Args:
             data:
+            runtime_params: 市场阶段指标运行参数（``MetricsRuntimeParamsDTO`` 或原始字典），
+                控制 7.1/7.2 市场下跌、上涨阶段的判定阈值。
 
         Returns:
             dict or tuple: 默认返回原指标字典；开启 ``return_dataframes`` 时，
@@ -1126,6 +1077,8 @@ class PerformanceMetricsMixin:
             if return_dataframes:
                 return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
             return {}
+
+        runtime_params = MetricsRuntimeParamsDTO.from_raw(runtime_params)
 
         try:
             # 转换为DataFrame便于计算
@@ -1178,12 +1131,10 @@ class PerformanceMetricsMixin:
             start_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(start_df)
             start_returns_rate = self.calculate_year_returns(start_df)
             start_sharpe_ratios = self.calculate_sharpe_ratios_by_periods(start_df)
+
             # 年化收益率
             index_annualized_rates = self.annualized_rate_return(index_df)
             start_annualized_rates = self.annualized_rate_return(start_df)
-            # 分年度收益率 期末/期初 -1
-            index_annual_rate_of_return = self.annual_rate_of_return(index_df)
-            start_annual_rate_of_return = self.annual_rate_of_return(start_df)
 
             # 卡玛比率
             index_kama_ratio = self.calculate_kama_ratio(index_annualized_rates, index_maximum_drawdown)
@@ -1249,6 +1200,8 @@ class PerformanceMetricsMixin:
                                                                                        start_maximum_drawdown)
 
             # 超额夏普= 月超额收益（均值） * 12 / (月超额收益率标准差 * 根号12)
+            # TODO: 月超额收益全部>=0（或为常数）时 std=0 → 除零得 inf/NaN，
+            #  全局预览/结果预览会把非有限数过滤成 "-"（如截图所示）；口径待确认（返回 None/0？）。
             monthly_excess_return_diff_mean = monthly_excess_returns['monthly_excess_return_diff'].mean()
             monthly_excess_return_standard_deviation = monthly_excess_returns['monthly_excess_return_diff'].std()
             excess_sharp = (monthly_excess_return_diff_mean * 12) / (
@@ -1256,6 +1209,7 @@ class PerformanceMetricsMixin:
 
             # 超额索提诺 = 月超额收益（均值） * 12 / (下行月超额收益率标准差 * 根号12) (老版本移除)
             # 超额索提诺 = 月超额收益（均值） * 12 / (月超额收益率标准差 * 根号12)(大于0的设置0)
+            # TODO: 同超额夏普，正收益掩码后 std=0 时除零 → inf → 预览显示 "-"。
             monthly_excess_returns_diff = monthly_excess_returns['monthly_excess_return_diff'].mask(
                 monthly_excess_returns['monthly_excess_return_diff'] > 0, 0
             )
@@ -1290,6 +1244,8 @@ class PerformanceMetricsMixin:
             index_rolling_return_3 = self.calculate_rolling_return(index_monthly_returns_rate, months=3)
             start_rolling_return_3 = self.calculate_rolling_return(start_monthly_returns_rate, months=3)
             # 策略胜率(跑赢指数)
+            # TODO: 该胜率只算了 3 个月窗口且从未导出（报告曾自行重算）；
+            #  分母是策略滚动序列长度，与 7.1 胜率用指数阶段月数的口径不一致。
             if isinstance(index_rolling_return_3, pd.DataFrame) and isinstance(start_rolling_return_3, pd.DataFrame):
                 outperform_index = start_rolling_return_3[
                     start_rolling_return_3["roll_3m"] > index_rolling_return_3["roll_3m"]
@@ -1304,6 +1260,18 @@ class PerformanceMetricsMixin:
             # 12个月滚动
             index_rolling_return_12 = self.calculate_rolling_return(index_monthly_returns_rate, months=12)
             start_rolling_return_12 = self.calculate_rolling_return(start_monthly_returns_rate, months=12)
+
+            # ---- 新增导出：滚动序列聚合（均值 + 配对胜率），供报告 1.3 直接消费 ----
+            rolling_pair_summaries = {}
+            for months, index_frame, start_frame in (
+                (3, index_rolling_return_3, start_rolling_return_3),
+                (6, index_rolling_return_6, start_rolling_return_6),
+                (12, index_rolling_return_12, start_rolling_return_12),
+            ):
+                rolling_pair_summaries[months] = self.rolling_pair_summary(
+                    index_frame, start_frame, f"roll_{months}m"
+                )
+            # ---- 派生导出结束 ----
             # 二、风险类指标
             # 最大回撤(MDD)
             # 最大回撤修复天数(年度最大)
@@ -1440,7 +1408,7 @@ class PerformanceMetricsMixin:
             annualized_excess_returns = self.annualized_rate_return(excess_df)
             # 月超额收益均值
             average_monthly_excess_return = monthly_excess_returns['monthly_excess_return_diff'].mean()
-            # 月超额收益标准差 （乘 根号12）
+            # 月超额收益波动率 （乘 根号12）
             monthly_excess_return_standard_deviation = monthly_excess_returns['monthly_excess_return_diff'].std() * math.sqrt(12)
             # 月超额胜率(>0)
             monthly_excess_win_rate = (monthly_excess_returns['monthly_excess_return_diff'] > 0).mean()
@@ -1474,12 +1442,24 @@ class PerformanceMetricsMixin:
             # 12个月滚动
             excess_rolling_return_12 = self.calculate_rolling_return(monthly_excess_returns,"monthly_excess_return_diff",12)
 
+            # ---- 新增导出：滚动超额聚合（均值 + 正超额概率），供报告 6.3 直接消费 ----
+            excess_rolling_summaries = {}
+            for months, frame in (
+                (3, excess_rolling_return_3),
+                (6, excess_rolling_return_6),
+                (12, excess_rolling_return_12),
+            ):
+                excess_rolling_summaries[months] = self.rolling_single_summary(frame, f"roll_{months}m")
+            # ---- 派生导出结束 ----
+
 
             #  七、极端行情表现
-            # 7.1 市场下跌阶段（指数月收益 < -2%）(可配)
-            # 下跌月数 （亏损月 < -2%，平均值）
-            index_downfall_months = index_monthly_returns_rate[index_monthly_returns_rate['monthly_return'] < -0.02]
-            start_downfall_months = start_monthly_returns_rate[start_monthly_returns_rate['monthly_return'] < -0.02]
+            # 7.1 市场下跌阶段（指数月收益 < 市场下跌阈值）(可配，默认 -2%)
+            # 下跌月数 （亏损月 < 市场下跌阈值，平均值）
+            index_downfall_months = index_monthly_returns_rate[
+                index_monthly_returns_rate['monthly_return'] < runtime_params.market_downturn_threshold]
+            start_downfall_months = start_monthly_returns_rate[
+                start_monthly_returns_rate['monthly_return'] < runtime_params.market_downturn_threshold]
             index_downfall_months_len = len(index_downfall_months)
             start_downfall_months_len = len(start_downfall_months)
             # 平均收益
@@ -1490,10 +1470,13 @@ class PerformanceMetricsMixin:
             outperform_months = start_monthly_returns_rate[
                 start_monthly_returns_rate['monthly_return'] > index_monthly_returns_rate['monthly_return']]
 
-            # 2. 在这些月份中，看策略收益 < -2% 的月份
+            # 2. 在这些月份中，看策略收益 < 市场下跌阈值的月份
+            # TODO: 下方 if 分支保护与分母无关（分母是指数下跌月数），属于无效保护；
+            #  且注释“/ 策略跑赢指数的总月份”与实现（/ 指数下跌月数）不符。
             if len(outperform_months) > 0:
-                # 策略跑赢指数，且自身下跌超过2%的月份
-                downfall_outperform_months = outperform_months[outperform_months['monthly_return'] < -0.02]
+                # 策略跑赢指数，且自身下跌超过市场下跌阈值的月份
+                downfall_outperform_months = outperform_months[
+                    outperform_months['monthly_return'] < runtime_params.market_downturn_threshold]
 
                 # 占比 = 策略跑赢指数且下跌的月份 / 策略跑赢指数的总月份
                 downfall_win_rate = len(downfall_outperform_months) / index_downfall_months_len if \
@@ -1501,11 +1484,25 @@ class PerformanceMetricsMixin:
             else:
                 downfall_win_rate = 0.0
 
-            # 7.2 市场上涨阶段（指数月收益 > +2%）
+            # 新增导出：下跌阶段跑赢次数（= downfall_win_rate 的分子口径：跑赢且策略仍低于阈值）
+            # 与阶段超额均值（按指数阶段月逐月配对）。
+            downfall_outperform_count = len(downfall_outperform_months) if len(outperform_months) > 0 else 0
+            downfall_stage_mask = monthly_excess_returns['index_monthly_return'] < runtime_params.market_downturn_threshold
+            downfall_stage_excess = (
+                monthly_excess_returns.loc[downfall_stage_mask, 'start_monthly_return']
+                - monthly_excess_returns.loc[downfall_stage_mask, 'index_monthly_return']
+            )
+            downfall_excess_avg_return = (
+                float(downfall_stage_excess.mean()) if index_downfall_months_len else 0.0
+            )
+
+            # 7.2 市场上涨阶段（指数月收益 > 市场上涨阈值）(可配，默认 +2%)
             # 指标
             # 上涨月数
-            index_upward_months = index_monthly_returns_rate[index_monthly_returns_rate['monthly_return'] > 0.02]
-            start_upward_months = start_monthly_returns_rate[start_monthly_returns_rate['monthly_return'] > 0.02]
+            index_upward_months = index_monthly_returns_rate[
+                index_monthly_returns_rate['monthly_return'] > runtime_params.market_upturn_threshold]
+            start_upward_months = start_monthly_returns_rate[
+                start_monthly_returns_rate['monthly_return'] > runtime_params.market_upturn_threshold]
             index_upward_months_len = len(index_upward_months)
             start_upward_months_len = len(start_upward_months)
 
@@ -1515,34 +1512,55 @@ class PerformanceMetricsMixin:
             # 策略胜率
 
             # 1. 先找出策略 > 指数的月份（跑赢指数的月份）
+            # TODO: upward_months 计算后从未使用（与 7.1 的 outperform_months 条件完全相同），
+            #  下方分支实际复用的是 outperform_months；两个变量属重复计算。
             upward_months = start_monthly_returns_rate[
                 start_monthly_returns_rate['monthly_return'] > index_monthly_returns_rate['monthly_return']]
 
-            # 2. 在这些月份中，看策略收益 < -2% 的月份
+            # 2. 在这些月份中，看策略收益 > 市场上涨阈值的月份
             if len(outperform_months) > 0:
-                # 策略跑赢指数，且自身下跌超过2%的月份
-                upward_outperform_months = outperform_months[outperform_months['monthly_return'] > 0.02]
+                # 策略跑赢指数，且自身上涨超过市场上涨阈值的月份
+                upward_outperform_months = outperform_months[
+                    outperform_months['monthly_return'] > runtime_params.market_upturn_threshold]
 
                 # 占比 = 策略跑赢指数且下跌的月份 / 策略跑赢指数的总月份
+                # TODO: 分母用的是策略超阈值月数（start_upward_months_len），
+                #  与 7.1 downfall_win_rate 的分母（指数阶段月数）口径不一致；确认是否有意为之。
                 upward_win_rate = len(upward_outperform_months) / start_upward_months_len if \
                     start_upward_months_len else 0.0
             else:
                 upward_win_rate = 0.0
 
-            # 7.3 极端单日表现
+            # 新增导出：上涨阶段跑赢次数（= upward_win_rate 的分子口径：跑赢且策略超上涨阈值）
+            # 与阶段超额均值（按指数阶段月逐月配对）。
+            upward_outperform_count = len(upward_outperform_months) if len(outperform_months) > 0 else 0
+            upward_stage_mask = monthly_excess_returns['index_monthly_return'] > runtime_params.market_upturn_threshold
+            upward_stage_excess = (
+                monthly_excess_returns.loc[upward_stage_mask, 'start_monthly_return']
+                - monthly_excess_returns.loc[upward_stage_mask, 'index_monthly_return']
+            )
+            upward_excess_avg_return = (
+                float(upward_stage_excess.mean()) if index_upward_months_len else 0.0
+            )
+
+            # 7.3 极端单日表现（涨跌幅阈值可配，默认 ±2%）
             # 最大单日涨幅
             index_max_daily_gain = index_df['daily_return'].max()
             start_max_daily_gain = start_df['daily_return'].max()
             # 最大单日跌幅
             index_max_daily_loss = index_df['daily_return'].min()
             start_max_daily_loss = start_df['daily_return'].min()
-            # 涨幅>2%的天数
-            index_daily_gain_days = len(index_df[index_df['daily_return'] > 0.02])
-            start_daily_gain_days = len(start_df[start_df['daily_return'] > 0.02])
-            # 跌幅>2%的天数
-            index_daily_loss_days = len(index_df[index_df['daily_return'] < -0.02])
-            start_daily_loss_days = len(start_df[start_df['daily_return'] < -0.02])
-            # 涨跌比(涨>2%/跌>2%)
+            # 涨幅>阈值的天数
+            index_daily_gain_days = len(
+                index_df[index_df['daily_return'] > runtime_params.daily_extreme_threshold])
+            start_daily_gain_days = len(
+                start_df[start_df['daily_return'] > runtime_params.daily_extreme_threshold])
+            # 跌幅>阈值的天数
+            index_daily_loss_days = len(
+                index_df[index_df['daily_return'] < -runtime_params.daily_extreme_threshold])
+            start_daily_loss_days = len(
+                start_df[start_df['daily_return'] < -runtime_params.daily_extreme_threshold])
+            # 涨跌比(涨>阈值/跌>阈值)
             index_daily_gain_loss_ratio = index_daily_gain_days / index_daily_loss_days if index_daily_loss_days else 0.0
             start_daily_gain_loss_ratio = start_daily_gain_days / start_daily_loss_days if start_daily_loss_days else 0.0
 
@@ -1562,14 +1580,18 @@ class PerformanceMetricsMixin:
             index_consecutive  = self.calc_consecutive_extremes(index_df['net_value'])
             start_consecutive = self.calc_consecutive_extremes(start_df['net_value'])
 
+            # 新增导出：净值创新高统计（次数/频率/平均间隔天数），供报告第八章直接消费。
+            index_new_high_stats = self.new_high_statistics(index_df['net_value'])
+            start_new_high_stats = self.new_high_statistics(start_df['net_value'])
 
-            # 1. 单日跌幅 > 5% 的次数
-            index_dd_count = (index_df['daily_return'] < -0.05).sum()
-            start_dd_count = (start_df['daily_return'] < -0.05).sum()
 
-            # 2. 单日跌幅 > 5% 的频率
-            index_dd_freq = (index_df['daily_return'] < -0.05).mean()
-            start_dd_freq = (start_df['daily_return'] < -0.05).mean()
+            # 1. 单日跌幅 > 阈值 的次数（可配，默认 5%）
+            index_dd_count = (index_df['daily_return'] < -runtime_params.daily_drawdown_threshold).sum()
+            start_dd_count = (start_df['daily_return'] < -runtime_params.daily_drawdown_threshold).sum()
+
+            # 2. 单日跌幅 > 阈值 的频率
+            index_dd_freq = (index_df['daily_return'] < -runtime_params.daily_drawdown_threshold).mean()
+            start_dd_freq = (start_df['daily_return'] < -runtime_params.daily_drawdown_threshold).mean()
 
 
 
@@ -1619,12 +1641,20 @@ class PerformanceMetricsMixin:
                 "start_cumulative_return": start_cumulative_return,
                 "index_annualized_rates":index_annualized_rates,
                 "start_annualized_rates": start_annualized_rates,
-                "index_rolling_return_3": index_rolling_return_3,
-                "start_rolling_return_3": start_rolling_return_3,
-                "index_rolling_return_6": index_rolling_return_6,
-                "start_rolling_return_6": start_rolling_return_6,
-                "index_rolling_return_12": index_rolling_return_12,
-                "start_rolling_return_12": start_rolling_return_12,
+                # 报告层直读的滚动聚合导出（均值 + 配对胜率；数据不足时带 reason）
+                # 原始滚动序列帧不再导出，报告统一消费聚合结果。
+                "rolling_return_3_reason": rolling_pair_summaries[3].get("reason"),
+                "index_rolling_return_3_avg_return": rolling_pair_summaries[3].get("index_avg_return"),
+                "start_rolling_return_3_avg_return": rolling_pair_summaries[3].get("start_avg_return"),
+                "rolling_return_3_win_rate": rolling_pair_summaries[3].get("win_rate"),
+                "rolling_return_6_reason": rolling_pair_summaries[6].get("reason"),
+                "index_rolling_return_6_avg_return": rolling_pair_summaries[6].get("index_avg_return"),
+                "start_rolling_return_6_avg_return": rolling_pair_summaries[6].get("start_avg_return"),
+                "rolling_return_6_win_rate": rolling_pair_summaries[6].get("win_rate"),
+                "rolling_return_12_reason": rolling_pair_summaries[12].get("reason"),
+                "index_rolling_return_12_avg_return": rolling_pair_summaries[12].get("index_avg_return"),
+                "start_rolling_return_12_avg_return": rolling_pair_summaries[12].get("start_avg_return"),
+                "rolling_return_12_win_rate": rolling_pair_summaries[12].get("win_rate"),
 
                 "index_drawdown_count": index_drawdown_count,
                 "start_drawdown_count": start_drawdown_count,
@@ -1688,6 +1718,7 @@ class PerformanceMetricsMixin:
                 "excess_nav": excess_df['net_value'].iloc[-1],
                 "annualized_excess_returns": annualized_excess_returns,
                 "average_monthly_excess_return": average_monthly_excess_return,
+                # 月超额收益波动率（×√12 年化口径，与 monthly_excess_volatility 一致）
                 "monthly_excess_return_standard_deviation":monthly_excess_return_standard_deviation,
                 "monthly_excess_win_rate":monthly_excess_win_rate,
                 "max_monthly_excess":max_monthly_excess,
@@ -1695,9 +1726,16 @@ class PerformanceMetricsMixin:
                 "excess_distribution":excess_distribution,
                 "excess_distribution_pct":excess_distribution_pct,
 
-                "excess_rolling_return_3":excess_rolling_return_3,
-                "excess_rolling_return_6":excess_rolling_return_6,
-                "excess_rolling_return_12":excess_rolling_return_12,
+                # 报告层直读的滚动超额聚合导出（均值 + 正超额概率；数据不足时带 reason）
+                "excess_rolling_return_3_reason": excess_rolling_summaries[3].get("reason"),
+                "excess_rolling_return_3_avg_return": excess_rolling_summaries[3].get("avg_return"),
+                "excess_rolling_return_3_win_rate": excess_rolling_summaries[3].get("win_rate"),
+                "excess_rolling_return_6_reason": excess_rolling_summaries[6].get("reason"),
+                "excess_rolling_return_6_avg_return": excess_rolling_summaries[6].get("avg_return"),
+                "excess_rolling_return_6_win_rate": excess_rolling_summaries[6].get("win_rate"),
+                "excess_rolling_return_12_reason": excess_rolling_summaries[12].get("reason"),
+                "excess_rolling_return_12_avg_return": excess_rolling_summaries[12].get("avg_return"),
+                "excess_rolling_return_12_win_rate": excess_rolling_summaries[12].get("win_rate"),
 
                 "index_max_profit_loss_ratio": index_max_profit_loss_ratio,
                 "start_max_profit_loss_ratio": start_max_profit_loss_ratio,
@@ -1706,12 +1744,23 @@ class PerformanceMetricsMixin:
                 "index_downfall_avg_return": index_downfall_avg_return,
                 "start_downfall_avg_return": start_downfall_avg_return,
                 "downfall_win_rate":downfall_win_rate,
+                # 报告层直读的极端行情派生导出（跑赢次数 = 对应胜率的分子；超额均值按指数阶段月配对）
+                "downfall_outperform_count": downfall_outperform_count,
+                "downfall_excess_avg_return": downfall_excess_avg_return,
+                # 本次计算实际生效的阈值，供报告与前端展示。
+                "market_downturn_threshold": runtime_params.market_downturn_threshold,
+                "market_upturn_threshold": runtime_params.market_upturn_threshold,
+                "daily_extreme_threshold": runtime_params.daily_extreme_threshold,
+                "daily_drawdown_threshold": runtime_params.daily_drawdown_threshold,
 
                 "index_upward_months_len": index_upward_months_len,
                 "start_upward_months_len": start_upward_months_len,
                 "index_upward_avg_return": index_upward_avg_return,
                 "start_upward_avg_return": start_upward_avg_return,
                 "upward_win_rate":upward_win_rate,
+                # 报告层直读的极端行情派生导出（跑赢次数 = 对应胜率的分子；超额均值按指数阶段月配对）
+                "upward_outperform_count": upward_outperform_count,
+                "upward_excess_avg_return": upward_excess_avg_return,
 
                 "index_max_daily_gain":index_max_daily_gain,
                 "start_max_daily_gain":start_max_daily_gain,
@@ -1729,6 +1778,13 @@ class PerformanceMetricsMixin:
                 "start_net_value_right": start_net_value_right,
                 "index_consecutive": index_consecutive,
                 "start_consecutive": start_consecutive,
+                # 报告层直读的净值创新高导出（首个数据点计为一次创新高）
+                "index_new_high_count": index_new_high_stats["count"],
+                "index_new_high_frequency": index_new_high_stats["frequency"],
+                "index_new_high_avg_interval_days": index_new_high_stats["avg_interval_days"],
+                "start_new_high_count": start_new_high_stats["count"],
+                "start_new_high_frequency": start_new_high_stats["frequency"],
+                "start_new_high_avg_interval_days": start_new_high_stats["avg_interval_days"],
                 "index_dd_count": index_dd_count,
                 "start_dd_count": start_dd_count,
                 "index_dd_freq": index_dd_freq,
@@ -1769,6 +1825,73 @@ class PerformanceMetricsMixin:
             if return_dataframes:
                 return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
             return {}
+
+    @staticmethod
+    def rolling_pair_summary(index_frame, start_frame, column):
+        """聚合指数/策略两条滚动序列：各自均值 + 逐位配对的策略胜率。
+
+        供报告 1.3 直接消费；数据不足（calculate_rolling_return 返回 reason 字典）
+        时透传 reason，列缺失时返回空字典。
+        """
+        for frame in (index_frame, start_frame):
+            if isinstance(frame, dict):
+                return {"reason": frame.get("reason")} if frame.get("reason") else {}
+        if not (isinstance(index_frame, pd.DataFrame) and isinstance(start_frame, pd.DataFrame)):
+            return {}
+        if column not in index_frame.columns or column not in start_frame.columns:
+            return {}
+        index_values = index_frame[column].reset_index(drop=True)
+        start_values = start_frame[column].reset_index(drop=True)
+        count = min(len(index_values), len(start_values))
+        if not count:
+            return {}
+        return {
+            "index_avg_return": float(index_values.iloc[:count].mean()),
+            "start_avg_return": float(start_values.iloc[:count].mean()),
+            "win_rate": float((start_values.iloc[:count] > index_values.iloc[:count]).mean()),
+        }
+
+    @staticmethod
+    def rolling_single_summary(frame, column):
+        """聚合单条滚动超额序列：均值 + 正超额概率。供报告 6.3 直接消费。
+
+        数据不足（reason 字典）时透传 reason，列缺失时返回空字典。
+        """
+        if isinstance(frame, dict):
+            return {"reason": frame.get("reason")} if frame.get("reason") else {}
+        if not isinstance(frame, pd.DataFrame) or column not in frame.columns:
+            return {}
+        values = frame[column].dropna()
+        if values.empty:
+            return {}
+        return {
+            "avg_return": float(values.mean()),
+            "win_rate": float((values > 0).mean()),
+        }
+
+    @staticmethod
+    def new_high_statistics(values):
+        """统计净值创新高：次数、频率、相邻创新高的平均间隔天数。
+
+        口径承袭自报告层原实现：首个数据点计为一次创新高。
+        """
+        if values is None or len(values) == 0:
+            return {"count": 0, "frequency": 0.0, "avg_interval_days": 0.0}
+        positions = []
+        highest = float("-inf")
+        for position, value in enumerate(values):
+            if value > highest:
+                highest = value
+                positions.append(position)
+        count = len(positions)
+        avg_interval = (
+            float(np.mean(np.diff(positions))) if count > 1 else 0.0
+        )
+        return {
+            "count": count,
+            "frequency": count / len(values),
+            "avg_interval_days": avg_interval,
+        }
 
     def calculate_rolling_return(self, df,col="monthly_return", months=3):
         """

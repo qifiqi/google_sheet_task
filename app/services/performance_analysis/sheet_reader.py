@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 
 
 class GoogleSheetAnalysisMixin:
-    def analyze_v1(self, spreadsheet_id: str, google_sheet_name: str) -> Dict[str, Any]:
+    def analyze_v1(self, spreadsheet_id: str, google_sheet_name: str, runtime_params=None) -> Dict[str, Any]:
         """
         分析输入的Excel数据并返回结果和指标
 
@@ -26,7 +26,7 @@ class GoogleSheetAnalysisMixin:
             # parsed_data = self._parse_input_data(data)
             _data, _data_result, sheet_df = self.get_google_sheet_data(spreadsheet_id, google_sheet_name)
             # 计算指标
-            metrics = self.get_calculate_metrics_v1(_data)
+            metrics = self.get_calculate_metrics_v1(_data, runtime_params=runtime_params)
 
             metrics['sheet_result'] = _data_result
             # 准备返回结果

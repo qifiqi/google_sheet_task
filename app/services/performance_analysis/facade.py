@@ -67,7 +67,6 @@ def _canonical_metrics(
                 _all_entry(metrics.get("index_annualized_rates")).get("annualized_return"),
                 metrics.get("index_annualized_return"),
             ),
-            "annual_return": metrics.get("index_annual_rate_of_return"),
             "max_drawdown": _total_drawdown(metrics, "index_maximum_drawdown"),
             "sharpe_ratio": index_sharpe.get("sharpe_ratio"),
             "sortino_ratio": index_sortino.get("sortino_ratio"),
@@ -78,7 +77,6 @@ def _canonical_metrics(
                 _all_entry(metrics.get("start_annualized_rates")).get("annualized_return"),
                 metrics.get("start_annualized_return"),
             ),
-            "annual_return": metrics.get("start_annual_rate_of_return"),
             "max_drawdown": _total_drawdown(metrics, "start_maximum_drawdown"),
             "sharpe_ratio": start_sharpe.get("sharpe_ratio"),
             "sortino_ratio": start_sortino.get("sortino_ratio"),
@@ -113,7 +111,11 @@ def calculate_v1_metrics(
         from app.services.xpl_service import xpl_analyzer
 
         analyzer = xpl_analyzer
-    calculated = analyzer._calculate_metrics_v1(list(returns or []), return_dataframes=True)
+    calculated = analyzer._calculate_metrics_v1(
+        list(returns or []),
+        return_dataframes=True,
+        runtime_params=runtime_params,
+    )
     if not isinstance(calculated, tuple) or len(calculated) != 4:
         raise ValueError("V1 指标计算器返回结构无效")
     raw_metrics, index_df, start_df, excess_df = calculated
@@ -121,7 +123,7 @@ def calculate_v1_metrics(
         raise ValueError("收益数据无法生成 V1 指标")
     metrics = _convert_pandas_to_native(raw_metrics)
     canonical = _convert_pandas_to_native(_canonical_metrics(metrics, index_df, start_df))
-    _ = runtime_params, return_dataframes
+    _ = return_dataframes
     return MetricsV1Result(
         schema_version=SCHEMA_VERSION,
         metrics=metrics,

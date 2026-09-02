@@ -66,13 +66,14 @@ class TextReturnAnalysisMixin:
             logger.error(f"计算指标时出错: {str(e)}", exc_info=True)
             return {}
 
-    def analyze(self, data, time_format: str = 'auto') -> Dict[str, Any]:
+    def analyze(self, data, time_format: str = 'auto', runtime_params=None) -> Dict[str, Any]:
         """
         分析输入的Excel数据并返回结果和指标
 
         Args:
             data: 输入的文本数据
             time_format: 时间格式，默认为'auto'自动检测
+            runtime_params: 市场阶段指标运行参数（``MetricsRuntimeParamsDTO`` 或原始字典）
 
         Returns:
             Dict[str, Any]: 包含分析结果和指标的字典
@@ -91,7 +92,9 @@ class TextReturnAnalysisMixin:
             if self._has_dual_return_columns(parsed_data):
                 from app.services.performance_analysis.facade import calculate_v1_metrics
 
-                metrics = calculate_v1_metrics(parsed_data, analyzer=self).metrics
+                metrics = calculate_v1_metrics(
+                    parsed_data, runtime_params=runtime_params, analyzer=self
+                ).metrics
                 metrics["analysis_mode"] = "dual"
             else:
                 metrics = self._calculate_metrics(parsed_data)
