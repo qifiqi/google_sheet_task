@@ -2,8 +2,13 @@ from datetime import datetime
 from io import BytesIO
 from zipfile import ZipFile
 
+import json
+
+import pandas as pd
+import pytest
+
 from app.extensions import db
-from app.models import Task, TaskResult
+from app.models import Task, TaskResult, TaskResultReturn
 from app.services.backtest_training_api_service import (
     _build_parameter_header,
     _build_global_preview_payload,
@@ -223,7 +228,120 @@ def test_c7_preview_prefers_sheet_metrics_for_excess_return(app_factory, monkeyp
         assert excess_return["values"][column["column_key"]] == "92.87%"
 
 
-def test_c7_0_2_preview_does_not_infer_layout_from_d_column_values(app_factory, monkeypatch):
+def test_global_preview_upgrades_legacy_metric_aliases(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        observed = {}
+
+        def summary_rows(metrics, _model_name):
+            observed.update(metrics)
+            return "", [{
+                "category": "夏普",
+                "metric": "超额夏普",
+                "index_value": "",
+                "model_value": str(metrics.get("excess_sharpe", "")),
+            }]
+
+        monkeypatch.setattr(
+            "app.services.backtest_training_api_service._extract_summary_rows",
+            summary_rows,
+        )
+        task = Task(
+            id="legacy-preview-aliases",
+            name="C7 回测",
+            task_type="google_sheet_C7",
+            status="completed",
+            config="{}",
+        )
+        db.session.add(task)
+        db.session.flush()
+        db.session.add(TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters='{"stock_code":"WDC","year":"2026-2025"}',
+            result=(
+                '{"result":{"calculate_metrics":{' 
+                '"excess_sharp":3.92,'
+                '"excess_of_promissory_note":33.44,'
+                '"index_sotino_ratio":[{"year":"all","sotino_ratio":8.54}],'
+                '"start_sotino_ratio":[{"year":"all","sotino_ratio":83.68}]}}}'
+            ),
+            success=True,
+        ))
+        db.session.commit()
+
+        payload = _build_global_preview_payload(task.id)
+
+        assert observed["excess_sharpe"] == 3.92
+        assert observed["excess_sortino"] == 33.44
+        assert observed["index_sortino_ratio"][0]["sortino_ratio"] == 8.54
+        assert observed["start_sortino_ratio"][0]["sortino_ratio"] == 83.68
+        assert payload["groups"][0]["rows"][0]["values"]
+
+
+def test_global_preview_recalculates_missing_legacy_metrics_from_return_series(app_factory, monkeypatch):
+    app = app_factory
+    with app.app_context():
+        observed = {}
+
+        def summary_rows(metrics, _model_name):
+            observed.update(metrics)
+            return "", [{
+                "category": "回撤",
+                "metric": "年最大回测修复天数",
+                "index_value": str(max(metrics["year_index_yearly_max_repair_days"].values())),
+                "model_value": str(max(metrics["year_start_yearly_max_repair_days"].values())),
+            }]
+
+        monkeypatch.setattr(
+            "app.services.backtest_training_api_service._extract_summary_rows",
+            summary_rows,
+        )
+        task = Task(
+            id="legacy-preview-series-fallback",
+            name="C7 回测",
+            task_type="google_sheet_C7",
+            status="completed",
+            config="{}",
+        )
+        db.session.add(task)
+        db.session.flush()
+        series = TaskResultReturn(
+            task_id=task.id,
+            stock_code="WDC",
+            stock_name="WDC",
+            start_return_date=datetime(2025, 1, 1).date(),
+            end_return_date=datetime(2025, 1, 3).date(),
+            return_length=3,
+            stock_date=json.dumps(["2025-01-01", "2025-01-02", "2025-01-03"]),
+            index_return=json.dumps([0.0, -0.02, 0.0]),
+            start_return=json.dumps([0.0, -0.01, 0.01]),
+        )
+        db.session.add(series)
+        db.session.flush()
+        db.session.add(TaskResult(
+            task_id=task.id,
+            step_index=0,
+            parameters='{"stock_code":"WDC","year":"2025"}',
+            result='{"result":{"calculate_metrics":{"excess_sharp":3.92}}}',
+            return_series_id=series.id,
+            success=True,
+        ))
+        db.session.commit()
+
+        payload = _build_global_preview_payload(task.id)
+        row = next(
+            item for item in payload["groups"][0]["rows"]
+            if item["metric"] == "年最大回测修复天数"
+        )
+
+        assert observed["excess_sharpe"] == pytest.approx(3.92)
+        assert observed["year_index_yearly_max_repair_days"]
+        assert observed["year_start_yearly_max_repair_days"]
+        assert row["metric"] == "年最大回测修复天数"
+
+
+
     app = app_factory
     with app.app_context():
         monkeypatch.setattr(

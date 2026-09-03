@@ -13,9 +13,10 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import load_only
 
 from app.extensions import db
-from app.models import Task, TaskResult
-from app.services.performance_analysis.historical_metrics import extract_core_metrics, upgrade_historical_metrics
+from app.models import Task, TaskResult, TaskResultReturn
+from app.services.performance_analysis.historical_metrics import resolve_preview_metrics
 from app.services.xpl_service import xpl_analyzer
+from app.utils.return_series import parse_return_series_fields
 from app.utils.c7_result_normalizer import (
     C7_RAW_PERCENT_CELLS,
     normalize_c7_result_metrics,
@@ -240,7 +241,20 @@ def _parse_percent_like_value(value):
         return raw
 
 
-def _extract_task_result_payload(task_result):
+def _get_task_result_return_rows(task_result, return_series_by_id=None):
+    """读取单条结果的收益序列，供历史预览按需补全 V1 指标。"""
+    series_id = task_result.return_series_id
+    if not series_id:
+        return []
+    series = (
+        return_series_by_id.get(series_id)
+        if return_series_by_id is not None
+        else db.session.get(TaskResultReturn, series_id)
+    )
+    return parse_return_series_fields(series) if series is not None else []
+
+
+def _extract_task_result_payload(task_result, return_rows=None):
     try:
         result_payload = json.loads(task_result.result) if task_result.result else {}
     except (TypeError, json.JSONDecodeError):
@@ -264,25 +278,13 @@ def _extract_task_result_payload(task_result):
     if not isinstance(value, dict):
         return {}, {}
 
-    metrics_payload = value.get("metrics_payload")
-    if isinstance(metrics_payload, dict) and isinstance(metrics_payload.get("metrics"), dict):
-        # 统一存储契约：{schema_version, metrics, canonical_metrics}。
-        calculate_metrics = metrics_payload["metrics"]
-    else:
-        # TODO: 数据库历史 TaskResult 仍保存 calculate_metrics/analyze_result 旧键，
-        # 历史数据统一迁移完成后移除该回退与字段升级。
-        calculate_metrics = value.get("calculate_metrics") or value.get("analyze_result")
-        if isinstance(calculate_metrics, dict):
-            calculate_metrics = upgrade_historical_metrics(calculate_metrics)
+    calculate_metrics = resolve_preview_metrics(value, return_rows=return_rows)
     sheet_result = {
         key: item
         for key, item in value.items()
         if key not in {"metrics_payload", "calculate_metrics", "analyze_result"}
     }
-    return (
-        calculate_metrics if isinstance(calculate_metrics, dict) else {},
-        sheet_result,
-    )
+    return calculate_metrics, sheet_result
 
 
 def _load_backtest_task_result_or_response(task_result_id: int):
@@ -318,7 +320,10 @@ def _build_backtest_result_export_filename(task: Task, result_id: int) -> tuple[
 
 
 def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> dict:
-    calculate_metrics, sheet_result = _extract_task_result_payload(task_result)
+    calculate_metrics, sheet_result = _extract_task_result_payload(
+        task_result,
+        return_rows=_get_task_result_return_rows(task_result),
+    )
     task_config = task.to_dict().get("config") or {}
     model_name = _infer_backtest_export_model_name(task_config)
     if model_name == "C7" and not _is_c7_0_3_backtest_config(task_config):
@@ -420,7 +425,10 @@ def _build_c3_summary_rows(task_id):
         for index, (field_key, _field_label) in enumerate(C3_PARAMETER_FIELDS):
             parameter_map[field_key] = parameter_values[index] if index < len(parameter_values) else None
 
-        calculate_metrics, sheet_result = _extract_task_result_payload(task_result)
+        calculate_metrics, sheet_result = _extract_task_result_payload(
+            task_result,
+            return_rows=_get_task_result_return_rows(task_result),
+        )
         def _safe_all_entry(items, key_name="year"):
             if not isinstance(items, list):
                 return {}
@@ -1052,6 +1060,7 @@ def _query_global_preview_results(task_id, result_ids=None):
                 TaskResult.step_index,
                 TaskResult.parameters,
                 TaskResult.result,
+                TaskResult.return_series_id,
                 TaskResult.success,
                 TaskResult.error_message,
                 TaskResult.timestamp,
@@ -1072,6 +1081,14 @@ def _build_global_preview_payload_from_results(task, task_results):
     行指标来自 XPL 摘要格式化逻辑，缺失结果仍保留列以便用户识别失败步骤。
     """
     task_config = task.to_dict().get("config") or {}
+    return_series_by_id = {
+        series.id: series
+        for series in TaskResultReturn.query.filter(
+            TaskResultReturn.id.in_({
+                item.return_series_id for item in task_results if item.return_series_id
+            })
+        ).all()
+    }
 
     groups = OrderedDict()
     success_count = 0
@@ -1121,8 +1138,11 @@ def _build_global_preview_payload_from_results(task, task_results):
             group["failed_results"] += 1
             continue
 
-        # 统一存储载荷优先；历史结果回退 calculate_metrics/analyze_result 旧键。
-        calculate_metrics = extract_core_metrics(result_core)
+        # 统一存储载荷与旧别名优先；缺新预览字段时仅用当前分组已批量加载的收益序列临时补齐。
+        calculate_metrics = resolve_preview_metrics(
+            result_core,
+            return_rows=_get_task_result_return_rows(task_result, return_series_by_id),
+        )
         period_text, summary_rows = _extract_summary_rows(calculate_metrics, model_name)
         summary_rows = _with_excess_return_preview_row(
             summary_rows, column, calculate_metrics

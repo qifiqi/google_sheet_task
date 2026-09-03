@@ -22,6 +22,7 @@ from app.services.backtest_multi_product_service import (
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
 )
+from app.services.performance_analysis.historical_metrics import extract_core_metrics
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 from app.utils.auth import login_required
 from app.utils.task_types import normalize_task_type
@@ -298,17 +299,7 @@ def get_task_result_detail(task_result_id):
         )
     else:
         value = {}
-    metrics_payload = value.get("metrics_payload") if isinstance(value, dict) else None
-    if isinstance(metrics_payload, dict) and isinstance(metrics_payload.get("metrics"), dict):
-        # 统一存储契约：{schema_version, metrics, canonical_metrics}。
-        calculate_metrics = metrics_payload["metrics"]
-    else:
-        # TODO: 历史结果仍保存 calculate_metrics/analyze_result 旧键，迁移后移除回退。
-        calculate_metrics = (
-            (value.get("calculate_metrics") or value.get("analyze_result"))
-            if isinstance(value, dict)
-            else {}
-        )
+    calculate_metrics = extract_core_metrics(value)
     sheet_result = {
         key: item
         for key, item in value.items()
