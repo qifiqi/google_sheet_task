@@ -36,13 +36,17 @@ def _build_engine_options(_database_url):
         'pool_pre_ping': True,
         'pool_recycle': 3600,
     }
-    # 连接池参数仅对 MySQL 生效；SQLite 走默认池化，保持现状。
-    if _database_url.startswith('mysql'):
+    # 池容量参数对非 SQLite 引擎生效（MySQL 主力 + PostgreSQL 历史在用同享）；
+    # SQLite 仅本地回退，走默认池化。
+    if not _database_url.startswith('sqlite'):
         options.update({
             'pool_size': _get_int('DB_POOL_SIZE', 10),
             'max_overflow': _get_int('DB_MAX_OVERFLOW', 20),
             'pool_timeout': _get_int('DB_POOL_TIMEOUT', 30),
         })
+    # MySQL 显式声明 utf8mb4，避免跟随服务端/握手默认造成的中文乱码风险。
+    if _database_url.startswith('mysql'):
+        options['connect_args'] = {'charset': 'utf8mb4'}
     return options
 
 
@@ -60,6 +64,9 @@ class BaseConfig:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = False
     SQLALCHEMY_ENGINE_LOG_ENABLED = False
+    # 请求体/上传上限：import-excel 上传 Excel 的合理上限（超限 Flask 抛 413
+    # → errors.py HTTPException 链自动转信封）。见 api-model-query-audit/07 §2.2。
+    MAX_CONTENT_LENGTH = 50 * 1024 * 1024
 
     DING_TALK_ACCESS_TOKEN = ''
     DING_TALK_SECRET = ''

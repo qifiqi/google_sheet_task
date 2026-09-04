@@ -159,7 +159,8 @@ def ensure_task_result_schema():
     if 'return_series_id' not in columns:
         _add_column('task_results', 'return_series_id', 'INTEGER')
         db.session.commit()
-    _ensure_model_index(TaskResult, 'ix_task_results_return_series_id')
+    # ix_task_results_return_series_id 已随 20260905_drop_return_series_idx 迁移移除
+    # （零查询引用，见 docs/design/api-model-query-audit/02 §3），不再启动期补建。
     db.session.commit()
 
 

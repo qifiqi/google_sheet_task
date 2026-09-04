@@ -459,7 +459,6 @@ class TaskResult(db.Model):
     return_series_id = db.Column(
         db.Integer,
         nullable=True,
-        index=True,
         comment="收益曲线ID",
     )
     success = db.Column(db.Boolean, default=True, comment="是否成功")
