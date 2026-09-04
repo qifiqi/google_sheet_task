@@ -133,6 +133,18 @@ pytest tests/unit/test_p0_p1_refactor.py::test_name   # 定向
 - `validate_body(required=..., types=...)` / `require_query(name, default, cast)`，
   失败抛 `ValidationError` → 全局处理器 → 400 信封；路由内不再手写参数错误分支。
 
+### 鉴权边界与子服务化（2026-09-05 决策）
+
+- 本项目后续作为**子服务接入主服务**：路由网关、鉴权、权限、角色、登录**整体迁移主服务**；
+- 当前 RBAC/JWT（`t_param_user/role/permission`、`app/utils/auth.py`、`template-auth.js`）
+  是内部项目时期的历史产物，**不再新增权限类建设**；已知缺口（admin 类 API 仅校验登录、
+  登录无防爆破、xpl 端点未挂鉴权）登记于
+  `docs/design/api-model-query-audit/07-public-deployment-and-subservice.md` §1，随主服务接入统一解决；
+- 保持两个迁移接缝单一：服务端鉴权只经 `login_required` 装饰器入口，前端鉴权只经
+  `template-auth.js`；新增路由/页面不得自写鉴权逻辑；
+- API 限流使用 **Flask-Limiter**（内存存储、user/username 键函数、429 走统一信封），
+  不自行实现限流算法；全库不做全局限流，前端轮询路径不挂限流。
+
 ### 数据层分层规则（repositories 独占 ORM）
 
 - 分层方向：`routes`（HTTP 编排）→ `services`（业务编排）→ `repositories`（独占 ORM）→ `models`；
@@ -220,6 +232,13 @@ pytest tests/unit/test_p0_p1_refactor.py::test_name   # 定向
 - 模板回填逻辑
 - restart 回填逻辑
 - 提交 payload 逻辑
+
+## 数据访问（2026-09 重构落地）
+
+- `app/repositories/` 是唯一 ORM 层；routes/services 已全部迁移（终验 grep 为空）；
+- 响应信封/异常/校验/分层细则见上文“接口规范”章节；
+- `app/utils/database.py` 的 safe_create/safe_update 已弃用（调用点清零），
+  transaction_required 仍被 creation/restart/stock_metadata 使用（提交重试语义）。
 
 ## 任务系统核心
 

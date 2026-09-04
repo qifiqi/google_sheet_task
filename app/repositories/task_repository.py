@@ -266,6 +266,26 @@ class TaskRepository(BaseRepository):
             ),
         ).all()
 
+    def list_by_status_ordered(self, status, limit):
+        """按状态取任务（updated_at desc, created_at desc，钉钉批量重启用）。"""
+        return [
+            t.to_dict()
+            for t in Task.query.filter(Task.status == status)
+            .order_by(Task.updated_at.desc(), Task.created_at.desc())
+            .limit(limit)
+            .all()
+        ]
+
+    def list_by_name(self, name, limit=2):
+        """按名称取任务（updated/created desc，钉钉命令解析用）。"""
+        return [
+            t.to_dict()
+            for t in Task.query.filter(Task.name == name)
+            .order_by(Task.created_at.desc())
+            .limit(limit)
+            .all()
+        ]
+
     def list_entities_by_status(self, status):
         """按状态取任务实体（token 占用快照等执行链消费）。"""
         return Task.query.filter_by(status=status).all()

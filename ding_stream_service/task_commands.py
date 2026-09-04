@@ -11,7 +11,7 @@ from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
 from app import create_app
-from app.models import Task
+from app.repositories import task_repository
 from app.services.task import task_manager
 
 from ding_stream_service.message_format import build_markdown_message
@@ -225,13 +225,8 @@ class TaskCommandService:
         with app.app_context():
             # Batch restart is intentionally capped to avoid resurrecting a large
             # backlog of historical failures from a single DingTalk message.
-            tasks = (
-                Task.query.filter(Task.status == command.status)
-                .order_by(Task.updated_at.desc(), Task.created_at.desc())
-                .limit(command.limit)
-                .all()
-            )
-            total = Task.query.filter(Task.status == command.status).count()
+            tasks = task_repository.list_by_status_ordered(command.status, command.limit)
+            total = task_repository.count_by_status(command.status)
             logger.info(
                 "开始批量重启异常任务: status=%s total=%s selected=%s limit=%s",
                 command.status,
@@ -378,19 +373,14 @@ class TaskCommandService:
                 self._app = create_app()
         return self._app
 
-    def _resolve_task(self, command: ParsedRestartCommand) -> tuple[Task | None, str | None]:
+    def _resolve_task(self, command: ParsedRestartCommand) -> tuple[dict | None, str | None]:
         if command.target_type == "id":
-            task = Task.query.filter_by(id=command.target).first()
+            task = task_repository.get(command.target)
             if not task:
                 return None, f"未找到任务ID: {command.target}"
             return task, None
 
-        tasks = (
-            Task.query.filter(Task.name == command.target)
-            .order_by(Task.created_at.desc())
-            .limit(2)
-            .all()
-        )
+        tasks = task_repository.list_by_name(command.target, limit=2)
         if not tasks:
             return None, f"未找到任务名: {command.target}"
         if len(tasks) > 1:

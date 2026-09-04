@@ -8,7 +8,7 @@ import urllib.parse
 import requests
 from flask import current_app, has_app_context
 
-from app.extensions import db
+from app.repositories import rbac_repository, task_repository
 from app.models import Task, User
 from app.utils.logger import get_logger
 
@@ -117,7 +117,7 @@ class DingTalkNotifier:
 
     def _collect_oncall_developer_mobiles(self):
         mobiles = set()
-        users = User.query.filter_by(is_active=True, is_alert_oncall=True).all()
+        users = rbac_repository.list_alert_oncall_active_entities()
         for user in users:
             role_codes = {str(role.code or '').strip().lower() for role in user.roles}
             if role_codes & self.DEV_ROLE_CODES:
@@ -140,7 +140,7 @@ class DingTalkNotifier:
 
     def send_task_notification(self, task_id, notify_type='error', summary=None, detail_url=None):
         task_id = str(task_id or '').strip()
-        task = db.session.get(Task, task_id) if task_id else None
+        task = task_repository.get_entity(task_id) if task_id else None
         keyword = self.NOTIFY_KEYWORDS.get(notify_type, "通知")
         title = f"{keyword} - 任务执行失败" if notify_type == 'error' else f"{keyword} - 任务执行完成"
         target_url = self._task_detail_url(task_id, detail_url)

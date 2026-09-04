@@ -204,6 +204,10 @@ class RbacRepository(BaseRepository):
         rows = Permission.query.with_entities(Permission.code).all()
         return [row[0] for row in rows]
 
+    def list_alert_oncall_active_entities(self):
+        """启用中且参与值班的用户实体（钉钉通知取手机号/角色）。"""
+        return User.query.filter_by(is_active=True, is_alert_oncall=True).all()
+
     def list_roles_all_entities(self):
         """角色实体全量（含权限关联懒加载），供 is_alert_oncall 判断等场景。"""
         return Role.query.all()
