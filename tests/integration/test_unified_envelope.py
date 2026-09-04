@@ -6,7 +6,9 @@ AppException → 全局处理器 → API 路径 JSON 信封，页面路由保持
 import pytest
 
 from app.exceptions import NotFoundError, ValidationError
-from app.utils.request_validation import require_query, validate_body
+from app.schemas.common import PageQuery
+from app.schemas.template import TemplateCreateSchema as DummyCreateSchema
+from app.utils.request_parsing import parse_body, parse_query
 
 
 @pytest.fixture()
@@ -89,36 +91,34 @@ class TestUnifiedEnvelope:
         }
 
 
-class TestRequestValidation:
-    def test_validate_body_required_missing(self, app_factory):
+class TestRequestParsing:
+    def test_parse_body_required_missing(self, app_factory):
         app = app_factory
         with app.test_request_context("/", json={"name": ""}):
             with pytest.raises(ValidationError) as exc:
-                validate_body(required=["name"])
+                parse_body(DummyCreateSchema)
             assert "name" in exc.value.message
 
-    def test_validate_body_type_mismatch(self, app_factory):
+    def test_parse_body_type_mismatch(self, app_factory):
         app = app_factory
-        with app.test_request_context("/", json={"page": "not-int"}):
+        with app.test_request_context("/", json={"name": "x", "config": 123}):
             with pytest.raises(ValidationError):
-                validate_body(types={"page": int})
+                parse_body(DummyCreateSchema)
 
-    def test_validate_body_bool_is_not_int(self, app_factory):
+    def test_parse_body_ok_returns_data(self, app_factory):
         app = app_factory
-        with app.test_request_context("/", json={"page": True}):
+        with app.test_request_context("/", json={"name": "x", "config": {}}):
+            data = parse_body(DummyCreateSchema)
+            assert data.name == "x"
+
+    def test_parse_query_range(self, app_factory):
+        app = app_factory
+        with app.test_request_context("/?page=3&per_page=50"):
+            q = parse_query(PageQuery)
+            assert (q.page, q.per_page) == (3, 50)
+
+    def test_parse_query_out_of_range_raises(self, app_factory):
+        app = app_factory
+        with app.test_request_context("/?per_page=999"):
             with pytest.raises(ValidationError):
-                validate_body(types={"page": int})
-
-    def test_validate_body_ok_returns_data(self, app_factory):
-        app = app_factory
-        with app.test_request_context("/", json={"name": "x", "page": 2}):
-            data = validate_body(required=["name"], types={"page": int})
-            assert data == {"name": "x", "page": 2}
-
-    def test_require_query_cast_and_default(self, app_factory):
-        app = app_factory
-        with app.test_request_context("/?page=3&bad=xx"):
-            assert require_query("page", default=1, cast=int) == 3
-            assert require_query("missing", default=7) == 7
-            with pytest.raises(ValidationError):
-                require_query("bad", default=1, cast=int)
+                parse_query(PageQuery)

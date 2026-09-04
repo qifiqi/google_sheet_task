@@ -3,15 +3,15 @@
 三层：AppException / HTTPException / 兜底 Exception。
 API 路径返回 JSON 统一信封；页面路由保持 Flask 默认 HTML 错误页。
 
-API 路径判定（对 04 文档 startswith("/api") 的意图对齐偏差，已登记执行记录）：
-实际项目中大量 JSON API 不以 /api 开头（/tasks、/config、/meta/nav、
-/admin/api/* 等，均已核实为纯 JSON 端点），而页面路由（浏览器导航）
-Accept 优先 text/html。因此判定为：路径含 /api 段，或请求 Accept
-优先 application/json（fetch 默认 */* 时同样视为 API）。
+API 路径判定：路径含 /api 段，或请求 Accept 优先 application/json
+（fetch 默认 */* 时同样视为 API）。历史说明：api-model-query-audit/05 拆分后
+JSON API 不以 /api 开头的只剩 /admin/api/*（admin_api_bp）等少数正式前缀，
+页面路由（浏览器导航）Accept 优先 text/html——Accept 启发式保留，勿删。
 
 红线：错误响应绝不携带 str(e) 等内部信息；detail 仅写日志。
 """
 from flask import request
+from flask_limiter.errors import RateLimitExceeded
 from sqlalchemy.exc import IntegrityError
 from werkzeug import exceptions as http_exceptions
 from werkzeug.exceptions import HTTPException, InternalServerError
@@ -52,6 +52,13 @@ def register_error_handlers(app):
             # 返回 exc 本身即 Flask 默认处理（HTML 错误页）。
             return exc
         return error(exc.description or exc.name, code=exc.code, http_status=exc.code)
+
+    @app.errorhandler(RateLimitExceeded)
+    def handle_rate_limited(exc):
+        # 保护性限流（06 分册）：专用 handler 是为中文文案，
+        # 不加也会被 HTTPException handler 兜住转信封。
+        logger.warning("限流命中: %s %s", request.method, request.path)
+        return error("请求过于频繁，请稍后重试", http_status=429)
 
     @app.errorhandler(Exception)
     def handle_unexpected(exc):
