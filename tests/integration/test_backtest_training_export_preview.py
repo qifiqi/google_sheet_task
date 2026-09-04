@@ -6,7 +6,7 @@ import pytest
 
 from app.extensions import db
 from app.models import Task, TaskResult
-from app.routes.backtest_training import _build_backtest_result_export_data
+from app.services.backtest_training_api_service import _build_backtest_result_export_data
 from app.services.backtest_training_api_service import _extract_summary_rows
 from app.services.xpl_service import xpl_analyzer
 

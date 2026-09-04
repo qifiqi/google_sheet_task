@@ -17,7 +17,7 @@ from app.models import (
 )
 from app.services.backtest_training_api_service import _build_zip_member_name
 from app.services.export_service import GeneratedFile, export_service
-from app.routes.backtest_multi_product import (
+from app.routes.backtest_api import (
     _build_excel_download_name,
     _build_global_preview_workbook,
 )

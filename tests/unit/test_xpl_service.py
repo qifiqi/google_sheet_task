@@ -5,7 +5,7 @@ import pytest
 
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.xpl_service import XPLAnalyzer
-from app.routes.backtest_multi_product import _infer_product_export_model_name
+from app.routes.backtest_api import _infer_product_export_model_name
 from app.services.backtest_training_api_service import _infer_backtest_export_model_name
 
 
