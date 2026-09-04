@@ -4,6 +4,7 @@ def register_blueprints(app):
     """注册所有蓝图"""
     from app.routes.auth_pages import auth_pages_bp
     from app.routes.admin import admin_bp
+    from app.routes.admin_api import admin_api_bp
     from app.routes.task_api import task_api_bp
     from app.routes.config_api import config_api_bp
     from app.routes.template_api import template_api_bp
@@ -29,6 +30,7 @@ def register_blueprints(app):
     app.register_blueprint(xpl_bp, url_prefix='/xpl')
     app.register_blueprint(yule_bp, url_prefix='/yule')
     app.register_blueprint(admin_bp, url_prefix='/admin')
+    app.register_blueprint(admin_api_bp, url_prefix='/admin')
 
     # 拆分后的 API 模块
     app.register_blueprint(task_api_bp, url_prefix='/api')
