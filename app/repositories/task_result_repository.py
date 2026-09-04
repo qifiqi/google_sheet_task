@@ -288,6 +288,30 @@ class TaskResultRepository(BaseRepository):
             self._commit()
         return deleted
 
+    def list_entities_by_task_ordered(self, task_id):
+        """任务结果实体（step asc；runtime_view 消费原始列属性）。"""
+        return (
+            TaskResult.query.filter_by(task_id=task_id)
+            .order_by(TaskResult.step_index.asc())
+            .all()
+        )
+
+    def list_return_entities_by_task(self, task_id):
+        """任务收益序列实体（stock_date asc）。"""
+        return (
+            TaskResultReturn.query.filter_by(task_id=task_id)
+            .order_by(TaskResultReturn.stock_date.asc())
+            .all()
+        )
+
+    def list_ids_by_task(self, task_id):
+        rows = db.session.query(TaskResult.id).filter_by(task_id=task_id).all()
+        return [row[0] for row in rows]
+
+    def list_return_ids_by_task(self, task_id):
+        rows = db.session.query(TaskResultReturn.id).filter_by(task_id=task_id).all()
+        return [row[0] for row in rows]
+
     def list_ids_older_than(self, cutoff, limit):
         """到期结果 id 分批读取（调度清理的批量语义）。"""
         rows = (

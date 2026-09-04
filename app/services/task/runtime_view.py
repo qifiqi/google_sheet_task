@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from app.extensions import db
+from app.repositories import task_log_repository, task_repository, task_result_repository
 import json
 
 from app.models import Task, TaskLog, TaskResult, TaskResultReturn
@@ -113,7 +113,7 @@ class TaskRuntimeViewService:
         status_check = self._task_manager.check_local_task_status(task_id)
         thread = self._task_manager.running_tasks.get(task_id)
         stop_event = self._task_manager.task_stop_events.get(task_id)
-        task = db.session.get(Task, task_id)
+        task = task_repository.get_entity(task_id)
 
         thread_alive = bool(thread and thread.is_alive())
         stop_requested = bool(stop_event and stop_event.is_set())
@@ -134,11 +134,7 @@ class TaskRuntimeViewService:
         }
 
     def build_result_summary(self, task_id: str) -> dict[str, Any]:
-        results = (
-            TaskResult.query.filter_by(task_id=task_id)
-            .order_by(TaskResult.step_index.asc())
-            .all()
-        )
+        results = task_result_repository.list_entities_by_task_ordered(task_id)
         total = len(results)
         success_count = sum(1 for item in results if item.success)
         failed_count = total - success_count
@@ -171,7 +167,7 @@ class TaskRuntimeViewService:
         return_chart = []
         series_result = next((item for item in reversed(results) if item.return_series_id), None)
         series_row = (
-            db.session.get(TaskResultReturn, series_result.return_series_id)
+            task_result_repository.get_return_entity(series_result.return_series_id)
             if series_result and series_result.return_series_id
             else None
         )
@@ -182,11 +178,7 @@ class TaskRuntimeViewService:
                 for item in parse_return_series_fields(series_row)
             ][-120:]
         if not return_chart:
-            returns = (
-                TaskResultReturn.query.filter_by(task_id=task_id)
-                .order_by(TaskResultReturn.stock_date.asc())
-                .all()
-            )
+            returns = task_result_repository.list_return_entities_by_task(task_id)
             return_chart = [
                 {
                     "date": item.stock_date,
@@ -210,13 +202,7 @@ class TaskRuntimeViewService:
         config_summary = self.build_config_summary(task)
         stop_confirmation = self.build_stop_confirmation(task.id)
         result_summary = self.build_result_summary(task.id)
-        recent_logs = (
-            TaskLog.query.filter_by(task_id=task.id)
-            .order_by(TaskLog.timestamp.desc())
-            .limit(20)
-            .all()
-        )
-        recent_logs.reverse()
+        recent_logs = task_log_repository.list_by_task(task.id, limit=20)
 
         duration_seconds = None
         if task.start_time:
@@ -234,7 +220,7 @@ class TaskRuntimeViewService:
                 "config_summary": config_summary,
                 "stop_confirmation": stop_confirmation,
                 "result_summary": result_summary,
-                "recent_logs": [log.to_dict() for log in recent_logs],
+                "recent_logs": recent_logs,
             }
         )
         return data

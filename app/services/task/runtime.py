@@ -8,10 +8,9 @@ from datetime import datetime
 from typing import Any
 
 from flask import current_app
-from sqlalchemy.exc import IntegrityError
 
-from app.extensions import db
-from app.models import BacktestSheetRunLock, Task
+from app.repositories import backtest_repository, task_repository
+from app.models import Task
 from app.services.backtest_multi_product_service import BacktestMultiProductService
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
@@ -142,14 +141,7 @@ class TaskRuntimeMixin:
         if not spreadsheet_id:
             return None
 
-        running_tasks = (
-            Task.query.populate_existing()
-            .filter(
-                Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
-                Task.status == "running",
-            )
-            .all()
-        )
+        running_tasks = task_repository.list_running_backtest_entities()
         for task in running_tasks:
             if exclude_task_id and task.id == exclude_task_id:
                 continue
@@ -181,28 +173,7 @@ class TaskRuntimeMixin:
         task_type: str,
     ) -> tuple[bool, str | None]:
         """Create a per-sheet backtest lock row atomically."""
-        if not spreadsheet_id:
-            return True, None
-
-        existing = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
-        if existing and existing.task_id == task_id:
-            return True, None
-        if existing:
-            return False, existing.task_id
-
-        lock = BacktestSheetRunLock(
-            spreadsheet_id=spreadsheet_id,
-            task_id=task_id,
-            task_type=task_type,
-        )
-        db.session.add(lock)
-        try:
-            db.session.commit()
-            return True, None
-        except IntegrityError:
-            db.session.rollback()
-            existing = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
-            return False, existing.task_id if existing else None
+        return backtest_repository.acquire_lock(spreadsheet_id, task_id, task_type)
 
     def _acquire_backtest_sheet_run_locks(
         self,
@@ -236,20 +207,16 @@ class TaskRuntimeMixin:
         if not spreadsheet_id:
             return
 
-        lock = BacktestSheetRunLock.query.filter_by(spreadsheet_id=spreadsheet_id).first()
-        if lock and lock.task_id != task_id:
+        lock = backtest_repository.get_lock(spreadsheet_id)
+        if lock and lock["task_id"] != task_id:
             logger.warning(
                 "跳过释放回测 Sheet 数据库锁: sheet=%s, task_id=%s, locked_task_id=%s",
                 spreadsheet_id,
                 task_id,
-                lock.task_id,
+                lock["task_id"],
             )
             return
-
-        if not lock:
-            return
-        db.session.delete(lock)
-        db.session.commit()
+        backtest_repository.release_lock(spreadsheet_id, task_id)
 
     def release_backtest_sheet_locks(self, task_id: str) -> None:
         """Release every per-sheet backtest run lock held by this task.
@@ -258,7 +225,7 @@ class TaskRuntimeMixin:
         backtest locks without reaching into private helpers. No-op for tasks
         that are not backtest types or no longer exist.
         """
-        task = db.session.get(Task, task_id)
+        task = task_repository.get_entity(task_id)
         if not task or not self._is_backtest_task_type(task.task_type):
             return
         config_data = self._get_task_config_dict(task)
@@ -267,7 +234,7 @@ class TaskRuntimeMixin:
 
     def _start_next_pending_backtest_task(self, finished_task_id: str, app) -> None:
         """Start the oldest pending backtest task that uses the finished task's sheet."""
-        finished_task = db.session.get(Task, finished_task_id)
+        finished_task = task_repository.get_entity(finished_task_id)
         finished_config = self._get_task_config_dict(finished_task)
         spreadsheet_ids = self._extract_backtest_spreadsheet_ids(finished_config)
         if not spreadsheet_ids:
@@ -279,11 +246,7 @@ class TaskRuntimeMixin:
         ):
             return
 
-        pending_tasks = Task.query.filter(
-            Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
-            Task.status == "pending",
-            Task.id != finished_task_id,
-        ).order_by(Task.created_at.asc(), Task.id.asc()).all()
+        pending_tasks = task_repository.list_pending_backtest_entities(finished_task_id)
         for pending_task in pending_tasks:
             pending_config = self._get_task_config_dict(pending_task)
             pending_spreadsheet_ids = self._extract_backtest_spreadsheet_ids(pending_config)
@@ -317,11 +280,7 @@ class TaskRuntimeMixin:
 
     def _get_task_fresh(self, task_id: str):
         """重新读取任务状态，避免会话缓存影响最终收尾判断。"""
-        try:
-            db.session.expire_all()
-        except Exception:
-            pass
-        return Task.query.populate_existing().filter(Task.id == task_id).first()
+        return task_repository.get_entity_fresh(task_id)
 
     def _is_stop_requested(self, task_id: str) -> bool:
         stop_event = self.task_stop_events.get(task_id)
@@ -354,9 +313,7 @@ class TaskRuntimeMixin:
             return
 
         if task.status == "cancelled" or self._is_stop_requested(task_id):
-            task.status = "cancelled"
-            task.end_time = datetime.now()
-            db.session.commit()
+            task_repository.update_fields(task_id, status="cancelled", end_time=datetime.now())
             task_logger.info("任务执行完成，状态: cancelled（任务被取消）")
             self.add_task_log(
                 task_id,
@@ -367,9 +324,7 @@ class TaskRuntimeMixin:
             return
 
         if task_result == "cancelled":
-            task.status = "cancelled"
-            task.end_time = datetime.now()
-            db.session.commit()
+            task_repository.update_fields(task_id, status="cancelled", end_time=datetime.now())
             task_logger.info("任务执行完成，状态: cancelled（执行过程中被取消）")
             self.add_task_log(
                 task_id,
@@ -380,16 +335,12 @@ class TaskRuntimeMixin:
             return
 
         if task_result == "completed":
-            task.status = "completed"
-            task.end_time = datetime.now()
-            db.session.commit()
+            task_repository.update_fields(task_id, status="completed", end_time=datetime.now())
             task_logger.info("任务执行完成，状态: completed")
             self.add_task_log(task_id, "info", "任务执行完成，状态: completed", app)
             return
 
-        task.status = "error"
-        task.end_time = datetime.now()
-        db.session.commit()
+        task_repository.update_fields(task_id, status="error", end_time=datetime.now())
         task_logger.info("任务执行完成，状态: error")
         self.add_task_log(task_id, "info", "任务执行完成，状态: error", app)
 
@@ -409,7 +360,7 @@ class TaskRuntimeMixin:
         task_logger = get_task_logger(task_id, f"{__name__}.start")
         self.running_tasks.pop(task_id, None)
 
-        task = db.session.get(Task, task_id)
+        task = task_repository.get_entity(task_id)
         if not task:
             error_msg = "任务不存在"
             self.start_errors[task_id] = error_msg
@@ -495,14 +446,12 @@ class TaskRuntimeMixin:
                         task_id,
                         self._config_for_spreadsheet_locks(config_data, spreadsheet_ids),
                     )
-                    rows = (
-                        Task.query.filter(Task.id == task_id, Task.status == "pending")
-                        .update(
-                            {"status": "running", "start_time": datetime.now()},
-                            synchronize_session=False,
-                        )
+                    rows = task_repository.mark_running_if_pending(
+                        task_id,
+                        start_time=datetime.now(),
+                        commit=False,
                     )
-                    db.session.commit()
+                    task_repository.commit()
                     if rows == 0:
                         error_msg = "任务状态已变化，无法启动"
                         self.start_errors[task_id] = error_msg
@@ -532,11 +481,7 @@ class TaskRuntimeMixin:
             for spreadsheet_id in reserved_backtest_spreadsheet_ids:
                 self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
             if backtest_marked_running:
-                Task.query.filter(Task.id == task_id, Task.status == "running").update(
-                    {"status": "pending", "start_time": None},
-                    synchronize_session=False,
-                )
-                db.session.commit()
+                task_repository.revert_running_to_pending(task_id)
             task_logger.warning("Token校验失败，无法启动任务: %s", error_msg)
             logger.warning("Token校验失败，任务无法启动: %s, %s", task_id, error_msg)
             return False
@@ -608,11 +553,7 @@ class TaskRuntimeMixin:
             for spreadsheet_id in reserved_backtest_spreadsheet_ids:
                 self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
             if self._is_backtest_task_type(task_type):
-                Task.query.filter(Task.id == task_id, Task.status == "running").update(
-                    {"status": "pending", "start_time": None},
-                    synchronize_session=False,
-                )
-                db.session.commit()
+                task_repository.revert_running_to_pending(task_id)
             error_msg = f"任务线程启动失败: {exc}"
             self.start_errors[task_id] = error_msg
             task_logger.error(error_msg)
@@ -628,35 +569,28 @@ class TaskRuntimeMixin:
 
         Google Sheet 普通任务保留旧行为；其它任务使用原子更新防止并发重复启动。
         """
-        task = db.session.get(Task, task_id)
+        task = task_repository.get_entity(task_id)
         if not task:
             task_logger.error("任务不存在")
             return None
 
         if task.task_type == "google_sheet":
-            task.status = "running"
-            task.start_time = datetime.now()
-            db.session.commit()
+            task_repository.update_fields(task_id, status="running", start_time=datetime.now())
         else:
             if task.status == "running":
                 if not task.start_time:
-                    task.start_time = datetime.now()
-                    db.session.commit()
+                    task_repository.update_fields(task_id, start_time=datetime.now())
             else:
-                rows = (
-                    Task.query.filter(Task.id == task_id, Task.status != "running")
-                    .update(
-                        {"status": "running", "start_time": datetime.now()},
-                        synchronize_session=False,
-                    )
+                rows = task_repository.mark_running_if_not_running(
+                    task_id,
+                    start_time=datetime.now(),
                 )
-                db.session.commit()
                 if rows == 0:
                     duplicate_message = self._build_duplicate_start_message(task.task_type)
                     task_logger.warning(duplicate_message)
                     self.add_task_log(task_id, "warn", duplicate_message, app)
                     return None
-                task = db.session.get(Task, task_id)
+                task = task_repository.get_entity(task_id)
 
         self.add_task_log(task_id, "info", start_message, app)
         return task
@@ -691,7 +625,7 @@ class TaskRuntimeMixin:
 
         try:
             with app.app_context():
-                task = db.session.get(Task, task_id)
+                task = task_repository.get_entity(task_id)
                 if not task:
                     task_logger.error("任务不存在")
                     return
@@ -737,7 +671,7 @@ class TaskRuntimeMixin:
 
             should_start_next_backtest = False
             with app.app_context():
-                finished_task = db.session.get(Task, task_id)
+                finished_task = task_repository.get_entity(task_id)
                 finished_config = self._get_task_config_dict(finished_task)
                 finished_spreadsheet_ids = self._extract_backtest_spreadsheet_ids(
                     finished_config

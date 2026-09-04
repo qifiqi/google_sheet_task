@@ -46,6 +46,11 @@ class GoogleSheetRepository(BaseRepository):
             for row in query.order_by(GoogleSheet.name.asc(), GoogleSheet.id.asc()).all()
         ]
 
+    def find_first_by_spreadsheet(self, spreadsheet_id):
+        """按 spreadsheet_id 取第一条配置（占用收集用）。"""
+        row = GoogleSheet.query.filter_by(spreadsheet_id=str(spreadsheet_id)).first()
+        return row.to_dict() if row else None
+
     def find_duplicate(self, spreadsheet_id, scope_value, exclude_id=None):
         """同 scope 下 spreadsheet_id 查重；返回 dict 或 None。"""
         query = GoogleSheet.query.filter_by(

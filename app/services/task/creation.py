@@ -20,7 +20,8 @@ from app.services.google_sheet_token_service import (
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
 from app.services.kline_service import KlineService
-from app.utils.database import safe_create, transaction_required
+from app.repositories import task_repository
+from app.utils.database import transaction_required
 from app.utils.logger import get_logger, get_task_logger
 from app.utils.market import infer_market_type, normalize_market_type, normalize_stock_code
 
@@ -242,15 +243,17 @@ class TaskCreationMixin:
                 upsert_stock_metadata_in_session(stock_item)
 
         config_str = json.dumps(config) if isinstance(config, dict) else str(config)
-        safe_create(
-            Task,
-            id=task_id,
-            name=name,
-            description=description,
-            task_type=task_type,
-            config=config_str,
-            status="pending",
-            created_by_user_id=created_by_user_id,
+        task_repository.create(
+            {
+                "id": task_id,
+                "name": name,
+                "description": description,
+                "task_type": task_type,
+                "config": config_str,
+                "status": "pending",
+                "created_by_user_id": created_by_user_id,
+            },
+            commit=False,
         )
 
         if isinstance(config, dict) and task_type not in ("backtest_training", "backtest_multi_product"):
@@ -585,11 +588,11 @@ class TaskCreationMixin:
     ) -> dict[str, Any]:
         """更新任务配置。"""
         try:
-            task = db.session.get(Task, task_id)
+            task = task_repository.get(task_id)
             if not task:
                 return {"status": "error", "message": "任务不存在"}
 
-            if task.status == "running":
+            if task["status"] == "running":
                 return {
                     "status": "error",
                     "message": "正在运行的任务无法直接修改，请先停止任务",
@@ -608,10 +611,10 @@ class TaskCreationMixin:
                 if next_status not in allowed_statuses:
                     return {"status": "error", "message": f"不支持的任务状态: {next_status}"}
 
-            new_config = self._normalize_task_config_for_type(task.task_type, new_config)
-            if task.task_type == "backtest_training":
+            new_config = self._normalize_task_config_for_type(task["task_type"], new_config)
+            if task["task_type"] == "backtest_training":
                 self.validate_backtest_training_sheet(new_config)
-            old_config = json.loads(task.config) if task.config else {}
+            old_config = task["config"] or {}
             old_google_sheet_id = (
                 old_config.get("google_sheet_id") if isinstance(old_config, dict) else None
             )
@@ -623,23 +626,23 @@ class TaskCreationMixin:
                 if new_google_sheet_id:
                     self.ensure_google_sheet_occupancy(task_id, new_config)
 
-            task.config = json.dumps(new_config)
+            fields = {"config": json.dumps(new_config)}
             if update_name:
-                task.name = update_name
+                fields["name"] = update_name
             if update_description is not None:
-                task.description = update_description
-            old_status = task.status
-            if next_status and next_status != task.status:
-                task.status = next_status
+                fields["description"] = update_description
+            old_status = task["status"]
+            if next_status and next_status != old_status:
+                fields["status"] = next_status
                 if next_status == TaskStatus.PENDING.value:
-                    task.start_time = None
-                    task.end_time = None
-                    task.error_message = None
+                    fields["start_time"] = None
+                    fields["end_time"] = None
+                    fields["error_message"] = None
                 elif next_status in {TaskStatus.COMPLETED.value, TaskStatus.CANCELLED.value}:
-                    task.end_time = task.end_time or datetime.now()
+                    fields["end_time"] = task["end_time"] or datetime.now()
                     if next_status == TaskStatus.COMPLETED.value:
-                        task.error_message = None
-            db.session.commit()
+                        fields["error_message"] = None
+            updated = task_repository.update_fields(task_id, **fields)
 
             task_logger = get_task_logger(task_id, f"{__name__}.update_config")
             if next_status and next_status != old_status:
@@ -652,42 +655,36 @@ class TaskCreationMixin:
             return {
                 "status": "success",
                 "message": "任务更新成功",
-                "task": task.to_dict(),
+                "task": updated,
             }
         except Exception as exc:
-            db.session.rollback()
+            task_repository.rollback()
             logger.error("更新任务配置失败: %s, 错误: %s", task_id, exc)
             return {"status": "error", "message": f"更新任务配置失败: {exc}"}
 
     def create_restart_task(self, original_task_id: str) -> str:
         """基于原任务创建新的重启任务。"""
         try:
-            original_task = db.session.get(Task, original_task_id)
+            original_task = task_repository.get(original_task_id)
             if not original_task:
                 raise ValueError("原任务不存在")
 
             new_task_id = str(uuid.uuid4())
-            original_config = (
-                json.loads(original_task.config)
-                if isinstance(original_task.config, str)
-                else original_task.config
-            )
+            original_config = original_task["config"] or {}
             original_config = self._normalize_task_config_for_type(
-                original_task.task_type,
+                original_task["task_type"],
                 original_config,
             )
 
-            new_task = Task(
-                id=new_task_id,
-                name=f"{original_task.name} (重启)",
-                description=f"{original_task.description}基于任务 {original_task_id} 重启",
-                task_type=original_task.task_type,
-                config=json.dumps(original_config),
-                status="pending",
-                created_by_user_id=original_task.created_by_user_id,
-            )
-            db.session.add(new_task)
-            db.session.commit()
+            task_repository.create({
+                "id": new_task_id,
+                "name": f"{original_task['name']} (重启)",
+                "description": f"{original_task['description']}基于任务 {original_task_id} 重启",
+                "task_type": original_task["task_type"],
+                "config": json.dumps(original_config),
+                "status": "pending",
+                "created_by_user_id": original_task["created_by_user_id"],
+            })
 
             if isinstance(original_config, dict) and original_task.task_type not in ("backtest_training", "backtest_multi_product"):
                 self.ensure_google_sheet_occupancy(new_task_id, original_config)

@@ -11,8 +11,7 @@ from datetime import datetime
 
 from flask import current_app, has_app_context
 
-from app.extensions import db
-from app.models import Task, TaskLog
+from app.repositories import task_log_repository, task_repository
 from app.utils.task_error_utils import (
     NETWORK_ERROR_PREFIX,
     is_retryable_network_error,
@@ -111,14 +110,14 @@ def record_task_exception(
     should_write_log = not _is_record_logged(exc)
 
     def write_record() -> None:
-        task = db.session.get(Task, task_id)
-        if task and mark_error:
-            task.status = "error"
-            task.error_message = error_message
-            task.end_time = datetime.now()
-        if should_write_log:
-            db.session.add(TaskLog(task_id=task_id, level="error", message=log_message))
-        db.session.commit()
+        with task_log_repository.transaction():
+            task = task_repository.get_entity(task_id)
+            if task and mark_error:
+                task.status = "error"
+                task.error_message = error_message
+                task.end_time = datetime.now()
+            if should_write_log:
+                task_log_repository.add(task_id, "error", log_message, commit=False)
         if should_write_log:
             _mark_record_logged(exc)
 
@@ -133,7 +132,7 @@ def record_task_exception(
                 write_record()
     except Exception:
         try:
-            db.session.rollback()
+            task_log_repository.rollback()
         except Exception:
             pass
         logger.exception(

@@ -166,13 +166,65 @@ class TaskRepository(BaseRepository):
             },
         }
 
-    def mark_running_if_pending(self, task_id, commit=True):
+    def get_entity_fresh(self, task_id):
+        """过期会话缓存后重读实体（收尾判断用，执行域）。"""
+        try:
+            db.session.expire_all()
+        except Exception:
+            pass
+        return Task.query.populate_existing().filter(Task.id == task_id).first()
+
+    def list_running_backtest_entities(self):
+        """运行中的回测任务实体（populate_existing 保证新鲜）。"""
+        return Task.query.populate_existing().filter(
+            Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
+            Task.status == "running",
+        ).all()
+
+    def list_pending_backtest_entities(self, exclude_task_id):
+        """待执行回测任务实体（按创建时间先后，接力启动用）。"""
+        return Task.query.filter(
+            Task.task_type.in_(["backtest_training", "backtest_multi_product"]),
+            Task.status == "pending",
+            Task.id != exclude_task_id,
+        ).order_by(Task.created_at.asc(), Task.id.asc()).all()
+
+    def mark_running_if_not_running(self, task_id, start_time, commit=True):
+        """原子置 running（非 running 状态才生效）；返回受影响行数。"""
+        rows = Task.query.filter(
+            Task.id == task_id,
+            Task.status != "running",
+        ).update(
+            {"status": "running", "start_time": start_time},
+            synchronize_session=False,
+        )
+        if commit:
+            self._commit()
+        return rows
+
+    def revert_running_to_pending(self, task_id, commit=True):
+        """启动失败回退：running → pending 并清 start_time。"""
+        rows = Task.query.filter(
+            Task.id == task_id,
+            Task.status == "running",
+        ).update(
+            {"status": "pending", "start_time": None},
+            synchronize_session=False,
+        )
+        if commit:
+            self._commit()
+        return rows
+
+    def mark_running_if_pending(self, task_id, start_time=None, commit=True):
         """仅当任务处于 pending 时置为 running（watchdog 重启发布语义）。"""
+        fields = {"status": "running"}
+        if start_time is not None:
+            fields["start_time"] = start_time
         rows_updated = (
             Task.query.filter(
                 Task.id == task_id,
                 Task.status == "pending",
-            ).update({"status": "running"}, synchronize_session=False)
+            ).update(fields, synchronize_session=False)
         )
         if commit:
             self._commit()
@@ -322,10 +374,11 @@ class TaskRepository(BaseRepository):
 
     # ---- 写 ----
 
-    def create(self, fields):
+    def create(self, fields, commit=True):
         task = Task(**fields)
         db.session.add(task)
-        self._commit()
+        if commit:
+            self._commit()
         return task.to_dict()
 
     def update_fields(self, task_id, commit=True, **fields):

@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.extensions import db
-from app.models import GoogleSheet, GoogleSheetTableType, Task
+from app.models import GoogleSheetTableType
+from app.repositories import google_sheet_repository, task_repository
 from app.services.google_sheet_registry_service import (
     get_google_sheet_registry_service,
 )
@@ -40,11 +40,9 @@ class TaskOccupancyMixin:
 
             spreadsheet_id = sheet_config.get("spreadsheet_id")
             if spreadsheet_id:
-                matched_sheet = GoogleSheet.query.filter_by(
-                    spreadsheet_id=str(spreadsheet_id)
-                ).first()
+                matched_sheet = google_sheet_repository.find_first_by_spreadsheet(spreadsheet_id)
                 if matched_sheet:
-                    sheet_ids.append(int(matched_sheet.id))
+                    sheet_ids.append(int(matched_sheet["id"]))
 
         add_sheet_reference(config)
         add_sheet_reference(config.get("sheet"))
@@ -97,17 +95,17 @@ class TaskOccupancyMixin:
     ) -> None:
         """在创建或启动任务前校验 Google Sheet 是否可占用。"""
         for sheet_id in self._collect_google_sheet_ids(config):
-            sheet = GoogleSheet.query.get(sheet_id)
+            sheet = google_sheet_repository.get(sheet_id)
             if not sheet:
                 raise ValueError("所选 Google Sheet 不存在")
-            if not sheet.is_active:
+            if not sheet["is_active"]:
                 raise ValueError("所选 Google Sheet 未启用")
             if (
                 not allow_in_use
                 and
-                sheet.is_in_use
-                and sheet.current_task_id
-                and sheet.current_task_id != task_id
+                sheet["is_in_use"]
+                and sheet["current_task_id"]
+                and sheet["current_task_id"] != task_id
             ):
                 raise ValueError("该 Google Sheet 已被其他任务使用")
 
@@ -125,17 +123,17 @@ class TaskOccupancyMixin:
             return
 
         try:
-            sheet = db.session.get(GoogleSheet, int(google_sheet_id))
+            sheet = google_sheet_repository.get(int(google_sheet_id))
         except (TypeError, ValueError):
             sheet = None
 
         if not sheet:
             raise ValueError("所选单品回测 Sheet 不存在")
-        if not sheet.is_active:
+        if not sheet["is_active"]:
             raise ValueError("所选单品回测 Sheet 未启用")
-        if sheet.table_type != GoogleSheetTableType.BACKTEST_TRAINING.value:
+        if sheet["table_type"] != GoogleSheetTableType.BACKTEST_TRAINING.value:
             raise ValueError("所选 Sheet 不是单品回测模板")
-        if not spreadsheet_id or sheet.spreadsheet_id != spreadsheet_id:
+        if not spreadsheet_id or sheet["spreadsheet_id"] != spreadsheet_id:
             raise ValueError("所选单品回测 Sheet 信息不一致")
 
     def release_google_sheet_occupancy(self, task_id: str) -> None:
@@ -145,15 +143,11 @@ class TaskOccupancyMixin:
             if released:
                 return
 
-            task = db.session.get(Task, task_id)
+            task = task_repository.get(task_id)
             if not task:
                 return
 
-            config_data = (
-                json.loads(task.config)
-                if isinstance(task.config, str)
-                else (task.config or {})
-            )
+            config_data = task.get("config") or {}
             if isinstance(config_data, dict) and config_data.get("google_sheet_id"):
                 logger.warning(
                     "Google Sheet 占用释放跳过: task_id=%s, google_sheet_id=%s",

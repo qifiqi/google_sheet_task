@@ -6,6 +6,7 @@
   无锁行则插入并提交，撞唯一约束（并发竞态）时回滚复查后判失败；
 - release_lock：持锁任务不匹配时拒绝释放（返回 False），不得删除他人锁。
 """
+from sqlalchemy import MetaData, Table, inspect, or_
 from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
@@ -57,6 +58,49 @@ class BacktestRepository(BaseRepository):
         if commit:
             self._commit()
         return row.to_dict()
+
+    def delete_xpl_analysis_jobs(self, *, task_id=None, result_ids=None, return_series_ids=None):
+        """遗留 xpl_analysis_jobs 表清理（目标库存在该表时）。"""
+        if not inspect(db.engine).has_table("xpl_analysis_jobs"):
+            return
+
+        jobs_table = Table(
+            "xpl_analysis_jobs",
+            MetaData(),
+            autoload_with=db.engine,
+        )
+        clauses = []
+        if task_id:
+            clauses.append(jobs_table.c.task_id == task_id)
+        if result_ids:
+            clauses.append(jobs_table.c.task_result_id.in_(result_ids))
+        if return_series_ids:
+            clauses.append(jobs_table.c.return_series_id.in_(return_series_ids))
+        if clauses:
+            db.session.execute(jobs_table.delete().where(or_(*clauses)))
+
+    def delete_summary_index_by_result_ids(self, result_ids, commit=True):
+        deleted = (
+            TaskResultSummaryIndex.query
+            .filter(TaskResultSummaryIndex.task_result_id.in_(result_ids))
+            .delete(synchronize_session=False)
+        )
+        if commit:
+            self._commit()
+        return deleted
+
+    def delete_summary_index_by_task_or_results(self, task_id, result_ids, commit=True):
+        deleted = (
+            TaskResultSummaryIndex.query
+            .filter(
+                (TaskResultSummaryIndex.task_id == task_id)
+                | TaskResultSummaryIndex.task_result_id.in_(result_ids)
+            )
+            .delete(synchronize_session=False)
+        )
+        if commit:
+            self._commit()
+        return deleted
 
     def delete_summary_index(self, task_id, commit=True):
         """按任务清汇总索引；返回删除行数。"""
