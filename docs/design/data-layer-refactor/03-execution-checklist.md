@@ -89,4 +89,4 @@ config_manager（**负缓存刷新留在本层**）→ stock_metadata_service �
 
 | 日期 | 批次/文件 | 结果 | 偏差与说明 |
 |---|---|---|---|
-| | | | |
+| 2026-09-04 | 基线预登记（全程有效） | 豁免 | 已知存量失败 3 个（基线 HEAD `44101bd` 复现，非重构引入）："全量 pytest 通过"门槛按 `408+ passed / 3 个已知失败` 解释——这 3 个失败若仍存在不阻塞进批；一旦某个被修复不得回退。清单：`tests/unit/test_kline_adjustment.py::test_c4_us_market_uses_yahoo_adjustment`（C4 美股 K 线行数不足 30 校验）、`tests/unit/test_kline_sheet_guardrails.py::test_c3_rejects_end_date_after_latest_kline_without_writing_sheet`（C3 K 线守卫同类）、`tests/unit/test_value_parser_and_task_types.py::test_parse_date_supports_iso_shapes`（ISO 日期解析）。另有 10 个既有 `@pytest.mark.skip` 属正常跳过。重构批次内新增任何失败仍视为阻塞。 |
