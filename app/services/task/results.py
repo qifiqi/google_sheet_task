@@ -1,8 +1,8 @@
-"""任务结果查询能力。"""
+"""任务结果查询能力（数据层：task_result_repository）。"""
 
 from __future__ import annotations
 
-from app.models import TaskResult
+from app.repositories import task_result_repository
 
 
 class TaskResultMixin:
@@ -18,26 +18,17 @@ class TaskResultMixin:
 
         传入分页参数时返回分页结构，否则返回完整结果列表。
         """
-        query = (
-            TaskResult.query.filter_by(task_id=task_id)
-            .order_by(TaskResult.step_index.asc())
-        )
-
         if page is not None and per_page is not None:
-            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-            items = [result.to_dict() for result in pagination.items]
-            total = pagination.total
-            success_total = query.filter_by(success=True).count()
-            failed_total = total - success_total
+            counts = task_result_repository.count_by_task_success(task_id)
+            page_data = task_result_repository.list_by_task_paginated(task_id, page, per_page)
             return {
-                "items": items,
-                "total": total,
-                "pages": pagination.pages,
-                "current_page": page,
-                "per_page": per_page,
-                "total_success": success_total,
-                "total_failed": failed_total,
+                "items": page_data["items"],
+                "total": page_data["total"],
+                "pages": page_data["pages"],
+                "current_page": page_data["current_page"],
+                "per_page": page_data["per_page"],
+                "total_success": counts["total_success"],
+                "total_failed": counts["total_failed"],
             }
 
-        results = query.all()
-        return [result.to_dict() for result in results]
+        return task_result_repository.list_by_task(task_id)

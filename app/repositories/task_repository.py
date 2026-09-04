@@ -1,5 +1,7 @@
 """Task 仓储（契约见 docs/design/data-layer-refactor/02 §2.1）。"""
-from sqlalchemy import or_
+from datetime import datetime, timedelta
+
+from sqlalchemy import and_, case, func, or_
 
 from app.extensions import db
 from app.exceptions import NotFoundError
@@ -68,6 +70,157 @@ class TaskRepository(BaseRepository):
             "per_page": pagination.per_page,
         }
 
+    def page_with_statistics(
+        self,
+        page,
+        per_page,
+        task_type=None,
+        task_types=None,
+        status=None,
+        keyword=None,
+    ):
+        """任务分页 + 同过滤条件的聚合统计（task/query.get_tasks_paginated 语义）。
+
+        - status="pending" 特例：仅统计已开跑的待执行任务
+          （status == pending AND current_step > 0），分页与统计一致；
+        - aggregates 为原始聚合值，比率/舍入等展示计算留在服务层。
+        """
+        query = Task.query
+        if task_types:
+            query = query.filter(Task.task_type.in_(task_types))
+        elif task_type:
+            query = query.filter(Task.task_type == task_type)
+
+        if status and status != "all":
+            if status == "pending":
+                query = query.filter(Task.status == "pending", Task.current_step > 0)
+            else:
+                query = query.filter(Task.status == status)
+
+        if keyword:
+            pattern = f"%{keyword.strip()}%"
+            query = query.filter(
+                or_(
+                    Task.name.ilike(pattern),
+                    Task.description.ilike(pattern),
+                    Task.id.ilike(pattern),
+                )
+            )
+
+        ordered_query = query.order_by(Task.created_at.desc())
+        pagination = ordered_query.paginate(
+            page=max(page or 1, 1),
+            per_page=max(min(per_page or 10, 100), 1),
+            error_out=False,
+        )
+        items = [t.to_dict() for t in pagination.items]
+
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+
+        stats_row = query.with_entities(
+            func.count(Task.id).label('total'),
+            func.count(case((Task.status == 'completed', 1))).label('completed'),
+            func.count(case((Task.status == 'running', 1))).label('running'),
+            func.count(case((Task.status == 'error', 1))).label('error'),
+            func.count(case(
+                (and_(Task.status == 'pending', Task.current_step > 0), 1)
+            )).label('pending'),
+            func.count(case(
+                (and_(Task.created_at >= today_start, Task.created_at < tomorrow_start), 1)
+            )).label('today_new'),
+        ).first()
+
+        completed_durations = query.filter(
+            Task.status == 'completed',
+            Task.start_time.isnot(None),
+            Task.end_time.isnot(None),
+        ).with_entities(Task.start_time, Task.end_time).yield_per(1000)
+        total_duration_seconds = 0
+        duration_count = 0
+        for start_time, end_time in completed_durations:
+            total_duration_seconds += (end_time - start_time).total_seconds()
+            duration_count += 1
+
+        return {
+            "items": items,
+            "pagination": {
+                "page": pagination.page,
+                "per_page": pagination.per_page,
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "has_prev": pagination.has_prev,
+                "has_next": pagination.has_next,
+                "prev_num": pagination.prev_num,
+                "next_num": pagination.next_num,
+            },
+            "aggregates": {
+                "total": stats_row.total or 0,
+                "completed": stats_row.completed or 0,
+                "running": stats_row.running or 0,
+                "error": stats_row.error or 0,
+                "pending_started": stats_row.pending or 0,
+                "today_new": stats_row.today_new or 0,
+                "total_duration_seconds": total_duration_seconds,
+                "duration_count": duration_count,
+            },
+        }
+
+    def mark_running_if_pending(self, task_id, commit=True):
+        """仅当任务处于 pending 时置为 running（watchdog 重启发布语义）。"""
+        rows_updated = (
+            Task.query.filter(
+                Task.id == task_id,
+                Task.status == "pending",
+            ).update({"status": "running"}, synchronize_session=False)
+        )
+        if commit:
+            self._commit()
+        return rows_updated
+
+    def list_watchdog_tasks(self, created_cutoff, abandon_prefix, restart_prefix):
+        """watchdog 巡检任务集（创建窗口内 running/error(未放弃)/cancelled(重启中)）。
+
+        前缀常量由服务层传入（repositories 禁止 import services）；
+        实体形态：watchdog 沿用实体属性做判读并复用执行链实体访问。
+        """
+        from sqlalchemy import not_
+
+        return Task.query.filter(
+            Task.created_at >= created_cutoff,
+            or_(
+                Task.status == "running",
+                and_(
+                    Task.status == "error",
+                    or_(
+                        Task.error_message.is_(None),
+                        not_(Task.error_message.startswith(abandon_prefix)),
+                    ),
+                ),
+                and_(
+                    Task.status == "cancelled",
+                    Task.error_message.isnot(None),
+                    Task.error_message.startswith(restart_prefix),
+                ),
+            ),
+        ).all()
+
+    def list_entities_by_status(self, status):
+        """按状态取任务实体（token 占用快照等执行链消费）。"""
+        return Task.query.filter_by(status=status).all()
+
+    def list_watchdog_active_ids(self, created_cutoff):
+        """watchdog 重试缓存清理用：窗口内活跃任务 id。"""
+        rows = (
+            db.session.query(Task.id)
+            .filter(
+                Task.created_at >= created_cutoff,
+                Task.status.in_(["pending", "running", "error", "cancelled"]),
+            )
+            .all()
+        )
+        return [row[0] for row in rows]
+
     def count(self):
         return Task.query.count()
 
@@ -92,6 +245,72 @@ class TaskRepository(BaseRepository):
     def distinct_task_types(self):
         rows = db.session.query(Task.task_type).distinct().all()
         return [row[0] for row in rows]
+
+    # ---- 仪表盘聚合（task/dashboard_query 语义） ----
+
+    def list_recent_entities(self, task_types, limit=10, status=None):
+        """按类型过滤的最近任务实体。
+
+        实体形态供 task/runtime_view 序列化消费（B3 收敛该消费后评估收敛）。
+        """
+        query = Task.query.filter(Task.task_type.in_(list(task_types)))
+        if status:
+            query = query.filter(Task.status == status)
+        return (
+            query.order_by(Task.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def count_grouped_by_status(self, task_types):
+        rows = (
+            Task.query.with_entities(Task.status, func.count(Task.id))
+            .filter(Task.task_type.in_(list(task_types)))
+            .group_by(Task.status)
+            .all()
+        )
+        return {status: count for status, count in rows if status}
+
+    def count_grouped_by_task_type(self, task_types):
+        rows = (
+            Task.query.with_entities(Task.task_type, func.count(Task.id))
+            .filter(Task.task_type.in_(list(task_types)))
+            .group_by(Task.task_type)
+            .all()
+        )
+        return {task_type: count for task_type, count in rows if task_type}
+
+    def count_daily_created(self, task_types, start_time):
+        rows = (
+            Task.query.with_entities(
+                func.date(Task.created_at),
+                func.count(Task.id),
+            )
+            .filter(
+                Task.task_type.in_(list(task_types)),
+                Task.created_at >= start_time,
+            )
+            .group_by(func.date(Task.created_at))
+            .all()
+        )
+        return [(bucket, count) for bucket, count in rows]
+
+    def count_daily_completed(self, task_types, start_time):
+        rows = (
+            Task.query.with_entities(
+                func.date(Task.end_time),
+                func.count(Task.id),
+            )
+            .filter(
+                Task.task_type.in_(list(task_types)),
+                Task.status == "completed",
+                Task.end_time.isnot(None),
+                Task.end_time >= start_time,
+            )
+            .group_by(func.date(Task.end_time))
+            .all()
+        )
+        return [(bucket, count) for bucket, count in rows]
 
     def list_by_ids(self, ids):
         if not ids:

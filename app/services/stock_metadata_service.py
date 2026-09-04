@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.extensions import db
-from app.models import StockMetadata
+from app.repositories import stock_metadata_repository
 from app.utils.database import transaction_required
 from app.utils.logger import get_logger
 from app.utils.market import (
@@ -56,35 +55,12 @@ def normalize_stock_payload(item: Any) -> dict[str, Any]:
     }
 
 
-def upsert_stock_metadata_in_session(stock_item: Any) -> StockMetadata | None:
+def upsert_stock_metadata_in_session(stock_item: Any) -> dict | None:
+    """会话内 upsert（不提交；提交由调用方/transaction_required 负责）。"""
     payload = normalize_stock_payload(stock_item)
     if not payload:
         return None
-
-    stock_code = payload["stock_code"]
-    market_type = payload["market_type"]
-
-    for pending in db.session.new:
-        if not isinstance(pending, StockMetadata):
-            continue
-        if pending.stock_code == stock_code and pending.market_type == market_type:
-            for key, value in payload.items():
-                setattr(pending, key, value)
-            logger.debug("已同步待提交股票元数据: %s %s", stock_code, payload["stock_name"])
-            return pending
-
-    query = StockMetadata.query.filter(StockMetadata.stock_code == stock_code)
-    query = query.filter(StockMetadata.market_type == market_type)
-
-    with db.session.no_autoflush:
-        record = query.order_by(StockMetadata.updated_at.desc(), StockMetadata.id.desc()).first()
-    if record is None:
-        record = StockMetadata(**payload)
-        db.session.add(record)
-    else:
-        for key, value in payload.items():
-            setattr(record, key, value)
-
+    record = stock_metadata_repository.upsert(payload, commit=False)
     logger.debug("已同步股票元数据: %s %s", payload["stock_code"], payload["stock_name"])
     return record
 
@@ -97,32 +73,17 @@ def lookup_stock_metadata(stock_code: Any, market_type: Any = None) -> dict[str,
         "cn" if infer_market_type(code) == "cn" else "us"
     )
     code = normalize_stock_code(code, normalized_market_type)
-    record = (
-        StockMetadata.query
-        .filter(StockMetadata.stock_code == code, StockMetadata.market_type == normalized_market_type)
-        .order_by(StockMetadata.updated_at.desc(), StockMetadata.id.desc())
-        .first()
-    )
+    record = stock_metadata_repository.get(code, normalized_market_type)
     # 不迁移历史表时，读取路径兼容旧的无后缀代码；新写入仍使用标准代码。
     if not record:
         legacy_code = strip_stock_code_suffix(code)
         if legacy_code != code:
-            record = (
-                StockMetadata.query
-                .filter(
-                    StockMetadata.stock_code == legacy_code,
-                    StockMetadata.market_type == normalized_market_type,
-                )
-                .order_by(StockMetadata.updated_at.desc(), StockMetadata.id.desc())
-                .first()
-            )
-    if not record:
-        return {}
-    return record.to_dict()
+            record = stock_metadata_repository.get(legacy_code, normalized_market_type)
+    return record or {}
 
 
 @transaction_required
-def upsert_stock_metadata(stock_item: Any) -> StockMetadata | None:
+def upsert_stock_metadata(stock_item: Any) -> dict | None:
     return upsert_stock_metadata_in_session(stock_item)
 
 

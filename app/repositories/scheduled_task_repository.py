@@ -67,6 +67,76 @@ class ScheduledTaskRepository(BaseRepository):
             "active": self.count_active(),
         }
 
+    def refresh_entity(self, entity):
+        """重新加载实体状态（乐观锁 update 绕过会话后同步用）。"""
+        db.session.refresh(entity)
+        return entity
+
+    def list_active_entities(self):
+        """活跃任务实体（调度器 add_job 消费实体属性）。"""
+        return ScheduledTask.query.filter_by(is_active=True).all()
+
+    def find_by_name_and_function(self, name, task_function):
+        """默认任务播种的存在性检查；返回实体或 None。"""
+        return (
+            ScheduledTask.query
+            .filter_by(name=name, task_function=task_function)
+            .first()
+        )
+
+    def acquire_run_lock(self, task_id, instance_id, now, commit=True):
+        """乐观锁获取执行权：仅当 is_running 为假时置位；返回受影响行数。"""
+        rows_updated = (
+            ScheduledTask.query
+            .filter(
+                ScheduledTask.id == task_id,
+                ScheduledTask.is_running.is_(False),
+            )
+            .update(
+                {
+                    "is_running": True,
+                    "running_instance_id": instance_id,
+                    "last_run_time": now,
+                },
+                synchronize_session=False,
+            )
+        )
+        if commit:
+            self._commit()
+        return rows_updated
+
+    def release_run_lock(self, task_id, instance_id, commit=True):
+        """按实例释放运行锁。"""
+        rows_updated = (
+            ScheduledTask.query
+            .filter(
+                ScheduledTask.id == task_id,
+                ScheduledTask.running_instance_id == instance_id,
+            )
+            .update(
+                {"is_running": False, "running_instance_id": None},
+                synchronize_session=False,
+            )
+        )
+        if commit:
+            self._commit()
+        return rows_updated
+
+    def update_next_run(self, task_id, next_run_time, commit=True):
+        """仅更新下次执行时间（add_job 场景，不计执行次数）。"""
+        return self.update(task_id, {"next_run_time": next_run_time}, commit=commit)
+
+    def record_run(self, task_id, next_run_time, commit=True):
+        """累计执行次数并写入下次执行时间。"""
+        row = db.session.get(ScheduledTask, task_id)
+        if row is None:
+            return None
+        row.run_count = (row.run_count or 0) + 1
+        row.next_run_time = next_run_time
+        if commit:
+            self._commit()
+        return row
+
     # ---- 写 ----
 
     def create(self, fields, commit=True):

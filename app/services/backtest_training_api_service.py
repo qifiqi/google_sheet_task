@@ -12,8 +12,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import load_only
 
-from app.extensions import db
 from app.models import Task, TaskResult, TaskResultReturn
+from app.repositories import task_repository, task_result_repository
 from app.services.performance_analysis.historical_metrics import resolve_preview_metrics
 from app.services.xpl_service import xpl_analyzer
 from app.utils.return_series import parse_return_series_fields
@@ -93,7 +93,7 @@ def _normalize_scientific_text(text: str) -> str:
 
 
 def _load_backtest_task_or_response(task_id: str, action: str = "view", result_id: int | None = None):
-    task = db.session.get(Task, task_id)
+    task = task_repository.get_entity(task_id)
     if not task:
         return None, (jsonify({
             "status": "error",
@@ -249,7 +249,7 @@ def _get_task_result_return_rows(task_result, return_series_by_id=None):
     series = (
         return_series_by_id.get(series_id)
         if return_series_by_id is not None
-        else db.session.get(TaskResultReturn, series_id)
+        else task_result_repository.get_return_entity(series_id)
     )
     return parse_return_series_fields(series) if series is not None else []
 
@@ -1051,27 +1051,7 @@ def _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics):
 
 def _query_global_preview_results(task_id, result_ids=None):
     """按主键精确读取结果，避免切换分组时扫描整个任务的大 JSON。"""
-    query = (
-        TaskResult.query
-        .options(
-            load_only(
-                TaskResult.id,
-                TaskResult.task_id,
-                TaskResult.step_index,
-                TaskResult.parameters,
-                TaskResult.result,
-                TaskResult.return_series_id,
-                TaskResult.success,
-                TaskResult.error_message,
-                TaskResult.timestamp,
-            )
-        )
-        .filter_by(task_id=task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-    )
-    if result_ids is not None:
-        query = query.filter(TaskResult.id.in_(result_ids))
-    return query.all()
+    return task_result_repository.list_preview_entities(task_id, result_ids=result_ids)
 
 
 def _build_global_preview_payload_from_results(task, task_results):
@@ -1083,11 +1063,9 @@ def _build_global_preview_payload_from_results(task, task_results):
     task_config = task.to_dict().get("config") or {}
     return_series_by_id = {
         series.id: series
-        for series in TaskResultReturn.query.filter(
-            TaskResultReturn.id.in_({
-                item.return_series_id for item in task_results if item.return_series_id
-            })
-        ).all()
+        for series in task_result_repository.list_return_entities({
+            item.return_series_id for item in task_results if item.return_series_id
+        })
     }
 
     groups = OrderedDict()
@@ -1218,7 +1196,7 @@ def _build_global_preview_payload_from_results(task, task_results):
 
 def _build_global_preview_payload(task_id):
     """兼容全量调用；页面首屏不应使用该函数。"""
-    task = db.session.get(Task, task_id)
+    task = task_repository.get_entity(task_id)
     if not task or normalize_task_type(task.task_type) not in {
         "backtest_training", "google_sheet", "google_sheet_c4", "google_sheet_c5", "google_sheet_c7",
     }:
@@ -1230,31 +1208,24 @@ def _build_global_preview_payload(task_id):
 
 def _build_global_preview_initial_payload(task_id):
     """首屏仅加载轻量参数索引，并预加载用户默认会看到的一个分组。"""
-    task = db.session.get(Task, task_id)
+    task = task_repository.get_entity(task_id)
     if not task:
         return None
     task_config = task.to_dict().get("config") or {}
-    metadata_rows = (
-        db.session.query(
-            TaskResult.id, TaskResult.parameters, TaskResult.success, TaskResult.step_index
-        )
-        .filter(TaskResult.task_id == task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
-        .all()
-    )
+    metadata_rows = task_result_repository.list_preview_index_rows(task_id)
 
     items = []
     is_c7_0_3 = _is_c7_0_3_backtest_config(task_config)
     for row in metadata_rows:
-        parameters = json.loads(row.parameters) if row.parameters else {}
+        parameters = json.loads(row["parameters"]) if row["parameters"] else {}
         model_name = _detect_global_preview_model_name(task, parameters)
         if model_name == "C7" and _resolve_c7_model_version(task_config, parameters) == "c7_0_3":
             is_c7_0_3 = True
         items.append({
-            "id": row.id,
+            "id": row["id"],
             "parameters": parameters,
-            "success": bool(row.success),
-            "step_index": row.step_index,
+            "success": bool(row["success"]),
+            "step_index": row["step_index"],
         })
 
     # 只有 C7.0.3 按股票分组；其余 C 系列维持原有按回测年份/区间查看的习惯。
@@ -1285,7 +1256,7 @@ def _build_global_preview_initial_payload(task_id):
 
 def _build_global_preview_group_payload(task_id, result_ids):
     """结果 ID 必须同时受 task_id 约束，防止跨任务读取。"""
-    task = db.session.get(Task, task_id)
+    task = task_repository.get_entity(task_id)
     if not task:
         return None
     safe_ids = [int(item) for item in result_ids if str(item).isdigit()]
@@ -1296,23 +1267,18 @@ def _build_global_preview_group_payload(task_id, result_ids):
 
 def get_global_preview_result_ids_by_stock(task_id):
     """导出用的轻量索引：先分股票，再逐股票读取完整结果生成文件。"""
-    task = db.session.get(Task, task_id)
+    task = task_repository.get_entity(task_id)
     if not task:
         return None, []
     task_config = task.to_dict().get("config") or {}
-    rows = (
-        db.session.query(TaskResult.id, TaskResult.parameters)
-        .filter(TaskResult.task_id == task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
-        .all()
-    )
+    rows = task_result_repository.list_preview_index_rows(task_id)
     stock_groups = OrderedDict()
     for row in rows:
-        parameters = json.loads(row.parameters) if row.parameters else {}
+        parameters = json.loads(row["parameters"]) if row["parameters"] else {}
         stock_code = str(
             parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票"
         ).strip().upper() or "未命名股票"
-        stock_groups.setdefault(stock_code, []).append(row.id)
+        stock_groups.setdefault(stock_code, []).append(row["id"])
     return task, list(stock_groups.items())
 
 

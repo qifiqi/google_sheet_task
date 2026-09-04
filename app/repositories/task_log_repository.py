@@ -87,3 +87,24 @@ class TaskLogRepository(BaseRepository):
         if commit:
             self._commit()
         return deleted
+
+    def list_ids_older_than(self, cutoff, limit):
+        """到期日志 id 分批读取（调度清理的批量语义）。"""
+        rows = (
+            TaskLog.query.filter(TaskLog.timestamp < cutoff)
+            .limit(limit)
+            .all()
+        )
+        return [row.id for row in rows]
+
+    def delete_by_ids(self, ids, commit=True):
+        """按 id 集合删除；返回删除行数。"""
+        if not ids:
+            return 0
+        deleted = (
+            TaskLog.query.filter(TaskLog.id.in_(ids))
+            .delete(synchronize_session=False)
+        )
+        if commit:
+            self._commit()
+        return deleted

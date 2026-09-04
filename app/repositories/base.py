@@ -39,6 +39,14 @@ class BaseRepository:
     def _rollback(self):
         db.session.rollback()
 
+    def flush(self):
+        """实体流（执行链/占用记账）的会话 flush 出口。"""
+        db.session.flush()
+
+    def commit(self):
+        """实体流（执行链/占用记账）的提交出口：异常回滚后原样抛出。"""
+        self._commit()
+
     def get_entity(self, pk):
         """返回 ORM 实例（不 commit）。
 

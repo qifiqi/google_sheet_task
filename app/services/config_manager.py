@@ -1,7 +1,7 @@
 import json
 import threading
 from typing import Any, Dict, Optional
-from app.models import SystemConfig, db
+from app.repositories import system_config_repository
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -123,13 +123,13 @@ class ConfigManager:
                 return
 
             with ctx:
-                configs = SystemConfig.query.all()
+                rows = system_config_repository.list_rows()
                 cache: Dict[str, Any] = {}
-                for config in configs:
-                    cache[config.key] = _deserialize_config_value(config.value)
+                for row in rows:
+                    cache[row["key"]] = _deserialize_config_value(row["value"])
                 self._cache = cache
                 self._loaded = True
-                logger.debug(f"加载了 {len(configs)} 个配置项")
+                logger.debug(f"加载了 {len(rows)} 个配置项")
         except Exception as e:
             logger.error(f"加载配置失败: {str(e)}")
 
@@ -151,9 +151,9 @@ class ConfigManager:
                     return default
 
                 with ctx:
-                    config = SystemConfig.query.filter_by(key=key).first()
-                    if config:
-                        value = _deserialize_config_value(config.value)
+                    row = system_config_repository.get_row(key)
+                    if row:
+                        value = _deserialize_config_value(row["value"])
                         self._cache[key] = value
                         return value
 
@@ -186,22 +186,7 @@ class ConfigManager:
 
             with ctx:
                 value_str = _serialize_config_value(value)
-
-                # 查找或创建配置项
-                config = SystemConfig.query.filter_by(key=key).first()
-                if config:
-                    config.value = value_str
-                    if description:
-                        config.description = description
-                else:
-                    config = SystemConfig(
-                        key=key,
-                        value=value_str,
-                        description=description
-                    )
-                    db.session.add(config)
-
-                db.session.commit()
+                system_config_repository.upsert(key, value_str, description=description)
 
                 # 更新缓存（存原始值，与读回反序列化结果一致）
                 with self._lock:
@@ -224,18 +209,16 @@ class ConfigManager:
                 return False
 
             with ctx:
-                config = SystemConfig.query.filter_by(key=key).first()
-                if config:
-                    db.session.delete(config)
-                    db.session.commit()
+                deleted = system_config_repository.delete(key)
+                if not deleted:
+                    return False
 
-                    # 从缓存中删除
-                    with self._lock:
-                        self._cache.pop(key, None)
+                # 从缓存中删除
+                with self._lock:
+                    self._cache.pop(key, None)
 
-                    logger.info(f"删除配置: {key}")
-                    return True
-                return False
+                logger.info(f"删除配置: {key}")
+                return True
 
         except Exception as e:
             logger.error(f"删除配置失败: {key}, 错误: {str(e)}")

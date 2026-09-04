@@ -1,14 +1,11 @@
-"""任务只读查询服务。"""
+"""任务只读查询服务（数据层：task_repository / task_result_repository）。"""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import or_, and_, func, case
+from app.repositories import task_repository, task_result_repository
 
-from app.extensions import db
-from app.models import Task, TaskResult
 
 class TaskQueryService:
     """只读任务查询服务。"""
@@ -17,24 +14,14 @@ class TaskQueryService:
         self._task_manager = task_manager
 
     def get_task_status(self, task_id: str) -> Optional[dict[str, Any]]:
-        task = db.session.get(Task, task_id)
-        if not task:
-            return None
-        return task.to_dict()
+        return task_repository.get(task_id)
 
     def get_all_tasks(
         self,
         task_type: Optional[str] = None,
         task_types: Optional[list[str]] = None,
     ) -> list[dict[str, Any]]:
-        query = Task.query
-        if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
-        elif task_type:
-            query = query.filter_by(task_type=task_type)
-
-        tasks = query.order_by(Task.created_at.desc()).all()
-        return [task.to_dict() for task in tasks]
+        return task_repository.list_all(task_type=task_type, task_types=task_types)
 
     def get_tasks_paginated(
         self,
@@ -45,82 +32,22 @@ class TaskQueryService:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
     ) -> dict[str, Any]:
-        page = max(page or 1, 1)
-        per_page = max(min(per_page or 10, 100), 1)
-
-        query = Task.query
-        if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
-        elif task_type:
-            query = query.filter(Task.task_type == task_type)
-
-        if status and status != "all":
-            if status == "pending":
-                query = query.filter(Task.status == "pending", Task.current_step > 0)
-            else:
-                query = query.filter(Task.status == status)
-
-        if keyword:
-            keyword = keyword.strip()
-            if keyword:
-                pattern = f"%{keyword}%"
-                query = query.filter(
-                    or_(
-                        Task.name.ilike(pattern),
-                        Task.description.ilike(pattern),
-                        Task.id.ilike(pattern),
-                    )
-                )
-
-        ordered_query = query.order_by(Task.created_at.desc())
-        pagination = ordered_query.paginate(
+        page_data = task_repository.page_with_statistics(
             page=page,
             per_page=per_page,
-            error_out=False,
+            task_type=task_type,
+            task_types=task_types,
+            status=status,
+            keyword=keyword,
         )
-        items = [task.to_dict() for task in pagination.items]
+        aggregates = page_data["aggregates"]
+        total = aggregates["total"]
+        completed_tasks = aggregates["completed"]
+        error_tasks = aggregates["error"]
+        duration_count = aggregates["duration_count"]
 
-        today_start = datetime.now().replace(
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        )
-        tomorrow_start = today_start + timedelta(days=1)
-
-        # 单次聚合查询获取所有统计数据（避免多次 COUNT 查询）
-        stats_row = query.with_entities(
-            func.count(Task.id).label('total'),
-            func.count(case((Task.status == 'completed', 1))).label('completed'),
-            func.count(case((Task.status == 'running', 1))).label('running'),
-            func.count(case((Task.status == 'error', 1))).label('error'),
-            func.count(case(
-                (and_(Task.status == 'pending', Task.current_step > 0), 1)
-            )).label('pending'),
-            func.count(case(
-                (and_(Task.created_at >= today_start, Task.created_at < tomorrow_start), 1)
-            )).label('today_new'),
-        ).first()
-
-        total = stats_row.total or 0
-        completed_tasks = stats_row.completed or 0
-        running_tasks = stats_row.running or 0
-        error_tasks = stats_row.error or 0
-        pending_tasks = stats_row.pending or 0
-        today_new_tasks = stats_row.today_new or 0
-
-        completed_durations = query.filter(
-            Task.status == 'completed',
-            Task.start_time.isnot(None),
-            Task.end_time.isnot(None),
-        ).with_entities(Task.start_time, Task.end_time).yield_per(1000)
-        total_duration_seconds = 0
-        duration_count = 0
-        for start_time, end_time in completed_durations:
-            total_duration_seconds += (end_time - start_time).total_seconds()
-            duration_count += 1
         avg_duration_minutes = (
-            round(total_duration_seconds / duration_count / 60)
+            round(aggregates["total_duration_seconds"] / duration_count / 60)
             if duration_count
             else 0
         )
@@ -132,24 +59,15 @@ class TaskQueryService:
         error_rate = round((error_tasks / total * 100), 1) if total > 0 else 0
 
         return {
-            "tasks": items,
-            "pagination": {
-                "page": pagination.page,
-                "per_page": pagination.per_page,
-                "total": pagination.total,
-                "pages": pagination.pages,
-                "has_prev": pagination.has_prev,
-                "has_next": pagination.has_next,
-                "prev_num": pagination.prev_num,
-                "next_num": pagination.next_num,
-            },
+            "tasks": page_data["items"],
+            "pagination": page_data["pagination"],
             "statistics": {
                 "total_tasks": total,
                 "completed_tasks": completed_tasks,
-                "running_tasks": running_tasks,
+                "running_tasks": aggregates["running"],
                 "error_tasks": error_tasks,
-                "pending_tasks": pending_tasks,
-                "today_new_tasks": today_new_tasks,
+                "pending_tasks": aggregates["pending_started"],
+                "today_new_tasks": aggregates["today_new"],
                 "success_rate": success_rate,
                 "error_rate": error_rate,
                 "avg_duration_minutes": avg_duration_minutes,
@@ -157,18 +75,13 @@ class TaskQueryService:
         }
 
     def check_local_task_status(self, task_id: str) -> dict[str, Any]:
-        task = db.session.get(Task, task_id)
+        task = task_repository.get(task_id)
         if not task:
             return {"status": "not_found", "message": "任务不存在"}
 
-        db_status = task.status
+        db_status = task["status"]
         thread = self._task_manager.running_tasks.get(task_id)
         memory_running = bool(thread and thread.is_alive())
-        latest_result = (
-            TaskResult.query.filter_by(task_id=task_id)
-            .order_by(TaskResult.timestamp.desc())
-            .first()
-        )
 
         latest_log_time = None
         task_logs = self._task_manager.get_task_logs(task_id)
@@ -179,11 +92,9 @@ class TaskQueryService:
             "task_id": task_id,
             "db_status": db_status,
             "memory_running": memory_running,
-            "current_step": task.current_step,
-            "total_steps": task.total_steps,
-            "latest_result_time": (
-                latest_result.timestamp.isoformat() if latest_result else None
-            ),
+            "current_step": task["current_step"],
+            "total_steps": task["total_steps"],
+            "latest_result_time": task_result_repository.latest_time_by_task(task_id),
             "latest_log_time": latest_log_time,
             "can_restart": False,
             "restart_reason": None,
@@ -199,6 +110,8 @@ class TaskQueryService:
                 "task_status_check_timeout",
                 600,
             )
+            from datetime import datetime
+
             now = datetime.now()
             if latest_log_time:
                 try:

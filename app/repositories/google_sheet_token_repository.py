@@ -13,6 +13,55 @@ class GoogleSheetTokenRepository(BaseRepository):
 
     # ---- 读 ----
 
+    def list_all_entities(self):
+        """全量实体（占用计数对账循环用）。"""
+        return GoogleSheetToken.query.all()
+
+    def list_entities_ordered(self, task_type=None):
+        """list_tokens 的实体形态（服务层转 dict）。"""
+        query = GoogleSheetToken.query
+        if task_type:
+            query = query.filter_by(task_type=task_type)
+        return query.order_by(
+            GoogleSheetToken.is_active.desc(),
+            GoogleSheetToken.current_in_use_count.asc(),
+            GoogleSheetToken.task_usage_count.asc(),
+            GoogleSheetToken.name.asc(),
+        ).all()
+
+    def list_active_entities(self, task_type=None):
+        """启用中的 token 实体（随机选取/可用统计用）。"""
+        query = GoogleSheetToken.query.filter_by(is_active=True)
+        if task_type:
+            query = query.filter_by(task_type=task_type)
+        return query
+
+    def add_entity(self, entity, flush=True):
+        """挂起新建实体（导入流程需先 flush 取 id 再补 token_file）。"""
+        db.session.add(entity)
+        if flush:
+            db.session.flush()
+        return entity
+
+    def find_by_context(self, token_context, task_type):
+        """按内容+任务类型查重（导入幂等）。"""
+        return GoogleSheetToken.query.filter_by(
+            token_context=token_context,
+            task_type=task_type,
+        ).first()
+
+    def count_active(self):
+        return GoogleSheetToken.query.filter_by(is_active=True).count()
+
+    def sum_field(self, field_name):
+        """对指定数值列求和（占用汇总）。"""
+        from sqlalchemy import func
+
+        column = getattr(GoogleSheetToken, field_name)
+        return db.session.query(
+            func.coalesce(func.sum(column), 0)
+        ).scalar() or 0
+
     def list_all(self, include_context=True):
         return [
             row.to_dict(include_context=include_context)

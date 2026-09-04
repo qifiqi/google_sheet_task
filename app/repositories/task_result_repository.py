@@ -136,6 +136,52 @@ class TaskResultRepository(BaseRepository):
         """TaskResultReturn 实体访问（return_series 解析工具消费实体属性）。"""
         return db.session.get(TaskResultReturn, pk)
 
+    def list_return_entities(self, ids):
+        """按主键批量取收益序列实体（预览补全 V1 指标用）。"""
+        ids = {item for item in ids if item}
+        if not ids:
+            return []
+        return TaskResultReturn.query.filter(TaskResultReturn.id.in_(ids)).all()
+
+    def list_preview_entities(self, task_id, result_ids=None):
+        """全局预览结果实体（load_only 精简列，主键精确读取避免扫描大 JSON）。"""
+        query = (
+            TaskResult.query
+            .options(
+                load_only(
+                    TaskResult.id,
+                    TaskResult.task_id,
+                    TaskResult.step_index,
+                    TaskResult.parameters,
+                    TaskResult.result,
+                    TaskResult.return_series_id,
+                    TaskResult.success,
+                    TaskResult.error_message,
+                    TaskResult.timestamp,
+                )
+            )
+            .filter_by(task_id=task_id)
+            .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
+        )
+        if result_ids is not None:
+            query = query.filter(TaskResult.id.in_(result_ids))
+        return query.all()
+
+    def list_preview_index_rows(self, task_id):
+        """全局预览轻量参数索引：{id, parameters 原始串, success, step_index}。"""
+        rows = (
+            db.session.query(
+                TaskResult.id, TaskResult.parameters, TaskResult.success, TaskResult.step_index
+            )
+            .filter(TaskResult.task_id == task_id)
+            .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
+            .all()
+        )
+        return [
+            {"id": row.id, "parameters": row.parameters, "success": row.success, "step_index": row.step_index}
+            for row in rows
+        ]
+
     def list_by_task_paginated_raw_parameters(self, task_id, page, per_page):
         """回测详情页结果分页：parameters 保持原始 JSON 串由调用方解析，
         其余字段与 to_dict 投影一致。"""
@@ -236,6 +282,27 @@ class TaskResultRepository(BaseRepository):
         """清理窗口条件压 SQL 层；返回删除行数。"""
         deleted = (
             TaskResult.query.filter(TaskResult.timestamp < cutoff)
+            .delete(synchronize_session=False)
+        )
+        if commit:
+            self._commit()
+        return deleted
+
+    def list_ids_older_than(self, cutoff, limit):
+        """到期结果 id 分批读取（调度清理的批量语义）。"""
+        rows = (
+            TaskResult.query.filter(TaskResult.timestamp < cutoff)
+            .limit(limit)
+            .all()
+        )
+        return [row.id for row in rows]
+
+    def delete_by_ids(self, ids, commit=True):
+        """按 id 集合删除；返回删除行数。"""
+        if not ids:
+            return 0
+        deleted = (
+            TaskResult.query.filter(TaskResult.id.in_(ids))
             .delete(synchronize_session=False)
         )
         if commit:

@@ -12,8 +12,8 @@ from threading import Thread
 from typing import Any, BinaryIO, Callable, Iterable
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
 
-from app.extensions import db
-from app.models import Task, TaskResult
+from app.models import Task
+from app.repositories import task_repository, task_result_repository
 from app.services.backtest_multi_product_service import (
     build_multi_product_global_preview_payload,
     build_multi_product_global_preview_word_payload,
@@ -123,22 +123,20 @@ class ExportService:
         if len(task_ids) > MAX_BATCH_TASKS:
             raise ValueError(f"合并导出最多支持 {MAX_BATCH_TASKS} 个任务，当前选择了 {len(task_ids)} 个")
 
-        tasks = Task.query.filter(Task.id.in_(task_ids)).all()
+        tasks = task_repository.list_by_ids(task_ids)
         if not tasks:
             raise LookupError("未找到匹配任务")
-        task_map = {task.id: task for task in tasks}
+        task_map = {task["id"]: task for task in tasks}
         missing = [task_id for task_id in task_ids if task_id not in task_map]
         if missing:
             raise LookupError(f"任务不存在: {', '.join(missing)}")
 
-        rows = (
-            db.session.query(TaskResult.task_id, TaskResult.step_index, TaskResult.result)
-            .filter(TaskResult.task_id.in_(task_ids))
-            .order_by(TaskResult.task_id, TaskResult.step_index.asc())
-            .all()
-        )
+        rows = task_result_repository.list_export_rows(task_ids)
         result_map: dict[str, list[dict[str, Any]]] = {}
-        for task_id, step_index, result_json in rows:
+        for row in rows:
+            task_id = row["task_id"]
+            step_index = row["step_index"]
+            result_json = row["result"]
             try:
                 parsed = json.loads(result_json) if result_json else {}
             except (TypeError, json.JSONDecodeError):
@@ -150,9 +148,9 @@ class ExportService:
             })
 
         merged_results: list[dict[str, Any]] = []
-        for task in sorted(tasks, key=lambda item: item.name or ""):
-            for item in result_map.get(task.id, []):
-                item["task_name"] = task.name or ""
+        for task in sorted(tasks, key=lambda item: item["name"] or ""):
+            for item in result_map.get(task["id"], []):
+                item["task_name"] = task["name"] or ""
                 merged_results.append(item)
         if not merged_results:
             raise ValueError("所选任务均无结果数据")
@@ -239,7 +237,7 @@ class ExportService:
 
     def export_backtest_result(self, result_id: int) -> GeneratedFile:
         """处理export_backtest_result相关逻辑。"""
-        task_result = TaskResult.query.filter(TaskResult.id == result_id).first()
+        task_result = task_result_repository.get_entity(result_id)
         if not task_result:
             raise LookupError("任务结果不存在")
         task = self._get_task(task_result.task_id)
@@ -305,8 +303,8 @@ class ExportService:
         return GeneratedFile(filename, DOCX_MIMETYPE, buffer, buffer.getbuffer().nbytes)
 
     def _get_task(self, task_id: str) -> Task:
-        """按 ID 获取任务。"""
-        task = db.session.get(Task, task_id)
+        """按 ID 获取任务（实体供导出构造器消费）。"""
+        task = task_repository.get_entity(task_id)
         if not task:
             raise LookupError("任务不存在")
         return task

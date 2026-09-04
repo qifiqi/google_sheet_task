@@ -28,8 +28,8 @@ from flask import has_app_context
 from sqlalchemy import and_, inspect, not_, or_
 
 from app.config import Config
-from app.extensions import db
 from app.models import Task, TaskLog
+from app.repositories import task_log_repository, task_repository
 from app.services.config_manager import coerce_bool, get_config_manager
 from app.services.task import task_manager
 from app.utils.task_error_utils import (
@@ -220,15 +220,15 @@ class TaskWatchdog:
         last_error: str,
     ) -> None:
         """重启次数耗尽: 把任务彻底标成 error 退出自动重试循环。"""
-        task = db.session.get(Task, task_id)
-        if task:
-            task.status = "error"
-            task.error_message = (
+        task_repository.update_fields(
+            task_id,
+            status="error",
+            error_message=(
                 f"{WATCHDOG_ABANDON_PREFIX} (尝试 {attempts} 次, reason={reason}): "
                 f"{last_error}"
-            )
-            task.end_time = datetime.now()
-            db.session.commit()
+            ),
+            end_time=datetime.now(),
+        )
         message = (
             f"watchdog 已停止自动重启 (达到上限 {attempts} 次, reason={reason}), "
             "等待人工介入"
@@ -282,8 +282,8 @@ class TaskWatchdog:
 
     def _prepare_task_for_force_restart(
         self, task_id: str, reason: str
-    ) -> Task | None:
-        task = db.session.get(Task, task_id)
+    ) -> dict | None:
+        task = task_repository.get(task_id)
         if not task:
             logger.warning("watchdog force restart skipped, task missing: %s", task_id)
             return None
@@ -292,17 +292,19 @@ class TaskWatchdog:
         task_manager.release_task_token_occupancy(task_id)
         task_manager.release_google_sheet_occupancy(task_id)
 
-        task.status = "pending"
-        task.error_message = None
-        task.end_time = None
-        db.session.commit()
+        updated = task_repository.update_fields(
+            task_id,
+            status="pending",
+            error_message=None,
+            end_time=None,
+        )
 
         task_manager.add_task_log(
             task_id,
             "warning",
             f"watchdog 已释放任务占用并重置状态, 准备重新启动: {reason}",
         )
-        return task
+        return updated
 
     def _mark_force_restart_failed(
         self,
@@ -312,27 +314,20 @@ class TaskWatchdog:
         max_attempts: int,
         message: str,
     ) -> None:
-        task = db.session.get(Task, task_id)
-        if task:
-            task.status = "cancelled"
-            task.error_message = (
+        task_repository.update_fields(
+            task_id,
+            status="cancelled",
+            error_message=(
                 f"{WATCHDOG_RESTART_PREFIX} attempt={attempt}/{max_attempts} "
                 f"reason={reason}: {message}"
-            )
-            task.end_time = datetime.now()
-            db.session.commit()
+            ),
+            end_time=datetime.now(),
+        )
         task_manager.add_task_log(task_id, "error", message)
 
     def _mark_restart_running(self, task_id: str) -> None:
         """同步发布已成功重启的运行状态，供页面立即读取。"""
-        Task.query.filter(
-            Task.id == task_id,
-            Task.status == "pending",
-        ).update(
-            {"status": "running"},
-            synchronize_session=False,
-        )
-        db.session.commit()
+        task_repository.mark_running_if_pending(task_id)
 
     def _restart_task_with_reason(
         self,
@@ -347,7 +342,7 @@ class TaskWatchdog:
             return
 
         try:
-            task = db.session.get(Task, task_id)
+            task = task_repository.get_entity(task_id)
             if not task:
                 return
             attempt, prior_attempts = self._next_restart_attempt(
@@ -449,7 +444,6 @@ class TaskWatchdog:
                     start_error,
                 )
         except Exception as restart_error:
-            db.session.rollback()
             logger.error(
                 "watchdog force restart error: task_id=%s, reason=%s, err=%s",
                 task_id,
@@ -483,16 +477,16 @@ class TaskWatchdog:
         original_error: str,
         message: str,
     ) -> None:
-        task = db.session.get(Task, task_id)
         prefix = self._prefix_for_restart_failure_reason(reason)
-        if task:
-            task.status = "error"
-            task.error_message = (
+        task_repository.update_fields(
+            task_id,
+            status="error",
+            error_message=(
                 f"{prefix} watchdog_restart_failed attempt={attempt}/{max_attempts} "
                 f"reason={reason}: {message}; original_error={original_error}"
-            )
-            task.end_time = datetime.now()
-            db.session.commit()
+            ),
+            end_time=datetime.now(),
+        )
         task_manager.add_task_log(task_id, "error", message)
 
     def _restart_error_task(
@@ -503,7 +497,7 @@ class TaskWatchdog:
     ) -> None:
         inspected = inspect(task)
         task_id = inspected.identity[0] if inspected.identity else task.id
-        current_task = db.session.get(Task, task_id)
+        current_task = task_repository.get_entity(task_id)
         if not current_task:
             logger.warning("watchdog error restart skipped, task missing: %s", task_id)
             return
@@ -564,7 +558,6 @@ class TaskWatchdog:
             else:
                 self._mark_restart_running(task_id)
         except Exception as restart_error:
-            db.session.rollback()
             logger.error(
                 "watchdog error restart error: task_id=%s, "
                 "reason=%s, err=%s",
@@ -594,18 +587,23 @@ class TaskWatchdog:
     def _has_task_exceeded_log_timeout(
         self,
         task: Task,
-        latest_log: TaskLog | None,
+        latest_log,
         log_timeout_minutes: int,
         now: datetime,
     ) -> tuple[bool, str | None]:
-        if latest_log:
-            minutes_since_last_log = (now - latest_log.timestamp).total_seconds() / 60
+        # latest_log 兼容 TaskLog 实体与 datetime（仓储返回时间值）。
+        if isinstance(latest_log, datetime):
+            latest_log_time = latest_log
+        else:
+            latest_log_time = latest_log.timestamp if latest_log is not None else None
+        if latest_log_time is not None:
+            minutes_since_last_log = (now - latest_log_time).total_seconds() / 60
             if minutes_since_last_log > log_timeout_minutes:
                 logger.warning(
                     "watchdog detected task with no log updates: task_id=%s, "
                     "last_log_time=%s, minutes_since_last_log=%.2f",
                     task.id,
-                    latest_log.timestamp,
+                    latest_log_time,
                     minutes_since_last_log,
                 )
                 return True, REASON_LOG_TIMEOUT
@@ -669,14 +667,10 @@ class TaskWatchdog:
             )
             return
 
-        latest_log = (
-            TaskLog.query.filter_by(task_id=task.id)
-            .order_by(TaskLog.timestamp.desc())
-            .first()
-        )
+        latest_log_time = task_log_repository.last_write_time(task.id)
         should_restart, reason = self._has_task_exceeded_log_timeout(
             task,
-            latest_log,
+            latest_log_time,
             config.log_timeout_minutes,
             datetime.now(),
         )
@@ -692,38 +686,19 @@ class TaskWatchdog:
         created_cutoff = datetime.now() - timedelta(
             days=WATCHED_TASK_CREATED_WITHIN_DAYS
         )
-        return Task.query.filter(
-            Task.created_at >= created_cutoff,
-            or_(
-                Task.status == "running",
-                and_(
-                    Task.status == "error",
-                    or_(
-                        Task.error_message.is_(None),
-                        not_(Task.error_message.startswith(WATCHDOG_ABANDON_PREFIX)),
-                    ),
-                ),
-                and_(
-                    Task.status == "cancelled",
-                    Task.error_message.isnot(None),
-                    Task.error_message.startswith(WATCHDOG_RESTART_PREFIX),
-                ),
-            ),
-        ).all()
+        return task_repository.list_watchdog_tasks(
+            created_cutoff,
+            abandon_prefix=WATCHDOG_ABANDON_PREFIX,
+            restart_prefix=WATCHDOG_RESTART_PREFIX,
+        )
 
     def _prune_retry_attempt_cache(self) -> None:
         created_cutoff = datetime.now() - timedelta(
             days=WATCHED_TASK_CREATED_WITHIN_DAYS
         )
-        active_ids = {
-            task_id
-            for (task_id,) in db.session.query(Task.id)
-            .filter(
-                Task.created_at >= created_cutoff,
-                Task.status.in_(["pending", "running", "error", "cancelled"]),
-            )
-            .all()
-        }
+        active_ids = set(
+            task_repository.list_watchdog_active_ids(created_cutoff)
+        )
         with self._retry_restart_lock:
             stale_ids = set(self._retry_restart_attempts) - active_ids
             for task_id in stale_ids:

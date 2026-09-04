@@ -36,10 +36,12 @@ class StockMetadataRepository(BaseRepository):
     def upsert(self, fields, commit=True):
         """按 (stock_code, market_type) 存在则更新、否则新建；返回 dict。
 
-        查询前与模型事件监听器做同一 stock_code 标准化（600000 → 600000.SS），
-        否则首次插入后再 upsert 会因查不到旧行而撞唯一约束；
-        with no_autoflush 避免查询触发未提交对象的 flush（对齐现有语义）；
-        commit 默认开启，需要并入调用方事务时传 commit=False。
+        - 查询前与模型事件监听器做同一 stock_code 标准化（600000 → 600000.SS），
+          否则首次插入后再 upsert 会因查不到旧行而撞唯一约束；
+        - 会话内已挂起（未 flush）的同键对象直接原地更新，避免同一会话内
+          重复插入撞唯一约束（对齐原 stock_metadata_service 语义）；
+        - with no_autoflush 避免查询触发未提交对象的 flush；
+        - commit 默认开启，需要并入调用方事务时传 commit=False。
         """
         stock_code = normalize_stock_code(
             fields.get("stock_code"),
@@ -47,6 +49,18 @@ class StockMetadataRepository(BaseRepository):
             fields.get("exchange_market"),
         )
         market_type = fields.get("market_type")
+        payload = {**fields, "stock_code": stock_code}
+
+        for pending in db.session.new:
+            if (
+                isinstance(pending, StockMetadata)
+                and pending.stock_code == stock_code
+                and pending.market_type == market_type
+            ):
+                for key, value in payload.items():
+                    setattr(pending, key, value)
+                return pending.to_dict()
+
         with db.session.no_autoflush:
             row = (
                 StockMetadata.query
@@ -58,10 +72,10 @@ class StockMetadataRepository(BaseRepository):
                 .first()
             )
         if row is None:
-            row = StockMetadata(**{**fields, "stock_code": stock_code})
+            row = StockMetadata(**payload)
             db.session.add(row)
         else:
-            for key, value in {**fields, "stock_code": stock_code}.items():
+            for key, value in payload.items():
                 setattr(row, key, value)
         if commit:
             self._commit()

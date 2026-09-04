@@ -65,7 +65,7 @@ def test_upsert_stock_metadata_reuses_pending_record_before_autoflush(app_factor
         })
         db.session.commit()
 
-        assert first.id == second.id
+        assert first["id"] == second["id"]
         item = StockMetadata.query.filter_by(stock_code="688188.SS", market_type="cn").one()
         assert item.stock_name == "柏楚电子"
         assert item.source == "second"
