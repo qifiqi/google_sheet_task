@@ -63,6 +63,32 @@ class NavigationRepository(BaseRepository):
 
     # ---- 写 ----
 
+    def list_all_for_admin(self):
+        """管理端列表：按 parent_key, sort_order, id 排序（config_api 现有语义）。"""
+        rows = (
+            NavigationMenuItem.query
+            .order_by(
+                NavigationMenuItem.parent_key.asc(),
+                NavigationMenuItem.sort_order.asc(),
+                NavigationMenuItem.id.asc(),
+            )
+            .all()
+        )
+        return [row.to_dict() for row in rows]
+
+    def create_entity(self, fields, commit=True):
+        """创建并返回实体。
+
+        sync_navigation_permissions（app/navigation.py，重构范围外）依赖实体
+        属性读写，导航菜单 CRUD 需要实体形态与 flush 取 id 语义。
+        """
+        row = NavigationMenuItem(**fields)
+        db.session.add(row)
+        db.session.flush()
+        if commit:
+            self._commit()
+        return row
+
     def create(self, fields, commit=True):
         """保留 flush 取 id 语义：先 flush 拿到自增 id 再按需提交。"""
         row = NavigationMenuItem(**fields)

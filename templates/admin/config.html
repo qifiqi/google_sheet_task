@@ -272,7 +272,7 @@
     function loadConfig() {
         ajaxRequest('/api/system-configs', 'GET', null, function(err, data) {
             if (!err && data && data.status === 'success') {
-                renderConfigTable(data.configs || []);
+                renderConfigTable((data.data && data.data.configs) || []);
             } else {
                 showNotification('\u52a0\u8f7d\u914d\u7f6e\u5931\u8d25: ' + (data ? data.message : '\u7f51\u7edc\u9519\u8bef'), 'error');
             }

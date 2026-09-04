@@ -181,7 +181,7 @@ function loadNavigationItems() {
             if (data.status !== 'success') {
                 throw new Error(data.message || '加载路由失败');
             }
-            navigationItems = Array.isArray(data.items) ? data.items : [];
+            navigationItems = (data.data && Array.isArray(data.data.items)) ? data.data.items : [];
             refreshParentSelects();
             renderNavigationTable();
         })

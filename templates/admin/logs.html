@@ -175,7 +175,7 @@
             console.log('日志API响应:', err, data);
             
             if (!err && data && data.status === 'success') {
-                allLogs = data.logs || [];
+                allLogs = (data.data && data.data.logs) || [];
                 filteredLogs = allLogs; // 服务端已经过滤，直接使用
                 console.log('加载到的日志数量:', allLogs.length);
                 renderLogs();
@@ -360,9 +360,10 @@
         params.append('limit', '20');
         
         ajaxRequest(`/api/logs/latest?${params.toString()}`, 'GET', null, function(err, data) {
-            if (!err && data && data.status === 'success' && data.logs.length > 0) {
+            const apiLogs = (data && data.data && data.data.logs) || [];
+            if (!err && data && data.status === 'success' && apiLogs.length > 0) {
                 // 添加新日志到现有列表的顶部
-                const newLogs = data.logs;
+                const newLogs = apiLogs;
                 
                 // 更新最新时间戳
                 if (newLogs.length > 0) {

@@ -40,6 +40,17 @@ class SystemConfigRepository(BaseRepository):
 
     # ---- 写 ----
 
+    def update(self, key, fields, commit=True):
+        """按 key 更新指定列（值可为 None，用于清空）；key 不存在返回 None。"""
+        row = SystemConfig.query.filter_by(key=key).first()
+        if row is None:
+            return None
+        for field, value in fields.items():
+            setattr(row, field, value)
+        if commit:
+            self._commit()
+        return row.to_dict()
+
     def upsert(self, key, value, description=None, commit=True):
         """写入或更新一行；不负责缓存刷新（调用方负责走 set_config/update_configs 或刷新缓存）。"""
         row = SystemConfig.query.filter_by(key=key).first()

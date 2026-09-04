@@ -298,7 +298,7 @@ function loadTasks() {
             return;
         }
         
-        currentTasks = response.tasks || [];
+        currentTasks = (response.data && response.data.tasks) || [];
         renderTasksTable();
     });
 }
@@ -311,7 +311,7 @@ function loadStats() {
             return;
         }
         
-        const stats = response.stats || {};
+        const stats = (response.data && response.data.stats) || {};
         document.getElementById('totalTasks').textContent = stats.total_tasks || 0;
         document.getElementById('activeTasks').textContent = stats.active_tasks || 0;
         document.getElementById('inactiveTasks').textContent = stats.inactive_tasks || 0;
