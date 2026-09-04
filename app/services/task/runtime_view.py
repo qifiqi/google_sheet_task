@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
-from app.models import Task, TaskLog, TaskResult
-from app.utils.return_series import parse_return_series_fields
+# 仪表盘 / 运行态统计已按要求停用本地数据库读取，改为返回假数据；
+# 原 Task / TaskLog / TaskResult ORM 与相关 repository 导入注释保留。
+# from app.models import Task, TaskLog, TaskResult
+# from app.utils.return_series import parse_return_series_fields
 from app.repositories.task_repository import TaskRepository
-from app.repositories.task_result_return_repository import TaskResultReturnRepository
+# from app.repositories.task_result_return_repository import TaskResultReturnRepository
 
-from app.services.task.dashboard_query import TaskDashboardQueryService
+# from app.services.task.dashboard_query import TaskDashboardQueryService
 
 _task_repository = TaskRepository()
-_task_result_return_repository = TaskResultReturnRepository()
+# _task_result_return_repository = TaskResultReturnRepository()
 
 
 def _safe_json_loads(raw_value, default=None):
@@ -71,9 +73,9 @@ class TaskRuntimeViewService:
     """管理后台任务运行态视图拼装服务。"""
 
     def __init__(self, task_manager):
-        """保存任务门面和仪表盘查询服务依赖。"""
+        """保存任务门面依赖；仪表盘聚合服务已随数据库逻辑一并停用。"""
         self._task_manager = task_manager
-        self._dashboard_query_service = TaskDashboardQueryService()
+        # self._dashboard_query_service = TaskDashboardQueryService()
 
     def build_config_summary(self, task: Task) -> dict[str, Any]:
         """从任务配置中提取适合管理后台展示的参数摘要。"""
@@ -142,62 +144,64 @@ class TaskRuntimeViewService:
         }
 
     def build_result_summary(self, task_id: str) -> dict[str, Any]:
-        """汇总任务结果、关键指标和最近收益序列，供运行态页面展示。"""
-        # 仪表盘聚合暂未迁移：当前 SDK 不支持结果统计、字段投影与稳定复合排序。
-        results = (
-            TaskResult.query.filter_by(task_id=task_id)
-            .order_by(TaskResult.step_index.asc())
-            .all()
-        )
-        total = len(results)
-        success_count = sum(1 for item in results if item.success)
-        failed_count = total - success_count
-
-        metric_points = []
-        for result in results[-30:]:
-            result_payload = _as_dict(_safe_json_loads(result.result, {}))
-            parameters_payload = _safe_json_loads(result.parameters, {})
-            annualized = (
-                result_payload.get("I16")
-                or result_payload.get("annualized_rate")
-                or result_payload.get("annualized")
-            )
-            max_drawdown = result_payload.get("I17") or result_payload.get("maxdd")
-            return_rate = result_payload.get("I15") or result_payload.get("return_rate")
-            metric_points.append(
-                {
-                    "step": result.step_index + 1,
-                    "success": bool(result.success),
-                    "annualized_rate": annualized,
-                    "max_drawdown": max_drawdown,
-                    "return_rate": return_rate,
-                    "parameter_label": _extract_parameter_label(
-                        parameters_payload,
-                        result.step_index,
-                    ),
-                }
-            )
-
-        return_chart = []
-        series_result = next((item for item in reversed(results) if item.return_series_id), None)
-        series_row = (
-            _task_result_return_repository.get(series_result.return_series_id)
-            if series_result and series_result.return_series_id
-            else None
-        )
-        if series_row:
-            return_chart = [
-                {"date": item["date"], "index_return": item.get("index_return"),
-                 "strategy_return": item.get("start_return")}
-                for item in parse_return_series_fields(series_row)
-            ][-120:]
+        """返回运行态结果摘要假数据；原本地数据库聚合逻辑注释保留。"""
+        # 仪表盘聚合暂未迁移：当前 SDK 不支持结果统计、字段投影与稳定复合排序，
+        # 按要求停用本地数据库读取，直接返回假数据。
+        # results = (
+        #     TaskResult.query.filter_by(task_id=task_id)
+        #     .order_by(TaskResult.step_index.asc())
+        #     .all()
+        # )
+        # total = len(results)
+        # success_count = sum(1 for item in results if item.success)
+        # failed_count = total - success_count
+        #
+        # metric_points = []
+        # for result in results[-30:]:
+        #     result_payload = _as_dict(_safe_json_loads(result.result, {}))
+        #     parameters_payload = _safe_json_loads(result.parameters, {})
+        #     annualized = (
+        #         result_payload.get("I16")
+        #         or result_payload.get("annualized_rate")
+        #         or result_payload.get("annualized")
+        #     )
+        #     max_drawdown = result_payload.get("I17") or result_payload.get("maxdd")
+        #     return_rate = result_payload.get("I15") or result_payload.get("return_rate")
+        #     metric_points.append(
+        #         {
+        #             "step": result.step_index + 1,
+        #             "success": bool(result.success),
+        #             "annualized_rate": annualized,
+        #             "max_drawdown": max_drawdown,
+        #             "return_rate": return_rate,
+        #             "parameter_label": _extract_parameter_label(
+        #                 parameters_payload,
+        #                 result.step_index,
+        #             ),
+        #         }
+        #     )
+        #
+        # return_chart = []
+        # series_result = next((item for item in reversed(results) if item.return_series_id), None)
+        # series_row = (
+        #     _task_result_return_repository.get(series_result.return_series_id)
+        #     if series_result and series_result.return_series_id
+        #     else None
+        # )
+        # if series_row:
+        #     return_chart = [
+        #         {"date": item["date"], "index_return": item.get("index_return"),
+        #          "strategy_return": item.get("start_return")}
+        #         for item in parse_return_series_fields(series_row)
+        #     ][-120:]
         return {
-            "total_results": total,
-            "success_count": success_count,
-            "failed_count": failed_count,
-            "success_rate": round((success_count / total) * 100, 2) if total else 0,
-            "latest_metric_points": metric_points,
-            "return_chart": return_chart,
+            "total_results": 0,
+            "success_count": 0,
+            "failed_count": 0,
+            "success_rate": 0,
+            "latest_metric_points": [],
+            "return_chart": [],
+            "demo": True,
         }
 
     def serialize_task_runtime(self, task: Task) -> dict[str, Any]:
@@ -205,14 +209,15 @@ class TaskRuntimeViewService:
         config_summary = self.build_config_summary(task)
         stop_confirmation = self.build_stop_confirmation(task.id)
         result_summary = self.build_result_summary(task.id)
-        # 仪表盘日志读取暂保留本地查询；SDK 当前缺少仪表盘所需的聚合查询契约。
-        recent_logs = (
-            TaskLog.query.filter_by(task_id=task.id)
-            .order_by(TaskLog.timestamp.desc())
-            .limit(20)
-            .all()
-        )
-        recent_logs.reverse()
+        # 仪表盘日志读取已停用本地查询，返回空假数据；原逻辑注释保留。
+        # recent_logs = (
+        #     TaskLog.query.filter_by(task_id=task.id)
+        #     .order_by(TaskLog.timestamp.desc())
+        #     .limit(20)
+        #     .all()
+        # )
+        # recent_logs.reverse()
+        recent_logs = []
 
         duration_seconds = None
         if task.start_time:
@@ -236,50 +241,69 @@ class TaskRuntimeViewService:
         return data
 
     def build_dashboard_overview(self, user) -> dict[str, Any]:
-        """按用户权限构造管理后台任务仪表盘的完整数据集。"""
+        """返回管理后台仪表盘假数据；原数据库聚合逻辑注释保留。"""
+        _ = user
         now = datetime.now()
-        allowed_task_types = self._dashboard_query_service.get_allowed_task_types(
-            user,
-            "view",
-        )
+        # 原按权限聚合状态分布、任务类型分布、每日趋势、最近/运行中任务的
+        # 本地数据库查询已全部注释：当前 SDK 无对应聚合接口。
+        # allowed_task_types = self._dashboard_query_service.get_allowed_task_types(
+        #     user,
+        #     "view",
+        # )
+        #
+        # if not allowed_task_types:
+        #     return self._dashboard_query_service.build_empty_overview(now)
+        #
+        # status_distribution = self._dashboard_query_service.get_status_distribution(
+        #     allowed_task_types
+        # )
+        # task_type_distribution = (
+        #     self._dashboard_query_service.get_task_type_distribution(
+        #         allowed_task_types
+        #     )
+        # )
+        # summary = self._dashboard_query_service.get_summary(allowed_task_types)
+        # daily_trend = self._dashboard_query_service.get_daily_trend(
+        #     allowed_task_types,
+        #     now=now,
+        # )
+        # recent_task_models = self._dashboard_query_service.get_recent_task_models(
+        #     allowed_task_types,
+        #     limit=10,
+        # )
+        # running_task_models = self._dashboard_query_service.get_active_task_models(
+        #     allowed_task_types,
+        #     limit=6,
+        # )
+        #
+        # recent_tasks = [self.serialize_task_runtime(task) for task in recent_task_models]
+        # active_tasks = [
+        #     self.serialize_task_runtime(task) for task in running_task_models
+        # ]
 
-        if not allowed_task_types:
-            return self._dashboard_query_service.build_empty_overview(now)
-
-        status_distribution = self._dashboard_query_service.get_status_distribution(
-            allowed_task_types
-        )
-        task_type_distribution = (
-            self._dashboard_query_service.get_task_type_distribution(
-                allowed_task_types
-            )
-        )
-        summary = self._dashboard_query_service.get_summary(allowed_task_types)
-        daily_trend = self._dashboard_query_service.get_daily_trend(
-            allowed_task_types,
-            now=now,
-        )
-        recent_task_models = self._dashboard_query_service.get_recent_task_models(
-            allowed_task_types,
-            limit=10,
-        )
-        running_task_models = self._dashboard_query_service.get_active_task_models(
-            allowed_task_types,
-            limit=6,
-        )
-
-        recent_tasks = [self.serialize_task_runtime(task) for task in recent_task_models]
-        active_tasks = [
-            self.serialize_task_runtime(task) for task in running_task_models
+        daily_trend = [
+            {
+                "date": (now - timedelta(days=offset)).date().isoformat(),
+                "created": 0,
+                "completed": 0,
+            }
+            for offset in range(6, -1, -1)
         ]
-
         return {
             "success": True,
-            "summary": summary,
-            "status_distribution": status_distribution,
-            "task_type_distribution": task_type_distribution,
+            "summary": {
+                "total_tasks": 0,
+                "completed_tasks": 0,
+                "running_tasks": 0,
+                "error_tasks": 0,
+                "cancelled_tasks": 0,
+                "pending_tasks": 0,
+            },
+            "status_distribution": {},
+            "task_type_distribution": {},
             "daily_trend": daily_trend,
-            "recent_tasks": recent_tasks,
-            "active_tasks": active_tasks,
+            "recent_tasks": [],
+            "active_tasks": [],
             "checked_at": now.isoformat(),
+            "demo": True,
         }

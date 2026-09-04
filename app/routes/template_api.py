@@ -1,14 +1,12 @@
 from flask import Blueprint, request, jsonify, g
 import json
-from sqlalchemy.orm import load_only
 
-from app.models import Task, TaskResult, db
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
 from app.repositories.template_repository import TaskTemplateRepository
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
-from app.utils.task_authorization import authorize_task_type_action, filter_task_types_by_action
+from app.utils.task_authorization import authorize_task_type_action
 
 logger = get_logger(__name__)
 
@@ -256,46 +254,36 @@ def get_results():
                 "current_page": page,
             })
 
-        query = TaskResult.query.join(Task, Task.id == TaskResult.task_id).options(
-            load_only(
-                TaskResult.id,
-                TaskResult.task_id,
-                TaskResult.step_index,
-                TaskResult.success,
-                TaskResult.timestamp,
-            )
+        remote_page = _result_repository().list_results(
+            page_index=page,
+            page_size=per_page,
+            task_ids=[task_id] if task_id else None,
+            order_field="timestamp",
+            order_type="desc",
         )
-        distinct_types = [item[0] for item in db.session.query(Task.task_type).distinct().all()]
-        allowed_types = filter_task_types_by_action(current_user, "view", distinct_types)
-        if not allowed_types:
-            return jsonify({
-                "results": [],
-                "total": 0,
-                "pages": 0,
-                "current_page": page
-            })
-        query = query.filter(Task.task_type.in_(allowed_types))
-
-        pagination = query.order_by(TaskResult.timestamp.desc()).paginate(
-            page=page, per_page=per_page, error_out=False
-        )
-
         results = [
             {
                 "id": result.id,
                 "task_id": result.task_id,
                 "step_index": result.step_index,
                 "success": result.success,
-                "timestamp": result.timestamp.isoformat() if result.timestamp else None,
+                "timestamp": (
+                    result.timestamp.isoformat()
+                    if getattr(result, "timestamp", None)
+                    and hasattr(result.timestamp, "isoformat")
+                    else result.get("timestamp")
+                ),
             }
-            for result in pagination.items
+            for result in remote_page["items"]
         ]
+        total = remote_page["total"]
+        pages = (total + per_page - 1) // per_page if total else 0
 
         return jsonify({
             "results": results,
-            "total": pagination.total,
-            "pages": pagination.pages,
-            "current_page": page
+            "total": total,
+            "pages": pages,
+            "current_page": page,
         })
     except Exception as e:
         logger.error(f"获取结果列表失败: {str(e)}")

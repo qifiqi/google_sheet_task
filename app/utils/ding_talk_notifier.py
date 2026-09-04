@@ -8,18 +8,22 @@ import urllib.parse
 import requests
 from flask import current_app, has_app_context
 
-from app.extensions import db
-from app.models import Task, User
+# 钉钉告警不再读取本地用户表与手机号；相关导入随用户/@ 逻辑一并注释。
+# from app.extensions import db
+# from app.models import User
+from app.repositories.task_repository import TaskRepository
 from app.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+_task_repository = TaskRepository()
 
 
 class DingTalkNotifier:
     """钉钉机器人通知器。"""
 
-    DEV_ROLE_CODES = {"developer"}
+    # 告警不再 @ 值班开发，以下角色编码随手机号逻辑一并注释。
+    # DEV_ROLE_CODES = {"developer"}
     NOTIFY_KEYWORDS = {
         "error": "告警",
         "success": "任务完成",
@@ -41,19 +45,21 @@ class DingTalkNotifier:
         sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
         return timestamp, sign
 
-    def _normalize_mobile(self, value):
-        """清理手机号输入，并将空值统一为 None。"""
-        mobile = str(value or '').strip()
-        return mobile or None
+    # ---- 以下手机号 / 用户相关逻辑已停用：告警不再读取本地用户表，也不再 @ 手机号 ----
 
-    def _mask_mobile(self, mobile):
-        """对日志中的手机号做中间四位脱敏处理。"""
-        raw = self._normalize_mobile(mobile)
-        if not raw:
-            return None
-        if len(raw) <= 7:
-            return raw
-        return f"{raw[:3]}****{raw[-4:]}"
+    # def _normalize_mobile(self, value):
+    #     """清理手机号输入，并将空值统一为 None。"""
+    #     mobile = str(value or '').strip()
+    #     return mobile or None
+    #
+    # def _mask_mobile(self, mobile):
+    #     """对日志中的手机号做中间四位脱敏处理。"""
+    #     raw = self._normalize_mobile(mobile)
+    #     if not raw:
+    #         return None
+    #     if len(raw) <= 7:
+    #         return raw
+    #     return f"{raw[:3]}****{raw[-4:]}"
 
     def _task_detail_url(self, task_id, detail_url=None):
         """优先使用调用方链接，否则按任务 ID 构造默认详情地址。"""
@@ -120,35 +126,46 @@ class DingTalkNotifier:
 
         return "\n".join(lines)
 
-    def _collect_oncall_developer_mobiles(self):
-        """收集启用且值班的开发角色手机号，用于异常告警 @。"""
-        mobiles = set()
-        users = User.query.filter_by(is_active=True, is_alert_oncall=True).all()
-        for user in users:
-            role_codes = {str(role.code or '').strip().lower() for role in user.roles}
-            if role_codes & self.DEV_ROLE_CODES:
-                mobile = self._normalize_mobile(user.mobile)
-                if mobile:
-                    mobiles.add(mobile)
-        return mobiles
-
-    def _collect_at_mobiles(self, task, notify_type):
-        """合并任务创建人与异常值班人员，返回去重后的 @ 列表。"""
-        mobiles = set()
-        if task and task.created_by:
-            creator_mobile = self._normalize_mobile(task.created_by.mobile)
-            if creator_mobile:
-                mobiles.add(creator_mobile)
-
-        if notify_type == 'error':
-            mobiles.update(self._collect_oncall_developer_mobiles())
-
-        return sorted(mobiles)
+    # def _collect_oncall_developer_mobiles(self):
+    #     """收集启用且值班的开发角色手机号，用于异常告警 @。"""
+    #     mobiles = set()
+    #     users = User.query.filter_by(is_active=True, is_alert_oncall=True).all()
+    #     for user in users:
+    #         role_codes = {str(role.code or '').strip().lower() for role in user.roles}
+    #         if role_codes & self.DEV_ROLE_CODES:
+    #             mobile = self._normalize_mobile(user.mobile)
+    #             if mobile:
+    #                 mobiles.add(mobile)
+    #     return mobiles
+    #
+    # def _resolve_task_creator(self, task):
+    #     """远程任务记录只保留创建人 ID；创建人资料仍读取本地用户表。"""
+    #     creator_id = task.get("created_by_user_id") if task else None
+    #     if not creator_id:
+    #         return None
+    #     try:
+    #         return db.session.get(User, int(creator_id))
+    #     except (TypeError, ValueError):
+    #         return None
+    #
+    # def _collect_at_mobiles(self, creator, notify_type):
+    #     """合并任务创建人与异常值班人员，返回去重后的 @ 列表。"""
+    #     mobiles = set()
+    #     if creator:
+    #         creator_mobile = self._normalize_mobile(creator.mobile)
+    #         if creator_mobile:
+    #             mobiles.add(creator_mobile)
+    #
+    #     if notify_type == 'error':
+    #         mobiles.update(self._collect_oncall_developer_mobiles())
+    #
+    #     return sorted(mobiles)
 
     def send_task_notification(self, task_id, notify_type='error', summary=None, detail_url=None):
         """根据任务状态构造并发送钉钉 Markdown 通知。"""
         task_id = str(task_id or '').strip()
-        task = db.session.get(Task, task_id) if task_id else None
+        task = _task_repository.get(task_id) if task_id else None
+        # creator = self._resolve_task_creator(task)
         keyword = self.NOTIFY_KEYWORDS.get(notify_type, "通知")
         title = f"{keyword} - 任务执行失败" if notify_type == 'error' else f"{keyword} - 任务执行完成"
         target_url = self._task_detail_url(task_id, detail_url)
@@ -179,8 +196,8 @@ class DingTalkNotifier:
             summary_text = task.error_message if notify_type == 'error' else '任务执行完成'
 
         status_label = '执行成功' if notify_type == 'success' else '执行失败'
-        creator_name = task.created_by.username if task.created_by else '系统/未知'
-        mobiles = self._collect_at_mobiles(task, notify_type)
+        # creator_name = creator.username if creator else '系统/未知'
+        # mobiles = self._collect_at_mobiles(creator, notify_type)
         payload = {
             "msgtype": "markdown",
             "markdown": {
@@ -192,26 +209,23 @@ class DingTalkNotifier:
                         ("任务名称", task.name),
                         ("任务ID", task.id),
                         ("任务类型", task.task_type),
-                        ("创建人", creator_name),
+                        # ("创建人", creator_name),
                         ("通知时间", datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
                     ],
                     summary=summary_text,
                     detail_url=target_url,
-                    at_mobiles=mobiles,
+                    # at_mobiles=mobiles,
                 ),
             },
             "at": {"isAtAll": False},
         }
         logger.info(
-            "准备发送钉钉通知: task_id=%s notify_type=%s creator=%s creator_mobile=%s at_mobiles=%s",
+            "准备发送钉钉通知: task_id=%s notify_type=%s",
             task_id or 'unknown',
             notify_type,
-            task.created_by.username if task and task.created_by else None,
-            self._mask_mobile(task.created_by.mobile if task and task.created_by else None),
-            [self._mask_mobile(mobile) for mobile in mobiles],
         )
-        if mobiles:
-            payload["at"]["atMobiles"] = mobiles
+        # if mobiles:
+        #     payload["at"]["atMobiles"] = mobiles
         return self.send_message(payload)
 
     def send_message(self, data):

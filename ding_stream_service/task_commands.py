@@ -11,13 +11,14 @@ from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
 from app import create_app
-from app.models import Task
+from app.repositories.task_repository import TaskRepository
 from app.services.task import task_manager
 
 from ding_stream_service.message_format import build_markdown_message
 
 
 logger = logging.getLogger(__name__)
+_task_repository = TaskRepository()
 
 RESTART_ACTION_RE = re.compile(r"(?:断点重启|重启任务|任务重启|重启|restart)", re.I)
 RESTART_ERROR_TASKS_RE = re.compile(
@@ -225,13 +226,16 @@ class TaskCommandService:
         with app.app_context():
             # Batch restart is intentionally capped to avoid resurrecting a large
             # backlog of historical failures from a single DingTalk message.
-            tasks = (
-                Task.query.filter(Task.status == command.status)
-                .order_by(Task.updated_at.desc(), Task.created_at.desc())
-                .limit(command.limit)
-                .all()
+            # SDK 仅支持单字段排序，这里以 updated_at 倒序近似原复合排序。
+            page = _task_repository.list_tasks(
+                page_index=1,
+                page_size=command.limit,
+                statuses=[command.status],
+                order_field="updated_at",
+                order_type="desc",
             )
-            total = Task.query.filter(Task.status == command.status).count()
+            tasks = page["items"]
+            total = page["total"]
             logger.info(
                 "开始批量重启异常任务: status=%s total=%s selected=%s limit=%s",
                 command.status,
@@ -284,25 +288,26 @@ class TaskCommandService:
     def list_tasks(self, command: ParsedListCommand) -> dict:
         app = self._get_app()
         with app.app_context():
-            query = Task.query
-            if command.status_group == "running":
-                query = query.filter(Task.status == "running")
-            else:
-                query = query.filter(Task.status.in_(STOPPED_STATUSES))
-
-            total = query.count()
+            statuses = (
+                ["running"]
+                if command.status_group == "running"
+                else STOPPED_STATUSES
+            )
+            page = _task_repository.list_tasks(
+                page_index=command.page,
+                page_size=command.per_page,
+                statuses=statuses,
+                order_field="updated_at",
+                order_type="desc",
+            )
+            total = page["total"]
+            tasks = page["items"]
             logger.info(
                 "查询任务列表: status_group=%s page=%s per_page=%s total=%s",
                 command.status_group,
                 command.page,
                 command.per_page,
                 total,
-            )
-            tasks = (
-                query.order_by(Task.updated_at.desc(), Task.created_at.desc())
-                .offset((command.page - 1) * command.per_page)
-                .limit(command.per_page)
-                .all()
             )
             return {
                 "status": "success",
@@ -378,24 +383,42 @@ class TaskCommandService:
                 self._app = create_app()
         return self._app
 
-    def _resolve_task(self, command: ParsedRestartCommand) -> tuple[Task | None, str | None]:
+    def _resolve_task(self, command: ParsedRestartCommand) -> tuple[dict | None, str | None]:
         if command.target_type == "id":
-            task = Task.query.filter_by(id=command.target).first()
+            task = _task_repository.get(command.target)
             if not task:
                 return None, f"未找到任务ID: {command.target}"
             return task, None
 
-        tasks = (
-            Task.query.filter(Task.name == command.target)
-            .order_by(Task.created_at.desc())
-            .limit(2)
-            .all()
-        )
-        if not tasks:
+        # SDK 无精确名称匹配；用服务端 keyword 缩小范围后，在本地做精确名称比对。
+        # 只要凑齐两个同名任务即可判定不唯一，无需遍历全部页。
+        matches = []
+        page_index = 1
+        while len(matches) < 2:
+            page = _task_repository.list_tasks(
+                page_index=page_index,
+                page_size=50,
+                keyword=command.target,
+                order_field="created_at",
+                order_type="desc",
+            )
+            items = page["items"]
+            if not items:
+                break
+            matches.extend(
+                item
+                for item in items
+                if str(item.get("name") or "") == command.target
+            )
+            if page_index * 50 >= page["total"]:
+                break
+            page_index += 1
+
+        if not matches:
             return None, f"未找到任务名: {command.target}"
-        if len(tasks) > 1:
+        if len(matches) > 1:
             return None, f"任务名不唯一，请改用任务ID: {command.target}"
-        return tasks[0], None
+        return matches[0], None
 
 
 def parse_restart_command(text: str) -> ParsedRestartCommand | None:

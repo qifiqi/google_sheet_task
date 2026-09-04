@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import or_, and_, func, case
-
-from app.extensions import db
-from app.models import Task
+# 仪表盘统计已停用本地数据库聚合，相关 ORM / SQLAlchemy 导入注释保留。
+# from sqlalchemy import or_, and_, func, case
+#
+# from app.extensions import db
+# from app.models import Task
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
 
@@ -61,7 +62,7 @@ class TaskQueryService:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
     ) -> dict[str, Any]:
-        """通过 ParamTasks HTTP 获取列表；统计字段暂沿用仪表盘数据库聚合。"""
+        """通过 ParamTasks HTTP 获取列表；统计字段返回假数据。"""
         page = max(page or 1, 1)
         per_page = max(min(per_page or 10, 100), 1)
 
@@ -76,82 +77,95 @@ class TaskQueryService:
             order_type="desc",
         )
 
-        # 仪表盘统计暂未迁移到 SDK；保留原有聚合，避免改变现有页面契约。
-        query = Task.query
-        if task_types:
-            query = query.filter(Task.task_type.in_(task_types))
-        elif task_type:
-            query = query.filter(Task.task_type == task_type)
-
-        if status and status != "all":
-            query = query.filter(Task.status == status)
-
-        if keyword:
-            keyword = keyword.strip()
-            if keyword:
-                pattern = f"%{keyword}%"
-                query = query.filter(
-                    or_(
-                        Task.name.ilike(pattern),
-                        Task.description.ilike(pattern),
-                        Task.id.ilike(pattern),
-                    )
-                )
-
         remote_total = remote_page["total"]
         pages = (remote_total + per_page - 1) // per_page if remote_total else 0
         items = remote_page["items"]
 
-        today_start = datetime.now().replace(
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        )
-        tomorrow_start = today_start + timedelta(days=1)
+        # 仪表盘统计已按要求停用本地数据库聚合，返回全零假数据；原逻辑注释保留。
+        # query = Task.query
+        # if task_types:
+        #     query = query.filter(Task.task_type.in_(task_types))
+        # elif task_type:
+        #     query = query.filter(Task.task_type == task_type)
+        #
+        # if status and status != "all":
+        #     query = query.filter(Task.status == status)
+        #
+        # if keyword:
+        #     keyword = keyword.strip()
+        #     if keyword:
+        #         pattern = f"%{keyword}%"
+        #         query = query.filter(
+        #             or_(
+        #                 Task.name.ilike(pattern),
+        #                 Task.description.ilike(pattern),
+        #                 Task.id.ilike(pattern),
+        #             )
+        #         )
+        #
+        # today_start = datetime.now().replace(
+        #     hour=0,
+        #     minute=0,
+        #     second=0,
+        #     microsecond=0,
+        # )
+        # tomorrow_start = today_start + timedelta(days=1)
+        #
+        # # 单次聚合查询获取所有统计数据（避免多次 COUNT 查询）
+        # stats_row = query.with_entities(
+        #     func.count(Task.id).label('total'),
+        #     func.count(case((Task.status == 'completed', 1))).label('completed'),
+        #     func.count(case((Task.status == 'running', 1))).label('running'),
+        #     func.count(case((Task.status == 'error', 1))).label('error'),
+        #     func.count(case(
+        #         (Task.status == 'pending', 1)
+        #     )).label('pending'),
+        #     func.count(case(
+        #         (and_(Task.created_at >= today_start, Task.created_at < tomorrow_start), 1)
+        #     )).label('today_new'),
+        # ).first()
+        #
+        # total = stats_row.total or 0
+        # completed_tasks = stats_row.completed or 0
+        # running_tasks = stats_row.running or 0
+        # error_tasks = stats_row.error or 0
+        # pending_tasks = stats_row.pending or 0
+        # today_new_tasks = stats_row.today_new or 0
+        #
+        # completed_durations = query.filter(
+        #     Task.status == 'completed',
+        #     Task.start_time.isnot(None),
+        #     Task.end_time.isnot(None),
+        # ).with_entities(Task.start_time, Task.end_time).yield_per(1000)
+        # total_duration_seconds = 0
+        # duration_count = 0
+        # for start_time, end_time in completed_durations:
+        #     total_duration_seconds += (end_time - start_time).total_seconds()
+        #     duration_count += 1
+        # avg_duration_minutes = (
+        #     round(total_duration_seconds / duration_count / 60)
+        #     if duration_count
+        #     else 0
+        # )
+        # success_rate = (
+        #     round((completed_tasks / (completed_tasks + error_tasks) * 100), 1)
+        #     if (completed_tasks + error_tasks) > 0
+        #     else 0
+        # )
+        # error_rate = round((error_tasks / total * 100), 1) if total > 0 else 0
 
-        # 单次聚合查询获取所有统计数据（避免多次 COUNT 查询）
-        stats_row = query.with_entities(
-            func.count(Task.id).label('total'),
-            func.count(case((Task.status == 'completed', 1))).label('completed'),
-            func.count(case((Task.status == 'running', 1))).label('running'),
-            func.count(case((Task.status == 'error', 1))).label('error'),
-            func.count(case(
-                (Task.status == 'pending', 1)
-            )).label('pending'),
-            func.count(case(
-                (and_(Task.created_at >= today_start, Task.created_at < tomorrow_start), 1)
-            )).label('today_new'),
-        ).first()
-
-        total = stats_row.total or 0
-        completed_tasks = stats_row.completed or 0
-        running_tasks = stats_row.running or 0
-        error_tasks = stats_row.error or 0
-        pending_tasks = stats_row.pending or 0
-        today_new_tasks = stats_row.today_new or 0
-
-        completed_durations = query.filter(
-            Task.status == 'completed',
-            Task.start_time.isnot(None),
-            Task.end_time.isnot(None),
-        ).with_entities(Task.start_time, Task.end_time).yield_per(1000)
-        total_duration_seconds = 0
-        duration_count = 0
-        for start_time, end_time in completed_durations:
-            total_duration_seconds += (end_time - start_time).total_seconds()
-            duration_count += 1
-        avg_duration_minutes = (
-            round(total_duration_seconds / duration_count / 60)
-            if duration_count
-            else 0
-        )
-        success_rate = (
-            round((completed_tasks / (completed_tasks + error_tasks) * 100), 1)
-            if (completed_tasks + error_tasks) > 0
-            else 0
-        )
-        error_rate = round((error_tasks / total * 100), 1) if total > 0 else 0
+        statistics = {
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "running_tasks": 0,
+            "error_tasks": 0,
+            "pending_tasks": 0,
+            "today_new_tasks": 0,
+            "success_rate": 0,
+            "error_rate": 0,
+            "avg_duration_minutes": 0,
+            "demo": True,
+        }
 
         return {
             "tasks": items,
@@ -165,17 +179,7 @@ class TaskQueryService:
                 "prev_num": page - 1 if page > 1 else None,
                 "next_num": page + 1 if page < pages else None,
             },
-            "statistics": {
-                "total_tasks": total,
-                "completed_tasks": completed_tasks,
-                "running_tasks": running_tasks,
-                "error_tasks": error_tasks,
-                "pending_tasks": pending_tasks,
-                "today_new_tasks": today_new_tasks,
-                "success_rate": success_rate,
-                "error_rate": error_rate,
-                "avg_duration_minutes": avg_duration_minutes,
-            },
+            "statistics": statistics,
         }
 
     def check_local_task_status(self, task_id: str) -> dict[str, Any]:
