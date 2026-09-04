@@ -15,7 +15,7 @@ from typing import Any
 from flask import current_app
 from sqlalchemy.exc import IntegrityError
 
-from app.extensions import db
+from app.repositories import backtest_repository, task_repository, task_result_repository
 from app.models import BacktestProductResultCache, Task, TaskResult, TaskResultReturn
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
@@ -525,7 +525,7 @@ def _parse_returns_json(raw: Any) -> list[dict[str, Any]]:
 
 def _get_return_date_for_task_result(task_result: TaskResult) -> list[dict[str, Any]]:
     if task_result.return_series_id:
-        return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
+        return_series = task_result_repository.get_return_entity(task_result.return_series_id)
         if return_series:
             return parse_return_series_fields(return_series)
     return _extract_return_date_from_result_payload(_parse_json(task_result.result, {}))
@@ -748,11 +748,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             return False
         for parameter in parameters:
             cache_key = cls._build_fixed_product_cache_key(config_data, product, parameter)
-            exists = BacktestProductResultCache.query.filter_by(
-                batch_id=batch_id,
-                cache_key=cache_key,
-            ).first()
-            if not exists:
+            if not backtest_repository.product_cache_exists(batch_id, cache_key):
                 return False
         return True
 
@@ -766,17 +762,14 @@ class BacktestMultiProductService(BacktestTrainingService):
         if not batch_id or not _is_fixed_product(product):
             return None
         cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
-        cache_entry = BacktestProductResultCache.query.filter_by(
-            batch_id=batch_id,
-            cache_key=cache_key,
-        ).first()
+        cache_entry = backtest_repository.get_product_cache(batch_id, cache_key)
         if not cache_entry:
             return None
         return {
-            "result_json": cache_entry.result_json,
-            "returns_json": cache_entry.returns_json,
-            "source_task_id": cache_entry.source_task_id,
-            "source_step_index": cache_entry.source_step_index,
+            "result_json": cache_entry["result_json"],
+            "returns_json": cache_entry["returns_json"],
+            "source_task_id": cache_entry["source_task_id"],
+            "source_step_index": cache_entry["source_step_index"],
         }
 
     def _save_fixed_product_cache(
@@ -793,10 +786,10 @@ class BacktestMultiProductService(BacktestTrainingService):
             return
 
         cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
-        if BacktestProductResultCache.query.filter_by(batch_id=batch_id, cache_key=cache_key).first():
+        if backtest_repository.product_cache_exists(batch_id, cache_key):
             return
 
-        db.session.add(BacktestProductResultCache(
+        backtest_repository.add_entity(BacktestProductResultCache(
             batch_id=batch_id,
             cache_key=cache_key,
             result_json=json.dumps(self._sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
@@ -805,9 +798,9 @@ class BacktestMultiProductService(BacktestTrainingService):
             source_step_index=step_index,
         ))
         try:
-            db.session.commit()
+            task_result_repository.commit()
         except IntegrityError:
-            db.session.rollback()
+            task_result_repository.rollback()
 
     def _build_cached_result_parameters(
         self,
@@ -892,7 +885,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         try:
             context_app = self.app or current_app
             with context_app.app_context():
-                task = db.session.get(Task, self.task_id)
+                task = task_repository.get_entity(self.task_id)
                 self.task = task
                 if not task:
                     self._log_error(f"任务 {self.task_id} 不存在")
@@ -931,7 +924,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         parameter_count = len(products[0]["parameters"])
         total_steps = parameter_count * len(products)
         task.total_steps = total_steps
-        db_retry_manager.commit_with_retry(db.session)
+        task_result_repository.commit_with_retry()
         self._log_info(f"将执行 {parameter_count} 个参数方案、{len(products)} 个产品，共 {total_steps} 步")
 
         # current_step 与 TaskResult.step_index 都是全局步骤索引，而不是单个产品内索引。
@@ -950,12 +943,8 @@ class BacktestMultiProductService(BacktestTrainingService):
                     processed_index += 1
                     continue
 
-                result = safe_db_operation(
-                    lambda: db.session.query(Task.status).filter(
-                        Task.id == self.task_id
-                    ).first()
-                )
-                if not result or result.status == "cancelled":
+                result = task_repository.get_status_value(self.task_id)
+                if not result or result == "cancelled":
                     self._log_warning("任务已被取消，停止执行")
                     return "cancelled"
 
@@ -1076,11 +1065,11 @@ class BacktestMultiProductService(BacktestTrainingService):
         return "completed" if success_count else "error"
 
     def _update_task_progress(self, current_step: int) -> None:
-        task = db.session.get(Task, self.task_id)
+        task = task_repository.get_entity(self.task_id)
         if not task:
             return
         task.current_step = current_step
-        db_retry_manager.commit_with_retry(db.session)
+        task_result_repository.commit_with_retry()
 
     def _save_task_result(
         self,
@@ -1113,8 +1102,8 @@ class BacktestMultiProductService(BacktestTrainingService):
                 result=json.dumps(safe_result, allow_nan=False),
                 success=success,
             )
-            db.session.add(task_result)
-            db.session.flush()
+            task_result_repository.add_entity(task_result)
+            task_result_repository.flush()
             if return_date:
                 series_fields = build_return_series_fields(
                     return_date,
@@ -1133,18 +1122,18 @@ class BacktestMultiProductService(BacktestTrainingService):
                     task_id=self.task_id,
                     **series_fields,
                 )
-                db.session.add(return_series)
-                db.session.flush()
+                task_result_repository.add_entity(return_series)
+                task_result_repository.flush()
                 task_result.return_series_id = return_series.id
 
-            db.session.commit()
+            task_result_repository.commit()
 
         try:
             context_app = self.app or current_app
             with context_app.app_context():
                 safe_db_operation(save_result_operation)
         except Exception as exc:
-            db.session.rollback()
+            task_result_repository.rollback()
             self._log_error(f"保存多品任务结果失败: {exc}")
             raise
 
@@ -1272,7 +1261,7 @@ def build_multi_product_global_preview_payload(
     每个方案同时保留原始单产品指标、比例后单产品指标和组合指标，供页面
     表格与 Excel 导出共用同一份数据格式。
     """
-    task = db.session.get(Task, task_id)
+    task = task_repository.get_entity(task_id)
     if not task or task.task_type != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
         return None
     config = normalize_multi_product_config(task.to_dict().get("config") or {})
@@ -1458,7 +1447,7 @@ def build_multi_product_global_preview_word_payload(
     ratios_override: list[Any] | None = None,
 ) -> dict[str, Any] | None:
     """构建指定参数方案的多品 Word 报告数据。"""
-    task = db.session.get(Task, task_id)
+    task = task_repository.get_entity(task_id)
     if not task or task.task_type != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
         return None
 

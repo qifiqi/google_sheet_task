@@ -19,7 +19,7 @@ from sqlalchemy.orm import Load
 
 from flask import has_app_context
 
-from app.extensions import db
+from app.repositories import backtest_repository, task_log_repository, task_repository, task_result_repository
 from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
 from app.services.performance_analysis.historical_metrics import upgrade_historical_metrics
 from app.services.stock_metadata_service import lookup_stock_metadata
@@ -1131,44 +1131,39 @@ class ModelSummaryService:
         with self._index_lock:
             summary = self._upsert_task_batch([task_id])
             if commit:
-                db.session.commit()
+                task_result_repository.commit()
             return summary
 
     def _upsert_task_result_locked(self, task_result_id: int, *, commit: bool = True) -> int:
         """处理_upsert_task_result_locked相关逻辑。"""
-        record = (
-            db.session.query(Task, TaskResult)
-            .join(TaskResult, TaskResult.task_id == Task.id)
-            .filter(TaskResult.id == task_result_id)
-            .first()
-        )
+        record = backtest_repository.get_task_result_pair(task_result_id)
         if not record:
             return 0
         task, result = record
         rows = _extract_candidate_records(task, result)
         existing = {
             item.model_key: item
-            for item in TaskResultSummaryIndex.query.filter_by(task_result_id=result.id).all()
+            for item in backtest_repository.find_summary_index_entities_by_result(result.id)
         }
         changed_task_ids = set()
         for row in rows:
             item = existing.get(row.model_key)
             if item is None:
                 item = TaskResultSummaryIndex(task_result_id=row.task_result_id, model_key=row.model_key)
-                db.session.add(item)
+                backtest_repository.add_entity(item)
             self._apply_record(item, row)
             changed_task_ids.add(row.task_id)
 
         stale_keys = set(existing) - {row.model_key for row in rows}
         for key in stale_keys:
             changed_task_ids.add(existing[key].task_id)
-            db.session.delete(existing[key])
-        db.session.flush()
+            backtest_repository.delete_entity(existing[key])
+        task_result_repository.flush()
 
         for changed_task_id in changed_task_ids:
             self._keep_only_best_for_task(changed_task_id)
         if commit:
-            db.session.commit()
+            task_result_repository.commit()
         return len(rows)
 
     def rebuild(
@@ -1205,7 +1200,7 @@ class ModelSummaryService:
             if task_type:
                 delete_query = delete_query.filter(TaskResultSummaryIndex.task_type == task_type)
             deleted = delete_query.delete(synchronize_session=False)
-            db.session.commit()
+            task_result_repository.commit()
         else:
             deleted = 0
 
@@ -1238,7 +1233,7 @@ class ModelSummaryService:
                         f"扫描 {processed} 条结果，解析候选 {candidate_records} 条"
                     ),
                 )
-            db.session.commit()
+            task_result_repository.commit()
 
         deduped = self._dedupe_best_per_task(task_type=task_type, task_id=task_id)
         indexed = self._count_index_rows(task_type=task_type, task_id=task_id)
@@ -1293,9 +1288,11 @@ class ModelSummaryService:
                 current_step=0,
                 created_by_user_id=created_by_user_id,
             )
-            db.session.add(rebuild_task)
-            db.session.add(TaskLog(task_id=job_id, level="info", message="索引重建任务已创建"))
-            db.session.commit()
+            task_repository.add_entity(rebuild_task)
+            task_log_repository.add_entity(
+                TaskLog(task_id=job_id, level="info", message="索引重建任务已创建")
+            )
+            task_result_repository.commit()
 
             job = {
                 "job_id": job_id,
@@ -1686,38 +1683,21 @@ class ModelSummaryService:
 
         task_id = str(filters.get("task_id") or "").strip()
         result_id = filters.get("result_id")
-        task_query = db.session.query(Task.id).filter(Task.task_type.in_(visible_types))
-        if task_id:
-            task_query = task_query.filter(Task.id == task_id)
-        task_query = task_query.filter(or_(
-            Task.name.ilike(f"%{stock_code}%"),
-            Task.config.ilike(f"%{stock_code}%"),
-        ))
-        matched_task_ids = [row[0] for row in task_query.all()]
+        matched_task_ids = backtest_repository.list_task_ids_by_visible_types(
+            visible_types,
+            task_id=task_id,
+            stock_code=stock_code,
+        )
         if not matched_task_ids:
             return self._empty_response(page, per_page, columns=columns)
 
-        query = (
-            db.session.query(Task, TaskResult)
-            .join(TaskResult, TaskResult.task_id == Task.id)
-            .options(
-                Load(Task).load_only(Task.id, Task.name, Task.task_type, Task.config),
-                Load(TaskResult).load_only(
-                    TaskResult.id,
-                    TaskResult.task_id,
-                    TaskResult.parameters,
-                    TaskResult.result,
-                    TaskResult.success,
-                    TaskResult.timestamp,
-                ),
-            )
-            .filter(Task.id.in_(matched_task_ids), TaskResult.success == True)
+        pairs = backtest_repository.list_task_result_pairs_by_filters(
+            matched_task_ids,
+            result_id=result_id,
         )
-        if result_id:
-            query = query.filter(TaskResult.id == int(result_id))
 
         rows: list[SummaryRecord] = []
-        for task, result in query.order_by(TaskResult.timestamp.desc(), TaskResult.id.desc()).all():
+        for task, result in pairs:
             rows.extend(
                 row
                 for row in _extract_candidate_records(task, result)
@@ -1758,11 +1738,7 @@ class ModelSummaryService:
         """处理_upsert_batch相关逻辑。"""
         result_ids = [result.id for _task, result in batch]
         existing_items = (
-            TaskResultSummaryIndex.query
-            .filter(TaskResultSummaryIndex.task_result_id.in_(result_ids))
-            .all()
-            if result_ids
-            else []
+            backtest_repository.find_summary_index_entities_by_result_ids(result_ids)
         )
         existing = {
             (item.task_result_id, item.model_key): item
@@ -1784,16 +1760,16 @@ class ModelSummaryService:
                         task_result_id=row.task_result_id,
                         model_key=row.model_key,
                     )
-                    db.session.add(item)
+                    backtest_repository.add_entity(item)
                 self._apply_record(item, row)
                 changed_task_ids.add(row.task_id)
 
         for key, item in existing.items():
             if key not in seen_keys:
                 changed_task_ids.add(item.task_id)
-                db.session.delete(item)
+                backtest_repository.delete_entity(item)
 
-        db.session.flush()
+        task_result_repository.flush()
         for changed_task_id in changed_task_ids:
             self._keep_only_best_for_task(changed_task_id)
         return indexed
@@ -1804,43 +1780,19 @@ class ModelSummaryService:
         task_id: str | None = None,
     ) -> list[str]:
         """处理_load_rebuild_task_ids相关逻辑。"""
-        query = db.session.query(Task.id).filter(Task.status.in_(FINISHED_TASK_STATUSES))
-        if task_type:
-            query = query.filter(Task.task_type == task_type)
-        else:
-            query = query.filter(Task.task_type.in_(SUPPORTED_TASK_TYPES))
-        if task_id:
-            query = query.filter(Task.id == task_id)
-        rows = (
-            query
-            .order_by(Task.created_at.asc(), Task.id.asc())
-            .all()
+        return backtest_repository.list_finished_task_ids(
+            FINISHED_TASK_STATUSES,
+            SUPPORTED_TASK_TYPES,
+            task_type=task_type,
+            task_id=task_id,
         )
-        return [row[0] for row in rows]
 
     def _upsert_task_batch(self, task_ids: list[str]) -> dict[str, int]:
         """处理_upsert_task_batch相关逻辑。"""
         if not task_ids:
             return {"processed": 0, "processed_tasks": 0, "candidate_records": 0}
 
-        batch = (
-            db.session.query(Task, TaskResult)
-            .join(TaskResult, TaskResult.task_id == Task.id)
-            .options(
-                Load(Task).load_only(Task.id, Task.name, Task.task_type, Task.config),
-                Load(TaskResult).load_only(
-                    TaskResult.id,
-                    TaskResult.task_id,
-                    TaskResult.parameters,
-                    TaskResult.result,
-                    TaskResult.success,
-                    TaskResult.timestamp,
-                ),
-            )
-            .filter(Task.id.in_(task_ids), TaskResult.success == True)
-            .order_by(Task.id.asc(), TaskResult.id.asc())
-            .all()
-        )
+        batch = backtest_repository.list_task_result_pairs_for_rebuild(task_ids)
         best_by_group: dict[tuple[str, str], SummaryRecord] = {}
         candidate_records = 0
 
@@ -1852,10 +1804,8 @@ class ModelSummaryService:
                 if current is None or self._is_better_record(row, current):
                     best_by_group[key] = row
 
-        TaskResultSummaryIndex.query.filter(
-            TaskResultSummaryIndex.task_id.in_(task_ids)
-        ).delete(synchronize_session=False)
-        db.session.flush()
+        backtest_repository.delete_summary_index_by_task_ids(task_ids, commit=False)
+        task_result_repository.flush()
 
         for row in best_by_group.values():
             item = TaskResultSummaryIndex(
@@ -1864,9 +1814,9 @@ class ModelSummaryService:
                 is_best=True,
             )
             self._apply_record(item, row)
-            db.session.add(item)
+            backtest_repository.add_entity(item)
 
-        db.session.flush()
+        task_result_repository.flush()
         return {
             "processed": len(batch),
             "processed_tasks": len(task_ids),
@@ -1983,60 +1933,19 @@ class ModelSummaryService:
 
     def _count_index_rows(self, task_type: str | None = None, task_id: str | None = None) -> int:
         """处理_count_index_rows相关逻辑。"""
-        query = TaskResultSummaryIndex.query
-        if task_id:
-            query = query.filter(TaskResultSummaryIndex.task_id == task_id)
-        if task_type:
-            query = query.filter(TaskResultSummaryIndex.task_type == task_type)
-        return query.count()
+        return backtest_repository.count_index_rows(task_type=task_type, task_id=task_id)
 
     def _dedupe_best_per_task(self, task_type: str | None = None, task_id: str | None = None) -> int:
         """处理_dedupe_best_per_task相关逻辑。"""
-        group_expression = _summary_index_group_expression()
-        ranked_query = db.session.query(
-            TaskResultSummaryIndex.id.label("id"),
-            func.row_number().over(
-                partition_by=(TaskResultSummaryIndex.task_id, group_expression),
-                order_by=(
-                    func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                    TaskResultSummaryIndex.best_metric_value.desc(),
-                    TaskResultSummaryIndex.id.desc(),
-                ),
-            ).label("row_number"),
+        return backtest_repository.dedupe_best_per_task(
+            _summary_index_group_expression(),
+            task_type=task_type,
+            task_id=task_id,
         )
-        if task_id:
-            ranked_query = ranked_query.filter(TaskResultSummaryIndex.task_id == task_id)
-        if task_type:
-            ranked_query = ranked_query.filter(TaskResultSummaryIndex.task_type == task_type)
-        ranked = ranked_query.subquery()
-        duplicate_ids = db.session.query(ranked.c.id).filter(ranked.c.row_number > 1)
-        deleted = (
-            TaskResultSummaryIndex.query
-            .filter(TaskResultSummaryIndex.id.in_(duplicate_ids))
-            .delete(synchronize_session=False)
-        )
-        TaskResultSummaryIndex.query.filter(
-            TaskResultSummaryIndex.id.in_(
-                db.session.query(ranked.c.id).filter(ranked.c.row_number == 1)
-            )
-        ).update({"is_best": True}, synchronize_session=False)
-        return deleted
 
     def _keep_only_best_for_task(self, task_id: str) -> None:
         """处理_keep_only_best_for_task相关逻辑。"""
-        rows = (
-            TaskResultSummaryIndex.query
-            .filter_by(task_id=task_id)
-            .order_by(
-                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                TaskResultSummaryIndex.best_metric_value.desc(),
-                TaskResultSummaryIndex.period_key.asc(),
-                TaskResultSummaryIndex.year_label.asc(),
-                TaskResultSummaryIndex.kline_range.asc(),
-                TaskResultSummaryIndex.id.desc(),
-            )
-            .all()
-        )
+        rows = backtest_repository.find_summary_index_entities_by_task_ordered(task_id)
         seen_groups: set[str] = set()
         for row in rows:
             group_key = row.period_key or row.year_label or row.kline_range or ""
@@ -2044,7 +1953,7 @@ class ModelSummaryService:
                 seen_groups.add(group_key)
                 row.is_best = True
                 continue
-            db.session.delete(row)
+            backtest_repository.delete_entity(row)
 
     def _update_rebuild_task(
         self,
@@ -2060,7 +1969,7 @@ class ModelSummaryService:
         level: str = "info",
     ) -> None:
         """处理_update_rebuild_task相关逻辑。"""
-        task = db.session.get(Task, task_id)
+        task = task_repository.get_entity(task_id)
         if not task:
             return
         if status is not None:
@@ -2076,13 +1985,15 @@ class ModelSummaryService:
         if error_message is not None:
             task.error_message = error_message
         if message:
-            db.session.add(TaskLog(task_id=task_id, level=level, message=message))
-        db.session.commit()
+            task_log_repository.add_entity(
+                TaskLog(task_id=task_id, level=level, message=message)
+            )
+        task_result_repository.commit()
 
     def _job_with_task_status(self, job: dict[str, Any]) -> dict[str, Any]:
         """处理_job_with_task_status相关逻辑。"""
         task_id = job.get("task_id") or job.get("job_id")
-        task = db.session.get(Task, task_id) if task_id else None
+        task = task_repository.get_entity(task_id) if task_id else None
         if task:
             job["task"] = task.to_dict()
             job["status"] = task.status
@@ -2096,7 +2007,7 @@ class ModelSummaryService:
         """处理_job_from_task相关逻辑。"""
         if not task_id:
             return None
-        task = db.session.get(Task, task_id)
+        task = task_repository.get_entity(task_id)
         if not task or task.task_type != MODEL_SUMMARY_REBUILD_TASK_TYPE:
             return None
         config = _parse_json(task.config, {})

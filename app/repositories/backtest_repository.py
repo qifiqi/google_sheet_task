@@ -6,13 +6,16 @@
   无锁行则插入并提交，撞唯一约束（并发竞态）时回滚复查后判失败；
 - release_lock：持锁任务不匹配时拒绝释放（返回 False），不得删除他人锁。
 """
-from sqlalchemy import MetaData, Table, inspect, or_
+from sqlalchemy import MetaData, Table, func, inspect, or_
+from sqlalchemy.orm import Load, load_only
 from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
 from app.models import (
     BacktestProductResultCache,
     BacktestSheetRunLock,
+    Task,
+    TaskResult,
     TaskResultSummaryIndex,
 )
 from app.repositories.base import BaseRepository
@@ -79,6 +82,160 @@ class BacktestRepository(BaseRepository):
         if clauses:
             db.session.execute(jobs_table.delete().where(or_(*clauses)))
 
+    def find_summary_index_entities_by_result(self, task_result_id):
+        return TaskResultSummaryIndex.query.filter_by(task_result_id=task_result_id).all()
+
+    def find_summary_index_entities_by_result_ids(self, result_ids):
+        if not result_ids:
+            return []
+        return (
+            TaskResultSummaryIndex.query
+            .filter(TaskResultSummaryIndex.task_result_id.in_(result_ids))
+            .all()
+        )
+
+    def get_task_result_pair(self, task_result_id):
+        """(Task, TaskResult) join 实体，供候选记录提取。"""
+        return (
+            db.session.query(Task, TaskResult)
+            .join(TaskResult, TaskResult.task_id == Task.id)
+            .filter(TaskResult.id == task_result_id)
+            .first()
+        )
+
+    def list_task_ids_by_visible_types(self, visible_types, task_id=None, stock_code=None):
+        query = db.session.query(Task.id).filter(Task.task_type.in_(visible_types))
+        if task_id:
+            query = query.filter(Task.id == task_id)
+        query = query.filter(or_(
+            Task.name.ilike(f"%{stock_code}%"),
+            Task.config.ilike(f"%{stock_code}%"),
+        ))
+        return [row[0] for row in query.all()]
+
+    def list_task_result_pairs_by_filters(self, matched_task_ids, result_id=None):
+        query = (
+            db.session.query(Task, TaskResult)
+            .join(TaskResult, TaskResult.task_id == Task.id)
+            .options(
+                Load(Task).load_only(Task.id, Task.name, Task.task_type, Task.config),
+                Load(TaskResult).load_only(
+                    TaskResult.id,
+                    TaskResult.task_id,
+                    TaskResult.parameters,
+                    TaskResult.result,
+                    TaskResult.success,
+                    TaskResult.timestamp,
+                ),
+            )
+            .filter(Task.id.in_(matched_task_ids), TaskResult.success == True)
+        )
+        if result_id:
+            query = query.filter(TaskResult.id == int(result_id))
+        return (
+            query.order_by(TaskResult.timestamp.desc(), TaskResult.id.desc()).all()
+        )
+
+    def list_rebuild_task_ids(self, task_ids_query):
+        """占位（由调用方传入查询的复杂场景不使用）。"""
+        raise NotImplementedError
+
+    def list_finished_task_ids(self, finished_statuses, supported_types, task_type=None, task_id=None):
+        query = db.session.query(Task.id).filter(Task.status.in_(finished_statuses))
+        if task_type:
+            query = query.filter(Task.task_type == task_type)
+        else:
+            query = query.filter(Task.task_type.in_(supported_types))
+        if task_id:
+            query = query.filter(Task.id == task_id)
+        rows = query.order_by(Task.created_at.asc(), Task.id.asc()).all()
+        return [row[0] for row in rows]
+
+    def list_task_result_pairs_for_rebuild(self, task_ids):
+        return (
+            db.session.query(Task, TaskResult)
+            .join(TaskResult, TaskResult.task_id == Task.id)
+            .options(
+                Load(Task).load_only(Task.id, Task.name, Task.task_type, Task.config),
+                Load(TaskResult).load_only(
+                    TaskResult.id,
+                    TaskResult.task_id,
+                    TaskResult.parameters,
+                    TaskResult.result,
+                    TaskResult.success,
+                    TaskResult.timestamp,
+                ),
+            )
+            .filter(Task.id.in_(task_ids), TaskResult.success == True)
+            .order_by(Task.id.asc(), TaskResult.id.asc())
+            .all()
+        )
+
+    def delete_summary_index_by_task_ids(self, task_ids, commit=True):
+        deleted = (
+            TaskResultSummaryIndex.query
+            .filter(TaskResultSummaryIndex.task_id.in_(task_ids))
+            .delete(synchronize_session=False)
+        )
+        if commit:
+            self._commit()
+        return deleted
+
+    def dedupe_best_per_task(self, group_expression, task_type=None, task_id=None):
+        """按分组窗口函数去重，仅保留每组最新最优一条；返回删除行数。"""
+        ranked_query = db.session.query(
+            TaskResultSummaryIndex.id.label("id"),
+            func.row_number().over(
+                partition_by=(TaskResultSummaryIndex.task_id, group_expression),
+                order_by=(
+                    func.date(TaskResultSummaryIndex.result_timestamp).desc(),
+                    TaskResultSummaryIndex.best_metric_value.desc(),
+                    TaskResultSummaryIndex.id.desc(),
+                ),
+            ).label("row_number"),
+        )
+        if task_id:
+            ranked_query = ranked_query.filter(TaskResultSummaryIndex.task_id == task_id)
+        if task_type:
+            ranked_query = ranked_query.filter(TaskResultSummaryIndex.task_type == task_type)
+        ranked = ranked_query.subquery()
+        duplicate_ids = db.session.query(ranked.c.id).filter(ranked.c.row_number > 1)
+        deleted = (
+            TaskResultSummaryIndex.query
+            .filter(TaskResultSummaryIndex.id.in_(duplicate_ids))
+            .delete(synchronize_session=False)
+        )
+        TaskResultSummaryIndex.query.filter(
+            TaskResultSummaryIndex.id.in_(
+                db.session.query(ranked.c.id).filter(ranked.c.row_number == 1)
+            )
+        ).update({"is_best": True}, synchronize_session=False)
+        return deleted
+
+    def find_summary_index_entities_by_task_ordered(self, task_id):
+        """任务汇总实体（保留最优判定顺序）。"""
+        return (
+            TaskResultSummaryIndex.query
+            .filter_by(task_id=task_id)
+            .order_by(
+                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
+                TaskResultSummaryIndex.best_metric_value.desc(),
+                TaskResultSummaryIndex.period_key.asc(),
+                TaskResultSummaryIndex.year_label.asc(),
+                TaskResultSummaryIndex.kline_range.asc(),
+                TaskResultSummaryIndex.id.desc(),
+            )
+            .all()
+        )
+
+    def count_index_rows(self, task_type=None, task_id=None):
+        query = TaskResultSummaryIndex.query
+        if task_id:
+            query = query.filter(TaskResultSummaryIndex.task_id == task_id)
+        if task_type:
+            query = query.filter(TaskResultSummaryIndex.task_type == task_type)
+        return query.count()
+
     def delete_summary_index_by_result_ids(self, result_ids, commit=True):
         deleted = (
             TaskResultSummaryIndex.query
@@ -124,6 +281,13 @@ class BacktestRepository(BaseRepository):
         return deleted
 
     # ---- BacktestProductResultCache ----
+
+    def product_cache_exists(self, batch_id, cache_key):
+        return (
+            BacktestProductResultCache.query
+            .filter_by(batch_id=batch_id, cache_key=cache_key)
+            .first()
+        ) is not None
 
     def get_product_cache(self, batch_id, cache_key):
         row = (

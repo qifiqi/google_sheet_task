@@ -166,6 +166,15 @@ class TaskRepository(BaseRepository):
             },
         }
 
+    def get_status_value(self, task_id):
+        """仅取任务状态值（执行链每步取消检查的热路径）。"""
+        row = (
+            Task.query.with_entities(Task.status)
+            .filter(Task.id == task_id)
+            .first()
+        )
+        return row[0] if row else None
+
     def get_entity_fresh(self, task_id):
         """过期会话缓存后重读实体（收尾判断用，执行域）。"""
         try:

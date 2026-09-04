@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from flask import current_app, has_app_context
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from app.repositories import task_repository, task_result_repository
 from app.models import Task, TaskLog, db
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -144,7 +145,7 @@ class BaseGoogleSheetService:
         if self.stop_event and self.stop_event.is_set():
             return True
         try:
-            task = db.session.get(Task, self.task_id)
+            task = task_repository.get_entity(self.task_id)
             return bool(task and task.status == 'cancelled')
         except Exception:
             return False
@@ -245,8 +246,8 @@ class BaseGoogleSheetService:
                 level=level,
                 message=TaskLog.normalize_message(message),
             )
-            db.session.add(log)
-            db.session.commit()
+            task_log_repository.add_entity(log)
+            task_result_repository.commit()
 
         try:
             if has_app_context():
@@ -261,7 +262,7 @@ class BaseGoogleSheetService:
             # 提交失败后 SQLAlchemy session 会处于 failed state；必须回滚，
             # 否则后续任务结果写入会触发 PendingRollbackError。
             try:
-                db.session.rollback()
+                task_result_repository.rollback()
             except Exception:
                 pass
             pass

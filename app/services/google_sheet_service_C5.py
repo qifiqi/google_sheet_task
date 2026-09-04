@@ -5,6 +5,7 @@ from typing import Dict, Any
 from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
+from app.repositories import task_repository, task_result_repository
 from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, TaskResult, db, TaskResultReturn
 from app.utils.return_series import build_return_series_fields, extract_return_rows
@@ -72,7 +73,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
-                task = db.session.get(Task, self.task_id)
+                task = task_repository.get_entity(self.task_id)
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -143,7 +144,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = db.session.get(Task, self.task_id)
+                task = task_repository.get_entity(self.task_id)
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -293,7 +294,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
             # 更新任务总步数
             task.total_steps = total_combinations
-            db_retry_manager.commit_with_retry(db.session)
+            task_result_repository.commit_with_retry()
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -337,13 +338,11 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                     # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
                     def check_task_status():
-                        return db.session.query(Task.status).filter(
-                            Task.id == self.task_id
-                        ).first()
+                        return task_repository.get_status_value(self.task_id)
 
                     result = safe_db_operation(check_task_status)
 
-                    if not result or result.status == 'cancelled':
+                    if not result or result == 'cancelled':
                         self._log_warning("任务已被取消，停止执行")
                         return success_count, failed_count, 'cancelled'
 
@@ -386,7 +385,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         # 更新当前步数为组合级别
                         task.current_step = current_step
-                        db_retry_manager.commit_with_retry(db.session)
+                        task_result_repository.commit_with_retry()
 
                         # 保存结果到数据库
                         stock_name = str(combination.get('stock_name') or '').strip()
@@ -406,7 +405,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         # 检查是否是任务被取消
                         task.error = e
                         try:
-                            task_check = db.session.get(Task, self.task_id)
+                            task_check = task_repository.get_entity(self.task_id)
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
@@ -430,7 +429,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 检查是否是任务被取消导致的异常
             task.error = e
             try:
-                task_check = db.session.get(Task, self.task_id)
+                task_check = task_repository.get_entity(self.task_id)
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
@@ -715,7 +714,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 result=json.dumps(safe_result, allow_nan=False),
                 success=success
             )
-            db.session.add(task_result)
+            task_result_repository.add_entity(task_result)
             series_fields = build_return_series_fields(
                 extract_return_rows(result),
                 stock_code=safe_parameters.get("stock_code"),
@@ -725,10 +724,10 @@ class GoogleSheetService(BaseGoogleSheetService):
             )
             if series_fields:
                 return_series = TaskResultReturn(task_id=self.task_id, **series_fields)
-                db.session.add(return_series)
-                db.session.flush()
+                task_result_repository.add_entity(return_series)
+                task_result_repository.flush()
                 task_result.return_series_id = return_series.id
-            db.session.commit()
+            task_result_repository.commit()
 
         try:
             if self.app:
@@ -739,7 +738,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 with current_app.app_context():
                     safe_db_operation(save_result_operation)
         except Exception as e:
-            db.session.rollback()
+            task_result_repository.rollback()
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
             raise
@@ -822,7 +821,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         #                 "source": stock_config.get("source") or "google_sheet_c5",
         #             })
         #         except Exception as metadata_error:
-        #             db.session.rollback()
+        #             task_result_repository.rollback()
         #             logger.warning("同步 C5 股票元数据失败: %s", metadata_error)
         #     market = stock_config['market']
         #     stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()

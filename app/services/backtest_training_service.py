@@ -6,6 +6,7 @@ from typing import Dict, Any
 from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
+from app.repositories import task_repository, task_result_repository
 from app.exceptions.checkForErrors import checkForErrors
 from app.models import Task, TaskResult, db, TaskResultReturn
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
@@ -144,7 +145,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 后台线程没有请求上下文，所有数据库和配置访问都必须在应用上下文内完成。
             context_app = self.app or current_app
             with context_app.app_context():
-                task = db.session.get(Task, self.task_id)
+                task = task_repository.get_entity(self.task_id)
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -224,7 +225,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = db.session.get(Task, self.task_id)
+                task = task_repository.get_entity(self.task_id)
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -306,13 +307,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         if checkpoint_index < 0:
             checkpoint_index = 0
 
-        saved_step_indexes = {
-            row.step_index
-            for row in TaskResult.query.with_entities(TaskResult.step_index)
-            .filter_by(task_id=self.task_id)
-            .all()
-            if row.step_index is not None and row.step_index >= 0
-        }
+        saved_step_indexes = set(task_result_repository.list_step_indexes_by_task(self.task_id))
         if not saved_step_indexes:
             return checkpoint_index
 
@@ -367,7 +362,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             total_combinations += len(combinations)
             # 更新任务总步数
             task.total_steps = total_combinations
-            db_retry_manager.commit_with_retry(db.session)
+            task_result_repository.commit_with_retry()
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -414,13 +409,11 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                     # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
                     def check_task_status():
-                        return db.session.query(Task.status).filter(
-                            Task.id == self.task_id
-                        ).first()
+                        return task_repository.get_status_value(self.task_id)
 
                     result = safe_db_operation(check_task_status)
 
-                    if not result or result.status == 'cancelled':
+                    if not result or result == 'cancelled':
                         self._log_warning("任务已被取消，停止执行")
                         return success_count, failed_count, 'cancelled'
 
@@ -434,7 +427,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                     # 更新当前步数为组合级别
                     task.current_step = current_step
-                    db_retry_manager.commit_with_retry(db.session)
+                    task_result_repository.commit_with_retry()
 
                     # 单个组合内部会根据 K 线是否变化决定是否重写输入列，只更新必要的单元格。
                     try:
@@ -476,7 +469,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                         # 检查是否是任务被取消
                         task.error = e
                         try:
-                            task_check = db.session.get(Task, self.task_id)
+                            task_check = task_repository.get_entity(self.task_id)
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
@@ -505,7 +498,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
             # 检查是否是任务被取消导致的异常
             task.error = e
             try:
-                task_check = db.session.get(Task, self.task_id)
+                task_check = task_repository.get_entity(self.task_id)
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
@@ -789,7 +782,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 result=json.dumps(safe_result, allow_nan=False),
                 success=success
             )
-            db.session.add(task_result)
+            task_result_repository.add_entity(task_result)
             if return_date:
                 series_fields = build_return_series_fields(
                     return_date,
@@ -808,10 +801,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     task_id=self.task_id,
                     **series_fields,
                 )
-                db.session.add(return_series)
-                db.session.flush()
+                task_result_repository.add_entity(return_series)
+                task_result_repository.flush()
                 task_result.return_series_id = return_series.id
-            db.session.commit()
+            task_result_repository.commit()
 
         try:
             if self.app:
@@ -822,7 +815,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 with current_app.app_context():
                     safe_db_operation(save_result_operation)
         except Exception as e:
-            db.session.rollback()
+            task_result_repository.rollback()
             error_msg = f"保存任务结果失败: {str(e)}"
             self._log_error(error_msg)
             raise

@@ -47,6 +47,24 @@ class BaseRepository:
         """实体流（执行链/占用记账）的提交出口：异常回滚后原样抛出。"""
         self._commit()
 
+    def add_entity(self, entity, flush=False):
+        """挂起实体（执行链服务构造 ORM 对象后经此入会话）。"""
+        db.session.add(entity)
+        if flush:
+            db.session.flush()
+        return entity
+
+    def delete_entity(self, entity):
+        """实体删除（差分清理用），提交由调用方控制。"""
+        db.session.delete(entity)
+        return entity
+
+    def commit_with_retry(self):
+        """带重试的提交（执行链长事务写出口，复用 db_retry_manager）。"""
+        from app.utils.db_retry import db_retry_manager
+
+        db_retry_manager.commit_with_retry(db.session)
+
     def rollback(self):
         """实体流的回滚出口。"""
         db.session.rollback()

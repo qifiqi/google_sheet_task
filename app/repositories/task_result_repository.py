@@ -304,8 +304,32 @@ class TaskResultRepository(BaseRepository):
             .all()
         )
 
+    def list_step_indexes_by_task(self, task_id):
+        rows = (
+            db.session.query(TaskResult.step_index)
+            .filter_by(task_id=task_id)
+            .all()
+        )
+        return [
+            row[0] for row in rows
+            if row[0] is not None and row[0] >= 0
+        ]
+
     def list_ids_by_task(self, task_id):
         rows = db.session.query(TaskResult.id).filter_by(task_id=task_id).all()
+        return [row[0] for row in rows]
+
+    def list_return_series_ids_by_task(self, task_id):
+        """任务全部非空 return_series_id（按 id asc）。"""
+        rows = (
+            db.session.query(TaskResult.return_series_id)
+            .filter(
+                TaskResult.task_id == task_id,
+                TaskResult.return_series_id.isnot(None),
+            )
+            .order_by(TaskResult.id.asc())
+            .all()
+        )
         return [row[0] for row in rows]
 
     def list_return_ids_by_task(self, task_id):

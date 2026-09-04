@@ -10,7 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from app.extensions import db
+from app.repositories import task_repository, task_result_repository
 from app.models import TaskResult, TaskResultReturn
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis_service import xpl_analyzer
@@ -136,28 +136,17 @@ class StrategyBacktestReportService:
             series_id = parse_int(return_series_id)
             if series_id is None:
                 raise ValueError("return_series_id 必须是整数")
-            series = db.session.get(TaskResultReturn, series_id)
+            series = task_result_repository.get_return_entity(series_id)
             if not series or series.task_id != task_id:
                 raise ValueError("return_series_id 不属于指定 task_id")
             return StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series))
 
-        series_ids = [
-            row[0]
-            for row in (
-                db.session.query(TaskResult.return_series_id)
-                .filter(
-                    TaskResult.task_id == task_id,
-                    TaskResult.return_series_id.isnot(None),
-                )
-                .order_by(TaskResult.id.asc())
-                .all()
-            )
-        ]
+        series_ids = task_result_repository.list_return_series_ids_by_task(task_id)
         if not series_ids:
             raise ValueError("任务没有可用的收益序列")
         if len(series_ids) > 1:
             raise ValueError("任务包含多条收益序列，请传入 return_series_id")
-        series = db.session.get(TaskResultReturn, series_ids[0])
+        series = task_result_repository.get_return_entity(series_ids[0])
         if not series:
             raise ValueError("任务收益序列不存在")
         return StrategyBacktestReportService._normalize_returns(parse_return_series_fields(series))
