@@ -46,3 +46,39 @@ def test_testing_config_disables_rate_limit():
     from app.config import TestingConfig
 
     assert TestingConfig.RATELIMIT_ENABLED is False
+
+def test_export_endpoint_rate_limited_by_user(app_factory):
+    """真实导出路由挂载验证：rate_limit_export（10/min，user 键）。
+
+    限流在视图前生效——前 10 次按业务返回 404（任务不存在），
+    第 11 次起 429 中文信封。
+    """
+    import secrets as _secrets
+    from werkzeug.security import generate_password_hash
+
+    pw = _secrets.token_hex(12)
+    app = app_factory
+    app.config.update(RATELIMIT_ENABLED=True)
+    limiter.enabled = True
+
+    with app.app_context():
+        from app.extensions import db
+        from app.models import User
+        db.create_all()
+        db.session.add(User(username="exporter", password_hash=generate_password_hash(pw), is_active=True))
+        db.session.commit()
+
+    client = app.test_client()
+    r = client.post("/api/auth/login", json={"username": "exporter", "password": pw})
+    headers = {"Authorization": "Bearer " + r.get_json()["data"]["access_token"]}
+
+    codes = [
+        client.get("/api/exports/tasks/nonexistent", headers=headers).status_code
+        for _ in range(11)
+    ]
+    assert codes[:10] == [404] * 10
+    assert codes[10] == 429
+    body = client.get("/api/exports/tasks/nonexistent", headers=headers).get_json()
+    assert body["status"] == "error" and body["code"] == 429
+    assert body["message"] == "请求过于频繁，请稍后重试"
+

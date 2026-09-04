@@ -199,6 +199,10 @@ def get_task_result_detail(task_result_id):
 
 @bt_api_bp.route("/api/task-result/<int:task_result_id>/export-preview", methods=["GET"])
 @login_required
+@limiter.limit(
+    lambda: f"{_rate_limit('rate_limit_export', 10) or 10}/minute",
+    key_func=_user_key,
+)
 def get_task_result_export_preview(task_result_id):
     task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
     if error_response:

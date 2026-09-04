@@ -13,6 +13,7 @@ from urllib.parse import quote
 from flask import Blueprint, Response, g, jsonify, request, send_file, stream_with_context
 
 from app.exceptions import BadRequestError, NotFoundError
+from app.extensions import limiter
 from app.repositories import task_repository, task_result_repository
 from app.services.export_service import export_service
 from app.services.export_file_service import sanitize_export_filename
@@ -22,6 +23,24 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 export_api_bp = Blueprint("export_api", __name__)
+
+
+def _rate_limit(config_key, default):
+    """限流阈值经 config_manager 运行时可调（零重启）。"""
+    from app.services.config_manager import get_config_manager
+
+    return get_config_manager().get_config(config_key, default)
+
+
+def _user_key():
+    return f"user:{getattr(getattr(g, 'current_user', None), 'id', 'anon')}"
+
+
+# 06 §3：导出端点统一 rate_limit_export（10/min，user 键）。
+_export_limit = limiter.limit(
+    lambda: f"{_rate_limit('rate_limit_export', 10) or 10}/minute",
+    key_func=_user_key,
+)
 
 
 def _load_task(task_id: str):
@@ -82,6 +101,7 @@ def _parse_ratios_query():
 
 @export_api_bp.route("/tasks/<task_id>", methods=["GET"])
 @login_required
+@_export_limit
 def export_task_results(task_id):
     task = _load_task(task_id)
     _require_completed_task(task)
@@ -93,6 +113,7 @@ def export_task_results(task_id):
 
 @export_api_bp.route("/tasks/<task_id>/stocks", methods=["GET"])
 @login_required
+@_export_limit
 def export_task_results_by_stock(task_id):
     task = _load_task(task_id)
     _require_completed_task(task)
@@ -104,6 +125,7 @@ def export_task_results_by_stock(task_id):
 
 @export_api_bp.route("/tasks/batch", methods=["POST"])
 @login_required
+@_export_limit
 def export_task_results_batch():
     data = request.get_json(silent=True) or {}
     task_ids = data.get("task_ids")
@@ -119,6 +141,7 @@ def export_task_results_batch():
 
 @export_api_bp.route("/global-previews/<task_id>", methods=["GET"])
 @login_required
+@_export_limit
 def export_global_preview(task_id):
     task = _load_task(task_id)
     _require_completed_task(task)
@@ -138,6 +161,7 @@ def export_global_preview(task_id):
 
 @export_api_bp.route("/global-previews/<task_id>/stocks", methods=["GET"])
 @login_required
+@_export_limit
 def export_global_preview_by_stock(task_id):
     task = _load_task(task_id)
     _require_completed_task(task)
@@ -151,6 +175,7 @@ def export_global_preview_by_stock(task_id):
 
 @export_api_bp.route("/global-previews/batch", methods=["POST"])
 @login_required
+@_export_limit
 def export_global_preview_batch():
     data = request.get_json(silent=True) or {}
     task_ids = data.get("task_ids")
@@ -167,6 +192,7 @@ def export_global_preview_batch():
 
 @export_api_bp.route("/backtest-results/<int:result_id>", methods=["GET"])
 @login_required
+@_export_limit
 def export_backtest_result(result_id):
     task_result = task_result_repository.get(result_id)
     if not task_result:
@@ -180,6 +206,7 @@ def export_backtest_result(result_id):
 
 @export_api_bp.route("/xpl", methods=["POST"])
 @login_required
+@_export_limit
 def export_xpl():
     try:
         return _file_response(export_service.export_xpl(request.get_json(silent=True) or {}))
@@ -189,6 +216,7 @@ def export_xpl():
 
 @export_api_bp.route("/backtest-reports/word", methods=["POST"])
 @login_required
+@_export_limit
 def export_backtest_word_report():
     """接收单产品或多产品回测收益序列并导出 DOCX 报告。"""
     try:
@@ -204,6 +232,7 @@ def export_backtest_word_report():
 
 @export_api_bp.route("/model-summary", methods=["GET"])
 @login_required
+@_export_limit
 def export_model_summary():
     try:
         generated = export_service.export_model_summary(
