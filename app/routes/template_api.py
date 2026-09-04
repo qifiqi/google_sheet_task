@@ -10,7 +10,8 @@ from app.exceptions import BadRequestError, NotFoundError
 from app.repositories import task_template_repository
 from app.utils.api_response import success
 from app.utils.auth import login_required
-from app.utils.request_validation import validate_body
+from app.schemas.template import TemplateCreateSchema, TemplateUpdateSchema
+from app.utils.request_parsing import parse_body
 
 template_api_bp = Blueprint('template_api', __name__)
 
@@ -39,11 +40,11 @@ def get_templates():
 @login_required
 def create_template():
     """创建新任务模板"""
-    data = validate_body(required=['name', 'config'])
+    data = parse_body(TemplateCreateSchema)
     template = task_template_repository.create(
-        name=data['name'],
-        description=data.get('description', ''),
-        config_str=_serialize_config_str(data['config']),
+        name=data.name,
+        description=data.description,
+        config_str=_serialize_config_str(data.config),
     )
     return success(data={"template": template}, message="模板创建成功")
 
@@ -64,11 +65,11 @@ def update_template(template_id):
     if template is None:
         raise NotFoundError("模板不存在")
 
-    data = validate_body(required=['name', 'config'])
+    data = parse_body(TemplateUpdateSchema)
     updated = task_template_repository.update(template_id, {
-        "name": data['name'],
-        "description": data.get('description', template['description']),
-        "config": _serialize_config_str(data['config']),
+        "name": data.name,
+        "description": data.description if data.description is not None else template['description'],
+        "config": _serialize_config_str(data.config),
     })
     return success(data={"template": updated})
 

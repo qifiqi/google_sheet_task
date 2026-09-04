@@ -14,11 +14,12 @@ from app.exceptions import NotFoundError
 from app.repositories import navigation_repository, rbac_repository, task_repository
 from app.navigation import sync_navigation_permissions
 from app.utils.api_response import error, success
+from app.utils.request_parsing import parse_body
 from app.utils.auth import (
     create_access_token, create_refresh_token, decode_token,
     login_required, extract_token_version,
 )
-from app.utils.request_validation import validate_body
+from app.schemas.auth import ChangePasswordSchema, CreateRoleSchema, CreateUserSchema
 
 auth_api_bp = Blueprint('auth_api', __name__)
 DEV_ROLE_CODES = {'developer'}
@@ -131,9 +132,9 @@ def logout():
 @login_required
 def change_password():
     from flask import g
-    data = validate_body(required=['old_password', 'new_password'])
-    old_pwd = data.get('old_password', '')
-    new_pwd = data.get('new_password', '')
+    data = parse_body(ChangePasswordSchema)
+    old_pwd = data.old_password
+    new_pwd = data.new_password
     if not old_pwd or not new_pwd:
         return error('旧密码和新密码不能为空')
     if len(new_pwd) < 6:
@@ -162,11 +163,11 @@ def list_users():
 @auth_api_bp.route('/admin/users', methods=['POST'])
 @login_required
 def create_user():
-    data = validate_body(required=['username', 'password'])
-    username = str(data.get('username', '')).strip()
-    password = data.get('password', '')
-    mobile = (data.get('mobile') or '').strip() or None
-    role_ids = data.get('role_ids', [])
+    data = parse_body(CreateUserSchema)
+    username = data.username.strip()
+    password = data.password
+    mobile = (data.mobile or '').strip() or None
+    role_ids = data.role_ids
 
     if not username or not password:
         return error('用户名和密码不能为空')
@@ -244,9 +245,9 @@ def list_roles():
 @auth_api_bp.route('/admin/roles', methods=['POST'])
 @login_required
 def create_role():
-    data = validate_body(required=['name', 'code'])
-    name = str(data.get('name', '')).strip()
-    code = str(data.get('code', '')).strip()
+    data = parse_body(CreateRoleSchema)
+    name = data.name.strip()
+    code = data.code.strip()
     if not name or not code:
         return error('角色名称和编码不能为空')
     if rbac_repository.role_code_exists(code):
