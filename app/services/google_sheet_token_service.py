@@ -23,10 +23,9 @@ class GoogleSheetTokenService:
         token_usage: Dict[int, int] = {}
         current_total = 0
 
-        running_tasks = task_repository.list_entities_by_status("running")
-        for task in running_tasks:
+        for row in task_repository.list_id_config_by_status("running"):
             try:
-                config = json.loads(task.config) if isinstance(task.config, str) else (task.config or {})
+                config = json.loads(row["config"]) if isinstance(row["config"], str) else (row["config"] or {})
             except Exception:
                 continue
 
@@ -64,10 +63,7 @@ class GoogleSheetTokenService:
         snapshot = self._build_live_usage_snapshot()
         token_usage = snapshot["token_usage"]
 
-        for token in google_sheet_token_repository.list_all_entities():
-            token.current_in_use_count = int(token_usage.get(int(token.id), 0))
-
-        google_sheet_token_repository.commit()
+        google_sheet_token_repository.apply_in_use_counts(token_usage)
 
     def list_tokens(self, task_type: Optional[str] = None):
         self.reconcile_in_use_counts()

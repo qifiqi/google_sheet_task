@@ -13,9 +13,24 @@ class GoogleSheetTokenRepository(BaseRepository):
 
     # ---- 读 ----
 
-    def list_all_entities(self):
-        """全量实体（占用计数对账循环用）。"""
-        return GoogleSheetToken.query.all()
+    def apply_in_use_counts(self, usage: dict[int, int], commit=True) -> int:
+        """按主键回写 current_in_use_count（对账）；不加载 token_context 大字段。
+
+        返回更新的行数。usage 为 {token_id: 目标占用数}。
+        """
+        updated = 0
+        for token_id, count in (usage or {}).items():
+            updated += (
+                GoogleSheetToken.query
+                .filter_by(id=int(token_id))
+                .update(
+                    {"current_in_use_count": int(count)},
+                    synchronize_session=False,
+                )
+            )
+        if commit:
+            self._commit()
+        return updated
 
     def list_entities_ordered(self, task_type=None):
         """list_tokens 的实体形态（服务层转 dict）。"""

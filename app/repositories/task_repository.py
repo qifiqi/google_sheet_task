@@ -286,9 +286,15 @@ class TaskRepository(BaseRepository):
             .all()
         ]
 
-    def list_entities_by_status(self, status):
-        """按状态取任务实体（token 占用快照等执行链消费）。"""
-        return Task.query.filter_by(status=status).all()
+    def list_id_config_by_status(self, status):
+        """按状态取 [{id, config}] 投影（token 占用快照消费；避免整行加载
+        数十 KB 的 config TEXT 时连带其余列）。"""
+        rows = (
+            Task.query.with_entities(Task.id, Task.config)
+            .filter_by(status=status)
+            .all()
+        )
+        return [{"id": row[0], "config": row[1]} for row in rows]
 
     def list_watchdog_active_ids(self, created_cutoff):
         """watchdog 重试缓存清理用：窗口内活跃任务 id。"""
