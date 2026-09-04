@@ -91,6 +91,65 @@ pytest tests/unit/test_p0_p1_refactor.py::test_name   # 定向
   对应未完成的项目代码修复（metrics 日度分布/月度基线、超额回撤符号约定、
   export-preview download 路由未注册、CSV Content-Type 重复 charset），修复后取消 skip
 - requirements.txt 仍不含 pytest，测试依赖装在 requirements-dev.txt
+- `tests/` 根目录残留与 `tests/unit/`、`tests/integration/` 同名的历史测试文件，
+  直接跑 `pytest` 会因模块名冲突收集报错；全量回归统一用
+  `python -m pytest tests/unit tests/integration`
+
+## 接口规范（2026-09 数据层重构确立）
+
+设计文档：`docs/design/data-layer-refactor/`（README + 01~05）。总原则：**全程不涉及数据库修改**
+（不改 schema/迁移/数据）；**全库无兼容层**（单一响应格式、单一异常体系、单一执行路径，
+无灰度/回退/双轨开关）。
+
+### 统一响应信封（全库唯一格式）
+
+```json
+{"status": "success", "code": 0, "message": "", "data": null}
+```
+
+- 唯一出口是 `app/utils/api_response.py` 的 `success()` / `error()` / `paginated()`；
+  **routes 禁止手写 `{"status": "error", ...}` 字典**；
+- 所有业务数据一律放 `data`（键名不变），无顶层平铺机制；
+- `code` 失败时默认等于 HTTP 状态码，业务码可显式覆盖；分页 data 统一
+  `{items, total, pages, current_page, per_page}`（`paginated()` 产出）。
+
+### 统一异常体系（`app/exceptions/base.py`，单一体系）
+
+- `AppException(message, code, http_status, detail, log_level)` 层级：
+  BadRequest/Validation(400)、Unauthorized(401)、Forbidden(403)、NotFound(404)、
+  Conflict(409)、RateLimit(429)、ServiceError(500)；
+- repositories 只抛 `NotFoundError` / `ConflictError`（其他异常原样上抛，保留异常链）；
+- services 抛语义/业务域子类；routes 原则上不 catch，交给全局处理器；
+- **任务线程域异常不并入**：`C5*`、`RetryableNetworkTaskError`、`[NETWORK_RETRYABLE]`
+  前缀是执行链语义（无 HTTP 语义），保持现状。
+
+### 全局错误处理器（`app/errors.py`，create_app 末尾注册）
+
+- 仅 `request.path.startswith("/api")` 返回 JSON 信封；页面路由保持 Flask 默认 HTML 错误页；
+- 兜底 `Exception` → 500 `"服务器内部错误"`，**绝不 `str(e)` 下发**；IntegrityError 兜底 409。
+
+### 请求校验（`app/utils/request_validation.py`）
+
+- `validate_body(required=..., types=...)` / `require_query(name, default, cast)`，
+  失败抛 `ValidationError` → 全局处理器 → 400 信封；路由内不再手写参数错误分支。
+
+### 数据层分层规则（repositories 独占 ORM）
+
+- 分层方向：`routes`（HTTP 编排）→ `services`（业务编排）→ `repositories`（独占 ORM）→ `models`；
+- routes/services 内**禁止直接书写 ORM 查询**（`db.session` / `Model.query`）；
+  从 `app.models` import 枚举常量（`TaskStatus`/`TaskType` 等）允许；
+- `app/repositories/` 命名约定：`get_`（可 None）/ `get_required_`（抛 NotFoundError）/
+  `list_` / `count_` / `exists_` / `create_` / `update_` / `delete_` / `bulk_` / `delete_older_than_`；
+- 写方法默认方法内 commit、签名带 `commit: bool = True`，异常 rollback 后裸 `raise`；
+  读方法绝不 commit；跨 repository 原子流程用 `base.transaction()` 包裹、各步骤传 `commit=False`；
+- 读路径返回 JSON 兼容原生结构（`to_dict()` / 投影），信封不下沉数据层；
+  `get_entity()` 仅任务执行域（runtime 线程目标）使用；
+- repositories 禁止 import `app.services` / `app.routes` / Flask；
+- `SystemConfig` 写路径：repository 只管行级读写，负缓存刷新留在 `config_manager`
+  （方向 config_manager → repository，禁止反向 import）；
+- `app/startup.py`、`run.py`、`app/navigation.py`（启动播种）、`migrations/`、
+  `tests/`、`scripts/` 不在替换范围；`app/utils/db_monitor.py`、`db_optimizer.py` 保留。
+
 
 ## 真实入口与启动流程
 

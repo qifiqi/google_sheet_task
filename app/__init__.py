@@ -60,6 +60,9 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
 
+    from app.errors import register_error_handlers
+    register_error_handlers(app)
+
     from app.services.config_manager import get_config_manager
     get_config_manager().init_app(app)
 
