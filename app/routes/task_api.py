@@ -200,31 +200,6 @@ def get_task_logs(task_id):
     return success(data={"logs": logs})
 
 
-@task_api_bp.route('/tasks/<task_id>/results', methods=['GET'])
-@login_required
-def get_task_results(task_id):
-    """获取任务结果"""
-    _get_task_entity_or_404(task_id)
-
-    page = request.args.get('page', type=int)
-    per_page = request.args.get('per_page', type=int)
-
-    if page is not None and per_page is not None:
-        data = task_manager.get_task_results(task_id, page=page, per_page=per_page)
-        return success(data={
-            "results": data["items"],
-            "total": data["total"],
-            "pages": data["pages"],
-            "current_page": data["current_page"],
-            "per_page": data["per_page"],
-            "total_success": data.get("total_success"),
-            "total_failed": data.get("total_failed"),
-        })
-
-    results = task_manager.get_task_results(task_id)
-    return success(data={"results": results})
-
-
 def export_task_results(task_id):
     """导出任务结果。"""
     task_obj = _get_task_entity_or_404(task_id)

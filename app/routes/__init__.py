@@ -49,7 +49,7 @@ def register_blueprints(app):
     app.register_blueprint(stock_api_bp, url_prefix='/api')
 
     app.register_blueprint(google_sheet_bp, url_prefix='/google-sheet')
-    app.register_blueprint(scheduler_api_bp)
+    app.register_blueprint(scheduler_api_bp, url_prefix='/api')
     app.register_blueprint(backtest_training_bp)
     app.register_blueprint(backtest_training_legacy_bp)
     app.register_blueprint(bt_api_bp)

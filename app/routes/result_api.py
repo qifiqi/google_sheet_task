@@ -6,12 +6,45 @@
 """
 from flask import Blueprint, request
 
+from app.repositories import task_repository, task_result_repository
+from app.services.task import task_manager
 from app.exceptions import NotFoundError
-from app.repositories import task_result_repository
 from app.utils.api_response import success
 from app.utils.auth import login_required
 
 result_api_bp = Blueprint('result_api', __name__)
+
+
+def _get_task_entity_or_404(task_id: str):
+    task = task_repository.get_entity(task_id)
+    if not task:
+        raise NotFoundError("任务不存在")
+    return task
+
+
+@result_api_bp.route('/tasks/<task_id>/results', methods=['GET'])
+@login_required
+def get_task_results(task_id):
+    """获取任务结果（自 task_api 归位，URL 不变）"""
+    _get_task_entity_or_404(task_id)
+
+    page = request.args.get('page', type=int)
+    per_page = request.args.get('per_page', type=int)
+
+    if page is not None and per_page is not None:
+        data = task_manager.get_task_results(task_id, page=page, per_page=per_page)
+        return success(data={
+            "results": data["items"],
+            "total": data["total"],
+            "pages": data["pages"],
+            "current_page": data["current_page"],
+            "per_page": data["per_page"],
+            "total_success": data.get("total_success"),
+            "total_failed": data.get("total_failed"),
+        })
+
+    results = task_manager.get_task_results(task_id)
+    return success(data={"results": results})
 
 
 @result_api_bp.route('/results', methods=['GET'])

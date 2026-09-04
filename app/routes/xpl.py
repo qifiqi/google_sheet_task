@@ -1,6 +1,7 @@
-from flask import Blueprint, render_template, request
+from flask import Blueprint, g, render_template, request
 
 from app.exceptions import ValidationError
+from app.extensions import limiter
 from app.services.xpl_analysis_service import _EMPTY_RESULT_DATA, xpl_analysis_service
 from app.utils.api_response import error, success
 from app.utils.logger import get_logger
@@ -8,6 +9,17 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 xpl_bp = Blueprint('xpl', __name__)
+
+
+def _rate_limit(config_key, default):
+    """限流阈值经 config_manager 运行时可调（零重启）。"""
+    from app.services.config_manager import get_config_manager
+
+    return get_config_manager().get_config(config_key, default)
+
+
+def _user_key():
+    return f"user:{getattr(getattr(g, 'current_user', None), 'id', 'anon')}"
 
 
 @xpl_bp.route('/')
@@ -29,6 +41,10 @@ def index_v2():
 
 
 @xpl_bp.route('/analyze', methods=['POST'])
+@limiter.limit(
+    lambda: f"{_rate_limit('rate_limit_analyze', 10) or 10}/minute",
+    key_func=_user_key,
+)
 def analyze_data():
     """
     API接口：分析Excel数据
@@ -50,7 +66,7 @@ def analyze_data():
         result = xpl_analysis_service.analyze_text(payload)
     except ValidationError as exc:
         return error(str(exc), http_status=400, data=_EMPTY_RESULT_DATA)
-    except Exception as exc:
+    except Exception:
         logger.exception("处理分析请求时出错")
         return error('处理请求时出错', http_status=500, data=_EMPTY_RESULT_DATA)
 
@@ -61,6 +77,10 @@ def analyze_data():
 
 
 @xpl_bp.route('/v1/analyze', methods=['POST'])
+@limiter.limit(
+    lambda: f"{_rate_limit('rate_limit_analyze', 10) or 10}/minute",
+    key_func=_user_key,
+)
 def analyze_data_v1():
     """
     API接口：分析 Google Sheet 数据
@@ -83,7 +103,7 @@ def analyze_data_v1():
         result = xpl_analysis_service.analyze_sheet(payload)
     except ValidationError as exc:
         return error(str(exc), http_status=400, data=_EMPTY_RESULT_DATA)
-    except Exception as exc:
+    except Exception:
         logger.exception("处理分析请求时出错")
         return error('处理请求时出错', http_status=500, data=_EMPTY_RESULT_DATA)
 

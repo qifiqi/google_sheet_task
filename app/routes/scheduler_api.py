@@ -22,7 +22,7 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-scheduler_api_bp = Blueprint('scheduler_api', __name__)
+scheduler_api_bp = Blueprint('scheduler_api', __name__, url_prefix='/api')
 
 
 def _validate_cron(expression):
@@ -40,7 +40,7 @@ def _validate_task_params(task_params):
             raise BadRequestError(f"任务参数必须是有效的JSON格式: {e}")
 
 
-@scheduler_api_bp.route('/api/admin/scheduler/stats', methods=['GET'])
+@scheduler_api_bp.route('/admin/scheduler/stats', methods=['GET'])
 @login_required
 def get_scheduler_stats():
     """获取调度器统计信息"""
@@ -54,7 +54,7 @@ def get_scheduler_stats():
     return success(data={'stats': full_stats})
 
 
-@scheduler_api_bp.route('/api/admin/scheduler/tasks', methods=['GET'])
+@scheduler_api_bp.route('/admin/scheduler/tasks', methods=['GET'])
 @login_required
 def get_scheduled_tasks():
     """获取定时任务列表"""
@@ -73,7 +73,7 @@ def get_scheduled_tasks():
     })
 
 
-@scheduler_api_bp.route('/api/admin/scheduler/tasks', methods=['POST'])
+@scheduler_api_bp.route('/admin/scheduler/tasks', methods=['POST'])
 @login_required
 def create_scheduled_task():
     """创建定时任务"""
@@ -104,7 +104,7 @@ def create_scheduled_task():
     )
 
 
-@scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>', methods=['PUT'])
+@scheduler_api_bp.route('/admin/scheduler/tasks/<int:task_id>', methods=['PUT'])
 @login_required
 def update_scheduled_task(task_id):
     """更新定时任务"""
@@ -140,7 +140,7 @@ def update_scheduled_task(task_id):
     )
 
 
-@scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>', methods=['DELETE'])
+@scheduler_api_bp.route('/admin/scheduler/tasks/<int:task_id>', methods=['DELETE'])
 @login_required
 def delete_scheduled_task(task_id):
     """删除定时任务"""
@@ -159,7 +159,7 @@ def delete_scheduled_task(task_id):
     return success(message='定时任务删除成功')
 
 
-@scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>/toggle', methods=['POST'])
+@scheduler_api_bp.route('/admin/scheduler/tasks/<int:task_id>/toggle', methods=['POST'])
 @login_required
 def toggle_scheduled_task(task_id):
     """切换定时任务状态"""
@@ -187,7 +187,7 @@ def toggle_scheduled_task(task_id):
     )
 
 
-@scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>/run', methods=['POST'])
+@scheduler_api_bp.route('/admin/scheduler/tasks/<int:task_id>/run', methods=['POST'])
 @login_required
 def run_scheduled_task_now(task_id):
     """立即执行定时任务"""
@@ -215,7 +215,7 @@ def run_scheduled_task_now(task_id):
     )
 
 
-@scheduler_api_bp.route('/api/admin/scheduler/tasks/<int:task_id>/status', methods=['GET'])
+@scheduler_api_bp.route('/admin/scheduler/tasks/<int:task_id>/status', methods=['GET'])
 @login_required
 def get_task_execution_status(task_id):
     """获取任务执行状态"""
@@ -241,7 +241,7 @@ def get_task_execution_status(task_id):
     })
 
 
-@scheduler_api_bp.route('/api/admin/scheduler/status', methods=['GET'])
+@scheduler_api_bp.route('/admin/scheduler/status', methods=['GET'])
 @login_required
 def get_scheduler_status():
     """获取调度器状态"""
