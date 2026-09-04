@@ -18,7 +18,9 @@ from app.services.google_sheet_registry_service import get_google_sheet_registry
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_token_service import get_google_sheet_token_service, RANDOM_TOKEN_VALUE
 from app.utils.api_response import success
+from app.schemas.google_sheet import TokenImportSchema
 from app.utils.auth import login_required
+from app.utils.request_parsing import parse_body
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -193,16 +195,12 @@ def google_sheet_token_detail(token_id):
 @login_required
 def import_google_sheet_token():
     """Add or import a Google Sheet token"""
-    data = request.get_json() or {}
-    token_file = (data.get('token_file') or '').strip()
-    token_context = data.get('token_context')
-    name = (data.get('name') or '').strip() or None
-    task_type = data.get('task_type')
-    max_usage_count = data.get('max_usage_count')
-    if max_usage_count not in (None, ''):
-        max_usage_count = int(max_usage_count)
-    else:
-        max_usage_count = None
+    data = parse_body(TokenImportSchema)
+    token_file = (data.token_file or '').strip()
+    token_context = data.token_context
+    name = (data.name or '').strip() or None
+    task_type = data.task_type
+    max_usage_count = data.max_usage_count
 
     try:
         token, created = get_google_sheet_token_service().import_token(

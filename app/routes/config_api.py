@@ -10,7 +10,9 @@ from app.navigation import sync_navigation_permissions
 from app.repositories import navigation_repository, system_config_repository
 from app.services.config_manager import get_config_manager
 from app.utils.api_response import success
+from app.schemas.config import ConfigBatchSchema, SystemConfigUpdateSchema
 from app.utils.auth import login_required
+from app.utils.request_parsing import parse_body
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -31,7 +33,7 @@ def get_config():
 @login_required
 def update_config():
     """更新系统配置"""
-    data = request.get_json()
+    data = parse_body(ConfigBatchSchema).root
     if not data:
         raise BadRequestError("请求数据为空")
 
@@ -79,16 +81,13 @@ def list_system_configs():
 @login_required
 def update_system_config(key):
     """更新单条配置"""
-    data = request.get_json() or {}
-
-    if 'value' not in data and 'description' not in data:
-        raise BadRequestError("缺少需要更新的字段")
+    data = parse_body(SystemConfigUpdateSchema).root
 
     fields = {}
     if 'value' in data:
-        fields["value"] = data.get('value')
+        fields["value"] = data['value']
     if 'description' in data:
-        fields["description"] = data.get('description')
+        fields["description"] = data['description']
 
     updated = system_config_repository.update(key, fields)
     if updated is None:

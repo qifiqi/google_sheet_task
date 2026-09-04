@@ -15,6 +15,7 @@ from io import BytesIO
 from flask import Blueprint, g, jsonify, request, send_file
 
 from app.exceptions import BadRequestError, NotFoundError
+from app.schemas.task import TaskCreateSchema, TasksBatchCreateSchema, TaskRestartSchema
 from app.repositories import task_repository, task_result_repository
 from app.services.export_file_service import (
     EXCEL_MIMETYPE,
@@ -28,6 +29,7 @@ from app.services.export_file_service import (
 )
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.utils.api_response import error, success
+from app.utils.request_parsing import parse_body
 from app.utils.auth import login_required
 from app.utils.logger import get_logger
 
@@ -103,30 +105,23 @@ def tasks():
             "statistics": data["statistics"],
         })
 
-    data = request.get_json() or {}
-    config = data.get('config')
-    if config:
-        name = data.get('name', '未命名任务')
-        description = data.get('description', '')
-        task_type = data.get('task_type', 'google_sheet')
-        current_user = getattr(g, "current_user", None)
-        response, status_code = task_manager.create_and_start_task(
-            name,
-            description,
-            task_type,
-            config,
-            created_by_user_id=getattr(current_user, "id", None),
-        )
-        return jsonify(response), status_code
-
-    raise BadRequestError("任务配置为空")
+    data = parse_body(TaskCreateSchema)
+    current_user = getattr(g, "current_user", None)
+    response, status_code = task_manager.create_and_start_task(
+        data.name,
+        data.description,
+        data.task_type,
+        data.config,
+        created_by_user_id=getattr(current_user, "id", None),
+    )
+    return jsonify(response), status_code
 
 
 @task_api_bp.route('/tasks/batch-create', methods=['POST'])
 @login_required
 def batch_create_tasks():
     """C31 批量创建接口"""
-    data = request.get_json() or {}
+    data = parse_body(TasksBatchCreateSchema).root
     logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
 
     response, status_code = task_manager.batch_create_and_start_task(
@@ -467,10 +462,9 @@ def restart_task(task_id):
     """重启任务"""
     _get_task_entity_or_404(task_id)
 
-    data = request.get_json() or {}
-    resume_from_checkpoint = data.get('resume_from_checkpoint', True)
+    data = parse_body(TaskRestartSchema)
 
-    result = task_manager.restart_task(task_id, resume_from_checkpoint)
+    result = task_manager.restart_task(task_id, data.resume_from_checkpoint)
     if result["status"] == "success":
         return jsonify(result)
     return jsonify(result), 400

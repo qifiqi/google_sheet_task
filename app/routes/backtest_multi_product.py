@@ -22,7 +22,9 @@ from app.services.backtest_multi_product_service import (
     normalize_multi_product_config,
 )
 from app.services.performance_analysis.historical_metrics import extract_core_metrics
+from app.schemas.backtest import CalculateRatiosSchema
 from app.utils.api_response import success
+from app.utils.request_parsing import parse_body
 from app.utils.auth import login_required
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 from app.utils.task_types import normalize_task_type
@@ -318,10 +320,8 @@ def get_global_preview(task_id):
 @login_required
 def calculate_ratios(task_id):
     _load_multi_product_task_or_none(task_id)
-    data = request.get_json() or {}
-    ratios = data.get("ratios")
-    if not isinstance(ratios, list):
-        raise BadRequestError("ratios 必须是数组")
+    data = parse_body(CalculateRatiosSchema)
+    ratios = data.ratios
     try:
         payload = build_multi_product_global_preview_payload(task_id, ratios_override=ratios)
     except ValueError as exc:

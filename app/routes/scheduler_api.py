@@ -15,7 +15,9 @@ from app.exceptions import BadRequestError
 from app.repositories import scheduled_task_repository
 from app.services.scheduler_service import scheduler_service
 from app.utils.api_response import success
+from app.schemas.scheduler import ScheduledTaskCreateSchema, ScheduledTaskUpdateSchema
 from app.utils.auth import login_required
+from app.utils.request_parsing import parse_body
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -75,26 +77,19 @@ def get_scheduled_tasks():
 @login_required
 def create_scheduled_task():
     """创建定时任务"""
-    data = request.get_json() or {}
+    data = parse_body(ScheduledTaskCreateSchema)
 
-    required_fields = ['name', 'cron_expression', 'task_type', 'task_function']
-    for field in required_fields:
-        if not data.get(field):
-            raise BadRequestError(f'缺少必填字段: {field}')
-
-    _validate_cron(data['cron_expression'])
-
-    task_params = data.get('task_params', '{}')
-    _validate_task_params(task_params)
+    _validate_cron(data.cron_expression)
+    _validate_task_params(data.task_params)
 
     task = scheduled_task_repository.create({
-        'name': data['name'],
-        'description': data.get('description', ''),
-        'cron_expression': data['cron_expression'],
-        'task_type': data['task_type'],
-        'task_function': data['task_function'],
-        'task_params': task_params,
-        'is_active': data.get('is_active', True),
+        'name': data.name,
+        'description': data.description,
+        'cron_expression': data.cron_expression,
+        'task_type': data.task_type,
+        'task_function': data.task_function,
+        'task_params': data.task_params,
+        'is_active': data.is_active,
     })
 
     # 如果任务是活跃的，添加到调度器
@@ -113,8 +108,8 @@ def create_scheduled_task():
 @login_required
 def update_scheduled_task(task_id):
     """更新定时任务"""
-    task = scheduled_task_repository.get_required(task_id)
-    data = request.get_json() or {}
+    scheduled_task_repository.get_required(task_id)
+    data = parse_body(ScheduledTaskUpdateSchema).model_dump(exclude_unset=True)
 
     if 'cron_expression' in data:
         _validate_cron(data['cron_expression'])
