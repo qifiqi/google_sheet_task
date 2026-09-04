@@ -128,10 +128,15 @@ pytest tests/unit/test_p0_p1_refactor.py::test_name   # 定向
 - 仅 `request.path.startswith("/api")` 返回 JSON 信封；页面路由保持 Flask 默认 HTML 错误页；
 - 兜底 `Exception` → 500 `"服务器内部错误"`，**绝不 `str(e)` 下发**；IntegrityError 兜底 409。
 
-### 请求校验（`app/utils/request_validation.py`）
+### 请求校验（2026-09-05 起：Pydantic v2）
 
-- `validate_body(required=..., types=...)` / `require_query(name, default, cast)`，
-  失败抛 `ValidationError` → 全局处理器 → 400 信封；路由内不再手写参数错误分支。
+- `app/schemas/`（APIModel 基类 + PageQuery + 按域模块）与
+  `app/utils/request_parsing.py`（parse_body/parse_query）；
+  解析失败就地转 `ValidationError` → 400 信封（`errors.py` 零改动）；
+- 旧 `request_validation.py` 已删除（无兼容层，见 api-model-query-audit/05）；
+- 保护性限流：Flask-Limiter（`app/extensions.py::limiter`，memory://，
+  default_limits 为空不做全局限流）；429 走专用中文信封 handler；
+  阈值经 config_manager 运行时可调（rate_limit_* 配置键）。
 
 ### 鉴权边界与子服务化（2026-09-05 决策）
 

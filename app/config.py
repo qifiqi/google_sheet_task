@@ -130,6 +130,7 @@ class ProductionConfig(BaseConfig):
 class TestingConfig(BaseConfig):
     DEBUG = False
     TESTING = True
+    RATELIMIT_ENABLED = False
 
 
 CONFIG_MAP = {
@@ -197,6 +198,22 @@ def init_config():
         'task_status_check_timeout': {
             'value': 600,
             'description': '任务状态检查超时时间，单位秒。',
+        },
+        'rate_limit_analyze': {
+            'value': 10,
+            'description': 'xpl 分析接口限流：每分钟每用户次数（0=不限）。',
+        },
+        'rate_limit_heavy': {
+            'value': 6,
+            'description': '重计算端点（Excel 导入/比例计算）限流：每分钟每用户次数（0=不限）。',
+        },
+        'rate_limit_rebuild': {
+            'value': 2,
+            'description': '模型汇总重建端点限流：每分钟每用户次数（0=不限）。',
+        },
+        'rate_limit_export': {
+            'value': 10,
+            'description': '导出端点限流：每分钟每用户次数（0=不限）。',
         },
         'watchdog_enabled': {
             'value': True,
