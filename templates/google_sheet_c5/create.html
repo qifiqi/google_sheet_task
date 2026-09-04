@@ -1200,13 +1200,13 @@
         fetch('/api/templates?task_type=google_sheet_C5')
             .then(response => response.json())
             .then(data => {
-                if (!data || !data.status === 'success' || !Array.isArray(data.templates)) {
+                if (!data || !data.status === 'success' || !(data.data && Array.isArray(data.data.templates))) {
                     console.error('Invalid response format:', data);
                     return;
                 }
 
                 const templateSelect = document.getElementById('task_template');
-                data.templates.forEach(template => {
+                data.data.templates.forEach(template => {
                     const option = document.createElement('option');
                     option.value = template.id;
                     option.textContent = template.name;
@@ -1228,7 +1228,7 @@
         fetch(`/api/templates/${templateId}`)
             .then(response => response.json())
             .then(template => {
-                let config = template.config;
+                let config = template.data.config;
                 console.log('[C5 fillFormWithTemplate] config =', config);
 
                 if (typeof config === 'string') {

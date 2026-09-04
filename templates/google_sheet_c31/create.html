@@ -1392,14 +1392,14 @@
         fetch(`/api/templates?task_type=${TASK_TYPE}`)
             .then(response => response.json())
             .then(data => {
-                if (!data || data.status !== 'success' || !Array.isArray(data.templates)) {
+                if (!data || data.status !== 'success' || !(data.data && Array.isArray(data.data.templates))) {
                     console.error('Invalid response format:', data);
                     return;
                 }
 
                 const templateSelect = document.getElementById('task_template');
                 templateSelect.innerHTML = '<option value="">不使用模板</option>';
-                data.templates.forEach(template => {
+                data.data.templates.forEach(template => {
                     const option = document.createElement('option');
                     option.value = template.id;
                     option.textContent = template.name;
@@ -1421,7 +1421,7 @@
         fetch(`/api/templates/${templateId}`)
             .then(response => response.json())
             .then(template => {
-                let config = template.config;
+                let config = template.data.config;
                 console.log('[C31 fillFormWithTemplate] config =', config);
 
                 if (typeof config === 'string') {
@@ -1433,8 +1433,8 @@
                     }
                 }
 
-                if (template && template.description && !config.task_description) {
-                    config.task_description = template.description;
+                if (template && template.data && template.data.description && !config.task_description) {
+                    config.task_description = template.data.description;
                 }
 
                 applyConfigToForm(config, {

@@ -7,6 +7,7 @@ def register_blueprints(app):
     from app.routes.task_api import task_api_bp
     from app.routes.config_api import config_api_bp
     from app.routes.template_api import template_api_bp
+    from app.routes.result_api import result_api_bp
     from app.routes.google_sheet_api import google_sheet_api_bp
     from app.routes.database_api import database_api_bp
     from app.routes.eastmoney_kline import eastmoney_kline_bp
@@ -33,6 +34,7 @@ def register_blueprints(app):
     app.register_blueprint(task_api_bp, url_prefix='/api')
     app.register_blueprint(config_api_bp, url_prefix='/api')
     app.register_blueprint(template_api_bp, url_prefix='/api')
+    app.register_blueprint(result_api_bp, url_prefix='/api')
     app.register_blueprint(google_sheet_api_bp, url_prefix='/api')
     app.register_blueprint(database_api_bp, url_prefix='/api')
     app.register_blueprint(eastmoney_kline_bp)
