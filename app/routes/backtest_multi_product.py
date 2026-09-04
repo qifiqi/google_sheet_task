@@ -1,4 +1,4 @@
-"""多产品回测页面和接口。"""
+"""多产品回测页面和接口（数据层：task_repository / task_result_repository）。"""
 
 from __future__ import annotations
 
@@ -12,10 +12,9 @@ from flask import Blueprint, current_app, jsonify, render_template, request, sen
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy.orm import load_only
 
-from app.extensions import db
-from app.models import Task, TaskResult, TaskResultReturn
+from app.exceptions import BadRequestError, NotFoundError
+from app.repositories import task_repository, task_result_repository
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
@@ -23,14 +22,15 @@ from app.services.backtest_multi_product_service import (
     normalize_multi_product_config,
 )
 from app.services.performance_analysis.historical_metrics import extract_core_metrics
-from app.utils.c7_result_normalizer import normalize_c7_result_metrics
+from app.utils.api_response import success
 from app.utils.auth import login_required
+from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 from app.utils.task_types import normalize_task_type
 from app.utils.return_series import parse_return_series_fields
 
 
 bp = Blueprint("backtest_multi_product", __name__, url_prefix="/backtest-multi-product")
-legacy_bp = Blueprint("backtest_multi_product_legacy", __name__, url_prefix="/backtest-multi")
+legacy_bp = Blueprint("backtest_multi_product_legacy", __name__, url_prefix="/backtest")
 
 
 BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS = 10
@@ -46,21 +46,14 @@ def _sanitize_json_value(value):
     return value
 
 
-
-
-def _load_multi_product_task_or_response(task_id: str, action: str = "view"):
-    task = db.session.get(Task, task_id)
+def _load_multi_product_task_or_none(task_id: str):
+    """加载多品回测任务 dict；不存在返回 None，类型不符抛 BadRequestError。"""
+    task = task_repository.get(task_id)
     if not task:
-        return None, (jsonify({"status": "error", "message": "任务不存在"}), 404)
-
-    if normalize_task_type(task.task_type) != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
-        return None, (jsonify({
-            "status": "error",
-            "message": "当前接口仅支持多品数据回测任务",
-            "task_id": task_id,
-            "task_type": task.task_type,
-        }), 400)
-    return task, None
+        return None
+    if normalize_task_type(task["task_type"]) != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
+        raise BadRequestError("当前接口仅支持多品数据回测任务")
+    return task
 
 
 def _parse_json(raw, default):
@@ -72,17 +65,17 @@ def _parse_json(raw, default):
         return default
 
 
-def _build_word_report_payload(task: Task, task_result: TaskResult) -> dict | None:
+def _build_word_report_payload(task: dict, task_result) -> dict | None:
     """按当前结果的参数方案构造多品 Word 报告请求。"""
     try:
-        config = normalize_multi_product_config(task.to_dict().get("config") or {})
+        config = normalize_multi_product_config(task.get("config") or {})
     except ValueError:
         return None
     selected_parameters = _parse_json(task_result.parameters, {})
     group_index = str(selected_parameters.get("parameter_group_index") or 0)
     return {
         "report_type": "RPT-M",
-        "task_id": task.id,
+        "task_id": task["id"],
         "group_key": group_index,
         # normalize_multi_product_config 已把历史布尔配置归一为 weighting_mode。
         "weighting_mode": config.get("weighting_mode") or "daily_compound",
@@ -130,20 +123,19 @@ def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: 
 
 def _validate_batch_global_preview_task_ids(raw_task_ids):
     if not isinstance(raw_task_ids, list) or not raw_task_ids:
-        return None, (jsonify({"status": "error", "message": "请选择至少一个任务"}), 400)
+        raise BadRequestError("请选择至少一个任务")
 
     task_ids = [str(task_id).strip() for task_id in raw_task_ids if str(task_id).strip()]
     task_ids = list(dict.fromkeys(task_ids))
     if not task_ids:
-        return None, (jsonify({"status": "error", "message": "请选择至少一个任务"}), 400)
+        raise BadRequestError("请选择至少一个任务")
 
     if len(task_ids) > BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS:
-        return None, (jsonify({
-            "status": "error",
-            "message": f"批量导出最多支持 {BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个",
-        }), 400)
+        raise BadRequestError(
+            f"批量导出最多支持 {BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个"
+        )
 
-    return task_ids, None
+    return task_ids
 
 
 def _parse_excel_percent_text(value: str) -> float | None:
@@ -196,10 +188,12 @@ def global_preview_page(task_id):
 
 @bp.route("/result/<int:result_id>")
 def result_page(result_id):
-    task_result = db.session.get(TaskResult, result_id)
+    task_result = task_result_repository.get(result_id)
     task_id = ""
-    if task_result and task_result.task and normalize_task_type(task_result.task.task_type) == BACKTEST_MULTI_PRODUCT_TASK_TYPE:
-        task_id = task_result.task_id
+    if task_result:
+        task = task_repository.get(task_result["task_id"])
+        if task and normalize_task_type(task["task_type"]) == BACKTEST_MULTI_PRODUCT_TASK_TYPE:
+            task_id = task_result["task_id"]
     return render_template("backtest_multi_product/result.html", result_id=result_id, task_id=task_id)
 
 
@@ -215,63 +209,38 @@ legacy_bp.add_url_rule("/result/<int:result_id>", view_func=result_page)
 def import_excel():
     excel_file = request.files.get("file")
     if not excel_file or not excel_file.filename:
-        return jsonify({"status": "error", "message": "请先上传 Excel 文件"}), 400
+        raise BadRequestError("请先上传 Excel 文件")
     try:
         data = BacktestExcelService().import_uploaded_excel(excel_file)
-        return jsonify({"status": "success", **_sanitize_json_value(data)})
     except ValueError as exc:
-        return jsonify({"status": "error", "message": str(exc)}), 400
-    except Exception as exc:
-        current_app.logger.exception("Failed to import multi-product backtest Excel")
-        return jsonify({"status": "error", "message": f"Excel 解析失败：{exc}"}), 500
+        raise BadRequestError(str(exc))
+    return success(data=_sanitize_json_value(data))
 
 
 @bp.route("/api/task-results/<task_id>", methods=["GET"])
 @login_required
 def get_task_results_by_task_id(task_id):
-    _, error_response = _load_multi_product_task_or_response(task_id, action="view")
-    if error_response:
-        return error_response
+    _load_multi_product_task_or_none(task_id)
 
     page = max(request.args.get("page", default=1, type=int) or 1, 1)
     per_page = max(min(request.args.get("per_page", default=10, type=int) or 10, 100), 1)
-    pagination = (
-        TaskResult.query
-        .options(load_only(
-            TaskResult.id,
-            TaskResult.task_id,
-            TaskResult.step_index,
-            TaskResult.parameters,
-            TaskResult.success,
-            TaskResult.error_message,
-            TaskResult.timestamp,
-        ))
-        .filter_by(task_id=task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-        .paginate(page=page, per_page=per_page, error_out=False)
-    )
-    results = [{
-        "id": item.id,
-        "task_id": item.task_id,
-        "step_index": item.step_index,
-        "parameters": _parse_json(item.parameters, {}),
-        "success": item.success,
-        "error_message": item.error_message,
-        "timestamp": item.timestamp.isoformat() if item.timestamp else None,
-    } for item in pagination.items]
-    return jsonify({
-        "status": "success",
+    page_data = task_result_repository.list_by_task_paginated_raw_parameters(task_id, page, per_page)
+    results = [
+        {**item, "parameters": _parse_json(item["parameters"], {})}
+        for item in page_data["items"]
+    ]
+    return success(data={
         "task_id": task_id,
         "results": results,
         "pagination": {
-            "page": pagination.page,
-            "per_page": per_page,
-            "pages": pagination.pages,
-            "total": pagination.total,
-            "has_prev": pagination.has_prev,
-            "has_next": pagination.has_next,
-            "prev_num": pagination.prev_num,
-            "next_num": pagination.next_num,
+            "page": page_data["current_page"],
+            "per_page": page_data["per_page"],
+            "pages": page_data["pages"],
+            "total": page_data["total"],
+            "has_prev": page_data["has_prev"],
+            "has_next": page_data["has_next"],
+            "prev_num": page_data["prev_num"],
+            "next_num": page_data["next_num"],
         },
     })
 
@@ -279,12 +248,10 @@ def get_task_results_by_task_id(task_id):
 @bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
 @login_required
 def get_task_result_detail(task_result_id):
-    task_result = db.session.get(TaskResult, task_result_id)
+    task_result = task_result_repository.get_entity(task_result_id)
     if not task_result:
-        return jsonify({"status": "error", "message": "任务结果不存在"}), 404
-    task, error_response = _load_multi_product_task_or_response(task_result.task_id, action="view")
-    if error_response:
-        return error_response
+        raise NotFoundError("任务结果不存在")
+    task = _load_multi_product_task_or_none(task_result.task_id)
 
     payload = _parse_json(task_result.result, {})
     if isinstance(payload, dict) and payload:
@@ -308,7 +275,7 @@ def get_task_result_detail(task_result_id):
 
     daily_returns = {}
     if task_result.return_series_id:
-        return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
+        return_series = task_result_repository.get_return_entity(task_result.return_series_id)
         if return_series:
             rows = parse_return_series_fields(return_series)
             daily_returns = {
@@ -317,7 +284,7 @@ def get_task_result_detail(task_result_id):
                 "start_returns": [row.get("start_return") for row in rows],
             }
 
-    task_config = _parse_json(task.config, {})
+    task_config = _parse_json(task.get("config"), {})
     products = task_config.get("products") if isinstance(task_config, dict) else []
     parameters = _parse_json(task_result.parameters, {})
     product_index = parameters.get("product_index") if isinstance(parameters, dict) else None
@@ -326,8 +293,7 @@ def get_task_result_detail(task_result_id):
     if model_name == "C7":
         sheet_result = normalize_c7_result_metrics(sheet_result)
 
-    return jsonify({
-        "status": "success",
+    return success(data={
         "result": _sanitize_json_value({
             **(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "sheet_result": sheet_result,
@@ -341,60 +307,56 @@ def get_task_result_detail(task_result_id):
 @bp.route("/api/global-preview/<task_id>", methods=["GET"])
 @login_required
 def get_global_preview(task_id):
-    _, error_response = _load_multi_product_task_or_response(task_id, action="view")
-    if error_response:
-        return error_response
+    _load_multi_product_task_or_none(task_id)
     payload = build_multi_product_global_preview_payload(task_id)
     if payload is None:
-        return jsonify({"status": "error", "message": "任务不存在"}), 404
-    return jsonify({"status": "success", **_sanitize_json_value(payload)})
+        raise NotFoundError("任务不存在")
+    return success(data=_sanitize_json_value(payload))
 
 
 @bp.route("/api/global-preview/<task_id>/calculate-ratios", methods=["POST"])
 @login_required
 def calculate_ratios(task_id):
-    _, error_response = _load_multi_product_task_or_response(task_id, action="view")
-    if error_response:
-        return error_response
+    _load_multi_product_task_or_none(task_id)
     data = request.get_json() or {}
     ratios = data.get("ratios")
     if not isinstance(ratios, list):
-        return jsonify({"status": "error", "message": "ratios 必须是数组"}), 400
+        raise BadRequestError("ratios 必须是数组")
     try:
         payload = build_multi_product_global_preview_payload(task_id, ratios_override=ratios)
     except ValueError as exc:
-        return jsonify({"status": "error", "message": str(exc)}), 400
+        raise BadRequestError(str(exc))
     if payload is None:
-        return jsonify({"status": "error", "message": "任务不存在"}), 404
-    return jsonify({"status": "success", **_sanitize_json_value(payload)})
+        raise NotFoundError("任务不存在")
+    return success(data=_sanitize_json_value(payload))
 
 
 @bp.route("/api/global-preview/<task_id>/ratios", methods=["PUT"])
 @login_required
 def update_ratios(task_id):
-    task, error_response = _load_multi_product_task_or_response(task_id, action="create")
-    if error_response:
-        return error_response
+    task = _load_multi_product_task_or_none(task_id)
     data = request.get_json() or {}
     ratios = data.get("ratios")
     if not isinstance(ratios, list):
-        return jsonify({"status": "error", "message": "ratios 必须是数组"}), 400
+        raise BadRequestError("ratios 必须是数组")
 
-    config = normalize_multi_product_config(task.to_dict().get("config") or {})
+    config = normalize_multi_product_config(task.get("config") or {})
     products = config["products"]
     if len(ratios) != len(products):
-        return jsonify({"status": "error", "message": "比例数量与产品数量不一致"}), 400
+        raise BadRequestError("比例数量与产品数量不一致")
     for product, ratio in zip(products, ratios):
         product["ratio"] = str(ratio.get("ratio") if isinstance(ratio, dict) else ratio).strip()
     try:
         config = normalize_multi_product_config({**config, "products": products})
     except ValueError as exc:
-        return jsonify({"status": "error", "message": str(exc)}), 400
+        raise BadRequestError(str(exc))
 
-    task.config = json.dumps(config, ensure_ascii=False)
-    db.session.commit()
+    task_repository.update_fields(task_id, config=json.dumps(config, ensure_ascii=False))
     payload = build_multi_product_global_preview_payload(task_id)
-    return jsonify({"status": "success", "message": "比例已保存", **_sanitize_json_value(payload or {})})
+    return success(
+        data=_sanitize_json_value(payload or {}),
+        message="比例已保存",
+    )
 
 
 def _build_global_preview_workbook(payload: dict[str, object]):
@@ -486,22 +448,20 @@ def _build_global_preview_workbook(payload: dict[str, object]):
 
 
 def export_global_preview(task_id):
-    _, error_response = _load_multi_product_task_or_response(task_id, action="view")
-    if error_response:
-        return error_response
+    _load_multi_product_task_or_none(task_id)
     ratios = None
     raw_ratios = request.args.get("ratios")
     if raw_ratios:
         try:
             ratios = json.loads(raw_ratios)
         except json.JSONDecodeError:
-            return jsonify({"status": "error", "message": "ratios 参数不是有效 JSON"}), 400
+            raise BadRequestError("ratios 参数不是有效 JSON")
     try:
         payload = build_multi_product_global_preview_payload(task_id, ratios_override=ratios)
     except ValueError as exc:
-        return jsonify({"status": "error", "message": str(exc)}), 400
+        raise BadRequestError(str(exc))
     if payload is None:
-        return jsonify({"status": "error", "message": "任务不存在"}), 404
+        raise NotFoundError("任务不存在")
 
     workbook = _build_global_preview_workbook(payload)
     buffer = BytesIO()
@@ -518,38 +478,28 @@ def export_global_preview(task_id):
 
 def batch_export_global_preview():
     data = request.get_json(silent=True) or {}
-    task_ids, error_response = _validate_batch_global_preview_task_ids(data.get("task_ids"))
-    if error_response:
-        return error_response
+    task_ids = _validate_batch_global_preview_task_ids(data.get("task_ids"))
 
     zip_buffer = BytesIO()
     used_names: set[str] = set()
     with ZipFile(zip_buffer, "w", ZIP_DEFLATED) as archive:
         for task_id in task_ids:
-            task, task_error_response = _load_multi_product_task_or_response(task_id, action="view")
-            if task_error_response:
-                return task_error_response
-            if task.status != "completed":
-                return jsonify({
-                    "status": "error",
-                    "message": f"任务 {task.name or task_id} 尚未完成，不能导出",
-                    "task_id": task_id,
-                    "task_status": task.status,
-                }), 400
+            task = _load_multi_product_task_or_none(task_id)
+            if task.get("status") != "completed":
+                raise BadRequestError(
+                    f"任务 {task.get('name') or task_id} 尚未完成，不能导出",
+                    data={"task_id": task_id, "task_status": task.get("status")},
+                )
 
             payload = build_multi_product_global_preview_payload(task_id)
             if payload is None:
-                return jsonify({
-                    "status": "error",
-                    "message": "任务不存在",
-                    "task_id": task_id,
-                }), 404
+                raise NotFoundError("任务不存在")
 
             workbook = _build_global_preview_workbook(payload)
             workbook_buffer = BytesIO()
             workbook.save(workbook_buffer)
             archive.writestr(
-                _build_zip_member_name(task.name, task_id, used_names),
+                _build_zip_member_name(task.get("name"), task_id, used_names),
                 workbook_buffer.getvalue(),
             )
 

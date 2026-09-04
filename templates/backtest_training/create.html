@@ -1205,11 +1205,11 @@ async function fetchStockSuggestions(keyword, options = {}) {
         if (data.status !== 'success') {
             throw new Error(data.message || '股票搜索失败');
         }
-        renderStockSearchResults(data.results || [], trimmedKeyword);
+        renderStockSearchResults((data.data && data.data.results) || [], trimmedKeyword);
         if (options.keepOpen) {
             showStockSearchResults();
         }
-        return data.results || [];
+        return (data.data && data.data.results) || [];
     } catch (error) {
         if (error.name === 'AbortError') {
             return [];

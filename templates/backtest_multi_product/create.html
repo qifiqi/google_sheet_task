@@ -753,7 +753,7 @@ async function fetchStockSuggestions(card, keyword) {
             signal: stockAbortControllers[productId].signal
         });
         const data = await response.json();
-        const results = Array.isArray(data.results) ? data.results : [];
+        const results = Array.isArray(data.data && data.data.results) ? data.data.results : [];
         resultsEl.innerHTML = results.length ? results.map((item) => `
             <button class="stock-search-item" type="button" data-code="${escapeHtml(item.code)}" data-market="${escapeHtml(item.market_type || getCardMarketType(card))}" data-exchange-market="${escapeHtml(item.market || '')}" data-name="${escapeHtml(item.name || item.code)}">
                 <div class="fw-semibold">${escapeHtml(item.code)}</div>

@@ -36,8 +36,9 @@ def test_global_preview_supports_all_c_series_backtests(app_factory, monkeypatch
         response = app.test_client().get("/global-preview/api/tasks/legacy-preview")
 
         assert response.status_code == 200
-        assert response.get_json()["supported"] is True
-        assert "C 系列" in response.get_json()["message"]
+        body = response.get_json()
+        assert body["data"]["supported"] is True
+        assert "C 系列" in body["data"]["message"]
 
 
 def test_global_preview_supports_google_sheet_c7_tasks(app_factory, monkeypatch):
@@ -53,7 +54,7 @@ def test_global_preview_supports_google_sheet_c7_tasks(app_factory, monkeypatch)
         response = app.test_client().get("/global-preview/api/tasks/c7-preview")
 
         assert response.status_code == 200
-        assert response.get_json()["supported"] is True
+        assert response.get_json()["data"]["supported"] is True
 
 
 def test_single_product_preview_page_does_not_require_api_token(app_factory):

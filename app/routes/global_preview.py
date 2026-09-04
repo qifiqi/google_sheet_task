@@ -12,8 +12,8 @@ from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
 from flask import Blueprint, Response, current_app, jsonify, render_template, request, send_file, stream_with_context
 
-from app.extensions import db
-from app.models import Task
+from app.exceptions import BadRequestError, NotFoundError
+from app.repositories import task_repository
 from app.services.backtest_training_api_service import (
     _build_global_preview_payload,
     _build_global_preview_group_payload,
@@ -22,6 +22,7 @@ from app.services.backtest_training_api_service import (
     get_global_preview_result_ids_by_stock,
     split_global_preview_payload_by_stock,
 )
+from app.utils.api_response import success
 from app.utils.auth import login_required
 from app.utils.task_types import normalize_task_type
 
@@ -29,25 +30,21 @@ from app.utils.task_types import normalize_task_type
 bp = Blueprint("global_preview", __name__, url_prefix="/global-preview")
 
 
-def _task_error(message, status_code):
-    return jsonify({"status": "error", "message": message}), status_code
-
-
 def _safe_filename(value, fallback):
     cleaned = "".join(char if char not in '\\/:*?\"<>|' else "_" for char in str(value or "").strip())
     return cleaned.rstrip(" .") or fallback
 
 
-def _load_backtest_task_or_response(task_id):
-    task = db.session.get(Task, task_id)
+def _load_backtest_task(task_id):
+    """任务 dict 访问；不存在抛 NotFoundError。"""
+    task = task_repository.get(task_id)
     if not task:
-        return None, _task_error("任务不存在", 404)
-
-    return task, None
+        raise NotFoundError("任务不存在")
+    return task
 
 
 def _preview_status(task):
-    task_type = normalize_task_type(task.task_type)
+    task_type = normalize_task_type(task.get("task_type"))
     if task_type in {
         "backtest_training",
         "google_sheet",
@@ -70,39 +67,39 @@ def page():
 @bp.route("/api/tasks/<task_id>", methods=["GET"])
 @login_required
 def get_preview(task_id):
-    task, error_response = _load_backtest_task_or_response(task_id)
-    if error_response:
-        return error_response
+    task = _load_backtest_task(task_id)
 
     status = _preview_status(task)
-    response = {
-        "status": "success",
-        "task": {"id": task.id, "name": task.name, "task_type": task.task_type, "task_status": task.status},
+    data = {
+        "task": {
+            "id": task["id"],
+            "name": task["name"],
+            "task_type": task["task_type"],
+            "task_status": task["status"],
+        },
         **status,
     }
     if status["supported"]:
         initial = _build_global_preview_initial_payload(task_id)
-        response["initial"] = initial
+        data["initial"] = initial
         # 保留 preview 字段，避免已有调用方在前端升级期间失效。
-        response["preview"] = initial["preview"]
-    return jsonify(response)
+        data["preview"] = initial["preview"]
+    return success(data=data)
 
 
 @bp.route("/api/tasks/<task_id>/preview-group", methods=["POST"])
 @login_required
 def get_preview_group(task_id):
-    task, error_response = _load_backtest_task_or_response(task_id)
-    if error_response:
-        return error_response
+    task = _load_backtest_task(task_id)
     if not _preview_status(task)["supported"]:
-        return _task_error("当前任务暂不支持全局预览", 400)
+        raise BadRequestError("当前任务暂不支持全局预览")
 
     # result_ids 来自初始化接口；服务层仍会附加 task_id 条件，防止跨任务读取。
     result_ids = (request.get_json(silent=True) or {}).get("result_ids") or []
     if not isinstance(result_ids, list) or not result_ids:
-        return _task_error("请选择需要加载的结果分组", 400)
+        raise BadRequestError("请选择需要加载的结果分组")
     payload = _build_global_preview_group_payload(task_id, result_ids)
-    return jsonify({"status": "success", "preview": payload})
+    return success(data={"preview": payload})
 
 
 class _ZipStreamWriter:
@@ -186,17 +183,15 @@ def _stream_stock_export_zip(task_id, task_name):
 
 
 def export_preview(task_id):
-    task, error_response = _load_backtest_task_or_response(task_id)
-    if error_response:
-        return error_response
+    task = _load_backtest_task(task_id)
     if not _preview_status(task)["supported"]:
-        return _task_error("当前任务暂未适配全局预览导出", 400)
+        raise BadRequestError("当前任务暂未适配全局预览导出")
 
     _task_for_export, stock_groups = get_global_preview_result_ids_by_stock(task_id)
     if not stock_groups:
-        return _task_error("任务暂无可导出的结果", 400)
+        raise BadRequestError("任务暂无可导出的结果")
 
-    task_name = _safe_filename(request.args.get("export_name"), _safe_filename(task.name, task_id))
+    task_name = _safe_filename(request.args.get("export_name"), _safe_filename(task.get("name"), task_id))
     if len(stock_groups) == 1:
         # 单股票直接按该任务所有结果生成一个 Excel。
         workbook = _build_global_preview_workbook(

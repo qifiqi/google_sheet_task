@@ -453,7 +453,7 @@ def test_multi_product_result_detail_includes_daily_returns_from_return_series(a
         assert resp.status_code == 200
         payload = resp.get_json()
         assert payload["status"] == "success"
-        assert payload["result"]["daily_returns"] == {
+        assert payload["data"]["result"]["daily_returns"] == {
             "dates": ["2024-01-01", "2024-01-02"],
             "index_returns": [0.11, 0.22],
             "start_returns": [0.33, 0.44],
@@ -493,7 +493,7 @@ def test_multi_product_c7_result_detail_normalizes_sheet_units(app_factory, monk
         )
 
         assert response.status_code == 200
-        sheet_result = response.get_json()["result"]["sheet_result"]
+        sheet_result = response.get_json()["data"]["result"]["sheet_result"]
         assert sheet_result["D10"] == "-14.00%"
         assert sheet_result["D18"] == "1.00%"
         assert sheet_result["D22"] == 1.2295

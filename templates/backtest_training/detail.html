@@ -1064,7 +1064,7 @@
                 return;
             }
             syncC3MetricSelector();
-            renderC3SummaryRows(data.rows || []);
+            renderC3SummaryRows((data.data && data.data.rows) || []);
         });
     }
 
@@ -1371,14 +1371,14 @@
     function loadTaskDetail(options = {}) {
         const { silent = false } = options;
         ajaxRequest(`${TASK_API_BASE}/${currentTaskId}`, 'GET', null, function(err, data) {
-            if (err || !data || data.status !== 'success' || !data.task) {
+            if (err || !data || data.status !== 'success' || !data.data.task) {
                 if (!silent) {
                     showNotification(`加载任务详情失败：${err ? err.message : '未知错误'}`, 'error');
                 }
                 return;
             }
 
-            const task = data.task;
+            const task = data.data.task;
             currentTaskConfig = {
                 ...(task.config || {}),
                 task_name: task.name,
@@ -1415,7 +1415,7 @@
                 }
                 return;
             }
-            const pagination = data.pagination || {};
+            const pagination = (data.data && data.data.pagination) || {};
             taskResultPaginationState = {
                 page: Number(pagination.page || page || 1),
                 per_page: Number(pagination.per_page || perPage || TASK_RESULT_PAGE_SIZE),
@@ -1426,7 +1426,7 @@
                 prev_num: pagination.prev_num || null,
                 next_num: pagination.next_num || null
             };
-            renderSubTasks(data.results || []);
+            renderSubTasks((data.data && data.data.results) || []);
             renderTaskResultPagination();
             persistResultPaginationState();
         });

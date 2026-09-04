@@ -28,16 +28,16 @@
 
 ## B1 路由层（每文件：数据层替换 + 删 try/except + api_response + 同批更新前端读取/集成测试断言；2-3 文件一个 commit）
 
-- [ ] 1.1 `template_api.py` → 模板接口走 `task_template_repository`；`/api/results*` 三接口归位到新文件 `routes/result_api.py`（URL 不变）走 `task_result_repository`
-- [ ] 1.2 `auth_api.py` → `rbac_repository`；删用户流程用 `transaction()` 保持原子（`user_roles` 清理 + `task_repository.clear_created_by`）
-- [ ] 1.3 `utils/auth.py`（热路径：`list_permission_codes`/`get_user`，缓存逻辑保留）+ `meta_api.py`（0 ORM，响应已随 B0 切换，仅复核）
-- [ ] 1.4 `config_api.py` → `system_config_repository` + `navigation_repository`
-- [ ] 1.5 `scheduler_api.py` → `scheduled_task_repository`；4 处 `get_or_404` → `get_required` + NotFoundError 映射
-- [ ] 1.6 `google_sheet_api.py` → token/sheet repository
-- [ ] 1.7 `admin.py` → `task_repository.summary_counts()/recent()`；页面与 API 路由本批不拆文件（拆分属接口归位二期，另行立项）
-- [ ] 1.8 `task_api.py` → `task_repository`/`task_result_repository`
-- [ ] 1.9 少量文件：`backtest_multi_product.py`、`backtest_training.py`、`export_api.py`、`global_preview.py`、`google_sheet.py`、`yule.py`（核对无用 import）+ `database_api.py`、`stock_api.py`（0 ORM，仅统一响应格式）
-- [ ] B1 收尾验证：`grep -rEn "db\.session|\.query\." app/routes --include="*.py"` 为空（枚举常量 import 例外）；`grep -rn '"status": "error"' app/routes` 为 0；B1 范围端点的前端读取已切至 `resp.data.*`（integration + 手动冒烟覆盖）；`pytest` 全绿
+- [x] 1.1 `template_api.py` → 模板接口走 `task_template_repository`；`/api/results*` 三接口归位到新文件 `routes/result_api.py`（URL 不变）走 `task_result_repository`
+- [x] 1.2 `auth_api.py` → `rbac_repository`；删用户流程用 `transaction()` 保持原子（`user_roles` 清理 + `task_repository.clear_created_by`）
+- [x] 1.3 `utils/auth.py`（热路径：`list_permission_codes`/`get_user`，缓存逻辑保留）+ `meta_api.py`（0 ORM，响应已随 B0 切换，仅复核）
+- [x] 1.4 `config_api.py` → `system_config_repository` + `navigation_repository`
+- [x] 1.5 `scheduler_api.py` → `scheduled_task_repository`；4 处 `get_or_404` → `get_required` + NotFoundError 映射
+- [x] 1.6 `google_sheet_api.py` → token/sheet repository
+- [x] 1.7 `admin.py` → `task_repository.summary_counts()/recent()`；页面与 API 路由本批不拆文件（拆分属接口归位二期，另行立项）
+- [x] 1.8 `task_api.py` → `task_repository`/`task_result_repository`
+- [x] 1.9 少量文件：`backtest_multi_product.py`、`backtest_training.py`、`export_api.py`、`global_preview.py`、`google_sheet.py`、`yule.py`（核对无用 import）+ `database_api.py`、`stock_api.py`（0 ORM，仅统一响应格式）
+- [x] B1 收尾验证：`grep -rEn "db\.session|\.query\." app/routes --include="*.py"` 为空（枚举常量 import 例外）；`grep -rn '"status": "error"' app/routes` 为 0；B1 范围端点的前端读取已切至 `resp.data.*`（integration + 手动冒烟覆盖）；`pytest` 全绿
 
 ## B2 服务层常规（顺序执行，每文件一验）
 
@@ -92,3 +92,4 @@ config_manager（**负缓存刷新留在本层**）→ stock_metadata_service �
 | 2026-09-04 | 基线预登记（全程有效） | 豁免 | 已知存量失败 3 个（基线 HEAD `44101bd` 复现，非重构引入）："全量 pytest 通过"门槛按 `408+ passed / 3 个已知失败` 解释——这 3 个失败若仍存在不阻塞进批；一旦某个被修复不得回退。清单：`tests/unit/test_kline_adjustment.py::test_c4_us_market_uses_yahoo_adjustment`（C4 美股 K 线行数不足 30 校验）、`tests/unit/test_kline_sheet_guardrails.py::test_c3_rejects_end_date_after_latest_kline_without_writing_sheet`（C3 K 线守卫同类）、`tests/unit/test_value_parser_and_task_types.py::test_parse_date_supports_iso_shapes`（ISO 日期解析）。另有 10 个既有 `@pytest.mark.skip` 属正常跳过。重构批次内新增任何失败仍视为阻塞。 |
 | 2026-09-04 | P1-3（commit 5f2e9b8） | 通过 | `_build_engine_options()` MySQL 分支补 pool_size/max_overflow/pool_timeout（环境变量 `DB_POOL_SIZE`/`DB_MAX_OVERFLOW`/`DB_POOL_TIMEOUT`，默认 10/20/30）；SQLite 分支不变。默认值+覆盖冒烟通过；全量 pytest 与基线一致（416 passed/3 豁免/10 skipped）。 |
 | 2026-09-04 | B0 | 通过 | 新增 app/repositories/ 14 文件、app/exceptions/base.py（层级并入既有 `app/exceptions/__init__.py` 导出）、app/errors.py（create_app 注册）、重写 api_response.py（success/error/paginated，信封 `{status, code, message, data}`）、app/utils/request_validation.py；AGENTS.md 增补"接口规范"章节（P1-1 交付物）。meta_api/auth_api 调用签名兼容、无需改动，自 B0 起全库仅一种响应格式。新增 tests/unit/test_repositories.py + tests/integration/test_unified_envelope.py。验证：465 passed/3 豁免/10 skipped，`create_app()` 冒烟 OK，路由 150 条不变。偏差：① 兜底 Exception/AppException 处理器在页面路径显式返回 InternalServerError（errorhandler 返回 None 会被 Flask 判无效响应）；② stock_metadata_repository.upsert 内做与模型事件一致的 stock_code 标准化，否则二次 upsert 撞唯一约束；③ 全量 pytest 入口固定为 `pytest tests/unit tests/integration`（tests/ 根目录历史同名测试文件致 bare `pytest` 收集冲突，属存量问题，已登记 AGENTS.md）。 |
+| 2026-09-04 | B1（9646be7/f42093e/7f3b0d5/ff98783/本批） | 通过 | 路由层 16 文件全部完成四合一迁移；收尾 grep：routes 内 `db.session|.query` 与手写 `"status": "error"` 均为 0，路由 150 条不变。偏差：① API 判定由 startswith("/api") 扩为"路径含 /api 段或 Accept 优先 JSON"（/tasks、/config、/meta/nav、/admin/api/* 等均为纯 JSON 端点但不以 /api 开头）；② utils/auth 401 改抛 UnauthorizedError（B5 项提前于 B1-2 完成）；③ navigation_repository 提供 list_all_entities/list_visible_entities 实体形态（范围外的 app/navigation.py sync/build 依赖实体属性，二期收敛）；④ admin.py 的 dashboard/overview 与 model-summary 查询为服务层契约 payload 保持透传（B3/B4 收敛）；⑤ google_sheet_api/export_api/task_api 对服务层 ValueError 保持显式翻译 BadRequestError（B2/B3 后移除）；⑥ 本批修正一处漏读：backtest_multi_product.py 原文件 399 行后仍有 _build_global_preview_workbook/export_global_preview/batch_export_global_preview（集成测试依赖），已在 B1-5 补回；⑦ 对应集成测试断言同批更新（global_preview/backtest_multi_product/backtest_training_result_storage 取 data.*）。 |

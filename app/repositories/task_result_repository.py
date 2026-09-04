@@ -1,4 +1,6 @@
 """TaskResult / TaskResultReturn 仓储（契约见 docs/design/data-layer-refactor/02 §2.2）。"""
+from sqlalchemy.orm import load_only
+
 from app.extensions import db
 from app.exceptions import NotFoundError
 from app.models import Task, TaskResult, TaskResultReturn
@@ -129,6 +131,51 @@ class TaskResultRepository(BaseRepository):
             .first()
         )
         return row.timestamp.isoformat() if row else None
+
+    def get_return_entity(self, pk):
+        """TaskResultReturn 实体访问（return_series 解析工具消费实体属性）。"""
+        return db.session.get(TaskResultReturn, pk)
+
+    def list_by_task_paginated_raw_parameters(self, task_id, page, per_page):
+        """回测详情页结果分页：parameters 保持原始 JSON 串由调用方解析，
+        其余字段与 to_dict 投影一致。"""
+        pagination = (
+            TaskResult.query
+            .options(load_only(
+                TaskResult.id,
+                TaskResult.task_id,
+                TaskResult.step_index,
+                TaskResult.parameters,
+                TaskResult.success,
+                TaskResult.error_message,
+                TaskResult.timestamp,
+            ))
+            .filter_by(task_id=task_id)
+            .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
+            .paginate(page=max(page or 1, 1), per_page=max(min(per_page or 10, 100), 1), error_out=False)
+        )
+        return {
+            "items": [
+                {
+                    "id": item.id,
+                    "task_id": item.task_id,
+                    "step_index": item.step_index,
+                    "parameters": item.parameters,
+                    "success": item.success,
+                    "error_message": item.error_message,
+                    "timestamp": item.timestamp.isoformat() if item.timestamp else None,
+                }
+                for item in pagination.items
+            ],
+            "total": pagination.total,
+            "pages": pagination.pages,
+            "current_page": pagination.page,
+            "per_page": pagination.per_page,
+            "has_prev": pagination.has_prev,
+            "has_next": pagination.has_next,
+            "prev_num": pagination.prev_num,
+            "next_num": pagination.next_num,
+        }
 
     def list_export_rows(self, task_ids):
         """批量导出投影：仅取导出所需的 (task_id, step_index, result 原始 JSON 串)。

@@ -1,6 +1,8 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, request
 
+from app.exceptions import BadRequestError, ServiceError
 from app.services.stock_search_service import StockSearchService
+from app.utils.api_response import success
 from app.utils.auth import login_required
 
 stock_api_bp = Blueprint("stock_api", __name__)
@@ -23,18 +25,12 @@ def search_stocks():
         )
         StockSearchService.save_metadata(results)
     except ValueError as exc:
-        return jsonify({
-            "status": "error",
-            "message": str(exc),
-        }), 400
+        raise BadRequestError(str(exc))
     except RuntimeError as exc:
-        return jsonify({
-            "status": "error",
-            "message": str(exc),
-        }), 502
+        # 上游搜索服务不可用，保持原有 502 语义。
+        raise ServiceError(str(exc), http_status=502)
 
-    return jsonify({
-        "status": "success",
+    return success(data={
         "keyword": keyword,
         "market_type": None,
         "results": results,

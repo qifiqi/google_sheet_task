@@ -838,7 +838,7 @@
                 throw new Error(data.message || `HTTP error! status: ${resp.status}`);
             }
 
-            const resultData = normalizeBacktestResultPayload(data.result);
+            const resultData = normalizeBacktestResultPayload(data.data && data.data.result);
             if (!resultData) {
                 state.lastResults = null;
                 showAlert('结果数据为空', 'warning');
@@ -847,7 +847,7 @@
 
             state.exportBaseName = `backtest_result_${state.resultId}`;
             state.lastResults = resultData;
-            state.wordReportPayload = data.word_report_payload || null;
+            state.wordReportPayload = (data.data && data.data.word_report_payload) || null;
             renderModelIdentity(resultData.model_name, resultData);
             const exportBtn = document.getElementById('btn-export-v1');
             if (exportBtn) exportBtn.disabled = false;

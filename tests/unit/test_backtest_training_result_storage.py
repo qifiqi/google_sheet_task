@@ -78,7 +78,7 @@ def test_task_result_api_includes_configured_stock_code(app_factory, monkeypatch
         )
 
         assert response.status_code == 200
-        assert response.get_json()["result"]["stock_code"] == "QQQ"
+        assert response.get_json()["data"]["result"]["stock_code"] == "QQQ"
 
 
 def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypatch):
@@ -113,7 +113,7 @@ def test_c7_task_result_api_normalizes_sheet_result_units(app_factory, monkeypat
         )
 
         assert response.status_code == 200
-        sheet_result = response.get_json()["result"]["sheet_result"]
+        sheet_result = response.get_json()["data"]["result"]["sheet_result"]
         assert sheet_result["D10"] == "-14.00%"
         assert sheet_result["D18"] == "1.00%"
         assert sheet_result["D22"] == 1.2295
