@@ -1,6 +1,6 @@
 import pytest
 
-from app.models import GoogleSheetTokenTaskType
+from app.domain_constants import GoogleSheetTokenTaskType
 from app.services.google_sheet_service_C5 import GoogleSheetService as C5GoogleSheetService
 from app.services.google_sheet_service_C7 import GoogleSheetService as C7GoogleSheetService
 from app.services.task.creation import TaskCreationMixin

@@ -12,10 +12,7 @@ from flask import Blueprint, current_app, g, jsonify, render_template, request, 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy.orm import load_only
 
-from app.extensions import db
-from app.models import TaskResult
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
 from app.repositories.task_result_return_repository import TaskResultReturnRepository
@@ -263,20 +260,12 @@ def get_task_results_by_task_id(task_id):
 
     page = max(request.args.get("page", default=1, type=int) or 1, 1)
     per_page = max(min(request.args.get("per_page", default=10, type=int) or 10, 100), 1)
-    pagination = (
-        TaskResult.query
-        .options(load_only(
-            TaskResult.id,
-            TaskResult.task_id,
-            TaskResult.step_index,
-            TaskResult.parameters,
-            TaskResult.success,
-            TaskResult.error_message,
-            TaskResult.timestamp,
-        ))
-        .filter_by(task_id=task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-        .paginate(page=page, per_page=per_page, error_out=False)
+    result_page = _task_result_repository.list_results(
+        page_index=page,
+        page_size=per_page,
+        task_ids=[task_id],
+        order_field="step_index",
+        order_type="asc",
     )
     results = [{
         "id": item.id,
@@ -284,22 +273,28 @@ def get_task_results_by_task_id(task_id):
         "step_index": item.step_index,
         "parameters": _parse_json(item.parameters, {}),
         "success": item.success,
-        "error_message": item.error_message,
-        "timestamp": item.timestamp.isoformat() if item.timestamp else None,
-    } for item in pagination.items]
+        "error_message": item.get("error_message"),
+        "timestamp": (
+            item.timestamp.isoformat()
+            if getattr(item, "timestamp", None) and hasattr(item.timestamp, "isoformat")
+            else item.get("timestamp")
+        ),
+    } for item in result_page["items"]]
+    total = result_page["total"]
+    pages = (total + per_page - 1) // per_page if total else 0
     return jsonify({
         "status": "success",
         "task_id": task_id,
         "results": results,
         "pagination": {
-            "page": pagination.page,
+            "page": page,
             "per_page": per_page,
-            "pages": pagination.pages,
-            "total": pagination.total,
-            "has_prev": pagination.has_prev,
-            "has_next": pagination.has_next,
-            "prev_num": pagination.prev_num,
-            "next_num": pagination.next_num,
+            "pages": pages,
+            "total": total,
+            "has_prev": page > 1,
+            "has_next": page < pages,
+            "prev_num": page - 1 if page > 1 else None,
+            "next_num": page + 1 if page < pages else None,
         },
     })
 

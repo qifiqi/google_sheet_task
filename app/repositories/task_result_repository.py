@@ -10,9 +10,12 @@ from app.repositories.base import RemoteRecord, SdkCrudRepository, normalize_boo
 
 
 class TaskResultRepository(SdkCrudRepository):
-    """转换结果与参数 JSON；按 task_id 查询等待 ParamTaskResults/Query。"""
+    """转换结果与参数 JSON，并提供受限的单任务结果读取。"""
 
     group_name = "param_task_results"
+    MAX_TASK_RESULT_PAGE_SIZE = 200
+    MAX_TASK_RESULT_READS = 10_000
+    MAX_TARGETED_RESULT_IDS = 500
 
     def list_results(
         self,
@@ -37,6 +40,70 @@ class TaskResultRepository(SdkCrudRepository):
             payload["task_ids"] = [str(task_id) for task_id in task_ids]
         raw = self.client.call(self.group_name, "get_data_by_page_list", payload)
         return self._normalize_page(raw)
+
+    def list_task_results(
+        self,
+        task_id: str,
+        *,
+        success: bool | None = None,
+        page_size: int = MAX_TASK_RESULT_PAGE_SIZE,
+        max_records: int = MAX_TASK_RESULT_READS,
+    ) -> list[RemoteRecord]:
+        """读取一个任务的全部结果，始终在 SDK 侧限定 ``task_ids``。
+
+        当前 SDK 仅保证单字段排序，因而这里不承诺 SQL 时代的多字段稳定排序；
+        调用方需要的展示顺序在读取完成后按结果字段确定。超出上限会报错，避免
+        异常任务造成无界远端读取。
+        """
+        normalized_task_id = str(task_id or "").strip()
+        if not normalized_task_id:
+            raise ValueError("任务 ID 不能为空")
+        bounded_page_size = min(max(1, int(page_size)), self.MAX_TASK_RESULT_PAGE_SIZE)
+        bounded_max_records = max(1, int(max_records))
+        records: list[RemoteRecord] = []
+        page_index = 1
+        while True:
+            page = self.list_results(
+                page_index=page_index,
+                page_size=bounded_page_size,
+                success=success,
+                task_ids=[normalized_task_id],
+            )
+            items = page["items"]
+            records.extend(items)
+            if len(records) > bounded_max_records:
+                raise ValueError(
+                    f"任务 {normalized_task_id} 的结果超过安全读取上限 {bounded_max_records}"
+                )
+            if not items or len(records) >= page["total"]:
+                return records
+            page_index += 1
+
+    def get_task_results_by_ids(
+        self,
+        task_id: str,
+        result_ids: list[int],
+        *,
+        max_ids: int = MAX_TARGETED_RESULT_IDS,
+    ) -> list[RemoteRecord]:
+        """按主键逐条读取并验证所属任务，拒绝跨任务和过大的 ID 请求。"""
+        normalized_task_id = str(task_id or "").strip()
+        if not normalized_task_id:
+            raise ValueError("任务 ID 不能为空")
+        if len(result_ids) > max_ids:
+            raise ValueError(f"一次最多读取 {max_ids} 个任务结果")
+
+        records: list[RemoteRecord] = []
+        seen_ids: set[int] = set()
+        for result_id in result_ids:
+            normalized_result_id = self.normalize_id(result_id)
+            if normalized_result_id in seen_ids:
+                continue
+            seen_ids.add(normalized_result_id)
+            record = self.get(normalized_result_id)
+            if record and str(record.get("task_id") or "") == normalized_task_id:
+                records.append(record)
+        return records
 
     def delete_by_task_id(self, task_id: str) -> None:
         """按任务 UUID 删除该任务的全部结果及其关联收益记录。"""

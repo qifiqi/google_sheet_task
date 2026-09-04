@@ -12,21 +12,7 @@ from werkzeug.security import generate_password_hash
 
 from app.config import PERMISSIONS, init_config
 from app.extensions import db
-from app.models import (
-    BacktestProductResultCache,
-    BacktestSheetRunLock,
-    NavigationMenuItem,
-    Permission,
-    Role,
-    ScheduledTask,
-    StockMetadata,
-    SystemConfig,
-    Task,
-    TaskLog,
-    TaskResult,
-    TaskResultSummaryIndex,
-    User,
-)
+from app.models import NavigationMenuItem, Permission, Role, Task, TaskLog, TaskResult, User
 from app.navigation import (
     DEFAULT_NAVIGATION_MENU,
     flatten_navigation_items,
@@ -37,7 +23,6 @@ from app.repositories.config_repository import SystemConfigRepository
 from app.repositories.google_sheet_repository import GoogleSheetRepository
 from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepository
 from app.repositories.task_repository import TaskRepository
-from app.repositories.task_result_summary_index_repository import TaskResultSummaryIndexRepository
 from app.utils.logger import get_logger, initialize_logging
 
 
@@ -87,55 +72,6 @@ def normalize_boolean_columns():
     db.session.commit()
 
 
-def ensure_google_sheet_token_schema():
-    """补齐 Google Sheet Token 表在历史数据库中缺失的列。"""
-    inspector = inspect(db.engine)
-    if 'google_sheet_tokens' not in inspector.get_table_names():
-        return
-    columns = {column['name'] for column in inspector.get_columns('google_sheet_tokens')}
-    if 'current_in_use_count' not in columns:
-        _add_column('google_sheet_tokens', 'current_in_use_count', 'INTEGER NOT NULL DEFAULT 0')
-        db.session.commit()
-
-
-def ensure_google_sheet_registry_schema():
-    """为 Google Sheet 注册表应用跨数据库兼容的唯一性约束。"""
-    inspector = inspect(db.engine)
-    if 'google_sheet' not in inspector.get_table_names():
-        return
-
-    columns = {column['name'] for column in inspector.get_columns('google_sheet')}
-    if 'registry_scope' not in columns:
-        _add_column('google_sheet', 'registry_scope', 'VARCHAR(32)')
-
-    from app.models import GoogleSheet, google_sheet_registry_scope
-
-    sheet_repository = GoogleSheetRepository()
-    for sheet in sheet_repository.list_all():
-        registry_scope = google_sheet_registry_scope(sheet.get("table_type"))
-        if sheet.get("registry_scope") != registry_scope:
-            sheet_repository.save({**sheet, "registry_scope": registry_scope})
-
-    current_inspector = inspect(db.engine)
-    index_names = {index['name'] for index in current_inspector.get_indexes('google_sheet')}
-    index_names.update(
-        constraint['name']
-        for constraint in current_inspector.get_unique_constraints('google_sheet')
-        if constraint.get('name')
-    )
-    if 'uk_google_sheet_spreadsheet_registry_scope' not in index_names:
-        # The model expresses this rule as a UniqueConstraint, while the
-        # migration creates a named unique index.  Build the index directly
-        # so legacy databases can be repaired without assuming either shape.
-        registry_index = db.Index(
-            'uk_google_sheet_spreadsheet_registry_scope',
-            GoogleSheet.__table__.c.spreadsheet_id,
-            GoogleSheet.__table__.c.registry_scope,
-            unique=True,
-        )
-        registry_index.create(db.engine, checkfirst=True)
-
-
 def ensure_user_schema():
     """补齐用户表在历史数据库中缺失的身份字段。"""
     inspector = inspect(db.engine)
@@ -175,106 +111,6 @@ def ensure_task_result_schema():
         db.session.commit()
     _ensure_model_index(TaskResult, 'ix_task_results_return_series_id')
     db.session.commit()
-
-
-def ensure_scheduled_task_schema():
-    """补齐定时任务表在历史数据库中缺失的调度字段。"""
-    inspector = inspect(db.engine)
-    if 'scheduled_tasks' not in inspector.get_table_names():
-        return
-
-    columns = {column['name'] for column in inspector.get_columns('scheduled_tasks')}
-    changed = False
-    if 'is_running' not in columns:
-        _add_column('scheduled_tasks', 'is_running', 'BOOLEAN NOT NULL DEFAULT FALSE')
-        changed = True
-    if 'running_instance_id' not in columns:
-        _add_column('scheduled_tasks', 'running_instance_id', 'VARCHAR(100)')
-        changed = True
-    if changed:
-        db.session.commit()
-
-
-def ensure_task_result_summary_index_schema():
-    """补齐任务结果汇总索引表及其必要索引。"""
-    inspector = inspect(db.engine)
-    if 'task_result_summary_index' not in inspector.get_table_names():
-        TaskResultSummaryIndex.__table__.create(db.engine, checkfirst=True)
-        return
-    columns = {column['name'] for column in inspector.get_columns('task_result_summary_index')}
-    changed = False
-    if 'stock_name' not in columns:
-        _add_column('task_result_summary_index', 'stock_name', 'VARCHAR(255)')
-        changed = True
-    if 'period_key' not in columns:
-        _add_column('task_result_summary_index', 'period_key', 'VARCHAR(32)')
-        changed = True
-    if 'market_type' not in columns:
-        _add_column('task_result_summary_index', 'market_type', 'VARCHAR(8)')
-        changed = True
-    if changed:
-        db.session.commit()
-    from app.models import summary_market_type
-
-    summary_repository = TaskResultSummaryIndexRepository()
-    for item in summary_repository.list_all():
-        if not item.get("market_type"):
-            summary_repository.save({
-                **item,
-                "market_type": summary_market_type(item.get("stock_code")),
-            })
-    indexes = {index['name'] for index in inspector.get_indexes('task_result_summary_index')}
-    if 'idx_result_summary_type_market_best' not in indexes:
-        market_index = next(
-            index
-            for index in TaskResultSummaryIndex.__table__.indexes
-            if index.name == 'idx_result_summary_type_market_best'
-        )
-        market_index.create(db.engine, checkfirst=True)
-
-
-def ensure_stock_metadata_schema():
-    """补齐股票元数据表及其检索索引。"""
-    inspector = inspect(db.engine)
-    if 'stock_metadata' not in inspector.get_table_names():
-        StockMetadata.__table__.create(db.engine,checkfirst=True)
-
-
-def ensure_backtest_runtime_schema():
-    """补齐回测运行锁与缓存表，支持并发控制和结果复用。"""
-    inspector = inspect(db.engine)
-    table_names = set(inspector.get_table_names())
-    if 'backtest_product_result_cache' not in table_names:
-        BacktestProductResultCache.__table__.create(db.engine, checkfirst=True)
-    if 'backtest_sheet_run_locks' not in table_names:
-        BacktestSheetRunLock.__table__.create(db.engine, checkfirst=True)
-
-
-def ensure_task_result_return_schema():
-    """补齐老库的收益序列拆分字段；旧 returns_json 不再写入。"""
-    inspector = inspect(db.engine)
-    table_name = next(
-        (name for name in ("t_param_task_results_return", "task_results_return")
-         if name in inspector.get_table_names()),
-        None,
-    )
-    if not table_name:
-        return
-    columns = {column["name"] for column in inspector.get_columns(table_name)}
-    definitions = {
-        "stock_code": "VARCHAR(20)",
-        "stock_name": "VARCHAR(20)",
-        "start_return_date": "DATE",
-        "end_return_date": "DATE",
-        "return_length": "INTEGER",
-    }
-    changed = False
-    for name, definition in definitions.items():
-        if name not in columns:
-            _add_column(table_name, name, definition)
-            changed = True
-    if changed:
-        db.session.commit()
 
 
 def ensure_task_log_schema():
@@ -449,10 +285,6 @@ def register_shell_context(app):
             'Task': Task,
             'TaskLog': TaskLog,
             'TaskResult': TaskResult,
-            'SystemConfig': SystemConfig,
-            'ScheduledTask': ScheduledTask,
-            'BacktestProductResultCache': BacktestProductResultCache,
-            'BacktestSheetRunLock': BacktestSheetRunLock,
         }
 
 
@@ -745,15 +577,9 @@ def init_scheduler(app):
 
 
 def init_task_watchdog(app):
-    """启动进程内任务看门狗；多 worker/多副本会产生重复巡检。"""
-    from app.services.task_watchdog import task_watchdog
-
-    logger = get_logger('watchdog')
-    try:
-        task_watchdog.start(app)
-        logger.info('任务看门狗线程已启动')
-    except Exception as exc:
-        logger.error(f'启动任务看门狗线程失败: {exc}')
+    """任务看门狗已停用，避免继续执行依赖本地任务/日志查询的巡检。"""
+    _ = app
+    get_logger('watchdog').info('任务看门狗已停用：当前 SDK 未覆盖看门狗筛选与聚合需求')
 
 
 def _prepare_runtime_directories():
@@ -774,18 +600,11 @@ def _initialize_database_schema():
 
     # 顺序保持与旧 bootstrap 一致，避免历史库修补之间产生依赖变化。
     for schema_repair in (
-        ensure_google_sheet_token_schema,
-        ensure_google_sheet_registry_schema,
         ensure_user_schema,
         ensure_task_schema,
         ensure_task_result_schema,
-        ensure_scheduled_task_schema,
-        ensure_task_result_return_schema,
         ensure_task_log_schema,
         ensure_task_result_payload_schema,
-        ensure_task_result_summary_index_schema,
-        ensure_stock_metadata_schema,
-        ensure_backtest_runtime_schema,
         ensure_navigation_menu_schema,
     ):
         schema_repair()
@@ -813,6 +632,7 @@ def _initialize_system_metadata():
 def _start_background_components(app):
     """启动依赖当前 Flask 进程的后台组件。"""
     init_scheduler(app)
+    # 看门狗仍保留停用入口作为运行记录，但不会创建巡检线程。
     init_task_watchdog(app)
 
 

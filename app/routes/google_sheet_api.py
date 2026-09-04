@@ -2,7 +2,8 @@ import time
 
 from flask import Blueprint, redirect, request, jsonify, url_for
 
-from app.models import GoogleSheetTableType, db
+from app.domain_constants import GoogleSheetTableType
+from app.models import db
 from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepository
 from app.repositories.sdk_client import SdkFilterUnavailableError
 from app.services.google_sheet_registry_service import get_google_sheet_registry_service

@@ -5,7 +5,7 @@ from flask import Blueprint, Response, current_app, g, jsonify, render_template,
 from app.services.model_summary_service import model_summary_service
 from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
-from app.models import GoogleSheetTableType, TaskStatus, TaskType
+from app.domain_constants import GoogleSheetTableType, TaskStatus, TaskType
 from app.repositories.task_repository import TaskRepository
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required

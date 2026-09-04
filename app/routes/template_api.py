@@ -3,6 +3,8 @@ import json
 from sqlalchemy.orm import load_only
 
 from app.models import Task, TaskResult, db
+from app.repositories.task_repository import TaskRepository
+from app.repositories.task_result_repository import TaskResultRepository
 from app.repositories.template_repository import TaskTemplateRepository
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
@@ -23,7 +25,23 @@ def _template_repository():
     return TaskTemplateRepository()
 
 
-def _result_permission_denied(action: str, task_type: str | None, decision: dict, result_id: int | None = None, task_id: str | None = None):
+def _result_repository():
+    """创建任务结果远程 CRUD 仓储。"""
+    return TaskResultRepository()
+
+
+def _task_repository():
+    """创建任务远程 CRUD 仓储。"""
+    return TaskRepository()
+
+
+def _result_permission_denied(
+    action: str,
+    task_type: str | None,
+    decision: dict,
+    result_id: int | None = None,
+    task_id: str | None = None,
+):
     """构造任务结果权限不足时的统一接口响应。"""
     action_label = TASK_ACTION_LABELS.get(action, action)
     normalized_type = decision.get("task_type") or str(task_type or "unknown")
@@ -184,6 +202,60 @@ def get_results():
         task_id = request.args.get('task_id', None)
         current_user = getattr(g, "current_user", None)
 
+        if task_id:
+            task_obj = _task_repository().get(task_id)
+            if not task_obj:
+                return jsonify({
+                    "results": [],
+                    "total": 0,
+                    "pages": 0,
+                    "current_page": page,
+                })
+
+            decision = authorize_task_type_action(
+                current_user,
+                "view",
+                task_obj.task_type,
+            )
+            if not decision["allowed"]:
+                return _result_permission_denied(
+                    "view",
+                    task_obj.task_type,
+                    decision,
+                    task_id=task_id,
+                )
+
+            remote_page = _result_repository().list_results(
+                page_index=page,
+                page_size=per_page,
+                task_ids=[task_id],
+                order_field="timestamp",
+                order_type="desc",
+            )
+            results = [
+                {
+                    "id": result.id,
+                    "task_id": result.task_id,
+                    "step_index": result.step_index,
+                    "success": result.success,
+                    "timestamp": (
+                        result.timestamp.isoformat()
+                        if getattr(result, "timestamp", None)
+                        and hasattr(result.timestamp, "isoformat")
+                        else result.get("timestamp")
+                    ),
+                }
+                for result in remote_page["items"]
+            ]
+            total = remote_page["total"]
+            pages = (total + per_page - 1) // per_page if total else 0
+            return jsonify({
+                "results": results,
+                "total": total,
+                "pages": pages,
+                "current_page": page,
+            })
+
         query = TaskResult.query.join(Task, Task.id == TaskResult.task_id).options(
             load_only(
                 TaskResult.id,
@@ -193,38 +265,16 @@ def get_results():
                 TaskResult.timestamp,
             )
         )
-
-        if task_id:
-            task_obj = (
-                Task.query
-                .options(load_only(Task.id, Task.task_type))
-                .filter(Task.id == task_id)
-                .first()
-            )
-            if not task_obj:
-                return jsonify({
-                    "results": [],
-                    "total": 0,
-                    "pages": 0,
-                    "current_page": page
-                })
-
-            decision = authorize_task_type_action(current_user, "view", task_obj.task_type)
-            if not decision["allowed"]:
-                return _result_permission_denied("view", task_obj.task_type, decision, task_id=task_id)
-
-            query = query.filter(TaskResult.task_id == task_id)
-        else:
-            distinct_types = [item[0] for item in db.session.query(Task.task_type).distinct().all()]
-            allowed_types = filter_task_types_by_action(current_user, "view", distinct_types)
-            if not allowed_types:
-                return jsonify({
-                    "results": [],
-                    "total": 0,
-                    "pages": 0,
-                    "current_page": page
-                })
-            query = query.filter(Task.task_type.in_(allowed_types))
+        distinct_types = [item[0] for item in db.session.query(Task.task_type).distinct().all()]
+        allowed_types = filter_task_types_by_action(current_user, "view", distinct_types)
+        if not allowed_types:
+            return jsonify({
+                "results": [],
+                "total": 0,
+                "pages": 0,
+                "current_page": page
+            })
+        query = query.filter(Task.task_type.in_(allowed_types))
 
         pagination = query.order_by(TaskResult.timestamp.desc()).paginate(
             page=page, per_page=per_page, error_out=False
@@ -257,19 +307,26 @@ def get_results():
 def get_result(result_id):
     """获取任务结果详情"""
     try:
-        record = (
-            db.session.query(TaskResult, Task.task_type)
-            .join(Task, Task.id == TaskResult.task_id)
-            .filter(TaskResult.id == result_id)
-            .first()
-        )
-        if not record:
+        result = _result_repository().get(result_id)
+        if not result:
             return jsonify({"status": "error", "message": "结果不存在"}), 404
+        task = _task_repository().get(result.task_id)
+        if not task:
+            return jsonify({"status": "error", "message": "任务不存在"}), 404
 
-        result, task_type = record
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "view", task_type)
+        decision = authorize_task_type_action(
+            getattr(g, "current_user", None),
+            "view",
+            task.task_type,
+        )
         if not decision["allowed"]:
-            return _result_permission_denied("view", task_type, decision, result_id=result_id, task_id=result.task_id)
+            return _result_permission_denied(
+                "view",
+                task.task_type,
+                decision,
+                result_id=result_id,
+                task_id=result.task_id,
+            )
 
         return jsonify(result.to_dict())
     except Exception as e:
@@ -282,25 +339,29 @@ def get_result(result_id):
 def delete_result(result_id):
     """删除任务结果"""
     try:
-        record = (
-            db.session.query(TaskResult, Task.task_type)
-            .join(Task, Task.id == TaskResult.task_id)
-            .filter(TaskResult.id == result_id)
-            .first()
-        )
-        if not record:
+        result = _result_repository().get(result_id)
+        if not result:
             return jsonify({"status": "error", "message": "结果不存在"}), 404
+        task = _task_repository().get(result.task_id)
+        if not task:
+            return jsonify({"status": "error", "message": "任务不存在"}), 404
 
-        result, task_type = record
-        decision = authorize_task_type_action(getattr(g, "current_user", None), "delete", task_type)
+        decision = authorize_task_type_action(
+            getattr(g, "current_user", None),
+            "delete",
+            task.task_type,
+        )
         if not decision["allowed"]:
-            return _result_permission_denied("delete", task_type, decision, result_id=result_id, task_id=result.task_id)
+            return _result_permission_denied(
+                "delete",
+                task.task_type,
+                decision,
+                result_id=result_id,
+                task_id=result.task_id,
+            )
 
-        db.session.delete(result)
-        db.session.commit()
-
+        _result_repository().delete(result_id)
         return jsonify({"status": "success", "message": "结果已删除"})
     except Exception as e:
-        db.session.rollback()
         logger.error(f"删除结果失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500

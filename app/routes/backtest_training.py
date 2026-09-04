@@ -5,15 +5,14 @@ from datetime import datetime
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 from flask import Blueprint, current_app, jsonify, render_template, request, send_file, g
-from sqlalchemy.orm import load_only
-from app.extensions import db
-from app.models import Task, TaskResult
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_training_api_service import _sanitize_json_value, \
     _load_backtest_task_or_response, _load_backtest_task_result_or_response, _build_backtest_result_export_data, \
     _build_backtest_result_export_rows, C3_PARAMETER_FIELDS, _build_c3_summary_rows, _infer_backtest_model_version, \
+    _extract_task_result_payload, _extract_summary_rows, _infer_backtest_export_model_name, \
+    _negative_percent_display, _with_excess_return_preview_row, \
     _build_global_preview_payload, _build_global_preview_workbook, _validate_batch_global_preview_task_ids, \
     _build_zip_member_name
 from app.services.xpl_service import xpl_analyzer
@@ -125,50 +124,45 @@ def get_task_results_by_task_id(task_id):
     page = max(page, 1)
     per_page = max(min(per_page, 100), 1)
 
-    pagination = (
-        TaskResult.query
-        .options(
-            load_only(
-                TaskResult.id,
-                TaskResult.task_id,
-                TaskResult.step_index,
-                TaskResult.parameters,
-                TaskResult.success,
-                TaskResult.error_message,
-                TaskResult.timestamp,
-            )
-        )
-        .filter_by(task_id=task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-        .paginate(page=page, per_page=per_page, error_out=False)
+    result_page = _task_result_repository.list_results(
+        page_index=page,
+        page_size=per_page,
+        task_ids=[task_id],
+        order_field="step_index",
+        order_type="asc",
     )
-
     results = [
         {
             "id": task_result.id,
             "task_id": task_result.task_id,
             "step_index": task_result.step_index,
-            "parameters": json.loads(task_result.parameters) if task_result.parameters else {},
+            "parameters": task_result.parameters or {},
             "success": task_result.success,
-            "error_message": task_result.error_message,
-            "timestamp": task_result.timestamp.isoformat() if task_result.timestamp else None,
+            "error_message": task_result.get("error_message"),
+            "timestamp": (
+                task_result.timestamp.isoformat()
+                if getattr(task_result, "timestamp", None) and hasattr(task_result.timestamp, "isoformat")
+                else task_result.get("timestamp")
+            ),
         }
-        for task_result in pagination.items
+        for task_result in result_page["items"]
     ]
+    total = result_page["total"]
+    pages = (total + per_page - 1) // per_page if total else 0
 
     return jsonify({
         "status": "success",
         "task_id": task_id,
         "results": results,
         "pagination": {
-            "page": pagination.page,
+            "page": page,
             "per_page": per_page,
-            "pages": pagination.pages,
-            "total": pagination.total,
-            "has_prev": pagination.has_prev,
-            "has_next": pagination.has_next,
-            "prev_num": pagination.prev_num,
-            "next_num": pagination.next_num,
+            "pages": pages,
+            "total": total,
+            "has_prev": page > 1,
+            "has_next": page < pages,
+            "prev_num": page - 1 if page > 1 else None,
+            "next_num": page + 1 if page < pages else None,
         },
     })
 

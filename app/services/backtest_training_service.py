@@ -322,9 +322,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
         saved_step_indexes = {
             row.step_index
-            for row in TaskResult.query.with_entities(TaskResult.step_index)
-            .filter_by(task_id=self.task_id)
-            .all()
+            for row in _task_result_repository.list_task_results(self.task_id)
             if row.step_index is not None and row.step_index >= 0
         }
         if not saved_step_indexes:

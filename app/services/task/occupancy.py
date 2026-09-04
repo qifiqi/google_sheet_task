@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.models import GoogleSheetTableType
+from app.domain_constants import GoogleSheetTableType
 from app.repositories.google_sheet_repository import GoogleSheetRepository
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.utils.logger import get_logger

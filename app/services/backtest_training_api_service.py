@@ -10,9 +10,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request, sen
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy.orm import load_only
 
-from app.extensions import db
 from app.models import Task, TaskResult
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
@@ -279,6 +277,28 @@ def _parse_percent_like_value(value):
         return raw
 
 
+def _parse_result_json(raw_value):
+    """兼容 SDK 已标准化的 JSON 值与旧库中的 JSON 文本。"""
+    if isinstance(raw_value, (dict, list)):
+        return raw_value
+    try:
+        return json.loads(raw_value) if raw_value else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _sort_task_results(task_results):
+    """补足 SDK 仅支持单字段排序的限制，保持旧查询的展示顺序。"""
+    return sorted(
+        task_results,
+        key=lambda task_result: (
+            int(task_result.step_index) if task_result.step_index is not None else -1,
+            str(task_result.timestamp or ""),
+            int(task_result.id),
+        ),
+    )
+
+
 def _extract_task_result_payload(task_result):
     """安全解码任务结果字段，并返回字典形式的结果载荷。"""
     raw_result = task_result.result
@@ -419,31 +439,14 @@ def _extract_display_year(source_window):
 
 def _build_c3_summary_rows(task_id):
     """读取 C3 任务结果并生成全局预览所需的标准汇总行。"""
-    task_results = (
-        TaskResult.query
-        .options(
-            load_only(
-                TaskResult.id,
-                TaskResult.task_id,
-                TaskResult.step_index,
-                TaskResult.parameters,
-                TaskResult.result,
-                TaskResult.success,
-                TaskResult.timestamp,
-            )
-        )
-        .filter_by(task_id=task_id, success=True)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-        .all()
+    task_results = _sort_task_results(
+        _task_result_repository.list_task_results(task_id, success=True)
     )
 
     rows = []
 
     for task_result in task_results:
-        try:
-            parameters = json.loads(task_result.parameters) if task_result.parameters else {}
-        except (TypeError, json.JSONDecodeError):
-            parameters = {}
+        parameters = _parse_result_json(task_result.parameters)
 
         if not isinstance(parameters, dict):
             continue
@@ -1104,28 +1107,12 @@ def _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics):
 
 
 def _query_global_preview_results(task_id, result_ids=None):
-    """按主键精确读取结果，避免切换分组时扫描整个任务的大 JSON。"""
-    # TODO: task_id 与 result_ids 联合查询依赖 ParamTaskResults/Query，不能用 SDK 全量扫描。
-    query = (
-        TaskResult.query
-        .options(
-            load_only(
-                TaskResult.id,
-                TaskResult.task_id,
-                TaskResult.step_index,
-                TaskResult.parameters,
-                TaskResult.result,
-                TaskResult.success,
-                TaskResult.error_message,
-                TaskResult.timestamp,
-            )
-        )
-        .filter_by(task_id=task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
+    """读取任务结果；指定 ID 时逐条校验 task_id，避免跨任务读取。"""
+    if result_ids is None:
+        return _sort_task_results(_task_result_repository.list_task_results(task_id))
+    return _sort_task_results(
+        _task_result_repository.get_task_results_by_ids(task_id, result_ids)
     )
-    if result_ids is not None:
-        query = query.filter(TaskResult.id.in_(result_ids))
-    return query.all()
 
 
 def _build_global_preview_payload_from_results(task, task_results):
@@ -1137,7 +1124,7 @@ def _build_global_preview_payload_from_results(task, task_results):
     failed_count = 0
 
     for task_result in task_results:
-        parameters = json.loads(task_result.parameters) if task_result.parameters else {}
+        parameters = _parse_result_json(task_result.parameters)
         year_key = str(parameters.get("year") or parameters.get("Kline_key") or "未分组")
         stock_code = str(
             parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票"
@@ -1274,19 +1261,14 @@ def _build_global_preview_initial_payload(task_id):
     if not task:
         return None
     task_config = task.to_dict().get("config") or {}
-    metadata_rows = (
-        db.session.query(
-            TaskResult.id, TaskResult.parameters, TaskResult.success, TaskResult.step_index
-        )
-        .filter(TaskResult.task_id == task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
-        .all()
+    metadata_rows = _sort_task_results(
+        _task_result_repository.list_task_results(task_id)
     )
 
     items = []
     is_c7_0_3 = _is_c7_0_3_backtest_config(task_config)
     for row in metadata_rows:
-        parameters = json.loads(row.parameters) if row.parameters else {}
+        parameters = _parse_result_json(row.parameters)
         model_name = _detect_global_preview_model_name(task, parameters)
         if model_name == "C7" and _resolve_c7_model_version(task_config, parameters) == "c7_0_3":
             is_c7_0_3 = True
@@ -1341,15 +1323,10 @@ def get_global_preview_result_ids_by_stock(task_id):
     if not task:
         return None, []
     task_config = task.to_dict().get("config") or {}
-    rows = (
-        db.session.query(TaskResult.id, TaskResult.parameters)
-        .filter(TaskResult.task_id == task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.id.asc())
-        .all()
-    )
+    rows = _sort_task_results(_task_result_repository.list_task_results(task_id))
     stock_groups = OrderedDict()
     for row in rows:
-        parameters = json.loads(row.parameters) if row.parameters else {}
+        parameters = _parse_result_json(row.parameters)
         stock_code = str(
             parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票"
         ).strip().upper() or "未命名股票"

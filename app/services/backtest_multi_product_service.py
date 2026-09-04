@@ -13,7 +13,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from flask import current_app
-from app.extensions import db
 from app.models import Task, TaskResult
 from app.repositories.task_result_repository import TaskResultRepository
 from app.repositories.task_result_return_repository import TaskResultReturnRepository
@@ -242,6 +241,18 @@ def _parse_json(raw: Any, default: Any) -> Any:
         return json.loads(raw) if raw else default
     except (TypeError, json.JSONDecodeError):
         return default
+
+
+def _sort_task_results(results: list[TaskResult]) -> list[TaskResult]:
+    """补足 SDK 单字段排序限制，按旧预览顺序在内存中稳定排序。"""
+    return sorted(
+        results,
+        key=lambda result: (
+            int(result.step_index) if result.step_index is not None else -1,
+            str(result.timestamp or ""),
+            int(result.id),
+        ),
+    )
 
 
 def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
@@ -1186,11 +1197,8 @@ def build_multi_product_global_preview_payload(
             product["ratio"] = normalize_ratio_display(
                 ratio.get("ratio") if isinstance(ratio, dict) else ratio
             )
-    results = (
-        TaskResult.query
-        .filter_by(task_id=task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-        .all()
+    results = _sort_task_results(
+        _task_result_repository.list_task_results(task_id)
     )
     cache_key = _global_preview_cache_key(task_id, products, results)
     cached_payload = _get_global_preview_cache(cache_key)

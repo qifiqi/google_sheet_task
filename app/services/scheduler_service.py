@@ -1,19 +1,15 @@
-import json
 import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from croniter import croniter
 from flask import current_app
 
-from app.extensions import db
-from app.models import TaskLog, TaskResult
 from app.repositories.scheduled_task_repository import ScheduledTaskRepository
-from app.services.task.data_cleanup import delete_task_result_dependencies
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -108,17 +104,43 @@ class SchedulerService:
                 logger.info(f"从数据库加载了 {len(active_tasks)} 个活跃的定时任务")
                 
                 for task in active_tasks:
+                    if self._is_removed_cleanup_task(task):
+                        logger.warning(
+                            "跳过已移除的数据清理定时任务: %s (%s)",
+                            task.get("name"),
+                            task.get("task_function"),
+                        )
+                        continue
                     self.add_job(task)
                     
         except Exception as e:
             logger.error(f"从数据库加载定时任务失败: {e}")
     
+    @staticmethod
+    def _is_removed_cleanup_task(scheduled_task):
+        """判断任务是否为已移除的按时间清理任务。"""
+        function_name = (
+            scheduled_task.get("task_function")
+            if isinstance(scheduled_task, dict)
+            else scheduled_task.task_function
+        )
+        return function_name in {
+            "cleanup_old_logs",
+            "cleanup_old_results",
+            "cleanup_old_data",
+        }
+
     def add_job(self, scheduled_task):
         """添加定时任务到调度器"""
         if not self.is_running or not self.scheduler:
             logger.warning("调度器未运行，无法添加任务")
             return False
         
+        if self._is_removed_cleanup_task(scheduled_task):
+            task_name = scheduled_task.get("name") if isinstance(scheduled_task, dict) else scheduled_task.name
+            logger.warning("拒绝添加已移除的数据清理定时任务: %s", task_name)
+            return False
+
         try:
             task_id = scheduled_task.get("id") if isinstance(scheduled_task, dict) else scheduled_task.id
             task_name = scheduled_task.get("name") if isinstance(scheduled_task, dict) else scheduled_task.name
@@ -237,6 +259,14 @@ class SchedulerService:
                     logger.warning(f"定时任务 {task_id} 不存在或已禁用")
                     return
 
+                if self._is_removed_cleanup_task(scheduled_task):
+                    logger.warning(
+                        "跳过已移除的数据清理定时任务执行: %s (%s)",
+                        scheduled_task.get("name"),
+                        scheduled_task.get("task_function"),
+                    )
+                    return
+
                 # 尝试获取分布式锁
                 if scheduled_task.get("is_running"):
                     logger.warning("定时任务 %s 正在被实例 %s 执行，跳过", scheduled_task.get("name"), scheduled_task.get("running_instance_id"))
@@ -299,98 +329,6 @@ class SchedulerService:
                     })
         except Exception as e:
             logger.error(f"释放任务锁失败: {e}")
-    
-    def _cleanup_old_logs(self, params):
-        """清理旧日志（批量处理优化）"""
-        # TODO: 按时间筛选日志 ID 等待 ParamTaskLogs/Query，禁止 SDK 全表分页筛选。
-        try:
-            days = params.get('days', 10)
-            batch_size = params.get('batch_size', 200)  # 减小批次大小
-            delay = params.get('delay', 2)  # 增加批次间延迟（秒）
-            cutoff_date = datetime.now() - timedelta(days=days)
-
-            total_deleted = 0
-            while True:
-                # 分批删除，避免长时间锁定数据库
-                batch_query = TaskLog.query.filter(TaskLog.timestamp < cutoff_date).limit(batch_size)
-                batch_ids = [log.id for log in batch_query.all()]
-
-                if not batch_ids:
-                    break
-
-                # 删除当前批次
-                deleted_count = TaskLog.query.filter(TaskLog.id.in_(batch_ids)).delete(synchronize_session=False)
-                db.session.commit()
-
-                total_deleted += deleted_count
-                logger.info(f"已清理 {deleted_count} 条日志记录，总计: {total_deleted}")
-
-                # 如果删除的记录少于批次大小，说明已经清理完毕
-                if deleted_count < batch_size:
-                    break
-
-                # 延长休息时间，降低系统负载
-                time.sleep(delay)
-
-            logger.info(f"清理完成，共删除 {total_deleted} 条超过 {days} 天的任务日志")
-            return True
-
-        except Exception as e:
-            logger.error(f"清理旧日志失败: {e}")
-            db.session.rollback()
-            return False
-    
-    def _cleanup_old_results(self, params):
-        """清理旧结果（批量处理优化）"""
-        # TODO: 按时间筛选结果 ID 等待 ParamTaskResults/Query，禁止 SDK 全表分页筛选。
-        try:
-            days = params.get('days', 10)
-            batch_size = params.get('batch_size', 200)  # 减小批次大小
-            delay = params.get('delay', 2)  # 增加批次间延迟（秒）
-            cutoff_date = datetime.now() - timedelta(days=days)
-
-            total_deleted = 0
-            while True:
-                # 分批删除，避免长时间锁定数据库
-                batch_query = TaskResult.query.filter(TaskResult.timestamp < cutoff_date).limit(batch_size)
-                batch_ids = [result.id for result in batch_query.all()]
-
-                if not batch_ids:
-                    break
-
-                delete_task_result_dependencies(batch_ids)
-                deleted_count = TaskResult.query.filter(TaskResult.id.in_(batch_ids)).delete(synchronize_session=False)
-                db.session.commit()
-
-                total_deleted += deleted_count
-                logger.info(f"已清理 {deleted_count} 条结果记录，总计: {total_deleted}")
-
-                # 如果删除的记录少于批次大小，说明已经清理完毕
-                if deleted_count < batch_size:
-                    break
-
-                # 延长休息时间，降低系统负载
-                time.sleep(delay)
-
-            logger.info(f"清理完成，共删除 {total_deleted} 条超过 {days} 天的任务结果")
-            return True
-
-        except Exception as e:
-            logger.error(f"清理旧结果失败: {e}")
-            db.session.rollback()
-            return False
-    
-    def _cleanup_old_data(self, params):
-        """清理旧数据（日志和结果）"""
-        try:
-            log_success = self._cleanup_old_logs(params)
-            return log_success
-            # result_success = self._cleanup_old_results(params)
-            # return log_success and result_success
-            
-        except Exception as e:
-            logger.error(f"清理旧数据失败: {e}")
-            return False
     
     def _update_next_run_time(self, scheduled_task):
         """更新下次执行时间"""
@@ -455,48 +393,9 @@ class SchedulerService:
             logger.info(f"清理了 {len(to_remove)} 个已完成的任务记录")
     
     def create_default_tasks(self):
-        """创建默认定时任务"""
-        if not self.app:
-            logger.error("Flask应用实例未设置，无法创建默认定时任务")
-            return None
-            
-        try:
-            with self.app.app_context():
-                # 检查是否已存在默认任务
-                existing_task = next(
-                    (
-                        task for task in _scheduled_task_repository.list_all()
-                        if task.get("name") == "每日数据清理"
-                        and task.get("task_function") == "cleanup_old_data"
-                    ),
-                    None,
-                )
-                
-                if existing_task:
-                    logger.info("默认定时任务已存在")
-                    return existing_task
-                
-                # 创建默认任务：每天0点清理超过10天的日志和结果
-                default_task = _scheduled_task_repository.save({
-                    'name': '每日数据清理',
-                    'description': '每天0点自动清理超过10天的任务日志和任务结果',
-                    'cron_expression': '0 0 * * *',
-                    'task_type': 'cleanup',
-                    'task_function': 'cleanup_old_data',
-                    'task_params': {'days': 10},
-                    'is_active': True,
-                })
-                
-                # 添加到调度器
-                if self.is_running:
-                    self.add_job(default_task)
-                
-                logger.info("已创建默认定时任务：每日数据清理")
-                return default_task
-                
-        except Exception as e:
-            logger.error(f"创建默认定时任务失败: {e}")
-            return None
+        """默认定时任务已移除，不再创建按时间清理任务。"""
+        logger.info("默认数据清理定时任务已移除，跳过创建")
+        return None
 
 # 全局调度器实例
 scheduler_service = SchedulerService()

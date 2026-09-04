@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from app.models import GoogleSheetTableType, google_sheet_registry_scope
+from app.domain_constants import GoogleSheetTableType, google_sheet_registry_scope
 from app.repositories.google_sheet_repository import GoogleSheetRepository
 
 class GoogleSheetRegistryService:

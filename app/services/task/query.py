@@ -8,11 +8,13 @@ from typing import Any, Optional
 from sqlalchemy import or_, and_, func, case
 
 from app.extensions import db
-from app.models import Task, TaskResult
+from app.models import Task
 from app.repositories.task_repository import TaskRepository
+from app.repositories.task_result_repository import TaskResultRepository
 
 
 _task_repository = TaskRepository()
+_task_result_repository = TaskResultRepository()
 
 class TaskQueryService:
     """只读任务查询服务。"""
@@ -185,11 +187,16 @@ class TaskQueryService:
         db_status = task.status
         thread = self._task_manager.running_tasks.get(task_id)
         memory_running = bool(thread and thread.is_alive())
-        # TODO: 最新结果按 task_id 查询依赖 ParamTaskResults/Query，不能全表扫描。
+        latest_result_page = _task_result_repository.list_results(
+            task_ids=[task_id],
+            page_size=1,
+            order_field="timestamp",
+            order_type="desc",
+        )
         latest_result = (
-            TaskResult.query.filter_by(task_id=task_id)
-            .order_by(TaskResult.timestamp.desc())
-            .first()
+            latest_result_page["items"][0]
+            if latest_result_page["items"]
+            else None
         )
 
         latest_log_time = None

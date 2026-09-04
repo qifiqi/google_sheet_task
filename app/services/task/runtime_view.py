@@ -9,13 +9,11 @@ from typing import Any
 from app.models import Task, TaskLog, TaskResult
 from app.utils.return_series import parse_return_series_fields
 from app.repositories.task_repository import TaskRepository
-from app.repositories.task_result_repository import TaskResultRepository
 from app.repositories.task_result_return_repository import TaskResultReturnRepository
 
 from app.services.task.dashboard_query import TaskDashboardQueryService
 
 _task_repository = TaskRepository()
-_task_result_repository = TaskResultRepository()
 _task_result_return_repository = TaskResultReturnRepository()
 
 
@@ -145,7 +143,7 @@ class TaskRuntimeViewService:
 
     def build_result_summary(self, task_id: str) -> dict[str, Any]:
         """汇总任务结果、关键指标和最近收益序列，供运行态页面展示。"""
-        # TODO: 按 task_id 查询结果和收益序列等待对应 Query 接口，禁止 SDK 全表筛选。
+        # 仪表盘聚合暂未迁移：当前 SDK 不支持结果统计、字段投影与稳定复合排序。
         results = (
             TaskResult.query.filter_by(task_id=task_id)
             .order_by(TaskResult.step_index.asc())
@@ -207,7 +205,7 @@ class TaskRuntimeViewService:
         config_summary = self.build_config_summary(task)
         stop_confirmation = self.build_stop_confirmation(task.id)
         result_summary = self.build_result_summary(task.id)
-        # TODO: 按 task_id 读取最近日志等待 ParamTaskLogs/Query 接口。
+        # 仪表盘日志读取暂保留本地查询；SDK 当前缺少仪表盘所需的聚合查询契约。
         recent_logs = (
             TaskLog.query.filter_by(task_id=task.id)
             .order_by(TaskLog.timestamp.desc())

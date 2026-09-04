@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from flask import current_app, has_app_context
 
-from app.models import TaskLog
 from app.repositories.task_log_repository import TaskLogRepository
 from app.utils.logger import get_logger
 
@@ -42,15 +41,15 @@ class TaskLogMixin:
             logger.error("添加任务日志失败: %s", exc)
 
     def get_task_logs(self, task_id: str, limit: int = 500) -> list[dict]:
-        """按时间正序返回最新任务日志。"""
-        # TODO: 迁移到 ParamTaskLogs/Query 前保留本地查询，禁止 SDK 全表筛选替代。
+        """按时间正序返回指定任务的最新日志。"""
         try:
-            logs = (
-                TaskLog.query.filter_by(task_id=task_id)
-                .order_by(TaskLog.timestamp.desc())
-                .limit(limit)
-                .all()
+            page = _task_log_repository.list_logs(
+                task_id=task_id,
+                page_size=max(1, min(int(limit), 500)),
+                order_field="timestamp",
+                order_type="desc",
             )
+            logs = list(page["items"])
             logs.reverse()
             return [log.to_dict() for log in logs]
         except Exception as exc:

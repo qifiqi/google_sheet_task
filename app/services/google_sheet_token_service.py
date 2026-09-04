@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from app.models import GoogleSheetTokenTaskType
+from app.domain_constants import GoogleSheetTokenTaskType
 from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.sdk_client import SdkFilterUnavailableError

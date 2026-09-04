@@ -6,7 +6,7 @@ from io import BytesIO
 
 from flask import Blueprint, g, jsonify, request, send_file
 
-from app.models import TaskType
+from app.domain_constants import TaskType
 from app.repositories.task_repository import TaskRepository
 from app.repositories.task_result_repository import TaskResultRepository
 from app.services.export_file_service import (

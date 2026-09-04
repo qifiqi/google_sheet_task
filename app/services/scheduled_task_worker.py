@@ -10,97 +10,12 @@ import os
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from datetime import datetime, timedelta
-import json
-import time
 from app import create_app
-from app.extensions import db
-from app.models import TaskLog, TaskResult
 from app.repositories.scheduled_task_repository import ScheduledTaskRepository
-from app.services.task.data_cleanup import delete_task_result_dependencies
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 _scheduled_task_repository = ScheduledTaskRepository()
-
-
-def cleanup_old_logs(params):
-    """清理旧日志"""
-    # TODO: 按时间筛选日志 ID 等待 ParamTaskLogs/Query，禁止 SDK 全表分页筛选。
-    try:
-        days = params.get('days', 10)
-        batch_size = params.get('batch_size', 200)
-        delay = params.get('delay', 2)
-        cutoff_date = datetime.now() - timedelta(days=days)
-
-        total_deleted = 0
-        while True:
-            batch_query = TaskLog.query.filter(TaskLog.timestamp < cutoff_date).limit(batch_size)
-            batch_ids = [log.id for log in batch_query.all()]
-
-            if not batch_ids:
-                break
-
-            deleted_count = TaskLog.query.filter(TaskLog.id.in_(batch_ids)).delete(synchronize_session=False)
-            db.session.commit()
-
-            total_deleted += deleted_count
-            logger.info(f"已清理 {deleted_count} 条日志，总计: {total_deleted}")
-
-            if deleted_count < batch_size:
-                break
-
-            time.sleep(delay)
-
-        logger.info(f"清理完成，共删除 {total_deleted} 条日志")
-        return True
-    except Exception as e:
-        logger.error(f"清理日志失败: {e}")
-        db.session.rollback()
-        return False
-
-
-def cleanup_old_results(params):
-    """清理旧结果"""
-    # TODO: 按时间筛选结果 ID 等待 ParamTaskResults/Query，禁止 SDK 全表分页筛选。
-    try:
-        days = params.get('days', 10)
-        batch_size = params.get('batch_size', 200)
-        delay = params.get('delay', 2)
-        cutoff_date = datetime.now() - timedelta(days=days)
-
-        total_deleted = 0
-        while True:
-            batch_query = TaskResult.query.filter(TaskResult.timestamp < cutoff_date).limit(batch_size)
-            batch_ids = [result.id for result in batch_query.all()]
-
-            if not batch_ids:
-                break
-
-            delete_task_result_dependencies(batch_ids)
-            deleted_count = TaskResult.query.filter(TaskResult.id.in_(batch_ids)).delete(synchronize_session=False)
-            db.session.commit()
-
-            total_deleted += deleted_count
-            logger.info(f"已清理 {deleted_count} 条结果，总计: {total_deleted}")
-
-            if deleted_count < batch_size:
-                break
-
-            time.sleep(delay)
-
-        logger.info(f"清理完成，共删除 {total_deleted} 条结果")
-        return True
-    except Exception as e:
-        logger.error(f"清理结果失败: {e}")
-        db.session.rollback()
-        return False
-
-
-def cleanup_old_data(params):
-    """清理旧数据（日志和结果）"""
-    log_success = cleanup_old_logs(params)
-    return log_success
 
 
 def execute_task(task_id, instance_id):
@@ -117,19 +32,19 @@ def execute_task(task_id, instance_id):
             logger.info("[Worker] 开始执行任务: %s", task.get("name"))
 
             function_name = task.get("task_function")
-            params = task.get("task_params") or {}
-            if isinstance(params, str):
-                params = json.loads(params)
-
-            # 执行对应函数
-            if function_name == 'cleanup_old_logs':
-                success = cleanup_old_logs(params)
-            elif function_name == 'cleanup_old_results':
-                success = cleanup_old_results(params)
-            elif function_name == 'cleanup_old_data':
-                success = cleanup_old_data(params)
+            if function_name in {
+                "cleanup_old_logs",
+                "cleanup_old_results",
+                "cleanup_old_data",
+            }:
+                logger.warning(
+                    "[Worker] 跳过已移除的数据清理定时任务: %s (%s)",
+                    task.get("name"),
+                    function_name,
+                )
+                success = False
             else:
-                logger.error(f"未知函数: {function_name}")
+                logger.error("未知函数: %s", function_name)
                 success = False
 
             # 释放锁
