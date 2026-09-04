@@ -292,6 +292,17 @@ class TaskRuntimeMixin:
         stop_event = self.task_stop_events.get(task_id)
         return bool(stop_event and stop_event.is_set())
 
+    def _get_type_concurrency_limit(self, spec):
+        """分类型并发上限；未配置单独上限返回 None。"""
+        if not spec.max_concurrency_key:
+            return None
+        try:
+            return int(
+                self._get_config(spec.max_concurrency_key, spec.max_concurrency_default)
+            )
+        except (TypeError, ValueError):
+            return spec.max_concurrency_default
+
     def _cleanup_runtime_state(self, task_id: str, task_logger=None) -> None:
         thread = self.running_tasks.pop(task_id, None)
         if thread and task_logger:
@@ -496,16 +507,6 @@ class TaskRuntimeMixin:
 
         task_logger.info("开始启动任务 - 名称: %s, 类型: %s", task.name, task.task_type)
 
-        # 启动前配额检查：超限不排队不报错，任务保持 pending 等待下次调度/手动启动。
-        max_workers = int(self._get_config(GLOBAL_MAX_KEY, GLOBAL_MAX_DEFAULT) or GLOBAL_MAX_DEFAULT)
-        if self.count_running_executions() >= max_workers:
-            error_msg = f"并发已满（{self.count_running_executions()}/{max_workers}），任务保持待执行"
-            self.start_errors[task_id] = error_msg
-            task_logger.warning(error_msg)
-            return False
-
-        self.task_stop_events[task_id] = threading.Event()
-        app = current_app._get_current_object()
         task_type = task.task_type.lower()
 
         # 分发走任务类型注册表；未注册类型拒绝启动并写 error_message 供前端展示。
@@ -513,13 +514,39 @@ class TaskRuntimeMixin:
         if spec is None:
             error_msg = f"不支持的任务类型: {task_type}"
             self.start_errors[task_id] = error_msg
-            self.task_stop_events.pop(task_id, None)
-            self.release_task_token_occupancy(task_id)
-            self.release_google_sheet_occupancy(task_id)
             task_repository.update_fields(task_id, error_message=error_msg)
             task_logger.error(error_msg)
             logger.error("不支持的任务类型: %s", task_type)
             return False
+
+        # 启动前配额检查（全局 + 分类型）：超限不排队不报错，任务保持 pending
+        # 等待下次调度/手动启动（保住看门狗 pending 不检查/running 无日志告警语义）。
+        max_workers = int(self._get_config(GLOBAL_MAX_KEY, GLOBAL_MAX_DEFAULT) or GLOBAL_MAX_DEFAULT)
+        if self.count_running_executions() >= max_workers:
+            error_msg = f"并发已满（{self.count_running_executions()}/{max_workers}），任务保持待执行"
+            self.start_errors[task_id] = error_msg
+            task_logger.warning(error_msg)
+            return False
+
+        type_limit = self._get_type_concurrency_limit(spec)
+        if type_limit is not None:
+            type_running = sum(
+                1
+                for running_id, running_type in self.task_execution_types.items()
+                if running_type == task_type
+                and self.running_tasks.get(running_id)
+                and self.running_tasks[running_id].is_alive()
+            )
+            if type_running >= type_limit:
+                error_msg = (
+                    f"{spec.display_name} 并发已满（{type_running}/{type_limit}），任务保持待执行"
+                )
+                self.start_errors[task_id] = error_msg
+                task_logger.warning(error_msg)
+                return False
+
+        self.task_stop_events[task_id] = threading.Event()
+        app = current_app._get_current_object()
 
         try:
             runner = build_runner(self, spec)
