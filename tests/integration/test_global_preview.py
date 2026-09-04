@@ -47,7 +47,7 @@ def test_global_preview_supports_google_sheet_c7_tasks(app_factory, monkeypatch)
         _add_task("c7-preview", "google_sheet_C7", "{}")
         monkeypatch.setenv("AUTH_ENABLED", "false")
         monkeypatch.setattr(
-            "app.routes.global_preview._build_global_preview_initial_payload",
+            "app.routes.global_preview_api._build_global_preview_initial_payload",
             lambda _task_id: {"group_mode": "year", "groups": [], "default_group_key": "", "preview": {"task": {}, "summary": {}, "groups": []}},
         )
 
