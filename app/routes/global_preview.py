@@ -1,30 +1,27 @@
-"""Standalone global preview entry for C-series backtest tasks."""
+"""Standalone global preview entry for C-series backtest tasks（页面 + 导出）。
+
+API 端点已归位 global_preview_api.py；本文件保留页面路由与导出流。
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
-from io import BytesIO
 from queue import Queue
 from threading import Thread
 from time import perf_counter
 from urllib.parse import quote
 from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
-from flask import Blueprint, Response, current_app, jsonify, render_template, request, send_file, stream_with_context
+from flask import Blueprint, Response, current_app, render_template, request, send_file
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.repositories import task_repository
 from app.services.backtest_training_api_service import (
     _build_global_preview_payload,
-    _build_global_preview_group_payload,
-    _build_global_preview_initial_payload,
     _build_global_preview_workbook,
     get_global_preview_result_ids_by_stock,
     split_global_preview_payload_by_stock,
 )
-from app.utils.api_response import success
-from app.utils.auth import login_required
-from app.utils.task_types import normalize_task_type
 
 
 bp = Blueprint("global_preview", __name__, url_prefix="/global-preview")
@@ -62,44 +59,6 @@ def _preview_status(task):
 @bp.route("/single_product")
 def page():
     return render_template("global_preview/index.html")
-
-
-@bp.route("/api/tasks/<task_id>", methods=["GET"])
-@login_required
-def get_preview(task_id):
-    task = _load_backtest_task(task_id)
-
-    status = _preview_status(task)
-    data = {
-        "task": {
-            "id": task["id"],
-            "name": task["name"],
-            "task_type": task["task_type"],
-            "task_status": task["status"],
-        },
-        **status,
-    }
-    if status["supported"]:
-        initial = _build_global_preview_initial_payload(task_id)
-        data["initial"] = initial
-        # 保留 preview 字段，避免已有调用方在前端升级期间失效。
-        data["preview"] = initial["preview"]
-    return success(data=data)
-
-
-@bp.route("/api/tasks/<task_id>/preview-group", methods=["POST"])
-@login_required
-def get_preview_group(task_id):
-    task = _load_backtest_task(task_id)
-    if not _preview_status(task)["supported"]:
-        raise BadRequestError("当前任务暂不支持全局预览")
-
-    # result_ids 来自初始化接口；服务层仍会附加 task_id 条件，防止跨任务读取。
-    result_ids = (request.get_json(silent=True) or {}).get("result_ids") or []
-    if not isinstance(result_ids, list) or not result_ids:
-        raise BadRequestError("请选择需要加载的结果分组")
-    payload = _build_global_preview_group_payload(task_id, result_ids)
-    return success(data={"preview": payload})
 
 
 class _ZipStreamWriter:
@@ -197,6 +156,8 @@ def export_preview(task_id):
         workbook = _build_global_preview_workbook(
             _build_global_preview_payload(task_id)
         )
+        from io import BytesIO
+
         buffer = BytesIO()
         workbook.save(buffer)
         buffer.seek(0)

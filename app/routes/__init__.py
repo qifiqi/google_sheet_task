@@ -7,6 +7,8 @@ def register_blueprints(app):
     from app.routes.admin_api import admin_api_bp
     from app.routes.task_api import task_api_bp
     from app.routes.config_api import config_api_bp
+    from app.routes.logs_api import logs_api_bp
+    from app.routes.navigation_api import navigation_api_bp
     from app.routes.template_api import template_api_bp
     from app.routes.result_api import result_api_bp
     from app.routes.google_sheet_api import google_sheet_api_bp
@@ -23,6 +25,7 @@ def register_blueprints(app):
     from app.routes.backtest_multi_product import bp as backtest_multi_product_bp
     from app.routes.backtest_multi_product import legacy_bp as backtest_multi_product_legacy_bp
     from app.routes.global_preview import bp as global_preview_bp
+    from app.routes.global_preview_api import gp_api_bp
     from app.routes.meta_api import meta_api_bp
     from app.routes.auth_api import auth_api_bp
     from app.routes.export_api import export_api_bp
@@ -36,6 +39,8 @@ def register_blueprints(app):
     # 拆分后的 API 模块
     app.register_blueprint(task_api_bp, url_prefix='/api')
     app.register_blueprint(config_api_bp, url_prefix='/api')
+    app.register_blueprint(logs_api_bp, url_prefix='/api')
+    app.register_blueprint(navigation_api_bp, url_prefix='/api')
     app.register_blueprint(template_api_bp, url_prefix='/api')
     app.register_blueprint(result_api_bp, url_prefix='/api')
     app.register_blueprint(google_sheet_api_bp, url_prefix='/api')
@@ -52,6 +57,7 @@ def register_blueprints(app):
     app.register_blueprint(backtest_multi_product_legacy_bp)
     app.register_blueprint(bmp_api_bp)
     app.register_blueprint(global_preview_bp)
+    app.register_blueprint(gp_api_bp)
     app.register_blueprint(meta_api_bp, url_prefix='/api')
     app.register_blueprint(auth_api_bp, url_prefix='/api')
     app.register_blueprint(export_api_bp, url_prefix='/api/exports')
