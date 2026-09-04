@@ -6,8 +6,8 @@
 
 | # | 级别 | 位置 | 问题 | 建议 |
 |---|---|---|---|---|
-| 3.1 | **P1** | `google_sheet_token_service.py:26` | `Task.query.filter_by(status='running').all()` 整行加载，含 `config` TEXT（单任务配置可达数十 KB） | 改 `with_entities(Task.id, Task.task_type)`——调用方（token 占用联动）只消费这两个字段 |
-| 3.2 | **P2** | `google_sheet_token_service.py:67` | `GoogleSheetToken.query.all()` 整行加载，含 `token_context` TEXT（token JSON 原文） | 快照场景改 `with_entities(GoogleSheetToken.id, .current_in_use_count, .max_usage_count, .is_active)` |
+| 3.1 | **P1** | `task_repository.list_entities_by_status()`（消费方 `google_sheet_token_service._build_live_usage_snapshot`，原 :26 行引用——B2 已把 ORM 收进仓储） | 仓储内整行加载，含 `config` TEXT（单任务配置可达数十 KB） | 仓储改 `with_entities(Task.id, Task.config)`——调用方只解析这两列（校准 2026-09-05：B2 后 ORM 已入仓储，原"service 改 with_entities"表述过时） |
+| 3.2 | **P2** | `google_sheet_token_repository.list_all_entities()`（消费方 `token_service.reconcile_in_use_counts`，原 :67 行引用） | 整行加载，含 `token_context` TEXT（token JSON 原文） | 仓储新增 `apply_in_use_counts(usage: dict[int,int])`：SQL UPDATE 按主键回写 current_in_use_count，不加载实体（校准同上；navigation 同名方法是权限同步实体流，不在本项范围） |
 | 3.3 | **P2** | `model_summary_service.py:1516-1526` | stock 汇总分支 `summary_query.all()` 全量取回 Python 层聚合（无 GROUP BY / LIMIT），summary 行数随任务线性增长 | 改 SQL `GROUP BY stock_code` 聚合（COUNT/MIN/MAX），或至少 `func.date` 分组下推 |
 | 3.4 | P3 | `rbac_repository.py:88` 等 | `list_users/roles` 对每行 `to_dict()` 触发 `roles/permissions` lazy load（N+1）；表为百行级，实害小 | 列表接口加 `selectinload(User.roles)`；或维持现状并注释行数量级前提 |
 | 3.5 | P3 | `task_result_repository.py:143-156` | `count_by_task_success` 两次 COUNT | 合并为一次 `GROUP BY success` 计数 |
@@ -17,9 +17,13 @@
 
 ## 2. 重点项细节
 
-### 3.1 / 3.2 token 占用链路大字段
+### 3.1 / 3.2 token 占用链路大字段（2026-09-05 校准：目标在仓储层）
 
-调用频度：每次任务启动/停止/token 选占都会触发（执行链热路径）。`t_param_tasks.config` 与 `t_param_google_sheet_tokens.token_context` 均为 TEXT，`SELECT *` 使 MySQL 在行内/溢出页读取大字段后整行传输——改投影后单次查询字节数下降一个数量级以上。**注意**：改投影不影响 `is_available()` 等方法（它们只在整实体路径用）。
+调用频度：每次任务启动/停止/token 选占都会触发（执行链热路径）。`t_param_tasks.config` 与 `t_param_google_sheet_tokens.token_context` 均为 TEXT，`SELECT *` 使 MySQL 在行内/溢出页读取大字段后整行传输——改投影后单次查询字节数下降一个数量级以上。**注意**：`get_usage_summary` 的 `is_available()` 是整实体路径，保持 `list_active_entities()` 不动。
+
+落地形态（B2 后 ORM 已入仓储，service 无直接 ORM）：
+1. `task_repository.list_entities_by_status(status)` 改为返回 `[{id, config}]` 投影（唯一消费方 `_build_live_usage_snapshot` 只解析这两列）；
+2. `google_sheet_token_repository` 新增 `apply_in_use_counts(usage: dict[int, int])`：按主键逐行 `UPDATE current_in_use_count`（绑定参数），删除对 `list_all_entities()` 的 reconcile 依赖；`list_all_entities()` 本身保留（无其他消费方时随批评估删除，避免留死代码）。
 
 ### 3.3 model_summary stock 聚合
 

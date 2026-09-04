@@ -7,6 +7,7 @@
 - 生产引擎 **MySQL/InnoDB**；复合索引遵循最左前缀；布尔单列索引基数≈2，优化器基本不选；
 - **20260811 已清理过一轮**（`20260811_remove_unused_indexes.py`，删 32 个），方向正确，但存在"误删在用 + 漏删无效"双向偏差（§4/§5）；
 - 模型与迁移当前一致（20260522 建的 6 个单列 `ix_*` 已由 20260811 对齐）；启动期 `app/startup.py` 存在 `_ensure_model_index()` 私自补索引逻辑（`startup.py:162`），是唯一残留的模型外索引来源；
+- **startup.py 的 `_ensure_model_index` 补建点共 3 处**（校准 2026-09-05 实测）——:162（task_results.return_series_id，随本批移除）、:357（navigation idx_parent_sort）、:358（navigation ix_is_visible），后两处随对应索引移除同步删除；:150（ix_tasks_created_by_user_id）对应保留索引，不动；
 - 表体量分布：tasks/task_results/task_logs/summary_index 为大表（持续增长），其余（RBAC、navigation、google_sheet、scheduled_tasks、token 池）均为百行级小表——小表索引只谈"语义正确"，不谈性能收益。
 
 ## 2. 现存索引全景与逐条判定
@@ -72,7 +73,7 @@
 | google_sheet | `ix_spreadsheet_id`、`ix_is_in_use`、`ix_name` | uk 前缀冗余 / 布尔 / 排序微表 | models `index=True` 摘除 |
 | google_sheet_tokens | `ix_name` | 零引用 | — |
 | scheduled_tasks | `ix_name`、`ix_is_active`、`ix_created_at` | 零引用 / 布尔 / 微表 | models `index=True` 摘除 |
-| navigation_menu_items | `idx_parent_sort`、`ix_is_visible` | 查询形态不匹配 + 微表 | — |
+| navigation_menu_items | `idx_parent_sort`、`ix_is_visible` | 查询形态不匹配 + 微表 | **同步删 `startup.py:357-358` 两行 `_ensure_model_index` 补建调用**（校准 2026-09-05：审计时漏列，实测存在） |
 
 ## 4. 误删需补回（20260811 的反向偏差）
 

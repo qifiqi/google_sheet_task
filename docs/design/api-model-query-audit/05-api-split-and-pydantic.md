@@ -55,7 +55,7 @@ app/routes/
 
 - 采用 **Pydantic v2**（≥2.12，Python 3.14 官方支持；v2 Rust core，解析开销可忽略）；
 - **推翻** `request_validation.py` docstring"不引入 pydantic 等重依赖"的旧决策（记录：用户决策 2026-09-04；收益是声明式 schema、字段级错误明细、类型安全的 payload，代价一个依赖）；
-- 无兼容层：`validate_body/require_query` 的 7 个调用点（auth_api ×4、template_api ×3）随首批迁移改写，最终删除该文件。
+- 无兼容层：`validate_body` 的 5 个调用点（auth_api ×3：change_password/create_user/create_role；template_api ×2：create/update；require_query 现无调用点——校准 2026-09-05，B1-2 重写 auth_api 后计数变化）随基建批迁移改写，最终删除该文件。
 
 ### 2.2 基建（约 60 行）
 
@@ -112,7 +112,7 @@ def parse_query(schema):
 |---|---|---|
 | V1 | `/api/tasks` POST、`/tasks/batch-create`、bt/bmp `/api/import-excel`、`/calculate-ratios`、`/google-sheet-tokens/import`、`/auth/login`、`/auth/password` | 手写 if 分支散落（重构收益最大）|
 | V2 | scheduler 任务 POST/PUT、system-configs PUT、navigation-menu-items POST/PUT、config POST | 手写分支 |
-| V3 | 7 处 `validate_body/require_query` 调用点替换 + 全部列表端点接 `PageQuery` | 旧工具 |
+| V3 | 5 处 `validate_body` 调用点替换 + 全部列表端点接 `PageQuery` | 旧工具 |
 | V4 | 删除 `request_validation.py`；`templates_api` 等剩余端点补齐 schema | — |
 
 ### 2.4 红线与测试

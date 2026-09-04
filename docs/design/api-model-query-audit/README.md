@@ -28,7 +28,7 @@
 | 数据模型 | 15 个表模型 + 2 张关联表 | `app/models.py`（977 行） |
 | 索引定义 | 复合 15 + 单列 21 + 唯一约束 11（明细见 `02` §2） | models + migrations 全量比对 |
 | 数据访问层 | repositories 14 文件 / 1,566 行；services ORM 散布 20 文件 | grep 清点 |
-| 迁移 | 19 个版本（含 `20260811_remove_unused_indexes` 上轮索引清理，删 32 个） | `migrations/versions/` |
+| 迁移 | 17 个版本（校准 2026-09-05 实测；含 `20260811_remove_unused_indexes` 上轮索引清理，删 32 个） | `migrations/versions/` |
 
 ## 3. 核心结论
 
@@ -62,3 +62,10 @@
 2. 每个索引移除在迁移前用 `EXPLAIN` 复核（`02` §7 给出验证 SQL），并保留 downgrade 说明（沿用 20260811 "不回补陈旧定义" 的约定）；
 3. API 归位类改动**必须保持 URL 不变**（前端 101 处调用点零改动），仅动代码归属与蓝图注册；
 4. 改动逐项可回滚：索引迁移一迁移一索引组；API 归位按文件为单位。
+
+## 执行记录
+
+| 日期 | 批次 | 结果 | 偏差说明 |
+|---|---|---|---|
+| 2026-09-05 | 批 0 文档校准 | 完成 | 执行前审计发现 4 处文档与代码不符并先修文档：① 03 §3.1/3.2 token service 两处 ORM 已在数据层 B2 迁入仓储，整改点移到仓储层（list_entities_by_status 投影 / apply_in_use_counts）；② 02 补登 startup.py:357-358 两个 navigation 索引补建调用（对应索引移除须同步删）；③ 05 validate_body 调用点 7→5（auth ×3 + template ×2，require_query 无调用点）；④ README 迁移版本 19→17。另登记：README/07 与目标提示词第 4 条矛盾（xpl 是否补 login_required）——按 README §4 P2 与 07 §1.3 执行"鉴权不补，移交主服务"。 |
+
