@@ -10,6 +10,7 @@ from typing import Any
 from flask import current_app
 
 from app.repositories import backtest_repository, task_repository
+from app.services.task.registry import build_runner, get_task_type_spec
 from app.models import Task
 from app.services.backtest_multi_product_service import BacktestMultiProductService
 from app.services.backtest_training_service import BacktestTrainingService
@@ -490,57 +491,37 @@ class TaskRuntimeMixin:
         self.task_stop_events[task_id] = threading.Event()
         app = current_app._get_current_object()
         task_type = task.task_type.lower()
-        if task_type == "google_sheet":
-            new_thread = threading.Thread(
-                target=self._execute_google_sheet_task,
-                args=(task_id, app),
-                name=task_id,
-            )
-            task_logger.info("创建Google Sheet任务执行线程")
-        elif task_type == "google_sheet_c4":
-            new_thread = threading.Thread(
-                target=self._execute_google_sheet_c4_task,
-                args=(task_id, app),
-                name=task_id,
-            )
-            task_logger.info("创建Google Sheet C4 任务执行线程")
-        elif task_type == "google_sheet_c5":
-            new_thread = threading.Thread(
-                target=self._execute_google_sheet_c5_task,
-                args=(task_id, app),
-                name=task_id,
-            )
-            task_logger.info("创建Google Sheet C5 任务执行线程")
-        elif task_type == "google_sheet_c7":
-            new_thread = threading.Thread(
-                target=self._execute_google_sheet_c7_task,
-                args=(task_id, app),
-                name=task_id,
-            )
-            task_logger.info("创建Google Sheet C7 任务执行线程")
-        elif task_type == "backtest_training":
-            new_thread = threading.Thread(
-                target=self._execute_backtest_training_task,
-                args=(task_id, app),
-                name=task_id,
-            )
-            task_logger.info("创建回测数据训练任务执行线程")
-        elif task_type == "backtest_multi_product":
-            new_thread = threading.Thread(
-                target=self._execute_backtest_multi_product_task,
-                args=(task_id, app),
-                name=task_id,
-            )
-            task_logger.info("创建多品数据回测任务执行线程")
-        else:
+
+        # 分发走任务类型注册表；未注册类型拒绝启动并写 error_message 供前端展示。
+        spec = get_task_type_spec(task_type)
+        if spec is None:
             error_msg = f"不支持的任务类型: {task_type}"
             self.start_errors[task_id] = error_msg
             self.task_stop_events.pop(task_id, None)
             self.release_task_token_occupancy(task_id)
             self.release_google_sheet_occupancy(task_id)
+            task_repository.update_fields(task_id, error_message=error_msg)
             task_logger.error(error_msg)
             logger.error("不支持的任务类型: %s", task_type)
             return False
+
+        try:
+            runner = build_runner(self, spec)
+        except LookupError as exc:
+            error_msg = str(exc)
+            self.start_errors[task_id] = error_msg
+            self.task_stop_events.pop(task_id, None)
+            self.release_task_token_occupancy(task_id)
+            self.release_google_sheet_occupancy(task_id)
+            task_logger.error(error_msg)
+            return False
+
+        new_thread = threading.Thread(
+            target=runner,
+            args=(task_id, app),
+            name=task_id,
+        )
+        task_logger.info(f"创建{spec.display_name}任务执行线程")
 
         self.running_tasks[task_id] = new_thread
         try:
