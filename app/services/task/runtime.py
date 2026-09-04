@@ -10,7 +10,12 @@ from typing import Any
 from flask import current_app
 
 from app.repositories import backtest_repository, task_repository
-from app.services.task.registry import build_runner, get_task_type_spec
+from app.services.task.registry import (
+    GLOBAL_MAX_DEFAULT,
+    GLOBAL_MAX_KEY,
+    build_runner,
+    get_task_type_spec,
+)
 from app.models import Task
 from app.services.backtest_multi_product_service import BacktestMultiProductService
 from app.services.backtest_training_service import BacktestTrainingService
@@ -296,6 +301,8 @@ class TaskRuntimeMixin:
         if stop_event and task_logger:
             task_logger.info("stop event cleaned")
             task_logger.info("清理任务事件队列")
+        self.task_execution_types.pop(task_id, None)
+        self._active_worker_ids.pop(task_id, None)
 
     def _finalize_task_execution(
         self,
@@ -488,6 +495,15 @@ class TaskRuntimeMixin:
             return False
 
         task_logger.info("开始启动任务 - 名称: %s, 类型: %s", task.name, task.task_type)
+
+        # 启动前配额检查：超限不排队不报错，任务保持 pending 等待下次调度/手动启动。
+        max_workers = int(self._get_config(GLOBAL_MAX_KEY, GLOBAL_MAX_DEFAULT) or GLOBAL_MAX_DEFAULT)
+        if self.count_running_executions() >= max_workers:
+            error_msg = f"并发已满（{self.count_running_executions()}/{max_workers}），任务保持待执行"
+            self.start_errors[task_id] = error_msg
+            task_logger.warning(error_msg)
+            return False
+
         self.task_stop_events[task_id] = threading.Event()
         app = current_app._get_current_object()
         task_type = task.task_type.lower()
@@ -516,18 +532,16 @@ class TaskRuntimeMixin:
             task_logger.error(error_msg)
             return False
 
-        new_thread = threading.Thread(
-            target=runner,
-            args=(task_id, app),
-            name=task_id,
-        )
         task_logger.info(f"创建{spec.display_name}任务执行线程")
+        self.task_execution_types[task_id] = task_type
 
-        self.running_tasks[task_id] = new_thread
+        handle = None
         try:
-            new_thread.start()
+            handle = self.submit_task_execution(task_id, app, runner)
+            self.running_tasks[task_id] = handle
         except Exception as exc:
-            self.running_tasks.pop(task_id, None)
+            if handle is not None:
+                self.running_tasks.pop(task_id, None)
             self.task_stop_events.pop(task_id, None)
             self.release_task_token_occupancy(task_id)
             self.release_google_sheet_occupancy(task_id)
@@ -597,12 +611,15 @@ class TaskRuntimeMixin:
     ) -> None:
         """统一执行后台任务服务。"""
         task_logger = get_task_logger(task_id, logger_name)
-        current_thread = threading.current_thread()
 
         def _is_active_generation() -> bool:
             # Why: watchdog 强制重启会把本线程踢出 running_tasks 并起新线程接管。
             # 老线程若在网络 IO 解开后醒来，不应再覆盖任务状态或释放新一代占用。
-            return self.running_tasks.get(task_id) is current_thread
+            handle = self.running_tasks.get(task_id)
+            if handle is None or handle.future.done():
+                return False
+            worker_id = self._active_worker_ids.get(task_id)
+            return worker_id is None or worker_id == threading.get_ident()
 
         try:
             with app.app_context():

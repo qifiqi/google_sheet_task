@@ -525,19 +525,22 @@ def test_backtest_start_task_marks_running_before_thread_body(monkeypatch, app_f
         first_task_id = first_task.id
         second_task_id = second_task.id
 
-        class _NoopThread:
-            def __init__(self, *args, **kwargs):
-                pass
+        # 线程池模型：桩掉池提交，句柄永未完成即任务持续 running。
+        from concurrent.futures import Future
 
-            def start(self):
-                return None
+        class _FakeHandle:
+            def __init__(self):
+                self.future = Future()
 
             def is_alive(self):
-                return True
-
-        monkeypatch.setattr("app.services.task.runtime.threading.Thread", _NoopThread)
+                return not self.future.done()
 
         manager = TaskManager()
+        monkeypatch.setattr(
+            manager,
+            "submit_task_execution",
+            lambda task_id, app, runner: _FakeHandle(),
+        )
         assert manager.start_task(first_task_id) is True
 
         refreshed_first = db.session.get(Task, first_task_id)
@@ -846,17 +849,20 @@ def test_backtest_finish_starts_next_pending_same_sheet(monkeypatch, app_factory
             started_task_ids.append(task_id)
             return original_start_task(task_id)
 
-        class _NoopThread:
-            def __init__(self, *args, **kwargs):
-                pass
+        from concurrent.futures import Future
 
-            def start(self):
-                return None
+        class _FakeHandle:
+            def __init__(self):
+                self.future = Future()
 
             def is_alive(self):
-                return True
+                return not self.future.done()
 
-        monkeypatch.setattr("app.services.task.runtime.threading.Thread", _NoopThread)
+        monkeypatch.setattr(
+            manager,
+            "submit_task_execution",
+            lambda task_id, app, runner: _FakeHandle(),
+        )
         manager.start_task = _start_task
 
         manager._start_next_pending_backtest_task(finished_task_id, app_factory)
