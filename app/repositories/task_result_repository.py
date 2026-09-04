@@ -130,6 +130,29 @@ class TaskResultRepository(BaseRepository):
         )
         return row.timestamp.isoformat() if row else None
 
+    def list_export_rows(self, task_ids):
+        """批量导出投影：仅取导出所需的 (task_id, step_index, result 原始 JSON 串)。
+
+        保持原批量导出的性能语义：跳过 parameters（单行 ~10KB 的 kline JSON）
+        等大字段，仅投影导出三列。
+        """
+        if not task_ids:
+            return []
+        rows = (
+            db.session.query(
+                TaskResult.task_id,
+                TaskResult.step_index,
+                TaskResult.result,
+            )
+            .filter(TaskResult.task_id.in_(task_ids))
+            .order_by(TaskResult.task_id, TaskResult.step_index.asc())
+            .all()
+        )
+        return [
+            {"task_id": task_id, "step_index": step_index, "result": result_json}
+            for task_id, step_index, result_json in rows
+        ]
+
     # ---- TaskResult 写 ----
 
     def create(self, fields):

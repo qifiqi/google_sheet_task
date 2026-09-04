@@ -706,8 +706,8 @@ async function analyzeSheet(card, options = {}) {
         if (data.status !== 'success') {
             throw new Error(data.message || '识别失败');
         }
-        const sheetName = Array.isArray(data.worksheets) && data.worksheets.length ? data.worksheets[0] : 'data';
-        const title = data.title || '';
+        const sheetName = Array.isArray(data.data.worksheets) && data.data.worksheets.length ? data.data.worksheets[0] : 'data';
+        const title = data.data.title || '';
         card.dataset.spreadsheetId = spreadsheetId;
         card.dataset.sheetName = sheetName;
         card.dataset.sheetTitle = title;
@@ -1032,7 +1032,7 @@ async function loadBacktestTokens() {
     try {
         const response = await fetch('/api/google-sheet-tokens?task_type=backtest_training');
         const data = await response.json();
-        const tokens = Array.isArray(data.tokens) ? data.tokens : [];
+        const tokens = Array.isArray(data.data.tokens) ? data.data.tokens : [];
         tokenIdSelect.innerHTML = tokens.length ? tokens.map((token) => `
             <option value="${escapeHtml(token.id)}" ${token.is_available ? '' : 'disabled'}>
                 ${escapeHtml(token.name)} | 占用 ${escapeHtml(token.current_in_use_count || 0)}

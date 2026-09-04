@@ -632,9 +632,9 @@
         if (keyword) params.set('keyword', keyword);
 
         ajaxRequest(`/api/tasks?${params.toString()}`, 'GET', null, function(err, data) {
-            if (!err && data && data.tasks) {
-                currentTasks = data.tasks || [];
-                paginationState = data.pagination || paginationState;
+            if (!err && data && data.data && data.data.tasks) {
+                currentTasks = data.data.tasks || [];
+                paginationState = data.data.pagination || paginationState;
                 currentPage = paginationState.page || page;
                 renderTasks();
                 renderPagination();
@@ -817,10 +817,10 @@
         }
 
         ajaxRequest(`/api/tasks?${params.toString()}`, 'GET', null, function(err, data) {
-            if (!err && data && data.tasks) {
-                batchRestartTasks = data.tasks || [];
+            if (!err && data && data.data && data.data.tasks) {
+                batchRestartTasks = data.data.tasks || [];
                 batchRestartTasks.forEach(task => batchRestartTaskCache.set(String(task.id), task));
-                batchRestartPaginationState = data.pagination || batchRestartPaginationState;
+                batchRestartPaginationState = data.data.pagination || batchRestartPaginationState;
                 batchRestartPage = batchRestartPaginationState.page || page;
                 renderBatchRestartTaskList();
                 renderBatchRestartPagination();
@@ -1153,12 +1153,12 @@
         currentTaskId = taskId;
         currentTaskType = findCurrentTask(taskId)?.task_type || null;
         ajaxRequest(`/admin/api/tasks/${taskId}/runtime-detail`, 'GET', null, function(err, data) {
-            if (err || !data || !data.success) {
+            if (err || !data || data.status !== 'success') {
                 showNotification('获取任务详情失败', 'error');
                 return;
             }
 
-            const task = data.task;
+            const task = data.data.task;
             currentTaskType = task.task_type || null;
             document.getElementById('detail-task-id').textContent = task.id;
             document.getElementById('detail-task-name').textContent = task.name;
@@ -1192,12 +1192,12 @@
         }
 
         ajaxRequest(`/api/tasks/${taskId}`, 'GET', null, function(err, data) {
-            if (err || !data || data.status !== 'success' || !data.task) {
+            if (err || !data || data.status !== 'success' || !data.data.task) {
                 showNotification('获取任务信息失败', 'error');
                 return;
             }
 
-            const targetTask = data.task;
+            const targetTask = data.data.task;
             if (targetTask.status === 'running') {
                 showNotification('正在运行的任务不允许修改，请先停止任务', 'warning');
                 return;
@@ -1273,7 +1273,7 @@
     function confirmTaskStopped(taskId, retry = 0) {
         ajaxRequest(`/api/tasks/${taskId}/stop-confirmation`, 'GET', null, function(err, data) {
             if (!err && data && data.status === 'success') {
-                if (data.stop_confirmed) {
+                if (data.data && data.data.stop_confirmed) {
                     showNotification('任务已完全停止', 'success');
                     loadTasks();
                     if (currentTaskId === taskId) showTaskDetail(taskId);
@@ -1353,7 +1353,7 @@
             if (!err && data && data.status === 'success') {
                 showNotification(data.message || '新重启任务创建成功', 'success');
                 const nextTaskType = data.task_type || currentTaskType;
-                const nextTaskId = data.new_task_id || currentTaskId;
+                const nextTaskId = (data.data && data.data.new_task_id) || currentTaskId;
                 window.location.href = buildTaskDetailUrl(nextTaskId, nextTaskType);
                 return;
             }

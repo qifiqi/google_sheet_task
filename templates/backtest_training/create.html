@@ -1135,7 +1135,7 @@ async function loadBacktestTokens() {
         if (data.status !== 'success') {
             throw new Error(data.message || '加载 Token 失败');
         }
-        backtestTokens = Array.isArray(data.tokens) ? data.tokens : [];
+        backtestTokens = Array.isArray(data.data.tokens) ? data.data.tokens : [];
         renderTokenOptions(backtestTokens);
     } catch (error) {
         tokenIdSelect.innerHTML = '<option value="">加载 Token 失败</option>';
@@ -1376,7 +1376,7 @@ async function analyzeSheetInput() {
         if (data.status !== 'success') {
             throw new Error(data.message || '识别链接失败');
         }
-        renderSheetInfo(data.title || '', data.worksheets || []);
+        renderSheetInfo(data.data.title || '', data.data.worksheets || []);
     } catch (error) {
         clearSelectedSheetInfo();
         alert(error.message || '识别链接失败');

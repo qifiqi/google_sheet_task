@@ -1,3 +1,11 @@
+"""任务 API（数据层：task_repository / task_result_repository）。
+
+说明：
+- create/start/restart/update-config 等执行链响应由 task_manager 服务层构造
+  （task/creation、task/restart 属 B3 范围），路由保持透传；
+- 服务层仍以 ValueError 表达请求校验失败（400 语义），本层显式翻译为
+  BadRequestError，待 B3 服务层改抛语义异常后移除。
+"""
 import csv
 import json
 import time
@@ -6,8 +14,8 @@ from io import BytesIO
 
 from flask import Blueprint, g, jsonify, request, send_file
 
-from app.extensions import db
-from app.models import Task
+from app.exceptions import BadRequestError, NotFoundError
+from app.repositories import task_repository, task_result_repository
 from app.services.export_file_service import (
     EXCEL_MIMETYPE,
     BatchExportFile,
@@ -19,6 +27,7 @@ from app.services.export_file_service import (
     sanitize_export_filename,
 )
 from app.services.task import TaskRuntimeViewService, task_manager
+from app.utils.api_response import error, success
 from app.utils.auth import login_required
 from app.utils.logger import get_logger
 
@@ -28,251 +37,204 @@ task_api_bp = Blueprint('task_api', __name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
 
 
-def _get_task_or_404(task_id: str):
-    task = db.session.get(Task, task_id)
+def _get_task_entity_or_404(task_id: str):
+    """任务实体访问（导出/执行链消费实体）；不存在抛 NotFoundError。"""
+    task = task_repository.get_entity(task_id)
     if not task:
-        return None, jsonify({"status": "error", "message": "任务不存在"}), 404
-    return task, None, None
+        raise NotFoundError("任务不存在")
+    return task
+
 
 @task_api_bp.route('/tasks', methods=['GET', 'POST'])
 @login_required
 def tasks():
     """获取任务列表 / 创建任务"""
-    try:
-        if request.method == 'GET':
-            task_type = request.args.get('task_type')
-            page = request.args.get('page', type=int)
-            per_page = request.args.get('per_page', type=int)
-            task_status = request.args.get('status')
-            keyword = request.args.get('keyword', '', type=str)
-            allowed_task_types = None
+    if request.method == 'GET':
+        task_type = request.args.get('task_type')
+        page = request.args.get('page', type=int)
+        per_page = request.args.get('per_page', type=int)
+        task_status = request.args.get('status')
+        keyword = request.args.get('keyword', '', type=str)
+        allowed_task_types = None
 
-            if not task_type:
-                allowed_task_types = [item[0] for item in Task.query.with_entities(Task.task_type).distinct().all()]
+        if not task_type:
+            allowed_task_types = task_repository.distinct_task_types()
 
-            default_page = page or 1
-            default_per_page = per_page or 10
+        default_page = page or 1
+        default_per_page = per_page or 10
 
-            if not task_type and not allowed_task_types:
-                return jsonify({
-                    "status": "success",
-                    "tasks": [],
-                    "pagination": {
-                        "page": default_page,
-                        "per_page": default_per_page,
-                        "total": 0,
-                        "pages": 0,
-                        "has_prev": False,
-                        "has_next": False,
-                        "prev_num": None,
-                        "next_num": None,
-                    },
-                    "statistics": {
-                        "total_tasks": 0,
-                        "completed_tasks": 0,
-                        "running_tasks": 0,
-                        "error_tasks": 0,
-                        "pending_tasks": 0,
-                        "today_new_tasks": 0,
-                        "success_rate": 0,
-                        "error_rate": 0,
-                        "avg_duration_minutes": 0,
-                    },
-                })
-
-            data = task_manager.get_tasks_paginated(
-                page=default_page,
-                per_page=default_per_page,
-                task_type=task_type,
-                task_types=allowed_task_types if not task_type else None,
-                status=task_status,
-                keyword=keyword,
-            )
-            return jsonify({
-                "status": "success",
-                "tasks": data["tasks"],
-                "pagination": data["pagination"],
-                "statistics": data["statistics"],
+        if not task_type and not allowed_task_types:
+            return success(data={
+                "tasks": [],
+                "pagination": {
+                    "page": default_page,
+                    "per_page": default_per_page,
+                    "total": 0,
+                    "pages": 0,
+                    "has_prev": False,
+                    "has_next": False,
+                    "prev_num": None,
+                    "next_num": None,
+                },
+                "statistics": {
+                    "total_tasks": 0,
+                    "completed_tasks": 0,
+                    "running_tasks": 0,
+                    "error_tasks": 0,
+                    "pending_tasks": 0,
+                    "today_new_tasks": 0,
+                    "success_rate": 0,
+                    "error_rate": 0,
+                    "avg_duration_minutes": 0,
+                },
             })
 
-        data = request.get_json() or {}
-        config = data.get('config')
-        if config:
-            name = data.get('name', '未命名任务')
-            description = data.get('description', '')
-            task_type = data.get('task_type', 'google_sheet')
-            current_user = getattr(g, "current_user", None)
-            response, status_code = task_manager.create_and_start_task(
-                name,
-                description,
-                task_type,
-                config,
-                created_by_user_id=getattr(current_user, "id", None),
-            )
-            return jsonify(response), status_code
+        data = task_manager.get_tasks_paginated(
+            page=default_page,
+            per_page=default_per_page,
+            task_type=task_type,
+            task_types=allowed_task_types if not task_type else None,
+            status=task_status,
+            keyword=keyword,
+        )
+        return success(data={
+            "tasks": data["tasks"],
+            "pagination": data["pagination"],
+            "statistics": data["statistics"],
+        })
 
-        return jsonify({"status": "error", "message": "任务配置为空"}), 400
+    data = request.get_json() or {}
+    config = data.get('config')
+    if config:
+        name = data.get('name', '未命名任务')
+        description = data.get('description', '')
+        task_type = data.get('task_type', 'google_sheet')
+        current_user = getattr(g, "current_user", None)
+        response, status_code = task_manager.create_and_start_task(
+            name,
+            description,
+            task_type,
+            config,
+            created_by_user_id=getattr(current_user, "id", None),
+        )
+        return jsonify(response), status_code
 
-    except ValueError as e:
-        logger.warning(f"处理任务接口校验失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 400
-    except Exception as e:
-        logger.error(f"处理任务接口失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    raise BadRequestError("任务配置为空")
+
 
 @task_api_bp.route('/tasks/batch-create', methods=['POST'])
 @login_required
 def batch_create_tasks():
     """C31 批量创建接口"""
-    try:
+    data = request.get_json() or {}
+    logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
 
-        data = request.get_json() or {}
-        logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
+    response, status_code = task_manager.batch_create_and_start_task(
+        data,
+        created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
+    )
+    if status_code == 200:
+        response["debug_message"] = "已调用原有 C3 创建流程；当前仍为占位版批量接口"
+    return jsonify(response), status_code
 
-        response, status_code = task_manager.batch_create_and_start_task(
-            data,
-            created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
-        )
-        if status_code == 200:
-            response["debug_message"] = "已调用原有 C3 创建流程；当前仍为占位版批量接口"
-        return jsonify(response), status_code
-
-    except ValueError as e:
-        logger.warning(f"批量创建接口校验失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 400
-    except Exception as e:
-        logger.error(f"批量创建接口失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>', methods=['GET', 'DELETE'])
 @login_required
 def task_detail(task_id):
     """获取/删除任务详情"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    _get_task_entity_or_404(task_id)
 
-        action = "view" if request.method == 'GET' else "delete"
+    if request.method == 'GET':
+        task = task_manager.get_task_status(task_id)
+        if not task:
+            raise NotFoundError("任务不存在")
+        return success(data={"task": task})
 
-        if request.method == 'GET':
-            task = task_manager.get_task_status(task_id)
-            if not task:
-                return jsonify({"status": "error", "message": "任务不存在"}), 404
-            return jsonify({"status": "success", "task": task})
+    deleted = task_manager.delete_task(task_id)
+    if deleted:
+        return success(message="任务已删除")
+    raise BadRequestError("删除任务失败")
 
-        success = task_manager.delete_task(task_id)
-        if success:
-            return jsonify({"status": "success", "message": "任务已删除"})
-        return jsonify({"status": "error", "message": "删除任务失败"}), 400
-    except Exception as e:
-        logger.error(f"处理任务详情失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/config', methods=['PUT'])
 @login_required
 def update_task_config(task_id):
     """更新任务配置"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    _get_task_entity_or_404(task_id)
 
-        data = request.get_json()
-        if not data:
-            return jsonify({"status": "error", "message": "请求数据为空"}), 400
+    data = request.get_json()
+    if not data:
+        raise BadRequestError("请求数据为空")
 
-        config = data.get('config')
-        if not config:
-            return jsonify({"status": "error", "message": "配置信息不能为空"}), 400
+    config = data.get('config')
+    if not config:
+        raise BadRequestError("配置信息不能为空")
 
-        result = task_manager.update_task_config(
-            task_id,
-            config,
-            data.get('name'),
-            data.get('description'),
-            data.get('status'),
-        )
+    result = task_manager.update_task_config(
+        task_id,
+        config,
+        data.get('name'),
+        data.get('description'),
+        data.get('status'),
+    )
 
-        if result["status"] == "success":
-            return jsonify(result)
-        return jsonify(result), 400
+    if result["status"] == "success":
+        return jsonify(result)
+    return jsonify(result), 400
 
-    except Exception as e:
-        logger.error(f"更新任务配置失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 @task_api_bp.route('/tasks/<task_id>/cancel', methods=['POST'])
 @login_required
 def cancel_task(task_id):
     """取消任务"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    _get_task_entity_or_404(task_id)
 
-        success = task_manager.cancel_task(task_id)
-        if success:
-            return jsonify({"status": "success", "message": "任务已取消"})
-        return jsonify({"status": "error", "message": "取消任务失败"}), 400
-    except Exception as e:
-        logger.error(f"取消任务失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    cancelled = task_manager.cancel_task(task_id)
+    if cancelled:
+        return success(message="任务已取消")
+    raise BadRequestError("取消任务失败")
+
 
 @task_api_bp.route('/tasks/<task_id>/logs', methods=['GET'])
 @login_required
 def get_task_logs(task_id):
     """获取任务日志"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    _get_task_entity_or_404(task_id)
 
-        logs = task_manager.get_task_logs(task_id)
-        return jsonify({"status": "success", "logs": logs})
-    except Exception as e:
-        logger.error(f"获取任务日志失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    logs = task_manager.get_task_logs(task_id)
+    return success(data={"logs": logs})
+
 
 @task_api_bp.route('/tasks/<task_id>/results', methods=['GET'])
 @login_required
 def get_task_results(task_id):
     """获取任务结果"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    _get_task_entity_or_404(task_id)
 
-        page = request.args.get('page', type=int)
-        per_page = request.args.get('per_page', type=int)
+    page = request.args.get('page', type=int)
+    per_page = request.args.get('per_page', type=int)
 
-        if page is not None and per_page is not None:
-            data = task_manager.get_task_results(task_id, page=page, per_page=per_page)
-            return jsonify({
-                "status": "success",
-                "results": data["items"],
-                "total": data["total"],
-                "pages": data["pages"],
-                "current_page": data["current_page"],
-                "per_page": data["per_page"],
-                "total_success": data.get("total_success"),
-                "total_failed": data.get("total_failed"),
-            })
+    if page is not None and per_page is not None:
+        data = task_manager.get_task_results(task_id, page=page, per_page=per_page)
+        return success(data={
+            "results": data["items"],
+            "total": data["total"],
+            "pages": data["pages"],
+            "current_page": data["current_page"],
+            "per_page": data["per_page"],
+            "total_success": data.get("total_success"),
+            "total_failed": data.get("total_failed"),
+        })
 
-        results = task_manager.get_task_results(task_id)
-        return jsonify({"status": "success", "results": results})
-    except Exception as e:
-        logger.error(f"获取任务结果失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    results = task_manager.get_task_results(task_id)
+    return success(data={"results": results})
 
 
 def export_task_results(task_id):
     """导出任务结果。"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    task_obj = _get_task_entity_or_404(task_id)
 
+    try:
         results = task_manager.get_task_results(task_id)
         export_file = build_task_export(task_obj, results)
         buffer = BytesIO()
@@ -287,19 +249,14 @@ def export_task_results(task_id):
         )
     except ValueError as e:
         logger.warning(f"导出任务结果校验失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 400
-    except Exception as e:
-        logger.error(f"导出任务结果失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        raise BadRequestError(str(e))
 
 
 def export_c7_results_by_stock_code(task_id):
     """按股票代码拆分 C7 结果，并以 ZIP 文件下载。"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    task_obj = _get_task_entity_or_404(task_id)
 
+    try:
         results = task_manager.get_task_results(task_id)
         export_file = build_c7_stock_code_export_archive(task_obj, results)
         return send_file(
@@ -310,10 +267,7 @@ def export_c7_results_by_stock_code(task_id):
         )
     except ValueError as e:
         logger.warning("按股票代码导出任务结果校验失败 task_id=%s: %s", task_id, e)
-        return jsonify({"status": "error", "message": str(e)}), 400
-    except Exception as e:
-        logger.error("按股票代码导出任务结果失败 task_id=%s: %s", task_id, e)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        raise BadRequestError(str(e))
 
 
 # ── 批量导出配置 ───────────────────────────────────────────────
@@ -329,7 +283,7 @@ def batch_export_task_results():
       1. 参数校验（数量上限、任务存在性、用户权限）
       2. 一次 SQL 批量查询所有 TaskResult（替代原来的 N+1 循环）
       3. 按 task_name 排序后组装 merged_results
-      4. 调用 build_batch_export_file 生成 Excel
+      4. 调用 build_c3_worksheets 生成导出行
       5. 返回带 Content-Length 的 send_file 响应（前端可展示进度条）
 
     请求体: {"task_ids": ["id1", "id2", ...]}
@@ -343,56 +297,42 @@ def batch_export_task_results():
         task_ids = data.get('task_ids', [])
 
         if not task_ids or not isinstance(task_ids, list):
-            return jsonify({"status": "error", "message": "请选择至少一个任务"}), 400
+            raise BadRequestError("请选择至少一个任务")
 
         if len(task_ids) > BATCH_EXPORT_MAX_TASKS:
-            return jsonify({
-                "status": "error",
-                "message": f"合并导出最多支持 {BATCH_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个",
-            }), 400
+            raise BadRequestError(
+                f"合并导出最多支持 {BATCH_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个"
+            )
 
-        # ② 查询任务对象并逐条校验权限
-        tasks = Task.query.filter(Task.id.in_(task_ids)).all()
+        # ② 查询任务并逐条校验存在性
+        tasks = task_repository.list_by_ids(task_ids)
         if not tasks:
-            return jsonify({"status": "error", "message": "未找到匹配任务"}), 404
+            raise NotFoundError("未找到匹配任务")
 
-        # ③ 批量查询 TaskResult
+        # ③ 批量查询 TaskResult 导出投影
         #    只选择导出需要的列（task_id, step_index, result），跳过 parameters（巨大JSON，
         #    包含 kline 数据，单行 ~10KB）、return_series_id、error_message、timestamp 等无关列。
         #    导出场景数据量大（~100MB/万行），避免读取无关的大字段。
         _t_query = time.time()
-        from app.models import TaskResult
-        _slim_stmt = (
-            db.session.query(
-                TaskResult.task_id,
-                TaskResult.step_index,
-                TaskResult.result,
-            )
-            .filter(TaskResult.task_id.in_(task_ids))
-            .order_by(TaskResult.task_id, TaskResult.step_index.asc())
-            .statement
-        )
-        with db.engine.connect() as conn:
-            with conn.begin():
-                raw_rows = conn.execute(_slim_stmt).fetchall()
+        raw_rows = task_result_repository.list_export_rows(task_ids)
         logger.info(f"[batch-export] DB query: {time.time()-_t_query:.2f}s, {len(raw_rows)} rows")
 
         # ④ 按 task_name 排序后组装 merged_results
         #    将原始行转为导出所需的 dict 格式（不含 parameters，kline_range 默认为 "-"）
-        tasks.sort(key=lambda t: t.name or "")
+        tasks.sort(key=lambda t: t["name"] or "")
         result_map: dict[str, list] = {}
-        for task_id, step_index, result_json in raw_rows:
-            parsed_result = json.loads(result_json) if result_json else {}
-            result_map.setdefault(task_id, []).append({
-                "task_id": task_id,
-                "step_index": step_index,
+        for row in raw_rows:
+            parsed_result = json.loads(row["result"]) if row["result"] else {}
+            result_map.setdefault(row["task_id"], []).append({
+                "task_id": row["task_id"],
+                "step_index": row["step_index"],
                 "result": parsed_result,
             })
 
         merged_results = []
         for t in tasks:
-            task_name = t.name or ""
-            for r in result_map.get(t.id, []):
+            task_name = t["name"] or ""
+            for r in result_map.get(t["id"], []):
                 r["task_name"] = task_name
                 merged_results.append(r)
 
@@ -497,168 +437,131 @@ def batch_export_task_results():
     except ValueError as e:
         # 业务校验失败（如 merged_results 为空）
         logger.warning(f"批量导出校验失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 400
-    except Exception as e:
-        logger.error(f"批量导出失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        raise BadRequestError(str(e))
 
 
 @task_api_bp.route('/tasks/<task_id>/status-check', methods=['GET'])
 @login_required
 def check_task_status(task_id):
     """检查任务本地状态"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    _get_task_entity_or_404(task_id)
 
-        status_check = task_manager.check_local_task_status(task_id)
-        return jsonify({"status": "success", "status_check": status_check})
-    except Exception as e:
-        logger.error(f"检查任务状态失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    status_check = task_manager.check_local_task_status(task_id)
+    return success(data={"status_check": status_check})
+
 
 @task_api_bp.route('/tasks/<task_id>/stop-confirmation', methods=['GET'])
 @login_required
 def get_task_stop_confirmation(task_id):
     """确认任务是否已经完全停止"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    _get_task_entity_or_404(task_id)
 
-        stop_confirmation = runtime_view_service.build_stop_confirmation(task_id)
+    stop_confirmation = runtime_view_service.build_stop_confirmation(task_id)
 
-        return jsonify({
-            "status": "success",
-            **stop_confirmation,
-        })
-    except Exception as e:
-        logger.error(f"获取任务停止确认失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    return success(data=stop_confirmation)
+
 
 @task_api_bp.route('/tasks/<task_id>/restart', methods=['POST'])
 @login_required
 def restart_task(task_id):
     """重启任务"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    _get_task_entity_or_404(task_id)
 
-        data = request.get_json() or {}
-        resume_from_checkpoint = data.get('resume_from_checkpoint', True)
+    data = request.get_json() or {}
+    resume_from_checkpoint = data.get('resume_from_checkpoint', True)
 
-        result = task_manager.restart_task(task_id, resume_from_checkpoint)
-        if result["status"] == "success":
-            return jsonify(result)
-        return jsonify(result), 400
-    except Exception as e:
-        logger.error(f"重启任务失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    result = task_manager.restart_task(task_id, resume_from_checkpoint)
+    if result["status"] == "success":
+        return jsonify(result)
+    return jsonify(result), 400
+
 
 @task_api_bp.route('/tasks/<task_id>/create-restart', methods=['POST'])
 @login_required
 def create_restart_task_api(task_id):
     """基于原任务创建新的重启任务"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    task_obj = _get_task_entity_or_404(task_id)
 
-        new_task_id = task_manager.create_restart_task(task_id)
+    new_task_id = task_manager.create_restart_task(task_id)
 
-        if task_manager.start_task(new_task_id):
-            return jsonify({
-                "status": "success",
-                "new_task_id": new_task_id,
-                "message": "重启任务创建并启动成功"
-            })
-        start_error = task_manager.get_start_error(new_task_id)
-        if task_obj.task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
-            return jsonify({
-                "status": "success",
-                "new_task_id": new_task_id,
-                "message": start_error,
-                "queued": True,
-            })
-        return jsonify({
-            "status": "error",
-            "new_task_id": new_task_id,
-            "message": f"重启任务创建成功，但启动失败: {start_error}",
-            "start_error": start_error,
-        }), 400
-    except Exception as e:
-        logger.error(f"创建重启任务失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    if task_manager.start_task(new_task_id):
+        return success(
+            data={"new_task_id": new_task_id},
+            message="重启任务创建并启动成功",
+        )
+    start_error = task_manager.get_start_error(new_task_id)
+    if task_obj.task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
+        return success(
+            data={"new_task_id": new_task_id, "queued": True},
+            message=start_error,
+        )
+    return error(
+        f"重启任务创建成功，但启动失败: {start_error}",
+        http_status=400,
+        data={"new_task_id": new_task_id, "start_error": start_error},
+    )
+
 
 @task_api_bp.route('/tasks/<task_id>/system-logs', methods=['GET'])
 @login_required
 def get_task_system_logs(task_id):
     """获取任务相关的系统日志"""
-    try:
-        task_obj, error_response, status_code = _get_task_or_404(task_id)
-        if not task_obj:
-            return error_response, status_code
+    _get_task_entity_or_404(task_id)
 
-        import os
-        import re
-        from app.config import Config
+    import os
+    import re
+    from app.config import Config
 
-        limit = request.args.get('limit', 200, type=int)
-        level_filter = request.args.get('level', '')
+    limit = request.args.get('limit', 200, type=int)
+    level_filter = request.args.get('level', '')
 
-        log_file = Config.LOG_FILE
-        task_logs = []
+    log_file = Config.LOG_FILE
+    task_logs = []
 
-        if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                log_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([^-]+) - (\w+) - (.+)'
-                task_patterns = [f"[Task-{task_id[:8]}]", f"任务 {task_id}", task_id]
+    if os.path.exists(log_file):
+        with open(log_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            log_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([^-]+) - (\w+) - (.+)'
+            task_patterns = [f"[Task-{task_id[:8]}]", f"任务 {task_id}", task_id]
 
-                for line in lines:
-                    line = line.strip()
-                    if not line:
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                contains_task_info = any(pattern in line for pattern in task_patterns)
+                if not contains_task_info:
+                    continue
+
+                match = re.match(log_pattern, line)
+                if match:
+                    timestamp_str, source, level, message = match.groups()
+
+                    try:
+                        from datetime import datetime
+                        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
+                        iso_timestamp = timestamp.isoformat()
+                    except Exception:
+                        iso_timestamp = timestamp_str
+
+                    log_entry = {
+                        'timestamp': iso_timestamp,
+                        'level': level.lower(),
+                        'message': message.strip(),
+                        'source': source.strip(),
+                        'task_id': task_id
+                    }
+
+                    if level_filter and log_entry['level'] != level_filter.lower():
                         continue
 
-                    contains_task_info = any(pattern in line for pattern in task_patterns)
-                    if not contains_task_info:
-                        continue
+                    task_logs.append(log_entry)
 
-                    match = re.match(log_pattern, line)
-                    if match:
-                        timestamp_str, source, level, message = match.groups()
+            task_logs.sort(key=lambda x: x['timestamp'])
+            task_logs = task_logs[-limit:]
 
-                        try:
-                            from datetime import datetime
-                            timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
-                            iso_timestamp = timestamp.isoformat()
-                        except:
-                            iso_timestamp = timestamp_str
-
-                        log_entry = {
-                            'timestamp': iso_timestamp,
-                            'level': level.lower(),
-                            'message': message.strip(),
-                            'source': source.strip(),
-                            'task_id': task_id
-                        }
-
-                        if level_filter and log_entry['level'] != level_filter.lower():
-                            continue
-
-                        task_logs.append(log_entry)
-
-                task_logs.sort(key=lambda x: x['timestamp'])
-                task_logs = task_logs[-limit:]
-
-        return jsonify({
-            "status": "success",
-            "logs": task_logs,
-            "task_id": task_id,
-            "total_found": len(task_logs)
-        })
-    except Exception as e:
-        logger.error(f"获取任务系统日志失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    return success(data={
+        "logs": task_logs,
+        "task_id": task_id,
+        "total_found": len(task_logs),
+    })

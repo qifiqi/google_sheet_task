@@ -337,8 +337,8 @@
                 if (data.status !== 'success') {
                     throw new Error(data.message || '\u52a0\u8f7d Token \u5931\u8d25');
                 }
-                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
-                renderTokenSummary(data.summary || {});
+                googleSheetTokens = Array.isArray(data.data.tokens) ? data.data.tokens : [];
+                renderTokenSummary((data.data && data.data.summary) || {});
                 renderTokenTable(googleSheetTokens);
             })
             .catch(error => {
@@ -434,7 +434,7 @@
                     throw new Error(data.message || '\u52a0\u8f7d Token \u8be6\u60c5\u5931\u8d25');
                 }
 
-                const token = data.token || {};
+                const token = (data.data && data.data.token) || {};
                 document.getElementById('edit-token-id').value = token.id || '';
                 document.getElementById('edit-token-name').value = token.name || '';
                 document.getElementById('edit-token-task-type').value = token.task_type || 'google_sheet';

@@ -724,8 +724,8 @@
         console.log('开始加载任务详情，任务ID:', currentTaskId);
         ajaxRequest(`/api/tasks/${currentTaskId}`, 'GET', null, function(err, data) {
             console.log('API响应:', err, data);
-            if (!err && data && data.task) {
-                const task = data.task;
+            if (!err && data && data.data && data.data.task) {
+                const task = data.data.task;
                 console.log('任务数据:', task);
                 
                 // 保存任务数据供编辑使用
@@ -1221,17 +1221,17 @@
         console.log('开始加载任务日志...');
         ajaxRequest(`/api/tasks/${currentTaskId}/logs`, 'GET', null, function(err, data) {
             console.log('日志API响应:', err, data);
-            if (!err && data && data.logs) {
+            if (!err && data && data.data && data.data.logs) {
                 const logContainer = document.getElementById('log-container');
                 console.log('找到日志容器:', logContainer);
-                console.log('日志数量:', data.logs.length);
+                console.log('日志数量:', data.data.logs.length);
                 
-                if (data.logs.length > 0) {
+                if (data.data.logs.length > 0) {
                     // 保存当前滚动位置
                     const wasAtBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 5;
                     
                     // 更新日志内容
-                    logContainer.innerHTML = data.logs.map(log => {
+                    logContainer.innerHTML = data.data.logs.map(log => {
                         const level = log.level || 'info';
                         const levelClass = level === 'error' ? 'text-danger' : 
                                          level === 'warning' ? 'text-warning' : 
@@ -1289,15 +1289,16 @@
         const url = `/api/tasks/${currentTaskId}/results?page=${targetPage}&per_page=${resultsPerPage}`;
 
         ajaxRequest(url, 'GET', null, function(err, data) {
-            if (!err && data && Array.isArray(data.results)) {
-                allResults = data.results;
-                groupedResults = groupResults(data.results);
-                flattenedResults = flattenResults(data.results);
+            const rdata = data.data || {};
+            if (!err && data && Array.isArray(rdata.results)) {
+                allResults = rdata.results;
+                groupedResults = groupResults(rdata.results);
+                flattenedResults = flattenResults(rdata.results);
 
-                resultsTotalPages   = data.pages || 1;
-                resultsTotalCount   = data.total != null ? data.total : groupedResults.length;
-                resultsTotalSuccess = typeof data.total_success === 'number' ? data.total_success : null;
-                resultsTotalFailed  = typeof data.total_failed  === 'number' ? data.total_failed  : null;
+                resultsTotalPages   = rdata.pages || 1;
+                resultsTotalCount   = rdata.total != null ? rdata.total : groupedResults.length;
+                resultsTotalSuccess = typeof rdata.total_success === 'number' ? rdata.total_success : null;
+                resultsTotalFailed  = typeof rdata.total_failed  === 'number' ? rdata.total_failed  : null;
                 currentResultsPage  = data.current_page || targetPage;
 
                 applyResultsFilter();
@@ -1713,12 +1714,13 @@
     function exportResultsToCSV() {
         // 为了导出完整结果，这里单独请求一次不分页的结果集
         ajaxRequest(`/api/tasks/${currentTaskId}/results`, 'GET', null, function(err, data) {
-            if (err || !data || !Array.isArray(data.results) || data.results.length === 0) {
+            const rdata = data.data || {};
+            if (err || !data || !Array.isArray(rdata.results) || rdata.results.length === 0) {
                 showNotification('暂无可导出的结果', 'warning');
                 return;
             }
 
-            const exportGroupedResults = groupResults(data.results);
+            const exportGroupedResults = groupResults(rdata.results);
 
             const rows = [];
 
@@ -2311,7 +2313,7 @@
             btn.disabled = false;
             
             if (!err && data && data.status === 'success') {
-                const statusCheck = data.status_check;
+                const statusCheck = data.data.status_check;
                 let message = `状态检查结果:\n`;
                 message += `数据库状态: ${statusCheck.db_status}\n`;
                 message += `内存运行状态: ${statusCheck.memory_running ? '运行中' : '未运行'}\n`;
@@ -2380,7 +2382,7 @@
                 
                 // 询问是否跳转到新任务
                 if (confirm('是否跳转到新任务的详情页面？')) {
-                    window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}&version=c4`;
+                    window.location.href = `/google-sheet/detail?task_id=${data.data.new_task_id}&version=c4`;
                 }
             } else {
                 const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');

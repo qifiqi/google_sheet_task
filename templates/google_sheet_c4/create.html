@@ -750,8 +750,8 @@
         })
         .then(response => response.json())
         .then(data => {
-            if (data.status === 'success' && Array.isArray(data.worksheets)) {
-                if (data.worksheets.length === 0) {
+            if (data.status === 'success' && Array.isArray(data.data.worksheets)) {
+                if (data.data.worksheets.length === 0) {
                     throw new Error('未找到任何工作表');
                 }
 
@@ -763,7 +763,7 @@
 
                 // 清空并重新填充下拉列表
                 sheetSelect.innerHTML = '';
-                data.worksheets.forEach(worksheet => {
+                data.data.worksheets.forEach(worksheet => {
                     const option = document.createElement('option');
                     option.value = worksheet;
                     option.textContent = worksheet;
@@ -779,7 +779,7 @@
                 // 如果有保存的值，恢复它（仅对主配置块适用，其它块不使用 data-saved-value）
                 const savedValue = sheetSelect.getAttribute('data-saved-value');
                 if (savedValue) {
-                    if (data.worksheets.includes(savedValue)) {
+                    if (data.data.worksheets.includes(savedValue)) {
                         sheetSelect.value = savedValue;
                         helpText.textContent = `已选择工作表: ${savedValue}`;
                     } else if (savedValue === '自定义') {
@@ -792,7 +792,7 @@
                     }
                 } else {
                     // 默认选择第一个工作表
-                    const defaultSheet = data.worksheets[0];
+                    const defaultSheet = data.data.worksheets[0];
                     sheetSelect.value = defaultSheet;
                     helpText.textContent = `已自动选择第一个工作表: ${defaultSheet}`;
                 }
@@ -920,8 +920,8 @@
                 if (data.status !== 'success') {
                     throw new Error(data.message || '加载Token失败');
                 }
-                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
-                googleSheetRandomValue = data.random_value || '__random__';
+                googleSheetTokens = Array.isArray(data.data.tokens) ? data.data.tokens : [];
+                googleSheetRandomValue = data.data.random_value || '__random__';
                 renderGoogleSheetTokenOptions(googleSheetTokens);
             })
             .catch(error => {
@@ -1040,7 +1040,7 @@
         fetch(`/api/tasks/${encodeURIComponent(taskId)}`)
             .then(resp => resp.json())
             .then(data => {
-                const task = (data && data.task) ? data.task : null;
+                const task = (data && data.data && data.data.task) ? data.data.task : null;
                 const configRaw = task ? task.config : null;
                 if (!configRaw) {
                     showNotification('加载原任务配置失败：config为空', 'error');

@@ -583,8 +583,8 @@
         console.log('开始加载任务详情，任务ID:', currentTaskId);
         ajaxRequest(`/api/tasks/${currentTaskId}`, 'GET', null, function(err, data) {
             console.log('API响应:', err, data);
-            if (!err && data && data.task) {
-                const task = data.task;
+            if (!err && data && data.data && data.data.task) {
+                const task = data.data.task;
                 console.log('任务数据:', task);
                 
                 // 保存任务数据供编辑使用
@@ -741,17 +741,17 @@
         console.log('开始加载任务日志...');
         ajaxRequest(`/api/tasks/${currentTaskId}/logs`, 'GET', null, function(err, data) {
             console.log('日志API响应:', err, data);
-            if (!err && data && data.logs) {
+            if (!err && data && data.data && data.data.logs) {
                 const logContainer = document.getElementById('log-container');
                 console.log('找到日志容器:', logContainer);
-                console.log('日志数量:', data.logs.length);
+                console.log('日志数量:', data.data.logs.length);
                 
-                if (data.logs.length > 0) {
+                if (data.data.logs.length > 0) {
                     // 保存当前滚动位置
                     const wasAtBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 5;
                     
                     // 更新日志内容
-                    logContainer.innerHTML = renderTaskLogs(data.logs);
+                    logContainer.innerHTML = renderTaskLogs(data.data.logs);
                     
                     // 如果之前在底部，保持滚动到底部
                     if (wasAtBottom) {
@@ -1130,22 +1130,23 @@
         ajaxRequest(url, 'GET', null, function(err, data) {
             if (!err && data) {
                 // 检查是否有分页数据
-                if (data.results !== undefined && data.total !== undefined) {
+                const rdata = data.data || {};
+                if (rdata.results !== undefined && rdata.total !== undefined) {
                     // 分页接口返回的数据
-                    allResults = data.results;
-                    resultsTotal = data.total || 0;
-                    resultsPages = data.pages || 0;
-                    resultsTotalSuccess = data.total_success || 0;
-                    resultsTotalFailed = data.total_failed || 0;
+                    allResults = rdata.results;
+                    resultsTotal = rdata.total || 0;
+                    resultsPages = rdata.pages || 0;
+                    resultsTotalSuccess = rdata.total_success || 0;
+                    resultsTotalFailed = rdata.total_failed || 0;
                     updateResultsStatistics();
                     renderResults();
-                } else if (data.results && Array.isArray(data.results)) {
+                } else if (rdata.results && Array.isArray(rdata.results)) {
                     // 兼容旧接口（无分页参数时返回全部数据）
-                    allResults = data.results;
-                    resultsTotal = data.results.length;
+                    allResults = rdata.results;
+                    resultsTotal = rdata.results.length;
                     resultsPages = 1;
-                    resultsTotalSuccess = data.results.filter(r => r.success).length;
-                    resultsTotalFailed = data.results.filter(r => !r.success).length;
+                    resultsTotalSuccess = rdata.results.filter(r => r.success).length;
+                    resultsTotalFailed = rdata.results.filter(r => !r.success).length;
                     updateResultsStatistics();
                     renderResults();
                 } else {
@@ -1548,7 +1549,7 @@
             btn.disabled = false;
             
             if (!err && data && data.status === 'success') {
-                const statusCheck = data.status_check;
+                const statusCheck = data.data.status_check;
                 let message = `状态检查结果:\n`;
                 message += `数据库状态: ${statusCheck.db_status}\n`;
                 message += `内存运行状态: ${statusCheck.memory_running ? '运行中' : '未运行'}\n`;
@@ -1621,7 +1622,7 @@
                 if (confirm('是否跳转到新任务的详情页面？')) {
                     const version = new URLSearchParams(window.location.search).get('version');
                     const versionParam = version ? `&version=${encodeURIComponent(version)}` : '';
-                    window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}${versionParam}`;
+                    window.location.href = `/google-sheet/detail?task_id=${data.data.new_task_id}${versionParam}`;
                 }
             } else {
                 // 处理错误情况 - data可能包含错误信息，即使err存在

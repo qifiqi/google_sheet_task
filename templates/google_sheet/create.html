@@ -671,15 +671,15 @@
         })
         .then(response => response.json())
         .then(data => {
-            if (!(data.status === 'success' && Array.isArray(data.worksheets))) {
+            if (!(data.status === 'success' && Array.isArray(data.data.worksheets))) {
                 throw new Error(data.message || '获取工作表列表失败');
             }
 
-            if (titleInput && typeof data.title === 'string' && data.title.trim() !== '') {
-                titleInput.value = data.title.trim();
+            if (titleInput && typeof data.data.title === 'string' && data.data.title.trim() !== '') {
+                titleInput.value = data.data.title.trim();
             }
 
-            const worksheets = data.worksheets;
+            const worksheets = data.data.worksheets;
             sheetNameInput.value = worksheets[0] || '';
 
             updateWorksheetSelectionUI();
@@ -883,8 +883,8 @@
                 if (data.status !== 'success') {
                     throw new Error(data.message || '\u52a0\u8f7d Token \u5217\u8868\u5931\u8d25');
                 }
-                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
-                googleSheetRandomValue = data.random_value || '__random__';
+                googleSheetTokens = Array.isArray(data.data.tokens) ? data.data.tokens : [];
+                googleSheetRandomValue = data.data.random_value || '__random__';
                 renderGoogleSheetTokenOptions(googleSheetTokens);
             })
             .catch(error => {
@@ -902,8 +902,8 @@
                 if (data.status !== 'success') {
                     throw new Error(data.message || '鍔犺浇Token澶辫触');
                 }
-                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
-                googleSheetRandomValue = data.random_value || '__random__';
+                googleSheetTokens = Array.isArray(data.data.tokens) ? data.data.tokens : [];
+                googleSheetRandomValue = data.data.random_value || '__random__';
                 renderGoogleSheetTokenOptions(googleSheetTokens);
             })
             .catch(error => {
@@ -936,7 +936,7 @@
                     throw new Error(data.message || '\u5bfc\u5165 Token \u5931\u8d25');
                 }
                 showNotification(data.message || 'Token 导入成功', 'success');
-                pendingTokenSelection = { token_id: data.token && data.token.id ? String(data.token.id) : '' };
+                pendingTokenSelection = { token_id: data.data.token && data.data.token.id ? String(data.data.token.id) : '' };
                 loadGoogleSheetTokens();
                 if (input) {
                     input.value = '';
@@ -965,7 +965,7 @@
                     throw new Error(data.message || '瀵煎叆Token澶辫触');
                 }
                 showNotification(data.message || 'Token瀵煎叆鎴愬姛', 'success');
-                pendingTokenSelection = { token_id: data.token && data.token.id ? String(data.token.id) : '' };
+                pendingTokenSelection = { token_id: data.data.token && data.data.token.id ? String(data.data.token.id) : '' };
                 loadGoogleSheetTokens();
                 if (input) {
                     input.value = '';
@@ -1039,7 +1039,7 @@
         fetch(`/api/tasks/${encodeURIComponent(taskId)}`)
             .then(resp => resp.json())
             .then(data => {
-                const task = (data && data.task) ? data.task : null;
+                const task = (data && data.data && data.data.task) ? data.data.task : null;
                 const configRaw = task ? task.config : null;
                 if (!configRaw) {
                     showNotification('加载原任务配置失败：config为空', 'error');

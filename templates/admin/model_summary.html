@@ -1053,8 +1053,8 @@
         if (data.status !== "success") {
             throw new Error(data.message || "重建失败");
         }
-        state.rebuildJobId = data.job?.job_id || "";
-        renderRebuildTaskLink(data.job);
+        state.rebuildJobId = data.data.job?.job_id || "";
+        renderRebuildTaskLink(data.data.job);
         document.getElementById("statusText").textContent = `重建任务已创建 ${state.rebuildJobId.slice(0, 8)}`;
         pollRebuildStatus();
     }
@@ -1088,7 +1088,7 @@
             headers: { Authorization: `Bearer ${getToken()}` },
         });
         const data = await response.json();
-        const job = data.job;
+        const job = data.data.job;
         if (!job) {
             document.getElementById("statusText").textContent = "暂无重建任务";
             renderRebuildTaskLink(null);
