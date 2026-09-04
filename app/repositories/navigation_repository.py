@@ -28,6 +28,25 @@ class NavigationRepository(BaseRepository):
         )
         return [row.to_dict() for row in rows]
 
+    def list_all_entities(self):
+        """返回 ORM 实体（只读场景）。
+
+        app/navigation.py 属启动播种模块（重构范围外），其
+        sync_navigation_permissions/build_navigation_tree 依赖实体属性访问，
+        因此 auth_api/meta_api 过渡期经本方法提供实体；待 navigation 归属
+        归位二期再收敛为 dict 返回。
+        """
+        return NavigationMenuItem.query.all()
+
+    def list_visible_entities(self):
+        """list_visible 的实体形态，供范围外的 build_navigation_tree 消费。"""
+        return (
+            NavigationMenuItem.query
+            .filter_by(is_visible=True)
+            .order_by(NavigationMenuItem.sort_order.asc(), NavigationMenuItem.id.asc())
+            .all()
+        )
+
     def get(self, item_id):
         row = db.session.get(NavigationMenuItem, item_id)
         return row.to_dict() if row else None

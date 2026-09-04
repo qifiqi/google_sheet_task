@@ -1,31 +1,51 @@
-"""认证与用户/角色/权限管理 API"""
+"""认证与用户/角色/权限管理 API（数据层：rbac_repository + task_repository）。
+
+- 删用户原子性：user_roles 清理 + Task.created_by_user_id 置空在同一个
+  transaction() 内完成（断点/回滚语义与迁移前一致）；
+- 路由内不写 try/except 兜底，异常交 app/errors.py 全局处理器转信封。
+"""
 from datetime import datetime
+
+import jwt
 from flask import Blueprint, request
-from werkzeug.security import generate_password_hash, check_password_hash
-from app.models import NavigationMenuItem, Permission, Role, Task, User, db, role_permissions, user_roles
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from app.exceptions import NotFoundError
+from app.repositories import navigation_repository, rbac_repository, task_repository
 from app.navigation import sync_navigation_permissions
+from app.utils.api_response import error, success
 from app.utils.auth import (
     create_access_token, create_refresh_token, decode_token,
     login_required, extract_token_version,
 )
-from app.utils.api_response import success, error
-import jwt
+from app.utils.request_validation import validate_body
 
 auth_api_bp = Blueprint('auth_api', __name__)
 DEV_ROLE_CODES = {'developer'}
 
 
-def _is_dev_role(role):
-    return str(getattr(role, 'code', '') or '').strip().lower() in DEV_ROLE_CODES
+def _role_code(role) -> str:
+    """角色编码读取：兼容 dict（repository 返回）与 ORM 实体。"""
+    if isinstance(role, dict):
+        return str(role.get("code") or "").strip().lower()
+    return str(getattr(role, "code", "") or "").strip().lower()
 
 
 def _can_alert_oncall(role_ids=None, user=None):
     if role_ids is not None:
         if not role_ids:
             return False
-        roles = Role.query.filter(Role.id.in_(role_ids)).all()
-        return any(_is_dev_role(role) for role in roles)
-    return any(_is_dev_role(role) for role in (user.roles if user else []))
+        return any(
+            _role_code(role) in DEV_ROLE_CODES
+            for role in rbac_repository.list_roles_by_ids(role_ids)
+        )
+    user_data = user
+    if user_data is None:
+        return False
+    return any(
+        _role_code(role) in DEV_ROLE_CODES
+        for role in user_data.get("roles", [])
+    )
 
 
 # ==================== Auth ====================
@@ -33,27 +53,27 @@ def _can_alert_oncall(role_ids=None, user=None):
 @auth_api_bp.route('/auth/login', methods=['POST'])
 def login():
     data = request.get_json() or {}
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
+    username = str(data.get('username') or '').strip()
+    password = data.get('password') or ''
     if not username or not password:
         return error('用户名和密码不能为空')
 
-    user = User.query.filter_by(username=username).first()
-    if not user or not check_password_hash(user.password_hash, password):
+    credentials = rbac_repository.get_user_credentials(username)
+    if not credentials or not check_password_hash(credentials["password_hash"], password):
         return error('用户名或密码错误')
-    if not user.is_active:
+    if not credentials["is_active"]:
         return error('账号已被禁用')
 
     # 登录不递增 token_version：同一账号多端登录互不影响。
     # 版本号仅在登出/改密/管理员重置时递增以吊销存量令牌。
-    token_version = int(user.token_version or 0)
-    user.last_login = datetime.utcnow()
-    db.session.commit()
+    token_version = int(credentials["token_version"] or 0)
+    rbac_repository.update_last_login(credentials["id"], datetime.utcnow())
 
+    user = rbac_repository.get_user(credentials["id"], include_permissions=True)
     return success(data={
-        'access_token': create_access_token(user.id, token_version=token_version),
-        'refresh_token': create_refresh_token(user.id, token_version=token_version),
-        'user': user.to_dict(include_permissions=True),
+        'access_token': create_access_token(user["id"], token_version=token_version),
+        'refresh_token': create_refresh_token(user["id"], token_version=token_version),
+        'user': user,
     })
 
 
@@ -71,18 +91,19 @@ def refresh():
     except jwt.InvalidTokenError:
         return error('无效刷新令牌', http_status=401)
 
-    user = User.query.get(payload['user_id'])
-    if not user or not user.is_active:
+    user = rbac_repository.get_user(payload['user_id'], include_permissions=True)
+    if not user or not user["is_active"]:
         return error('用户不存在或已禁用', http_status=401)
-    if int(user.token_version or 0) != token_version:
+    state = rbac_repository.get_user_state(payload['user_id'])
+    if int(state["token_version"] or 0) != token_version:
         return error('登录状态已失效，请重新登录', http_status=401)
 
     # 滑动续期：refresh 时轮换 refresh_token，活跃用户不再被 7 天硬上限强制下线。
-    current_version = int(user.token_version or 0)
+    current_version = int(state["token_version"] or 0)
     return success(data={
-        'access_token': create_access_token(user.id, token_version=current_version),
-        'refresh_token': create_refresh_token(user.id, token_version=current_version),
-        'user': user.to_dict(include_permissions=True),
+        'access_token': create_access_token(user["id"], token_version=current_version),
+        'refresh_token': create_refresh_token(user["id"], token_version=current_version),
+        'user': user,
     })
 
 
@@ -99,8 +120,10 @@ def get_me():
 def logout():
     from flask import g
     user = g.current_user
-    user.token_version = int(user.token_version or 0) + 1
-    db.session.commit()
+    rbac_repository.update_user(
+        user.id,
+        {"token_version": int(user.token_version or 0) + 1},
+    )
     return success(message='退出登录成功')
 
 
@@ -108,7 +131,7 @@ def logout():
 @login_required
 def change_password():
     from flask import g
-    data = request.get_json() or {}
+    data = validate_body(required=['old_password', 'new_password'])
     old_pwd = data.get('old_password', '')
     new_pwd = data.get('new_password', '')
     if not old_pwd or not new_pwd:
@@ -120,10 +143,11 @@ def change_password():
     if not check_password_hash(user.password_hash, old_pwd):
         return error('旧密码错误')
 
-    user.password_hash = generate_password_hash(new_pwd)
     # 改密后吊销所有存量会话（含当前会话），需重新登录。
-    user.token_version = int(user.token_version or 0) + 1
-    db.session.commit()
+    rbac_repository.update_user(user.id, {
+        "password_hash": generate_password_hash(new_pwd),
+        "token_version": int(user.token_version or 0) + 1,
+    })
     return success(message='密码修改成功，所有已登录会话已失效，请重新登录')
 
 
@@ -132,75 +156,80 @@ def change_password():
 @auth_api_bp.route('/admin/users', methods=['GET'])
 @login_required
 def list_users():
-    users = User.query.all()
-    return success(data=[u.to_dict() for u in users])
+    return success(data=rbac_repository.list_users())
 
 
 @auth_api_bp.route('/admin/users', methods=['POST'])
 @login_required
 def create_user():
-    data = request.get_json() or {}
-    username = data.get('username', '').strip()
+    data = validate_body(required=['username', 'password'])
+    username = str(data.get('username', '')).strip()
     password = data.get('password', '')
     mobile = (data.get('mobile') or '').strip() or None
     role_ids = data.get('role_ids', [])
 
     if not username or not password:
         return error('用户名和密码不能为空')
-    if User.query.filter_by(username=username).first():
+    if rbac_repository.username_exists(username):
         return error('用户名已存在')
 
-    user = User(
-        username=username,
-        password_hash=generate_password_hash(password),
+    user = rbac_repository.create_user(
+        username,
+        generate_password_hash(password),
+        role_ids=role_ids or None,
         mobile=mobile,
         is_active=data.get('is_active', True),
         is_alert_oncall=bool(data.get('is_alert_oncall', False)) and _can_alert_oncall(role_ids=role_ids),
     )
-    if role_ids:
-        user.roles = Role.query.filter(Role.id.in_(role_ids)).all()
-    db.session.add(user)
-    db.session.commit()
-    return success(data=user.to_dict(), message='用户创建成功')
+    return success(data=user, message='用户创建成功')
 
 
 @auth_api_bp.route('/admin/users/<int:user_id>', methods=['PUT'])
 @login_required
 def update_user(user_id):
-    user = User.query.get(user_id)
+    user = rbac_repository.get_user(user_id)
     if not user:
-        return error('用户不存在', http_status=404)
+        raise NotFoundError('用户不存在')
 
     data = request.get_json() or {}
+    fields = {}
     if 'mobile' in data:
-        user.mobile = (data.get('mobile') or '').strip() or None
+        fields["mobile"] = (data.get('mobile') or '').strip() or None
     if 'is_active' in data:
-        user.is_active = data['is_active']
+        fields["is_active"] = data['is_active']
     if 'password' in data and data['password']:
-        user.password_hash = generate_password_hash(data['password'])
+        fields["password_hash"] = generate_password_hash(data['password'])
         # 管理员重置密码后吊销该用户所有存量会话。
-        user.token_version = int(user.token_version or 0) + 1
-    if 'role_ids' in data:
-        user.roles = Role.query.filter(Role.id.in_(data['role_ids'])).all()
+        state = rbac_repository.get_user_state(user_id)
+        fields["token_version"] = int(state["token_version"] or 0) + 1
+
+    updated = rbac_repository.update_user(
+        user_id,
+        fields,
+        role_ids=data.get('role_ids') if 'role_ids' in data else None,
+    )
+
+    # is_alert_oncall 依赖更新后的角色集合，须在角色写入之后计算。
     if 'is_alert_oncall' in data or 'role_ids' in data:
-        user.is_alert_oncall = bool(data.get('is_alert_oncall', user.is_alert_oncall)) and _can_alert_oncall(user=user)
-    db.session.commit()
-    return success(data=user.to_dict(), message='用户更新成功')
+        refreshed = rbac_repository.get_user(user_id)
+        alert_flag = bool(
+            data.get('is_alert_oncall', refreshed["is_alert_oncall"])
+        ) and _can_alert_oncall(user=refreshed)
+        updated = rbac_repository.update_user(user_id, {"is_alert_oncall": alert_flag})
+
+    return success(data=updated, message='用户更新成功')
 
 
 @auth_api_bp.route('/admin/users/<int:user_id>', methods=['DELETE'])
 @login_required
 def delete_user(user_id):
-    user = User.query.get(user_id)
-    if not user:
-        return error('用户不存在', http_status=404)
-    Task.query.filter_by(created_by_user_id=user.id).update(
-        {Task.created_by_user_id: None},
-        synchronize_session=False,
-    )
-    db.session.execute(user_roles.delete().where(user_roles.c.user_id == user.id))
-    db.session.delete(user)
-    db.session.commit()
+    # 存在性检查用轻量投影：不能经 to_dict 触碰 roles 关联，
+    # 否则关联行进入 session 后与 delete_user 内的显式清理叠加成双重删除（StaleDataError）。
+    if not rbac_repository.get_user_state(user_id):
+        raise NotFoundError('用户不存在')
+    with rbac_repository.transaction():
+        task_repository.clear_created_by(user_id, commit=False)
+        rbac_repository.delete_user(user_id, commit=False)
     return success(message='用户删除成功')
 
 
@@ -209,60 +238,59 @@ def delete_user(user_id):
 @auth_api_bp.route('/admin/roles', methods=['GET'])
 @login_required
 def list_roles():
-    roles = Role.query.all()
-    return success(data=[r.to_dict(include_permissions=True) for r in roles])
+    return success(data=rbac_repository.list_roles(include_permissions=True))
 
 
 @auth_api_bp.route('/admin/roles', methods=['POST'])
 @login_required
 def create_role():
-    data = request.get_json() or {}
-    name = data.get('name', '').strip()
-    code = data.get('code', '').strip()
+    data = validate_body(required=['name', 'code'])
+    name = str(data.get('name', '')).strip()
+    code = str(data.get('code', '')).strip()
     if not name or not code:
         return error('角色名称和编码不能为空')
-    if Role.query.filter_by(code=code).first():
+    if rbac_repository.role_code_exists(code):
         return error('角色编码已存在')
 
-    role = Role(name=name, code=code, description=data.get('description', ''))
-    perm_ids = data.get('permission_ids', [])
-    if perm_ids:
-        role.permissions = Permission.query.filter(Permission.id.in_(perm_ids)).all()
-    db.session.add(role)
-    db.session.commit()
-    return success(data=role.to_dict(include_permissions=True), message='角色创建成功')
+    role = rbac_repository.create_role(
+        code,
+        name,
+        permission_ids=data.get('permission_ids') or None,
+        description=data.get('description', ''),
+    )
+    return success(data=role, message='角色创建成功')
 
 
 @auth_api_bp.route('/admin/roles/<int:role_id>', methods=['PUT'])
 @login_required
 def update_role(role_id):
-    role = Role.query.get(role_id)
+    role = rbac_repository.get_role(role_id)
     if not role:
-        return error('角色不存在', http_status=404)
+        raise NotFoundError('角色不存在')
 
     data = request.get_json() or {}
+    fields = {}
     if 'name' in data:
-        role.name = data['name']
+        fields["name"] = data['name']
     if 'description' in data:
-        role.description = data['description']
-    if 'permission_ids' in data:
-        role.permissions = Permission.query.filter(Permission.id.in_(data['permission_ids'])).all()
-    db.session.commit()
-    return success(data=role.to_dict(include_permissions=True), message='角色更新成功')
+        fields["description"] = data['description']
+    updated = rbac_repository.update_role(
+        role_id,
+        fields,
+        permission_ids=data.get('permission_ids') if 'permission_ids' in data else None,
+    )
+    return success(data=updated, message='角色更新成功')
 
 
 @auth_api_bp.route('/admin/roles/<int:role_id>', methods=['DELETE'])
 @login_required
 def delete_role(role_id):
-    role = Role.query.get(role_id)
+    role = rbac_repository.get_role(role_id)
     if not role:
-        return error('角色不存在', http_status=404)
-    if role.is_system:
+        raise NotFoundError('角色不存在')
+    if role["is_system"]:
         return error('系统内置角色不可删除')
-    db.session.execute(user_roles.delete().where(user_roles.c.role_id == role.id))
-    db.session.execute(role_permissions.delete().where(role_permissions.c.role_id == role.id))
-    db.session.delete(role)
-    db.session.commit()
+    rbac_repository.delete_role(role_id)
     return success(message='角色删除成功')
 
 
@@ -271,10 +299,9 @@ def delete_role(role_id):
 @auth_api_bp.route('/admin/permissions', methods=['GET'])
 @login_required
 def list_permissions():
-    sync_navigation_permissions(NavigationMenuItem.query.all())
-    db.session.commit()
-    perms = Permission.query.order_by(Permission.group, Permission.code).all()
+    with rbac_repository.transaction():
+        sync_navigation_permissions(navigation_repository.list_all_entities())
     grouped = {}
-    for p in perms:
-        grouped.setdefault(p.group, []).append(p.to_dict())
+    for perm in rbac_repository.list_permissions():
+        grouped.setdefault(perm["group"], []).append(perm)
     return success(data=grouped)

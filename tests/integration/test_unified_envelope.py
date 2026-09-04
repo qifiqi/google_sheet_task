@@ -76,6 +76,18 @@ class TestUnifiedEnvelope:
         assert body["code"] == 500
         assert "secret" not in body["message"]
 
+    def test_login_required_401_envelope(self, client):
+        # login_required 未带令牌 → UnauthorizedError → 全局处理器 401 信封
+        resp = client.get("/api/auth/me")
+        assert resp.status_code == 401
+        body = resp.get_json()
+        assert body == {
+            "status": "error",
+            "code": 401,
+            "message": "未提供认证令牌",
+            "data": None,
+        }
+
 
 class TestRequestValidation:
     def test_validate_body_required_missing(self, app_factory):

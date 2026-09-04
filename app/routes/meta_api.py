@@ -3,12 +3,12 @@ from flask import Blueprint
 from app.models import (
     GoogleSheetTableType,
     GoogleSheetTokenTaskType,
-    NavigationMenuItem,
     StockMarketType,
     TaskStatus,
     TaskType,
 )
 from app.navigation import build_navigation_tree
+from app.repositories import navigation_repository
 from app.utils.api_response import success
 from app.utils.auth import login_required
 
@@ -50,12 +50,7 @@ def get_nav():
     from flask import g
 
     user_perms = g.current_user.get_permissions()
-    rows = (
-        NavigationMenuItem.query
-        .filter_by(is_visible=True)
-        .order_by(NavigationMenuItem.sort_order.asc(), NavigationMenuItem.id.asc())
-        .all()
-    )
+    rows = navigation_repository.list_visible_entities()
     rows = sorted(rows, key=lambda item: (item.parent_key or "", item.sort_order, item.id))
     all_nav = build_navigation_tree(rows)
 

@@ -4,10 +4,11 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import jwt
-from flask import request, g, jsonify
+from flask import request, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from app.extensions import db
+from app.exceptions import UnauthorizedError
+from app.repositories import rbac_repository
 from app.services.config_manager import get_config_manager
 
 # 开发环境默认 secret 也保持 32+ 字节，避免 JWT 库抛出弱密钥长度告警。
@@ -108,7 +109,6 @@ def _inject_mock_user():
     """AUTH_ENABLED=false 时注入一个拥有全部权限的 mock 用户，避免下游 g.current_user 报错"""
     if hasattr(g, 'current_user'):
         return
-    from app.models import Permission
 
     class _MockUser:
         id = 0
@@ -119,7 +119,8 @@ def _inject_mock_user():
 
         def get_permissions(self):
             if self._perms is None:
-                self._perms = {p.code for p in Permission.query.all()}
+                # 权限缓存仍留在 auth 层，编码列表来自 repository。
+                self._perms = set(rbac_repository.list_permission_codes())
             return self._perms
 
         def to_dict(self, include_permissions=False):
@@ -147,25 +148,24 @@ def login_required(f):
 
         auth_header = request.headers.get('Authorization', '')
         if not auth_header.startswith('Bearer '):
-            return jsonify({'code': 401, 'data': None, 'message': '未提供认证令牌'}), 401
+            raise UnauthorizedError('未提供认证令牌')
 
         token = auth_header[7:]
         try:
             payload = decode_token(token)
             if payload.get('type') != 'access':
-                return jsonify({'code': 401, 'data': None, 'message': '令牌类型错误'}), 401
+                raise UnauthorizedError('令牌类型错误')
             token_version = extract_token_version(payload)
         except jwt.ExpiredSignatureError:
-            return jsonify({'code': 401, 'data': None, 'message': '令牌已过期'}), 401
+            raise UnauthorizedError('令牌已过期')
         except jwt.InvalidTokenError:
-            return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
+            raise UnauthorizedError('无效令牌')
 
-        from app.models import User
-        user = db.session.get(User, payload['user_id'])
+        user = rbac_repository.get_user_entity(payload['user_id'])
         if not user or not user.is_active:
-            return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
+            raise UnauthorizedError('用户不存在或已禁用')
         if int(user.token_version or 0) != token_version:
-            return jsonify({'code': 401, 'data': None, 'message': '登录状态已失效，请重新登录'}), 401
+            raise UnauthorizedError('登录状态已失效，请重新登录')
 
         g.current_user = user
         return f(*args, **kwargs)

@@ -61,6 +61,26 @@ class RbacRepository(BaseRepository):
         """登录态装饰器使用的实体访问（utils/auth.py 热路径，长期保留）。"""
         return db.session.get(User, user_id)
 
+    def get_user_state(self, user_id):
+        """refresh 令牌等鉴权场景用：{id, is_active, token_version} 或 None。"""
+        row = (
+            User.query
+            .with_entities(User.id, User.is_active, User.token_version)
+            .filter_by(id=user_id)
+            .first()
+        )
+        if row is None:
+            return None
+        return {
+            "id": row.id,
+            "is_active": row.is_active,
+            "token_version": row.token_version,
+        }
+
+    def update_last_login(self, user_id, value, commit=True):
+        """登录成功更新最后登录时间。"""
+        return self.update_user(user_id, {"last_login": value}, commit=commit)
+
     def username_exists(self, username):
         return db.session.query(User.id).filter_by(username=username).first() is not None
 
