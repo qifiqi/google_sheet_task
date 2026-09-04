@@ -32,10 +32,18 @@ def _resolve_database_url(default_url):
 
 
 def _build_engine_options(_database_url):
-    return {
+    options = {
         'pool_pre_ping': True,
         'pool_recycle': 3600,
     }
+    # 连接池参数仅对 MySQL 生效；SQLite 走默认池化，保持现状。
+    if _database_url.startswith('mysql'):
+        options.update({
+            'pool_size': _get_int('DB_POOL_SIZE', 10),
+            'max_overflow': _get_int('DB_MAX_OVERFLOW', 20),
+            'pool_timeout': _get_int('DB_POOL_TIMEOUT', 30),
+        })
+    return options
 
 
 class BaseConfig:
