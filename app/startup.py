@@ -355,8 +355,8 @@ def ensure_navigation_menu_schema():
     if changed:
         db.session.commit()
 
-    _ensure_model_index(NavigationMenuItem, 'idx_navigation_menu_parent_sort')
-    _ensure_model_index(NavigationMenuItem, 'ix_navigation_menu_items_is_visible')
+    # idx_navigation_menu_parent_sort / ix_navigation_menu_items_is_visible 已随
+    # 20260905_drop_stale_indexes 迁移移除（查询形态不匹配 + 微表），不再启动期补建。
     db.session.commit()
 
 

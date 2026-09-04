@@ -443,7 +443,6 @@ class TaskResult(db.Model):
     __table_args__ = (
         db.Index("idx_task_step", "task_id", "step_index"),
         db.Index("idx_task_results_task_timestamp", "task_id", "timestamp"),
-        db.Index("idx_success_timestamp", "success", "timestamp"),
         {"comment": "任务结果表"},
     )
 
@@ -507,8 +506,8 @@ class TaskResultReturn(db.Model):
         index=True,
         comment="关联任务ID",
     )
-    stock_code = db.Column(db.String(20), nullable=False, default="UNKNOWN", index=True)
-    stock_name = db.Column(db.String(20), nullable=False, default="未知股票", index=True)
+    stock_code = db.Column(db.String(20), nullable=False, default="UNKNOWN")
+    stock_name = db.Column(db.String(20), nullable=False, default="未知股票")
     start_return_date = db.Column(
         db.Date,
         nullable=False,
@@ -637,7 +636,7 @@ class TaskResultSummaryIndex(db.Model):
     best_metric_name = db.Column(db.String(100), comment="最优指标名称")
     best_metric_value = db.Column(db.Float, comment="最优指标值")
     metrics_json = db.Column(db.Text, comment="汇总指标JSON")
-    is_best = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否当前分组最优")
+    is_best = db.Column(db.Boolean, default=False, nullable=False, comment="是否当前分组最优")
     result_timestamp = db.Column(db.DateTime, index=True, comment="原始结果时间")
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
@@ -764,10 +763,7 @@ class NavigationMenuItem(db.Model):
     """侧边栏导航菜单项"""
 
     __tablename__ = "t_param_navigation_menu_items"
-    __table_args__ = (
-        db.Index("idx_navigation_menu_parent_sort", "parent_key", "sort_order"),
-        {"comment": "侧边栏导航菜单表"},
-    )
+    __table_args__ = ({"comment": "侧边栏导航菜单表"},)
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="菜单ID")
     key = db.Column(db.String(100), unique=True, nullable=False, comment="菜单唯一键")
@@ -776,7 +772,7 @@ class NavigationMenuItem(db.Model):
     permission = db.Column(db.String(100), comment="访问该菜单所需权限编码")
     parent_key = db.Column(db.String(100), comment="父级菜单key，空表示顶级")
     sort_order = db.Column(db.Integer, default=0, nullable=False, comment="排序值")
-    is_visible = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否显示")
+    is_visible = db.Column(db.Boolean, default=True, nullable=False, comment="是否显示")
     created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
@@ -808,7 +804,7 @@ class GoogleSheetToken(db.Model):
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
-    name = db.Column(db.String(255), nullable=False, index=True, comment="Token展示名称")
+    name = db.Column(db.String(255), nullable=False, comment="Token展示名称")
     task_type = db.Column(
         db.String(50),
         nullable=False,
@@ -870,13 +866,13 @@ class GoogleSheet(db.Model):
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="主键ID")
-    name = db.Column(db.String(255), nullable=False, index=True, comment="显示名称")
-    spreadsheet_id = db.Column(db.String(255), nullable=False, index=True, comment="Google Sheet表ID")
+    name = db.Column(db.String(255), nullable=False, comment="显示名称")
+    spreadsheet_id = db.Column(db.String(255), nullable=False, comment="Google Sheet表ID")
     table_type = db.Column(db.String(20), nullable=False, default=GoogleSheetTableType.C3.value, index=True, comment="表类型：c3/c4/c5/c7/backtest_training")
     registry_scope = db.Column(db.String(32), nullable=False, comment="表类型唯一性分组")
     remark = db.Column(db.Text, comment="备注")
     is_active = db.Column(db.Boolean, default=True, nullable=False, comment="是否启用")
-    is_in_use = db.Column(db.Boolean, default=False, nullable=False, index=True, comment="是否使用中")
+    is_in_use = db.Column(db.Boolean, default=False, nullable=False, comment="是否使用中")
     current_task_id = db.Column(db.String(36), index=True, comment="当前占用任务ID")
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="更新时间")
@@ -943,19 +939,19 @@ class ScheduledTask(db.Model):
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="定时任务ID")
-    name = db.Column(db.String(255), nullable=False, index=True, comment="任务名称")
+    name = db.Column(db.String(255), nullable=False, comment="任务名称")
     description = db.Column(db.Text, comment="任务描述")
     cron_expression = db.Column(db.String(100), nullable=False, comment="Cron表达式")
     task_type = db.Column(db.String(50), nullable=False, default="cleanup", comment="任务类型")
     task_function = db.Column(db.String(255), nullable=False, comment="执行函数名")
     task_params = db.Column(db.Text, comment="任务参数JSON")
-    is_active = db.Column(db.Boolean, default=True, index=True, comment="是否启用")
+    is_active = db.Column(db.Boolean, default=True, comment="是否启用")
     last_run_time = db.Column(db.DateTime, comment="上次执行时间")
     next_run_time = db.Column(db.DateTime, comment="下次执行时间")
     run_count = db.Column(db.Integer, default=0, comment="执行次数")
     is_running = db.Column(db.Boolean, default=False, comment="是否正在执行")
     running_instance_id = db.Column(db.String(100), comment="执行实例ID")
-    created_at = db.Column(db.DateTime, default=datetime.now, index=True, comment="创建时间")
+    created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
     def to_dict(self):
