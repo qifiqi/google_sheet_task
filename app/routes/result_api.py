@@ -1,12 +1,12 @@
-"""任务结果 API（自 template_api 归位，URL 不变；数据层：task_result_repository）。
+"""任务结果 API（自 template_api 归位，URL 不变）。
 
-原 `/api/results*` 三个接口与模板接口解耦；行为与迁移前逐一对齐：
+数据访问经 task_manager 门面（任务结果查询/删除服务）；
+行为与迁移前逐一对齐：
 - 列表保持精简投影与 task_id 过滤语义；
 - 详情/删除目标不存在 → NotFoundError → 全局处理器 404 信封。
 """
 from flask import Blueprint, request
 
-from app.repositories import task_repository, task_result_repository
 from app.services.task import task_manager
 from app.exceptions import NotFoundError
 from app.utils.api_response import success
@@ -15,18 +15,11 @@ from app.utils.auth import login_required
 result_api_bp = Blueprint('result_api', __name__)
 
 
-def _get_task_entity_or_404(task_id: str):
-    task = task_repository.get_entity(task_id)
-    if not task:
-        raise NotFoundError("任务不存在")
-    return task
-
-
 @result_api_bp.route('/tasks/<task_id>/results', methods=['GET'])
 @login_required
 def get_task_results(task_id):
     """获取任务结果（自 task_api 归位，URL 不变）"""
-    _get_task_entity_or_404(task_id)
+    task_manager.get_required_task(task_id)
 
     page = request.args.get('page', type=int)
     per_page = request.args.get('per_page', type=int)
@@ -55,7 +48,7 @@ def get_results():
     per_page = min(request.args.get('per_page', 20, type=int) or 20, 100)
     task_id = request.args.get('task_id', None)
 
-    data = task_result_repository.list_paginated(page, per_page, task_id=task_id)
+    data = task_manager.get_results_paginated(page, per_page, task_id=task_id)
     return success(data=data)
 
 
@@ -63,7 +56,7 @@ def get_results():
 @login_required
 def get_result(result_id):
     """获取任务结果详情"""
-    record = task_result_repository.get_with_task_type(result_id)
+    record = task_manager.get_result_detail(result_id)
     if record is None:
         raise NotFoundError("结果不存在")
     return success(data=record)
@@ -73,7 +66,7 @@ def get_result(result_id):
 @login_required
 def delete_result(result_id):
     """删除任务结果"""
-    deleted = task_result_repository.delete(result_id)
+    deleted = task_manager.delete_result(result_id)
     if not deleted:
         raise NotFoundError("结果不存在")
     return success(message="结果已删除")

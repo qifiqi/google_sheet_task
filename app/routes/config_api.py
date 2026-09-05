@@ -1,13 +1,10 @@
-"""配置管理 API（数据层：system_config_repository + navigation_repository）。
+"""配置管理 API。
 
-/config POST 仍走 config_manager（保持缓存语义：update_configs 内部负责
-写库 + 负缓存刷新；repository 只管行级读写）。
+配置读取/更新经 config_manager（缓存与负缓存刷新语义留在该层）。
 """
 from flask import Blueprint, request
 
 from app.exceptions import BadRequestError, NotFoundError, ServiceError
-from app.navigation import sync_navigation_permissions
-from app.repositories import navigation_repository, system_config_repository
 from app.services.config_manager import get_config_manager
 from app.utils.api_response import success
 from app.schemas.config import ConfigBatchSchema, SystemConfigUpdateSchema
@@ -53,7 +50,7 @@ def validate_config():
     """验证配置状态"""
     config_manager = get_config_manager()
 
-    rows = system_config_repository.list_rows()
+    rows = config_manager.get_db_config_rows()
     db_configs = {row["key"]: row["value"] for row in rows}
 
     cache_configs = config_manager.get_cache_snapshot()
@@ -74,7 +71,7 @@ def validate_config():
 @login_required
 def list_system_configs():
     """获取 system_configs 配置列表"""
-    return success(data={"configs": system_config_repository.list_rows()})
+    return success(data={"configs": get_config_manager().get_db_config_rows()})
 
 
 @config_api_bp.route('/system-configs/<string:key>', methods=['PUT'])
@@ -89,14 +86,9 @@ def update_system_config(key):
     if 'description' in data:
         fields["description"] = data['description']
 
-    updated = system_config_repository.update(key, fields)
+    updated = get_config_manager().update_config_row(key, fields)
     if updated is None:
         raise NotFoundError("配置不存在")
-
-    try:
-        get_config_manager().refresh_cache()
-    except Exception as e:
-        logger.warning(f"更新配置后刷新缓存失败: {e}")
 
     return success(data={"config": updated})
 

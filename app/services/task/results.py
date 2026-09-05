@@ -32,3 +32,15 @@ class TaskResultMixin:
             }
 
         return task_result_repository.list_by_task(task_id)
+
+    def get_results_paginated(self, page: int, per_page: int, task_id: str | None = None):
+        """跨任务结果分页列表（/results GET）。"""
+        return task_result_repository.list_paginated(page, per_page, task_id=task_id)
+
+    def get_result_detail(self, result_id: int):
+        """结果详情（含 task_type 投影）；不存在返回 None。"""
+        return task_result_repository.get_with_task_type(result_id)
+
+    def delete_result(self, result_id: int) -> bool:
+        """删除结果；不存在返回 False。"""
+        return task_result_repository.delete(result_id)

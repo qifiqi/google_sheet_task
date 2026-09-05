@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.exceptions import NotFoundError
 from app.repositories import task_repository, task_result_repository
 from app.utils.task_types import normalize_task_type
 
@@ -24,6 +25,44 @@ class TaskQueryService:
     def get_required_task(self, task_id: str) -> dict[str, Any]:
         """任务 dict 访问；不存在抛 NotFoundError（页面/导出端点的 404 入口）。"""
         return task_repository.get_required(task_id)
+
+    def get_required_task_entity(self, task_id: str) -> Any:
+        """任务实体访问（导出/重启链消费实体）；不存在抛 NotFoundError。"""
+        task = task_repository.get_entity(task_id)
+        if not task:
+            raise NotFoundError("任务不存在")
+        return task
+
+    def get_distinct_task_types(self) -> list[str]:
+        """全库去重任务类型（任务列表无类型筛选时的兜底集合）。"""
+        return task_repository.distinct_task_types()
+
+    def get_empty_tasks_page(self, page: int, per_page: int) -> dict[str, Any]:
+        """无任务时的空列表页结构（/tasks GET 首屏空态，键与 get_tasks_paginated 对齐）。"""
+        return {
+            "tasks": [],
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total": 0,
+                "pages": 0,
+                "has_prev": False,
+                "has_next": False,
+                "prev_num": None,
+                "next_num": None,
+            },
+            "statistics": {
+                "total_tasks": 0,
+                "completed_tasks": 0,
+                "running_tasks": 0,
+                "error_tasks": 0,
+                "pending_tasks": 0,
+                "today_new_tasks": 0,
+                "success_rate": 0,
+                "error_rate": 0,
+                "avg_duration_minutes": 0,
+            },
+        }
 
     def get_task_result(self, result_id: int) -> Optional[dict[str, Any]]:
         """任务结果 dict 访问；不存在返回 None。"""
@@ -208,6 +247,15 @@ class TaskQueryMixin:
 
     def get_required_task(self, task_id: str) -> dict[str, Any]:
         return TaskQueryService(self).get_required_task(task_id)
+
+    def get_required_task_entity(self, task_id: str) -> Any:
+        return TaskQueryService(self).get_required_task_entity(task_id)
+
+    def get_distinct_task_types(self) -> list[str]:
+        return TaskQueryService(self).get_distinct_task_types()
+
+    def get_empty_tasks_page(self, page: int, per_page: int) -> dict[str, Any]:
+        return TaskQueryService(self).get_empty_tasks_page(page, per_page)
 
     def get_task_result(self, result_id: int) -> Optional[dict[str, Any]]:
         return TaskQueryService(self).get_task_result(result_id)

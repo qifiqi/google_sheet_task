@@ -176,6 +176,24 @@ class ConfigManager:
         with self._lock:
             return {k: (None if v is _MISSING else v) for k, v in self._cache.items()}
 
+    def get_db_config_rows(self) -> list:
+        """配置行原始列表（管理端列表/诊断端点消费，含 description）。"""
+        return system_config_repository.list_rows()
+
+    def update_config_row(self, key: str, fields: Dict[str, Any]):
+        """单条配置行更新 + 缓存刷新（/system-configs PUT 语义）；不存在返回 None。
+
+        行级写入走 repository，缓存/负缓存刷新留在本层（数据层分层规则）。
+        """
+        updated = system_config_repository.update(key, fields)
+        if updated is None:
+            return None
+        try:
+            self.refresh_cache()
+        except Exception as e:
+            logger.warning(f"更新配置后刷新缓存失败: {e}")
+        return updated
+
     def set_config(self, key: str, value: Any, description: str = None) -> bool:
         """设置配置值"""
         try:
