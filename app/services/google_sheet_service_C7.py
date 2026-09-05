@@ -36,6 +36,92 @@ logger = get_logger(__name__)
 
 
 class C7Service(BaseGoogleSheetService):
+    # ---- get_bdl 模板钩子覆盖（默认实现见基类；差异地图见 03 文档 §3.3）----
+
+    _retryable_outer = True  # 外层异常需打 [NETWORK_RETRYABLE] 供看门狗识别
+
+    def _prepare_batch(self, config_data: dict) -> dict:
+        kline_source = str(config_data.get('kline_source') or 'auto').strip().lower()
+        if kline_source not in ('auto', 'custom'):
+            raise ValueError("kline_source 仅支持 auto 或 custom")
+        random_price_range = config_data.get('random_price_range', 'high_low')
+        random_group_count = int(config_data.get('random_group_count') or 1)
+        custom_kline_map = None
+        if kline_source == 'custom':
+            first_layout = self._get_c7_layout(config_data, self.google_sheets[0])
+            if first_layout["version"] == "c7_0_3":
+                custom_kline = self._get_custom_kline_data(
+                    first_layout["date_column"],
+                    first_layout["close_column"],
+                    start_row=first_layout["start_row"],
+                    ohlc_columns=first_layout,
+                )
+            else:
+                custom_kline = self._get_custom_kline_data(
+                    first_layout["date_column"],
+                    first_layout["value_column"],
+                    start_row=first_layout["start_row"],
+                )
+            custom_kline_map = {'custom': custom_kline}
+        return {
+            "kline_source": kline_source,
+            "count_mode": config_data.get('count_mode', 'n_plus_1'),
+            "price_mode": config_data.get('price_mode', 'vwap_price'),
+            "date_range_mode": config_data.get('date_range_mode', []),
+            "exclude_recent_years": config_data.get(
+                'exclude_recent_years',
+                config_data.get('exclude_years', []),
+            ),
+            "end_date": config_data.get('end_date'),
+            "start_date": config_data.get('start_date'),
+            "market_type": config_data.get('market_type'),
+            "adjust_type": config_data.get('kline_adjustment'),
+            "data_source": config_data.get("kline_data_source", "dfcf"),
+            "custom_kline_map": custom_kline_map,
+            "random_price_range": random_price_range,
+            "random_group_count": random_group_count,
+            "_config_data": config_data,
+        }
+
+    def _expand_parameters(self, outer_param, parameters, batch):
+        return self._get_all_parameters(
+            outer_param,
+            batch["count_mode"],
+            batch["price_mode"],
+            batch["end_date"],
+            batch["start_date"],
+            batch["market_type"],
+            batch["date_range_mode"],
+            batch["exclude_recent_years"],
+            parameters,
+            batch["adjust_type"],
+            random_price_range=batch["random_price_range"],
+            random_group_count=batch["random_group_count"],
+            data_source=batch["data_source"],
+        )
+
+    def _clear_input_columns(self, google_sheet, batch) -> None:
+        config_data = batch["_config_data"]
+        layout = self._get_c7_layout(config_data, google_sheet)
+        last_row = self._get_c7_input_last_row(google_sheet, layout)
+        if last_row < layout["start_row"]:
+            return
+        end_column = self._get_c7_write_end_column(layout)
+        self._log_info(
+            f'{google_sheet.title} 当前K线行数: {last_row},准备清空 '
+            f'{layout["date_column"]}{layout["start_row"]}:{end_column}{last_row}'
+        )
+        google_sheet.clear_range(
+            f'{layout["date_column"]}{layout["start_row"]}:{end_column}{last_row}'
+        )
+
+    def _stamp_combination(self, combination: dict, batch: dict) -> None:
+        combination['c7_model_version'] = self._get_c7_model_version(
+            batch["_config_data"],
+            self.google_sheets[0],
+        )
+
+
     # 去重日志标签（公共去重器见基类）
     _dedupe_label = "C7"
 
@@ -314,231 +400,7 @@ class C7Service(BaseGoogleSheetService):
         })
         return payload
 
-    def get_bdl(self, task, name, parameters, config_data):
-        """执行批量数据处理"""
-        success_count = 0
-        failed_count = 0
-        try:
-            # 计算总参数组合数（按每个具体组合计数）
-            kline_source = str(config_data.get('kline_source') or 'auto').strip().lower()
-            if kline_source not in ('auto', 'custom'):
-                raise ValueError("kline_source 仅支持 auto 或 custom")
-            count_mode = config_data.get('count_mode', 'n_plus_1')
-            price_mode = config_data.get('price_mode', 'vwap_price')
-            random_price_range = config_data.get('random_price_range', 'high_low')
-            random_group_count = int(config_data.get('random_group_count') or 1)
-            date_range_mode = config_data.get('date_range_mode',[])
-            exclude_recent_years = config_data.get(
-                'exclude_recent_years',
-                config_data.get('exclude_years', [])
-            )
-            end_date = config_data.get('end_date')
-            start_date = config_data.get('start_date')
-            market_type = config_data.get('market_type')
-            adjust_type = config_data.get('kline_adjustment')
-            custom_kline_map = None
-            if kline_source == 'custom':
-                first_layout = self._get_c7_layout(config_data, self.google_sheets[0])
-                if first_layout["version"] == "c7_0_3":
-                    custom_kline = self._get_custom_kline_data(
-                        first_layout["date_column"],
-                        first_layout["close_column"],
-                        start_row=first_layout["start_row"],
-                        ohlc_columns=first_layout,
-                    )
-                else:
-                    custom_kline = self._get_custom_kline_data(
-                        first_layout["date_column"],
-                        first_layout["value_column"],
-                        start_row=first_layout["start_row"],
-                    )
-                custom_kline_map = {'custom': custom_kline}
 
-            # 仅使用 parameters[0] 作为外层参数列表，真实总组合数为所有 inner combinations 数量之和
-            total_combinations = 0
-            precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
-
-            for outer_param in parameters[0]:
-                if kline_source == 'custom':
-                    combinations, column_A_length,KLINE_DATA_MAP = self._get_custom_parameters(
-                        outer_param, parameters, custom_kline_map
-                    )
-                else:
-                    combinations, column_A_length,KLINE_DATA_MAP = self._get_all_parameters(
-                        outer_param, count_mode, price_mode, end_date, start_date, market_type,
-                        date_range_mode, exclude_recent_years, parameters, adjust_type,
-                        random_price_range=random_price_range, random_group_count=random_group_count,
-                        data_source=config_data.get("kline_data_source", "dfcf")
-                    )
-                precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
-                total_combinations += len(combinations)
-
-            # 更新任务总步数
-            task.total_steps = total_combinations
-            task_result_repository.commit_with_retry()
-
-            # 推送参数组合信息
-            self._log_info(f'将执行 {total_combinations} 个参数组合')
-
-            # 检查是否从断点恢复（按组合级别）
-            # current_step 表示已完成的组合数；断点恢复必须从下一条开始，
-            # 否则每次 watchdog 重启都会重复执行并写入最后一个已完成组合。
-            start_index = self._get_resume_start_index(
-                task.current_step,
-                total_combinations,
-            )
-            self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
-
-            # 重置成功/失败计数器；如需精确恢复已完成组合数，可在外部通过历史结果统计
-            success_count = start_index
-
-            if kline_source != 'custom':
-                for google_sheet in self.google_sheets:
-                    layout = self._get_c7_layout(config_data, google_sheet)
-                    last_row = self._get_c7_input_last_row(google_sheet, layout)
-                    if last_row < layout["start_row"]:
-                        continue
-                    end_column = self._get_c7_write_end_column(layout)
-                    self._log_info(
-                        f'{google_sheet.title} 当前K线行数: {last_row},准备清空 '
-                        f'{layout["date_column"]}{layout["start_row"]}:{end_column}{last_row}'
-                    )
-                    google_sheet.clear_range(
-                        f'{layout["date_column"]}{layout["start_row"]}:{end_column}{last_row}'
-                    )
-
-                self._log_info(f'所有表格均滞空，等待20秒，开始执行后续逻辑')
-                if not self._interruptible_sleep(20):
-                    return success_count, failed_count, 'cancelled'
-            else:
-                self._log_info('自定义K线模式：保留表格现有K线，仅写入参数')
-
-            processed_index = 0  # 已处理的组合数量
-            cache_parameters = {'combination': {}}
-            for outer_idx, (combinations, column_A_length,KLINE_DATA_MAP) in enumerate(precomputed_params):
-                for combination in combinations:
-                    if self._is_cancel_requested():
-                        return success_count, failed_count, 'cancelled'
-                    # 跳过已完成的组合（断点恢复）
-                    if processed_index < start_index:
-                        processed_index += 1
-                        continue
-
-                    # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
-                    def check_task_status():
-                        return task_repository.get_status_value(self.task_id)
-
-                    result = safe_db_operation(check_task_status)
-
-                    if not result or result == 'cancelled':
-                        self._log_warning("任务已被取消，停止执行")
-                        return success_count, failed_count, 'cancelled'
-
-                    current_step = processed_index + 1
-
-                    self._log_step(current_step, total_combinations, f"开始执行参数组合")
-
-                    # 推送执行进度
-                    progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
-                    self._log_info(progress_msg)
-
-
-                    # 执行单个参数组合
-                    try:
-                        success, result = self._execute_parameter_combination(column_A_length, combination,cache_parameters, config_data,KLINE_DATA_MAP)
-
-                        if success:
-                            success_count += 1
-                            self._log_info(
-                                f'第 {current_step} 个参数组合执行成功，'
-                                f'结果摘要: {self._summarize_result_for_log(result)}'
-                            )
-                        else:
-                            self._log_warning(f'第 {current_step} 个参数组合执行失败')
-                            failed_count += 1
-                            return success_count, failed_count, 'error'
-
-                        cache_parameters['combination'] = combination
-                        kline = KLINE_DATA_MAP.get(combination['Kline_key'], None)
-                        combination['kline'] = [kline[0],kline[-1]]
-                        combination['c7_model_version'] = self._get_c7_model_version(
-                            config_data,
-                            self.google_sheets[0],
-                        )
-
-                        self.send_stock_param_result_data(
-                            self._build_stock_param_result_payload(
-                                name,
-                                current_step - 1,
-                                combination,
-                                result,
-                            )
-                        )
-
-                        # 更新当前步数为组合级别
-                        task.current_step = current_step
-                        task_result_repository.commit_with_retry()
-
-                        # 保存结果到数据库
-                        stock_name = str(combination.get('stock_name') or '').strip()
-                        self._save_task_result(current_step - 1, {
-                            **combination,
-                            'stock_code':combination['stock_code'],
-                            **({'stock_name': stock_name} if stock_name else {}),
-                        }, result, success)
-
-
-                    except SheetCheckError as e:
-                        self._record_execution_error_message(e, "execute_parameter_combination")
-                        self._log_error(str(e))
-                        return success_count, failed_count, 'error'
-                    except Exception as e:
-                        failed_count += 1
-                        # 检查是否是任务被取消
-                        try:
-                            task_check = task_repository.get_entity(self.task_id)
-                            if task_check and task_check.status == 'cancelled':
-                                self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
-                                return success_count, failed_count, 'cancelled'
-                        except Exception:  # best-effort 取消探测：失败不中断主流程
-                            pass
-
-                        error_summary = self._record_execution_error_message(
-                            e,
-                            "execute_parameter_combination",
-                        )
-                        error_msg = f'第 {current_step} 个参数组合执行出错: {error_summary}'
-                        self._log_error(error_msg)
-                        return success_count, failed_count, 'error'
-
-                    processed_index += 1
-
-            self._log_info(f"批量数据处理完成，总成功: {success_count}, 总失败: {failed_count}")
-            return success_count, failed_count, 'completed'
-
-        except Exception as e:
-            self._raise_retryable_network_error(e, "批量数据处理网络请求失败")
-            # 检查是否是任务被取消导致的异常
-            try:
-                task_check = task_repository.get_entity(self.task_id)
-                if task_check and task_check.status == 'cancelled':
-                    self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
-                    return success_count, failed_count, 'cancelled'
-            except Exception:  # best-effort 取消探测：失败不中断主流程
-                pass
-
-            error_summary = self._record_execution_error_message(e, "get_bdl")
-            self._log_error(f"批量数据处理失败: {error_summary}")
-            return 0, 1, 'error'
-
-    @retry(
-        stop=stop_after_attempt(3),  # 最多尝试3次
-        wait=wait_exponential(multiplier=1, min=4, max=10),  # 指数退避：4s, 6s, 10s...
-        reraise=True,  # 重试耗尽后重新抛出原始异常
-        retry=retry_if_result(lambda result: result[0] is False)
-    )
-    # @validate_result_dict(
-    #     none_values=(None, '', ' ', '#N/A', '#DIV/0!', '#ERROR!', '#VALUE!', '#REF!', '#NAME?', '#NUM!'))
     def _execute_parameter_combination(self, column_A_length, combination,cache_parameters, config_data: Dict[str, Any],KLINE_DATA_MAP) -> tuple[
         bool, Dict[str, Any]]:
         """执行单个参数组合"""

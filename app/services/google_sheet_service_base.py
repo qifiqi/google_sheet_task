@@ -17,6 +17,7 @@ from app.utils.return_series import build_return_series_fields, extract_return_r
 from app.utils.logger import get_logger
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.task_error_utils import unwrap_exception
+from app.exceptions.sheet_check_error import SheetCheckError
 
 
 logger = get_logger(__name__)
@@ -369,6 +370,235 @@ class BaseGoogleSheetService:
 
         return deduplicated
 
+
+    # ---- get_bdl 批量执行钩子（C3 批次差异地图见 03 文档 §3.3；默认实现 = C5 行为）----
+
+    # 外层异常是否打 [NETWORK_RETRYABLE] 标记（C7 = True；C5 默认无）。
+    _retryable_outer = False
+
+    def _prepare_batch(self, config_data: dict) -> dict:
+        """从任务配置提取批量执行所需的标量与自定义K线映射（C5 默认实现）。"""
+        kline_source = str(config_data.get('kline_source') or 'auto').strip().lower()
+        if kline_source not in ('auto', 'custom'):
+            raise ValueError("kline_source 仅支持 auto 或 custom")
+        custom_kline_map = None
+        if kline_source == 'custom':
+            c5_input_column_a = config_data.get('c5_input_column_a').upper()
+            c5_input_column_b = config_data.get('c5_input_column_b').upper()
+            custom_kline = self._get_custom_kline_data(c5_input_column_a, c5_input_column_b)
+            custom_kline_map = {'custom': custom_kline}
+        return {
+            "kline_source": kline_source,
+            "count_mode": config_data.get('count_mode', 'n_plus_1'),
+            "price_mode": config_data.get('price_mode', 'vwap_price'),
+            "date_range_mode": config_data.get('date_range_mode', []),
+            "exclude_recent_years": config_data.get(
+                'exclude_recent_years',
+                config_data.get('exclude_years', []),
+            ),
+            "end_date": config_data.get('end_date'),
+            "start_date": config_data.get('start_date'),
+            "market_type": config_data.get('market_type'),
+            "adjust_type": config_data.get('kline_adjustment'),
+            "data_source": config_data.get("kline_data_source", "dfcf"),
+            "custom_kline_map": custom_kline_map,
+        }
+
+    def _expand_parameters(self, outer_param, parameters, batch):
+        """单外层参数 → (组合列表, A列长度, KLINE_DATA_MAP)；默认走 C5 签名。"""
+        return self._get_all_parameters(
+            outer_param,
+            batch["count_mode"],
+            batch["price_mode"],
+            batch["end_date"],
+            batch["start_date"],
+            batch["market_type"],
+            batch["date_range_mode"],
+            batch["exclude_recent_years"],
+            parameters,
+            batch["adjust_type"],
+            data_source=batch["data_source"],
+        )
+
+    def _clear_input_columns(self, google_sheet, batch) -> None:
+        """执行前清空输入列（C5 默认：A列行数<10 跳过；滞空 A~B 列）。"""
+        a_num = google_sheet.get_last_row('A')
+        if a_num < 10:
+            return
+        self._log_info(f'{google_sheet.title} 当前A列行数: {a_num},准备滞空 A列 B列')
+        google_sheet.clear_range(f"{batch['c5_input_column_a']}2:{batch['c5_input_column_b']}{a_num + 2}")
+
+    def _stamp_combination(self, combination: dict, batch: dict) -> None:
+        """组合级打标钩子；默认无（C7 覆盖以写入 c7_model_version）。"""
+        return None
+
+    def get_bdl(self, task, name, parameters, config_data):
+        """批量执行模板（原 C5/C7 各自复制 198/225 行，C3 批次收敛为基类唯一实现；
+        任务差异经 _prepare_batch/_expand_parameters/_clear_input_columns/
+        _stamp_combination/_retryable_outer 钩子注入，默认行为 = C5）。"""
+        success_count = 0
+        failed_count = 0
+        try:
+            batch = self._prepare_batch(config_data)
+
+            # 仅使用 parameters[0] 作为外层参数列表，真实总组合数为所有 inner combinations 数量之和
+            total_combinations = 0
+            precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
+
+            for outer_param in parameters[0]:
+                if batch["kline_source"] == 'custom':
+                    combinations, column_A_length, KLINE_DATA_MAP = self._get_custom_parameters(
+                        outer_param, parameters, batch["custom_kline_map"]
+                    )
+                else:
+                    combinations, column_A_length, KLINE_DATA_MAP = self._expand_parameters(outer_param, parameters, batch)
+                precomputed_params.append((combinations, column_A_length, KLINE_DATA_MAP))
+                total_combinations += len(combinations)
+
+            # 更新任务总步数
+            task.total_steps = total_combinations
+            task_result_repository.commit_with_retry()
+
+            # 推送参数组合信息
+            self._log_info(f'将执行 {total_combinations} 个参数组合')
+
+            # 检查是否从断点恢复（按组合级别）
+            # current_step 表示已完成的组合数；断点恢复必须从下一条开始，
+            # 否则每次 watchdog 重启都会重复执行并写入最后一个已完成组合。
+            start_index = self._get_resume_start_index(
+                task.current_step,
+                total_combinations,
+            )
+            self._log_info(f"任务将从第 {start_index + 1} 个参数组合开始执行")
+
+            # 重置成功/失败计数器；如需精确恢复已完成组合数，可在外部通过历史结果统计
+            success_count = start_index
+
+            if batch["kline_source"] != 'custom':
+                for google_sheet in self.google_sheets:
+                    self._clear_input_columns(google_sheet, batch)
+
+                self._log_info('所有表格均滞空，等待20秒，开始执行后续逻辑')
+                if not self._interruptible_sleep(20):
+                    return success_count, failed_count, 'cancelled'
+            else:
+                self._log_info('自定义K线模式：保留表格现有K线，仅写入参数')
+
+            processed_index = 0  # 已处理的组合数量
+            cache_parameters = {'combination': {}}
+            for outer_idx, (combinations, column_A_length, KLINE_DATA_MAP) in enumerate(precomputed_params):
+                for combination in combinations:
+                    if self._is_cancel_requested():
+                        return success_count, failed_count, 'cancelled'
+                    # 跳过已完成的组合（断点恢复）
+                    if processed_index < start_index:
+                        processed_index += 1
+                        continue
+
+                    self._stamp_combination(combination, batch)
+
+                    # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
+                    def check_task_status():
+                        return task_repository.get_status_value(self.task_id)
+
+                    result = safe_db_operation(check_task_status)
+
+                    if not result or result == 'cancelled':
+                        self._log_warning("任务已被取消，停止执行")
+                        return success_count, failed_count, 'cancelled'
+
+                    current_step = processed_index + 1
+
+                    self._log_step(current_step, total_combinations, f"开始执行参数组合")
+
+                    # 推送执行进度
+                    progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
+                    self._log_info(progress_msg)
+
+                    # 执行单个参数组合
+                    try:
+                        success, result = self._execute_parameter_combination(column_A_length, combination, cache_parameters, config_data, KLINE_DATA_MAP)
+
+                        if success:
+                            success_count += 1
+                            self._log_info(
+                                f'第 {current_step} 个参数组合执行成功，'
+                                f'结果摘要: {self._summarize_result_for_log(result)}'
+                            )
+                        else:
+                            self._log_warning(f'第 {current_step} 个参数组合执行失败')
+                            failed_count += 1
+                            return success_count, failed_count, 'error'
+
+                        cache_parameters['combination'] = combination
+                        kline = KLINE_DATA_MAP.get(combination['Kline_key'], None)
+                        combination['kline'] = [kline[0], kline[-1]]
+
+                        self.send_stock_param_result_data(
+                            self._build_stock_param_result_payload(
+                                name,
+                                current_step - 1,
+                                combination,
+                                result,
+                            )
+                        )
+
+                        # 更新当前步数为组合级别
+                        task.current_step = current_step
+                        task_result_repository.commit_with_retry()
+
+                        # 保存结果到数据库
+                        stock_name = str(combination.get('stock_name') or '').strip()
+                        self._save_task_result(current_step - 1, {
+                            **combination,
+                            'stock_code': combination['stock_code'],
+                            **({'stock_name': stock_name} if stock_name else {}),
+                        }, result, success)
+
+                    except SheetCheckError as e:
+                        self._record_execution_error_message(e, "execute_parameter_combination")
+                        self._log_error(str(e))
+                        return success_count, failed_count, 'error'
+                    except Exception as e:
+                        failed_count += 1
+                        # 检查是否是任务被取消
+                        try:
+                            task_check = task_repository.get_entity(self.task_id)
+                            if task_check and task_check.status == 'cancelled':
+                                self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
+                                return success_count, failed_count, 'cancelled'
+                        except Exception:  # best-effort 取消探测：失败不中断主流程
+                            pass
+
+                        error_summary = self._record_execution_error_message(
+                            e,
+                            "execute_parameter_combination",
+                        )
+                        error_msg = f'第 {current_step} 个参数组合执行出错: {error_summary}'
+                        self._log_error(error_msg)
+                        return success_count, failed_count, 'error'
+
+                    processed_index += 1
+
+            self._log_info(f"批量数据处理完成，总成功: {success_count}, 总失败: {failed_count}")
+            return success_count, failed_count, 'completed'
+
+        except Exception as e:
+            # 检查是否是任务被取消导致的异常
+            try:
+                task_check = task_repository.get_entity(self.task_id)
+                if task_check and task_check.status == 'cancelled':
+                    self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
+                    return success_count, failed_count, 'cancelled'
+            except Exception:  # best-effort 取消探测：失败不中断主流程
+                pass
+
+            if self._retryable_outer:
+                self._raise_retryable_network_error(e, "批量数据处理网络请求失败")
+
+            error_summary = self._record_execution_error_message(e, "get_bdl")
+            self._log_error(f"批量数据处理失败: {error_summary}")
+            return 0, 1, 'error'
 
     def execute_task(self):
         """执行任务的模板方法（原 C4/C5/C7 逐字相同的 97 行骨架，C1 收敛为基类唯一实现）。
