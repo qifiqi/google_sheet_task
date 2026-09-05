@@ -570,5 +570,39 @@ raise
 - 不要把代理账号、密码、token 等敏感信息继续硬编码扩散到仓库里
 - 不要随意清除注释的代码和文字详细，只修改上下文需要改动的代码
 
+## 2026-09 代码审计（code-audit-2026-09）新增约定
+
+本节由 `docs/design/code-audit-2026-09/` 整改落地，是对上文"接口规范"的执法细则：
+
+- **任务服务类名**：C 系任务类已改名 `C3Service/C4Service/C5Service/C7Service`
+  （`google_sheet_service*.py`，物理拆包 `google_sheet_tasks/` 为后续机械项）。
+  C4/C5/C7 的 `execute_task`/`get_bdl` 骨架已收敛为 `BaseGoogleSheetService`
+  唯一实现；新增 C 系任务先读 `03-task-code-refactor.md` §3.3 钩子地图，
+  经 `_prepare_batch/_expand_parameters/_clear_input_columns/_stamp_combination/
+  _retryable_outer` 钩子接入，**禁止复制批量执行骨架**。
+- **K 线流水线**：原始K线校验/投影/写入Sheet校验统一走
+  `app/services/kline_prep.py`；取价格字段一律经 `get_kline_price_field()`
+  （C4 按市场取价经 `_market_price_field` 间接，不得再硬编码字段名）。
+- **结果载荷**：C5/C7 模型指标/analyze 透传字段以
+  `app/services/result_payload.py` 的规格表为准；新增指标只改规格表。
+- **去重/断点**：组合去重与断点起点在基类（`_dedupe_extra_signature`/
+  `_dedupe_label`/`_get_resume_start_index`），子类不得本地覆盖同名实现。
+- **运行态并发**：`TaskManager` 的 `running_tasks` 等四个运行态 dict 的复合
+  操作必须持 `_runtime_state_lock`；watchdog detach 走
+  `force_detach_running_task()`；配置读取经 `get_config_value()`。
+- **启动回滚**：`runtime.start_task` 前置失败路径统一走
+  `_rollback_start_reservation()`；新增失败路径必须调用它。
+- **接口鉴权**：存在 `admin_required`（最小管理员角色判断）；页面路由统一
+  `page_login_required`（匿名 302 登录页）；登录后前端写 `access_token`
+  cookie 供页面导航回退（见 `template-auth.js` setTokens）。
+- **分页**：列表端点一律 `paginated()` 形状 `{items,total,pages,
+  current_page,per_page}`（`/api/tasks/<id>/results` 的 results 键为已登记
+  延期项）；分页/查询参数走 `parse_query` + `app/schemas/` 的 Query 模型。
+- **db_retry**：`commit_with_retry(session, operation)`——提供重放闭包才有
+  真重试；无闭包时暂时性冲突直接回滚抛 `DatabaseLockError`，绝不做会静默
+  丢数据的空 commit 重试。
+- **任务域异常**：`SheetCheckError`（原 checkForErrors，已改名）是 Sheet
+  检查信号；`app/exceptions/c5_exceptions.py` 等死异常文件已删除。
+
 ## svg保存位置
 .\docs\design 下建立独立的目录存放

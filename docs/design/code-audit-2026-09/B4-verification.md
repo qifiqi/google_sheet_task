@@ -54,6 +54,15 @@
 - `python -m pytest tests/unit tests/integration`：**531 passed, 10 skipped, 3 failed（均为上列存量）**；
 - 新增守卫测试：`tests/unit/test_a1_bugfixes.py`（14）、`tests/unit/test_a2_concurrency_scheduler.py`（12）、`tests/unit/test_a3_hardening.py`（15）。
 
-## 6. C 系列（任务代码重构）状态
+## 6. C 系列（任务代码重构）执行状态
 
-C1~C6 尚未开始（见 `03-task-code-refactor.md` 批次计划）。B 系列落地后其前置条件（信封/异常/日志统一）已就绪。
+| 批次 | 状态 | 落地内容 |
+|---|---|---|
+| C1 | ✅ 完成 | C4/C5/C7 逐字相同的 execute_task（97行×3）上移为基类唯一模板实现；四类改名 C3/C4/C5/C7Service（15 引用文件同步）；C3 stock_param 死分支删除 |
+| C2 | ✅ 完成 | kline_prep 公共件（validate_raw_kline / project_and_validate_write_ready）；C5/C7 流水线尾段收敛；C4 四处硬编码价格字段改经 get_kline_price_field 统一映射 |
+| C3 | ✅ 完成 | 断点起点（逐字×2）与去重器（C5/C7 差4行→钩子）收敛基类；get_bdl 批量执行模板（C5 198行/C7 225行→唯一实现）经 5 钩子合并，差异地图固化 §3.3 |
+| C4 | ✅ 核心 / ⚠️ 部分 | result_payload 公共件（19 项指标规格 + 30 项 analyze 透传）C5/C7 收敛，孤儿 _to_decimal_ratio ×2 删除；**check_policy/SheetSession 延期**：check_result×4 为闭包实现且是结果正确性门控，需先补细粒度特征测试再抽取（见 §7） |
+| C5 | ⏸ 延期 | 物理拆包到 google_sheet_tasks/ 为纯目录搬迁、零行为收益；C1~C4 已完成实质去重（模板方法/kline_prep/result_payload 均已独立成件，C5 迁移时直接入包）。执行被文件写入安全钩子约束，作为机械后续项 |
+| C6 | ⏸ 待执行 | 回测家族：summary_contract 单一指标契约、api_service 改名、multi_product 预览拆出。schema 与步骤已定稿 §2/§1.4 |
+
+**C 系列核心度量（实测）**：execute_task 97行×3 → 1；get_bdl C5 198行/C7 225行 → 模板+钩子；kline 流水线尾段 ×2 收敛；去重器/断点起点 ×2 收敛；payload 字段块 49行×2 → 规格表 20 行 + 构建器。四个同名 GoogleSheetService 消失。
