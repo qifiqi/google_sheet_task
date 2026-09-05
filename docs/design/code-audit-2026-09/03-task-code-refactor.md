@@ -106,7 +106,20 @@ class KlinePrepPolicy:
 
 ### 3.3 get_bdl 公共批量执行器（C3 批）
 
-下沉：total_steps 计算、断点恢复 `_get_resume_start_index`、cancel 双检、单组合 try/except、`_save_task_result` + `send_stock_param_result_data` 编排、`check_task_status + safe_db_operation` 闭包。C5/C7（85% 相同度）先行合并验证，C4（60%）跟随。任务差异以策略对象/钩子注入，**去重键（A1/B1/K线区间）等业务规则留在各任务文件**。
+下沉：total_steps 计算、断点恢复 `_get_resume_start_index`（✅ 已收敛至基类，C3(1/2)）、cancel 双检、单组合 try/except、`_save_task_result` + `send_stock_param_result_data` 编排、`check_task_status + safe_db_operation` 闭包。C5/C7（85% 相同度）先行合并验证，C4（60%）跟随。任务差异以策略对象/钩子注入，**去重键（A1/B1/K线区间）等业务规则留在各任务文件**。
+
+**C5/C7 get_bdl 实测差异地图（2026-09-06 difflib 实测，C5=198 行锚 / C7=225 行）——执行合并时逐项挂钩子：**
+
+| # | 差异点 | C5 行为 | C7 行为 | 建议钩子 |
+|---|---|---|---|---|
+| 1 | 批量配置提取 | 无 | `random_price_range`/`random_group_count` 提取 | `_extract_batch_config(config_data)` |
+| 2 | custom kline 解析 | `c5_input_column_a/b` 直取 | 按 `_get_c7_layout` 版本分派列/起始行 | `_resolve_custom_kline(config_data)` |
+| 3 | 参数展开调用 | `_get_all_parameters`（C5 签名） | 同名但 +`random_price_range/random_group_count` | `_expand_parameters(…)`（各任务保留自己的 `_get_all_parameters`） |
+| 4 | 输入列清空 | `A_num=get_last_row('A')`；`A_num<10` 拒绝；清 `A2:B{n+2}` | `_get_c7_layout`+`_get_c7_input_last_row`；`start_row` 拒绝；清 `date_col:start_row→end_col` | `_prepare_input_columns(google_sheet, config_data)` |
+| 5 | 组合打标 | 无 | `combination['c7_model_version']=…` | `_stamp_combination(combination, config_data)` |
+| 6 | 外层网络包装 | 无 | `_raise_retryable_network_error(e, "批量数据处理网络请求失败")` | 类属性 `_retryable_outer = False/True` |
+
+> 合并执行顺序：先按上表在 base 落 get_bdl 模板（钩子默认实现=C5 行为），C5 删除本地 get_bdl 跑回归；再让 C7 覆盖 6 个钩子、删除本地 get_bdl 跑回归；C4/C3 的跟随与"视差异合入"判断各自单独立小批。**禁止在合并批次里顺带改任何取数/校验行为。**
 
 ### 3.4 其余公共件
 
