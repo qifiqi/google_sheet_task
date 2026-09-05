@@ -21,10 +21,18 @@ from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
-from app.services.kline_service import KlineService
+from app.services.kline_service import KlineService, get_kline_price_field
 
 
 logger = get_logger(__name__)
+
+
+
+def _market_price_field(market_type: str) -> str:
+    """C4 取价规则：A股按开盘价、美股按收盘价；统一经 get_kline_price_field 映射（B3/C2 修正：
+    原先此处硬编码字段名绕开了 kline_service 的唯一映射入口）。"""
+    mode = "kp_price" if str(market_type).strip().lower() == "cn" else "sp_price"
+    return get_kline_price_field(mode)
 
 
 class C4Service(BaseGoogleSheetService):
@@ -498,7 +506,7 @@ class C4Service(BaseGoogleSheetService):
             klines,
             context="原始K线",
             min_rows=30,
-            price_field='open' if market_type == 'cn' else 'close',
+            price_field=_market_price_field(market_type),
         )
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
@@ -508,7 +516,7 @@ class C4Service(BaseGoogleSheetService):
             )
         all_kline = KlineService.build_price_rows(
             klines, None, start_date=start_date, end_date=end_date,
-            price_field='open' if market_type == 'cn' else 'close',
+            price_field=_market_price_field(market_type),
         )
         all_kline = require_kline_rows(
             parameter,
@@ -539,7 +547,7 @@ class C4Service(BaseGoogleSheetService):
                     # 历史行为：此处原将日期串按位置传入 year 形参，年份匹配恒为空，保持现状
                     kline = KlineService.build_price_rows(
                         klines, None, year=_start_data,
-                        price_field='open' if market_type == 'cn' else 'close',
+                        price_field=_market_price_field(market_type),
                     )
                     if kline:
                         d['stock_code'] = parameter
@@ -555,7 +563,7 @@ class C4Service(BaseGoogleSheetService):
                 d = {}
                 kline = KlineService.build_price_rows(
                     all_kline, None, year=i,
-                    price_field='open' if market_type == 'cn' else 'close',
+                    price_field=_market_price_field(market_type),
                 )
                 if kline and len(kline) > 30:
                     d['stock_code'] = parameter
