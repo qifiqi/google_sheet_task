@@ -6,55 +6,20 @@ google_sheet_token_service；路由层不直接感知 repository。
 服务层仍以 ValueError 表达请求校验失败（400 语义），本层显式翻译为
 BadRequestError；待服务层改抛语义异常后移除该翻译。
 """
-import time
-
 from flask import Blueprint, request
 
 from app.exceptions import BadRequestError, NotFoundError
-from app.models import GoogleSheetTableType
-from app.services.google_sheet_registry_service import get_google_sheet_registry_service
-from app.services.google_sheet_service import GoogleSheetService
+from app.services.google_sheet_registry_service import (
+    get_google_sheet_registry_service,
+    get_worksheets_with_cache,
+)
 from app.services.google_sheet_token_service import get_google_sheet_token_service, RANDOM_TOKEN_VALUE
 from app.utils.api_response import success
 from app.schemas.google_sheet import TokenImportSchema
 from app.utils.auth import login_required
 from app.utils.request_parsing import parse_body
-from app.utils.logger import get_logger
-
-logger = get_logger(__name__)
 
 google_sheet_api_bp = Blueprint('google_sheet_api', __name__)
-
-_worksheets_cache = {}
-_WORKSHEETS_CACHE_TTL = 5 * 24 * 60 * 60
-
-
-def _get_worksheets_with_cache(spreadsheet_id: str, token_file: str, proxy_url: str | None):
-    """内部工具：带缓存获取 worksheet 列表"""
-    cache_key = (spreadsheet_id, token_file, proxy_url or '')
-    now = time.time()
-    cached = _worksheets_cache.get(cache_key)
-    if cached:
-        ts, cached_data = cached
-        if now - ts < _WORKSHEETS_CACHE_TTL:
-            logger.debug(f"命中工作表列表缓存: spreadsheet_id={spreadsheet_id}")
-            return {
-                "title": cached_data.get("title", ""),
-                "worksheets": cached_data.get("worksheets", []),
-                "cached": True,
-            }
-
-    data = GoogleSheetService.get_worksheets(spreadsheet_id, token_file, proxy_url)
-
-    try:
-        _worksheets_cache[cache_key] = (now, data)
-    except Exception as e:
-        logger.warning(f"更新工作表缓存失败: {e}")
-
-    return {
-        "title": data.get("title", ""),
-        "worksheets": data.get("worksheets", []),
-    }
 
 
 @google_sheet_api_bp.route('/google-sheet/worksheets', methods=['POST'])
@@ -73,7 +38,7 @@ def get_worksheets():
         raise BadRequestError("缺少spreadsheet_id参数")
 
     try:
-        result = _get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
+        result = get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
     except ValueError as e:
         raise BadRequestError(str(e))
     return success(data=result)

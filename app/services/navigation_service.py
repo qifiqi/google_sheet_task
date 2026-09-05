@@ -135,3 +135,39 @@ def delete_menu_item(item_id: int) -> None:
 
     navigation_repository.delete(item_id)
     logger.info("删除导航菜单: key=%s item_id=%s", item.key, item_id)
+
+
+def build_authorized_navigation(user_permissions: set[str]) -> dict:
+    """构建当前用户有权访问的导航树 + 页面权限清单。
+
+    权限过滤/树构建/排序逻辑自 meta_api 路由下沉（2026-09 审计 B3）。
+    """
+    from app.navigation import build_navigation_tree
+
+    rows = list_visible_entities()
+    rows = sorted(rows, key=lambda item: (item.parent_key or "", item.sort_order, item.id))
+    all_nav = build_navigation_tree(rows)
+
+    def _permitted(required_permission):
+        return not required_permission or required_permission in user_permissions
+
+    def _filter(items):
+        result = []
+        for item in items:
+            perm = item.get("permission")
+            if perm and not _permitted(perm):
+                continue
+            if "children" in item:
+                children = _filter(item["children"])
+                if children:
+                    result.append({**item, "children": children})
+            else:
+                result.append(item)
+        return result
+
+    page_permissions = [
+        {"path": item.path, "permission": item.permission}
+        for item in rows
+        if item.path and (item.permission or "").startswith("page:")
+    ]
+    return {"items": _filter(all_nav), "page_permissions": page_permissions}

@@ -11,11 +11,12 @@ import json
 from flask import Blueprint, g, jsonify, request
 
 from app.exceptions import BadRequestError, NotFoundError
-from app.schemas.task import TaskCreateSchema, TasksBatchCreateSchema, TaskRestartSchema
+from app.schemas.task import TaskCreateSchema, TasksBatchCreateSchema, TaskRestartSchema, TaskListQuery
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.utils.api_response import error, success
-from app.utils.request_parsing import parse_body
+from app.utils.request_parsing import parse_body, parse_query
 from app.utils.auth import login_required
+from app.services.log_query_service import query_task_system_logs
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -29,31 +30,24 @@ runtime_view_service = TaskRuntimeViewService(task_manager)
 def tasks():
     """获取任务列表 / 创建任务"""
     if request.method == 'GET':
-        task_type = request.args.get('task_type')
-        page = request.args.get('page', type=int)
-        per_page = request.args.get('per_page', type=int)
-        task_status = request.args.get('status')
-        keyword = request.args.get('keyword', '', type=str)
+        query = parse_query(TaskListQuery)
         allowed_task_types = None
 
-        if not task_type:
+        if not query.task_type:
             allowed_task_types = task_manager.get_distinct_task_types()
 
-        default_page = page or 1
-        default_per_page = per_page or 10
-
-        if not task_type and not allowed_task_types:
+        if not query.task_type and not allowed_task_types:
             return success(data=task_manager.get_empty_tasks_page(
-                default_page, default_per_page
+                query.page, query.per_page
             ))
 
         data = task_manager.get_tasks_paginated(
-            page=default_page,
-            per_page=default_per_page,
-            task_type=task_type,
-            task_types=allowed_task_types if not task_type else None,
-            status=task_status,
-            keyword=keyword,
+            page=query.page,
+            per_page=query.per_page,
+            task_type=query.task_type,
+            task_types=allowed_task_types if not query.task_type else None,
+            status=query.status,
+            keyword=query.keyword,
         )
         return success(data=data)
 
@@ -238,59 +232,11 @@ def get_task_system_logs(task_id):
     """获取任务相关的系统日志"""
     task_manager.get_required_task(task_id)
 
-    import os
-    import re
-    from app.config import Config
-
-    limit = request.args.get('limit', 200, type=int)
-    level_filter = request.args.get('level', '')
-
-    log_file = Config.LOG_FILE
-    task_logs = []
-
-    if os.path.exists(log_file):
-        with open(log_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            log_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([^-]+) - (\w+) - (.+)'
-            task_patterns = [f"[Task-{task_id[:8]}]", f"任务 {task_id}", task_id]
-
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-
-                contains_task_info = any(pattern in line for pattern in task_patterns)
-                if not contains_task_info:
-                    continue
-
-                match = re.match(log_pattern, line)
-                if match:
-                    timestamp_str, source, level, message = match.groups()
-
-                    try:
-                        from datetime import datetime
-                        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
-                        iso_timestamp = timestamp.isoformat()
-                    except Exception:
-                        # 时间戳解析失败属已知降级路径：保留原始字符串并记录，不再静默。
-                        logger.debug("日志时间戳解析失败，原样保留: %s", timestamp_str)
-                        iso_timestamp = timestamp_str
-
-                    log_entry = {
-                        'timestamp': iso_timestamp,
-                        'level': level.lower(),
-                        'message': message.strip(),
-                        'source': source.strip(),
-                        'task_id': task_id
-                    }
-
-                    if level_filter and log_entry['level'] != level_filter.lower():
-                        continue
-
-                    task_logs.append(log_entry)
-
-            task_logs.sort(key=lambda x: x['timestamp'])
-            task_logs = task_logs[-limit:]
+    task_logs = query_task_system_logs(
+        task_id,
+        limit=request.args.get('limit', 200, type=int),
+        level_filter=request.args.get('level', ''),
+    )
 
     return success(data={
         "logs": task_logs,

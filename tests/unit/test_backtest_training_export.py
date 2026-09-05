@@ -8,7 +8,7 @@ from app.services.export_service import GeneratedFile
 from app.extensions import db
 from app.models import Task
 from app.services.backtest_training_api_service import (
-    _build_global_preview_workbook,
+    build_global_preview_workbook,
     _extract_summary_rows,
     _negative_percent_display,
     _with_excess_return_preview_row,
@@ -141,7 +141,7 @@ def test_global_preview_workbook_adds_summary_sheet_first():
         ],
     }
 
-    workbook = _build_global_preview_workbook(payload)
+    workbook = build_global_preview_workbook(payload)
     sheet = workbook.worksheets[0]
 
     assert sheet.title == "汇总"
@@ -206,7 +206,7 @@ def test_global_preview_workbook_writes_percentage_cells_as_numbers():
         ],
     }
 
-    workbook = _build_global_preview_workbook(payload)
+    workbook = build_global_preview_workbook(payload)
     summary_sheet = workbook["汇总"]
     detail_sheet = workbook["2026-2023 年"]
 

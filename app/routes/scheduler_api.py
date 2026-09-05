@@ -89,14 +89,6 @@ def get_task_execution_status(task_id):
     """获取任务执行状态"""
     return success(data=scheduler_service.get_task_execution_status(task_id))
 
-
-@scheduler_api_bp.route('/admin/scheduler/status', methods=['GET'])
-@login_required
-def get_scheduler_status():
-    """获取调度器状态"""
-    return success(data={
-        'status': {
-            'running': scheduler_service.is_running,
-            'jobs_count': len(scheduler_service.scheduler.get_jobs()) if scheduler_service.scheduler else 0,
-        }
-    })
+# 说明：/api/admin/scheduler/status 端点已删除——与 /admin/api/scheduler/status
+# 同语义且形状不同（B3 合并，见 docs/design/code-audit-2026-09/02 §11）；
+# 调度器运行态统一经 scheduler_service.get_async_runtime_summary()。

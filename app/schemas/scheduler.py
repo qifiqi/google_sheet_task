@@ -2,7 +2,7 @@
 
 from pydantic import Field
 
-from app.schemas.common import APIModel
+from app.schemas.common import PageQuery, APIModel
 
 
 class ScheduledTaskCreateSchema(APIModel):
@@ -23,3 +23,9 @@ class ScheduledTaskUpdateSchema(APIModel):
     task_function: str | None = None
     task_params: str | None = None
     is_active: bool | None = None
+
+
+class SchedulerTaskListQuery(PageQuery):
+    """GET /api/admin/scheduler/tasks 查询参数（per_page 默认 50）。"""
+
+    per_page: int = Field(default=50, ge=1, le=100)

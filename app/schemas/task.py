@@ -4,7 +4,21 @@ from typing import Any
 
 from pydantic import RootModel
 
-from app.schemas.common import APIModel
+from app.schemas.common import APIModel, PageQuery
+
+
+class TaskListQuery(PageQuery):
+    """GET /api/tasks 查询参数。"""
+
+    task_type: str | None = None
+    status: str | None = None
+    keyword: str = ""
+
+
+class TaskResultListQuery(PageQuery):
+    """GET /api/results 查询参数。"""
+
+    task_id: str | None = None
 
 
 class TaskCreateSchema(APIModel):

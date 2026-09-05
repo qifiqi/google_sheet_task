@@ -519,6 +519,31 @@ class SchedulerService:
         """定时任务 dict 访问；不存在抛 NotFoundError（路由 404 前置检查用）。"""
         return scheduled_task_repository.get_required(task_id)
 
+    def get_async_runtime_summary(self) -> dict:
+        """异步任务运行态摘要（admin scheduler/status 端点消费；自路由层下沉）。"""
+        async_tasks = self.get_async_task_status()
+        formatted_tasks = {}
+        for task_id, task_info in async_tasks.items():
+            formatted_tasks[task_id] = {
+                'status': task_info['status'],
+                'start_time': task_info['start_time'].isoformat() if task_info['start_time'] else None,
+                'end_time': task_info.get('end_time').isoformat() if task_info.get('end_time') else None,
+                'error': task_info.get('error'),
+                'duration': None,
+            }
+            if task_info.get('end_time') and task_info['start_time']:
+                duration = task_info['end_time'] - task_info['start_time']
+                formatted_tasks[task_id]['duration'] = duration.total_seconds()
+
+        return {
+            'is_running': self.is_running,
+            'total_async_tasks': len(async_tasks),
+            'running_tasks': len([t for t in async_tasks.values() if t['status'] == 'running']),
+            'completed_tasks': len([t for t in async_tasks.values() if t['status'] == 'completed']),
+            'failed_tasks': len([t for t in async_tasks.values() if t['status'] == 'failed']),
+            'tasks': formatted_tasks,
+        }
+
     def get_scheduler_stats(self) -> dict:
         """调度器统计（/admin/scheduler/stats）。"""
         stats = scheduled_task_repository.get_stats()

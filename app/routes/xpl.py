@@ -1,7 +1,7 @@
 from flask import Blueprint, g, render_template, request
 
 from app.extensions import limiter
-from app.services.xpl_analysis_service import _EMPTY_RESULT_DATA, xpl_analysis_service
+from app.services.xpl_analysis_service import EMPTY_RESULT_DATA, xpl_analysis_service
 from app.utils.api_response import error, success
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, page_login_required
@@ -64,7 +64,7 @@ def analyze_data():
     """
     payload = request.get_json(silent=True)
     if not payload:
-        return error('请求体不能为空', http_status=400, data=_EMPTY_RESULT_DATA)
+        return error('请求体不能为空', http_status=400, data=EMPTY_RESULT_DATA)
 
     # 不在路由内 try/except：ValidationError → 全局 400，其余异常 → 全局 500。
     result = xpl_analysis_service.analyze_text(payload)
@@ -97,7 +97,7 @@ def analyze_data_v1():
     """
     payload = request.get_json(silent=True)
     if not payload:
-        return error('请求体不能为空', http_status=400, data=_EMPTY_RESULT_DATA)
+        return error('请求体不能为空', http_status=400, data=EMPTY_RESULT_DATA)
 
     # 不在路由内 try/except：ValidationError → 全局 400，其余异常 → 全局 500。
     result = xpl_analysis_service.analyze_sheet(payload)

@@ -1460,3 +1460,16 @@ def _build_global_preview_workbook(payload):
 
     return workbook
 
+
+# ---- 公开出口（routes 只允许引用公开符号；2026-09 审计 B3 规范化）----
+
+build_backtest_result_export_data = _build_backtest_result_export_data
+build_backtest_result_export_rows = _build_backtest_result_export_rows
+build_c3_summary_rows = _build_c3_summary_rows
+build_global_preview_payload = _build_global_preview_payload
+build_global_preview_workbook = _build_global_preview_workbook
+build_global_preview_group_payload = _build_global_preview_group_payload
+build_global_preview_initial_payload = _build_global_preview_initial_payload
+infer_backtest_model_version = _infer_backtest_model_version
+load_backtest_task = _load_backtest_task
+load_backtest_task_result = _load_backtest_task_result

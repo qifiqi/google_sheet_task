@@ -9,7 +9,9 @@ from flask import Blueprint, request
 
 from app.services.task import task_manager
 from app.exceptions import NotFoundError
+from app.schemas.task import TaskResultListQuery
 from app.utils.api_response import paginated, success
+from app.utils.request_parsing import parse_query
 from app.utils.auth import login_required
 
 result_api_bp = Blueprint('result_api', __name__)
@@ -44,11 +46,8 @@ def get_task_results(task_id):
 @login_required
 def get_results():
     """获取任务结果列表"""
-    page = max(request.args.get('page', 1, type=int) or 1, 1)
-    per_page = min(request.args.get('per_page', 20, type=int) or 20, 100)
-    task_id = request.args.get('task_id', None)
-
-    data = task_manager.get_results_paginated(page, per_page, task_id=task_id)
+    query = parse_query(TaskResultListQuery)
+    data = task_manager.get_results_paginated(query.page, query.per_page, task_id=query.task_id)
     return paginated(items=data["items"], total=data["total"], page=data["current_page"], per_page=data["per_page"])
 
 

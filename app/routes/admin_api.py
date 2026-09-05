@@ -27,38 +27,12 @@ def get_config_value(key, default):
 @admin_api_bp.route('/api/scheduler/status')
 @login_required
 def scheduler_status():
-    """获取异步任务执行状态API"""
-    # 获取所有异步任务状态
-    async_tasks = scheduler_service.get_async_task_status()
-
-    # 获取调度器状态
-    scheduler_info = {
-        'is_running': scheduler_service.is_running,
-        'total_async_tasks': len(async_tasks),
-        'running_tasks': len([t for t in async_tasks.values() if t['status'] == 'running']),
-        'completed_tasks': len([t for t in async_tasks.values() if t['status'] == 'completed']),
-        'failed_tasks': len([t for t in async_tasks.values() if t['status'] == 'failed'])
-    }
-
-    # 格式化任务信息
-    formatted_tasks = {}
-    for task_id, task_info in async_tasks.items():
-        formatted_tasks[task_id] = {
-            'status': task_info['status'],
-            'start_time': task_info['start_time'].isoformat() if task_info['start_time'] else None,
-            'end_time': task_info.get('end_time').isoformat() if task_info.get('end_time') else None,
-            'error': task_info.get('error'),
-            'duration': None
-        }
-
-        # 计算执行时长
-        if task_info.get('end_time') and task_info['start_time']:
-            duration = task_info['end_time'] - task_info['start_time']
-            formatted_tasks[task_id]['duration'] = duration.total_seconds()
+    """获取异步任务执行状态API（汇总逻辑在 scheduler_service）"""
+    summary = scheduler_service.get_async_runtime_summary()
 
     return success(data={
-        'scheduler': scheduler_info,
-        'async_tasks': formatted_tasks,
+        'scheduler': summary,
+        'async_tasks': summary['tasks'],
     })
 
 @admin_api_bp.route('/api/dashboard/overview')

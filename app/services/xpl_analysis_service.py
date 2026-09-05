@@ -14,6 +14,9 @@ from app.services.xpl_service import xpl_analyzer
 
 _EMPTY_RESULT_DATA: Dict[str, Any] = {"results": [], "metrics": {}}
 
+# 公开出口（routes 只允许引用公开符号；2026-09 审计 B3）
+EMPTY_RESULT_DATA = _EMPTY_RESULT_DATA
+
 
 def _parse_runtime_params(payload):
     """解析并校验 runtime_params（市场阶段阈值），非法输入抛 ValidationError。"""

@@ -8,12 +8,8 @@
 from __future__ import annotations
 
 import json
-import math
 
 from flask import Blueprint, current_app, request
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.extensions import limiter
@@ -27,13 +23,13 @@ from app.services.backtest_multi_product_service import (
 )
 from app.services.backtest_training_api_service import (
     C3_PARAMETER_FIELDS,
-    _build_backtest_result_export_data,
-    _build_backtest_result_export_rows,
-    _build_c3_summary_rows,
-    _build_global_preview_payload,
-    _infer_backtest_model_version,
-    _load_backtest_task,
-    _load_backtest_task_result,
+    build_backtest_result_export_data,
+    build_backtest_result_export_rows,
+    build_c3_summary_rows,
+    build_global_preview_payload,
+    infer_backtest_model_version,
+    load_backtest_task,
+    load_backtest_task_result,
 )
 from app.services.performance_analysis.historical_metrics import extract_core_metrics
 from app.services.task import task_manager
@@ -107,7 +103,7 @@ def import_excel():
 @login_required
 def get_task_results_by_task_id(task_id):
     """Return paginated task result summaries for the detail page."""
-    _load_backtest_task(task_id)
+    load_backtest_task(task_id)
 
     page = request.args.get("page", default=1, type=int) or 1
     per_page = request.args.get("per_page", default=10, type=int) or 10
@@ -137,9 +133,9 @@ def get_task_results_by_task_id(task_id):
 @login_required
 def get_task_result_detail(task_result_id):
     """Return the full task result payload for the result page."""
-    task_result, task = _load_backtest_task_result(task_result_id)
+    task_result, task = load_backtest_task_result(task_result_id)
 
-    export_data = _build_backtest_result_export_data(task_result, task)
+    export_data = build_backtest_result_export_data(task_result, task)
 
     task_config = task.to_dict().get("config") or {}
     sheet = task_config.get("sheet") if isinstance(task_config.get("sheet"), dict) else {}
@@ -177,11 +173,11 @@ def get_task_result_detail(task_result_id):
     key_func=_user_key,
 )
 def get_task_result_export_preview(task_result_id):
-    task_result, task = _load_backtest_task_result(task_result_id)
+    task_result, task = load_backtest_task_result(task_result_id)
 
     try:
-        export_data = _build_backtest_result_export_data(task_result, task)
-        rows = _build_backtest_result_export_rows(export_data)
+        export_data = build_backtest_result_export_data(task_result, task)
+        rows = build_backtest_result_export_rows(export_data)
     except Exception:
         current_app.logger.exception("Failed to build backtest result export preview")
         raise BadRequestError("预览数据生成失败")
@@ -195,14 +191,14 @@ def get_task_result_export_preview(task_result_id):
 @bt_api_bp.route("/api/task-summary/<task_id>", methods=["GET"])
 @login_required
 def get_task_summary(task_id):
-    task = _load_backtest_task(task_id)
+    task = load_backtest_task(task_id)
 
     task_config = task.to_dict().get("config") or {}
-    model_version = _infer_backtest_model_version(task_config)
+    model_version = infer_backtest_model_version(task_config)
     if model_version != "c3":
         raise BadRequestError("当前汇总页仅支持 C3 回测任务")
 
-    rows, parameter_group_count = _build_c3_summary_rows(task_id)
+    rows, parameter_group_count = build_c3_summary_rows(task_id)
 
     return success(data={
         "task": {
@@ -225,9 +221,9 @@ def get_task_summary(task_id):
 @bt_api_bp.route("/api/global-preview/<task_id>", methods=["GET"])
 @login_required
 def get_global_preview(task_id):
-    _load_backtest_task(task_id)
+    load_backtest_task(task_id)
 
-    payload = _build_global_preview_payload(task_id)
+    payload = build_global_preview_payload(task_id)
     if payload is None:
         raise NotFoundError("任务不存在")
 
@@ -257,122 +253,6 @@ def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: 
             used_names.add(candidate)
             return candidate
         index += 1
-
-
-def _parse_excel_percent_text(value: str) -> float | None:
-    text = value.strip().replace(",", "").replace("$", "")
-    if not text.endswith("%"):
-        return None
-
-    sign = 1
-    while text.startswith("-"):
-        sign *= -1
-        text = text[1:]
-    try:
-        number = sign * float(text[:-1]) / 100
-    except ValueError:
-        return None
-    return number if math.isfinite(number) else None
-
-
-def _format_excel_data_cell(cell):
-    if not isinstance(cell.value, str):
-        return
-
-    parsed = _parse_excel_percent_text(cell.value)
-    if parsed is None:
-        return
-
-    cell.value = 0 if parsed == 0 else parsed
-    cell.number_format = "0.00%"
-
-
-def _build_global_preview_workbook(payload: dict[str, object]):
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "多品全局预览"
-    header_fill = PatternFill("solid", fgColor="F7E1A1")
-    sub_header_fill = PatternFill("solid", fgColor="FCECC5")
-    first_col_fill = PatternFill("solid", fgColor="F7E1A1")
-    thin_side = Side(style="thin", color="D0D0D0")
-    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
-    center = Alignment(horizontal="center", vertical="center")
-    header_font = Font(name="Microsoft YaHei", size=11, bold=True)
-    body_font = Font(name="Microsoft YaHei", size=10)
-
-    products = payload.get("products") or []
-    total_columns = max(4, 2 + len(products) * 3 + 2)
-    last_column = get_column_letter(total_columns)
-
-    for group in payload.get("groups") or []:
-        group_header = ["", ""]
-        for product in products:
-            group_header.extend([product.get("product_name") or product.get("stock_code") or "产品", "", ""])
-        group_header.extend(["", ""])
-        sheet.append(group_header[:total_columns])
-        group_title_row = sheet.max_row
-
-        current_column = 3
-        for _product in products:
-            sheet.merge_cells(
-                start_row=group_title_row,
-                start_column=current_column,
-                end_row=group_title_row,
-                end_column=current_column + 2,
-            )
-            current_column += 3
-
-        header = ["指标类型", "指标"]
-        for product in products:
-            ratio = product.get("ratio")
-            header.extend(["指数", "模型结果", f"模型结果（{ratio}%）"])
-        header.extend(["比例计算-指数", "比例计算-结果"])
-        sheet.append(header)
-        for row in group.get("rows") or []:
-            values = [row.get("category") or "", row.get("metric") or ""]
-            for product_value in row.get("product_values") or []:
-                values.extend([
-                    product_value.get("index_value") or "-",
-                    product_value.get("result_value") or "-",
-                    product_value.get("weighted_result_value") or "-",
-                ])
-            values.extend([
-                row.get("weighted_index_value") or "-",
-                row.get("weighted_result_value") or "-",
-            ])
-            sheet.append(values)
-        sheet.append([""] * total_columns)
-
-    for row in sheet.iter_rows():
-        for cell in row:
-            cell.alignment = center
-            cell.border = thin_border
-            cell.font = body_font
-            if cell.row == 1:
-                cell.fill = sub_header_fill
-                cell.font = header_font
-            if cell.value in {
-                "指标类型",
-                "指标",
-                "指数",
-                "模型结果",
-                "比例计算-指数",
-                "比例计算-结果",
-            } or str(cell.value or "").startswith("模型结果（"):
-                cell.font = header_font
-                cell.fill = sub_header_fill
-            if cell.column == 1:
-                cell.fill = first_col_fill
-                if cell.row <= 2:
-                    cell.font = header_font
-            if cell.row >= 3 and cell.column >= 3:
-                _format_excel_data_cell(cell)
-    for column_index in range(1, total_columns + 1):
-        sheet.column_dimensions[get_column_letter(column_index)].width = 18 if column_index > 2 else 16
-    sheet.freeze_panes = "A3"
-    if sheet.max_row >= 2:
-        sheet.auto_filter.ref = f"A2:{last_column}{sheet.max_row}"
-    return workbook
 
 
 # ==================== bmp：Excel 导入 / 结果查询 / 全局预览 ====================

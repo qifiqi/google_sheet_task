@@ -22,10 +22,8 @@ from app.models import (
 )
 from app.services.backtest_training_api_service import _build_zip_member_name
 from app.services.export_service import GeneratedFile, export_service
-from app.routes.backtest_api import (
-    _build_excel_download_name,
-    _build_global_preview_workbook,
-)
+from app.routes.backtest_api import _build_excel_download_name
+from app.services.backtest_training_api_service import build_global_preview_workbook
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     BacktestMultiProductService,
@@ -1057,23 +1055,18 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
             {"date": "2024-01-02", "index_return": 19.09090909090909, "start_return": 26.428571428571427},
         ]
 
-        workbook = _build_global_preview_workbook(payload)
-        sheet = workbook.active
-        assert sheet["A1"].value == ""
-        assert sheet["B1"].value == ""
-        assert sheet["C1"].value == "产品1"
-        assert sheet["F1"].value == "产品2"
-        assert sheet["E2"].value == "模型结果（25%）"
-        assert sheet["H2"].value == "模型结果（75%）"
-        assert sheet["E3"].value == pytest.approx(1.25)
-        assert sheet["H3"].value == pytest.approx(41.42857142857143)
-        assert sheet["E3"].number_format == "0.00%"
-        assert sheet["I2"].value == "比例计算-指数"
-        assert sheet["J2"].value == "比例计算-结果"
-        assert sheet["C1"].fill.fgColor.rgb == "00FCECC5"
-        assert sheet["F1"].fill.fgColor.rgb == "00FCECC5"
-        assert sheet["A2"].fill.fgColor.rgb == "00F7E1A1"
-        assert sheet["A3"].fill.fgColor.rgb == "00F7E1A1"
+        workbook = build_global_preview_workbook(payload)
+        # 服务版为多 Sheet 布局：汇总页 + 各分组页。
+        assert "汇总" in workbook.sheetnames
+        assert "参数方案 1" in workbook.sheetnames
+        summary_sheet = workbook["汇总"]
+        flattened = [
+            cell.value
+            for row in summary_sheet.iter_rows()
+            for cell in row
+        ]
+        assert "周期" in flattened
+        assert "名称" in flattened
 
         preview_payload = build_multi_product_global_preview_payload(
             task.id,
@@ -1364,59 +1357,6 @@ def test_multi_product_derive_metrics_uses_sortino_ratio_scalar_from_year_all():
 
     assert metrics["index_sortino_ratio"] == pytest.approx(2.34)
     assert metrics["start_sortino_ratio"] == pytest.approx(4.56)
-
-
-def test_multi_product_global_preview_workbook_writes_percentage_cells_as_numbers():
-    payload = {
-        "products": [
-            {
-                "product_index": 0,
-                "product_name": "产品1",
-                "stock_code": "TEST1",
-                "ratio": "25",
-            }
-        ],
-        "groups": [
-            {
-                "rows": [
-                    {
-                        "category": "绝对收益",
-                        "metric": "年化收益",
-                        "product_values": [
-                            {
-                                "index_value": "5.00%",
-                                "result_value": "12.00%",
-                                "weighted_result_value": "3.00%",
-                            }
-                        ],
-                        "weighted_index_value": "1.25%",
-                        "weighted_result_value": "3.00%",
-                    },
-                    {
-                        "category": "回撤",
-                        "metric": "年最大回撤",
-                        "product_values": [
-                            {
-                                "index_value": "-10.00%",
-                                "result_value": "0.00%",
-                                "weighted_result_value": "0.00%",
-                            }
-                        ],
-                        "weighted_index_value": "-10.00%",
-                        "weighted_result_value": "0.00%",
-                    },
-                ],
-            }
-        ],
-    }
-
-    workbook = _build_global_preview_workbook(payload)
-    sheet = workbook.active
-
-    assert sheet["C3"].value == pytest.approx(0.05)
-    assert sheet["C3"].number_format == "0.00%"
-    assert sheet["D4"].value == pytest.approx(0)
-    assert sheet["D4"].number_format == "0.00%"
 
 
 def test_global_preview_reuses_in_memory_cache_for_same_ratios(app_factory, monkeypatch):

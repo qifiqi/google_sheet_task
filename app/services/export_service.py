@@ -20,9 +20,9 @@ from app.services.backtest_multi_product_service import (
     build_multi_product_global_preview_word_payload,
 )
 from app.services.backtest_training_api_service import (
-    _build_backtest_result_export_data,
-    _build_global_preview_payload,
-    _build_global_preview_workbook,
+    build_backtest_result_export_data,
+    build_global_preview_payload,
+    build_global_preview_workbook,
     _build_zip_member_name,
     split_global_preview_payload_by_stock,
 )
@@ -179,7 +179,7 @@ class ExportService:
         payload = self._global_preview_payload(task, ratios_override=ratios_override)
         if payload is None:
             raise LookupError("任务不存在")
-        workbook = _build_global_preview_workbook(payload)
+        workbook = build_global_preview_workbook(payload)
         buffer = BytesIO()
         workbook.save(buffer)
         buffer.seek(0)
@@ -220,7 +220,7 @@ class ExportService:
                 payload = self._global_preview_payload(task)
                 if payload is None:
                     raise LookupError(f"任务不存在: {task_id}")
-                workbook = _build_global_preview_workbook(payload)
+                workbook = build_global_preview_workbook(payload)
                 workbook_buffer = BytesIO()
                 workbook.save(workbook_buffer)
                 archive.writestr(
@@ -242,7 +242,7 @@ class ExportService:
         if not task_result:
             raise LookupError("任务结果不存在")
         task = self._get_task(task_result.task_id)
-        export_data = _build_backtest_result_export_data(task_result, task)
+        export_data = build_backtest_result_export_data(task_result, task)
         buffer, mimetype = xpl_analyzer.export_file(export_data)
         return GeneratedFile(export_data["filename"], mimetype, buffer, buffer.getbuffer().nbytes)
 
@@ -330,7 +330,7 @@ class ExportService:
         task_type = str(task.task_type or "").strip().lower()
         if task_type == "backtest_multi_product":
             return build_multi_product_global_preview_payload(task.id, ratios_override=ratios_override)
-        return _build_global_preview_payload(task.id)
+        return build_global_preview_payload(task.id)
 
     def _stream_stock_zip(self, payload: dict[str, Any], task_name: str):
         """按股票流式生成 ZIP 文件。"""
@@ -347,7 +347,7 @@ class ExportService:
                 )
                 with ZipFile(_ZipStreamWriter(output_queue), "w", ZIP_STORED) as archive:
                     for stock_code, stock_payload in stock_payloads:
-                        workbook = _build_global_preview_workbook(stock_payload)
+                        workbook = build_global_preview_workbook(stock_payload)
                         filename = f"{sanitize_export_filename(f'{task_name}_{stock_code}')}.xlsx"
                         zip_info = ZipInfo(filename, date_time=datetime.now().timetuple()[:6])
                         zip_info.compress_type = ZIP_STORED

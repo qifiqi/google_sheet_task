@@ -4,8 +4,8 @@ from flask import Blueprint, request
 
 from app.exceptions import BadRequestError
 from app.services.backtest_training_api_service import (
-    _build_global_preview_group_payload,
-    _build_global_preview_initial_payload,
+    build_global_preview_group_payload,
+    build_global_preview_initial_payload,
 )
 from app.services.task import task_manager
 from app.utils.api_response import success
@@ -47,7 +47,7 @@ def get_preview(task_id):
         **status,
     }
     if status["supported"]:
-        initial = _build_global_preview_initial_payload(task_id)
+        initial = build_global_preview_initial_payload(task_id)
         data["initial"] = initial
         # 保留 preview 字段，避免已有调用方在前端升级期间失效。
         data["preview"] = initial["preview"]
@@ -65,5 +65,5 @@ def get_preview_group(task_id):
     result_ids = (request.get_json(silent=True) or {}).get("result_ids") or []
     if not isinstance(result_ids, list) or not result_ids:
         raise BadRequestError("请选择需要加载的结果分组")
-    payload = _build_global_preview_group_payload(task_id, result_ids)
+    payload = build_global_preview_group_payload(task_id, result_ids)
     return success(data={"preview": payload})

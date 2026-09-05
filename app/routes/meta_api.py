@@ -7,7 +7,6 @@ from app.models import (
     TaskStatus,
     TaskType,
 )
-from app.navigation import build_navigation_tree
 from app.services import navigation_service
 from app.utils.api_response import success
 from app.utils.auth import login_required
@@ -46,42 +45,8 @@ def get_enums():
 @meta_api_bp.route('/meta/nav', methods=['GET'])
 @login_required
 def get_nav():
-    """返回当前用户有权访问的导航菜单，从独立导航菜单表读取并按权限过滤"""
+    """返回当前用户有权访问的导航菜单（过滤/建树逻辑在 navigation_service）。"""
     from flask import g
 
-    user_perms = g.current_user.get_permissions()
-    rows = navigation_service.list_visible_entities()
-    rows = sorted(rows, key=lambda item: (item.parent_key or "", item.sort_order, item.id))
-    all_nav = build_navigation_tree(rows)
-
-    def has_nav_permission(required_permission, _item):
-        if not required_permission:
-            return True
-        return required_permission in user_perms
-
-    def filter_nav(items):
-        result = []
-        for item in items:
-            perm = item.get('permission')
-            if perm and not has_nav_permission(perm, item):
-                continue
-            if 'children' in item:
-                children = filter_nav(item['children'])
-                if children:
-                    result.append({**item, 'children': children})
-            else:
-                result.append(item)
-        return result
-
-    page_permissions = [
-        {
-            "path": item.path,
-            "permission": item.permission,
-        }
-        for item in rows
-        if item.path and (item.permission or "").startswith("page:")
-    ]
-    return success(data={
-        "items": filter_nav(all_nav),
-        "page_permissions": page_permissions,
-    })
+    nav = navigation_service.build_authorized_navigation(g.current_user.get_permissions())
+    return success(data=nav)
