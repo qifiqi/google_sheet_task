@@ -8,7 +8,7 @@
 - **参数批量校验**: 支持多参数组合的批量执行
 - **Google Sheet 集成**: 直接与 Google Sheet 交互，自动写入参数和获取结果
 - **任务管理**: 完整的任务生命周期管理
-- **实时监控**: 基于 SSE 的实时任务状态更新
+- **实时监控**: 实时任务状态更新（前端定时轮询）
 - **结果确认**: 第一次执行结果确认机制
 
 ### 🛠 管理功能
@@ -16,7 +16,7 @@
 - **任务监控**: 实时查看任务执行状态和进度
 - **配置管理**: 灵活的系统配置管理
 - **日志系统**: 完整的操作日志记录
-- **数据持久化**: 基于 SQLite 的数据存储
+- **数据持久化**: 基于 SQLAlchemy 的数据存储，支持 SQLite / MySQL / PostgreSQL
 - **登录鉴权**: 支持 JWT 登录、刷新令牌、接口鉴权
 - **权限控制**: 支持基于角色的 RBAC 权限控制
 - **单点登录**: 同账号新登录会使旧端登录状态失效
@@ -38,10 +38,12 @@ app/
 ├── models.py            # 数据模型
 ├── routes/              # 路由模块
 │   ├── admin.py         # 管理面板路由
-│   ├── api.py           # API 路由
-│   └── google_sheet.py  # Google Sheet 模块路由
+│   ├── task_api.py      # 任务 API 路由
+│   ├── auth_api.py      # 登录鉴权 API 路由
+│   ├── config_api.py    # 配置 API 路由
+│   └── google_sheet_api.py  # Google Sheet API 路由
 ├── services/            # 业务逻辑服务
-│   ├── task_manager.py      # 任务管理器
+│   ├── task/facade.py       # 任务管理门面（TaskManager）
 │   ├── google_sheet_service.py  # Google Sheet 服务
 │   └── config_manager.py    # 配置管理器
 └── utils/               # 工具模块
@@ -50,6 +52,8 @@ app/
 
 ### 前端架构
 ```
+frontend/             # Vue 3 前端工程（Vite）
+└── src/              # 源码（api、components、router、views 等）
 templates/
 ├── admin/               # 管理面板模板
 │   ├── base.html       # 管理面板基础模板
@@ -78,12 +82,12 @@ pip install -r requirements.txt
 
 ### 3. 初始化数据库
 ```bash
-python run.py init-db
+flask --app run.py init-db
 ```
 
 ### 4. 初始化默认配置
 ```bash
-python run.py init-config
+flask --app run.py init-default-config
 ```
 
 ### 5. 启动应用
@@ -116,7 +120,7 @@ docker-compose ps
 docker-compose logs -f app
 ```
 
-应用将在 `http://localhost:5000` 启动。
+应用将在 `http://localhost:8081` 启动（容器内仍为 5000 端口）。
 
 #### Docker 环境变量配置
 统一后的环境文件如下：
@@ -151,13 +155,13 @@ DING_TALK_SECRET=
 
 开发环境 `.env.development`：
 ```bash
-DATABASE_URL=postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator
+DATABASE_URL=mysql+pymysql://user:password@127.0.0.1:3306/googlesheetdb
 ```
 
 生产环境 `.env.production`：
 ```bash
 APP_ENV=production
-DATABASE_URL=postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator
+DATABASE_URL=mysql+pymysql://user:password@<生产数据库地址>:3306/googlesheetdb
 ```
 
 本地开发数据库默认使用 SQLite（`instance/app.db`），也可通过 `DATABASE_URL` 指向 PostgreSQL/MySQL；数据库建表与初始化见 `docs/本地开发指南.md`。
@@ -255,11 +259,11 @@ export SECRET_KEY="your_secure_random_key_here"
 
 # 开发环境数据库
 export APP_ENV="development"
-export DATABASE_URL="postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator"
+export DATABASE_URL="mysql+pymysql://user:password@127.0.0.1:3306/googlesheetdb"
 
 # 生产环境数据库
 export APP_ENV="production"
-export DATABASE_URL="postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator"
+export DATABASE_URL="mysql+pymysql://user:password@<生产数据库地址>:3306/googlesheetdb"
 
 # 其他配置
 export MAX_CONCURRENT_TASKS=5
@@ -332,18 +336,18 @@ cp .env.example .env
 ### 配置管理 API
 - `GET /api/config` - 获取系统配置
 - `POST /api/config` - 更新系统配置
-- `GET /api/config/google-sheet` - 获取 Google Sheet 配置
-- `POST /api/config/google-sheet` - 更新 Google Sheet 配置
+- `GET /api/google-sheets` - 获取 Google Sheet 注册表配置
+- `POST /api/google-sheets` - 新增 Google Sheet 注册表配置
 
-### 实时事件 API
-- `GET /api/tasks/{task_id}/events` - SSE 事件流
-- `POST /api/tasks/{task_id}/confirm` - 确认任务继续执行
+### 实时状态
+- 任务状态与日志由前端定时轮询获取，轮询间隔由系统配置 `frontend_polling_interval` 控制
 
 ## 开发指南
 
 ### 项目结构
 - `app/` - 应用核心代码
-- `templates/` - 前端模板
+- `frontend/` - Vue 3 前端工程
+- `templates/` - Jinja 前端模板
 - `static/` - 静态资源
 - `data/` - 数据文件
 - `logs/` - 日志文件

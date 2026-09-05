@@ -26,7 +26,7 @@ frontend/src/
   layout/                   # AppHeader / AppLayout / AppSidebar
   views/                    # 页面（见下）
   directives/permission.js  # v-permission 指令
-  styles/                   # index.scss / variables / mixins / naive-theme.js
+  styles/                   # index.scss / variables / mixins / naive-theme.js + pages/ 子目录
   utils/                    # tradingDate.js（含 .test.mjs，无测试运行器）
 ```
 
@@ -54,8 +54,6 @@ useAuth、useChartJs、useDebounce、useNavigation、usePolling、useResponsive�
 ### 路由守卫
 
 检查 `localStorage.access_token` → `useAuth().fetchUser()` → `useNavigation().ensureNavLoaded()` → `getPagePermission(to.fullPath)` 校验，无权限跳 `/403`。
-
-> **已知问题**：router 引用了 `views/backtest-multi/List.vue`、`Result.vue`、`GlobalPreview.vue`，但这 3 个文件当前不存在于 views/backtest-multi/ 下，访问对应路由会构建/运行报错，属于待补页面。
 
 ## API 层（api/index.js）
 

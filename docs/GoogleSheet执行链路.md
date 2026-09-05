@@ -74,6 +74,6 @@ C31 页面市场值传英文：`A股→cn`、`美股→en`。新增 C31 字段�
   - 搜索：先 codetable（search-codetable.eastmoney.com JSONP），失败回退 suggest（searchapi.eastmoney.com）；结果归一为 `{source, code, shortName, securityTypeName, market, marketType, isExactMatch, ...}`。
   - A 股成交量"手→股"换算（`_is_a_share_market` 区分港股）。
 - `app/utils/proxy_manager.py::SmartProxyManager`：单例；代理源 `stockapi.stplan.cn`；30s TTL / 单代理最多复用 50 次；日志脱敏 `_redact_proxy`。
-- 回测任务的股票搜索接口在 `app/routes/backtest_training.py::search_stocks`；`market_type` 统一规范为 `cn` / `en`（`app/utils/market.py`）。
+- 回测任务的股票搜索接口在 `app/routes/stock_api.py::search_stocks`（`/api/search-stocks`）；`market_type` 统一规范为 `cn` / `en`（`app/utils/market.py`）。
 
 "股票搜索不到 / K 线拉取失败 / 美股与 A 股市场代码错传"类问题：先查 dfcf_api / proxy_manager / market.py，再看上层页面和 service。
