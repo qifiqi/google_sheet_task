@@ -2,9 +2,8 @@
 
 from flask import Blueprint, render_template
 
-from app.repositories import task_repository, task_result_repository
 from app.services.backtest_multi_product_service import BACKTEST_MULTI_PRODUCT_TASK_TYPE
-from app.utils.task_types import normalize_task_type
+from app.services.task import task_manager
 
 bp = Blueprint("backtest_multi_product", __name__, url_prefix="/backtest-multi-product")
 legacy_bp = Blueprint("backtest_multi_product_legacy", __name__, url_prefix="/backtest-multi")
@@ -32,12 +31,7 @@ def global_preview_page(task_id):
 
 @bp.route("/result/<int:result_id>")
 def result_page(result_id):
-    task_result = task_result_repository.get(result_id)
-    task_id = ""
-    if task_result:
-        task = task_repository.get(task_result["task_id"])
-        if task and normalize_task_type(task["task_type"]) == BACKTEST_MULTI_PRODUCT_TASK_TYPE:
-            task_id = task_result["task_id"]
+    task_id = task_manager.resolve_result_task_id(result_id, BACKTEST_MULTI_PRODUCT_TASK_TYPE)
     return render_template("backtest_multi_product/result.html", result_id=result_id, task_id=task_id)
 
 

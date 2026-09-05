@@ -1,8 +1,8 @@
 from flask import Blueprint, render_template, request, jsonify, url_for, redirect, flash
 import json
 from app.services.config_manager import get_config_manager
+from app.services.task import task_manager
 from app.utils.logger import get_logger
-from app.repositories import task_repository
 
 logger = get_logger(__name__)
 
@@ -28,7 +28,7 @@ def _resolve_task_version(*task_id_params):
         if not task_id:
             continue
 
-        task = task_repository.get(task_id)
+        task = task_manager.get_task(task_id)
         version = _version_from_task_type(task.get("task_type") if task else None)
         if version:
             return version

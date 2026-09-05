@@ -2,8 +2,7 @@
 
 from flask import Blueprint, render_template
 
-from app.repositories import task_repository, task_result_repository
-from app.utils.task_types import normalize_task_type
+from app.services.task import task_manager
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
 legacy_bp = Blueprint("backtest_training_legacy", __name__, url_prefix="/backtest")
@@ -29,12 +28,7 @@ def global_preview_page(task_id):
 
 @bp.route("/result/<int:result_id>")
 def result_page(result_id):
-    task_result = task_result_repository.get(result_id)
-    task_id = ""
-    if task_result:
-        task = task_repository.get(task_result["task_id"])
-        if task and normalize_task_type(task["task_type"]) == "backtest_training":
-            task_id = task_result["task_id"]
+    task_id = task_manager.resolve_result_task_id(result_id, "backtest_training")
     return render_template("backtest_training/result.html", result_id=result_id, task_id=task_id)
 
 

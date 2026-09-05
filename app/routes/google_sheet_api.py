@@ -1,11 +1,10 @@
 """Google Sheet / Token 管理 API。
 
-数据层说明：列表/详情/导入的 ORM 均在 google_sheet_registry_service /
-google_sheet_token_service（B2 迁移 repository）；路由内唯一直连 ORM 的
-token 删除已改走 google_sheet_token_repository。
+数据层说明：列表/详情/导入/删除全部经 google_sheet_registry_service /
+google_sheet_token_service；路由层不直接感知 repository。
 
 服务层仍以 ValueError 表达请求校验失败（400 语义），本层显式翻译为
-BadRequestError；待 B2 服务层改抛语义异常后移除该翻译。
+BadRequestError；待服务层改抛语义异常后移除该翻译。
 """
 import time
 
@@ -13,7 +12,6 @@ from flask import Blueprint, request
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.models import GoogleSheetTableType
-from app.repositories import google_sheet_token_repository
 from app.services.google_sheet_registry_service import get_google_sheet_registry_service
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.google_sheet_token_service import get_google_sheet_token_service, RANDOM_TOKEN_VALUE
@@ -222,7 +220,7 @@ def import_google_sheet_token():
 @login_required
 def delete_google_sheet_token(token_id):
     """删除 Google Sheet Token"""
-    deleted = google_sheet_token_repository.delete(token_id)
+    deleted = get_google_sheet_token_service().delete_token(token_id)
     if not deleted:
         raise NotFoundError("Token不存在")
     return success(message="Token删除成功")

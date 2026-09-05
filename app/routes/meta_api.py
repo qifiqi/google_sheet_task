@@ -8,7 +8,7 @@ from app.models import (
     TaskType,
 )
 from app.navigation import build_navigation_tree
-from app.repositories import navigation_repository
+from app.services import navigation_service
 from app.utils.api_response import success
 from app.utils.auth import login_required
 
@@ -50,7 +50,7 @@ def get_nav():
     from flask import g
 
     user_perms = g.current_user.get_permissions()
-    rows = navigation_repository.list_visible_entities()
+    rows = navigation_service.list_visible_entities()
     rows = sorted(rows, key=lambda item: (item.parent_key or "", item.sort_order, item.id))
     all_nav = build_navigation_tree(rows)
 

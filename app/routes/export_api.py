@@ -1,5 +1,6 @@
-"""统一文件导出接口（数据层：task_repository）。
+"""统一文件导出接口。
 
+任务/结果读取经 task 查询服务（task_manager）；导出编排经 export_service。
 导出服务的 ValueError/LookupError 语义保持原有 400/404 映射；
 其余未预期异常交全局处理器转 500。
 """
@@ -14,10 +15,10 @@ from flask import Blueprint, Response, g, jsonify, request, send_file, stream_wi
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter
-from app.repositories import task_repository, task_result_repository
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.export_service import export_service
 from app.services.export_file_service import sanitize_export_filename
+from app.services.task import task_manager
 from app.utils.auth import login_required
 from app.utils.logger import get_logger
 from app.utils.request_parsing import parse_body
@@ -43,13 +44,6 @@ _export_limit = limiter.limit(
     lambda: f"{_rate_limit('rate_limit_export', 10) or 10}/minute",
     key_func=_user_key,
 )
-
-
-def _load_task(task_id: str):
-    task = task_repository.get(task_id)
-    if not task:
-        raise NotFoundError("任务不存在")
-    return task
 
 
 def _require_completed_task(task: dict):
@@ -105,7 +99,7 @@ def _parse_ratios_query():
 @login_required
 @_export_limit
 def export_task_results(task_id):
-    task = _load_task(task_id)
+    task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     try:
         return _file_response(export_service.export_task_results(task["id"]))
@@ -117,7 +111,7 @@ def export_task_results(task_id):
 @login_required
 @_export_limit
 def export_task_results_by_stock(task_id):
-    task = _load_task(task_id)
+    task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     try:
         return _file_response(export_service.export_task_results_by_stock(task["id"]))
@@ -145,7 +139,7 @@ def export_task_results_batch():
 @login_required
 @_export_limit
 def export_global_preview(task_id):
-    task = _load_task(task_id)
+    task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
     try:
@@ -165,7 +159,7 @@ def export_global_preview(task_id):
 @login_required
 @_export_limit
 def export_global_preview_by_stock(task_id):
-    task = _load_task(task_id)
+    task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
     try:
@@ -196,10 +190,10 @@ def export_global_preview_batch():
 @login_required
 @_export_limit
 def export_backtest_result(result_id):
-    task_result = task_result_repository.get(result_id)
+    task_result = task_manager.get_task_result(result_id)
     if not task_result:
         raise NotFoundError("任务结果不存在")
-    _load_task(task_result["task_id"])
+    task_manager.get_required_task(task_result["task_id"])
     try:
         return _file_response(export_service.export_backtest_result(result_id))
     except (ValueError, LookupError) as exc:

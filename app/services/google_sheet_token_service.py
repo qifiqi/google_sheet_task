@@ -153,6 +153,10 @@ class GoogleSheetTokenService:
         google_sheet_token_repository.commit()
         return token.to_dict()
 
+    def delete_token(self, token_id: int) -> bool:
+        """删除 Token（google-sheet-tokens DELETE 端点）；不存在返回 False。"""
+        return google_sheet_token_repository.delete(token_id)
+
     def get_usage_summary(self):
         # Separate current occupancy from historical usage.
         self.reconcile_in_use_counts()

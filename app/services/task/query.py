@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.repositories import task_repository, task_result_repository
+from app.utils.task_types import normalize_task_type
 
 
 class TaskQueryService:
@@ -15,6 +16,28 @@ class TaskQueryService:
 
     def get_task_status(self, task_id: str) -> Optional[dict[str, Any]]:
         return task_repository.get(task_id)
+
+    def get_task(self, task_id: str) -> Optional[dict[str, Any]]:
+        """任务 dict 访问；不存在返回 None。"""
+        return task_repository.get(task_id)
+
+    def get_required_task(self, task_id: str) -> dict[str, Any]:
+        """任务 dict 访问；不存在抛 NotFoundError（页面/导出端点的 404 入口）。"""
+        return task_repository.get_required(task_id)
+
+    def get_task_result(self, result_id: int) -> Optional[dict[str, Any]]:
+        """任务结果 dict 访问；不存在返回 None。"""
+        return task_result_repository.get(result_id)
+
+    def resolve_result_task_id(self, result_id: int, expected_task_type: str) -> str:
+        """结果详情页归属解析：结果存在且任务类型匹配返回 task_id，否则空串。"""
+        task_result = task_result_repository.get(result_id)
+        if not task_result:
+            return ""
+        task = task_repository.get(task_result["task_id"])
+        if task and normalize_task_type(task["task_type"]) == expected_task_type:
+            return task_result["task_id"]
+        return ""
 
     def get_all_tasks(
         self,
@@ -179,3 +202,18 @@ class TaskQueryMixin:
 
     def check_local_task_status(self, task_id: str) -> dict[str, Any]:
         return TaskQueryService(self).check_local_task_status(task_id)
+
+    def get_task(self, task_id: str) -> Optional[dict[str, Any]]:
+        return TaskQueryService(self).get_task(task_id)
+
+    def get_required_task(self, task_id: str) -> dict[str, Any]:
+        return TaskQueryService(self).get_required_task(task_id)
+
+    def get_task_result(self, result_id: int) -> Optional[dict[str, Any]]:
+        return TaskQueryService(self).get_task_result(result_id)
+
+    def resolve_result_task_id(self, result_id: int, expected_task_type: str) -> str:
+        return TaskQueryService(self).resolve_result_task_id(
+            result_id,
+            expected_task_type,
+        )

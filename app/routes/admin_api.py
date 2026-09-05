@@ -8,8 +8,6 @@ from urllib.parse import quote
 
 from flask import Blueprint, Response, current_app, g, jsonify, request
 
-from app.exceptions import NotFoundError
-from app.repositories import task_repository
 from app.services.model_summary_service import model_summary_service
 from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
@@ -124,12 +122,8 @@ def model_summary_rebuild_status_api():
 @login_required
 def task_runtime_detail(task_id):
     """管理后台任务运行细节"""
-    task = task_repository.get_entity(task_id)
-    if not task:
-        raise NotFoundError('task not found')
-
     return success(data={
-        'task': runtime_view_service.serialize_task_runtime(task),
+        'task': runtime_view_service.get_runtime_detail(task_id),
     })
 
 

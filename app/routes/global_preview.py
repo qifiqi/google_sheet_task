@@ -14,14 +14,14 @@ from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
 from flask import Blueprint, Response, current_app, render_template, request, send_file, stream_with_context
 
-from app.exceptions import BadRequestError, NotFoundError
-from app.repositories import task_repository
+from app.exceptions import BadRequestError
 from app.services.backtest_training_api_service import (
     _build_global_preview_payload,
     _build_global_preview_workbook,
     get_global_preview_result_ids_by_stock,
     split_global_preview_payload_by_stock,
 )
+from app.services.task import task_manager
 from app.utils.task_types import normalize_task_type
 
 
@@ -31,14 +31,6 @@ bp = Blueprint("global_preview", __name__, url_prefix="/global-preview")
 def _safe_filename(value, fallback):
     cleaned = "".join(char if char not in '\\/:*?\"<>|' else "_" for char in str(value or "").strip())
     return cleaned.rstrip(" .") or fallback
-
-
-def _load_backtest_task(task_id):
-    """任务 dict 访问；不存在抛 NotFoundError。"""
-    task = task_repository.get(task_id)
-    if not task:
-        raise NotFoundError("任务不存在")
-    return task
 
 
 def _preview_status(task):
@@ -143,7 +135,7 @@ def _stream_stock_export_zip(task_id, task_name):
 
 
 def export_preview(task_id):
-    task = _load_backtest_task(task_id)
+    task = task_manager.get_required_task(task_id)
     if not _preview_status(task)["supported"]:
         raise BadRequestError("当前任务暂未适配全局预览导出")
 

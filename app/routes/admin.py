@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template
 
 from app.models import GoogleSheetTableType, TaskStatus, TaskType
-from app.repositories import task_repository
+from app.services.task import TaskDashboardQueryService
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -9,8 +9,9 @@ admin_bp = Blueprint('admin', __name__)
 @admin_bp.route('/')
 def dashboard():
     """管理面板首页"""
-    counts = task_repository.summary_counts()
-    recent_tasks = task_repository.recent(10)
+    dashboard_query = TaskDashboardQueryService()
+    counts = dashboard_query.get_dashboard_counts()
+    recent_tasks = dashboard_query.get_recent_tasks(10)
 
     return render_template('admin/dashboard.html',
                          total_tasks=counts["total"],

@@ -2,26 +2,18 @@
 
 from flask import Blueprint, request
 
-from app.exceptions import BadRequestError, NotFoundError
-from app.repositories import task_repository
+from app.exceptions import BadRequestError
 from app.services.backtest_training_api_service import (
     _build_global_preview_group_payload,
     _build_global_preview_initial_payload,
 )
+from app.services.task import task_manager
 from app.utils.api_response import success
 from app.utils.auth import login_required
 from app.utils.task_types import normalize_task_type
 
 
 gp_api_bp = Blueprint("global_preview_api", __name__, url_prefix="/global-preview")
-
-
-def _load_backtest_task(task_id):
-    """任务 dict 访问；不存在抛 NotFoundError。"""
-    task = task_repository.get(task_id)
-    if not task:
-        raise NotFoundError("任务不存在")
-    return task
 
 
 def _preview_status(task):
@@ -42,7 +34,7 @@ def _preview_status(task):
 @gp_api_bp.route("/api/tasks/<task_id>", methods=["GET"])
 @login_required
 def get_preview(task_id):
-    task = _load_backtest_task(task_id)
+    task = task_manager.get_required_task(task_id)
 
     status = _preview_status(task)
     data = {
@@ -65,7 +57,7 @@ def get_preview(task_id):
 @gp_api_bp.route("/api/tasks/<task_id>/preview-group", methods=["POST"])
 @login_required
 def get_preview_group(task_id):
-    task = _load_backtest_task(task_id)
+    task = task_manager.get_required_task(task_id)
     if not _preview_status(task)["supported"]:
         raise BadRequestError("当前任务暂不支持全局预览")
 

@@ -19,6 +19,14 @@ class TaskDashboardQueryService:
             if task_type
         ]
 
+    def get_dashboard_counts(self) -> dict[str, int]:
+        """admin 首页仪表盘四连 count：{total, completed, running, error}。"""
+        return task_repository.summary_counts()
+
+    def get_recent_tasks(self, limit: int = 10) -> list[dict]:
+        """admin 首页最近任务列表（dict 形态，created_at 倒序）。"""
+        return task_repository.recent(limit)
+
     def build_empty_overview(self, now: datetime, days: int = 7) -> dict:
         daily_trend = self._build_empty_daily_trend(now, days=days)
         return {

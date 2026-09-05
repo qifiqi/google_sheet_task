@@ -6,8 +6,8 @@ import json
 from datetime import datetime
 from typing import Any
 
+from app.exceptions import NotFoundError
 from app.repositories import task_log_repository, task_repository, task_result_repository
-import json
 
 from app.models import Task, TaskLog, TaskResult, TaskResultReturn
 from app.utils.return_series import parse_return_series_fields
@@ -197,6 +197,13 @@ class TaskRuntimeViewService:
             "latest_metric_points": metric_points,
             "return_chart": return_chart,
         }
+
+    def get_runtime_detail(self, task_id: str) -> dict[str, Any]:
+        """admin runtime-detail 端点：任务不存在抛 NotFoundError，存在返回运行态细节。"""
+        task = task_repository.get_entity(task_id)
+        if not task:
+            raise NotFoundError("任务不存在")
+        return self.serialize_task_runtime(task)
 
     def serialize_task_runtime(self, task: Task) -> dict[str, Any]:
         config_summary = self.build_config_summary(task)
