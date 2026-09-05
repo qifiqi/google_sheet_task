@@ -59,11 +59,16 @@ class BaseRepository:
         db.session.delete(entity)
         return entity
 
-    def commit_with_retry(self):
-        """带重试的提交（执行链长事务写出口，复用 db_retry_manager）。"""
+    def commit_with_retry(self, operation=None):
+        """带重试的提交（执行链长事务写出口，复用 db_retry_manager）。
+
+        operation：可选的写入重放闭包（签名 operation(session)）。提供后提交遇到
+        暂时性冲突会 rollback -> 重放写入 -> 重新 commit；不提供时暂时性冲突即
+        rollback 并抛 DatabaseLockError，不做会静默丢数据的无效重试。
+        """
         from app.utils.db_retry import db_retry_manager
 
-        db_retry_manager.commit_with_retry(db.session)
+        db_retry_manager.commit_with_retry(db.session, operation)
 
     def rollback(self):
         """实体流的回滚出口。"""

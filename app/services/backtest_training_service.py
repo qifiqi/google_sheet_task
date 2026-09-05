@@ -459,13 +459,17 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                     except checkForErrors as e:
                         self._log_error(str(e))
-                        task.error = e
+                        record_task_exception(
+                            self.task_id,
+                            e,
+                            "execute_parameter_combination",
+                            self.app,
+                        )
                         return success_count, failed_count, 'error'
                     except Exception as e:
                         self._raise_retryable_network_error(e, f"第 {current_step} 个参数组合网络请求失败")
                         failed_count += 1
                         # 检查是否是任务被取消
-                        task.error = e
                         try:
                             task_check = task_repository.get_entity(self.task_id)
                             if task_check and task_check.status == 'cancelled':
@@ -494,7 +498,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
         except Exception as e:
             self._raise_retryable_network_error(e, "批量数据处理网络请求失败")
             # 检查是否是任务被取消导致的异常
-            task.error = e
             try:
                 task_check = task_repository.get_entity(self.task_id)
                 if task_check and task_check.status == 'cancelled':

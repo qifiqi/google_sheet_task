@@ -438,7 +438,7 @@ def bmp_import_excel():
 @bmp_api_bp.route("/api/task-results/<task_id>", methods=["GET"])
 @login_required
 def bmp_get_task_results_by_task_id(task_id):
-    _load_multi_product_task_or_none(task_id)
+    _load_multi_product_task_or_raise(task_id)
 
     page = max(request.args.get("page", default=1, type=int) or 1, 1)
     per_page = max(min(request.args.get("per_page", default=10, type=int) or 10, 100), 1)
@@ -467,7 +467,7 @@ def bmp_get_task_results_by_task_id(task_id):
 @login_required
 def bmp_get_task_result_detail(task_result_id):
     task_result = task_manager.get_required_result_entity(task_result_id)
-    task = _load_multi_product_task_or_none(task_result.task_id)
+    task = _load_multi_product_task_or_raise(task_result.task_id)
 
     payload = _parse_json(task_result.result, {})
     if isinstance(payload, dict) and payload:
@@ -523,7 +523,7 @@ def bmp_get_task_result_detail(task_result_id):
 @bmp_api_bp.route("/api/global-preview/<task_id>", methods=["GET"])
 @login_required
 def bmp_get_global_preview(task_id):
-    _load_multi_product_task_or_none(task_id)
+    _load_multi_product_task_or_raise(task_id)
     payload = build_multi_product_global_preview_payload(task_id)
     if payload is None:
         raise NotFoundError("任务不存在")
@@ -537,7 +537,7 @@ def bmp_get_global_preview(task_id):
     key_func=_user_key,
 )
 def bmp_calculate_ratios(task_id):
-    _load_multi_product_task_or_none(task_id)
+    _load_multi_product_task_or_raise(task_id)
     data = parse_body(CalculateRatiosSchema)
     ratios = data.ratios
     try:
@@ -552,7 +552,7 @@ def bmp_calculate_ratios(task_id):
 @bmp_api_bp.route("/api/global-preview/<task_id>/ratios", methods=["PUT"])
 @login_required
 def bmp_update_ratios(task_id):
-    task = _load_multi_product_task_or_none(task_id)
+    task = _load_multi_product_task_or_raise(task_id)
     data = request.get_json() or {}
     ratios = data.get("ratios")
     if not isinstance(ratios, list):
@@ -566,11 +566,11 @@ def bmp_update_ratios(task_id):
     )
 
 
-def _load_multi_product_task_or_none(task_id: str):
-    """加载多品回测任务 dict；不存在返回 None，类型不符抛 BadRequestError。"""
+def _load_multi_product_task_or_raise(task_id: str):
+    """加载多品回测任务 dict；不存在抛 NotFoundError（404），类型不符抛 ValidationError。"""
     task = task_manager.get_task(task_id)
     if not task:
-        return None
+        raise NotFoundError(f"任务不存在: {task_id}")
     if normalize_task_type(task["task_type"]) != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
         raise ValidationError("当前接口仅支持多品数据回测任务")
     return task

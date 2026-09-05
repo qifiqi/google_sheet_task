@@ -686,7 +686,8 @@ class TaskCreationMixin:
                 "created_by_user_id": original_task["created_by_user_id"],
             })
 
-            if isinstance(original_config, dict) and original_task.task_type not in ("backtest_training", "backtest_multi_product"):
+            # original_task 来自 task_repository.get()（dict），取值必须用下标而非属性访问。
+            if isinstance(original_config, dict) and original_task["task_type"] not in ("backtest_training", "backtest_multi_product"):
                 self.ensure_google_sheet_occupancy(new_task_id, original_config)
 
             logger.info("创建重启任务: %s (基于 %s)", new_task_id, original_task_id)

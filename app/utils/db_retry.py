@@ -160,11 +160,32 @@ class DatabaseRetryManager:
             **kwargs
         )
     
-    def commit_with_retry(self, session):
-        """带重试的提交操作"""
+    def commit_with_retry(self, session, operation: Optional[Callable[[Any], Any]] = None) -> Any:
+        """带重试的提交操作。
+
+        commit 遇到暂时性冲突（如 database is locked）时事务已失效：
+        直接二次 commit 必然再次抛错；先 rollback 再空 commit 则会"成功"提交一个
+        空事务，静默丢掉已回滚的写入。因此真正的重试必须重放写入：
+        - 提供 operation（签名 operation(session)，重放本次提交前的实体写入）时，
+          失败路径为 rollback -> 等待退避 -> 重放写入并重新 commit；
+        - 未提供 operation 时无法安全重放，第一次暂时性冲突即 rollback 并抛
+          DatabaseLockError（保留原异常链），不再做无意义的重试。
+        """
         def commit_operation():
-            session.commit()
-        
+            try:
+                if operation is not None:
+                    operation(session)
+                session.commit()
+            except OperationalError as exc:
+                session.rollback()
+                if not _is_transient_database_error(exc):
+                    raise
+                if operation is None:
+                    raise DatabaseLockError(
+                        "提交遇到暂时性数据库冲突，且未提供可重放写入闭包，已回滚本次提交"
+                    ) from exc
+                raise
+
         return self.execute_with_retry(commit_operation)
     
     def flush_with_retry(self, session):

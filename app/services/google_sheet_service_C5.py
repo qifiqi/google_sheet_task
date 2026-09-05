@@ -395,13 +395,12 @@ class GoogleSheetService(BaseGoogleSheetService):
 
 
                     except checkForErrors as e:
+                        self._record_execution_error_message(e, "execute_parameter_combination")
                         self._log_error(str(e))
-                        task.error = e
                         return success_count, failed_count, 'error'
                     except Exception as e:
                         failed_count += 1
                         # 检查是否是任务被取消
-                        task.error = e
                         try:
                             task_check = task_repository.get_entity(self.task_id)
                             if task_check and task_check.status == 'cancelled':
@@ -425,7 +424,6 @@ class GoogleSheetService(BaseGoogleSheetService):
 
         except Exception as e:
             # 检查是否是任务被取消导致的异常
-            task.error = e
             try:
                 task_check = task_repository.get_entity(self.task_id)
                 if task_check and task_check.status == 'cancelled':

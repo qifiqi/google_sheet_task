@@ -363,6 +363,25 @@ class TaskRuntimeMixin:
         task_logger.info("任务执行完成，状态: error")
         self.add_task_log(task_id, "info", "任务执行完成，状态: error", app)
 
+    def _rollback_start_reservation(
+        self,
+        task_id: str,
+        reserved_backtest_spreadsheet_ids: list[str],
+        backtest_marked_running: bool,
+    ) -> None:
+        """回滚 start_task 前置阶段已占用的全部资源。
+
+        任务线程提交（submit_task_execution）之前的任何失败路径都必须调用本方法，
+        否则 sheet 锁 / Google Sheet 占用 / token 计数会残留，回测任务会卡在
+        running 状态并阻塞同一 sheet 的排队任务。
+        """
+        self.release_task_token_occupancy(task_id)
+        self.release_google_sheet_occupancy(task_id)
+        for spreadsheet_id in reserved_backtest_spreadsheet_ids:
+            self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
+        if backtest_marked_running:
+            task_repository.revert_running_to_pending(task_id)
+
     def start_task(self, task_id: str) -> bool:
         """启动任务线程。"""
         self.start_errors.pop(task_id, None)
@@ -496,11 +515,9 @@ class TaskRuntimeMixin:
         except Exception as exc:
             error_msg = str(exc)
             self.start_errors[task_id] = error_msg
-            self.release_google_sheet_occupancy(task_id)
-            for spreadsheet_id in reserved_backtest_spreadsheet_ids:
-                self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
-            if backtest_marked_running:
-                task_repository.revert_running_to_pending(task_id)
+            self._rollback_start_reservation(
+                task_id, reserved_backtest_spreadsheet_ids, backtest_marked_running
+            )
             task_logger.warning("Token校验失败，无法启动任务: %s", error_msg)
             logger.warning("Token校验失败，任务无法启动: %s, %s", task_id, error_msg)
             return False
@@ -514,17 +531,25 @@ class TaskRuntimeMixin:
         if spec is None:
             error_msg = f"不支持的任务类型: {task_type}"
             self.start_errors[task_id] = error_msg
+            self._rollback_start_reservation(
+                task_id, reserved_backtest_spreadsheet_ids, backtest_marked_running
+            )
             task_repository.update_fields(task_id, error_message=error_msg)
+            self.add_task_log(task_id, "error", f"任务启动被拒绝: {error_msg}")
             task_logger.error(error_msg)
             logger.error("不支持的任务类型: %s", task_type)
             return False
 
-        # 启动前配额检查（全局 + 分类型）：超限不排队不报错，任务保持 pending
-        # 等待下次调度/手动启动（保住看门狗 pending 不检查/running 无日志告警语义）。
+        # 启动前配额检查（全局 + 分类型）：超限不排队不报错，回滚本次预占并保持任务
+        # 待执行等待下次调度/手动启动（保住看门狗 pending 不检查/running 无日志告警语义）。
         max_workers = int(self._get_config(GLOBAL_MAX_KEY, GLOBAL_MAX_DEFAULT) or GLOBAL_MAX_DEFAULT)
         if self.count_running_executions() >= max_workers:
             error_msg = f"并发已满（{self.count_running_executions()}/{max_workers}），任务保持待执行"
             self.start_errors[task_id] = error_msg
+            self._rollback_start_reservation(
+                task_id, reserved_backtest_spreadsheet_ids, backtest_marked_running
+            )
+            self.add_task_log(task_id, "warning", f"任务启动被拒绝: {error_msg}")
             task_logger.warning(error_msg)
             return False
 
@@ -542,6 +567,10 @@ class TaskRuntimeMixin:
                     f"{spec.display_name} 并发已满（{type_running}/{type_limit}），任务保持待执行"
                 )
                 self.start_errors[task_id] = error_msg
+                self._rollback_start_reservation(
+                    task_id, reserved_backtest_spreadsheet_ids, backtest_marked_running
+                )
+                self.add_task_log(task_id, "warning", f"任务启动被拒绝: {error_msg}")
                 task_logger.warning(error_msg)
                 return False
 
@@ -554,8 +583,10 @@ class TaskRuntimeMixin:
             error_msg = str(exc)
             self.start_errors[task_id] = error_msg
             self.task_stop_events.pop(task_id, None)
-            self.release_task_token_occupancy(task_id)
-            self.release_google_sheet_occupancy(task_id)
+            self._rollback_start_reservation(
+                task_id, reserved_backtest_spreadsheet_ids, backtest_marked_running
+            )
+            self.add_task_log(task_id, "error", f"任务启动被拒绝: {error_msg}")
             task_logger.error(error_msg)
             return False
 
@@ -570,12 +601,9 @@ class TaskRuntimeMixin:
             if handle is not None:
                 self.running_tasks.pop(task_id, None)
             self.task_stop_events.pop(task_id, None)
-            self.release_task_token_occupancy(task_id)
-            self.release_google_sheet_occupancy(task_id)
-            for spreadsheet_id in reserved_backtest_spreadsheet_ids:
-                self._release_backtest_sheet_run_reservation(spreadsheet_id, task_id)
-            if self._is_backtest_task_type(task_type):
-                task_repository.revert_running_to_pending(task_id)
+            self._rollback_start_reservation(
+                task_id, reserved_backtest_spreadsheet_ids, backtest_marked_running
+            )
             error_msg = f"任务线程启动失败: {exc}"
             self.start_errors[task_id] = error_msg
             task_logger.error(error_msg)

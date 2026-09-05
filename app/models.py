@@ -55,7 +55,7 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=True, comment='是否启用')
     is_alert_oncall = db.Column(db.Boolean, default=False, nullable=False, comment='是否参与告警值班')
     token_version = db.Column(db.Integer, default=0, nullable=False, comment='JWT 会话版本号')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
+    created_at = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     last_login = db.Column(db.DateTime, comment='最后登录时间')
     roles = db.relationship(
         'Role',

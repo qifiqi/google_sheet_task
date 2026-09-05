@@ -67,7 +67,7 @@ def login_user(username: str, password: str) -> dict:
     # 登录不递增 token_version：同一账号多端登录互不影响。
     # 版本号仅在登出/改密/管理员重置时递增以吊销存量令牌。
     token_version = int(credentials["token_version"] or 0)
-    rbac_repository.update_last_login(credentials["id"], datetime.utcnow())
+    rbac_repository.update_last_login(credentials["id"], datetime.now())
 
     user = rbac_repository.get_user(credentials["id"], include_permissions=True)
     return {
