@@ -28,6 +28,7 @@ from app.utils.task_error_utils import (
 )
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_prep import project_and_validate_write_ready
+from app.services.result_payload import build_analyze_fields, build_stock_param_metric_fields
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
@@ -285,12 +286,6 @@ class C7Service(BaseGoogleSheetService):
 
         return index_returns
 
-    @staticmethod
-    def _to_decimal_ratio(value: Any) -> float:
-        """Convert percentage-like values into decimal ratios for outbound payloads."""
-        if value in (None, ""):
-            return 0
-
         raw_value = value
         if isinstance(value, str):
             raw_value = value.strip().replace("%", "").replace(",", "")
@@ -339,64 +334,8 @@ class C7Service(BaseGoogleSheetService):
         payload.update({
             "multiplier": combination.get("A1", 0),
             "ml": combination.get("B1"),
-            "return_rate": self._to_decimal_ratio(metric_value("D2")),
-            "annualized_rate": self._to_decimal_ratio(metric_value("D3")),
-            "maxdd": self._to_decimal_ratio(metric_value("D4")),
-            "index_rate": self._to_decimal_ratio(metric_value("D5")),
-            "index_annualized_rate": self._to_decimal_ratio(metric_value("D6")),
-            "max_index_dd": self._to_decimal_ratio(metric_value("D7")),
-            "fee_total": self._to_decimal_ratio(metric_value("D8")),
-            "fee_annualized": self._to_decimal_ratio(metric_value("D9")),
-            "turnover_rate": metric_value("D10"),
-            "return_beats": self._to_decimal_ratio(metric_value("D11")),
-            "dd_beats": self._to_decimal_ratio(metric_value("D12")),
-            "max_1y_beats": self._to_decimal_ratio(metric_value("D13")),
-            "min_1y_beats": self._to_decimal_ratio(metric_value("D14")),
-            "max_theoretical_leverage": metric_value("D15"),
-            "avg_theoretical_leverage": metric_value("D16"),
-            "unit_theoretical_leverage_return": self._to_decimal_ratio(metric_value("D17")),
-            "max_actual_leverage": metric_value("D18"),
-            "avg_actual_leverage": metric_value("D19"),
-            "unit_actual_leverage_return": self._to_decimal_ratio(metric_value("D20")),
-            "start_monthly_std_dev": analyze_result.get("start_monthly_std_dev", 0),
-            "index_monthly_std_dev": analyze_result.get("index_monthly_std_dev", 0),
-            "index_annualized_return": analyze_result.get("index_annualized_return", 0),
-            "start_annualized_return": analyze_result.get("start_annualized_return", 0),
-            "index_profit_annual": analyze_result.get("index_profit_annual", 0),
-            "start_profit_annual": analyze_result.get("start_profit_annual", 0),
-            "index_profit_monthly_percentage": analyze_result.get("index_profit_monthly_percentage", 0),
-            "start_profit_monthly_percentage": analyze_result.get("start_profit_monthly_percentage", 0),
-            "index_avg_monthly_return_common": analyze_result.get("index_avg_monthly_return_common", 0),
-            "start_avg_monthly_return_common": analyze_result.get("start_avg_monthly_return_common", 0),
-            "index_monthly_return_volatility": analyze_result.get("index_monthly_return_volatility", 0),
-            "start_monthly_return_volatility": analyze_result.get("start_monthly_return_volatility", 0),
-            "annualized_return_diff": analyze_result.get("annualized_return_diff", 0),
-            "outperform_year": analyze_result.get("outperform_year", 0),
-            "monthly_excess_return_percentage_last_return": analyze_result.get(
-                "monthly_excess_return_percentage_last_return",
-                0,
-            ),
-            "avg_monthly_excess_returns": analyze_result.get("avg_monthly_excess_returns", 0),
-            "monthly_excess_volatility": analyze_result.get("monthly_excess_volatility", 0),
-            "max_drawdown": analyze_result.get("max_drawdown", 0),
-            "excess_drawdown_winning_rate": analyze_result.get("excess_drawdown_winning_rate", 0),
-            "start_drawdown": analyze_result.get("start_drawdown", 0),
-            "start_maximum_number_of_backtest_repair_days": analyze_result.get(
-                "start_maximum_number_of_backtest_repair_days",
-                0,
-            ),
-            "excess_maximum_number_of_backtest_repair_days": analyze_result.get(
-                "excess_maximum_number_of_backtest_repair_days",
-                0,
-            ),
-            "index_sharpe_ratio": analyze_result.get("index_sharpe_ratio", 0),
-            "start_sharpe_ratio": analyze_result.get("start_sharpe_ratio", 0),
-            "index_kama_ratio": analyze_result.get("index_kama_ratio", 0),
-            "start_kama_ratio": analyze_result.get("start_kama_ratio", 0),
-            "index_sortino_ratio": analyze_result.get("index_sortino_ratio", 0),
-            "start_sortino_ratio": analyze_result.get("start_sortino_ratio", 0),
-            "excess_sharpe": analyze_result.get("excess_sharpe", 0),
-            "excess_sortino": analyze_result.get("excess_sortino", 0),
+            **build_stock_param_metric_fields(metric_value),
+            **build_analyze_fields(analyze_result),
         })
         return payload
 
