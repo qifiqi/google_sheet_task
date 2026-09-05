@@ -12,7 +12,7 @@ from time import perf_counter
 from urllib.parse import quote
 from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
-from flask import Blueprint, Response, current_app, render_template, request, send_file
+from flask import Blueprint, Response, current_app, render_template, request, send_file, stream_with_context
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.repositories import task_repository
@@ -22,6 +22,7 @@ from app.services.backtest_training_api_service import (
     get_global_preview_result_ids_by_stock,
     split_global_preview_payload_by_stock,
 )
+from app.utils.task_types import normalize_task_type
 
 
 bp = Blueprint("global_preview", __name__, url_prefix="/global-preview")

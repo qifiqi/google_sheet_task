@@ -15,10 +15,12 @@ from flask import Blueprint, Response, g, jsonify, request, send_file, stream_wi
 from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter
 from app.repositories import task_repository, task_result_repository
+from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.export_service import export_service
 from app.services.export_file_service import sanitize_export_filename
 from app.utils.auth import login_required
 from app.utils.logger import get_logger
+from app.utils.request_parsing import parse_body
 
 
 logger = get_logger(__name__)
@@ -219,8 +221,9 @@ def export_xpl():
 @_export_limit
 def export_backtest_word_report():
     """接收单产品或多产品回测收益序列并导出 DOCX 报告。"""
+    report_request = parse_body(StrategyBacktestReportSchema)
     try:
-        generated = export_service.export_backtest_word(request.get_json(silent=True) or {})
+        generated = export_service.export_backtest_word(report_request)
         generated = replace(
             generated,
             filename=sanitize_export_filename(generated.filename, "策略回测绩效分析报告.docx"),

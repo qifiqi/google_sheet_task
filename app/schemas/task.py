@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import Field
+from pydantic import RootModel
 
 from app.schemas.common import APIModel
 
@@ -14,8 +14,9 @@ class TaskCreateSchema(APIModel):
     config: dict[str, Any]
 
 
-class TasksBatchCreateSchema(APIModel):
-    """C31 批量创建：body 边界仅约束为 JSON 对象；
+class TasksBatchCreateSchema(RootModel[dict[str, Any]]):
+    """C31 批量创建：body 边界仅约束为 JSON 对象（与 service 的
+    "批量任务请求体必须是 JSON 对象" 语义对齐）；
     字段级校验由 task_manager.batch_create_and_start_task 服务负责。"""
 
 

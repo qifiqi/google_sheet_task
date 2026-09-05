@@ -1154,7 +1154,7 @@ def test_global_preview_word_export_uses_current_ratio_portfolio_returns(app_fac
         )
 
         assert response.status_code == 200
-        assert [product["ratio"] for product in captured["payload"]["products"]] == ["50", "50"]
+        assert [product["ratio"] for product in captured["payload"].products] == ["50", "50"]
 
 
 def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_factory, monkeypatch):

@@ -15,7 +15,7 @@ from app.models import TaskResult, TaskResultReturn
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
 from app.services.performance_analysis_service import xpl_analyzer
 from app.services.strategy_backtest_report_charts import generate_report_charts
-from app.dto.strategy_backtest_report import StrategyBacktestReportRequestDTO
+from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.word_export_template import generate_word_document
 from app.utils.backtest_report_metadata import get_backtest_model_version
 from app.utils.return_series import parse_return_series_fields
@@ -31,12 +31,8 @@ from app.services.performance_analysis.portfolio_combiner import (
 class StrategyBacktestReportService:
     """将 V1 指标结果适配为通用 Word JSON。"""
 
-    def generate_word(self, payload: dict[str, Any] | StrategyBacktestReportRequestDTO) -> tuple[str, BytesIO]:
-        # 先完成 DTO 校验，再调用性能分析，保证路由层只负责收发请求。
-        """处理generate_word相关逻辑。"""
-        request = payload if isinstance(payload,
-                                        StrategyBacktestReportRequestDTO) else StrategyBacktestReportRequestDTO.from_payload(
-            payload)
+    def generate_word(self, request: StrategyBacktestReportSchema) -> tuple[str, BytesIO]:
+        """渲染 Word 报告；请求校验由 StrategyBacktestReportSchema 在请求边界完成。"""
 
         # 三类来源在此统一为累计收益序列，后续指标、图表与 Word 渲染完全复用。
         returns = self._resolve_returns(request)
@@ -78,7 +74,7 @@ class StrategyBacktestReportService:
             filename = f"{filename}.docx"
         return filename, BytesIO(raw)
 
-    def _default_filename(self, request: StrategyBacktestReportRequestDTO) -> str:
+    def _default_filename(self, request: StrategyBacktestReportSchema) -> str:
         """按报告类型、产品代码和生成时间构造默认下载文件名。"""
         stock_codes = [
             str(product.get("stock_code") or "").strip().upper()
@@ -88,7 +84,7 @@ class StrategyBacktestReportService:
         suffix = "-".join([*stock_codes, datetime.now().strftime("%Y%m%d%H%M%S")])
         return f"{request.report_type}-{suffix}" if suffix else f"{request.report_type}-{datetime.now():%Y%m%d%H%M%S}"
 
-    def _resolve_returns(self, request: StrategyBacktestReportRequestDTO) -> list[dict[str, Any]]:
+    def _resolve_returns(self, request: StrategyBacktestReportSchema) -> list[dict[str, Any]]:
         """将单品、V2 或多品输入统一为 result_mapper 所需的累计收益序列。"""
         if request.report_type == "RPT-M":
             return self._combine_product_returns(request.products, request.weighting_mode)
@@ -223,7 +219,7 @@ class StrategyBacktestReportService:
         """处理_runtime_params相关逻辑。"""
         return MetricsRuntimeParamsDTO.from_raw(raw)
 
-    def _build_report_data(self, payload: StrategyBacktestReportRequestDTO, result: Any) -> dict[str, Any]:
+    def _build_report_data(self, payload: StrategyBacktestReportSchema, result: Any) -> dict[str, Any]:
         """将回测指标转换为通用 Word JSON 协议。"""
         metrics = result.metrics
         report_type = payload.report_type
@@ -264,7 +260,7 @@ class StrategyBacktestReportService:
         }
 
     @staticmethod
-    def _weight_allocation(payload: StrategyBacktestReportRequestDTO, report_type: str) -> dict[str, Any]:
+    def _weight_allocation(payload: StrategyBacktestReportSchema, report_type: str) -> dict[str, Any]:
         """构造报告中的股票权重表格。"""
         raw = payload.weight_allocation
         if isinstance(raw, dict) and raw.get("columns") and isinstance(raw.get("rows"), list):

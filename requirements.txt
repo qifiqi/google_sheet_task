@@ -10,7 +10,6 @@ google-auth-httplib2
 requests
 tenacity
 gunicorn
-# 驱动矩阵：MySQL（生产主力，mysql+pymysql://）与 PostgreSQL（历史在用，postgresql://）两驱动都保留
 psycopg2-binary
 PyMySQL
 APScheduler
@@ -24,7 +23,7 @@ openpyxl
 xlsxwriter
 python-docx
 matplotlib
-PyJWT>=2.0
+PyJWT
 dingtalk-stream
 Flask-Limiter
-pydantic>=2.12
+pydantic

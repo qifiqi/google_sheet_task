@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -89,7 +90,7 @@ class StockSearchService:
                 "exchange_market": item["exchange_market"],
                 "security_type_name": item["security_type_name"],
                 "source": item["source"],
-                "raw": item,
+                "raw_json": json.dumps(item, ensure_ascii=False, default=str),
             }
             for item in results
             if item["market_type"]

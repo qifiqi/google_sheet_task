@@ -2,6 +2,9 @@
 
 from flask import Blueprint, render_template
 
+from app.repositories import task_repository, task_result_repository
+from app.utils.task_types import normalize_task_type
+
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
 legacy_bp = Blueprint("backtest_training_legacy", __name__, url_prefix="/backtest")
 @bp.route("/create")

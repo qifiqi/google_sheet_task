@@ -2,12 +2,12 @@
 
 from flask import Blueprint, render_template
 
-from app.repositories import task_repository
+from app.repositories import task_repository, task_result_repository
 from app.services.backtest_multi_product_service import BACKTEST_MULTI_PRODUCT_TASK_TYPE
 from app.utils.task_types import normalize_task_type
 
 bp = Blueprint("backtest_multi_product", __name__, url_prefix="/backtest-multi-product")
-legacy_bp = Blueprint("backtest_multi_product_legacy", __name__, url_prefix="/backtest")
+legacy_bp = Blueprint("backtest_multi_product_legacy", __name__, url_prefix="/backtest-multi")
 
 
 @bp.route("/create")

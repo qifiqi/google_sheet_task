@@ -4,7 +4,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from app.dto.strategy_backtest_report import StrategyBacktestReportRequestDTO
+from app.schemas.backtest import StrategyBacktestReportSchema
 from app.extensions import db
 from app.models import Task, TaskResult, TaskResultReturn
 from app.utils.return_series import build_return_series_fields
@@ -52,7 +52,7 @@ def _report_analysis_result():
 
 
 def test_backtest_word_report_defaults_single_product_to_rpt_s():
-    request = StrategyBacktestReportRequestDTO.from_payload(_report_payload())
+    request = StrategyBacktestReportSchema.model_validate(_report_payload())
 
     assert request.report_type == "RPT-S"
 
@@ -66,7 +66,7 @@ def test_backtest_word_report_defaults_single_product_to_rpt_s():
 )
 def test_backtest_word_report_validates_source_and_product_count(payload, message):
     with pytest.raises(ValueError, match=message):
-        StrategyBacktestReportRequestDTO.from_payload(_report_payload(**payload))
+        StrategyBacktestReportSchema.model_validate(_report_payload(**payload))
 
 
 @pytest.mark.parametrize(
@@ -104,7 +104,7 @@ def test_backtest_word_report_id_uses_report_type(
     )
     if report_type == "RPT-M":
         payload.pop("returns")
-    request = StrategyBacktestReportRequestDTO.from_payload(payload)
+    request = StrategyBacktestReportSchema.model_validate(payload)
 
     report_data = strategy_backtest_report_service._build_report_data(
         request,
@@ -115,7 +115,7 @@ def test_backtest_word_report_id_uses_report_type(
 
 
 def test_v2_json_returns_are_normalized_without_a_product():
-    request = StrategyBacktestReportRequestDTO.from_payload({
+    request = StrategyBacktestReportSchema.model_validate({
         "returns": _report_payload()["returns"],
     })
 
@@ -132,7 +132,7 @@ def test_v2_google_sheet_returns_are_normalized(monkeypatch):
             None,
         ) if (spreadsheet_id, sheet_name) == ("sheet-id", "回测") else None,
     )
-    request = StrategyBacktestReportRequestDTO.from_payload({
+    request = StrategyBacktestReportSchema.model_validate({
         "google_sheet_url": "https://docs.google.com/spreadsheets/d/sheet-id/edit",
         "google_sheet_name": "回测",
     })
@@ -163,13 +163,13 @@ def test_single_product_task_uses_linked_return_series(app_factory):
         ))
         db.session.commit()
 
-        request = StrategyBacktestReportRequestDTO.from_payload({"task_id": task.id})
+        request = StrategyBacktestReportSchema.model_validate({"task_id": task.id})
 
         assert strategy_backtest_report_service._resolve_returns(request) == _report_payload()["returns"]
 
 
 def test_multi_product_returns_are_weighted_as_daily_returns():
-    request = StrategyBacktestReportRequestDTO.from_payload({
+    request = StrategyBacktestReportSchema.model_validate({
         "report_type": "RPT-M",
         "products": [
             {

@@ -21,6 +21,7 @@ from openpyxl.utils import get_column_letter
 from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter
 from app.repositories import task_repository, task_result_repository
+from app.schemas.backtest import CalculateRatiosSchema
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,

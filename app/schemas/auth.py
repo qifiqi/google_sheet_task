@@ -16,6 +16,7 @@ class CreateUserSchema(APIModel):
     mobile: str | None = None
     role_ids: list[int] = []
     is_active: bool = True
+    is_alert_oncall: bool = False
 
 
 class CreateRoleSchema(APIModel):

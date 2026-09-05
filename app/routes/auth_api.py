@@ -179,8 +179,8 @@ def create_user():
         generate_password_hash(password),
         role_ids=role_ids or None,
         mobile=mobile,
-        is_active=data.get('is_active', True),
-        is_alert_oncall=bool(data.get('is_alert_oncall', False)) and _can_alert_oncall(role_ids=role_ids),
+        is_active=data.is_active,
+        is_alert_oncall=data.is_alert_oncall and _can_alert_oncall(role_ids=role_ids),
     )
     return success(data=user, message='用户创建成功')
 
@@ -256,8 +256,8 @@ def create_role():
     role = rbac_repository.create_role(
         code,
         name,
-        permission_ids=data.get('permission_ids') or None,
-        description=data.get('description', ''),
+        permission_ids=data.permission_ids or None,
+        description=data.description,
     )
     return success(data=role, message='角色创建成功')
 

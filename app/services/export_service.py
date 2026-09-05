@@ -14,6 +14,7 @@ from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
 
 from app.models import Task
 from app.repositories import task_repository, task_result_repository
+from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.backtest_multi_product_service import (
     build_multi_product_global_preview_payload,
     build_multi_product_global_preview_word_payload,
@@ -278,27 +279,28 @@ class ExportService:
             filename = f"{filename}.csv"
         return GeneratedFile(filename, CSV_MIMETYPE, buffer, len(raw))
 
-    def export_backtest_word(self, payload: dict[str, Any]) -> GeneratedFile:
-        """生成策略回测 Word 报告并返回内存字节流。"""
-        if not isinstance(payload, dict):
-            raise ValueError("请求数据必须是 JSON 对象")
-        if str(payload.get("report_type") or "").upper() == "RPT-M":
-            task_id = str(payload.get("task_id") or "").strip()
-            group_key = payload.get("group_key")
-            ratios = payload.get("ratios")
-            if not task_id:
+    def export_backtest_word(self, report_request: StrategyBacktestReportSchema) -> GeneratedFile:
+        """生成策略回测 Word 报告并返回内存字节流。
+
+        请求边界校验由路由层 parse_body 完成；RPT-M 在此按任务构建
+        products 载荷后再次过 Schema，generate_word 只接收校验后的模型。
+        """
+        payload = report_request
+        if report_request.report_type == "RPT-M":
+            if not report_request.task_id:
                 raise ValueError("RPT-M 报告必须传入 task_id")
-            if group_key in (None, ""):
+            if report_request.group_key in (None, ""):
                 raise ValueError("RPT-M 报告必须传入 group_key")
-            if not isinstance(ratios, list):
+            if not isinstance(report_request.ratios, list):
                 raise ValueError("RPT-M 报告的 ratios 必须是数组")
-            payload = build_multi_product_global_preview_word_payload(
-                task_id,
-                str(group_key),
-                ratios_override=ratios,
+            word_payload = build_multi_product_global_preview_word_payload(
+                report_request.task_id,
+                str(report_request.group_key),
+                ratios_override=report_request.ratios,
             )
-            if payload is None:
+            if word_payload is None:
                 raise ValueError("task_id 不是有效的多产品回测任务")
+            payload = StrategyBacktestReportSchema.model_validate(word_payload)
         filename, buffer = strategy_backtest_report_service.generate_word(payload)
         return GeneratedFile(filename, DOCX_MIMETYPE, buffer, buffer.getbuffer().nbytes)
 

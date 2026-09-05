@@ -71,7 +71,9 @@ def test_single_search_route_returns_all_markets(app_factory, monkeypatch):
 
     assert response.status_code == 200
     assert captured == {"keyword": "腾讯", "market_type": None, "page_size": 8}
-    assert [item["code"] for item in response.get_json()["results"]] == ["QQQ", "000001"]
+    payload = response.get_json()
+    assert payload["status"] == "success"
+    assert [item["code"] for item in payload["data"]["results"]] == ["QQQ", "000001"]
     assert [rule.rule for rule in app.url_map.iter_rules() if "search-stocks" in rule.rule] == [
         "/api/search-stocks",
     ]

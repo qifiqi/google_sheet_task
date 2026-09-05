@@ -4,7 +4,7 @@
 
 ---
 
-你是在 `C:\Users\fuqing\Desktop\google_sheet_task` 仓库（Flask 长时任务执行平台，dev_vue 分支）执行**前端静态化重构**的代理。完整设计已定稿于 `docs/design/frontend-refactor/`，共 6 份文档：
+你是在 `D:\Users\Administrator\Desktop\谷歌参数批量校验` 仓库（Flask 长时任务执行平台，dev_vue 分支）执行**前端静态化重构**的代理。完整设计已定稿于 `docs/design/frontend-refactor/`，共 6 份文档：
 
 - `README.md` —— 背景、实测数据、目标/非目标、设计决策 D1~D8
 - `01-frontend-inventory.md` —— 前端资产全量清点（模板/路由/注入点/CDN/存储键/重复度）

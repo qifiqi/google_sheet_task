@@ -124,10 +124,14 @@ def batch_create_tasks():
     data = parse_body(TasksBatchCreateSchema).root
     logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
 
-    response, status_code = task_manager.batch_create_and_start_task(
-        data,
-        created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
-    )
+    try:
+        response, status_code = task_manager.batch_create_and_start_task(
+            data,
+            created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
+        )
+    except ValueError as exc:
+        # 服务层以 ValueError 表达请求校验失败（400 语义）。
+        raise BadRequestError(str(exc))
     if status_code == 200:
         response["debug_message"] = "已调用原有 C3 创建流程；当前仍为占位版批量接口"
     return jsonify(response), status_code

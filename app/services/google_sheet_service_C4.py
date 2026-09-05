@@ -389,7 +389,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             self._log_error(f"批量数据处理失败: {error_summary}")
             return 0, 1, 'error'
 
-    def     _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
+    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
         """保存任务结果到数据库，包含重试逻辑"""
 
         def save_result_operation():
