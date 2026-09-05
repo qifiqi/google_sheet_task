@@ -7,6 +7,7 @@ import pytest
 
 from app.extensions import db
 from app.models import Permission, StockMetadata, Task, TaskLog, TaskResult, TaskResultSummaryIndex
+from app.exceptions import ValidationError
 from app.services.model_summary_service import (
     MODEL_SUMMARY_REBUILD_TASK_TYPE,
     extract_summary_records,
@@ -479,7 +480,7 @@ def test_extract_backtest_fills_metrics_from_calculate_metrics_when_export_forma
         },
     )
     monkeypatch.setattr(
-        "app.services.model_summary_service.xpl_analyzer.format_export_file_data",
+        "app.services.model_summary.extractor.xpl_analyzer.format_export_file_data",
         lambda _payload: (_ for _ in ()).throw(RuntimeError("format failed")),
     )
 
@@ -818,16 +819,15 @@ def test_query_all_results_requires_stock_and_reads_raw_results(app_factory):
         db.session.commit()
 
         model_summary_service.rebuild(task_id="task-a", reset=True)
-        missing_stock = model_summary_service.query(
-            _User(),
-            {"best_only": "false", "page": 1, "per_page": 10},
-        )
+        with pytest.raises(ValidationError, match="查询全部结果时必须输入单个股票代码"):
+            model_summary_service.query(
+                _User(),
+                {"best_only": "false", "page": 1, "per_page": 10},
+            )
         payload = model_summary_service.query(
             _User(),
             {"best_only": "false", "stock_code": "600519", "page": 1, "per_page": 10},
         )
-
-        assert missing_stock["status"] == "error"
         assert TaskResultSummaryIndex.query.filter_by(task_id="task-a").count() == 1
         assert payload["pagination"]["total"] == 3
         assert [item["task_result_id"] for item in payload["items"]] == [22, 21, 20]

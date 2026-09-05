@@ -944,13 +944,14 @@
             if (data.status !== "success") {
                 throw new Error(data.message || "加载失败");
             }
-            state.columns = data.columns || [];
-            state.total = data.pagination?.total || 0;
-            state.pages = data.pagination?.pages || 0;
-            state.summary = data.summary || {};
+            const payload = data.data || {};
+            state.columns = payload.columns || [];
+            state.total = payload.pagination?.total || 0;
+            state.pages = payload.pagination?.pages || 0;
+            state.summary = payload.summary || {};
             renderHead();
             renderSummary(state.summary);
-            renderBody(data.items || []);
+            renderBody(payload.items || []);
             renderPagination();
             document.getElementById("statusText").textContent = "已加载";
         } finally {
