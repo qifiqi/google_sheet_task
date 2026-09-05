@@ -121,7 +121,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
-            except:
+            except Exception:  # best-effort 取消探测：失败不中断主流程
                 pass
 
             # 其他异常情况
@@ -356,7 +356,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
-                        except:
+                        except Exception:  # best-effort 取消探测：失败不中断主流程
                             pass
 
                         error_summary = self._record_execution_error_message(
@@ -379,7 +379,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
-            except:
+            except Exception:  # best-effort 取消探测：失败不中断主流程
                 pass
 
             error_summary = self._record_execution_error_message(e, "get_bdl")

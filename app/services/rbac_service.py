@@ -16,12 +16,15 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from app.exceptions import NotFoundError, UnauthorizedError, ValidationError
 from app.navigation import sync_navigation_permissions
 from app.repositories import navigation_repository, rbac_repository, task_repository
+from app.utils.logger import get_logger
 from app.utils.auth import (
     create_access_token,
     create_refresh_token,
     decode_token,
     extract_token_version,
 )
+
+logger = get_logger(__name__)
 
 # 值班告警仅对开发角色开放（is_alert_oncall 的角色白名单）
 DEV_ROLE_CODES = {'developer'}
@@ -70,6 +73,7 @@ def login_user(username: str, password: str) -> dict:
     rbac_repository.update_last_login(credentials["id"], datetime.now())
 
     user = rbac_repository.get_user(credentials["id"], include_permissions=True)
+    logger.info("用户登录成功: username=%s user_id=%s", username, user["id"])
     return {
         'access_token': create_access_token(user["id"], token_version=token_version),
         'refresh_token': create_refresh_token(user["id"], token_version=token_version),
@@ -111,6 +115,7 @@ def logout_user(user) -> None:
         user.id,
         {"token_version": int(user.token_version or 0) + 1},
     )
+    logger.info("用户登出并吊销存量令牌: user_id=%s", user.id)
 
 
 def change_password(user, old_pwd: str, new_pwd: str) -> None:
@@ -126,6 +131,7 @@ def change_password(user, old_pwd: str, new_pwd: str) -> None:
         "password_hash": generate_password_hash(new_pwd),
         "token_version": int(user.token_version or 0) + 1,
     })
+    logger.info("用户修改密码并吊销所有存量会话: user_id=%s", user.id)
 
 
 # ==================== User Management ====================
@@ -142,7 +148,7 @@ def create_user(*, username: str, password: str, mobile, role_ids,
     if rbac_repository.username_exists(username):
         raise ValidationError("用户名已存在")
 
-    return rbac_repository.create_user(
+    created = rbac_repository.create_user(
         username,
         generate_password_hash(password),
         role_ids=role_ids or None,
@@ -150,6 +156,8 @@ def create_user(*, username: str, password: str, mobile, role_ids,
         is_active=is_active,
         is_alert_oncall=is_alert_oncall and _can_alert_oncall(role_ids=role_ids),
     )
+    logger.info("创建用户: username=%s user_id=%s", username, created["id"])
+    return created
 
 
 def update_user(user_id: int, data: dict) -> dict:
@@ -183,6 +191,7 @@ def update_user(user_id: int, data: dict) -> dict:
         ) and _can_alert_oncall(user=refreshed)
         updated = rbac_repository.update_user(user_id, {"is_alert_oncall": alert_flag})
 
+    logger.info("更新用户: user_id=%s fields=%s", user_id, sorted(fields))
     return updated
 
 
@@ -195,6 +204,7 @@ def delete_user(user_id: int) -> None:
     with rbac_repository.transaction():
         task_repository.clear_created_by(user_id, commit=False)
         rbac_repository.delete_user(user_id, commit=False)
+    logger.info("删除用户: user_id=%s", user_id)
 
 
 # ==================== Role Management ====================
@@ -210,12 +220,14 @@ def create_role(*, name: str, code: str, permission_ids, description) -> dict:
     if rbac_repository.role_code_exists(code):
         raise ValidationError("角色编码已存在")
 
-    return rbac_repository.create_role(
+    created = rbac_repository.create_role(
         code,
         name,
         permission_ids=permission_ids or None,
         description=description,
     )
+    logger.info("创建角色: code=%s role_id=%s", code, created["id"])
+    return created
 
 
 def update_role(role_id: int, data: dict) -> dict:
@@ -228,11 +240,13 @@ def update_role(role_id: int, data: dict) -> dict:
         fields["name"] = data['name']
     if 'description' in data:
         fields["description"] = data['description']
-    return rbac_repository.update_role(
+    updated = rbac_repository.update_role(
         role_id,
         fields,
         permission_ids=data.get('permission_ids') if 'permission_ids' in data else None,
     )
+    logger.info("更新角色: role_id=%s fields=%s", role_id, sorted(fields))
+    return updated
 
 
 def delete_role(role_id: int) -> None:
@@ -242,6 +256,7 @@ def delete_role(role_id: int) -> None:
     if role["is_system"]:
         raise ValidationError("系统内置角色不可删除")
     rbac_repository.delete_role(role_id)
+    logger.info("删除角色: role_id=%s code=%s", role_id, role.get("code"))
 
 
 # ==================== Permission Query ====================
@@ -250,6 +265,7 @@ def list_permissions_grouped() -> dict:
     """权限清单（先幂等同步导航权限，再按 group 分组）。"""
     with rbac_repository.transaction():
         sync_navigation_permissions(navigation_repository.list_all_entities())
+    logger.info("已同步导航权限到权限表")
     grouped = {}
     for perm in rbac_repository.list_permissions():
         grouped.setdefault(perm["group"], []).append(perm)

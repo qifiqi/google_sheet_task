@@ -1,6 +1,5 @@
 from flask import Blueprint, g, render_template, request
 
-from app.exceptions import ValidationError
 from app.extensions import limiter
 from app.services.xpl_analysis_service import _EMPTY_RESULT_DATA, xpl_analysis_service
 from app.utils.api_response import error, success
@@ -67,13 +66,8 @@ def analyze_data():
     if not payload:
         return error('请求体不能为空', http_status=400, data=_EMPTY_RESULT_DATA)
 
-    try:
-        result = xpl_analysis_service.analyze_text(payload)
-    except ValidationError as exc:
-        return error(str(exc), http_status=400, data=_EMPTY_RESULT_DATA)
-    except Exception:
-        logger.exception("处理分析请求时出错")
-        return error('处理请求时出错', http_status=500, data=_EMPTY_RESULT_DATA)
+    # 不在路由内 try/except：ValidationError → 全局 400，其余异常 → 全局 500。
+    result = xpl_analysis_service.analyze_text(payload)
 
     if result["ok"]:
         return success(data=result["data"], message=result["message"])
@@ -105,13 +99,8 @@ def analyze_data_v1():
     if not payload:
         return error('请求体不能为空', http_status=400, data=_EMPTY_RESULT_DATA)
 
-    try:
-        result = xpl_analysis_service.analyze_sheet(payload)
-    except ValidationError as exc:
-        return error(str(exc), http_status=400, data=_EMPTY_RESULT_DATA)
-    except Exception:
-        logger.exception("处理分析请求时出错")
-        return error('处理请求时出错', http_status=500, data=_EMPTY_RESULT_DATA)
+    # 不在路由内 try/except：ValidationError → 全局 400，其余异常 → 全局 500。
+    result = xpl_analysis_service.analyze_sheet(payload)
 
     if result["ok"]:
         return success(data=result["data"], message=result["message"])

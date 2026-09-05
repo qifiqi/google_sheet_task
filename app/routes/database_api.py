@@ -21,6 +21,7 @@ def get_database_status():
 @admin_required
 def vacuum_database():
     """压缩数据库"""
+    logger.info("请求执行数据库 VACUUM")
     result = DatabaseMonitor.vacuum_database()
     if result.get('success'):
         return success(data={"result": result})

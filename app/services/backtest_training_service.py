@@ -227,7 +227,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
-            except:
+            except Exception:  # best-effort 取消探测：失败不中断主流程
                 pass
 
             # 其他异常情况：保留原始异常链，并记录结构化摘要供任务详情和看门狗使用。
@@ -475,7 +475,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
-                        except:
+                        except Exception:  # best-effort 取消探测：失败不中断主流程
                             pass
 
                         record = record_task_exception(
@@ -503,7 +503,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
-            except:
+            except Exception:  # best-effort 取消探测：失败不中断主流程
                 pass
 
             record = record_task_exception(self.task_id, e, "get_bdl", self.app)

@@ -6,9 +6,12 @@
 from flask import Blueprint, request
 
 from app.utils.api_response import success
+from app.utils.logger import get_logger
 from app.utils.auth import login_required
 
 logs_api_bp = Blueprint('logs_api', __name__)
+
+logger = get_logger(__name__)
 
 
 @logs_api_bp.route('/logs', methods=['GET'])
@@ -49,6 +52,8 @@ def get_logs():
                         timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
                         iso_timestamp = timestamp.isoformat()
                     except Exception:
+                        # 时间戳解析失败属已知降级路径：保留原始字符串并记录，不再静默。
+                        logger.debug("日志时间戳解析失败，原样保留: %s", timestamp_str)
                         iso_timestamp = timestamp_str
 
                     log_entry = {
@@ -119,6 +124,8 @@ def get_latest_logs():
                         timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
                         iso_timestamp = timestamp.isoformat()
                     except Exception:
+                        # 时间戳解析失败属已知降级路径：保留原始字符串并记录，不再静默。
+                        logger.debug("日志时间戳解析失败，原样保留: %s", timestamp_str)
                         iso_timestamp = timestamp_str
 
                     if since and iso_timestamp <= since:

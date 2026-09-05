@@ -105,8 +105,10 @@ def task_detail(task_id):
             raise NotFoundError("任务不存在")
         return success(data={"task": task})
 
+    logger.info("请求删除任务: task_id=%s", task_id)
     deleted = task_manager.delete_task(task_id)
     if deleted:
+        logger.info("任务已删除: task_id=%s", task_id)
         return success(message="任务已删除")
     raise BadRequestError("删除任务失败")
 
@@ -143,6 +145,7 @@ def update_task_config(task_id):
 def cancel_task(task_id):
     """取消任务"""
     task_manager.get_required_task(task_id)
+    logger.info("请求取消任务: task_id=%s", task_id)
 
     cancelled = task_manager.cancel_task(task_id)
     if cancelled:
@@ -188,6 +191,11 @@ def restart_task(task_id):
     task_manager.get_required_task(task_id)
 
     data = parse_body(TaskRestartSchema)
+    logger.info(
+        "请求重启任务: task_id=%s resume_from_checkpoint=%s",
+        task_id,
+        data.resume_from_checkpoint,
+    )
 
     result = task_manager.restart_task(task_id, data.resume_from_checkpoint)
     if result["status"] == "success":
@@ -261,6 +269,8 @@ def get_task_system_logs(task_id):
                         timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
                         iso_timestamp = timestamp.isoformat()
                     except Exception:
+                        # 时间戳解析失败属已知降级路径：保留原始字符串并记录，不再静默。
+                        logger.debug("日志时间戳解析失败，原样保留: %s", timestamp_str)
                         iso_timestamp = timestamp_str
 
                     log_entry = {

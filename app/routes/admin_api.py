@@ -12,8 +12,10 @@ from app.services.task import TaskRuntimeViewService, task_manager
 from app.extensions import limiter
 from app.utils.api_response import success
 from app.utils.auth import admin_required, login_required
+from app.utils.logger import get_logger
 
 admin_api_bp = Blueprint('admin_api', __name__, url_prefix='/admin')
+logger = get_logger(__name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
 
 def get_config_value(key, default):
@@ -87,6 +89,7 @@ def model_summary_api():
 )
 def rebuild_model_summary_api():
     """重建单模型汇总索引。"""
+    logger.info("请求重建模型汇总索引: params=%s", request.get_json(silent=True) or {})
     data = request.get_json(silent=True) or {}
     job = model_summary_service.start_rebuild_job(
         current_app._get_current_object(),
@@ -119,6 +122,7 @@ def task_runtime_detail(task_id):
 def cleanup_completed_tasks():
     """清理已完成的异步任务记录"""
     max_age_hours = request.json.get('max_age_hours', 24) if request.is_json else 24
+    logger.info("请求清理已完成异步任务记录: max_age_hours=%s", max_age_hours)
 
     # 清理已完成的任务
     scheduler_service.cleanup_completed_tasks(max_age_hours)

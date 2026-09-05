@@ -10,6 +10,9 @@ from app.exceptions import NotFoundError, ValidationError
 from app.navigation import sync_navigation_permissions
 from app.repositories import navigation_repository
 from app.services.config_manager import coerce_bool
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def list_visible_entities():
@@ -102,6 +105,7 @@ def create_menu_item(data: dict) -> dict:
     with navigation_repository.transaction():
         item = navigation_repository.create_entity(payload, commit=False)
         sync_navigation_permissions([item])
+    logger.info("创建导航菜单: key=%s", item.key)
     return _menu_item_payload(item)
 
 
@@ -116,6 +120,7 @@ def update_menu_item(item_id: int, data: dict) -> dict:
         for key, value in payload.items():
             setattr(item, key, value)
         sync_navigation_permissions([item])
+    logger.info("更新导航菜单: key=%s item_id=%s", item.key, item_id)
     return _menu_item_payload(item)
 
 
@@ -129,3 +134,4 @@ def delete_menu_item(item_id: int) -> None:
         raise ValidationError("请先删除或移动子菜单")
 
     navigation_repository.delete(item_id)
+    logger.info("删除导航菜单: key=%s item_id=%s", item.key, item_id)
