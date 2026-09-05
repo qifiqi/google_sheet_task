@@ -29,6 +29,9 @@ logger = get_logger(__name__)
 
 
 class C5Service(BaseGoogleSheetService):
+    # 去重日志标签（公共去重器见基类）
+    _dedupe_label = "C5"
+
     """Google Sheet服务 - C5"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
@@ -40,11 +43,7 @@ class C5Service(BaseGoogleSheetService):
         self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
 
     @staticmethod
-    def _get_resume_start_index(current_step: int | None, total_combinations: int) -> int:
-        """返回下一条待执行组合的下标。"""
-        return min(max(int(current_step or 0), 0), total_combinations)
 
-    @staticmethod
     def _to_decimal_ratio(value: Any) -> float:
         """Convert percentage-like values into decimal ratios for outbound payloads."""
         if value in (None, ""):
@@ -816,38 +815,4 @@ class C5Service(BaseGoogleSheetService):
         data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
         return data, len(all_kline) + 20,KLINE_DATA_MAP
 
-    def _deduplicate_parameter_combinations(self, combinations, kline_data_map):
-        """按股票、参数和实际K线区间去除重复回测组合。"""
-        deduplicated = []
-        seen = set()
-        for combination in combinations:
-            kline = kline_data_map.get(combination.get('Kline_key'))
-            if not kline:
-                deduplicated.append(combination)
-                continue
 
-            kline_signature = (
-                kline[0].get('stock_date'),
-                kline[-1].get('stock_date'),
-                len(kline),
-            )
-            signature = (
-                str(combination.get('stock_code', '')),
-                str(combination.get('A1', '')),
-                str(combination.get('B1', '')),
-                kline_signature,
-            )
-            if signature in seen:
-                self._log_info(
-                    "跳过重复 C5 参数组合："
-                    f"股票={combination.get('stock_code', '')}，"
-                    f"A1={combination.get('A1', '')}，B1={combination.get('B1', '')}，"
-                    f"K线区间={kline_signature[0]}~{kline_signature[1]}，"
-                    f"行数={kline_signature[2]}"
-                )
-                continue
-
-            seen.add(signature)
-            deduplicated.append(combination)
-
-        return deduplicated

@@ -36,6 +36,16 @@ logger = get_logger(__name__)
 
 
 class C7Service(BaseGoogleSheetService):
+    # 去重日志标签（公共去重器见基类）
+    _dedupe_label = "C7"
+
+    def _dedupe_extra_signature(self, combination: dict) -> tuple:
+        """C7 随机价分组参与去重签名（同组同K线视为重复）。"""
+        return (
+            str(combination.get('random_group', '')),
+            str(combination.get('Kline_key', '')) if combination.get('random_group') else '',
+        )
+
     """Google Sheet服务 - C7"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
@@ -52,11 +62,7 @@ class C7Service(BaseGoogleSheetService):
             raise RetryableNetworkTaskError(f"{context}: {root}") from exc
 
     @staticmethod
-    def _get_resume_start_index(current_step: int | None, total_combinations: int) -> int:
-        """返回下一条待执行组合的下标。"""
-        return min(max(int(current_step or 0), 0), total_combinations)
 
-    @staticmethod
     def _get_c7_model_version(config_data: Dict[str, Any], google_sheet=None) -> str:
         """读取单表 C7 版本，旧任务和缺省配置统一按 C7.0.2 处理。"""
         spreadsheet_id = getattr(google_sheet, "spreadsheet_id", None)
@@ -1090,40 +1096,4 @@ class C7Service(BaseGoogleSheetService):
         data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
         return data, len(all_kline) + 20,KLINE_DATA_MAP
 
-    def _deduplicate_parameter_combinations(self, combinations, kline_data_map):
-        """按股票、参数和实际K线区间去除重复回测组合。"""
-        deduplicated = []
-        seen = set()
-        for combination in combinations:
-            kline = kline_data_map.get(combination.get('Kline_key'))
-            if not kline:
-                deduplicated.append(combination)
-                continue
 
-            kline_signature = (
-                kline[0].get('stock_date'),
-                kline[-1].get('stock_date'),
-                len(kline),
-            )
-            signature = (
-                str(combination.get('stock_code', '')),
-                str(combination.get('A1', '')),
-                str(combination.get('B1', '')),
-                str(combination.get('random_group', '')),
-                str(combination.get('Kline_key', '')) if combination.get('random_group') else '',
-                kline_signature,
-            )
-            if signature in seen:
-                self._log_info(
-                    "跳过重复 C7 参数组合："
-                    f"股票={combination.get('stock_code', '')}，"
-                    f"A1={combination.get('A1', '')}，B1={combination.get('B1', '')}，"
-                    f"K线区间={kline_signature[0]}~{kline_signature[1]}，"
-                    f"行数={kline_signature[2]}"
-                )
-                continue
-
-            seen.add(signature)
-            deduplicated.append(combination)
-
-        return deduplicated

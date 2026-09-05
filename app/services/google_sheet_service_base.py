@@ -317,6 +317,59 @@ class BaseGoogleSheetService:
         """收益序列 stock_name 取值钩子；子类可重写以增加回退字段。"""
         return safe_parameters.get("stock_name")
 
+
+    # ---- 断点/去重公共件（原 C5/C7 逐字或近逐字复制，C3 批次收敛）----
+
+    # 去重日志中的任务标签；子类按需覆盖。
+    _dedupe_label = "C"
+
+    @staticmethod
+    def _get_resume_start_index(current_step: int | None, total_combinations: int) -> int:
+        """返回下一条待执行组合的下标（current_step 为已完成组合数）。"""
+        return min(max(int(current_step or 0), 0), total_combinations)
+
+    def _dedupe_extra_signature(self, combination: dict) -> tuple:
+        """去重签名的任务特定附加字段；默认无附加。"""
+        return ()
+
+    def _deduplicate_parameter_combinations(self, combinations, kline_data_map):
+        """按股票、参数和实际K线区间去除重复回测组合。"""
+        deduplicated = []
+        seen = set()
+        for combination in combinations:
+            kline = kline_data_map.get(combination.get('Kline_key'))
+            if not kline:
+                deduplicated.append(combination)
+                continue
+
+            kline_signature = (
+                kline[0].get('stock_date'),
+                kline[-1].get('stock_date'),
+                len(kline),
+            )
+            signature = (
+                str(combination.get('stock_code', '')),
+                str(combination.get('A1', '')),
+                str(combination.get('B1', '')),
+                kline_signature,
+                *self._dedupe_extra_signature(combination),
+            )
+            if signature in seen:
+                self._log_info(
+                    f"跳过重复 {self._dedupe_label} 参数组合："
+                    f"股票={combination.get('stock_code', '')}，"
+                    f"A1={combination.get('A1', '')}，B1={combination.get('B1', '')}，"
+                    f"K线区间={kline_signature[0]}~{kline_signature[1]}，"
+                    f"行数={kline_signature[2]}"
+                )
+                continue
+
+            seen.add(signature)
+            deduplicated.append(combination)
+
+        return deduplicated
+
+
     def execute_task(self):
         """执行任务的模板方法（原 C4/C5/C7 逐字相同的 97 行骨架，C1 收敛为基类唯一实现）。
 
