@@ -274,6 +274,27 @@ class TaskResultRepository(BaseRepository):
         self._commit()
         return result.to_dict()
 
+    def create_with_return(self, result_fields, return_fields=None, commit=True):
+        """TaskResult + TaskResultReturn 原子写入（执行链 _save_task_result 出口）。
+
+        return_fields 提供时插入收益序列并回链 return_series_id；
+        两表同事务提交，异常 rollback 后原样 raise。
+        """
+        try:
+            result = TaskResult(**result_fields)
+            db.session.add(result)
+            if return_fields:
+                return_series = TaskResultReturn(**return_fields)
+                db.session.add(return_series)
+                self.flush()
+                result.return_series_id = return_series.id
+            if commit:
+                self._commit()
+            return result.to_dict()
+        except Exception:
+            db.session.rollback()
+            raise
+
     def bulk_create(self, rows):
         for fields in rows or []:
             db.session.add(TaskResult(**fields))

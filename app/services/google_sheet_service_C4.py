@@ -7,8 +7,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import TaskResult, TaskResultReturn
-from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -388,53 +386,6 @@ class GoogleSheetService(BaseGoogleSheetService):
             error_summary = self._record_execution_error_message(e, "get_bdl")
             self._log_error(f"批量数据处理失败: {error_summary}")
             return 0, 1, 'error'
-
-    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
-        """保存任务结果到数据库，包含重试逻辑"""
-
-        def save_result_operation():
-            _index_start_return_date = None
-            safe_parameters = self._normalize_result_parameters(parameters)
-            safe_result = self._sanitize_json_value(
-                self._prepare_result_for_persistence(result)
-            )
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success
-            )
-            task_result_repository.add_entity(task_result)
-            series_fields = build_return_series_fields(
-                extract_return_rows(result),
-                stock_code=safe_parameters.get("stock_code"),
-                stock_name=safe_parameters.get("stock_name"),
-                market_type=self._get_return_series_market_type(safe_parameters),
-                exchange_market=self._get_return_series_exchange_market(safe_parameters),
-            )
-            if series_fields:
-                return_series = TaskResultReturn(task_id=self.task_id, **series_fields)
-                task_result_repository.add_entity(return_series)
-                task_result_repository.flush()
-                task_result.return_series_id = return_series.id
-            task_result_repository.commit()
-
-        try:
-            if self.app:
-                with self.app.app_context():
-                    safe_db_operation(save_result_operation)
-            else:
-                from flask import current_app
-                with current_app.app_context():
-                    safe_db_operation(save_result_operation)
-        except Exception as e:
-            task_result_repository.rollback()
-            error_msg = f"保存任务结果失败: {str(e)}"
-            self._log_error(error_msg)
-            raise
-
-
 
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次

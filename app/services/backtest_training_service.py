@@ -8,13 +8,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db, TaskResultReturn
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.alert_decorator import alert_on_failure
-from app.utils.db_retry import safe_db_operation, db_retry_manager
+from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
@@ -25,7 +24,6 @@ from app.utils.task_error_utils import (
     unwrap_exception,
 )
 from app.utils.kline_validation import require_kline_rows
-from app.utils.return_series import build_return_series_fields
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.utils.market import normalize_market_type
 
@@ -760,65 +758,13 @@ class BacktestTrainingService(BaseGoogleSheetService):
             self._log_error(f"执行参数组合时出错: {format_task_error_message(record)}")
             raise
 
-    def _save_task_result(
-        self,
-        step_index: int,
-        parameters,
-        result: Dict,
-        success: bool,
-        return_date=None,
-    ):
-        """保存任务结果到数据库，包含重试逻辑"""
-
-        def save_result_operation():
-            safe_parameters = self._normalize_result_parameters(parameters)
-            safe_result = self._sanitize_json_value(
-                self._prepare_result_for_persistence(result)
-            )
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success
-            )
-            task_result_repository.add_entity(task_result)
-            if return_date:
-                series_fields = build_return_series_fields(
-                    return_date,
-                    stock_code=safe_parameters.get("stock_code"),
-                    stock_name=(
-                        safe_parameters.get("stock_name")
-                        or safe_parameters.get("name")
-                        or safe_parameters.get("stock_code")
-                    ),
-                    market_type=self._get_return_series_market_type(safe_parameters),
-                    exchange_market=self._get_return_series_exchange_market(safe_parameters),
-                )
-                if not series_fields:
-                    raise ValueError("收益序列缺少有效日期")
-                return_series = TaskResultReturn(
-                    task_id=self.task_id,
-                    **series_fields,
-                )
-                task_result_repository.add_entity(return_series)
-                task_result_repository.flush()
-                task_result.return_series_id = return_series.id
-            task_result_repository.commit()
-
-        try:
-            if self.app:
-                with self.app.app_context():
-                    safe_db_operation(save_result_operation)
-            else:
-                from flask import current_app
-                with current_app.app_context():
-                    safe_db_operation(save_result_operation)
-        except Exception as e:
-            task_result_repository.rollback()
-            error_msg = f"保存任务结果失败: {str(e)}"
-            self._log_error(error_msg)
-            raise
+    def _get_return_series_stock_name(self, safe_parameters):
+        """回测结果缺 stock_name 时依次回退任务 name、stock_code。"""
+        return (
+            safe_parameters.get("stock_name")
+            or safe_parameters.get("name")
+            or safe_parameters.get("stock_code")
+        )
 
     def _get_all_parameters(
         self,

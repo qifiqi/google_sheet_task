@@ -13,6 +13,7 @@ from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation
 from app.utils.db_stock_api import StockAPIClient
 from app.utils.market import infer_market_type, normalize_stock_code
+from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.utils.logger import get_logger
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 
@@ -300,6 +301,67 @@ class BaseGoogleSheetService:
         if isinstance(result, tuple):
             return [cls._prepare_result_for_persistence(value) for value in result]
         return result
+
+    def _build_task_result_persistence_payload(
+        self, safe_parameters: dict[str, Any], result: Any, return_date=None
+    ):
+        """持久化前的结果载荷整形钩子；默认透传，子类按需重写。"""
+        return result
+
+    def _get_return_series_stock_name(self, safe_parameters: dict[str, Any]):
+        """收益序列 stock_name 取值钩子；子类可重写以增加回退字段。"""
+        return safe_parameters.get("stock_name")
+
+    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool, return_date=None):
+        """保存任务结果到数据库，包含重试逻辑。
+
+        return_date 不为 None 时作为收益序列唯一行来源（空列表即不写序列）；
+        为 None 时从 result 提取（C3~C7 行为）。
+        """
+        def save_result_operation():
+            safe_parameters = self._normalize_result_parameters(parameters)
+            safe_result = self._sanitize_json_value(
+                self._prepare_result_for_persistence(
+                    self._build_task_result_persistence_payload(safe_parameters, result, return_date)
+                )
+            )
+            return_rows = return_date if return_date is not None else extract_return_rows(result)
+            series_fields = None
+            if return_rows:
+                series_fields = build_return_series_fields(
+                    return_rows,
+                    stock_code=safe_parameters.get("stock_code"),
+                    stock_name=self._get_return_series_stock_name(safe_parameters),
+                    market_type=self._get_return_series_market_type(safe_parameters),
+                    exchange_market=self._get_return_series_exchange_market(safe_parameters),
+                )
+                if return_date and not series_fields:
+                    raise ValueError("收益序列缺少有效日期")
+            result_fields = {
+                "task_id": self.task_id,
+                "step_index": step_index,
+                "parameters": json.dumps(safe_parameters, allow_nan=False),
+                "result": json.dumps(safe_result, allow_nan=False),
+                "success": success,
+            }
+            return_fields = {"task_id": self.task_id, **series_fields} if series_fields else None
+            task_result_repository.create_with_return(result_fields, return_fields)
+
+        try:
+            if self.app:
+                # 在后台线程中使用传递的应用实例
+                with self.app.app_context():
+                    safe_db_operation(save_result_operation)
+            else:
+                # 在主线程中使用当前应用上下文
+                with current_app.app_context():
+                    safe_db_operation(save_result_operation)
+        except Exception as e:
+            task_result_repository.rollback()
+            error_msg = f"保存任务结果失败: {str(e)}"
+            self._log_error(error_msg)
+            raise
+            # 注意：这里不能使用_push_log，因为可能导致循环调用
 
     def _log_info(self, message: str, log_type: str = 'general', **kwargs):
         self._log('info', message, log_type, **kwargs)
