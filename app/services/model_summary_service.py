@@ -14,9 +14,6 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import func, or_
-from sqlalchemy.orm import Load
-
 from flask import has_app_context
 
 from app.repositories import backtest_repository, task_log_repository, task_repository, task_result_repository
@@ -343,16 +340,6 @@ def _period_key_for_record(task: Task, parameters: Any, year_label: str) -> str:
 def _summary_record_group_key(row: SummaryRecord) -> str:
     """处理_summary_record_group_key相关逻辑。"""
     return row.period_key or row.year_label or row.kline_range or ""
-
-
-def _summary_index_group_expression():
-    """处理_summary_index_group_expression相关逻辑。"""
-    return func.coalesce(
-        func.nullif(TaskResultSummaryIndex.period_key, ""),
-        func.nullif(TaskResultSummaryIndex.year_label, ""),
-        func.nullif(TaskResultSummaryIndex.kline_range, ""),
-        "",
-    )
 
 
 def _json_text(value: Any) -> str:
@@ -1194,13 +1181,9 @@ class ModelSummaryService:
     ) -> dict[str, int]:
         """处理_rebuild_locked相关逻辑。"""
         if reset:
-            delete_query = TaskResultSummaryIndex.query
-            if task_id:
-                delete_query = delete_query.filter(TaskResultSummaryIndex.task_id == task_id)
-            if task_type:
-                delete_query = delete_query.filter(TaskResultSummaryIndex.task_type == task_type)
-            deleted = delete_query.delete(synchronize_session=False)
-            task_result_repository.commit()
+            deleted = backtest_repository.delete_summary_index_by_scope(
+                task_type=task_type, task_id=task_id
+            )
         else:
             deleted = 0
 
@@ -1323,21 +1306,16 @@ class ModelSummaryService:
 
     def _active_rebuild_job(self) -> dict[str, Any] | None:
         """处理_active_rebuild_job相关逻辑。"""
-        task = (
-            Task.query
-            .filter(
-                Task.task_type == MODEL_SUMMARY_REBUILD_TASK_TYPE,
-                Task.status.in_(ACTIVE_REBUILD_TASK_STATUSES),
-            )
-            .order_by(Task.created_at.desc(), Task.id.desc())
-            .first()
+        latest_task_id = task_repository.get_latest_task_id_by_type(
+            MODEL_SUMMARY_REBUILD_TASK_TYPE,
+            statuses=ACTIVE_REBUILD_TASK_STATUSES,
         )
-        if not task:
+        if not latest_task_id:
             return None
 
-        job = self._job_from_task(task.id)
+        job = self._job_from_task(latest_task_id)
         if job:
-            job["message"] = f"已有索引重建任务正在执行: {task.id}"
+            job["message"] = f"已有索引重建任务正在执行: {latest_task_id}"
         return job
 
     def get_rebuild_job(self, job_id: str) -> dict[str, Any] | None:
@@ -1352,13 +1330,10 @@ class ModelSummaryService:
         """处理latest_rebuild_job相关逻辑。"""
         with self._jobs_lock:
             if not self._jobs:
-                task = (
-                    Task.query
-                    .filter_by(task_type=MODEL_SUMMARY_REBUILD_TASK_TYPE)
-                    .order_by(Task.created_at.desc())
-                    .first()
+                latest_task_id = task_repository.get_latest_task_id_by_type(
+                    MODEL_SUMMARY_REBUILD_TASK_TYPE
                 )
-                return self._job_from_task(task.id) if task else None
+                return self._job_from_task(latest_task_id) if latest_task_id else None
             job = max(self._jobs.values(), key=lambda item: item.get("started_at") or "")
             return self._job_with_task_status(dict(job))
 
@@ -1453,16 +1428,21 @@ class ModelSummaryService:
                 ignore_permissions=ignore_permissions,
             )
 
-        query = TaskResultSummaryIndex.query
-
         allowed_types = SUPPORTED_TASK_TYPES
         if not allowed_types:
             return self._empty_response(page, per_page)
 
+        index_filters: dict[str, Any] = {
+            "stock_keyword": stock_code,
+            "market_type": market_type,
+            "period_key": period_filter,
+            "excess_return_min": excess_return_min,
+        }
+
         if task_type:
             if task_type not in allowed_types:
                 return self._empty_response(page, per_page, columns=self._columns_for_task_type(task_type))
-            query = query.filter(TaskResultSummaryIndex.task_type == task_type)
+            index_filters["task_type"] = task_type
         else:
             visible_types = [
                 allowed_type
@@ -1471,91 +1451,54 @@ class ModelSummaryService:
             ]
             if not visible_types:
                 return self._empty_response(page, per_page)
-            query = query.filter(TaskResultSummaryIndex.task_type.in_(visible_types))
+            index_filters["visible_types"] = visible_types
 
-        query = self._apply_stock_keyword_filter(query, stock_code)
-        query = self._apply_market_type_filter(query, market_type)
-
-        if period_filter:
-            query = query.filter(TaskResultSummaryIndex.period_key == period_filter)
-
-        if excess_return_min is not None:
-            query = query.filter(TaskResultSummaryIndex.best_metric_value > excess_return_min)
-
-        # 添加时间范围查询
+        # 添加时间范围查询（无效日期格式忽略，与原逻辑一致）
         if result_date_from:
             try:
-                from_date = datetime.strptime(result_date_from, "%Y-%m-%d")
-                query = query.filter(TaskResultSummaryIndex.result_timestamp >= from_date)
+                index_filters["result_date_from"] = datetime.strptime(result_date_from, "%Y-%m-%d")
             except ValueError:
                 pass  # 忽略无效的日期格式
 
         if result_date_to:
             try:
-                to_date = datetime.strptime(result_date_to, "%Y-%m-%d")
                 # 包含结束日期的整天
-                to_date = to_date.replace(hour=23, minute=59, second=59)
-                query = query.filter(TaskResultSummaryIndex.result_timestamp <= to_date)
+                index_filters["result_date_to"] = datetime.strptime(
+                    result_date_to, "%Y-%m-%d"
+                ).replace(hour=23, minute=59, second=59)
             except ValueError:
                 pass  # 忽略无效的日期格式
 
         task_id = str(filters.get("task_id") or "").strip()
         if task_id:
-            query = query.filter(TaskResultSummaryIndex.task_id == task_id)
+            index_filters["task_id"] = task_id
 
         result_id = filters.get("result_id")
         if result_id:
-            query = query.filter(TaskResultSummaryIndex.task_result_id == int(result_id))
+            index_filters["result_id"] = result_id
 
         summary_type = str(filters.get("summary_type") or "task").strip().lower()
         if summary_type not in {"task", "stock"}:
             summary_type = "task"
 
-        if summary_type == "stock":
-            query = query.filter(TaskResultSummaryIndex.is_best == True)
-            query = query.filter(
-                TaskResultSummaryIndex.stock_code.isnot(None),
-                TaskResultSummaryIndex.stock_code != "",
-            )
-            query = self._stock_summary_query(query)
-        else:
-            query = query.order_by(
-                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                TaskResultSummaryIndex.best_metric_value.desc(),
-                TaskResultSummaryIndex.id.desc(),
-            )
-        # 优化：只提取 summary 需要的字段，避免全量 to_dict() 和重复转换
-        summary_query = query.with_entities(
-            TaskResultSummaryIndex.stock_code,
-            TaskResultSummaryIndex.task_id,
-            TaskResultSummaryIndex.best_metric_value,
+        page_data = backtest_repository.page_summary_index(
+            index_filters, page, per_page, best_per_stock=(summary_type == "stock")
         )
-        summary_items = [
-            {
-                "stock_code": row[0],
-                "task_id": row[1],
-                "best_metric_value": row[2],
-            }
-            for row in summary_query.all()
-        ]
-        summary = self._summary_from_items(summary_items)
-        # 直接使用分页查询，避免重复查询
-        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-
+        summary = self._summary_from_items(page_data["summary_items"])
 
         return {
             "status": "success",
             "summary_type": summary_type,
             "columns": self._columns_for_task_type(task_type),
             "summary": summary,
-            "items": [item.to_dict() for item in pagination.items],
+            "items": page_data["items"],
             "pagination": {
                 "page": page,
                 "per_page": per_page,
-                "total": pagination.total,
-                "pages": pagination.pages,
-                "has_prev": pagination.has_prev,
-                "has_next": pagination.has_next,
+                "total": page_data["total"],
+                "pages": page_data["pages"],
+                "has_prev": page_data["has_prev"],
+                "has_next": page_data["has_next"],
             },
         }
 
@@ -1839,52 +1782,6 @@ class ModelSummaryService:
             return candidate_timestamp > current_timestamp
         return candidate.task_result_id > current.task_result_id
 
-    def _stock_summary_query(self, query):
-        """处理_stock_summary_query相关逻辑。"""
-        subquery = (
-            query
-            .with_entities(
-                TaskResultSummaryIndex.id.label("id"),
-                func.row_number().over(
-                    partition_by=TaskResultSummaryIndex.stock_code,
-                    order_by=(
-                        func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                        TaskResultSummaryIndex.best_metric_value.desc(),
-                        TaskResultSummaryIndex.id.desc(),
-                    ),
-                ).label("row_number"),
-            )
-            .subquery()
-        )
-        return (
-            TaskResultSummaryIndex.query
-            .join(subquery, TaskResultSummaryIndex.id == subquery.c.id)
-            .filter(subquery.c.row_number == 1)
-            .order_by(
-                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
-                TaskResultSummaryIndex.best_metric_value.desc(),
-                TaskResultSummaryIndex.stock_code.asc(),
-                TaskResultSummaryIndex.id.desc(),
-            )
-        )
-
-    def _apply_market_type_filter(self, query, market_type: str):
-        """处理_apply_market_type_filter相关逻辑。"""
-        if not market_type:
-            return query
-        return query.filter(TaskResultSummaryIndex.market_type == market_type)
-
-    def _apply_stock_keyword_filter(self, query, stock_keyword: str):
-        """处理_apply_stock_keyword_filter相关逻辑。"""
-        if not stock_keyword:
-            return query
-        pattern = f"%{stock_keyword}%"
-        return query.filter(or_(
-            TaskResultSummaryIndex.stock_code.ilike(pattern),
-            TaskResultSummaryIndex.stock_name.ilike(pattern),
-            TaskResultSummaryIndex.task_name.ilike(pattern),
-        ))
-
     def _summary_from_items(self, items) -> dict[str, int]:
         """处理_summary_from_items相关逻辑。"""
         stock_codes: set[str] = set()
@@ -1938,7 +1835,6 @@ class ModelSummaryService:
     def _dedupe_best_per_task(self, task_type: str | None = None, task_id: str | None = None) -> int:
         """处理_dedupe_best_per_task相关逻辑。"""
         return backtest_repository.dedupe_best_per_task(
-            _summary_index_group_expression(),
             task_type=task_type,
             task_id=task_id,
         )

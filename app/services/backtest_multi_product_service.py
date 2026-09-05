@@ -13,15 +13,14 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from flask import current_app
-from sqlalchemy.exc import IntegrityError
 
 from app.repositories import backtest_repository, task_repository, task_result_repository
-from app.models import BacktestProductResultCache, Task, TaskResult, TaskResultReturn
+from app.models import Task, TaskResult, TaskResultReturn
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.services.xpl_service import xpl_analyzer
-from app.utils.db_retry import db_retry_manager, safe_db_operation
+from app.utils.db_retry import safe_db_operation
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.return_series import build_return_series_fields, parse_return_series_fields
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
@@ -786,21 +785,16 @@ class BacktestMultiProductService(BacktestTrainingService):
             return
 
         cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
-        if backtest_repository.product_cache_exists(batch_id, cache_key):
-            return
-
-        backtest_repository.add_entity(BacktestProductResultCache(
-            batch_id=batch_id,
-            cache_key=cache_key,
-            result_json=json.dumps(self._sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
-            returns_json=_build_returns_json(return_date or []) if return_date else None,
-            source_task_id=self.task_id,
-            source_step_index=step_index,
-        ))
-        try:
-            task_result_repository.commit()
-        except IntegrityError:
-            task_result_repository.rollback()
+        backtest_repository.insert_product_cache_if_absent(
+            batch_id,
+            cache_key,
+            {
+                "result_json": json.dumps(self._sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
+                "returns_json": _build_returns_json(return_date or []) if return_date else None,
+                "source_task_id": self.task_id,
+                "source_step_index": step_index,
+            },
+        )
 
     def _build_cached_result_parameters(
         self,
@@ -1274,12 +1268,7 @@ def build_multi_product_global_preview_payload(
                 ratio.get("ratio") if isinstance(ratio, dict) else ratio
             )
     # 结果必须按 step_index 稳定排序，后续按产品索引归位时才能保持执行顺序。
-    results = (
-        TaskResult.query
-        .filter_by(task_id=task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-        .all()
-    )
+    results = task_result_repository.list_preview_entities(task_id)
     weighting_mode = normalize_weighting_mode(config.get("weighting_mode"))
     cache_key = _global_preview_cache_key(
         task_id,
@@ -1462,12 +1451,7 @@ def build_multi_product_global_preview_word_payload(
             )
 
     product_results: dict[int, dict[str, Any]] = {}
-    results = (
-        TaskResult.query
-        .filter_by(task_id=task_id, success=True)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-        .all()
-    )
+    results = task_result_repository.list_preview_entities(task_id, success_only=True)
     for result in results:
         parameters = _parse_json(result.parameters, {})
         if str(parameters.get("parameter_group_index") or 0) != str(group_key):

@@ -238,7 +238,7 @@ class ExportService:
 
     def export_backtest_result(self, result_id: int) -> GeneratedFile:
         """处理export_backtest_result相关逻辑。"""
-        task_result = task_result_repository.get_entity(result_id)
+        task_result = task_result_repository.get_export_entity(result_id)
         if not task_result:
             raise LookupError("任务结果不存在")
         task = self._get_task(task_result.task_id)

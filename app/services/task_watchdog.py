@@ -25,10 +25,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import has_app_context
-from sqlalchemy import and_, inspect, not_, or_
+from sqlalchemy import inspect
 
 from app.config import Config
-from app.models import Task, TaskLog
+from app.models import Task
 from app.repositories import task_log_repository, task_repository
 from app.services.config_manager import coerce_bool, get_config_manager
 from app.services.task import task_manager

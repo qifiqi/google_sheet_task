@@ -9,7 +9,6 @@ from decimal import Decimal, InvalidOperation
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy.orm import load_only
 
 from app.exceptions import NotFoundError, ValidationError
 from app.models import Task, TaskResult
@@ -269,12 +268,7 @@ def _extract_task_result_payload(task_result, return_rows=None):
 
 
 def _load_backtest_task_result(task_result_id: int):
-    task_result = (
-        TaskResult.query
-        .options(load_only(TaskResult.id, TaskResult.task_id, TaskResult.result))
-        .filter(TaskResult.id == task_result_id)
-        .first()
-    )
+    task_result = task_result_repository.get_export_entity(task_result_id)
     if not task_result:
         raise NotFoundError("任务结果不存在")
 
@@ -360,23 +354,7 @@ def _extract_display_year(source_window):
 
 
 def _build_c3_summary_rows(task_id):
-    task_results = (
-        TaskResult.query
-        .options(
-            load_only(
-                TaskResult.id,
-                TaskResult.task_id,
-                TaskResult.step_index,
-                TaskResult.parameters,
-                TaskResult.result,
-                TaskResult.success,
-                TaskResult.timestamp,
-            )
-        )
-        .filter_by(task_id=task_id, success=True)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-        .all()
-    )
+    task_results = task_result_repository.list_preview_entities(task_id, success_only=True)
 
     rows = []
 

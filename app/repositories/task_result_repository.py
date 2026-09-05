@@ -2,7 +2,6 @@
 from sqlalchemy.orm import load_only
 
 from app.extensions import db
-from app.exceptions import NotFoundError
 from app.models import Task, TaskResult, TaskResultReturn
 from app.repositories.base import BaseRepository
 
@@ -143,7 +142,7 @@ class TaskResultRepository(BaseRepository):
             return []
         return TaskResultReturn.query.filter(TaskResultReturn.id.in_(ids)).all()
 
-    def list_preview_entities(self, task_id, result_ids=None):
+    def list_preview_entities(self, task_id, result_ids=None, success_only=False):
         """全局预览结果实体（load_only 精简列，主键精确读取避免扫描大 JSON）。"""
         query = (
             TaskResult.query
@@ -163,9 +162,30 @@ class TaskResultRepository(BaseRepository):
             .filter_by(task_id=task_id)
             .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
         )
+        if success_only:
+            query = query.filter(TaskResult.success == True)
         if result_ids is not None:
             query = query.filter(TaskResult.id.in_(result_ids))
         return query.all()
+
+    def get_export_entity(self, result_id):
+        """结果导出链路实体（load_only 导出四列）；不存在返回 None。
+
+        导出链路消费 result 原始 JSON 串与 return_series_id 属性，
+        to_dict 的预解析会破坏双重解析语义（坏 JSON 静默降级为空 payload），
+        故返回实体形态（对齐 list_preview_entities 实体流先例）。
+        """
+        return (
+            TaskResult.query
+            .options(load_only(
+                TaskResult.id,
+                TaskResult.task_id,
+                TaskResult.result,
+                TaskResult.return_series_id,
+            ))
+            .filter(TaskResult.id == result_id)
+            .first()
+        )
 
     def list_preview_index_rows(self, task_id):
         """全局预览轻量参数索引：{id, parameters 原始串, success, step_index}。"""

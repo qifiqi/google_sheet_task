@@ -7,7 +7,7 @@
 - release_lock：持锁任务不匹配时拒绝释放（返回 False），不得删除他人锁。
 """
 from sqlalchemy import MetaData, Table, func, inspect, or_
-from sqlalchemy.orm import Load, load_only
+from sqlalchemy.orm import Load
 from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
@@ -181,8 +181,19 @@ class BacktestRepository(BaseRepository):
             self._commit()
         return deleted
 
-    def dedupe_best_per_task(self, group_expression, task_type=None, task_id=None):
-        """按分组窗口函数去重，仅保留每组最新最优一条；返回删除行数。"""
+    def dedupe_best_per_task(self, group_expression=None, task_type=None, task_id=None):
+        """按分组窗口函数去重，仅保留每组最新最优一条；返回删除行数。
+
+        group_expression 缺省为汇总索引的周期分组
+        （coalesce(nullif(period_key), nullif(year_label), nullif(kline_range))）。
+        """
+        if group_expression is None:
+            group_expression = func.coalesce(
+                func.nullif(TaskResultSummaryIndex.period_key, ""),
+                func.nullif(TaskResultSummaryIndex.year_label, ""),
+                func.nullif(TaskResultSummaryIndex.kline_range, ""),
+                "",
+            )
         ranked_query = db.session.query(
             TaskResultSummaryIndex.id.label("id"),
             func.row_number().over(
@@ -235,6 +246,120 @@ class BacktestRepository(BaseRepository):
         if task_type:
             query = query.filter(TaskResultSummaryIndex.task_type == task_type)
         return query.count()
+
+    def delete_summary_index_by_scope(self, task_type=None, task_id=None, commit=True):
+        """按 task_id/task_type 双条件批量删除汇总索引（rebuild reset 分支）；返回删除行数。"""
+        query = TaskResultSummaryIndex.query
+        if task_id:
+            query = query.filter(TaskResultSummaryIndex.task_id == task_id)
+        if task_type:
+            query = query.filter(TaskResultSummaryIndex.task_type == task_type)
+        deleted = query.delete(synchronize_session=False)
+        if commit:
+            self._commit()
+        return deleted
+
+    def page_summary_index(self, filters, page, per_page, *, best_per_stock=False):
+        """汇总索引动态过滤分页查询。
+
+        filters（全部可选）：task_type / visible_types / stock_keyword / market_type /
+        period_key / excess_return_min / result_date_from / result_date_to（datetime）/
+        task_id / result_id。日期解析与业务归一化留在服务层。
+        best_per_stock=True 时按股票窗口函数取每组最新最优一条（summary_type=stock 语义）。
+        返回 {items(to_dict 投影), summary_items, total, pages, has_prev, has_next}。
+        """
+        query = TaskResultSummaryIndex.query
+        task_type = filters.get("task_type")
+        if task_type:
+            query = query.filter(TaskResultSummaryIndex.task_type == task_type)
+        visible_types = filters.get("visible_types")
+        if visible_types:
+            query = query.filter(TaskResultSummaryIndex.task_type.in_(visible_types))
+        stock_keyword = filters.get("stock_keyword")
+        if stock_keyword:
+            pattern = f"%{stock_keyword}%"
+            query = query.filter(or_(
+                TaskResultSummaryIndex.stock_code.ilike(pattern),
+                TaskResultSummaryIndex.stock_name.ilike(pattern),
+                TaskResultSummaryIndex.task_name.ilike(pattern),
+            ))
+        market_type = filters.get("market_type")
+        if market_type:
+            query = query.filter(TaskResultSummaryIndex.market_type == market_type)
+        period_key = filters.get("period_key")
+        if period_key:
+            query = query.filter(TaskResultSummaryIndex.period_key == period_key)
+        excess_return_min = filters.get("excess_return_min")
+        if excess_return_min is not None:
+            query = query.filter(TaskResultSummaryIndex.best_metric_value > excess_return_min)
+        result_date_from = filters.get("result_date_from")
+        if result_date_from:
+            query = query.filter(TaskResultSummaryIndex.result_timestamp >= result_date_from)
+        result_date_to = filters.get("result_date_to")
+        if result_date_to:
+            query = query.filter(TaskResultSummaryIndex.result_timestamp <= result_date_to)
+        task_id = filters.get("task_id")
+        if task_id:
+            query = query.filter(TaskResultSummaryIndex.task_id == task_id)
+        result_id = filters.get("result_id")
+        if result_id:
+            query = query.filter(TaskResultSummaryIndex.task_result_id == int(result_id))
+
+        if best_per_stock:
+            query = query.filter(
+                TaskResultSummaryIndex.is_best == True,
+                TaskResultSummaryIndex.stock_code.isnot(None),
+                TaskResultSummaryIndex.stock_code != "",
+            )
+            subquery = (
+                query.with_entities(
+                    TaskResultSummaryIndex.id.label("id"),
+                    func.row_number().over(
+                        partition_by=TaskResultSummaryIndex.stock_code,
+                        order_by=(
+                            func.date(TaskResultSummaryIndex.result_timestamp).desc(),
+                            TaskResultSummaryIndex.best_metric_value.desc(),
+                            TaskResultSummaryIndex.id.desc(),
+                        ),
+                    ).label("row_number"),
+                ).subquery()
+            )
+            query = (
+                TaskResultSummaryIndex.query
+                .join(subquery, TaskResultSummaryIndex.id == subquery.c.id)
+                .filter(subquery.c.row_number == 1)
+                .order_by(
+                    func.date(TaskResultSummaryIndex.result_timestamp).desc(),
+                    TaskResultSummaryIndex.best_metric_value.desc(),
+                    TaskResultSummaryIndex.stock_code.asc(),
+                    TaskResultSummaryIndex.id.desc(),
+                )
+            )
+        else:
+            query = query.order_by(
+                func.date(TaskResultSummaryIndex.result_timestamp).desc(),
+                TaskResultSummaryIndex.best_metric_value.desc(),
+                TaskResultSummaryIndex.id.desc(),
+            )
+
+        summary_query = query.with_entities(
+            TaskResultSummaryIndex.stock_code,
+            TaskResultSummaryIndex.task_id,
+            TaskResultSummaryIndex.best_metric_value,
+        )
+        summary_items = [
+            {"stock_code": row[0], "task_id": row[1], "best_metric_value": row[2]}
+            for row in summary_query.all()
+        ]
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        return {
+            "items": [item.to_dict() for item in pagination.items],
+            "summary_items": summary_items,
+            "total": pagination.total,
+            "pages": pagination.pages,
+            "has_prev": pagination.has_prev,
+            "has_next": pagination.has_next,
+        }
 
     def delete_summary_index_by_result_ids(self, result_ids, commit=True):
         deleted = (
@@ -324,6 +449,23 @@ class BacktestRepository(BaseRepository):
         if commit:
             self._commit()
         return deleted
+
+    def insert_product_cache_if_absent(self, batch_id, cache_key, fields, commit=True):
+        """已存在则跳过（不覆盖），返回是否新插入。
+
+        先查后插 + 唯一约束兜底并发竞态：撞约束回滚并返回 False（先写者胜）。
+        与 upsert_product_cache 的覆盖语义不同，二者不可互换。
+        """
+        if self.product_cache_exists(batch_id, cache_key):
+            return False
+        db.session.add(BacktestProductResultCache(batch_id=batch_id, cache_key=cache_key, **fields))
+        try:
+            if commit:
+                self._commit()
+            return True
+        except IntegrityError:
+            db.session.rollback()
+            return False
 
     # ---- BacktestSheetRunLock（acquire/release 原子性红线） ----
 

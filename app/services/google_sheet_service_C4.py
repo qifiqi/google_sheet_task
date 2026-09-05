@@ -7,14 +7,14 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, TaskResultReturn, db
+from app.models import TaskResult, TaskResultReturn
 from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.alert_decorator import alert_on_failure
-from app.utils.db_retry import safe_db_operation, db_retry_manager
+from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import validate_result_dict, is_valid_result_value
 from app.services.xpl_service import xpl_analyzer

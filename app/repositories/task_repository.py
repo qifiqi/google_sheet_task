@@ -32,6 +32,14 @@ class TaskRepository(BaseRepository):
             query = query.filter(Task.task_type == task_type)
         return [t.to_dict() for t in query.order_by(Task.created_at.desc()).all()]
 
+    def get_latest_task_id_by_type(self, task_type, statuses=None):
+        """指定类型的最近一个任务 id（created_at desc, id desc）；statuses 可选过滤；无则 None。"""
+        query = Task.query.filter(Task.task_type == task_type)
+        if statuses:
+            query = query.filter(Task.status.in_(statuses))
+        task = query.order_by(Task.created_at.desc(), Task.id.desc()).first()
+        return task.id if task else None
+
     def list_paginated(
         self,
         page,
