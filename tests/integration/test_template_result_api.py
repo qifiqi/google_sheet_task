@@ -98,7 +98,7 @@ def test_results_endpoints_envelope(auth_client):
     # 空列表
     resp = client.get("/api/results", headers=headers)
     assert resp.get_json()["data"] == {
-        "results": [], "total": 0, "pages": 0, "current_page": 1,
+        "items": [], "total": 0, "pages": 0, "current_page": 1, "per_page": 20,
     }
 
     # 准备任务与结果
@@ -115,7 +115,7 @@ def test_results_endpoints_envelope(auth_client):
     resp = client.get("/api/results", headers=headers)
     body = resp.get_json()["data"]
     assert body["total"] == 1
-    assert set(body["results"][0].keys()) == {
+    assert set(body["items"][0].keys()) == {
         "id", "task_id", "step_index", "success", "timestamp",
     }
 

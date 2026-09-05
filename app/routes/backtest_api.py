@@ -125,17 +125,11 @@ def get_task_results_by_task_id(task_id):
 
     return success(data={
         "task_id": task_id,
-        "results": results,
-        "pagination": {
-            "page": page_data["current_page"],
-            "per_page": page_data["per_page"],
-            "pages": page_data["pages"],
-            "total": page_data["total"],
-            "has_prev": page_data["has_prev"],
-            "has_next": page_data["has_next"],
-            "prev_num": page_data["prev_num"],
-            "next_num": page_data["next_num"],
-        },
+        "items": results,
+        "total": page_data["total"],
+        "pages": page_data["pages"],
+        "current_page": page_data["current_page"],
+        "per_page": page_data["per_page"],
     })
 
 
@@ -449,17 +443,11 @@ def bmp_get_task_results_by_task_id(task_id):
     ]
     return success(data={
         "task_id": task_id,
-        "results": results,
-        "pagination": {
-            "page": page_data["current_page"],
-            "per_page": page_data["per_page"],
-            "pages": page_data["pages"],
-            "total": page_data["total"],
-            "has_prev": page_data["has_prev"],
-            "has_next": page_data["has_next"],
-            "prev_num": page_data["prev_num"],
-            "next_num": page_data["next_num"],
-        },
+        "items": results,
+        "total": page_data["total"],
+        "pages": page_data["pages"],
+        "current_page": page_data["current_page"],
+        "per_page": page_data["per_page"],
     })
 
 

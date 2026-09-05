@@ -9,7 +9,7 @@ from flask import Blueprint, request
 
 from app.services.task import task_manager
 from app.exceptions import NotFoundError
-from app.utils.api_response import success
+from app.utils.api_response import paginated, success
 from app.utils.auth import login_required
 
 result_api_bp = Blueprint('result_api', __name__)
@@ -49,7 +49,7 @@ def get_results():
     task_id = request.args.get('task_id', None)
 
     data = task_manager.get_results_paginated(page, per_page, task_id=task_id)
-    return success(data=data)
+    return paginated(items=data["items"], total=data["total"], page=data["current_page"], per_page=data["per_page"])
 
 
 @result_api_bp.route('/results/<int:result_id>', methods=['GET'])

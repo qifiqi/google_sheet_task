@@ -68,8 +68,8 @@ def dashboard_overview():
 
     响应契约由 runtime_view 服务定义（task/runtime_view.py），本路由保持透传。
     """
-    return jsonify(
-        runtime_view_service.build_dashboard_overview(
+    return success(
+        data=runtime_view_service.build_dashboard_overview(
             getattr(g, "current_user", None),
         )
     )

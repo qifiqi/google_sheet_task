@@ -148,7 +148,6 @@ def test_restart_from_scratch_clears_results_and_starts(app_factory, monkeypatch
         result = manager.restart_task(task.id, resume_from_checkpoint=False)
         task = db.session.get(Task, task.id)
 
-        assert result["status"] == "success"
         assert result["restart_from_step"] == 0
         assert task.current_step == 0
         assert TaskResult.query.filter_by(task_id=task.id).count() == 0
@@ -165,7 +164,8 @@ def test_restart_running_task_rejected_when_local_status_disallows(app_factory, 
         manager = TaskManager()
         monkeypatch.setattr(manager, "check_local_task_status", lambda _task_id: {"can_restart": False})
 
-        result = manager.restart_task(task.id, resume_from_checkpoint=True)
+        import pytest as _pytest
+        from app.exceptions import ConflictError as _ConflictError
 
-        assert result["status"] == "error"
-        assert "正在运行中" in result["message"]
+        with _pytest.raises(_ConflictError, match="正在运行中"):
+            manager.restart_task(task.id, resume_from_checkpoint=True)

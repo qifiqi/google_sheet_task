@@ -355,7 +355,7 @@ def test_restart_checkpoint_queues_pending_without_clearing_results(app_factory)
         result = manager.restart_task(target_id, resume_from_checkpoint=True)
         target = db.session.get(Task, target_id)
 
-        assert result["status"] == "success"
+        assert result["restart_from_step"] >= 0
         assert result["queued"] is True
         assert target.status == "pending"
         assert target.current_step == 3
@@ -377,7 +377,7 @@ def test_restart_from_scratch_queues_pending_and_clears_results(app_factory):
         result = manager.restart_task(target_id, resume_from_checkpoint=False)
         target = db.session.get(Task, target_id)
 
-        assert result["status"] == "success"
+        assert result["restart_from_step"] >= 0
         assert result["queued"] is True
         assert target.status == "pending"
         assert target.current_step == 0

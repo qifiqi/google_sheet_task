@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from app.exceptions import BadRequestError, ConflictError
 from app.extensions import db
 from app.models import BacktestSheetRunLock, GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
 from app.services.backtest_training_service import BacktestTrainingService
@@ -338,7 +339,7 @@ def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
         db.session.commit()
 
         manager = TaskManager()
-        response, status_code = manager.create_and_start_task(
+        response = manager.create_and_start_task(
             name="queued-backtest",
             description="",
             task_type="backtest_training",
@@ -346,8 +347,6 @@ def test_backtest_same_sheet_create_and_start_queues_when_running(app_factory):
         )
 
         queued_task = db.session.get(Task, response["task_id"])
-        assert status_code == 200
-        assert response["status"] == "success"
         assert response["queued"] is True
         assert queued_task.status == "pending"
         assert "已有回测任务正在运行" in response["message"]
@@ -571,11 +570,8 @@ def test_restart_task_returns_concrete_start_error(monkeypatch, app_factory):
         manager.start_errors[task_id] = "同一个 Google Sheet 已有回测任务正在运行，当前任务保持待执行: running-task"
         monkeypatch.setattr(manager, "start_task", lambda task_id: False)
 
-        result = manager.restart_task(task_id)
-
-        assert result["status"] == "error"
-        assert "同一个 Google Sheet 已有回测任务正在运行" in result["message"]
-        assert result["start_error"] == manager.get_start_error(task_id)
+        with pytest.raises(ConflictError, match="已有回测任务正在运行"):
+            manager.restart_task(task_id)
 
 
 def test_running_backtest_checkpoint_restart_queues_when_lock_exists(
@@ -609,11 +605,10 @@ def test_running_backtest_checkpoint_restart_queues_when_lock_exists(
         )
         db.session.commit()
 
-        result = manager.restart_task(task_id, resume_from_checkpoint=True)
+        with pytest.raises(ConflictError, match="已有回测任务正在运行"):
+            manager.restart_task(task_id, resume_from_checkpoint=True)
 
         refreshed = db.session.get(Task, task_id)
-        assert result["status"] == "error"
-        assert "已有回测任务正在运行" in result["message"]
         assert refreshed.status == "pending"
 
 
@@ -653,7 +648,6 @@ def test_backtest_checkpoint_restart_blocks_other_running_same_sheet(monkeypatch
         result = manager.restart_task(restart_task_id, resume_from_checkpoint=True)
 
         refreshed = db.session.get(Task, restart_task_id)
-        assert result["status"] == "success"
         assert result["queued"] is True
         assert "已有回测任务正在运行" in result["message"]
         assert refreshed.status == "pending"
@@ -689,13 +683,11 @@ def test_backtest_restart_stays_pending_when_sheet_lock_exists(
         )
         db.session.commit()
 
-        result = manager.restart_task(task_id, resume_from_checkpoint=True)
+        with pytest.raises(ConflictError, match="已有回测任务正在运行"):
+            manager.restart_task(task_id, resume_from_checkpoint=True)
 
         refreshed = db.session.get(Task, task_id)
-        assert result["status"] == "error"
-        assert "已有回测任务正在运行" in result["message"]
         assert refreshed.status == "pending"
-        assert "running-from-lock" in manager.get_start_error(task_id)
 
 
 def test_backtest_checkpoint_resume_skips_saved_result_steps(app_factory):
@@ -799,7 +791,6 @@ def test_restart_task_from_scratch_clears_backtest_returns(monkeypatch, app_fact
         result = manager.restart_task(task_id, resume_from_checkpoint=False)
 
         refreshed = db.session.get(Task, task_id)
-        assert result["status"] == "success"
         assert result["restart_from_step"] == 0
         assert refreshed.current_step == 0
         assert TaskResult.query.filter_by(task_id=task_id).count() == 0
@@ -897,16 +888,15 @@ def test_create_and_start_releases_sheet_when_start_fails(app_factory):
         sheet_id = sheet.id
 
         manager = TaskManager()
-        response, status_code = manager.create_and_start_task(
-            name="unsupported",
-            description="",
-            task_type="unsupported_task",
-            config={"spreadsheet_id": "spreadsheet-release"},
-        )
+        with pytest.raises(BadRequestError):
+            manager.create_and_start_task(
+                name="unsupported",
+                description="",
+                task_type="unsupported_task",
+                config={"spreadsheet_id": "spreadsheet-release"},
+            )
 
         refreshed = db.session.get(GoogleSheet, sheet_id)
-        assert status_code == 400
-        assert response["status"] == "error"
         assert refreshed.is_in_use is False
         assert refreshed.current_task_id is None
 

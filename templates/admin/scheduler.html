@@ -298,7 +298,7 @@ function loadTasks() {
             return;
         }
         
-        currentTasks = (response.data && response.data.tasks) || [];
+        currentTasks = (response.data && response.data.items) || [];
         renderTasksTable();
     });
 }

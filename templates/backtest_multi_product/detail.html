@@ -1539,18 +1539,18 @@
                 }
                 return;
             }
-            const pagination = (data.data && data.data.pagination) || {};
+            const pg = data.data || {};
             taskResultPaginationState = {
-                page: Number(pagination.page || page || 1),
-                per_page: Number(pagination.per_page || perPage || TASK_RESULT_PAGE_SIZE),
-                pages: Number(pagination.pages || 0),
-                total: Number(pagination.total || 0),
-                has_prev: Boolean(pagination.has_prev),
-                has_next: Boolean(pagination.has_next),
-                prev_num: pagination.prev_num || null,
-                next_num: pagination.next_num || null
+                page: Number(pg.current_page || page || 1),
+                per_page: Number(pg.per_page || perPage || TASK_RESULT_PAGE_SIZE),
+                pages: Number(pg.pages || 0),
+                total: Number(pg.total || 0),
+                has_prev: Number(pg.current_page || 1) > 1,
+                has_next: Number(pg.current_page || 1) < Number(pg.pages || 0),
+                prev_num: null,
+                next_num: null
             };
-            renderSubTasks((data.data && data.data.results) || []);
+            renderSubTasks((data.data && data.data.items) || []);
             renderTaskResultPagination();
             persistResultPaginationState();
         });

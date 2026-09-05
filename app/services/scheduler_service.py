@@ -533,13 +533,11 @@ class SchedulerService:
         """定时任务分页列表（/admin/scheduler/tasks GET 响应结构）。"""
         page_data = scheduled_task_repository.list_paginated(page, per_page)
         return {
-            'tasks': page_data["items"],
-            'pagination': {
-                'page': page_data["current_page"],
-                'per_page': page_data["per_page"],
-                'total': page_data["total"],
-                'pages': page_data["pages"],
-            },
+            'items': page_data["items"],
+            'total': page_data["total"],
+            'pages': page_data["pages"],
+            'current_page': page_data["current_page"],
+            'per_page': page_data["per_page"],
         }
 
     def create_task(self, payload: dict) -> dict:

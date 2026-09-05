@@ -632,9 +632,13 @@
         if (keyword) params.set('keyword', keyword);
 
         ajaxRequest(`/api/tasks?${params.toString()}`, 'GET', null, function(err, data) {
-            if (!err && data && data.data && data.data.tasks) {
-                currentTasks = data.data.tasks || [];
-                paginationState = data.data.pagination || paginationState;
+            if (!err && data && data.data && data.data.items) {
+                currentTasks = data.data.items || [];
+                const pg = data.data;
+                paginationState = {
+                    page: pg.current_page, per_page: pg.per_page, total: pg.total,
+                    pages: pg.pages, has_prev: pg.current_page > 1, has_next: pg.current_page < pg.pages,
+                };
                 currentPage = paginationState.page || page;
                 renderTasks();
                 renderPagination();
@@ -817,10 +821,14 @@
         }
 
         ajaxRequest(`/api/tasks?${params.toString()}`, 'GET', null, function(err, data) {
-            if (!err && data && data.data && data.data.tasks) {
-                batchRestartTasks = data.data.tasks || [];
+            if (!err && data && data.data && data.data.items) {
+                batchRestartTasks = data.data.items || [];
                 batchRestartTasks.forEach(task => batchRestartTaskCache.set(String(task.id), task));
-                batchRestartPaginationState = data.data.pagination || batchRestartPaginationState;
+                const bpg = data.data;
+                batchRestartPaginationState = {
+                    page: bpg.current_page, per_page: bpg.per_page, total: bpg.total,
+                    pages: bpg.pages, has_prev: bpg.current_page > 1, has_next: bpg.current_page < bpg.pages,
+                };
                 batchRestartPage = batchRestartPaginationState.page || page;
                 renderBatchRestartTaskList();
                 renderBatchRestartPagination();

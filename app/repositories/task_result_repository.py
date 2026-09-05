@@ -78,7 +78,7 @@ class TaskResultRepository(BaseRepository):
                 db.session.query(Task.id).filter(Task.id == task_id).first()
             )
             if not task_exists:
-                return {"results": [], "total": 0, "pages": 0, "current_page": current_page}
+                return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
 
         query = (
             db.session.query(*_RESULT_SUMMARY_FIELDS)
@@ -89,7 +89,7 @@ class TaskResultRepository(BaseRepository):
         else:
             distinct_types = [row[0] for row in db.session.query(Task.task_type).distinct().all()]
             if not distinct_types:
-                return {"results": [], "total": 0, "pages": 0, "current_page": current_page}
+                return {"items": [], "total": 0, "current_page": current_page, "per_page": size}
             query = query.filter(Task.task_type.in_(distinct_types))
 
         pagination = query.order_by(TaskResult.timestamp.desc()).paginate(
@@ -106,10 +106,10 @@ class TaskResultRepository(BaseRepository):
             for row in pagination.items
         ]
         return {
-            "results": results,
+            "items": results,
             "total": pagination.total,
-            "pages": pagination.pages,
             "current_page": current_page,
+            "per_page": size,
         }
 
     def count_by_task_success(self, task_id):

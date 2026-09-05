@@ -6,6 +6,8 @@ from datetime import datetime
 
 from flask import current_app
 
+from app.exceptions import ConflictError, NotFoundError
+
 from app.services.task.data_cleanup import clear_task_execution_data
 from app.repositories import task_repository
 from app.utils.database import transaction_required
@@ -55,11 +57,11 @@ class TaskRestartMixin:
         task_id: str,
         resume_from_checkpoint: bool = True,
     ) -> dict[str, str | int]:
-        """重启任务。"""
+        """重启任务；成功返回重启信息 dict，失败抛领域异常（NotFoundError/ConflictError）。"""
         try:
             task = task_repository.get_entity(task_id)
             if not task:
-                return {"status": "error", "message": "任务不存在"}
+                raise NotFoundError("任务不存在")
 
             original_status = task.status
             current_step = task.current_step
@@ -67,12 +69,9 @@ class TaskRestartMixin:
             status_check = self.check_local_task_status(task_id)
             if original_status == "running":
                 if not status_check.get("can_restart", False):
-                    return {"status": "error", "message": "任务正在运行中，无法重启"}
+                    raise ConflictError("任务正在运行中，无法重启")
             elif original_status not in ["pending", "completed", "error", "cancelled"]:
-                return {
-                    "status": "error",
-                    "message": f"任务状态 '{original_status}' 不允许重启",
-                }
+                raise ConflictError(f"任务状态 '{original_status}' 不允许重启")
 
             # 持锁取运行态快照，避免与 start_task/watchdog 的注册清理并发竞争。
             with self._runtime_state_lock:
@@ -92,10 +91,7 @@ class TaskRestartMixin:
                 if not still_alive:
                     self.task_stop_events.pop(task_id, None)
             if still_alive:
-                return {
-                    "status": "error",
-                    "message": "task is still stopping, please retry shortly",
-                }
+                raise ConflictError("任务仍在停止中，请稍后重试")
 
             start_time = None
             if resume_from_checkpoint:
@@ -121,7 +117,7 @@ class TaskRestartMixin:
 
             task = task_repository.get_entity(task_id)
             if not task:
-                return {"status": "error", "message": "任务不存在"}
+                raise NotFoundError("任务不存在")
             if task.task_type in ("backtest_training", "backtest_multi_product"):
                 config_data = self._get_task_config_dict(task)
                 spreadsheet_ids = self._extract_backtest_spreadsheet_ids_to_lock(task.task_type, config_data)
@@ -144,7 +140,6 @@ class TaskRestartMixin:
                     )
                     self.add_task_log(task_id, "info", message)
                     return {
-                        "status": "success",
                         "message": message,
                         "start_error": message,
                         "task_id": task_id,
@@ -162,12 +157,7 @@ class TaskRestartMixin:
             success = self.start_task(task_id)
             if not success:
                 start_error = self.get_start_error(task_id)
-                return {
-                    "status": "error",
-                    "message": f"任务重启失败: {start_error}",
-                    "start_error": start_error,
-                    "task_id": task_id,
-                }
+                raise ConflictError(f"任务重启失败: {start_error}")
 
             restart_reason = status_check.get("restart_reason")
             if not restart_reason:
@@ -180,15 +170,15 @@ class TaskRestartMixin:
                 restart_reason = manual_reason_map.get(original_status, "用户手动重启")
 
             self.add_task_log(task_id, "info", f"任务重启成功，原因: {restart_reason}")
+            logger.info("任务重启成功: task_id=%s from_step=%s", task_id, restart_step)
             return {
-                "status": "success",
                 "message": "任务重启成功",
                 "restart_from_step": restart_step,
                 "restart_reason": restart_reason,
             }
         except Exception as exc:
             logger.error("重启任务失败: %s, 错误: %s", task_id, exc)
-            return {"status": "error", "message": f"任务重启失败: {exc}"}
+            raise
 
     def delete_task(self, task_id: str) -> bool:
         """删除任务及相关数据。"""

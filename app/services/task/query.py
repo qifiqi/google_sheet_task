@@ -41,17 +41,11 @@ class TaskQueryService:
     def get_empty_tasks_page(self, page: int, per_page: int) -> dict[str, Any]:
         """无任务时的空列表页结构（/tasks GET 首屏空态，键与 get_tasks_paginated 对齐）。"""
         return {
-            "tasks": [],
-            "pagination": {
-                "page": page,
-                "per_page": per_page,
-                "total": 0,
-                "pages": 0,
-                "has_prev": False,
-                "has_next": False,
-                "prev_num": None,
-                "next_num": None,
-            },
+            "items": [],
+            "total": 0,
+            "pages": 0,
+            "current_page": page,
+            "per_page": per_page,
             "statistics": {
                 "total_tasks": 0,
                 "completed_tasks": 0,
@@ -121,9 +115,14 @@ class TaskQueryService:
         )
         error_rate = round((error_tasks / total * 100), 1) if total > 0 else 0
 
+        # 统一响应分页形状：{items,total,pages,current_page,per_page} + statistics。
+        pagination = page_data["pagination"]
         return {
-            "tasks": page_data["items"],
-            "pagination": page_data["pagination"],
+            "items": page_data["items"],
+            "total": pagination["total"],
+            "pages": pagination["pages"],
+            "current_page": pagination["page"],
+            "per_page": pagination["per_page"],
             "statistics": {
                 "total_tasks": total,
                 "completed_tasks": completed_tasks,

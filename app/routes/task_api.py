@@ -55,22 +55,21 @@ def tasks():
             status=task_status,
             keyword=keyword,
         )
-        return success(data={
-            "tasks": data["tasks"],
-            "pagination": data["pagination"],
-            "statistics": data["statistics"],
-        })
+        return success(data=data)
 
     data = parse_body(TaskCreateSchema)
     current_user = getattr(g, "current_user", None)
-    response, status_code = task_manager.create_and_start_task(
+    result = task_manager.create_and_start_task(
         data.name,
         data.description,
         data.task_type,
         data.config,
         created_by_user_id=getattr(current_user, "id", None),
     )
-    return jsonify(response), status_code
+    message = (
+        result["message"] if result.get("queued") else "任务创建并启动成功"
+    )
+    return success(data={"task_id": result["task_id"], "queued": result.get("queued", False)}, message=message)
 
 
 @task_api_bp.route('/tasks/batch-create', methods=['POST'])
@@ -81,16 +80,25 @@ def batch_create_tasks():
     logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
 
     try:
-        response, status_code = task_manager.batch_create_and_start_task(
+        result = task_manager.batch_create_and_start_task(
             data,
             created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
         )
     except ValueError as exc:
         # 服务层以 ValueError 表达请求校验失败（400 语义）。
         raise BadRequestError(str(exc))
-    if status_code == 200:
-        response["debug_message"] = "已调用原有 C3 创建流程；当前仍为占位版批量接口"
-    return jsonify(response), status_code
+    return success(
+        data={
+            "task_id": result["task_id"],
+            "task_ids": result["task_ids"],
+            "started_task_ids": result["started_task_ids"],
+            "failed_to_start": result["failed_to_start"],
+            "total_created": result["total_created"],
+            "total_started": result["total_started"],
+            "children": result["children"],
+        },
+        message=result["message"],
+    )
 
 
 @task_api_bp.route('/tasks/<task_id>', methods=['GET', 'DELETE'])
@@ -134,10 +142,7 @@ def update_task_config(task_id):
         data.get('description'),
         data.get('status'),
     )
-
-    if result["status"] == "success":
-        return jsonify(result)
-    return jsonify(result), 400
+    return success(data=result, message="任务更新成功")
 
 
 @task_api_bp.route('/tasks/<task_id>/cancel', methods=['POST'])
@@ -198,9 +203,7 @@ def restart_task(task_id):
     )
 
     result = task_manager.restart_task(task_id, data.resume_from_checkpoint)
-    if result["status"] == "success":
-        return jsonify(result)
-    return jsonify(result), 400
+    return success(data=result, message=result.get("message", "任务重启成功"))
 
 
 @task_api_bp.route('/tasks/<task_id>/create-restart', methods=['POST'])

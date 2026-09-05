@@ -194,15 +194,14 @@
 
         ajaxRequest(`/api/tasks?${params}`, 'GET', null, function(err, data) {
             isLoading = false;
-            if (err || !data || !data.tasks) {
+            if (err || !data || !data.items) {
                 showNotification('搜索失败', 'error');
                 return;
             }
-            allTasks = data.tasks;
-            const pg = data.pagination || {};
-            totalTasks = pg.total || 0;
-            totalPages = pg.pages || 0;
-            currentPage = pg.page || currentPage;
+            allTasks = data.items;
+            totalTasks = data.total || 0;
+            totalPages = data.pages || 0;
+            currentPage = data.current_page || currentPage;
             renderTable();
             renderPagination();
         });

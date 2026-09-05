@@ -210,7 +210,7 @@ function loadResults(page = 1) {
             resultList.innerHTML = '';
             const payload = data.data || {};
 
-            payload.results.forEach(result => {
+            (payload.items || []).forEach(result => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${result.id}</td>

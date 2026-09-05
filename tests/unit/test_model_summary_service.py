@@ -869,7 +869,6 @@ def test_query_all_results_fuzzy_matches_task_name_before_loading_results(app_fa
             },
         )
 
-        assert payload["status"] == "success"
         assert payload["pagination"]["total"] == 2
         assert [item["task_result_id"] for item in payload["items"]] == [24, 23]
         assert all(item["task_id"] == "task-a" for item in payload["items"])
@@ -1038,7 +1037,6 @@ def test_export_csv_uses_query_filters_and_ignores_pagination(app_factory):
             {"stock_code": "600519", "page": 1, "per_page": 1},
         )
 
-        assert payload["status"] == "success"
         rows = list(csv.DictReader(io.StringIO(payload["content"])))
         assert [row["任务名"] for row in rows] == ["600519", "600519"]
         assert [row["结果 ID"] for row in rows] == ["21", "20"]
@@ -1129,7 +1127,6 @@ def test_export_csv_supports_all_results_query(app_factory):
             {"best_only": "false", "stock_code": "600519", "page": 1, "per_page": 1},
         )
 
-        assert payload["status"] == "success"
         rows = list(csv.DictReader(io.StringIO(payload["content"])))
         assert [row["结果 ID"] for row in rows] == ["22", "21", "20"]
         assert [row["return beats"] for row in rows] == ["13.00%", "5.00%", "9.00%"]
@@ -1158,7 +1155,6 @@ def test_export_csv_joins_parameter_list_values(app_factory):
             },
         )
 
-        assert payload["status"] == "success"
         rows = list(csv.DictReader(io.StringIO(payload["content"])))
         assert rows[0]["参数"] == "4,0.92,0.3,1,0,0"
 
@@ -1186,7 +1182,6 @@ def test_export_csv_joins_a1_b1_when_parameter_list_missing(app_factory):
             },
         )
 
-        assert payload["status"] == "success"
         rows = list(csv.DictReader(io.StringIO(payload["content"])))
         assert rows[0]["参数"] == "11,3"
 
@@ -1209,7 +1204,6 @@ def test_export_csv_uses_custom_safe_filename(app_factory):
             },
         )
 
-        assert payload["status"] == "success"
         assert payload["filename"] == "东方通信_全部结果.csv"
 
 
@@ -1244,7 +1238,6 @@ def test_export_csv_preserves_backtest_display_metrics(app_factory):
             {"task_type": "backtest_training", "page": 1, "per_page": 1},
         )
 
-        assert payload["status"] == "success"
         rows = list(csv.DictReader(io.StringIO(payload["content"])))
         assert rows[0]["年化收益"] == "12.00%"
         assert rows[0]["年化超额收益"] == "4.00%"

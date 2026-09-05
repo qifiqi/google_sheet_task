@@ -104,7 +104,6 @@ class SummaryQueryMixin:
         summary = self._summary_from_items(page_data["summary_items"])
 
         return {
-            "status": "success",
             "summary_type": summary_type,
             "columns": self._columns_for_task_type(task_type),
             "summary": summary,

@@ -1,6 +1,8 @@
 import json
 from datetime import date, timedelta
 
+import pytest
+
 from requests.exceptions import SSLError
 
 from app.extensions import db
@@ -284,7 +286,7 @@ def test_c31_batch_create_transfers_market_end_date_and_adjustment(app_factory, 
         monkeypatch.setattr(manager, "start_task", lambda _task_id: True)
         monkeypatch.setattr("app.services.task.creation.time.sleep", lambda _seconds: None)
 
-        response, status = manager.batch_create_and_start_task({
+        response = manager.batch_create_and_start_task({
             "name": "批量任务",
             "config": {
                 "base_task_name": "批量任务",
@@ -300,7 +302,6 @@ def test_c31_batch_create_transfers_market_end_date_and_adjustment(app_factory, 
             },
         })
 
-        assert status == 200
         assert response["total_created"] == 2
         assert [config["market_type"] for config in created_configs] == ["en", "en"]
         assert [config["end_date"] for config in created_configs] == ["2026-06-30", "2026-06-30"]
@@ -311,7 +312,7 @@ def test_c31_batch_create_transfers_market_end_date_and_adjustment(app_factory, 
 def test_c31_batch_create_rejects_unaligned_sheet_count():
     manager = TaskManager()
 
-    try:
+    with pytest.raises(ValueError, match="参数组合数"):
         manager.batch_create_and_start_task({
             "name": "bad",
             "config": {
@@ -324,10 +325,6 @@ def test_c31_batch_create_rejects_unaligned_sheet_count():
                 ],
             },
         })
-    except ValueError as exc:
-        assert "参数组合数" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
 
 
 def test_c5_same_kline_source_only_writes_parameters_on_second_combination(app_factory, monkeypatch):

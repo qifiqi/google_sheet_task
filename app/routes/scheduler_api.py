@@ -6,7 +6,7 @@
 from flask import Blueprint, request
 
 from app.services.scheduler_service import scheduler_service
-from app.utils.api_response import success
+from app.utils.api_response import paginated, success
 from app.schemas.scheduler import ScheduledTaskCreateSchema, ScheduledTaskUpdateSchema
 from app.utils.auth import login_required
 from app.utils.request_parsing import parse_body
@@ -27,7 +27,8 @@ def get_scheduled_tasks():
     """获取定时任务列表"""
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
-    return success(data=scheduler_service.list_tasks_page(page, per_page))
+    data = scheduler_service.list_tasks_page(page, per_page)
+    return paginated(items=data["items"], total=data["total"], page=data["current_page"], per_page=data["per_page"])
 
 
 @scheduler_api_bp.route('/admin/scheduler/tasks', methods=['POST'])

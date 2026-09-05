@@ -108,7 +108,6 @@ class SummaryExportMixin:
             export_filters["page"] = int(export_filters["page"]) + 1
 
         return {
-            "status": "success",
             "filename": self._export_filename(export_filters, summary_type),
             "content": self._render_csv(columns, items),
             "count": len(items),

@@ -11,6 +11,7 @@ from functools import reduce
 from itertools import product
 from typing import Any, Optional
 
+from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.models import GoogleSheetTokenTaskType, TaskStatus
 from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
@@ -276,7 +277,7 @@ class TaskCreationMixin:
         config: dict[str, Any],
         created_by_user_id: Optional[int] = None,
     ):
-        """创建并启动任务。"""
+        """创建并启动任务；成功返回 {task_id, queued?}，启动被拒抛 BadRequestError。"""
         task_id = self.create_task(
             name,
             description,
@@ -285,25 +286,12 @@ class TaskCreationMixin:
             created_by_user_id=created_by_user_id,
         )
         if self.start_task(task_id):
-            return {
-                "status": "success",
-                "task_id": task_id,
-                "message": "任务创建并启动成功",
-            }, 200
+            return {"task_id": task_id}
         start_error = self.get_start_error(task_id)
         if task_type in ("backtest_training", "backtest_multi_product") and "已有回测任务正在运行" in start_error:
-            return {
-                "status": "success",
-                "task_id": task_id,
-                "message": start_error,
-                "queued": True,
-            }, 200
+            return {"task_id": task_id, "queued": True, "message": start_error}
         self.release_google_sheet_occupancy(task_id)
-        return {
-            "status": "error",
-            "task_id": task_id,
-            "message": start_error,
-        }, 400
+        raise BadRequestError(start_error)
 
     def batch_create_and_start_task(
         self,
@@ -519,25 +507,24 @@ class TaskCreationMixin:
         if not created_task_ids:
             raise ValueError("没有生成任何子任务，请检查 sheets / stock_codes / parameters 配置")
 
-        status = "success" if started_task_ids else "error"
+        if not started_task_ids:
+            raise BadRequestError(
+                f"C31 已拆分创建 {len(created_task_ids)} 个 C3 任务，但全部启动失败"
+            )
         message = (
             f"C31 已拆分创建 {len(created_task_ids)} 个 C3 任务，"
             f"成功启动 {len(started_task_ids)} 个，未启动 {len(failed_to_start)} 个"
         )
-        http_status = 200 if started_task_ids else 400
         return {
-            "status": status,
             "message": message,
-            "task_id": (
-                started_task_ids[0] if started_task_ids else created_task_ids[0]
-            ),
+            "task_id": started_task_ids[0],
             "task_ids": created_task_ids,
             "started_task_ids": started_task_ids,
             "failed_to_start": failed_to_start,
             "total_created": len(created_task_ids),
             "total_started": len(started_task_ids),
             "children": child_summaries,
-        }, http_status
+        }
 
     def _materialize_c31_parameter_combo(self, parameter_combo):
         """将单次组合整理成单个 C3 任务所需的二维数组。"""
@@ -585,20 +572,17 @@ class TaskCreationMixin:
         update_description: str = None,
         update_status: str = None,
     ) -> dict[str, Any]:
-        """更新任务配置。"""
+        """更新任务配置；校验失败抛 NotFoundError/ValidationError，成功返回 {task}。"""
         try:
             task = task_repository.get(task_id)
             if not task:
-                return {"status": "error", "message": "任务不存在"}
+                raise NotFoundError("任务不存在")
 
             if task["status"] == "running":
-                return {
-                    "status": "error",
-                    "message": "正在运行的任务无法直接修改，请先停止任务",
-                }
+                raise ValidationError("正在运行的任务无法直接修改，请先停止任务")
 
             if not isinstance(new_config, dict):
-                return {"status": "error", "message": "配置格式不正确"}
+                raise ValidationError("配置格式不正确")
 
             allowed_statuses = {
                 option["value"] for option in TaskStatus.editable_choices()
@@ -606,9 +590,9 @@ class TaskCreationMixin:
             next_status = (update_status or "").strip()
             if next_status:
                 if next_status == TaskStatus.RUNNING.value:
-                    return {"status": "error", "message": "不能手动将任务状态改为运行中，请使用重启任务"}
+                    raise ValidationError("不能手动将任务状态改为运行中，请使用重启任务")
                 if next_status not in allowed_statuses:
-                    return {"status": "error", "message": f"不支持的任务状态: {next_status}"}
+                    raise ValidationError(f"不支持的任务状态: {next_status}")
 
             new_config = self._normalize_task_config_for_type(task["task_type"], new_config)
             if task["task_type"] == "backtest_training":
@@ -651,15 +635,14 @@ class TaskCreationMixin:
             task_logger.info("任务配置已更新")
             self.add_task_log(task_id, "info", "任务配置已更新")
             logger.info("任务配置更新成功: %s", task_id)
-            return {
-                "status": "success",
-                "message": "任务更新成功",
-                "task": updated,
-            }
-        except Exception as exc:
+            return {"task": updated}
+        except (NotFoundError, ValidationError):
             task_repository.rollback()
-            logger.error("更新任务配置失败: %s, 错误: %s", task_id, exc)
-            return {"status": "error", "message": f"更新任务配置失败: {exc}"}
+            raise
+        except Exception:
+            task_repository.rollback()
+            logger.exception("更新任务配置失败: %s", task_id)
+            raise
 
     def create_restart_task(self, original_task_id: str) -> str:
         """基于原任务创建新的重启任务。"""

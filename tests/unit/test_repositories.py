@@ -128,12 +128,12 @@ class TestTaskResultRepository:
         self._make_result()
         page = task_result_repository.list_paginated(1, 20, task_id="t-1")
         assert page["total"] == 1
-        item = page["results"][0]
+        item = page["items"][0]
         assert set(item.keys()) == {"id", "task_id", "step_index", "success", "timestamp"}
 
     def test_list_paginated_missing_task_empty(self, app_factory, task_row):
         page = task_result_repository.list_paginated(1, 20, task_id="missing")
-        assert page == {"results": [], "total": 0, "pages": 0, "current_page": 1}
+        assert page == {"items": [], "total": 0, "current_page": 1, "per_page": page["per_page"]}
 
     def test_returns_crud_and_delete_older_than(self, app_factory, task_row):
         created = self._make_result()

@@ -69,6 +69,6 @@ def test_restart_from_scratch_explicitly_clears_summary_index_rows(app_factory, 
 
         result = manager.restart_task(task_id, resume_from_checkpoint=False)
 
-        assert result["status"] == "success"
+        assert result["restart_from_step"] == 0
         assert TaskResult.query.filter_by(task_id=task_id).count() == 0
         assert TaskResultSummaryIndex.query.filter_by(task_id=task_id).count() == 0

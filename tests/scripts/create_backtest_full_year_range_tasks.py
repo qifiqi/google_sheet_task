@@ -200,13 +200,16 @@ def create_task_from_result(result: BuildResult, name_suffix: str, start: bool) 
         f"基于源任务 {source.id} 创建近5年重跑任务；recent_years=[5]；end_date={result.end_date}"
     ).strip()
     if start:
-        response, _status_code = task_manager.create_and_start_task(
-            name,
-            description,
-            "backtest_training",
-            result.config or {},
-            created_by_user_id=source.created_by_user_id,
-        )
+        try:
+            response = task_manager.create_and_start_task(
+                name,
+                description,
+                "backtest_training",
+                result.config or {},
+                created_by_user_id=source.created_by_user_id,
+            )
+        except Exception as exc:
+            return "", str(exc)
         return str(response.get("task_id") or ""), str(response.get("message") or response)
 
     task_id = task_manager.create_task(
