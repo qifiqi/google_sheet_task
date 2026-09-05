@@ -14,15 +14,15 @@ from typing import Any
 
 from flask import current_app
 
+from app.exceptions import ValidationError
 from app.repositories import backtest_repository, task_repository, task_result_repository
-from app.models import Task, TaskResult, TaskResultReturn
+from app.models import Task, TaskResult
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.services.xpl_service import xpl_analyzer
-from app.utils.db_retry import safe_db_operation
 from app.utils.task_error_utils import unwrap_exception
-from app.utils.return_series import build_return_series_fields, parse_return_series_fields
+from app.utils.return_series import parse_return_series_fields
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.market import (
     infer_market_type,
@@ -163,6 +163,26 @@ def _normalize_sheet(product: dict[str, Any]) -> dict[str, str]:
         "sheet_name": sheet_name or "data",
         "title": title,
     }
+
+
+def update_task_ratios(task_id: str, task_config, ratios: list) -> dict:
+    """保存多品回测比例：规范化 config、校验数量、写回产品比例并落库。
+
+    任务不存在/类型不符由调用方先行校验；比例数量不一致抛 ValidationError（400）。
+    """
+    config = normalize_multi_product_config(task_config or {})
+    products = config["products"]
+    if len(ratios) != len(products):
+        raise ValidationError("比例数量与产品数量不一致")
+    for product, ratio in zip(products, ratios):
+        product["ratio"] = str(ratio.get("ratio") if isinstance(ratio, dict) else ratio).strip()
+    try:
+        config = normalize_multi_product_config({**config, "products": products})
+    except ValueError as exc:
+        raise ValidationError(str(exc))
+
+    task_repository.update_fields(task_id, config=json.dumps(config, ensure_ascii=False))
+    return config
 
 
 def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -1065,71 +1085,26 @@ class BacktestMultiProductService(BacktestTrainingService):
         task.current_step = current_step
         task_result_repository.commit_with_retry()
 
-    def _save_task_result(
-        self,
-        step_index: int,
-        parameters,
-        result: dict[str, Any],
-        success: bool,
-        *,
-        return_date: list[dict[str, Any]] | None = None,
-    ):
-        def save_result_operation():
-            safe_parameters = self._normalize_result_parameters(parameters)
-            safe_result_payload = dict(result) if isinstance(result, dict) else {}
-            weighted_calculate_metrics = _build_weighted_product_metrics(
-                return_date or [],
-                safe_parameters.get("ratio"),
-                normalize_weighting_mode(safe_parameters.get("weighting_mode")),
-            )
-            safe_result_payload = _set_weighted_metrics_on_result_payload(
-                safe_result_payload,
-                weighted_calculate_metrics,
-            )
-            safe_result = self._sanitize_json_value(
-                self._prepare_result_for_persistence(safe_result_payload)
-            )
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success,
-            )
-            task_result_repository.add_entity(task_result)
-            task_result_repository.flush()
-            if return_date:
-                series_fields = build_return_series_fields(
-                    return_date,
-                    stock_code=safe_parameters.get("stock_code"),
-                    stock_name=(
-                        safe_parameters.get("stock_name")
-                        or safe_parameters.get("product_name")
-                        or safe_parameters.get("stock_code")
-                    ),
-                    market_type=self._get_return_series_market_type(safe_parameters),
-                    exchange_market=self._get_return_series_exchange_market(safe_parameters),
-                )
-                if not series_fields:
-                    raise ValueError("收益序列缺少有效日期")
-                return_series = TaskResultReturn(
-                    task_id=self.task_id,
-                    **series_fields,
-                )
-                task_result_repository.add_entity(return_series)
-                task_result_repository.flush()
-                task_result.return_series_id = return_series.id
+    def _build_task_result_persistence_payload(self, safe_parameters, result, return_date=None):
+        """多品结果持久化前叠加加权组合指标。"""
+        safe_result_payload = dict(result) if isinstance(result, dict) else {}
+        weighted_calculate_metrics = _build_weighted_product_metrics(
+            return_date or [],
+            safe_parameters.get("ratio"),
+            normalize_weighting_mode(safe_parameters.get("weighting_mode")),
+        )
+        return _set_weighted_metrics_on_result_payload(
+            safe_result_payload,
+            weighted_calculate_metrics,
+        )
 
-            task_result_repository.commit()
-
-        try:
-            context_app = self.app or current_app
-            with context_app.app_context():
-                safe_db_operation(save_result_operation)
-        except Exception as exc:
-            task_result_repository.rollback()
-            self._log_error(f"保存多品任务结果失败: {exc}")
-            raise
+    def _get_return_series_stock_name(self, safe_parameters):
+        """多品结果缺 stock_name 时依次回退 product_name、stock_code。"""
+        return (
+            safe_parameters.get("stock_name")
+            or safe_parameters.get("product_name")
+            or safe_parameters.get("stock_code")
+        )
 
     def _build_product_config(self, config_data: dict[str, Any], product: dict[str, Any]) -> dict[str, Any]:
         product_config = dict(config_data)

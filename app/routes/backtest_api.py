@@ -15,15 +15,15 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from app.exceptions import BadRequestError, NotFoundError
+from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.extensions import limiter
-from app.repositories import task_repository, task_result_repository
 from app.schemas.backtest import CalculateRatiosSchema
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     build_multi_product_global_preview_payload,
     normalize_multi_product_config,
+    update_task_ratios,
 )
 from app.services.backtest_training_api_service import (
     C3_PARAMETER_FIELDS,
@@ -36,6 +36,7 @@ from app.services.backtest_training_api_service import (
     _load_backtest_task_result,
 )
 from app.services.performance_analysis.historical_metrics import extract_core_metrics
+from app.services.task import task_manager
 from app.utils.api_response import success
 from app.utils.auth import login_required
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
@@ -113,7 +114,7 @@ def get_task_results_by_task_id(task_id):
     page = max(page, 1)
     per_page = max(min(per_page, 100), 1)
 
-    page_data = task_result_repository.list_by_task_paginated_raw_parameters(task_id, page, per_page)
+    page_data = task_manager.get_task_results_page_raw(task_id, page, per_page)
     results = [
         {
             **item,
@@ -149,7 +150,7 @@ def get_task_result_detail(task_result_id):
     task_config = task.to_dict().get("config") or {}
     sheet = task_config.get("sheet") if isinstance(task_config.get("sheet"), dict) else {}
     return_series = (
-        task_result_repository.get_return_entity(task_result.return_series_id)
+        task_manager.get_return_entity(task_result.return_series_id)
         if task_result.return_series_id
         else None
     )
@@ -441,7 +442,7 @@ def bmp_get_task_results_by_task_id(task_id):
 
     page = max(request.args.get("page", default=1, type=int) or 1, 1)
     per_page = max(min(request.args.get("per_page", default=10, type=int) or 10, 100), 1)
-    page_data = task_result_repository.list_by_task_paginated_raw_parameters(task_id, page, per_page)
+    page_data = task_manager.get_task_results_page_raw(task_id, page, per_page)
     results = [
         {**item, "parameters": _parse_json(item["parameters"], {})}
         for item in page_data["items"]
@@ -465,9 +466,7 @@ def bmp_get_task_results_by_task_id(task_id):
 @bmp_api_bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
 @login_required
 def bmp_get_task_result_detail(task_result_id):
-    task_result = task_result_repository.get_entity(task_result_id)
-    if not task_result:
-        raise NotFoundError("任务结果不存在")
+    task_result = task_manager.get_required_result_entity(task_result_id)
     task = _load_multi_product_task_or_none(task_result.task_id)
 
     payload = _parse_json(task_result.result, {})
@@ -492,7 +491,7 @@ def bmp_get_task_result_detail(task_result_id):
 
     daily_returns = {}
     if task_result.return_series_id:
-        return_series = task_result_repository.get_return_entity(task_result.return_series_id)
+        return_series = task_manager.get_return_entity(task_result.return_series_id)
         if return_series:
             rows = parse_return_series_fields(return_series)
             daily_returns = {
@@ -559,18 +558,7 @@ def bmp_update_ratios(task_id):
     if not isinstance(ratios, list):
         raise BadRequestError("ratios 必须是数组")
 
-    config = normalize_multi_product_config(task.get("config") or {})
-    products = config["products"]
-    if len(ratios) != len(products):
-        raise BadRequestError("比例数量与产品数量不一致")
-    for product, ratio in zip(products, ratios):
-        product["ratio"] = str(ratio.get("ratio") if isinstance(ratio, dict) else ratio).strip()
-    try:
-        config = normalize_multi_product_config({**config, "products": products})
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
-
-    task_repository.update_fields(task_id, config=json.dumps(config, ensure_ascii=False))
+    update_task_ratios(task_id, task.get("config") or {}, ratios)
     payload = build_multi_product_global_preview_payload(task_id)
     return success(
         data=_sanitize_json_value(payload or {}),
@@ -580,9 +568,9 @@ def bmp_update_ratios(task_id):
 
 def _load_multi_product_task_or_none(task_id: str):
     """加载多品回测任务 dict；不存在返回 None，类型不符抛 BadRequestError。"""
-    task = task_repository.get(task_id)
+    task = task_manager.get_task(task_id)
     if not task:
         return None
     if normalize_task_type(task["task_type"]) != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
-        raise BadRequestError("当前接口仅支持多品数据回测任务")
+        raise ValidationError("当前接口仅支持多品数据回测任务")
     return task

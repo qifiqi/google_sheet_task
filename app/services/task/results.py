@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.exceptions import NotFoundError
 from app.repositories import task_result_repository
 
 
@@ -44,3 +45,18 @@ class TaskResultMixin:
     def delete_result(self, result_id: int) -> bool:
         """删除结果；不存在返回 False。"""
         return task_result_repository.delete(result_id)
+
+    def get_task_results_page_raw(self, task_id: str, page: int, per_page: int):
+        """结果分页（parameters 保持原始 JSON 串，由调用方按需解析）。"""
+        return task_result_repository.list_by_task_paginated_raw_parameters(task_id, page, per_page)
+
+    def get_required_result_entity(self, result_id: int):
+        """结果实体访问（多品详情页消费）；不存在抛 NotFoundError。"""
+        task_result = task_result_repository.get_entity(result_id)
+        if not task_result:
+            raise NotFoundError("任务结果不存在")
+        return task_result
+
+    def get_return_entity(self, series_id):
+        """收益序列实体访问（结果详情页消费 stock_code/stock_name）。"""
+        return task_result_repository.get_return_entity(series_id)
