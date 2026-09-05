@@ -474,7 +474,7 @@ class SchedulerService:
 
     def get_scheduler_stats(self) -> dict:
         """调度器统计（/admin/scheduler/stats）。"""
-        stats = scheduled_task_repository.stats()
+        stats = scheduled_task_repository.get_stats()
         return {
             'total_tasks': stats["total"],
             'active_tasks': stats["active"],
@@ -600,7 +600,7 @@ class SchedulerService:
         try:
             with self.app.app_context():
                 # 检查是否已存在默认任务
-                existing_task = scheduled_task_repository.find_by_name_and_function(
+                existing_task = scheduled_task_repository.get_by_name_and_function(
                     '每日数据清理', 'cleanup_old_data'
                 )
                 

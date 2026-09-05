@@ -117,7 +117,7 @@ def record_task_exception(
                 task.error_message = error_message
                 task.end_time = datetime.now()
             if should_write_log:
-                task_log_repository.add(task_id, "error", log_message, commit=False)
+                task_log_repository.create_log(task_id, "error", log_message, commit=False)
         if should_write_log:
             _mark_record_logged(exc)
 

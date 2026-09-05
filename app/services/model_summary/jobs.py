@@ -48,7 +48,7 @@ class SummaryJobMixin:
         rows = extractor._extract_candidate_records(task, result)
         existing = {
             item.model_key: item
-            for item in backtest_repository.find_summary_index_entities_by_result(result.id)
+            for item in backtest_repository.list_summary_index_entities_by_result(result.id)
         }
         changed_task_ids = set()
         for row in rows:
@@ -338,7 +338,7 @@ class SummaryJobMixin:
         """处理_upsert_batch相关逻辑。"""
         result_ids = [result.id for _task, result in batch]
         existing_items = (
-            backtest_repository.find_summary_index_entities_by_result_ids(result_ids)
+            backtest_repository.list_summary_index_entities_by_result_ids(result_ids)
         )
         existing = {
             (item.task_result_id, item.model_key): item
@@ -452,7 +452,7 @@ class SummaryJobMixin:
 
     def _keep_only_best_for_task(self, task_id: str) -> None:
         """处理_keep_only_best_for_task相关逻辑。"""
-        rows = backtest_repository.find_summary_index_entities_by_task_ordered(task_id)
+        rows = backtest_repository.list_summary_index_entities_by_task_ordered(task_id)
         seen_groups: set[str] = set()
         for row in rows:
             group_key = row.period_key or row.year_label or row.kline_range or ""

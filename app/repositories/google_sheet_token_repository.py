@@ -58,7 +58,7 @@ class GoogleSheetTokenRepository(BaseRepository):
             db.session.flush()
         return entity
 
-    def find_by_context(self, token_context, task_type):
+    def get_by_context(self, token_context, task_type):
         """按内容+任务类型查重（导入幂等）。"""
         return GoogleSheetToken.query.filter_by(
             token_context=token_context,

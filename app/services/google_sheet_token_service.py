@@ -87,7 +87,7 @@ class GoogleSheetTokenService:
     ):
         normalized_task_type = self._normalize_token_task_type(task_type)
         normalized_context = self._load_token_context(token_context=token_context, token_file=token_file)
-        token = google_sheet_token_repository.find_by_context(
+        token = google_sheet_token_repository.get_by_context(
             normalized_context,
             normalized_task_type,
         )

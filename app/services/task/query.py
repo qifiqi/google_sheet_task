@@ -35,7 +35,7 @@ class TaskQueryService:
 
     def get_distinct_task_types(self) -> list[str]:
         """全库去重任务类型（任务列表无类型筛选时的兜底集合）。"""
-        return task_repository.distinct_task_types()
+        return task_repository.list_distinct_task_types()
 
     def get_empty_tasks_page(self, page: int, per_page: int) -> dict[str, Any]:
         """无任务时的空列表页结构（/tasks GET 首屏空态，键与 get_tasks_paginated 对齐）。"""
@@ -94,7 +94,7 @@ class TaskQueryService:
         status: Optional[str] = None,
         keyword: Optional[str] = None,
     ) -> dict[str, Any]:
-        page_data = task_repository.page_with_statistics(
+        page_data = task_repository.list_paginated_with_statistics(
             page=page,
             per_page=per_page,
             task_type=task_type,

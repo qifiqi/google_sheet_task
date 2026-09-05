@@ -45,7 +45,7 @@ class ScheduledTaskRepository(BaseRepository):
             raise NotFoundError(f"定时任务不存在: {task_id}")
         return data
 
-    def find_due(self, now):
+    def list_due(self, now):
         """到期待执行任务（scheduler_service 扫描语义：启用、未在执行、next_run_time <= now）。"""
         rows = (
             ScheduledTask.query
@@ -60,7 +60,7 @@ class ScheduledTaskRepository(BaseRepository):
         )
         return [row.to_dict() for row in rows]
 
-    def stats(self):
+    def get_stats(self):
         """聚合统计：{total, active}。"""
         return {
             "total": self.count(),
@@ -76,7 +76,7 @@ class ScheduledTaskRepository(BaseRepository):
         """活跃任务实体（调度器 add_job 消费实体属性）。"""
         return ScheduledTask.query.filter_by(is_active=True).all()
 
-    def find_by_name_and_function(self, name, task_function):
+    def get_by_name_and_function(self, name, task_function):
         """默认任务播种的存在性检查；返回实体或 None。"""
         return (
             ScheduledTask.query

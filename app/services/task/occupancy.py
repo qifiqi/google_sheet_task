@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from app.models import GoogleSheetTableType
@@ -40,7 +39,7 @@ class TaskOccupancyMixin:
 
             spreadsheet_id = sheet_config.get("spreadsheet_id")
             if spreadsheet_id:
-                matched_sheet = google_sheet_repository.find_first_by_spreadsheet(spreadsheet_id)
+                matched_sheet = google_sheet_repository.get_by_spreadsheet_id(spreadsheet_id)
                 if matched_sheet:
                     sheet_ids.append(int(matched_sheet["id"]))
 

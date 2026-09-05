@@ -767,7 +767,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             return False
         for parameter in parameters:
             cache_key = cls._build_fixed_product_cache_key(config_data, product, parameter)
-            if not backtest_repository.product_cache_exists(batch_id, cache_key):
+            if not backtest_repository.exists_product_cache(batch_id, cache_key):
                 return False
         return True
 

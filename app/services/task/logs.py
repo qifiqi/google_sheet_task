@@ -26,7 +26,7 @@ class TaskLogMixin:
         日志写入失败只记录错误，不允许影响任务执行链。
         """
         def _write():
-            task_log_repository.add(task_id, level, message)
+            task_log_repository.create_log(task_id, level, message)
 
         try:
             if has_app_context():

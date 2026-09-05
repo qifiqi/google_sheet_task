@@ -57,7 +57,7 @@ class TaskLogRepository(BaseRepository):
 
     # ---- 写 ----
 
-    def add(self, task_id, level, message, commit=True):
+    def create_log(self, task_id, level, message, commit=True):
         """写入一条任务日志（执行链每步写日志的热路径，性能须与原直写等价）。"""
         log = TaskLog(
             task_id=task_id,

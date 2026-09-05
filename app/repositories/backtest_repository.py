@@ -82,10 +82,10 @@ class BacktestRepository(BaseRepository):
         if clauses:
             db.session.execute(jobs_table.delete().where(or_(*clauses)))
 
-    def find_summary_index_entities_by_result(self, task_result_id):
+    def list_summary_index_entities_by_result(self, task_result_id):
         return TaskResultSummaryIndex.query.filter_by(task_result_id=task_result_id).all()
 
-    def find_summary_index_entities_by_result_ids(self, result_ids):
+    def list_summary_index_entities_by_result_ids(self, result_ids):
         if not result_ids:
             return []
         return (
@@ -223,7 +223,7 @@ class BacktestRepository(BaseRepository):
         ).update({"is_best": True}, synchronize_session=False)
         return deleted
 
-    def find_summary_index_entities_by_task_ordered(self, task_id):
+    def list_summary_index_entities_by_task_ordered(self, task_id):
         """任务汇总实体（保留最优判定顺序）。"""
         return (
             TaskResultSummaryIndex.query
@@ -407,7 +407,7 @@ class BacktestRepository(BaseRepository):
 
     # ---- BacktestProductResultCache ----
 
-    def product_cache_exists(self, batch_id, cache_key):
+    def exists_product_cache(self, batch_id, cache_key):
         return (
             BacktestProductResultCache.query
             .filter_by(batch_id=batch_id, cache_key=cache_key)
@@ -456,7 +456,7 @@ class BacktestRepository(BaseRepository):
         先查后插 + 唯一约束兜底并发竞态：撞约束回滚并返回 False（先写者胜）。
         与 upsert_product_cache 的覆盖语义不同，二者不可互换。
         """
-        if self.product_cache_exists(batch_id, cache_key):
+        if self.exists_product_cache(batch_id, cache_key):
             return False
         db.session.add(BacktestProductResultCache(batch_id=batch_id, cache_key=cache_key, **fields))
         try:

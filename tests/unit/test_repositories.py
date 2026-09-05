@@ -67,10 +67,10 @@ class TestTaskRepository:
         task_repository.create({"id": "t-2", "name": "完成", "status": "completed"})
         counts = task_repository.summary_counts()
         assert counts == {"total": 2, "completed": 1, "running": 0, "error": 0}
-        assert [t["id"] for t in task_repository.recent(limit=1)] == ["t-2"]
+        assert [t["id"] for t in task_repository.list_recent(limit=1)] == ["t-2"]
 
     def test_distinct_task_types_and_list_by_ids(self, app_factory, task_row):
-        assert task_repository.distinct_task_types() == ["google_sheet"]
+        assert task_repository.list_distinct_task_types() == ["google_sheet"]
         assert [t["id"] for t in task_repository.list_by_ids(["t-1", "missing"])] == ["t-1"]
         assert task_repository.list_by_ids([]) == []
 
@@ -165,20 +165,20 @@ class TestTaskResultRepository:
 
 class TestTaskLogRepository:
     def test_add_normalizes_message(self, app_factory, task_row):
-        log = task_log_repository.add("t-1", "info", "x" * 5000)
+        log = task_log_repository.create_log("t-1", "info", "x" * 5000)
         assert len(log["message"]) == 4000
         assert log["message"].endswith("...（日志已截断）")
 
     def test_get_last_and_list_by_task_order(self, app_factory, task_row):
-        task_log_repository.add("t-1", "info", "first")
-        task_log_repository.add("t-1", "error", "second")
+        task_log_repository.create_log("t-1", "info", "first")
+        task_log_repository.create_log("t-1", "error", "second")
         assert task_log_repository.get_last("t-1")["message"] == "second"
         rows = task_log_repository.list_by_task("t-1")
         assert [r["message"] for r in rows] == ["first", "second"]
         assert task_log_repository.count_by_task("t-1") == 2
 
     def test_delete_by_task(self, app_factory, task_row):
-        task_log_repository.add("t-1", "info", "log")
+        task_log_repository.create_log("t-1", "info", "log")
         assert task_log_repository.delete_by_task("t-1") == 1
         assert task_log_repository.count_by_task("t-1") == 0
 
@@ -381,9 +381,9 @@ class TestScheduledTaskRepository:
                 "next_run_time": datetime.now() - timedelta(minutes=1),
             }
         )
-        stats = scheduled_task_repository.stats()
+        stats = scheduled_task_repository.get_stats()
         assert stats == {"total": 2, "active": 1}
-        due = scheduled_task_repository.find_due(datetime.now())
+        due = scheduled_task_repository.list_due(datetime.now())
         assert [row["name"] for row in due] == ["job"]
 
         with pytest.raises(NotFoundError):

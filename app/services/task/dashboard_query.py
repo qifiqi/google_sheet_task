@@ -15,7 +15,7 @@ class TaskDashboardQueryService:
     def get_allowed_task_types(self, user=None, action: str = "view") -> list[str]:
         return [
             task_type
-            for task_type in task_repository.distinct_task_types()
+            for task_type in task_repository.list_distinct_task_types()
             if task_type
         ]
 
@@ -25,7 +25,7 @@ class TaskDashboardQueryService:
 
     def get_recent_tasks(self, limit: int = 10) -> list[dict]:
         """admin 首页最近任务列表（dict 形态，created_at 倒序）。"""
-        return task_repository.recent(limit)
+        return task_repository.list_recent(limit)
 
     def build_empty_overview(self, now: datetime, days: int = 7) -> dict:
         daily_trend = self._build_empty_daily_trend(now, days=days)

@@ -7,7 +7,7 @@ from app.repositories import google_sheet_repository
 
 
 def _find_duplicate_sheet(spreadsheet_id: str, table_type: str, exclude_id: int | None = None):
-    return google_sheet_repository.find_duplicate(
+    return google_sheet_repository.get_duplicate_row(
         spreadsheet_id,
         google_sheet_registry_scope(table_type),
         exclude_id=exclude_id,

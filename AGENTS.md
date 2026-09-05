@@ -157,6 +157,10 @@ pytest tests/unit/test_p0_p1_refactor.py::test_name   # 定向
   从 `app.models` import 枚举常量（`TaskStatus`/`TaskType` 等）允许；
 - `app/repositories/` 命名约定：`get_`（可 None）/ `get_required_`（抛 NotFoundError）/
   `list_` / `count_` / `exists_` / `create_` / `update_` / `delete_` / `bulk_` / `delete_older_than_`；
+  领域动词补录（2026-09-05 审计批 D）：`upsert_`（唯一键幂等写）、`acquire_` / `release_` /
+  `occupy`（锁与占用记账）、`mark_` / `revert_` / `record_`（状态机与运行记录）、
+  `dedupe_`（窗口去重写）、`refresh_entity`（会话重挂）、`sum_`（聚合读）、
+  `apply_`（批量记账）——这些语义硬套 CRUD 前缀会失真，视为合法前缀；
 - 写方法默认方法内 commit、签名带 `commit: bool = True`，异常 rollback 后裸 `raise`；
   读方法绝不 commit；跨 repository 原子流程用 `base.transaction()` 包裹、各步骤传 `commit=False`；
 - 读路径返回 JSON 兼容原生结构（`to_dict()` / 投影），信封不下沉数据层；
@@ -240,7 +244,9 @@ pytest tests/unit/test_p0_p1_refactor.py::test_name   # 定向
 
 ## 数据访问（2026-09 重构落地）
 
-- `app/repositories/` 是唯一 ORM 层；routes/services 已全部迁移（终验 grep 为空）；
+- `app/repositories/` 是唯一 ORM 层；routes/services 已全部迁移（2026-09-05 审计批 A~D
+  收尾复验：ORM 精确 grep 与服务层手写信封均为 0，执行记录见
+  `docs/design/data-layer-refactor/03-execution-checklist.md`）；
 - 响应信封/异常/校验/分层细则见上文“接口规范”章节；
 - `app/utils/database.py` 的 safe_create/safe_update 已弃用（调用点清零），
   transaction_required 仍被 creation/restart/stock_metadata 使用（提交重试语义）。

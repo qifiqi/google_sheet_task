@@ -78,7 +78,7 @@ class TaskRepository(BaseRepository):
             "per_page": pagination.per_page,
         }
 
-    def page_with_statistics(
+    def list_paginated_with_statistics(
         self,
         page,
         per_page,
@@ -331,13 +331,13 @@ class TaskRepository(BaseRepository):
             "error": self.count_by_status("error"),
         }
 
-    def recent(self, limit=10):
+    def list_recent(self, limit=10):
         return [
             t.to_dict()
             for t in Task.query.order_by(Task.created_at.desc()).limit(limit).all()
         ]
 
-    def distinct_task_types(self):
+    def list_distinct_task_types(self):
         rows = db.session.query(Task.task_type).distinct().all()
         return [row[0] for row in rows]
 
