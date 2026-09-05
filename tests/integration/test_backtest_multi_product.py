@@ -6,6 +6,11 @@ from zipfile import ZipFile
 import pytest
 from openpyxl import Workbook
 
+from app.services.performance_analysis.portfolio_combiner import (
+    cumulative_to_daily,
+    daily_to_cumulative,
+)
+
 from app.extensions import db
 from app.models import (
     BacktestProductResultCache,
@@ -26,8 +31,6 @@ from app.services.backtest_multi_product_service import (
     BacktestMultiProductService,
     _GLOBAL_PREVIEW_CACHE,
     _build_portfolio_return_date,
-    _cumulative_returns_to_daily_returns,
-    _daily_returns_to_cumulative_returns,
     _derive_metrics,
     _fmt_value,
     _weight_return_date,
@@ -74,8 +77,8 @@ def test_daily_return_weighting_rebuilds_cumulative_returns_by_default():
         {"product_index": 1, "ratio": "50"},
     ]
 
-    daily_returns = _cumulative_returns_to_daily_returns(first_product_returns)
-    restored_returns = _daily_returns_to_cumulative_returns(daily_returns)
+    daily_returns = cumulative_to_daily(first_product_returns)
+    restored_returns = daily_to_cumulative(daily_returns)
     weighted_product = _weight_return_date(first_product_returns, "50", False)
     portfolio_returns = _build_portfolio_return_date({
         0: {"return_date": first_product_returns},

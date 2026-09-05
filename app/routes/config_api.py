@@ -5,7 +5,7 @@
 from flask import Blueprint, request
 
 from app.exceptions import BadRequestError, NotFoundError, ServiceError
-from app.services.config_manager import get_config_manager
+from app.services.config_manager import get_config_manager, mask_config_value
 from app.utils.api_response import success
 from app.schemas.config import ConfigBatchSchema, SystemConfigUpdateSchema
 from app.utils.auth import login_required
@@ -20,10 +20,11 @@ config_api_bp = Blueprint('config_api', __name__)
 @config_api_bp.route('/config', methods=['GET'])
 @login_required
 def get_config():
-    """获取系统配置"""
+    """获取系统配置（值统一脱敏后下发）"""
     config_manager = get_config_manager()
     configs = config_manager.get_all_configs(force_refresh=True)
-    return success(data={"config": configs})
+    masked = {key: mask_config_value(key, value) for key, value in configs.items()}
+    return success(data={"config": masked})
 
 
 @config_api_bp.route('/config', methods=['POST'])
@@ -51,10 +52,14 @@ def validate_config():
     config_manager = get_config_manager()
 
     rows = config_manager.get_db_config_rows()
-    db_configs = {row["key"]: row["value"] for row in rows}
+    db_configs = {row["key"]: mask_config_value(row["key"], row["value"]) for row in rows}
 
-    cache_configs = config_manager.get_cache_snapshot()
-    gs_config = config_manager.get_google_sheet_config()
+    cache_snapshot = config_manager.get_cache_snapshot()
+    cache_configs = {key: mask_config_value(key, value) for key, value in cache_snapshot.items()}
+    gs_config = {
+        key: mask_config_value(key, value)
+        for key, value in config_manager.get_google_sheet_config().items()
+    }
 
     return success(data={
         "validation": {

@@ -268,8 +268,41 @@ def test_word_report_uses_full_template_sections_and_cumulative_nav():
     assert chart_data["excess_nav"] == [1.01, 1.0]
 
 
+def _page_user_headers(app, username="xpl-page-user"):
+    """构造 xpl 分析接口的登录态（页面守卫与 analyze API 均需认证）。"""
+    from werkzeug.security import generate_password_hash
+
+    from app.extensions import db as _db
+    from app.models import User as _User
+    from app.utils.auth import create_access_token
+
+    with app.app_context():
+        user = _User(username=username, password_hash=generate_password_hash("pw"), is_active=True)
+        _db.session.add(user)
+        _db.session.commit()
+        return {"Authorization": f"Bearer {create_access_token(user.id)}"}
+
+
+def _page_cookie_client(app, username="xpl-cookie-user"):
+    from werkzeug.security import generate_password_hash
+
+    from app.extensions import db as _db
+    from app.models import User as _User
+    from app.utils.auth import create_access_token
+
+    with app.app_context():
+        user = _User(username=username, password_hash=generate_password_hash("pw"), is_active=True)
+        _db.session.add(user)
+        _db.session.commit()
+        token = create_access_token(user.id)
+    client = app.test_client()
+    client.set_cookie("access_token", token)
+    return client
+
+
 def test_xpl_v2_page_exposes_all_data_sources(app_factory):
-    response = app_factory.test_client().get('/xpl/v2')
+    client = _page_cookie_client(app_factory)
+    response = client.get('/xpl/v2')
 
     assert response.status_code == 200
     assert 'V2：回测数据分析' in response.get_data(as_text=True)
@@ -288,7 +321,8 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
 
 
 def test_xpl_v2_accepts_portfolio_return_rows(app_factory):
-    response = app_factory.test_client().post('/xpl/analyze', json={
+    client = app_factory.test_client()
+    response = client.post('/xpl/analyze', headers=_page_user_headers(app_factory), json={
         "data": "\n".join([
             "2024-01-01\t0.01\t0.02",
             "2024-01-02\t0.02\t0.03",

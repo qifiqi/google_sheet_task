@@ -305,7 +305,11 @@ class BaseGoogleSheetService:
     def _build_task_result_persistence_payload(
         self, safe_parameters: dict[str, Any], result: Any, return_date=None
     ):
-        """持久化前的结果载荷整形钩子；默认透传，子类按需重写。"""
+        """持久化前的结果载荷整形钩子；默认透传，子类按需重写。
+
+        注意：BacktestMultiProductService 重写本钩子以叠加加权组合指标，
+        不能作为死代码删除。
+        """
         return result
 
     def _get_return_series_stock_name(self, safe_parameters: dict[str, Any]):
@@ -433,15 +437,6 @@ class BaseGoogleSheetService:
         config_data: Dict[str, Any],
     ) -> Dict[str, Any]:
         # stock_code = (
-        #     config_data.get("stock_code",None)
-        #     or str(task_name or "").strip()
-        #     # or str(task_name or "").split("-", 1)[0].strip()
-        #     or ""
-        # )
-        # if config_data.get("stock_code",None) in (None, ""):
-        #     stock_code = str(task_name or "").strip()
-        # else:
-        #     stock_code = f'{config_data.get("stock_code",None)}-{task_name}'
         stock_code = str(task_name or "").strip()
 
         return {

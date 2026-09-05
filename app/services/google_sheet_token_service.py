@@ -60,13 +60,18 @@ class GoogleSheetTokenService:
             )
 
     def reconcile_in_use_counts(self):
+        """对账并修正 current_in_use_count（写操作）。
+
+        只允许在显式维护路径调用（POST /api/google-sheet-tokens/reconcile、
+        启动恢复等）；读路径（list_tokens / get_usage_summary）保持只读，
+        占用计数由 acquire/release（increment_usage / release_usage）维护。
+        """
         snapshot = self._build_live_usage_snapshot()
         token_usage = snapshot["token_usage"]
 
         google_sheet_token_repository.apply_in_use_counts(token_usage)
 
     def list_tokens(self, task_type: Optional[str] = None):
-        self.reconcile_in_use_counts()
         normalized_task_type = self._normalize_token_task_type(task_type, default=None)
         tokens = google_sheet_token_repository.list_entities_ordered(normalized_task_type)
         return [token.to_dict() for token in tokens]
@@ -158,8 +163,7 @@ class GoogleSheetTokenService:
         return google_sheet_token_repository.delete(token_id)
 
     def get_usage_summary(self):
-        # Separate current occupancy from historical usage.
-        self.reconcile_in_use_counts()
+        # Separate current occupancy from historical usage.（只读，不做对账写库）
         global_max_usage = self._get_global_max_usage()
         current_total = google_sheet_token_repository.sum_field('current_in_use_count')
         total_usage = google_sheet_token_repository.sum_field('task_usage_count')

@@ -2,7 +2,7 @@ from flask import Blueprint
 
 from app.exceptions import BadRequestError
 from app.utils.api_response import success
-from app.utils.auth import login_required
+from app.utils.auth import login_required, admin_required
 from app.utils.db_monitor import DatabaseMonitor
 from app.utils.logger import get_logger
 
@@ -18,7 +18,7 @@ def get_database_status():
     return success(data={"report": report})
 
 @database_api_bp.route('/database/vacuum', methods=['POST'])
-@login_required
+@admin_required
 def vacuum_database():
     """压缩数据库"""
     result = DatabaseMonitor.vacuum_database()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Optional
 
 from app.exceptions import NotFoundError
@@ -172,8 +173,6 @@ class TaskQueryService:
                 "task_status_check_timeout",
                 600,
             )
-            from datetime import datetime
-
             now = datetime.now()
             if latest_log_time:
                 try:

@@ -6,7 +6,7 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.repositories import task_repository, task_result_repository
-from app.exceptions.checkForErrors import checkForErrors
+from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -394,7 +394,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         }, result, success)
 
 
-                    except checkForErrors as e:
+                    except SheetCheckError as e:
                         self._record_execution_error_message(e, "execute_parameter_combination")
                         self._log_error(str(e))
                         return success_count, failed_count, 'error'
@@ -531,7 +531,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                     if str(_value).strip().startswith(("#", "#N/A")):
                         _error_msg = f"获取结果位置 {_position} 时出错: {str(_value)}"
-                        raise checkForErrors(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {_error_msg}")
+                        raise SheetCheckError(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {_error_msg}")
 
                     if '%' in _value:
                         _value = float(_value.replace('%', '').replace(',', '')) / 100
@@ -750,38 +750,6 @@ class GoogleSheetService(BaseGoogleSheetService):
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 300
 
-        # 旧版 DFCF/Yahoo 分支（原 if market_type... 代码）保留在版本历史中，
-        # 当前所有任务统一通过 KlineService：先读内置库，再按数据源回退外部接口。
-        # if market_type == 'cn' or price_mode == 'vwap_price':
-        #     stock_config = self.dfcf_api.get_search_list_by_stock_code(parameter, 10)
-        #     if market_type in ('us', 'en'):
-        #         stock_config = [
-        #             i for i in stock_config
-        #             if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
-        #         ]
-        #
-        #     # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-        #     if stock_config:
-        #         stock_config = stock_config[0]
-        #         try:
-        #             upsert_stock_metadata_in_session({
-        #                 **stock_config,
-        #                 "stock_code": parameter,
-        #                 "stock_name": stock_config.get("shortName") or stock_config.get("name"),
-        #                 "market_type": market_type,
-        #                 "source": stock_config.get("source") or "google_sheet_c5",
-        #             })
-        #         except Exception as metadata_error:
-        #             task_result_repository.rollback()
-        #             logger.warning("同步 C5 股票元数据失败: %s", metadata_error)
-        #     market = stock_config['market']
-        #     stock_name = str(stock_config.get("shortName") or stock_config.get("name") or "").strip()
-        #
-        #     klines = self.dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
-        # else:
-        #     klines = self.YF_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
-        #     stock_name = ""
-
         klines = self.kline_service.get_kline_data(
             parameter,
             market_type,
@@ -867,40 +835,6 @@ class GoogleSheetService(BaseGoogleSheetService):
         data = []
 
         KLINE_DATA_MAP = {}
-        # for v1 in parameters[1]:
-        #     for v2 in parameters[2]:
-        #         data.append({'stock_code': parameter, 'kline': all_kline,"A1":v1,"B1":v2})
-        #         if count_mode != 'n_plus_1':
-        #             continue
-
-        #         if 'recent' in date_range_mode:
-        #             for i in range(1, (_end_year_1 - _start_date) + 1):
-        #                 _i = i
-        #                 if i!=0:
-        #                     _i = i - 1
-
-        #                 _end_data = f"{_end_year_1-_i}{end_date[4:]}"
-        #                 _start_data = f"{_end_year_1 - i}{end_date[4:]}"
-        #                 d = {"A1":v1,"B1":v2}
-        #                 kline = _get_kline(klines, _start_data, _end_data)
-        #                 if kline:
-        #                     d['stock_code'] = parameter
-        #                     d['kline'] = kline
-        #                     data.append(d)
-
-        #         if 'full' in date_range_mode:
-        #             _all_kline = [ k for k in klines if start_date <= k['stock_date'] <= end_date]
-        #             for i in range(_start_date, _end_year_1 + 1):
-        #                 d = {"A1":v1,"B1":v2}
-        #                 kline = _get_kline(_all_kline,_year=i)
-        #                 if kline and len(kline) > 30:
-        #                     d['stock_code'] = parameter
-        #                     d['year'] = i
-        #                     d['kline'] = kline
-        #                     data.append(d)
-
-
-        # 在 n+1 模式下，如果勾选了近年，则不生成全部区间（避免重复）
         if count_mode != 'n_plus_1' or 'recent' not in date_range_mode:
             for i, v1 in enumerate(parameters[1]):
                 for j, v2 in enumerate(parameters[2]):
@@ -1018,33 +952,3 @@ class GoogleSheetService(BaseGoogleSheetService):
             deduplicated.append(combination)
 
         return deduplicated
-
-if __name__ == '__main__':
-    GoogleSheetService({}, '')._get_all_parameters('588000', 'n_plus_1', 'kp_price','2026-06-10', '2020-11-16', 'cn',
-                                                   [
-                                                       "recent"
-                                                   ],[2, 4, 5, 6],[
-    [
-        "588000"
-    ],
-    [
-        "",
-        3.1,
-        3.4,
-        3.7,
-        4,
-        4.3,
-        4.5
-    ],
-    [
-        1.5,
-        2,
-        2.5,
-        3,
-        3.5,
-        4,
-        4.5,
-        5
-    ]
-])
-

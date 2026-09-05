@@ -11,8 +11,7 @@ from functools import reduce
 from itertools import product
 from typing import Any, Optional
 
-from app.extensions import db
-from app.models import GoogleSheetTokenTaskType, Task, TaskStatus
+from app.models import GoogleSheetTokenTaskType, TaskStatus
 from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,

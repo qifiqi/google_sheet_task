@@ -5,8 +5,8 @@
 """
 
 from __future__ import annotations
+from app.utils.logger import get_logger
 
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 WORD_STYLE = {

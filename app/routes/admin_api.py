@@ -11,7 +11,7 @@ from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.extensions import limiter
 from app.utils.api_response import success
-from app.utils.auth import login_required
+from app.utils.auth import admin_required, login_required
 
 admin_api_bp = Blueprint('admin_api', __name__, url_prefix='/admin')
 runtime_view_service = TaskRuntimeViewService(task_manager)
@@ -80,7 +80,7 @@ def model_summary_api():
     return success(data=payload)
 
 @admin_api_bp.route('/api/model-summary/rebuild', methods=['POST'])
-@login_required
+@admin_required
 @limiter.limit(
     lambda: f"{get_config_value('rate_limit_rebuild', 2) or 2}/minute",
     key_func=lambda: f"user:{getattr(getattr(g, 'current_user', None), 'id', 'anon')}",

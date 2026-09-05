@@ -6,7 +6,7 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.repositories import task_repository, task_result_repository
-from app.exceptions.checkForErrors import checkForErrors
+from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -344,7 +344,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                             )
                         )
 
-                    except checkForErrors as e:
+                    except SheetCheckError as e:
                         self._record_execution_error_message(e, "execute_parameter_combination")
                         self._log_error(str(e))
                         return success_count, failed_count, 'error'
@@ -447,7 +447,7 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                     if str(_value).strip().startswith(("#", "#N/A")):
                         _error_msg = f"获取结果位置 {_position} 时出错: {str(_value)}"
-                        raise checkForErrors(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {_error_msg}")
+                        raise SheetCheckError(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {_error_msg}")
 
                     if '%' in _value:
                         _value = float(_value.replace('%', '').replace(',', '')) / 100
@@ -566,15 +566,6 @@ class GoogleSheetService(BaseGoogleSheetService):
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 250
-        # 旧版 DFCF/Yahoo 分支保留为注释参考；当前统一先读内置库，再按数据源回退。
-        # if market_type == 'cn':
-        #     dfcf_api = DFCJStockApi()
-        #     stock_config = dfcf_api.get_search_list_by_stock_code(parameter, 10)
-        #     klines = dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
-        # else:
-        #     yf_api = YFApi()
-        #     klines = yf_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
-        # 直接调用的历史测试/脚本未携带配置时沿用旧的美股 Yahoo 默认；正式任务会显式传入规范化后的 dfcf。
         selected_data_source = data_source or ("yahoo" if str(market_type).lower() in {"us", "en"} else "dfcf")
         klines = KlineService(
             dfcf_api=DFCJStockApi(),
@@ -672,8 +663,3 @@ class GoogleSheetService(BaseGoogleSheetService):
                     data.append(d)
 
         return data, len(all_kline) + 20
-
-
-if __name__ == '__main__':
-    GoogleSheetService({}, '')._get_all_parameters('000001', 'n_plus_1', '2025-05-01', '2023-05-01', 'cn')
-

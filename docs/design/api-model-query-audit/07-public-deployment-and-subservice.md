@@ -8,13 +8,14 @@
 
 | # | 事项 | 现状（已核实） | 移交后归属 |
 |---|---|---|---|
-| 1.1 | **接口级授权缺失**：全部 admin 类 API 仅 `login_required`，无角色校验——任何登录用户可调 `/api/admin/users|roles|permissions`（增删用户/角色）、`/api/database/vacuum`、`/api/admin/scheduler/*`、`/admin/api/model-summary/rebuild` | `auth_api.py:156-306`、`database_api.py:14-25` 仅挂 `login_required`；`config.py:453` 注明接口级细粒度权限已移除 | 主服务网关统一鉴权 |
+| 1.1 | **接口级授权缺失**：全部 admin 类 API 仅 `login_required`，无角色校验——任何登录用户可调 `/api/admin/users|roles|permissions`（增删用户/角色）、`/api/database/vacuum`、`/api/admin/scheduler/*`、`/admin/api/model-summary/rebuild` | **部分收敛（2026-09 审计 A3/BUG-17）**：`auth_api` 用户/角色 CUD ×6、`database_api` vacuum、`admin_api` model-summary rebuild 已改挂最小 `admin_required`（仅"是否 admin 角色"单一判断，`app/utils/auth.py`）；scheduler 管理端点与其余细粒度授权仍开放 | 主服务网关统一细粒度鉴权 |
 | 1.2 | 登录防爆破：`/api/auth/login` 无限次密码尝试（`auth_api.py:53`） | 无失败锁定、无频率限制 | 主服务登录体系 |
-| 1.3 | `xpl` `/analyze`、`/v1/analyze` 未挂 `login_required` | 公网暴露计算接口 | 主服务网关路由鉴权 |
-| 1.4 | RBAC 三表 + 关联表、登录/refresh/me/logout/password 接口、`template-auth.js` 前端鉴权流 | 现状可用，公网下水平越权面如 1.1 | 整体迁移/替换 |
-| 1.5 | 页面 HTML 无服务端守卫（客户端鉴权架构，页面骨架匿名可见；数据全在登录后的 API 之后） | 既定设计 | 主服务网关决定页面守卫方式 |
+| 1.3 | `xpl` `/analyze`、`/v1/analyze` 未挂 `login_required` | **已收敛（2026-09 审计 A3/BUG-13）**：两端点已挂 `login_required`，限流 key 恢复按用户区分；数据级失败改 400 | 主服务网关路由鉴权 |
+| 1.4 | RBAC 三表 + 关联表、登录/refresh/me/logout/password 接口、`template-auth.js` 前端鉴权流 | 现状可用；公网下残余越权面见 1.1 未收敛部分 | 整体迁移/替换 |
+| 1.5 | 页面 HTML 无服务端守卫（客户端鉴权架构，页面骨架匿名可见；数据全在登录后的 API 之后） | **已收敛（2026-09 审计 A3/BUG-17）**：全部页面路由挂 `page_login_required`（未认证 302 → `/login?next=`）；`login_required` 增加 `access_token` cookie 回退，登录后前端同步写 cookie（`template-auth.js` setTokens/clearAuthState） | 主服务网关决定页面守卫方式 |
+| 1.6 | 仪表盘"权限内任务类型"过滤缺失：`dashboard_query` 原以 `get_allowed_task_types(user, action)` 假装过滤实则全量返回 | **诚实化（2026-09 审计 A3/BUG-16）**：改名 `list_all_task_types()` 并移除误导参数，全量语义显式化 | 主服务接入时按用户任务类型过滤 |
 
-> 1.1 在公网 + 主服务接入完成之前的**过渡窗口**内是真实的水平越权面。缓解选项（不需要本项目实现，二选一）：a) 主服务网关先上线、公网流量经网关过滤后再进本服务；b) 过渡期不公开 admin 前缀路径（nginx `deny`/网关路由白名单）。**本项目代码不做任何权限改动。**
+> 1.1 在公网 + 主服务接入完成之前的**过渡窗口**内仍有残余越权面（scheduler 管理、细粒度资源级授权）。缓解选项：a) 主服务网关先上线、公网流量经网关过滤后再进本服务；b) 过渡期不公开 admin 前缀路径（nginx `deny`/网关路由白名单）。**2026-09 起，最小角色判断（admin_required）与页面守卫已在本项目内实施（见 code-audit-2026-09/01 BUG-17），细粒度权限建设仍严禁越界。**
 
 ## 2. 本项目仍需处理（与鉴权无关的公网加固）
 

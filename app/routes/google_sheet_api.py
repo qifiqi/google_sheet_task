@@ -153,13 +153,22 @@ def google_sheet_detail(sheet_id):
 @google_sheet_api_bp.route('/google-sheet-tokens', methods=['GET'])
 @login_required
 def list_google_sheet_tokens():
-    """获取Google Sheet Token列表"""
+    """获取Google Sheet Token列表（只读；占用计数对账走 POST /reconcile）"""
     task_type = request.args.get('task_type')
+    service = get_google_sheet_token_service()
     return success(data={
         "random_value": RANDOM_TOKEN_VALUE,
-        "tokens": get_google_sheet_token_service().list_tokens(task_type=task_type),
-        "summary": get_google_sheet_token_service().get_usage_summary(),
+        "tokens": service.list_tokens(task_type=task_type),
+        "summary": service.get_usage_summary(),
     })
+
+
+@google_sheet_api_bp.route('/google-sheet-tokens/reconcile', methods=['POST'])
+@login_required
+def reconcile_google_sheet_tokens():
+    """显式对账并修正 Token 占用计数（原 GET 隐式写库行为收敛至此）。"""
+    get_google_sheet_token_service().reconcile_in_use_counts()
+    return success(data=get_google_sheet_token_service().get_usage_summary(), message="Token 占用计数已对账")
 
 
 @google_sheet_api_bp.route('/google-sheet-tokens/<int:token_id>', methods=['GET', 'PUT'])

@@ -186,7 +186,7 @@
 | CLN-10 | `utils/database.py` 已 deprecated 且 0 调用的 safe_delete/safe_update/safe_create/DatabaseManager（约 190 行；`transaction_required` 仍活，只删死段）；`@db_retry` 误装饰装饰器工厂的问题一并修正 | `app/utils/database.py:14-15, 42-233` |
 | CLN-11 | 8 处绕过 `get_logger` 的 `logging.getLogger` 改统一入口（export_service:359、word_export_template:21、task_watchdog:43、kline_service:29、task/error_handling:21、qq_api:83、db_stock_api:14、yf_api:21），否则这些模块日志不落文件 | 同左 |
 | CLN-12 | 死 import 清理：yule.py、google_sheet.py、creation.py(db, Task)、restart.py(db, Task)；函数体内局部 import 上移（logs_api、task_api、auth_api、query.py:175） | 各文件 |
-| CLN-13 | `_build_task_result_persistence_payload` 死钩子（无子类重写）删除或落地一个真实重写 | `google_sheet_service_base.py:305-309` |
+| CLN-13 | ~~`_build_task_result_persistence_payload` 死钩子（无子类重写）删除或落地一个真实重写~~ | **审计误判，保留**：`BacktestMultiProductService._build_task_result_persistence_payload`（multi_product_service.py:1011 附近）重写了该钩子，多品加权指标的持久化依赖它；已在 base 的钩子 docstring 中标注不得删除 | `google_sheet_service_base.py:305-309` |
 
 ---
 

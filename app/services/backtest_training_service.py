@@ -7,7 +7,7 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.repositories import task_repository, task_result_repository
-from app.exceptions.checkForErrors import checkForErrors
+from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
@@ -457,7 +457,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                             'kline':[kline[0],kline[-1]],
                         }, result, success, return_date=return_date)
 
-                    except checkForErrors as e:
+                    except SheetCheckError as e:
                         self._log_error(str(e))
                         record_task_exception(
                             self.task_id,
@@ -629,7 +629,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                     if str(_value).strip().startswith(("#", "#N/A")):
                         _error_msg = f"获取结果位置 {_position} 时出错: {str(_value)}"
-                        raise checkForErrors(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {_error_msg}")
+                        raise SheetCheckError(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {_error_msg}")
 
                     if isinstance(_value, str) and '%' in _value:
                         _value = float(_value.replace('%', '').replace(',', '')) / 100
@@ -807,23 +807,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
         trading_days_per_year = 250 if market_type == 'cn' else 252
         limit = max(300, year_count * trading_days_per_year + 80)
 
-        # 旧的 DFCF/Yahoo 分支保留为注释参考；全部执行统一走 KlineService。
-        # if market_type == 'cn':
-        #     if exchange_market:
-        #         resolved_code, market = self._resolve_cn_stock_quote(stock_code, exchange_market)
-        #     else:
-        #         resolved_code, market = self._resolve_cn_stock_quote(stock_code)
-        #     stock_code = resolved_code
-        #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
-        # elif price_mode == 'vwap_price':
-        #     if exchange_market:
-        #         resolved_code, market = self._resolve_dfcf_stock_quote(stock_code, exchange_market)
-        #     else:
-        #         resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
-        #     stock_code = resolved_code
-        #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
-        # else:
-        #     klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
         klines = self.kline_service.get_kline_data(
             stock_code,
             market_type,

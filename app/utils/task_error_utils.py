@@ -102,27 +102,3 @@ def _retry_error_finished_with_failed_result(error: RetryError) -> bool:
     if isinstance(result, (tuple, list)) and result:
         return result[0] is False
     return False
-
-
-def is_retryable_google_sheet_execution_error(exc: BaseException | None) -> bool:
-    """Google Sheet parameter execution retried but never got valid results."""
-    if exc is None:
-        return False
-
-    timeout_keywords = (
-        "执行超时",
-        "未在规定时间内完成",
-        "结果验证失败",
-        "无效值",
-    )
-    for item in iter_exception_chain(exc):
-        if isinstance(item, RetryError) and _retry_error_finished_with_failed_result(item):
-            return True
-        error_text = str(item)
-        if any(keyword in error_text for keyword in timeout_keywords):
-            return True
-    return False
-
-
-def is_retryable_c3_execution_error(exc: BaseException | None) -> bool:
-    return is_retryable_google_sheet_execution_error(exc)

@@ -9,9 +9,9 @@ import requests
 import json
 import time
 from typing import Dict, Optional, Any
-import logging
+from app.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class StockAPIClient:

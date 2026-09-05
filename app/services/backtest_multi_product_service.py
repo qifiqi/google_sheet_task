@@ -43,7 +43,6 @@ from app.services.performance_analysis.historical_metrics import (
 
 
 BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
-RATIO_BASE = Decimal("100")
 GLOBAL_PREVIEW_CACHE_MAX_SIZE = 64
 _GLOBAL_PREVIEW_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 
@@ -244,19 +243,6 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "parameters": parameters,
         })
 
-    # 旧版累计收益直接加权算法已停用，组合算法固定为日收益加权后复利。
-    # raw_weighting_mode = config.get("weighting_mode")
-    # if raw_weighting_mode in (None, ""):
-    #     # TODO: 数据库历史任务 config 仍保存 use_legacy_cumulative_return_weighting
-    #     # 布尔字段；历史数据迁移完成后删除该回退。
-    #     raw_weighting_mode = (
-    #         "legacy_cumulative"
-    #         if _use_legacy_cumulative_return_weighting(
-    #             config.get("use_legacy_cumulative_return_weighting")
-    #         )
-    #         else "daily_compound"
-    #     )
-
     return {
         **config,
         "start_date": start_date,
@@ -431,69 +417,6 @@ def _fmt_value(value: Any, value_type: str) -> str:
     if value_type == "percent":
         return f"{number:.2%}"
     return f"{number:.2f}".rstrip("0").rstrip(".")
-
-
-# 旧版累计收益直接加权的缩放辅助已随算法停用；统一组合器见
-# performance_analysis.portfolio_combiner。
-# def _scale_return_date(
-#     return_date: list[dict[str, Any]],
-#     ratio: Any,
-# ) -> list[dict[str, Any]]:
-#     ratio_value = float(parse_ratio(ratio) / RATIO_BASE)
-#     scaled = []
-#     for item in return_date:
-#         date = item.get("date") or item.get("stock_date")
-#         index_return = _safe_number(item.get("index_return"))
-#         start_return = _safe_number(item.get("start_return"))
-#         if not date or index_return is None or start_return is None:
-#             continue
-#         scaled.append({
-#             "date": date,
-#             "index_return": index_return * ratio_value,
-#             "start_return": start_return * ratio_value,
-#         })
-#     return scaled
-
-
-def _use_legacy_cumulative_return_weighting(value: Any) -> bool:
-    """解析历史配置中的旧布尔组合模式字段。
-
-    旧版累计加权算法已停用；TODO: 数据库历史任务 config 迁移完成后删除本函数。
-    """
-    # if isinstance(value, str):
-    #     return value.strip().lower() in {"1", "true", "yes", "on"}
-    # return bool(value)
-    _ = value
-    return False
-
-
-def _result_weighting_mode(value: Any) -> str | None:
-    """读取历史结果参数中的组合模式；None 表示历史数据未记录该字段。
-
-    旧版累计加权算法已停用；TODO: 历史结果参数迁移完成后删除本函数。
-    """
-    # if value in (None, ""):
-    #     return None
-    # if isinstance(value, bool) or (isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "on", "0", "false", "no", "off"}):
-    #     return "legacy_cumulative" if _use_legacy_cumulative_return_weighting(value) else "daily_compound"
-    # return normalize_weighting_mode(value)
-    _ = value
-    return None
-
-
-def _cumulative_returns_to_daily_returns(
-    return_date: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """统一收益转换器的兼容包装。"""
-    return _canonical_cumulative_to_daily(return_date)
-
-
-def _daily_returns_to_cumulative_returns(
-    return_date: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """统一复利转换器的兼容包装。"""
-    return _canonical_daily_to_cumulative(return_date)
-
 
 def _weight_return_date(
     return_date: list[dict[str, Any]],
@@ -1184,16 +1107,6 @@ class BacktestMultiProductService(BacktestTrainingService):
         trading_days_per_year = 250 if market_type == "cn" else 252
         limit = max(300, math.ceil(calendar_days * trading_days_per_year / 365.25) + 120)
 
-        # 旧的 DFCF/Yahoo 分支保留为注释参考；多品回测也统一走 KlineService。
-
-        #     resolved_code, market = self._resolve_cn_stock_quote(stock_code)
-        #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
-        # elif price_mode == "vwap_price":
-        #     resolved_code, market = self._resolve_dfcf_stock_quote(stock_code)
-        #     klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
-        # else:
-        #     klines = self.YF_api.get_kline_data(stock_code, "10y", adjust_type=adjust_type)
-
         klines = self.kline_service.get_kline_data(
             stock_code,
             market_type,
@@ -1287,14 +1200,8 @@ def build_multi_product_global_preview_payload(
             "timestamp": result.timestamp.isoformat() if result.timestamp else None,
             "parameters": parameters,
             "metrics": _derive_metrics(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
-            "product_metrics": _derive_metrics(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
             "return_date": _get_return_date_for_task_result(result),
             "weighted_metrics": (
-                _derive_metrics(weighted_calculate_metrics)
-                if isinstance(weighted_calculate_metrics, dict) and weighted_calculate_metrics
-                else {}
-            ),
-            "weighted_product_metrics": (
                 _derive_metrics(weighted_calculate_metrics)
                 if isinstance(weighted_calculate_metrics, dict) and weighted_calculate_metrics
                 else {}

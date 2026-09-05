@@ -57,10 +57,12 @@ def test_global_preview_supports_google_sheet_c7_tasks(app_factory, monkeypatch)
         assert response.get_json()["data"]["supported"] is True
 
 
-def test_single_product_preview_page_does_not_require_api_token(app_factory):
+def test_single_product_preview_page_redirects_anonymous(app_factory):
+    """BUG-17 后页面由服务端守卫：匿名访问 302 到登录页。"""
     response = app_factory.test_client().get("/global-preview/single_product")
 
-    assert response.status_code == 200
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
 
 
 def test_single_product_preview_is_registered_with_a_page_permission():

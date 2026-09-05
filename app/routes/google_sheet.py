@@ -1,8 +1,8 @@
-from flask import Blueprint, render_template, request, jsonify, url_for, redirect, flash
-import json
-from app.services.config_manager import get_config_manager
+from flask import Blueprint, render_template, request
+
 from app.services.task import task_manager
 from app.utils.logger import get_logger
+from app.utils.auth import page_login_required
 
 logger = get_logger(__name__)
 
@@ -36,6 +36,7 @@ def _resolve_task_version(*task_id_params):
     return None
 
 @google_sheet_bp.route('/')
+@page_login_required
 def index():
     """Google Sheet参数批量校验首页
 
@@ -49,6 +50,7 @@ def index():
     return render_template('google_sheet/index.html', version=version)
 
 @google_sheet_bp.route('/create')
+@page_login_required
 def create():
     """创建Google Sheet任务页面"""
     version = request.args.get('version') or _resolve_task_version('restart_task_id')
@@ -63,12 +65,14 @@ def create():
     return render_template('google_sheet/create.html', version=None)
 
 @google_sheet_bp.route('/merge-export')
+@page_login_required
 def merge_export():
     """C3 合并导出独立页面"""
     return render_template('google_sheet/merge_export.html')
 
 
 @google_sheet_bp.route('/detail')
+@page_login_required
 def detail():
     """任务详情页面"""
     version = request.args.get('version') or _resolve_task_version('task_id')

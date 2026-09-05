@@ -5,9 +5,6 @@ from typing import Optional
 import gspread
 from google.oauth2.credentials import Credentials
 from gspread.utils import a1_to_rowcol, rowcol_to_a1
-from requests.exceptions import ConnectionError, RequestException
-from urllib3.exceptions import ProtocolError
-from http.client import RemoteDisconnected
 import functools
 
 from gspread import Cell
@@ -16,13 +13,6 @@ from app.utils.task_error_utils import RetryableNetworkTaskError, is_retryable_n
 
 logger = get_logger(__name__)
 
-# 网络连接异常类型
-NETWORK_EXCEPTIONS = (
-    ConnectionError,
-    RequestException,
-    ProtocolError,
-    RemoteDisconnected
-)
 
 class GoogleSheet:
     """Google Sheet客户端类"""
@@ -726,12 +716,6 @@ class GoogleSheet:
                     raise RetryableNetworkTaskError(
                         f"{self._log_ctx()}{operation_name} 网络错误，已重试 {max_retries} 次仍失败: {str(e)}"
                     ) from e
-        
-        # 如果所有重试都失败了
-        if last_exception:
-            raise RetryableNetworkTaskError(
-                f"{self._log_ctx()}{operation_name} 网络错误: {str(last_exception)}"
-            ) from last_exception
 
     def close(self):
         """关闭连接并清理资源"""
@@ -758,8 +742,3 @@ class GoogleSheet:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """上下文管理器出口"""
         self.close()
-
-
-if __name__ == '__main__':
-    with GoogleSheet('17pocRAANadKiJs-Z4lujPxj0em_1Gkdt8CW6l04tvrc','control',token_file=r'D:\Users\Administrator\Desktop\谷歌参数批量校验\data\token.json') as sheet:
-        print(sheet.get_range("L2:L100"))

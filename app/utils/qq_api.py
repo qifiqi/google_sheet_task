@@ -12,6 +12,7 @@ import random
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+from app.utils.logger import get_logger
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -80,7 +81,7 @@ class QQStockApi:
     }
 
     def __init__(self):
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = get_logger(self.__class__.__name__)
         self._request_count = 0
         self._last_request_time = 0.0
         self._current_ua = random.choice(_USER_AGENTS)

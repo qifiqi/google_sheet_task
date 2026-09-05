@@ -379,7 +379,7 @@ class Task(db.Model):
             "description": self.description,
             "status": self.status,
             "task_type": self.task_type,
-            "config": json.loads(self.config) if self.config else {},
+            "config": _json_object_or_empty(self.config),
             "created_by_user_id": self.created_by_user_id,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
@@ -465,32 +465,17 @@ class TaskResult(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.now, index=True, comment="结果时间")
 
     def to_dict(self):
-        result_dict = {
+        return {
             "id": self.id,
             "task_id": self.task_id,
             "step_index": self.step_index,
-            "parameters": json.loads(self.parameters) if self.parameters else {},
-            "result": json.loads(self.result) if self.result else {},
+            "parameters": _json_object_or_empty(self.parameters),
+            "result": _json_object_or_empty(self.result),
             "return_series_id": self.return_series_id,
             "success": self.success,
             "error_message": self.error_message,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
         }
-        if hasattr(self, "retry_count") and self.retry_count is not None:
-            result_dict["retry_count"] = self.retry_count
-        if hasattr(self, "execution_time") and self.execution_time is not None:
-            result_dict["execution_time"] = self.execution_time
-        if hasattr(self, "error_type") and self.error_type:
-            result_dict["error_type"] = self.error_type
-        if hasattr(self, "http_status") and self.http_status is not None:
-            result_dict["http_status"] = self.http_status
-        if hasattr(self, "session_id") and self.session_id:
-            result_dict["session_id"] = self.session_id
-        if hasattr(self, "request_id") and self.request_id:
-            result_dict["request_id"] = self.request_id
-        if hasattr(self, "retry_round") and self.retry_round is not None:
-            result_dict["retry_round"] = self.retry_round
-        return result_dict
 
 
 class TaskResultReturn(db.Model):
@@ -730,7 +715,7 @@ class TaskTemplate(db.Model):
             "id": self.id,
             "name": self.name,
             "description": self.description,
-            "config": json.loads(self.config) if self.config else {},
+            "config": _json_object_or_empty(self.config),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -962,7 +947,7 @@ class ScheduledTask(db.Model):
             "cron_expression": self.cron_expression,
             "task_type": self.task_type,
             "task_function": self.task_function,
-            "task_params": json.loads(self.task_params) if self.task_params else {},
+            "task_params": _json_object_or_empty(self.task_params),
             "is_active": self.is_active,
             "last_run_time": self.last_run_time.isoformat() if self.last_run_time else None,
             "next_run_time": self.next_run_time.isoformat() if self.next_run_time else None,

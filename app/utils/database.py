@@ -1,21 +1,26 @@
 """
 数据库操作工具模块
-提供事务管理、连接管理等功能
+提供事务管理等功能
+
+2026-09 清理：safe_delete / safe_update / safe_create / DatabaseManager 已随
+数据层重构退役（调用点清零），统一改用 app/repositories/ 仓储方法。
 """
 import functools
 from sqlalchemy.exc import IntegrityError, OperationalError
 from app.extensions import db
 from app.utils.logger import get_logger
-from app.utils.db_retry import db_retry, safe_db_operation, DatabaseLockError
+from app.utils.db_retry import safe_db_operation, DatabaseLockError
 
 logger = get_logger(__name__)
 
 
-@db_retry(max_attempts=5, base_delay=0.1, max_delay=2.0)
 def transaction_required(func):
     """
     数据库事务装饰器
-    自动处理事务提交、回滚和异常处理，包含重试逻辑
+    自动处理事务提交、回滚和异常处理；提交走 safe_db_operation 重试。
+
+    注意：重试只保护提交动作本身（safe_db_operation），不重放函数体内的写操作；
+    需要可重放的提交请用 repository 的 commit_with_retry(operation)。
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -37,197 +42,3 @@ def transaction_required(func):
             logger.error(f"数据库操作异常: {str(e)}")
             raise
     return wrapper
-
-
-def safe_delete(model_class, **filters):
-    """
-    安全删除操作，包含重试逻辑
-    
-    Args:
-        model_class: 模型类
-        **filters: 过滤条件
-    
-    Returns:
-        int: 删除的记录数
-    """
-    def delete_operation():
-        query = model_class.query.filter_by(**filters)
-        count = query.count()
-        query.delete()
-        db.session.commit()
-        logger.info(f"成功删除 {count} 条 {model_class.__name__} 记录")
-        return count
-    
-    try:
-        return safe_db_operation(delete_operation)
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"删除 {model_class.__name__} 记录失败: {str(e)}")
-        raise
-
-
-def safe_update(model_or_instance, instance_id=None, commit=True, **updates):
-    """
-    .. deprecated:: 2026-09 数据层重构
-        调用点已清零；请改用 app/repositories/ 对应仓储的 update 方法。
-
-    安全更新操作，包含重试逻辑
-    
-    Args:
-        model_instance: 模型实例
-        commit: 是否立即提交事务
-        **updates: 更新字段
-    
-    Returns:
-        model_instance: 更新后的实例
-    """
-    if isinstance(model_or_instance, type):
-        model_instance = model_or_instance.query.get(instance_id)
-        if model_instance is None:
-            raise ValueError(
-                f"{model_or_instance.__name__} record not found for id: {instance_id}"
-            )
-    else:
-        model_instance = model_or_instance
-        if isinstance(instance_id, bool):
-            commit = instance_id
-
-    def update_operation():
-        for key, value in updates.items():
-            if hasattr(model_instance, key):
-                setattr(model_instance, key, value)
-        
-        if commit:
-            db.session.commit()
-        logger.debug(f"成功更新 {model_instance.__class__.__name__} 记录")
-        return model_instance
-    
-    try:
-        return safe_db_operation(update_operation)
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"更新记录失败: {str(e)}")
-        raise
-
-
-def safe_create(model_class, commit=False, **fields):
-    """
-    .. deprecated:: 2026-09 数据层重构
-        调用点已清零；请改用 app/repositories/ 对应仓储的 create 方法。
-
-    安全创建操作
-    
-    Args:
-        model_class: 模型类
-        commit: 是否立即提交事务
-        **fields: 字段值
-    
-    Returns:
-        model_instance: 创建的实例
-    """
-    def create_operation():
-        instance = model_class(**fields)
-        db.session.add(instance)
-        if commit:
-            db.session.commit()
-        logger.debug(f"成功创建 {model_class.__name__} 记录")
-        return instance
-    
-    try:
-        return safe_db_operation(create_operation)
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"创建 {model_class.__name__} 记录失败: {str(e)}")
-        raise
-
-
-class DatabaseManager:
-    """数据库管理器"""
-    
-    @staticmethod
-    def get_or_create(model_class, defaults=None, **kwargs):
-        """
-        获取或创建记录，包含重试逻辑
-        
-        Args:
-            model_class: 模型类
-            defaults: 创建时的默认值
-            **kwargs: 查询条件
-        
-        Returns:
-            tuple: (instance, created)
-        """
-        def get_or_create_operation():
-            instance = model_class.query.filter_by(**kwargs).first()
-            if instance:
-                return instance, False
-            
-            # 创建新记录
-            params = kwargs.copy()
-            if defaults:
-                params.update(defaults)
-            
-            instance = model_class(**params)
-            db.session.add(instance)
-            db.session.commit()
-            return instance, True
-        
-        try:
-            return safe_db_operation(get_or_create_operation)
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"get_or_create 操作失败: {str(e)}")
-            raise
-    
-    @staticmethod
-    def bulk_create(model_class, data_list):
-        """
-        批量创建记录，包含重试逻辑
-        
-        Args:
-            model_class: 模型类
-            data_list: 数据列表
-        
-        Returns:
-            list: 创建的实例列表
-        """
-        def bulk_create_operation():
-            instances = [model_class(**data) for data in data_list]
-            db.session.bulk_save_objects(instances)
-            db.session.commit()
-            logger.info(f"批量创建 {len(instances)} 条 {model_class.__name__} 记录")
-            return instances
-        
-        try:
-            return safe_db_operation(bulk_create_operation)
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"批量创建失败: {str(e)}")
-            raise
-    
-    @staticmethod
-    def execute_in_transaction(operations):
-        """
-        在单个事务中执行多个操作，包含重试逻辑
-        
-        Args:
-            operations: 操作函数列表
-        
-        Returns:
-            list: 操作结果列表
-        """
-        def transaction_operation():
-            results = []
-            for operation in operations:
-                result = operation()
-                results.append(result)
-            
-            db.session.commit()
-            return results
-        
-        try:
-            return safe_db_operation(transaction_operation)
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"事务执行失败: {str(e)}")
-            raise

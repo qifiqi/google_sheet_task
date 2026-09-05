@@ -234,10 +234,8 @@ class TaskRuntimeViewService:
 
     def build_dashboard_overview(self, user) -> dict[str, Any]:
         now = datetime.now()
-        allowed_task_types = self._dashboard_query_service.get_allowed_task_types(
-            user,
-            "view",
-        )
+        # 当前为全量类型（无权限过滤）；缺口登记见 07-public-deployment-and-subservice §1。
+        allowed_task_types = self._dashboard_query_service.list_all_task_types()
 
         if not allowed_task_types:
             return self._dashboard_query_service.build_empty_overview(now)

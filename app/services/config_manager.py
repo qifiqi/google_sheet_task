@@ -21,6 +21,14 @@ def _mask_config_value(key: str, value: Any) -> Any:
     return value
 
 
+def mask_config_value(key: str, value: Any) -> Any:
+    """公开脱敏出口：key 含 token/secret/password/credential/apikey 时值打码。
+
+    所有把配置值下发到响应（管理端诊断/列表端点）的路径必须经过本函数。
+    """
+    return _mask_config_value(key, value)
+
+
 def _serialize_config_value(value: Any) -> str:
     """配置值入库序列化。
 
@@ -35,11 +43,21 @@ def _serialize_config_value(value: Any) -> str:
         return str(value)
 
 
-def _deserialize_config_value(value: Any) -> Any:
-    """配置值读回反序列化，与 _serialize_config_value 对称。
+def _reject_json_constant(name: str):
+    """json.loads 的 parse_constant 钩子：拒绝 NaN/Infinity 等非法常量。"""
+    raise ValueError(f"非法 JSON 常量: {name}")
 
-    对字符串先尝试 JSON 解析；失败时做旧数据兼容——历史版本用 str() 直接入库，
-    会产生 "True"/"False"/"None" 字面量，这里还原为对应类型。
+
+def _deserialize_config_value(value: Any) -> Any:
+    """配置值读回反序列化，与 _serialize_config_value 对称（收窄版）。
+
+    - 布尔/None：精确匹配 json.dumps 产物（true/false/null）与历史 str() 产物
+      （True/False/None），不再对任意 t/f/n 开头的词做解析尝试；
+    - 容器/JSON 字符串：以 { [ " 开头才尝试解析；
+    - 数字：仅当整串是合法 JSON 数字才还原为 int/float（json.dumps(数字) 的产物），
+      解析结果为 NaN/Infinity 直接按原字符串返回；
+    - 其余一律原样返回字符串。历史纯数字字符串 key 若被静默转成数字，由调用方
+      （set_config 的写入方）负责用 json.dumps 显式表达字符串意图。
     """
     if not isinstance(value, str):
         return value
@@ -51,15 +69,30 @@ def _deserialize_config_value(value: Any) -> Any:
         return False
     if value == 'None':
         return None
+    # json.dumps 的布尔/None 产物（精确匹配）
+    if value == 'true':
+        return True
+    if value == 'false':
+        return False
+    if value == 'null':
+        return None
 
-    stripped = value.lstrip()
-    # 只对可能构成 JSON 的开头字符做解析尝试，避免对普通文本反复抛异常
-    if stripped[:1] in ('{', '[', '"', 't', 'f', 'n', '-',
-                        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'):
+    stripped = value.strip()
+    # 容器与 JSON 字符串：仅对可能构成 JSON 的开头字符做解析尝试
+    if stripped[:1] in ('{', '[', '"'):
         try:
-            return json.loads(stripped)
-        except (json.JSONDecodeError, TypeError):
-            pass
+            return json.loads(stripped, parse_constant=_reject_json_constant)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return value
+
+    # 数字：整串必须是合法 JSON 数字（json.dumps(数字) 的入库形态）才还原
+    if stripped[:1].isdigit() or stripped[:1] in ('-', '.'):
+        try:
+            parsed = json.loads(stripped, parse_constant=_reject_json_constant)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return value
+        if isinstance(parsed, (int, float)):
+            return parsed
     return value
 
 
@@ -206,9 +239,10 @@ class ConfigManager:
                 value_str = _serialize_config_value(value)
                 system_config_repository.upsert(key, value_str, description=description)
 
-                # 更新缓存（存原始值，与读回反序列化结果一致）
+                # 缓存存"读回形态"（反序列化后），与 _load_configs/refresh 一致，
+                # 保证同一 key 在 set 与缓存刷新两个生命周期内 get 返回类型恒定。
                 with self._lock:
-                    self._cache[key] = value
+                    self._cache[key] = _deserialize_config_value(value_str)
 
                 logger.info(f"设置配置: {key}")
                 logger.debug(f"设置配置: {key} = {_mask_config_value(key, value)}")

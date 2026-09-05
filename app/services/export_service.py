@@ -355,8 +355,7 @@ class ExportService:
                             workbook.save(xlsx_file)
             except Exception:
                 # 生产线程异常无法再修改已发送的 HTTP 状态，只结束流并保留日志。
-                import logging
-                logging.getLogger(__name__).exception("全局预览流式导出失败: task_id=%s", task_id)
+                logger.exception("全局预览流式导出失败: task_id=%s", task_id)
             finally:
                 output_queue.put(finished)
 

@@ -12,7 +12,9 @@ from app.repositories import task_repository
 class TaskDashboardQueryService:
     """集中处理管理后台任务仪表盘聚合查询。"""
 
-    def get_allowed_task_types(self, user=None, action: str = "view") -> list[str]:
+    def list_all_task_types(self) -> list[str]:
+        """全部任务类型（当前无权限过滤——RBAC 细粒度随主服务接入统一解决，
+        缺口登记于 docs/design/api-model-query-audit/07-public-deployment-and-subservice.md §1）。"""
         return [
             task_type
             for task_type in task_repository.list_distinct_task_types()

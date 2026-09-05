@@ -3,8 +3,8 @@
 - repositories 只抛 NotFoundError / ConflictError，其余异常原样上抛；
 - services 抛语义子类或业务域子类（业务域异常按域放 app/exceptions/ 下分文件）；
 - routes 原则上不 catch，由 app/errors.py 全局错误处理器统一转响应信封；
-- 任务线程域异常（C5*、RetryableNetworkTaskError、[NETWORK_RETRYABLE] 前缀）
-  是执行链语义，无 HTTP 语义，不并入本体系（保持 app/exceptions/c5_exceptions.py 现状）。
+- 任务线程域异常（RetryableNetworkTaskError、[NETWORK_RETRYABLE] 前缀、
+  SheetCheckError/sheet 检查信号）是执行链语义，无 HTTP 语义，不并入本体系。
 """
 
 

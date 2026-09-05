@@ -1,9 +1,9 @@
 import pandas as pd
 import yfinance as yf
 import hashlib
-import logging
 import time
 from datetime import datetime
+from app.utils.logger import get_logger
 
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -18,7 +18,7 @@ class YFApi:
 
     def __init__(self):
         self.kline_data = []
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = get_logger(self.__class__.__name__)
 
     def get_kline_data(self, stock_code='BTC', period='max', interval='1d', proxy=None, adjust_type=None):
         # 先获取原始 OHLC + Adj Close，再在本地按统一口径处理前/后复权。

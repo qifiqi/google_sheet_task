@@ -6,8 +6,6 @@ from datetime import datetime
 
 from flask import current_app
 
-from app.extensions import db
-from app.models import Task
 from app.services.task.data_cleanup import clear_task_execution_data
 from app.repositories import task_repository
 from app.utils.database import transaction_required

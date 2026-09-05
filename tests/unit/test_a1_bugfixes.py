@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from app.exceptions import NotFoundError, ValidationError
-from app.exceptions.checkForErrors import checkForErrors
+from app.exceptions.sheet_check_error import SheetCheckError
 from app.extensions import db
 from app.models import Task, TaskLog, User
 from app.repositories import task_repository
@@ -81,11 +81,11 @@ def test_create_restart_task_skips_occupancy_for_backtest(app_factory, monkeypat
 
 
 # ---------------------------------------------------------------------------
-# BUG-02 task.error = e 无效赋值（checkForErrors 分支补 error_message 落库）
+# BUG-02 task.error = e 无效赋值（SheetCheckError 分支补 error_message 落库）
 # ---------------------------------------------------------------------------
 
 def test_c5_checkforerrors_branch_records_error_message(app_factory, monkeypatch):
-    """BUG-02：checkForErrors 失败分支现在必须把错误摘要写入 Task.error_message。"""
+    """BUG-02：SheetCheckError 失败分支现在必须把错误摘要写入 Task.error_message。"""
     app = app_factory
     with app.app_context():
         from app.services.google_sheet_service_C5 import GoogleSheetService as C5GoogleSheetService
@@ -133,7 +133,7 @@ def test_c5_checkforerrors_branch_records_error_message(app_factory, monkeypatch
             service,
             "_execute_parameter_combination",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
-                checkForErrors("检查报错，出现#|#N/A 这种异常错误，联系用户检查")
+                SheetCheckError("检查报错，出现#|#N/A 这种异常错误，联系用户检查")
             ),
         )
 
@@ -153,7 +153,7 @@ def test_c5_checkforerrors_branch_records_error_message(app_factory, monkeypatch
         assert (success_count, failed_count, status) == (0, 0, "error")
         # 修复前该分支只写日志，error_message 恒为 None。
         assert refreshed.error_message is not None
-        assert "checkForErrors" in refreshed.error_message
+        assert "SheetCheckError" in refreshed.error_message
         assert "Traceback" not in refreshed.error_message
 
 

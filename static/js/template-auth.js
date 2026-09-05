@@ -64,15 +64,27 @@
     function setTokens(accessToken, refreshToken) {
         if (accessToken) {
             localStorage.setItem(TOKEN_KEY, accessToken);
+            // 同步写入 cookie：页面导航请求无法携带 Authorization 头，
+            // 服务端页面鉴权（page_login_required / admin_required）据此回退读取。
+            const securePart = window.location.protocol === "https:" ? "; Secure" : "";
+            document.cookie =
+                "access_token=" + encodeURIComponent(accessToken) +
+                "; path=/; SameSite=Lax" + securePart;
         }
         if (refreshToken) {
             localStorage.setItem(REFRESH_KEY, refreshToken);
         }
     }
 
+    function clearAccessTokenCookie() {
+        // 置空并立即过期，清除页面鉴权用的访问令牌 cookie。
+        document.cookie = "access_token=; path=/; SameSite=Lax; Max-Age=0";
+    }
+
     function clearAuthState() {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(REFRESH_KEY);
+        clearAccessTokenCookie();
         currentUser = null;
         currentPermissions = [];
         navItems = [];

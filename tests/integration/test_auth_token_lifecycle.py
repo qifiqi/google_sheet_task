@@ -14,13 +14,21 @@ from app.extensions import db
 from app.models import User
 
 
-def _create_user(app, username, password="secret123"):
+def _create_user(app, username, password="secret123", *, admin=False):
     with app.app_context():
+        from app.models import Role
+
         user = User(
             username=username,
             password_hash=generate_password_hash(password),
             is_active=True,
         )
+        if admin:
+            role = db.session.query(Role).filter_by(code="admin").first()
+            if role is None:
+                role = Role(code="admin", name="管理员")
+                db.session.add(role)
+            user.roles.append(role)
         db.session.add(user)
         db.session.commit()
         return user.id
@@ -100,7 +108,8 @@ def test_change_password_revokes_all_sessions(app_factory):
 def test_admin_password_reset_revokes_sessions(app_factory):
     app = app_factory
     target_id = _create_user(app, "target")
-    _create_user(app, "operator")
+    # BUG-17 后 admin CUD 需要 admin 角色，操作者必须是管理员。
+    _create_user(app, "operator", admin=True)
     client = app.test_client()
     operator = _login(client, "operator", "secret123")
     target = _login(client, "target", "secret123")

@@ -5,6 +5,7 @@ from app.extensions import limiter
 from app.services.xpl_analysis_service import _EMPTY_RESULT_DATA, xpl_analysis_service
 from app.utils.api_response import error, success
 from app.utils.logger import get_logger
+from app.utils.auth import login_required, page_login_required
 
 logger = get_logger(__name__)
 
@@ -23,24 +24,28 @@ def _user_key():
 
 
 @xpl_bp.route('/')
+@page_login_required
 def index():
     """Excel数据分析工具首页"""
     return render_template('xpl/index.html')
 
 
 @xpl_bp.route('/v1', methods=['GET'])
+@page_login_required
 def index_v1():
     """V1：Google Sheet 分析页面"""
     return render_template('xpl/v1.html')
 
 
 @xpl_bp.route('/v2', methods=['GET'])
+@page_login_required
 def index_v2():
     """V2：支持多数据源的回测分析页面。"""
     return render_template('xpl/v2.html')
 
 
 @xpl_bp.route('/analyze', methods=['POST'])
+@login_required
 @limiter.limit(
     lambda: f"{_rate_limit('rate_limit_analyze', 10) or 10}/minute",
     key_func=_user_key,
@@ -72,11 +77,12 @@ def analyze_data():
 
     if result["ok"]:
         return success(data=result["data"], message=result["message"])
-    # 分析器报告的数据级失败保持原有 200 语义（前端按 status/code 判定展示）。
-    return error(result["message"], http_status=200, data=result["data"])
+    # 数据级失败（输入数据不满足分析前提）按 400 下发；前端按信封 message 展示。
+    return error(result["message"], http_status=400, data=result["data"])
 
 
 @xpl_bp.route('/v1/analyze', methods=['POST'])
+@login_required
 @limiter.limit(
     lambda: f"{_rate_limit('rate_limit_analyze', 10) or 10}/minute",
     key_func=_user_key,
@@ -109,5 +115,5 @@ def analyze_data_v1():
 
     if result["ok"]:
         return success(data=result["data"], message=result["message"])
-    # 分析器报告的数据级失败保持原有 200 语义（前端按 status/code 判定展示）。
-    return error(result["message"], http_status=200, data=result["data"])
+    # 数据级失败（输入数据不满足分析前提）按 400 下发；前端按信封 message 展示。
+    return error(result["message"], http_status=400, data=result["data"])

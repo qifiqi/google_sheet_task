@@ -8,7 +8,7 @@ from flask import current_app
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
 from app.repositories import task_repository, task_result_repository
-from app.exceptions.checkForErrors import checkForErrors
+from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
@@ -173,23 +173,6 @@ class GoogleSheetService(BaseGoogleSheetService):
 
         
 
-        # random_key = random.choice(list(cell_updates.keys()))
-        # random_value = cell_updates[random_key]
-        # self._log_info(
-        #     f"防止模型卡顿，在随机位置写入：{random_key} = {random_value} "
-        #     f"(类型: {type(random_value)}),当前是第{attempt + 1}轮检查"
-        # )
-
-        # if random_value is None or str(random_value).strip() == "":
-        #     self._log_warning(f"跳过写入空值到位置 {random_key}")
-        #     return
-
-        # try:
-        #     self.google_sheet.update_cell(random_key, str(random_value))
-        # except Exception as err:
-        #     self._log_error(f"更新单元格 {random_key} 失败，值: {random_value}, 错误: {err}")
-        #     raise
-
     def _normalize_result_value(self, position: str, value: Any) -> float:
         if not value or not is_valid_result_value(value):
             self._log_info(f"结果位置 {position} 值为空或无效，跳过重新检查")
@@ -198,7 +181,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         raw_value = str(value).strip()
         if raw_value.startswith(("#", "#N/A")):
             error_msg = f"获取结果位置 {position} 时出错: {raw_value}"
-            raise checkForErrors(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {error_msg}")
+            raise SheetCheckError(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {error_msg}")
 
         if '%' in raw_value:
             return round(float(raw_value.replace('%', '').replace(',', '')) / 100, 5)
@@ -362,7 +345,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                     "index_return": self._normalize_result_value(f"{index_column}{row_num}", index_value),
                     "start_return": self._normalize_result_value(f"{start_column}{row_num}", start_value),
                 })
-            except checkForErrors:
+            except SheetCheckError:
                 raise
             except Exception as err:
                 self._log_warning(f"跳过收益分析行 {row_num}: {err}")
@@ -396,7 +379,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                 "flat_result": flat_result,
                 "_return_date": return_data,
             }
-        except checkForErrors:
+        except SheetCheckError:
             raise
         except Exception as err:
             self._log_warning(f"收益分析附加失败: {err}")
@@ -622,8 +605,6 @@ class GoogleSheetService(BaseGoogleSheetService):
 
         c3_input_column_d = config_data.get('c3_input_column_d').upper()
         c3_input_column_e = config_data.get('c3_input_column_e').upper()
-
-
 
         year_text = str(year_n or '1y').strip().lower()
         year_count = 1
@@ -873,7 +854,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         f"stock_param_push={self._format_elapsed(push_elapsed)}"
                     )
 
-                except checkForErrors as e:
+                except SheetCheckError as e:
                     self._record_execution_error_message(e, "execute_parameter_combination")
                     self._log_error(str(e))
                     return success_count, failed_count, 'error'
@@ -974,7 +955,7 @@ class GoogleSheetService(BaseGoogleSheetService):
                         )
                         return True, final_results
 
-                    except checkForErrors:
+                    except SheetCheckError:
                         raise
                     except Exception as err:
                         batch_error_count += 1

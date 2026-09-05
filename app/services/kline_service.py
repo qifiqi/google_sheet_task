@@ -5,12 +5,12 @@
 """
 
 from __future__ import annotations
+from app.utils.logger import get_logger
 
 import asyncio
 import os
 import random
 from datetime import datetime, timedelta
-import logging
 from typing import Any, Callable, Iterable
 from stock_sdk import StockClient
 
@@ -26,7 +26,7 @@ from app.utils.market import (
     to_yahoo_ticker,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # K线数据行的标准价格字段名，与远程行情数据保持一致，不要重命名：
 # open 开盘价、high 最高价、low 最低价、close 收盘价、vwap 加权平均价。

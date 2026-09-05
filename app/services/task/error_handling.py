@@ -1,8 +1,8 @@
 """Shared task exception recording helpers."""
 
 from __future__ import annotations
+from app.utils.logger import get_logger
 
-import logging
 import re
 import traceback
 import uuid
@@ -18,7 +18,7 @@ from app.utils.task_error_utils import (
     unwrap_exception,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 TASK_ERROR_MESSAGE_MAX_LENGTH = 500
 _TASK_ERROR_RECORD_ATTR = "_task_error_record"

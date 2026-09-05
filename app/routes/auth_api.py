@@ -10,7 +10,7 @@ from flask import Blueprint, request
 from app.services import rbac_service
 from app.utils.api_response import success
 from app.utils.request_parsing import parse_body
-from app.utils.auth import login_required
+from app.utils.auth import login_required, admin_required
 from app.schemas.auth import ChangePasswordSchema, CreateRoleSchema, CreateUserSchema
 
 auth_api_bp = Blueprint('auth_api', __name__)
@@ -65,7 +65,7 @@ def list_users():
 
 
 @auth_api_bp.route('/admin/users', methods=['POST'])
-@login_required
+@admin_required
 def create_user():
     data = parse_body(CreateUserSchema)
     user = rbac_service.create_user(
@@ -80,14 +80,14 @@ def create_user():
 
 
 @auth_api_bp.route('/admin/users/<int:user_id>', methods=['PUT'])
-@login_required
+@admin_required
 def update_user(user_id):
     updated = rbac_service.update_user(user_id, request.get_json() or {})
     return success(data=updated, message='用户更新成功')
 
 
 @auth_api_bp.route('/admin/users/<int:user_id>', methods=['DELETE'])
-@login_required
+@admin_required
 def delete_user(user_id):
     rbac_service.delete_user(user_id)
     return success(message='用户删除成功')
@@ -102,7 +102,7 @@ def list_roles():
 
 
 @auth_api_bp.route('/admin/roles', methods=['POST'])
-@login_required
+@admin_required
 def create_role():
     data = parse_body(CreateRoleSchema)
     role = rbac_service.create_role(
@@ -115,14 +115,14 @@ def create_role():
 
 
 @auth_api_bp.route('/admin/roles/<int:role_id>', methods=['PUT'])
-@login_required
+@admin_required
 def update_role(role_id):
     updated = rbac_service.update_role(role_id, request.get_json() or {})
     return success(data=updated, message='角色更新成功')
 
 
 @auth_api_bp.route('/admin/roles/<int:role_id>', methods=['DELETE'])
-@login_required
+@admin_required
 def delete_role(role_id):
     rbac_service.delete_role(role_id)
     return success(message='角色删除成功')
