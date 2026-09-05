@@ -1,0 +1,223 @@
+{% extends "admin/base.html" %}
+
+{% block title %}全局预览中心{% endblock %}
+
+{% block head %}
+<style>
+    .preview-hub { display: grid; gap: 1rem; }
+    .preview-toolbar .form-control { min-width: 0; }
+    .preview-table-wrap { overflow: auto; border: 1px solid var(--bs-border-color); border-radius: .75rem; }
+    .preview-table { min-width: 920px; margin-bottom: 0; font-size: .88rem; }
+    .preview-table th, .preview-table td { text-align: center; vertical-align: middle; white-space: nowrap; }
+    .preview-table thead th { background: #f7e1a1; color: #000; }
+    .empty-state { padding: 4rem 1rem; text-align: center; color: var(--bs-secondary-color); }
+    .preview-loading { min-height: 11rem; display: grid; place-items: center; gap: .75rem; }
+    html[data-bs-theme="dark"] .preview-table thead th { background: #3f341b; color: #fde68a; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 preview-hub">
+    <div class="card shadow-sm preview-toolbar">
+        <div class="card-body p-3">
+            <form class="row g-2" id="queryForm">
+                <div class="col-md-5">
+                    <input class="form-control" id="taskIdInput" autocomplete="off" placeholder="任务 ID">
+                </div>
+                <div class="col-md-4">
+                    <input class="form-control" id="exportNameInput" autocomplete="off" placeholder="导出文件名">
+                </div>
+                <div class="col-md-auto d-flex gap-2">
+                    <button class="btn btn-primary px-4" type="submit">查询</button>
+                    <button class="btn btn-outline-success" id="exportBtn" type="button" disabled>
+                        <i class="bi bi-file-earmark-arrow-down me-1"></i>导出
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="alert d-none mb-0" id="messageBox" role="alert"></div>
+
+    <div class="card shadow-sm d-none" id="loadingCard">
+        <div class="card-body preview-loading"><div class="spinner-border text-primary" role="status"></div><div class="text-body-secondary" id="loadingText">正在加载…</div></div>
+    </div>
+
+    <div class="card shadow-sm d-none" id="filterCard">
+        <div class="card-body p-3">
+            <div class="row g-3">
+                <div class="col-md-4" id="stockSelectWrap"><label class="form-label small text-body-secondary" for="stockSelect">股票代码</label><select class="form-select" id="stockSelect"></select></div>
+                <div class="col-md-4"><label class="form-label small text-body-secondary" for="yearSelect">年份分组</label><select class="form-select" id="yearSelect"></select></div>
+                <div class="col-md-4 d-flex align-items-end"><div class="small text-body-secondary pb-2" id="groupMeta"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm d-none" id="previewCard"><div class="card-body p-0"><div class="preview-table-wrap" id="previewContainer"></div></div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentTaskId = '';
+let previewPayload = null;
+let activeStockCode = '';
+let activeGroupKey = '';
+let groupMode = 'year';
+let previewGroups = [];
+const previewCache = new Map();
+
+const escapeHtml = (value) => String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+function showMessage(message, type = 'danger') {
+    const box = document.getElementById('messageBox');
+    box.className = `alert alert-${type} mb-0`;
+    box.textContent = message;
+}
+
+function hideResults() {
+    ['filterCard', 'previewCard', 'loadingCard'].forEach((id) => document.getElementById(id).classList.add('d-none'));
+    document.getElementById('exportBtn').disabled = true;
+}
+
+function setLoading(message, visible = true) {
+    document.getElementById('loadingText').textContent = message;
+    document.getElementById('loadingCard').classList.toggle('d-none', !visible);
+}
+
+function groupsForActiveStock() {
+    return (previewPayload?.groups || []).filter((group) => group.stock_code === activeStockCode);
+}
+
+function renderStockOptions() {
+    document.getElementById('stockSelectWrap').classList.toggle('d-none', groupMode !== 'stock');
+    if (groupMode !== 'stock') return;
+    const stocks = groupMode === 'stock'
+        ? previewGroups.map((group) => group.key)
+        : [...new Set((previewPayload.groups || []).map((group) => group.stock_code))];
+    if (!stocks.includes(activeStockCode)) activeStockCode = stocks[0] || '';
+    document.getElementById('stockSelect').innerHTML = stocks.map((stock) => `<option value="${escapeHtml(stock)}">${escapeHtml(stock)}</option>`).join('');
+    document.getElementById('stockSelect').value = activeStockCode;
+}
+
+function renderYearOptions() {
+    const groups = groupMode === 'year' ? previewGroups : groupsForActiveStock();
+    const valueKey = groupMode === 'year' ? 'key' : 'group_key';
+    if (!groups.some((group) => group[valueKey] === activeGroupKey)) activeGroupKey = groups[0]?.[valueKey] || '';
+    document.getElementById('yearSelect').innerHTML = groups.map((group) => {
+        const key = group[valueKey];
+        const label = groupMode === 'year'
+            ? `${group.label} (${group.result_ids.length} 组参数)`
+            : `${group.group_label} (${group.column_count || 0} 组参数)`;
+        return `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`;
+    }).join('');
+    document.getElementById('yearSelect').value = activeGroupKey;
+}
+
+function renderTable() {
+    const group = groupMode === 'year'
+        ? (previewPayload?.groups || []).find((item) => item.year === activeGroupKey)
+        : groupsForActiveStock().find((item) => item.group_key === activeGroupKey);
+    const container = document.getElementById('previewContainer');
+    if (!group || !group.rows?.length || !group.columns?.length) {
+        container.innerHTML = '<div class="empty-state">该股票年份下没有成功结果</div>';
+        return;
+    }
+    document.getElementById('groupMeta').textContent = group.period || '';
+    const headers = group.columns.map((column) => `<th><div>${escapeHtml(column.header || `结果 ${column.result_id}`)}</div><small class="fw-normal">结果 ID: ${escapeHtml(column.result_id)}</small></th>`).join('');
+    const rows = group.rows.map((row) => `<tr><td class="fw-semibold">${escapeHtml(row.category || '-')}</td><td>${escapeHtml(row.metric || '-')}</td><td>${escapeHtml(row.index_value || '-')}</td>${group.columns.map((column) => `<td>${escapeHtml(row.values?.[column.column_key] || '-')}</td>`).join('')}</tr>`).join('');
+    container.innerHTML = `<table class="table table-bordered align-middle preview-table"><thead><tr><th>指标类型</th><th>指标</th><th>指数</th>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderPreview() {
+    renderStockOptions(); renderYearOptions(); renderTable();
+    ['filterCard', 'previewCard'].forEach((id) => document.getElementById(id).classList.remove('d-none'));
+    document.getElementById('exportBtn').disabled = false;
+}
+
+function activeMetadataGroup() {
+    if (groupMode === 'stock') return previewGroups.find((group) => group.key === activeStockCode);
+    return previewGroups.find((group) => group.key === activeGroupKey);
+}
+
+async function loadMetadataGroup(group, message) {
+    if (!group) return;
+    if (previewCache.has(group.key)) {
+        previewPayload = previewCache.get(group.key);
+        renderPreview();
+        return;
+    }
+    setLoading(message);
+    document.getElementById('previewCard').classList.add('d-none');
+    try {
+        const response = await fetch(`/global-preview/api/tasks/${encodeURIComponent(currentTaskId)}/preview-group`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({result_ids: group.result_ids}),
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') throw new Error(data.message || '分组加载失败');
+        previewPayload = data.data && data.data.preview;
+        previewCache.set(group.key, previewPayload);
+        renderPreview();
+    } catch (error) { showMessage(error.message || '分组加载失败'); }
+    finally { setLoading('', false); }
+}
+
+async function queryTask(event) {
+    event.preventDefault();
+    currentTaskId = document.getElementById('taskIdInput').value.trim();
+    hideResults();
+    if (!currentTaskId) return showMessage('请输入任务 ID', 'warning');
+    setLoading('正在读取分组…');
+    try {
+        const response = await fetch(`/global-preview/api/tasks/${encodeURIComponent(currentTaskId)}`);
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') throw new Error(data.message || '查询失败');
+        if (!data.data.supported) return showMessage(data.data.message, 'info');
+        groupMode = data.data.initial?.group_mode || 'year';
+        previewGroups = data.data.initial?.groups || [];
+        previewPayload = data.data.initial?.preview || data.data.preview;
+        previewCache.clear();
+        const defaultKey = data.data.initial?.default_group_key || previewGroups[0]?.key || '';
+        previewCache.set(defaultKey, previewPayload);
+        activeStockCode = groupMode === 'stock' ? defaultKey : (previewPayload.groups?.[0]?.stock_code || '');
+        activeGroupKey = groupMode === 'year' ? defaultKey : '';
+        document.getElementById('exportNameInput').value = previewPayload.task?.name || currentTaskId;
+        document.getElementById('messageBox').className = 'alert d-none mb-0';
+        renderPreview();
+    } catch (error) { showMessage(error.message || '查询失败'); }
+    finally { setLoading('', false); }
+}
+
+async function exportPreview() {
+    const exportName = document.getElementById('exportNameInput').value.trim();
+    const query = exportName ? `?export_name=${encodeURIComponent(exportName)}` : '';
+    const button = document.getElementById('exportBtn');
+    button.disabled = true; button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>正在导出';
+    const response = await fetch(`/api/exports/global-previews/${encodeURIComponent(currentTaskId)}${query}`);
+    if (!response.ok) { button.disabled = false; button.innerHTML = '<i class="bi bi-file-earmark-arrow-down me-1"></i>导出'; return showMessage('导出失败'); }
+    const contentDisposition = response.headers.get('Content-Disposition') || '';
+    const utf8Filename = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+    const fallbackFilename = contentDisposition.match(/filename="?([^";]+)"?/i);
+    const downloadName = utf8Filename ? decodeURIComponent(utf8Filename[1]) : (fallbackFilename?.[1] || '导出文件');
+    const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a');
+    link.href = url; link.download = downloadName; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+    button.disabled = false; button.innerHTML = '<i class="bi bi-file-earmark-arrow-down me-1"></i>导出';
+}
+
+document.getElementById('queryForm').addEventListener('submit', queryTask);
+document.getElementById('stockSelect').addEventListener('change', (event) => {
+    activeStockCode = event.target.value; activeGroupKey = '';
+    if (groupMode === 'stock') return loadMetadataGroup(activeMetadataGroup(), `正在加载 ${activeStockCode}…`);
+    renderYearOptions(); renderTable();
+});
+document.getElementById('yearSelect').addEventListener('change', (event) => {
+    activeGroupKey = event.target.value;
+    if (groupMode === 'year') return loadMetadataGroup(activeMetadataGroup(), `正在加载 ${activeGroupKey}…`);
+    renderTable();
+});
+document.getElementById('exportBtn').addEventListener('click', exportPreview);
+</script>
+{% endblock %}

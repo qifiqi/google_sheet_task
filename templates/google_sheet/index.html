@@ -314,10 +314,10 @@
 
         ajaxRequest(`/api/tasks?${params}`, 'GET', null, function(err, data) {
             isLoadingTasks = false;
-            if (!err && data && data.tasks) {
-                allTasks = data.tasks;
-                serverPagination = data.pagination || serverPagination;
-                serverStatistics = data.statistics || {};
+            if (!err && data && data.data && data.data.tasks) {
+                allTasks = data.data.tasks;
+                serverPagination = data.data.pagination || serverPagination;
+                serverStatistics = data.data.statistics || {};
 
                 updateStatisticsFromServer(serverStatistics);
                 renderTasks();

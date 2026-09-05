@@ -31,50 +31,23 @@ def _resolve_database_url(default_url):
     return database_url
 
 
-def _build_engine_options(database_url):
-    if database_url.startswith('sqlite'):
-        return {
-            'pool_pre_ping': True,
-            'connect_args': {
-                'timeout': 30,
-                'check_same_thread': False,
-                'isolation_level': None,
-            }
-        }
-
-    if database_url.startswith('postgresql'):
-        return {
-            'pool_pre_ping': True,
-            'pool_recycle': 3600,
-            'pool_size': 20,
-            'max_overflow': 40,
-            'pool_timeout': 30,
-            'connect_args': {
-                'connect_timeout': 10,
-                'options': '-c statement_timeout=30000',
-            }
-        }
-
-    if database_url.startswith('mysql'):
-        return {
-            'pool_pre_ping': True,
-            'pool_recycle': 3600,
-            'pool_size': 20,
-            'max_overflow': 40,
-            'pool_timeout': 30,
-            'connect_args': {
-                'connect_timeout': 10,
-                'charset': 'utf8mb4',
-            }
-        }
-
-    return {
+def _build_engine_options(_database_url):
+    options = {
         'pool_pre_ping': True,
         'pool_recycle': 3600,
-        'pool_size': 10,
-        'max_overflow': 20,
-        'pool_timeout': 30,
     }
+    # 池容量参数对非 SQLite 引擎生效（MySQL 主力 + PostgreSQL 历史在用同享）；
+    # SQLite 仅本地回退，走默认池化。
+    if not _database_url.startswith('sqlite'):
+        options.update({
+            'pool_size': _get_int('DB_POOL_SIZE', 10),
+            'max_overflow': _get_int('DB_MAX_OVERFLOW', 20),
+            'pool_timeout': _get_int('DB_POOL_TIMEOUT', 30),
+        })
+    # MySQL 显式声明 utf8mb4，避免跟随服务端/握手默认造成的中文乱码风险。
+    if _database_url.startswith('mysql'):
+        options['connect_args'] = {'charset': 'utf8mb4'}
+    return options
 
 
 class BaseConfig:
@@ -91,6 +64,9 @@ class BaseConfig:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = False
     SQLALCHEMY_ENGINE_LOG_ENABLED = False
+    # 请求体/上传上限：import-excel 上传 Excel 的合理上限（超限 Flask 抛 413
+    # → errors.py HTTPException 链自动转信封）。见 api-model-query-audit/07 §2.2。
+    MAX_CONTENT_LENGTH = 50 * 1024 * 1024
 
     DING_TALK_ACCESS_TOKEN = ''
     DING_TALK_SECRET = ''
@@ -98,6 +74,7 @@ class BaseConfig:
     PUBLIC_BASE_URL = ''
 
     BASE_URL = 'http://localhost:5000'
+    STOCK_BASE_URL = ''
     TASK_TIMEOUT = 3600
     LOG_LEVEL = 'INFO'
     LOG_FILE = LOGS_DIR / 'app.log'
@@ -127,6 +104,9 @@ class BaseConfig:
         )
         cls.PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
         cls.BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
+        # 股票 SDK(StockClient/KlineService) 的服务地址，单一来源：环境变量 STOCK_BASE_URL。
+        # 未配置时保持空串，由 stock_sdk 使用其默认地址。
+        cls.STOCK_BASE_URL = os.environ.get('STOCK_BASE_URL', '')
         cls.TASK_TIMEOUT = _get_int('TASK_TIMEOUT', 3600)
         cls.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
         cls.LOG_FILE = cls.LOGS_DIR / 'app.log'
@@ -141,17 +121,16 @@ class BaseConfig:
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
-    DEFAULT_DATABASE_URL = 'postgresql://validator_user:validator_password@127.0.0.1:5432/googlesheet_validator'
 
 
 class ProductionConfig(BaseConfig):
     DEBUG = False
-    DEFAULT_DATABASE_URL = 'postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator'
 
 
 class TestingConfig(BaseConfig):
+    DEBUG = False
     TESTING = True
-    DEFAULT_DATABASE_URL = f'sqlite:///{INSTANCE_DIR / "test.db"}'
+    RATELIMIT_ENABLED = False
 
 
 CONFIG_MAP = {
@@ -192,6 +171,10 @@ def init_config():
             'value': 0,
             'description': 'Google token 全局总占用上限，0 表示不限制。',
         },
+        'google_sheet_http_timeout': {
+            'value': 30,
+            'description': 'Google Sheet 请求默认 HTTP 超时，单位秒。',
+        },
         'backtest_training_token_id': {
             'value': '',
             'description': 'Backtest training task token_id from google_sheet_tokens table.',
@@ -215,6 +198,22 @@ def init_config():
         'task_status_check_timeout': {
             'value': 600,
             'description': '任务状态检查超时时间，单位秒。',
+        },
+        'rate_limit_analyze': {
+            'value': 10,
+            'description': 'xpl 分析接口限流：每分钟每用户次数（0=不限）。',
+        },
+        'rate_limit_heavy': {
+            'value': 6,
+            'description': '重计算端点（Excel 导入/比例计算）限流：每分钟每用户次数（0=不限）。',
+        },
+        'rate_limit_rebuild': {
+            'value': 2,
+            'description': '模型汇总重建端点限流：每分钟每用户次数（0=不限）。',
+        },
+        'rate_limit_export': {
+            'value': 10,
+            'description': '导出端点限流：每分钟每用户次数（0=不限）。',
         },
         'watchdog_enabled': {
             'value': True,
@@ -350,7 +349,7 @@ def init_config():
             'description': 'C5 模板参数输入单元格位置列表。',
         },
         'c5_check_positions': {
-            'value': ['D2', 'D3'],
+            'value': ['G1', 'H1'],
             'description': 'C5 模板勾选/触发单元格位置列表。',
         },
         'c5_input_column_a': {
@@ -377,6 +376,84 @@ def init_config():
             'value': 'L',
             'description': 'C5 模板输出列 L 的列标识。',
         },
+
+        'c7_parameter_positions': {
+            'value': ['A1', 'B1'],
+            'description': 'C5 模板参数输入单元格位置列表。',
+        },
+        'c7_check_positions': {
+            'value': ['G1', 'H1'],
+            'description': 'C5 模板勾选/触发单元格位置列表。',
+        },
+        'c7_input_column_a': {
+            'value': 'A',
+            'description': 'C5 模板输入列 A 的列标识。',
+        },
+        'c7_input_column_b': {
+            'value': 'B',
+            'description': 'C5 模板输入列 B 的列标识。',
+        },
+        'c7_0_3_kline_start_row': {
+            'value': 2,
+            'description': 'C7.0.3 OHLC K线输入起始行。',
+        },
+        'c7_0_3_kline_date_column': {
+            'value': 'CC',
+            'description': 'C7.0.3 OHLC K线日期列。',
+        },
+        'c7_0_3_kline_open_column': {
+            'value': 'CD',
+            'description': 'C7.0.3 OHLC K线开盘价列。',
+        },
+        'c7_0_3_kline_high_column': {
+            'value': 'CE',
+            'description': 'C7.0.3 OHLC K线最高价列。',
+        },
+        'c7_0_3_kline_low_column': {
+            'value': 'CF',
+            'description': 'C7.0.3 OHLC K线最低价列。',
+        },
+        'c7_0_3_kline_close_column': {
+            'value': 'CG',
+            'description': 'C7.0.3 OHLC K线收盘价列。',
+        },
+        'c7_0_3_output_range_1': {
+            'value': 'D2:D20',
+            'description': 'C7.0.3 第一段结果读取区域，与 C5 一致。',
+        },
+        'c7_0_3_output_range_2': {
+            'value': 'D22:F25',
+            'description': 'C7.0.3 第二段结果读取区域，与 C5 一致。',
+        },
+        'c7_0_3_output_column_j': {
+            'value': 'J',
+            'description': 'C7.0.3 指数收益输出列，与 C5 一致。',
+        },
+        'c7_0_3_output_column_l': {
+            'value': 'L',
+            'description': 'C7.0.3 起始收益输出列，与 C5 一致。',
+        },
+        # 'c7_output_range_1': {
+        #     'value': 'D2:F4',
+        #     'description': 'C5 模板第一段结果读取区域。',
+        # },
+        'c7_output_range_1': {
+            'value': 'D8:D26',
+            'description': 'C5 模板第一段结果读取区域。',
+        },
+        'c7_output_range_2': {
+            'value': 'D28:F31',
+            'description': 'C5 模板第二段结果读取区域。',
+        },
+        'c7_output_column_j': {
+            'value': 'J',
+            'description': 'C5 模板输出列 J 的列标识。',
+        },
+        'c7_output_column_l': {
+            'value': 'L',
+            'description': 'C5 模板输出列 L 的列标识。',
+        },
+
     }
 
     existing_configs = {
@@ -397,31 +474,9 @@ def init_config():
 # RBAC 权限定义，格式：(group, code, name, route_path)
 # route_path 仅供后台展示，标记该权限对应的前端路由入口
 # run.py 启动时幂等插入到数据库
+# 仅保留页面权限（page:*），接口级细粒度权限已移除；
+# 页面权限同时由导航菜单表通过 sync_navigation_permissions 幂等同步。
 PERMISSIONS = [
-    ('task',         'task:view',           '查看任务/日志/结果',    '/admin/tasks'),
-    ('task',         'task:create',         '创建任务',              '/task/create'),
-    ('task',         'task:cancel',         '取消任务',              None),
-    ('task',         'task:restart',        '重启任务',              None),
-    ('task',         'task:delete',         '删除任务',              None),
-    ('template',     'template:view',       '查看模板',              '/admin/templates'),
-    ('template',     'template:manage',     '管理模板',              '/admin/templates'),
-    ('google_sheet', 'google_sheet:view',   '查看 Google Sheet',     '/admin/google-sheets'),
-    ('google_sheet', 'google_sheet:manage', '管理 Google Sheet',     '/admin/google-sheets'),
-    ('google_sheet', 'google_sheet:c3',     '访问 Google Sheet C3',  '/task/list?version=c3'),
-    ('google_sheet', 'google_sheet:c4',     '访问 Google Sheet C4',  '/task/list?version=c4'),
-    ('google_sheet', 'google_sheet:c5',     '访问 Google Sheet C5',  '/task/list?version=c5'),
-    ('config',       'config:view',         '查看系统配置',          '/admin/config'),
-    ('config',       'config:manage',       '修改系统配置',          '/admin/config'),
-    ('navigation',   'navigation:view',     '查看路由表',            '/admin/navigation'),
-    ('navigation',   'navigation:manage',   '管理路由表',            '/admin/navigation'),
-    ('scheduler',    'scheduler:view',      '查看定时任务',          '/admin/scheduler'),
-    ('scheduler',    'scheduler:manage',    '管理定时任务',          '/admin/scheduler'),
-    ('database',     'database:manage',     '数据库操作',            None),
-    ('database',     'database:model_summary','单模型汇总索引重建',   '/admin/model-summary'),
-    ('user',         'user:view',           '查看用户列表',          '/admin/users'),
-    ('user',         'user:manage',         '管理用户/角色/权限',    '/admin/users'),
-    ('backtest',     'backtest:view',       '查看回测任务',          '/backtest/list'),
-    ('backtest',     'backtest:create',     '创建回测任务',          '/backtest/create'),
     ('page',         'page:admin:dashboard',    '访问仪表盘页面',         '/admin'),
     ('page',         'page:admin:tasks',        '访问任务管理页面',       '/admin/tasks'),
     ('page',         'page:admin:templates',    '访问任务模板页面',       '/admin/templates'),
@@ -437,6 +492,7 @@ PERMISSIONS = [
     ('page',         'page:google_sheet:c3',    '访问 Google Sheet C3 页面', '/google-sheet/?version=c3'),
     ('page',         'page:google_sheet:c4',    '访问 Google Sheet C4 页面', '/google-sheet/?version=c4'),
     ('page',         'page:google_sheet:c5',    '访问 Google Sheet C5 页面', '/google-sheet/?version=c5'),
+    ('page',         'page:google_sheet:c7',    '访问 Google Sheet C7 页面', '/google-sheet/?version=c7'),
     ('page',         'page:backtest:list',      '访问回测列表页面',       '/backtest-training/list'),
     ('page',         'page:backtest:create',    '访问回测创建页面',       '/backtest-training/create'),
     ('page',         'page:backtest_multi_product:list',   '访问多品数据回测列表页面',   '/backtest-multi-product/list'),

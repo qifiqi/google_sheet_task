@@ -21,30 +21,31 @@ def upgrade():
         batch_op.add_column(sa.Column("mobile", sa.String(length=32), nullable=True))
         batch_op.add_column(sa.Column("is_alert_oncall", sa.Boolean(), nullable=True))
 
-    op.execute("UPDATE `user` SET is_alert_oncall = 0 WHERE is_alert_oncall IS NULL")
+    user_table = sa.table(
+        "user",
+        sa.column("is_alert_oncall", sa.Boolean()),
+    )
+    op.execute(
+        user_table.update()
+        .where(user_table.c.is_alert_oncall.is_(None))
+        .values(is_alert_oncall=False)
+    )
 
     with op.batch_alter_table("user", schema=None) as batch_op:
         batch_op.alter_column(
             "is_alert_oncall",
             existing_type=sa.Boolean(),
             nullable=False,
-            server_default=sa.text("0"),
+            server_default=sa.false(),
         )
 
     with op.batch_alter_table("tasks", schema=None) as batch_op:
         batch_op.add_column(sa.Column("created_by_user_id", sa.Integer(), nullable=True))
         batch_op.create_index(batch_op.f("ix_tasks_created_by_user_id"), ["created_by_user_id"], unique=False)
-        batch_op.create_foreign_key(
-            "fk_tasks_created_by_user_id_user",
-            "user",
-            ["created_by_user_id"],
-            ["id"],
-        )
 
 
 def downgrade():
     with op.batch_alter_table("tasks", schema=None) as batch_op:
-        batch_op.drop_constraint("fk_tasks_created_by_user_id_user", type_="foreignkey")
         batch_op.drop_index(batch_op.f("ix_tasks_created_by_user_id"))
         batch_op.drop_column("created_by_user_id")
 

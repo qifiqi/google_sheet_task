@@ -25,7 +25,7 @@ def upgrade():
         sa.Column('permission', sa.String(length=100), nullable=True),
         sa.Column('parent_key', sa.String(length=100), nullable=True),
         sa.Column('sort_order', sa.Integer(), nullable=False, server_default='0'),
-        sa.Column('is_visible', sa.Boolean(), nullable=False, server_default=sa.text('1')),
+        sa.Column('is_visible', sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column('created_at', sa.DateTime(), nullable=True),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint('id'),

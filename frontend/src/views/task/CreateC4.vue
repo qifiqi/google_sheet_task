@@ -320,6 +320,7 @@ import { getWorksheets, getTokens, importToken as apiImportToken } from '@/api/g
 import { createTask, getTask } from '@/api/task'
 import { getTemplates, getTemplate, createTemplate } from '@/api/template'
 import { useResponsive } from '@/composables/useResponsive'
+import { defaultDateRange, formatDate } from '@/utils/tradingDate'
 
 const route = useRoute()
 const router = useRouter()
@@ -471,14 +472,9 @@ function removeProductCode(code) {
 function initDefaultDates() {
   if (form.start_date || form.end_date) return
 
-  const today = new Date()
-  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
-  const start = new Date(end.getFullYear() - 5, end.getMonth(), end.getDate())
-  const formatDate = (date) =>
-    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-
-  form.end_date = formatDate(end)
-  form.start_date = formatDate(start)
+  const range = defaultDateRange(5)
+  form.end_date = formatDate(range.end)
+  form.start_date = formatDate(range.start)
 }
 
 async function applyTemplate(id) {

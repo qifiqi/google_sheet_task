@@ -1,10 +1,26 @@
-from flask import Blueprint, render_template, request, jsonify, url_for, redirect, flash, current_app, send_file
+from flask import Blueprint, g, render_template, request
+
+from app.exceptions import ValidationError
+from app.extensions import limiter
+from app.services.xpl_analysis_service import _EMPTY_RESULT_DATA, xpl_analysis_service
+from app.utils.api_response import error, success
 from app.utils.logger import get_logger
-from app.services.xpl_service import xpl_analyzer
 
 logger = get_logger(__name__)
 
 xpl_bp = Blueprint('xpl', __name__)
+
+
+def _rate_limit(config_key, default):
+    """限流阈值经 config_manager 运行时可调（零重启）。"""
+    from app.services.config_manager import get_config_manager
+
+    return get_config_manager().get_config(config_key, default)
+
+
+def _user_key():
+    return f"user:{getattr(getattr(g, 'current_user', None), 'id', 'anon')}"
+
 
 @xpl_bp.route('/')
 def index():
@@ -17,139 +33,81 @@ def index_v1():
     """V1：Google Sheet 分析页面"""
     return render_template('xpl/v1.html')
 
+
+@xpl_bp.route('/v2', methods=['GET'])
+def index_v2():
+    """V2：支持多数据源的回测分析页面。"""
+    return render_template('xpl/v2.html')
+
+
 @xpl_bp.route('/analyze', methods=['POST'])
+@limiter.limit(
+    lambda: f"{_rate_limit('rate_limit_analyze', 10) or 10}/minute",
+    key_func=_user_key,
+)
 def analyze_data():
     """
     API接口：分析Excel数据
-    
+
     请求体 (JSON):
     {
-        "data": "2023-01-01 0.01\n2023-01-02 0.02\n...",
-        "time_format": "YYYY-MM-DD",
-        "return_col": 2
+        "data": "2023-01-01 0.01\\n2023-01-02 0.02\\n...",
+        "time_format": "YYYY-MM-DD"
     }
-    
-    返回 (JSON):
-    {
-        "status": "success/error",
-        "message": "描述信息",
-        "results": [{"date": "2023-01-01", "return": 0.01, ...}],
-        "metrics": {"total_return": 0.1, ...}
-    }
+
+    返回 (JSON, 统一信封):
+    data = {"results": [...], "metrics": {...}}
     """
+    payload = request.get_json(silent=True)
+    if not payload:
+        return error('请求体不能为空', http_status=400, data=_EMPTY_RESULT_DATA)
+
     try:
-        # 获取请求数据
-        data = request.get_json()
-        print(data)
-        if not data:
-            return jsonify({
-                'status': 'error',
-                'message': '请求体不能为空',
-                'results': [],
-                'metrics': {}
-            }), 400
-            
-        # 获取参数
-        input_data = data.get('data', '')
-        time_format = data.get('time_format', 'auto')
-        return_col = int(data.get('return_col', 2))
-        
-        # 调用服务层进行分析
-        result = xpl_analyzer.analyze(
-            data=input_data,
-            time_format=time_format,
-            return_col=return_col
-        )
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"处理分析请求时出错: {str(e)}", exc_info=True)
-        return jsonify({
-            'status': 'error',
-            'message': f'处理请求时出错: {str(e)}',
-            'results': [],
-            'metrics': {}
-        }), 500
+        result = xpl_analysis_service.analyze_text(payload)
+    except ValidationError as exc:
+        return error(str(exc), http_status=400, data=_EMPTY_RESULT_DATA)
+    except Exception:
+        logger.exception("处理分析请求时出错")
+        return error('处理请求时出错', http_status=500, data=_EMPTY_RESULT_DATA)
 
-
-@xpl_bp.route('/export', methods=['POST'])
-def export_file():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'status': 'error',
-                'message': '请求体不能为空',
-            }), 400
-
-        filename = data.get('filename')
-        file,file_type = xpl_analyzer.export_file(data)
-
-        # 发送文件
-        return send_file(
-            file,
-            mimetype=file_type,
-            as_attachment=True,
-            download_name=filename
-        )
-
-    except Exception as e:
-        logger.error(f"导出文件时出错: {str(e)}", exc_info=True)
-        return jsonify({
-            'status': 'error',
-            'message': f'处理请求时出错: {str(e)}',
-        }), 500
+    if result["ok"]:
+        return success(data=result["data"], message=result["message"])
+    # 分析器报告的数据级失败保持原有 200 语义（前端按 status/code 判定展示）。
+    return error(result["message"], http_status=200, data=result["data"])
 
 
 @xpl_bp.route('/v1/analyze', methods=['POST'])
+@limiter.limit(
+    lambda: f"{_rate_limit('rate_limit_analyze', 10) or 10}/minute",
+    key_func=_user_key,
+)
 def analyze_data_v1():
     """
-    API接口：分析Excel数据
+    API接口：分析 Google Sheet 数据
 
     请求体 (JSON):
     {
-        'google_sheet_url':'',
-        'google_sheet_name':''
+        "spreadsheet_id": "",
+        "google_sheet_url": "",
+        "google_sheet_name": ""
     }
 
-    返回 (JSON):
-    {
-        "status": "success/error",
-        "message": "描述信息",
-        "results": {"total_return": 0.1, ...}
-    }
+    返回 (JSON, 统一信封):
+    data = {"results": [...], "metrics": {...}}
     """
+    payload = request.get_json(silent=True)
+    if not payload:
+        return error('请求体不能为空', http_status=400, data=_EMPTY_RESULT_DATA)
+
     try:
-        # 获取请求数据
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'status': 'error',
-                'message': '请求体不能为空',
-                'results': [],
-                'metrics': {}
-            }), 400
+        result = xpl_analysis_service.analyze_sheet(payload)
+    except ValidationError as exc:
+        return error(str(exc), http_status=400, data=_EMPTY_RESULT_DATA)
+    except Exception:
+        logger.exception("处理分析请求时出错")
+        return error('处理请求时出错', http_status=500, data=_EMPTY_RESULT_DATA)
 
-        # 获取参数
-        spreadsheet_id = data.get('spreadsheet_id', '')
-        google_sheet_url = data.get('google_sheet_url', '')
-        google_sheet_name = data.get('google_sheet_name', 'auto')
-
-        # 调用服务层进行分析
-        result = xpl_analyzer.analyze_v1(
-            spreadsheet_id=spreadsheet_id,
-            google_sheet_name=google_sheet_name
-        )
-
-        return jsonify(result)
-
-    except Exception as e:
-        logger.error(f"处理分析请求时出错: {str(e)}", exc_info=True)
-        return jsonify({
-            'status': 'error',
-            'message': f'处理请求时出错: {str(e)}',
-            'results': [],
-            'metrics': {}
-        }), 500
-
+    if result["ok"]:
+        return success(data=result["data"], message=result["message"])
+    # 分析器报告的数据级失败保持原有 200 语义（前端按 status/code 判定展示）。
+    return error(result["message"], http_status=200, data=result["data"])

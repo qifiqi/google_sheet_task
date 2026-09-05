@@ -944,13 +944,14 @@
             if (data.status !== "success") {
                 throw new Error(data.message || "加载失败");
             }
-            state.columns = data.columns || [];
-            state.total = data.pagination?.total || 0;
-            state.pages = data.pagination?.pages || 0;
-            state.summary = data.summary || {};
+            const payload = data.data || {};
+            state.columns = payload.columns || [];
+            state.total = payload.pagination?.total || 0;
+            state.pages = payload.pagination?.pages || 0;
+            state.summary = payload.summary || {};
             renderHead();
             renderSummary(state.summary);
-            renderBody(data.items || []);
+            renderBody(payload.items || []);
             renderPagination();
             document.getElementById("statusText").textContent = "已加载";
         } finally {
@@ -1005,7 +1006,7 @@
         confirmButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中`;
         document.getElementById("statusText").textContent = "正在生成 CSV...";
         try {
-            const response = await fetch(`/admin/api/model-summary/export?${params.toString()}`, {
+            const response = await fetch(`/api/exports/model-summary?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${getToken()}` },
             });
             if (!response.ok) {
@@ -1053,8 +1054,8 @@
         if (data.status !== "success") {
             throw new Error(data.message || "重建失败");
         }
-        state.rebuildJobId = data.job?.job_id || "";
-        renderRebuildTaskLink(data.job);
+        state.rebuildJobId = data.data.job?.job_id || "";
+        renderRebuildTaskLink(data.data.job);
         document.getElementById("statusText").textContent = `重建任务已创建 ${state.rebuildJobId.slice(0, 8)}`;
         pollRebuildStatus();
     }
@@ -1088,7 +1089,7 @@
             headers: { Authorization: `Bearer ${getToken()}` },
         });
         const data = await response.json();
-        const job = data.job;
+        const job = data.data.job;
         if (!job) {
             document.getElementById("statusText").textContent = "暂无重建任务";
             renderRebuildTaskLink(null);

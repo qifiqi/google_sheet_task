@@ -1,24 +1,30 @@
 import json
 import time
-import traceback
 from typing import Dict, Any
 
 from flask import current_app
-from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_result
 
+from app.repositories import task_repository, task_result_repository
 from app.exceptions.checkForErrors import checkForErrors
-from app.models import Task, TaskResult, db
 from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.alert_decorator import alert_on_failure
-from app.utils.db_retry import safe_db_operation, db_retry_manager
+from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import validate_result_dict, is_valid_result_value
 from app.services.xpl_service import xpl_analyzer
+from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
-from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.utils.task_error_utils import unwrap_exception
+from app.utils.kline_validation import require_kline_rows
+from app.services.kline_service import KlineService
+
+
+logger = get_logger(__name__)
 
 
 class GoogleSheetService(BaseGoogleSheetService):
@@ -40,19 +46,7 @@ class GoogleSheetService(BaseGoogleSheetService):
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
-                # 尝试获取 Postgres Advisory Lock，防止并发执行同一任务
-                lock_acquired = False
-                try:
-                    lock_acquired = db.session.execute(
-                        text("SELECT pg_try_advisory_lock(:k)"), {"k": int(self.task_id)}
-                    ).scalar()
-                    if not lock_acquired:
-                        self._log_warning(f"任务 {self.task_id} 已在运行（获取锁失败），拒绝并发执行 (C4)")
-                        return 'already_running'
-                except Exception:
-                    # 非 Postgres 或锁不可用时忽略，继续执行（由上层状态原子更新兜底）
-                    pass
-                task = db.session.get(Task, self.task_id)
+                task = task_repository.get_entity(self.task_id)
                 self.task = task
                 if not task:
                     self._log_error(f'任务 {self.task_id} 不存在')
@@ -123,7 +117,7 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task = db.session.get(Task, self.task_id)
+                task = task_repository.get_entity(self.task_id)
                 if task and task.status == 'cancelled':
                     self._log_info(f'任务已被取消: {str(e)}')
                     return 'cancelled'
@@ -132,20 +126,16 @@ class GoogleSheetService(BaseGoogleSheetService):
 
             # 其他异常情况
             root = unwrap_exception(e) or e
-            if self.task:
-                self.task.error_message = build_task_error_message(e)
-                db.session.commit()
+            try:
+                record = record_task_exception(self.task_id, e, "execute_task", self.app)
+                error_summary = format_task_error_message(record)
+            except Exception as record_error:
+                self._log_warning(f"记录任务异常失败: {record_error}")
+                error_summary = f"{root.__class__.__name__}: {root}"
             error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
+            self._log_error(f"任务异常摘要: {error_summary}")
             return 'error'
-        finally:
-            # 释放 Advisory Lock（仅当成功获取时）
-            try:
-                if 'lock_acquired' in locals() and lock_acquired:
-                    db.session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": int(self.task_id)})
-            except Exception:
-                pass
-
     def _build_stock_param_result_payload(
         self,
         task_name: str,
@@ -226,10 +216,10 @@ class GoogleSheetService(BaseGoogleSheetService):
             "start_sharpe_ratio": analyze_result.get("start_sharpe_ratio", 0),
             "index_kama_ratio": analyze_result.get("index_kama_ratio", 0),
             "start_kama_ratio": analyze_result.get("start_kama_ratio", 0),
-            "index_sotino_ratio": analyze_result.get("index_sotino_ratio", 0),
-            "start_sotino_ratio": analyze_result.get("start_sotino_ratio", 0),
-            "excess_sharp": analyze_result.get("excess_sharp", 0),
-            "excess_of_promissory_note": analyze_result.get("excess_of_promissory_note", 0),
+            "index_sortino_ratio": analyze_result.get("index_sortino_ratio", 0),
+            "start_sortino_ratio": analyze_result.get("start_sortino_ratio", 0),
+            "excess_sharpe": analyze_result.get("excess_sharpe", 0),
+            "excess_sortino": analyze_result.get("excess_sortino", 0),
         })
         return payload
 
@@ -253,14 +243,15 @@ class GoogleSheetService(BaseGoogleSheetService):
             precomputed_params = []  # [(combinations, column_A_length)] 与 parameters[0] 对应
             for outer_param in parameters[0]:
                 combinations, column_A_length = self._get_all_parameters(
-                    outer_param, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type
+                    outer_param, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type,
+                    config_data.get("kline_data_source", "dfcf")
                 )
                 precomputed_params.append((combinations, column_A_length))
                 total_combinations += len(combinations)
 
             # 更新任务总步数
             task.total_steps = total_combinations
-            db_retry_manager.commit_with_retry(db.session)
+            task_result_repository.commit_with_retry()
 
             # 推送参数组合信息
             self._log_info(f'将执行 {total_combinations} 个参数组合')
@@ -299,14 +290,11 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                     # 原子性检查任务是否被取消（每个外层参数进入前检查一次）
                     def check_task_status():
-                        return db.session.execute(
-                            text("SELECT status FROM tasks WHERE id = :task_id"),
-                            {"task_id": self.task_id}
-                        ).fetchone()
+                        return task_repository.get_status_value(self.task_id)
 
                     result = safe_db_operation(check_task_status)
 
-                    if not result or result.status == 'cancelled':
+                    if not result or result == 'cancelled':
                         self._log_warning("任务已被取消，停止执行")
                         return success_count, failed_count, 'cancelled'
 
@@ -318,9 +306,6 @@ class GoogleSheetService(BaseGoogleSheetService):
                     progress_msg = f'正在执行第 {current_step}/{total_combinations} 个参数组合'
                     self._log_info(progress_msg)
 
-                    # 更新当前步数为组合级别
-                    task.current_step = current_step
-                    db_retry_manager.commit_with_retry(db.session)
 
                     # 执行单个参数组合
                     try:
@@ -328,17 +313,28 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         if success:
                             success_count += 1
-                            self._log_info(f'第 {current_step} 个参数组合执行成功，{result}')
+                            self._log_info(
+                                f'第 {current_step} 个参数组合执行成功，'
+                                f'结果摘要: {self._summarize_result_for_log(result)}'
+                            )
                         else:
                             self._log_warning(f'第 {current_step} 个参数组合执行失败')
                             failed_count += 1
                             return success_count, failed_count, 'error'
 
+                        # 更新当前步数为组合级别
+                        task.current_step = current_step
+                        task_result_repository.commit_with_retry()
+
                         # 保存结果到数据库
-                        self._save_task_result(current_step - 1, {
+                        stock_name = str(combination.get('stock_name') or '').strip()
+                        result_parameters = {
                             'stock_code':combination['stock_code'],
                             'kline':[combination['kline'][0],combination['kline'][-1]]
-                        }, result, success)
+                        }
+                        if stock_name:
+                            result_parameters['stock_name'] = stock_name
+                        self._save_task_result(current_step - 1, result_parameters, result, success)
                         self.send_stock_param_result_data(
                             self._build_stock_param_result_payload(
                                 name,
@@ -357,14 +353,18 @@ class GoogleSheetService(BaseGoogleSheetService):
                         # 检查是否是任务被取消
                         task.error = e
                         try:
-                            task_check = db.session.get(Task, self.task_id)
+                            task_check = task_repository.get_entity(self.task_id)
                             if task_check and task_check.status == 'cancelled':
                                 self._log_info(f'第 {current_step} 个参数组合执行中断（任务被取消）: {str(e)}')
                                 return success_count, failed_count, 'cancelled'
                         except:
                             pass
 
-                        error_msg = f'第 {current_step} 个参数组合执行出错: {str(e)}'
+                        error_summary = self._record_execution_error_message(
+                            e,
+                            "execute_parameter_combination",
+                        )
+                        error_msg = f'第 {current_step} 个参数组合执行出错: {error_summary}'
                         self._log_error(error_msg)
                         return success_count, failed_count, 'error'
 
@@ -376,47 +376,16 @@ class GoogleSheetService(BaseGoogleSheetService):
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
-                task_check = db.session.get(Task, self.task_id)
+                task_check = task_repository.get_entity(self.task_id)
                 if task_check and task_check.status == 'cancelled':
                     self._log_info(f'批量数据处理中断（任务被取消）: {str(e)}')
                     return success_count, failed_count, 'cancelled'
             except:
                 pass
 
-            error_msg = f"批量数据处理失败: {traceback.format_exc()}"
-            self._log_error(error_msg)
+            error_summary = self._record_execution_error_message(e, "get_bdl")
+            self._log_error(f"批量数据处理失败: {error_summary}")
             return 0, 1, 'error'
-
-    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool):
-        """保存任务结果到数据库，包含重试逻辑"""
-
-        def save_result_operation():
-            _index_start_return_date = None
-            safe_parameters = self._sanitize_json_value(parameters)
-            safe_result = self._sanitize_json_value(result)
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success
-            )
-            db.session.add(task_result)
-            db.session.commit()
-
-        try:
-            if self.app:
-                with self.app.app_context():
-                    safe_db_operation(save_result_operation)
-            else:
-                from flask import current_app
-                with current_app.app_context():
-                    safe_db_operation(save_result_operation)
-        except Exception as e:
-            error_msg = f"保存任务结果失败: {str(e)}"
-            self._log_error(error_msg)
-
-
 
     @retry(
         stop=stop_after_attempt(3),  # 最多尝试3次
@@ -506,23 +475,10 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                 return True
 
-            sleep_num = 5
-
-            def get_sell_sleep(min_sleep: int, max_sleep: int) -> int:
-                nonlocal sleep_num
-                if sleep_num <= 0:
-                    sleep_num = 5
-                _ = min(min_sleep + sleep_num * 5, max_sleep)  # 最多60秒
-                sleep_num -= 1
-                return int(_)
-
             # 定时检查是否完成（最多检查60次，20-30秒）
+            delay_min, delay_max = self._get_execution_poll_delay_bounds()
             for attempt in range(60):
-                # 从配置获取执行延迟时间
-                config_manager = get_config_manager()
-                delay_min = int(config_manager.get_config('execution_delay_min', 20))
-                delay_max = int(config_manager.get_config('execution_delay_max', 30))
-                _ = get_sell_sleep(delay_min, delay_max)
+                _ = self._get_execution_poll_delay(attempt, delay_min, delay_max)
                 self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
                 if not self._interruptible_sleep(_):
                     raise RuntimeError("task cancelled")
@@ -560,12 +516,13 @@ class GoogleSheetService(BaseGoogleSheetService):
 
                         # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
                         # _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
-                        flat_result, analyze_result = self.xpl.get_return_analysis_v1(_return_data)
+                        flat_result, metrics_payload = self.xpl.get_return_analysis_v1(_return_data)
                         _result.update(_result_yearly)
                         # _result['index_return_xpl'] = _index_return_xpl
                         # _result['start_return_xpl'] = _start_return_xpl
-                        _result['analyze_result'] = analyze_result
+                        _result['metrics_payload'] = metrics_payload
                         _result['flat_result'] = flat_result
+                        _result['_return_date'] = _return_data
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
                     else:
@@ -592,61 +549,84 @@ class GoogleSheetService(BaseGoogleSheetService):
             return False, {}
 
         except Exception as e:
-            error_msg = f"执行参数组合时出错: {traceback.format_exc()}"
-            self._log_error(error_msg)
+            record = record_task_exception(
+                self.task_id,
+                e,
+                "execute_parameter_combination",
+                self.app,
+                mark_error=False,
+            )
+            self._log_error(f"执行参数组合时出错: {format_task_error_message(record)}")
+            raise
 
     @staticmethod
-    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None):
-
-        def _get_kline(klines, year=None,_start_date=None, _end_date=None):
-            # klines 里假设 'stock_date' 也是 'YYYY-MM-DD' 字符串
-            if market_type == 'cn':
-                if year:
-                    return [
-                        {'stock_date': k['stock_date'], 'stock_val': k['stock_kp']}
-                        for k in klines if int(k['stock_date'][:4]) == year
-                    ]
-                return [
-                    {'stock_date': k['stock_date'], 'stock_val': k['stock_kp']}
-                    for k in klines
-                    if _start_date <= k['stock_date'] <= _end_date
-                ]
-            else:
-                if year:
-                    return [
-                        {'stock_date': k['stock_date'], 'stock_val': k['stock_sp']}
-                        for k in klines if int(k['stock_date'][:4]) == year
-                    ]
-                return [
-                    {'stock_date': k['stock_date'], 'stock_val': k['stock_sp']}
-                    for k in klines
-                    if _start_date <= k['stock_date'] <= _end_date
-                ]
-
-
-
-        if market_type == 'cn':
-            dfcf_api = DFCJStockApi()
-            stock_config = dfcf_api.get_search_list_by_stock_code(parameter, 10)
-            stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-            if stock_config:
-                stock_config = stock_config[0]
-            market = stock_config['market']
-        else:
-            yf_api = YFApi()
-
+    def _get_all_parameters(parameter, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type=None, data_source=None):
+        # C4 固定按市场取价：A股用开盘价、美股用收盘价；投影与过滤统一走 KlineService.build_price_rows
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 250
-        if market_type == 'cn':
-            klines = dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
-        else:
-            klines = yf_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
-        all_kline = _get_kline(klines, _start_date=start_date, _end_date=end_date)
+        # 旧版 DFCF/Yahoo 分支保留为注释参考；当前统一先读内置库，再按数据源回退。
+        # if market_type == 'cn':
+        #     dfcf_api = DFCJStockApi()
+        #     stock_config = dfcf_api.get_search_list_by_stock_code(parameter, 10)
+        #     klines = dfcf_api.get_stock_kline_data(parameter, market, limit, adjust_type=adjust_type)
+        # else:
+        #     yf_api = YFApi()
+        #     klines = yf_api.get_kline_data(parameter, '10y', adjust_type=adjust_type)
+        # 直接调用的历史测试/脚本未携带配置时沿用旧的美股 Yahoo 默认；正式任务会显式传入规范化后的 dfcf。
+        selected_data_source = data_source or ("yahoo" if str(market_type).lower() in {"us", "en"} else "dfcf")
+        klines = KlineService(
+            dfcf_api=DFCJStockApi(),
+            yahoo_api=YFApi(),
+        ).get_kline_data(
+            parameter,
+            market_type,
+            limit,
+            data_source=selected_data_source,
+            start_date=start_date,
+            end_date=end_date,
+            adjust_type=adjust_type,
+        )
+        stock_name = str(klines[0].get("stock_name") or "") if klines else ""
+        parameter = str(klines[0].get("stock_code") or parameter) if klines else parameter
+        if stock_name:
+            upsert_stock_metadata_in_session({
+                "stock_code": parameter,
+                "stock_name": stock_name,
+                "market_type": market_type,
+                "source": "google_sheet_c4",
+            })
+        klines = require_kline_rows(
+            parameter,
+            market_type,
+            klines,
+            context="原始K线",
+            min_rows=30,
+            price_field='open' if market_type == 'cn' else 'close',
+        )
+        data_start_date = klines[0]['stock_date']
+        data_end_date = klines[-1]['stock_date']
+        if end_date > data_end_date:
+            raise ValueError(
+                f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内"
+            )
+        all_kline = KlineService.build_price_rows(
+            klines, None, start_date=start_date, end_date=end_date,
+            price_field='open' if market_type == 'cn' else 'close',
+        )
+        all_kline = require_kline_rows(
+            parameter,
+            market_type,
+            all_kline,
+            context="写入Sheet K线",
+            start_date=start_date,
+            end_date=end_date,
+            latest_date=data_end_date,
+        )
         data = [
-            {'stock_code': parameter, 'kline': all_kline}
+            {'stock_code': parameter, 'stock_name': stock_name, 'kline': all_kline}
         ]
 
         if count_mode != 'n_plus_1':
@@ -662,9 +642,15 @@ class GoogleSheetService(BaseGoogleSheetService):
                     _end_data = f"{_end_year_1-_i}{end_date[4:]}"
                     _start_data = f"{_end_year_1 - i}{end_date[4:]}"
                     d = {}
-                    kline = _get_kline(klines, _start_data, _end_data)
+                    # 历史行为：此处原将日期串按位置传入 year 形参，年份匹配恒为空，保持现状
+                    kline = KlineService.build_price_rows(
+                        klines, None, year=_start_data,
+                        price_field='open' if market_type == 'cn' else 'close',
+                    )
                     if kline:
                         d['stock_code'] = parameter
+                        if stock_name:
+                            d['stock_name'] = stock_name
                         d['kline'] = kline
 
                         data.append(d)
@@ -673,9 +659,14 @@ class GoogleSheetService(BaseGoogleSheetService):
             all_kline = [ k for k in klines if start_date <= k['stock_date'] <= end_date]
             for i in range(_start_date, _end_year_1 + 1):
                 d = {}
-                kline = _get_kline(all_kline,year=i)
+                kline = KlineService.build_price_rows(
+                    all_kline, None, year=i,
+                    price_field='open' if market_type == 'cn' else 'close',
+                )
                 if kline and len(kline) > 30:
                     d['stock_code'] = parameter
+                    if stock_name:
+                        d['stock_name'] = stock_name
                     d['year'] = i
                     d['kline'] = kline
 
@@ -686,3 +677,4 @@ class GoogleSheetService(BaseGoogleSheetService):
 
 if __name__ == '__main__':
     GoogleSheetService({}, '')._get_all_parameters('000001', 'n_plus_1', '2025-05-01', '2023-05-01', 'cn')
+

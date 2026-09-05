@@ -137,40 +137,42 @@ class YFApi:
                             volume = int(row.get('Volume', 0))
 
                             # 计算衍生指标（避免除零）
-                            stock_zde = close_price - open_price  # 涨跌额
+                            change = close_price - open_price  # 涨跌额
 
                             # 涨跌幅%
                             if open_price != 0:
-                                stock_zdf = (stock_zde / open_price) * 100
+                                pct_change = (change / open_price) * 100
                             else:
-                                stock_zdf = 0.0
+                                pct_change = 0.0
 
                             # 振幅%
                             if low_price != 0:
-                                stock_zf = ((high_price - low_price) / low_price) * 100
+                                amplitude = ((high_price - low_price) / low_price) * 100
                             else:
-                                stock_zf = 0.0
+                                amplitude = 0.0
 
                             # Yahoo 没有直接成交额，这里使用当前选定复权口径的收盘价估算。
-                            stock_cje = close_price * volume if volume > 0 else 0
+                            amount = close_price * volume if volume > 0 else 0
+                            vwap = amount / volume if volume > 0 else 0
 
                             # 换手率%（雅虎数据通常没有，设为0）
-                            stock_hsl = 0.0
+                            turnover_rate = 0.0
 
                             # 构建标准格式的记录
                             record = {
                                 'stock_code': str(ticker),  # 股票代码
                                 'stock_date': date_idx.strftime('%Y-%m-%d'),  # 日期
-                                'stock_kp': round(open_price,2),  # 开盘价
-                                'stock_sp': round(close_price,2),  # 收盘价
-                                'stock_zg': round(high_price,2),  # 最高价
-                                'stock_zd': round(low_price,2),  # 最低价
-                                'stock_cjl': volume,  # 成交量
-                                'stock_cje': round(stock_cje, 2),  # 成交额
-                                'stock_zf': round(stock_zf, 2),  # 振幅%
-                                'stock_zdf': round(stock_zdf, 2),  # 涨跌幅%
-                                'stock_zde': round(stock_zde, 2),  # 涨跌额
-                                'stock_hsl': stock_hsl,  # 换手率%
+                                'open': round(open_price,3),  # 开盘价
+                                'close': round(close_price,3),  # 收盘价
+                                'high': round(high_price,3),  # 最高价
+                                'low': round(low_price,3),  # 最低价
+                                'volume': volume,  # 成交量
+                                'amount': round(amount, 3),  # 成交额
+                                'vwap': round(vwap, 3),  # 加权平均价
+                                'amplitude': round(amplitude, 3),  # 振幅%
+                                'pct_change': round(pct_change, 3),  # 涨跌幅%
+                                'change': round(change, 3),  # 涨跌额
+                                'turnover_rate': turnover_rate,  # 换手率%
                                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             }
 
@@ -196,7 +198,7 @@ class YFApi:
 
 if __name__ == '__main__':
     api = YFApi()
-    df = api.get_kline_data(stock_code=["MCHP"],period='10y')
+    df = api.get_kline_data(stock_code=["BMO.TO"],period='10y')
     print(df)
     # tickers = df.columns.get_level_values('Ticker').unique()
     # print(tickers)

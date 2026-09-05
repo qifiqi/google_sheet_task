@@ -3,11 +3,12 @@ from flask import Blueprint
 from app.models import (
     GoogleSheetTableType,
     GoogleSheetTokenTaskType,
-    NavigationMenuItem,
+    StockMarketType,
     TaskStatus,
     TaskType,
 )
 from app.navigation import build_navigation_tree
+from app.services import navigation_service
 from app.utils.api_response import success
 from app.utils.auth import login_required
 
@@ -21,6 +22,7 @@ def get_versions():
         {"value": "c3", "label": "C3", "create_url": "/google-sheet/create"},
         {"value": "c4", "label": "C4", "create_url": "/google-sheet/create?version=c4"},
         {"value": "c5", "label": "C5", "create_url": "/google-sheet/create?version=c5"},
+        {"value": "C7", "label": "C7", "create_url": "/google-sheet/create?version=c7"},
         {"value": "c31", "label": "C31 批量", "create_url": "/google-sheet/create?version=c31"},
         {"value": "backtest_training", "label": "回测训练", "create_url": "/backtest-training/create"},
         {"value": "backtest_multi_product", "label": "多品数据回测", "create_url": "/backtest-multi-product/create"},
@@ -37,6 +39,7 @@ def get_enums():
         "task_statuses": TaskStatus.choices(),
         "task_status_editable": TaskStatus.editable_choices(),
         "task_types": TaskType.choices(),
+        "stock_markets": StockMarketType.choices(),
     })
 
 
@@ -47,27 +50,14 @@ def get_nav():
     from flask import g
 
     user_perms = g.current_user.get_permissions()
-    rows = (
-        NavigationMenuItem.query
-        .filter_by(is_visible=True)
-        .order_by(NavigationMenuItem.sort_order.asc(), NavigationMenuItem.id.asc())
-        .all()
-    )
+    rows = navigation_service.list_visible_entities()
     rows = sorted(rows, key=lambda item: (item.parent_key or "", item.sort_order, item.id))
     all_nav = build_navigation_tree(rows)
 
     def has_nav_permission(required_permission, _item):
         if not required_permission:
             return True
-        if required_permission in user_perms:
-            return True
-
-        if required_permission.endswith(':view'):
-            manage_permission = f"{required_permission.split(':', 1)[0]}:manage"
-            if manage_permission in user_perms:
-                return True
-
-        return False
+        return required_permission in user_perms
 
     def filter_nav(items):
         result = []
@@ -83,4 +73,15 @@ def get_nav():
                 result.append(item)
         return result
 
-    return success(data=filter_nav(all_nav))
+    page_permissions = [
+        {
+            "path": item.path,
+            "permission": item.permission,
+        }
+        for item in rows
+        if item.path and (item.permission or "").startswith("page:")
+    ]
+    return success(data={
+        "items": filter_nav(all_nav),
+        "page_permissions": page_permissions,
+    })

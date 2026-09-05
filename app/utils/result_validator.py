@@ -62,7 +62,7 @@ def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ')):
                 
             except Exception as e:
                 logger.error(f"验证函数 {func.__name__} 结果时出错: {str(e)}")
-                return False, {}
+                raise
         
         return wrapper
     return decorator

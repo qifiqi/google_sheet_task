@@ -1,26 +1,31 @@
-"""任务仪表盘聚合查询服务。"""
+"""任务仪表盘聚合查询服务（数据层：task_repository）。"""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
-from sqlalchemy import func
-
 from app.models import Task
-from app.utils.task_authorization import filter_task_types_by_action
+from app.repositories import task_repository
 
 
 class TaskDashboardQueryService:
     """集中处理管理后台任务仪表盘聚合查询。"""
 
-    def get_allowed_task_types(self, user, action: str = "view") -> list[str]:
-        distinct_task_types = [
-            item[0]
-            for item in Task.query.with_entities(Task.task_type).distinct().all()
-            if item and item[0]
+    def get_allowed_task_types(self, user=None, action: str = "view") -> list[str]:
+        return [
+            task_type
+            for task_type in task_repository.list_distinct_task_types()
+            if task_type
         ]
-        return filter_task_types_by_action(user, action, distinct_task_types)
+
+    def get_dashboard_counts(self) -> dict[str, int]:
+        """admin 首页仪表盘四连 count：{total, completed, running, error}。"""
+        return task_repository.summary_counts()
+
+    def get_recent_tasks(self, limit: int = 10) -> list[dict]:
+        """admin 首页最近任务列表（dict 形态，created_at 倒序）。"""
+        return task_repository.list_recent(limit)
 
     def build_empty_overview(self, now: datetime, days: int = 7) -> dict:
         daily_trend = self._build_empty_daily_trend(now, days=days)
@@ -47,48 +52,29 @@ class TaskDashboardQueryService:
         allowed_task_types: Iterable[str],
         limit: int = 10,
     ) -> list[Task]:
-        return (
-            Task.query.filter(Task.task_type.in_(list(allowed_task_types)))
-            .order_by(Task.created_at.desc())
-            .limit(limit)
-            .all()
-        )
+        # 实体形态：runtime_view 序列化消费（B3 收敛）。
+        return task_repository.list_recent_entities(allowed_task_types, limit=limit)
 
     def get_active_task_models(
         self,
         allowed_task_types: Iterable[str],
         limit: int = 6,
     ) -> list[Task]:
-        return (
-            Task.query.filter(
-                Task.task_type.in_(list(allowed_task_types)),
-                Task.status == "running",
-            )
-            .order_by(Task.created_at.desc())
-            .limit(limit)
-            .all()
+        # 实体形态：runtime_view 序列化消费（B3 收敛）。
+        return task_repository.list_recent_entities(
+            allowed_task_types,
+            limit=limit,
+            status="running",
         )
 
     def get_status_distribution(self, allowed_task_types: Iterable[str]) -> dict[str, int]:
-        rows = (
-            Task.query.with_entities(Task.status, func.count(Task.id))
-            .filter(Task.task_type.in_(list(allowed_task_types)))
-            .group_by(Task.status)
-            .all()
-        )
-        return {status: count for status, count in rows if status}
+        return task_repository.count_grouped_by_status(allowed_task_types)
 
     def get_task_type_distribution(
         self,
         allowed_task_types: Iterable[str],
     ) -> dict[str, int]:
-        rows = (
-            Task.query.with_entities(Task.task_type, func.count(Task.id))
-            .filter(Task.task_type.in_(list(allowed_task_types)))
-            .group_by(Task.task_type)
-            .all()
-        )
-        return {task_type: count for task_type, count in rows if task_type}
+        return task_repository.count_grouped_by_task_type(allowed_task_types)
 
     def get_summary(self, allowed_task_types: Iterable[str]) -> dict[str, int]:
         status_distribution = self.get_status_distribution(allowed_task_types)
@@ -117,39 +103,12 @@ class TaskDashboardQueryService:
         )
         allowed_types = list(allowed_task_types)
 
-        created_rows = (
-            Task.query.with_entities(
-                func.date(Task.created_at),
-                func.count(Task.id),
-            )
-            .filter(
-                Task.task_type.in_(allowed_types),
-                Task.created_at >= start_time,
-            )
-            .group_by(func.date(Task.created_at))
-            .all()
-        )
-        completed_rows = (
-            Task.query.with_entities(
-                func.date(Task.end_time),
-                func.count(Task.id),
-            )
-            .filter(
-                Task.task_type.in_(allowed_types),
-                Task.status == "completed",
-                Task.end_time.isnot(None),
-                Task.end_time >= start_time,
-            )
-            .group_by(func.date(Task.end_time))
-            .all()
-        )
-
-        for bucket_date, count in created_rows:
+        for bucket_date, count in task_repository.count_daily_created(allowed_types, start_time):
             date_key = self._normalize_date_key(bucket_date)
             if date_key in trend_map:
                 trend_map[date_key]["created"] = int(count)
 
-        for bucket_date, count in completed_rows:
+        for bucket_date, count in task_repository.count_daily_completed(allowed_types, start_time):
             date_key = self._normalize_date_key(bucket_date)
             if date_key in trend_map:
                 trend_map[date_key]["completed"] = int(count)

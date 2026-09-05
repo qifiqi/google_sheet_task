@@ -32,12 +32,10 @@ def upgrade():
         sa.Column("best_metric_name", sa.String(length=100), nullable=True),
         sa.Column("best_metric_value", sa.Float(), nullable=True),
         sa.Column("metrics_json", sa.Text(), nullable=True),
-        sa.Column("is_best", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("is_best", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("result_timestamp", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["task_id"], ["tasks.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["task_result_id"], ["task_results.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("task_result_id", "model_key", name="uk_result_summary_result_model"),
     )

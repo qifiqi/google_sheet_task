@@ -17,11 +17,90 @@ from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
 )
+from app.services.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
-from app.utils.database import safe_create, transaction_required
+from app.services.kline_service import KlineService
+from app.repositories import task_repository
+from app.utils.database import transaction_required
 from app.utils.logger import get_logger, get_task_logger
+from app.utils.market import infer_market_type, normalize_market_type, normalize_stock_code
 
 logger = get_logger(__name__)
+
+KLINE_SOURCE_AUTO = "auto"
+KLINE_SOURCE_CUSTOM = "custom"
+VALID_KLINE_SOURCES = {KLINE_SOURCE_AUTO, KLINE_SOURCE_CUSTOM}
+
+
+def _is_empty_custom_kline_option(value: Any) -> bool:
+    return value in (None, "") or value == [] or value == ()
+
+
+def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    kline_source = str(normalized.get("kline_source") or KLINE_SOURCE_AUTO).strip().lower()
+    if kline_source not in VALID_KLINE_SOURCES:
+        raise ValueError("kline_source 仅支持 auto 或 custom")
+
+    normalized["kline_source"] = kline_source
+    if kline_source != KLINE_SOURCE_CUSTOM:
+        return normalized
+
+    if normalized.get("count_mode") not in (None, "", "total"):
+        raise ValueError("自定义K线模式不支持 N+1 或其它统计方式")
+    if not _is_empty_custom_kline_option(normalized.get("market_type")) and normalized.get("market_type") != "custom":
+        raise ValueError("自定义K线模式不支持选择 A股/美股市场")
+    if not _is_empty_custom_kline_option(normalized.get("price_mode")):
+        raise ValueError("自定义K线模式不支持选择价格类型")
+    if not _is_empty_custom_kline_option(normalized.get("kline_adjustment")):
+        raise ValueError("自定义K线模式不支持选择K线复权")
+    if not _is_empty_custom_kline_option(normalized.get("date_range_mode")):
+        raise ValueError("自定义K线模式不支持整年/近年选项")
+    if not _is_empty_custom_kline_option(normalized.get("exclude_recent_years")):
+        raise ValueError("自定义K线模式不支持近年排除选项")
+    if not _is_empty_custom_kline_option(normalized.get("start_date")) or not _is_empty_custom_kline_option(normalized.get("end_date")):
+        raise ValueError("自定义K线模式不支持开始日期/结束日期")
+
+    normalized["count_mode"] = "total"
+    normalized["market_type"] = "custom"
+    normalized["price_mode"] = None
+    normalized["kline_adjustment"] = None
+    normalized["date_range_mode"] = []
+    normalized["exclude_recent_years"] = []
+    normalized["start_date"] = None
+    normalized["end_date"] = None
+    return normalized
+
+
+def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    price_mode = normalized.get("price_mode") or "vwap_price"
+    if price_mode != "random_price":
+        normalized.pop("random_price_range", None)
+        normalized.pop("random_group_count", None)
+        return normalized
+
+    versions = {
+        str(sheet.get("c7_model_version") or "c7_0_2").strip().lower()
+        for sheet in normalized.get("sheets") or []
+    }
+    if "c7_0_3" in versions:
+        raise ValueError("随机价格仅支持 C7.0.2")
+    random_range = str(normalized.get("random_price_range") or "high_low").strip().lower()
+    if random_range not in {"high_low", "open_close"}:
+        raise ValueError("随机价格范围仅支持最高最低或开盘收盘")
+    try:
+        raw_group_count = normalized.get("random_group_count")
+        group_count = 1 if raw_group_count in (None, "") else int(raw_group_count)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("随机组数必须是正整数") from exc
+    if isinstance(raw_group_count, bool) or (
+        isinstance(raw_group_count, float) and not raw_group_count.is_integer()
+    ) or group_count < 1:
+        raise ValueError("随机组数必须是正整数")
+    normalized["random_price_range"] = random_range
+    normalized["random_group_count"] = group_count
+    return normalized
 
 
 def _stock_metadata_items_from_config(config: Any) -> list[dict[str, Any]]:
@@ -81,8 +160,24 @@ class TaskCreationMixin:
         if not isinstance(config, dict):
             return config
         normalized = dict(config)
-        if task_type in ("google_sheet", "google_sheet_C4", "google_sheet_C5"):
+        market_type = normalize_market_type(normalized.get("market_type"))
+        if market_type:
+            normalized["market_type"] = market_type
+        if normalized.get("stock_code"):
+            normalized["stock_code"] = normalize_stock_code(
+                normalized["stock_code"],
+                market_type or infer_market_type(normalized["stock_code"]),
+                normalized.get("exchange_market"),
+            )
+        if task_type.lower() in ("google_sheet", "google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
             normalized["token_task_type"] = GoogleSheetTokenTaskType.GOOGLE_SHEET.value
+            normalized["kline_data_source"] = KlineService.normalize_data_source(
+                normalized.get("kline_data_source", normalized.get("data_source"))
+            )
+            if task_type.lower() in ("google_sheet_c5", "google_sheet_c7"):
+                normalized = _normalize_c_series_kline_source_config(normalized)
+            if task_type.lower() == "google_sheet_c7":
+                normalized = _normalize_c7_random_price_config(normalized)
         elif task_type in ("backtest_training", "backtest_multi_product"):
             normalized["token_task_type"] = (
                 GoogleSheetTokenTaskType.BACKTEST_TRAINING.value
@@ -90,11 +185,14 @@ class TaskCreationMixin:
             normalized.pop("token_file", None)
             normalized["price_mode"] = (
                 normalized.get("price_mode")
-                if normalized.get("price_mode") in ("kp_price", "sp_price")
-                else "sp_price"
+                if normalized.get("price_mode") in ("kp_price", "sp_price", "vwap_price")
+                else "vwap_price"
+            )
+            normalized["kline_data_source"] = KlineService.normalize_data_source(
+                normalized.get("kline_data_source", normalized.get("data_source"))
             )
 
-        if task_type in ("google_sheet_C4", "google_sheet_C5"):
+        if task_type.lower() in ("google_sheet_c4", "google_sheet_c5","google_sheet_c7"):
             normalized.pop("spreadsheet_id", None)
             normalized.pop("sheet_name", None)
 
@@ -104,6 +202,8 @@ class TaskCreationMixin:
             )
 
             normalized = normalize_multi_product_config(normalized)
+        elif task_type == "backtest_training":
+            normalized = normalize_backtest_training_config(normalized)
 
         if task_type in ("backtest_training", "backtest_multi_product") and not normalized.get("token_id"):
             token_id = (
@@ -132,6 +232,8 @@ class TaskCreationMixin:
         if isinstance(config, dict):
             config = _hydrate_stock_name_from_metadata(config)
             config = get_google_sheet_token_service().prepare_task_config(config)
+            if task_type == "backtest_training":
+                self.validate_backtest_training_sheet(config)
             self.validate_google_sheet_available_for_task(
                 config,
                 task_id,
@@ -141,15 +243,17 @@ class TaskCreationMixin:
                 upsert_stock_metadata_in_session(stock_item)
 
         config_str = json.dumps(config) if isinstance(config, dict) else str(config)
-        safe_create(
-            Task,
-            id=task_id,
-            name=name,
-            description=description,
-            task_type=task_type,
-            config=config_str,
-            status="pending",
-            created_by_user_id=created_by_user_id,
+        task_repository.create(
+            {
+                "id": task_id,
+                "name": name,
+                "description": description,
+                "task_type": task_type,
+                "config": config_str,
+                "status": "pending",
+                "created_by_user_id": created_by_user_id,
+            },
+            commit=False,
         )
 
         if isinstance(config, dict) and task_type not in ("backtest_training", "backtest_multi_product"):
@@ -312,6 +416,16 @@ class TaskCreationMixin:
             if not stock_code:
                 continue
             stock_metadata = stock_metadata_by_code.get(stock_code.upper()) or {}
+            stock_market_type = normalize_market_type(
+                stock_metadata.get("market_type")
+                or stock_metadata.get("marketType")
+                or shared_config.get("market_type")
+            ) or infer_market_type(stock_code)
+            stock_code = normalize_stock_code(
+                stock_code,
+                stock_market_type,
+                stock_metadata.get("exchange_market") or stock_metadata.get("market"),
+            )
             stock_name = str(
                 stock_metadata.get("stock_name") or stock_metadata.get("name") or ""
             ).strip()
@@ -320,7 +434,7 @@ class TaskCreationMixin:
                     **stock_metadata,
                     "stock_code": stock_code,
                     "stock_name": stock_name,
-                    "market_type": stock_metadata.get("market_type") or stock_metadata.get("marketType") or shared_config.get("market_type", "cn"),
+                    "market_type": stock_market_type,
                     "source": stock_metadata.get("source") or "task_config",
                 })
 
@@ -355,7 +469,7 @@ class TaskCreationMixin:
                             "title": sheet_title or None,
                             "stock_code": stock_code,
                             "stock_name": stock_name,
-                            "market_type": shared_config.get("market_type", "cn"),
+                            "market_type": stock_market_type,
                             "kline_adjustment": shared_config.get("kline_adjustment", "forward"),
                             "end_date": end_date,
                             "year_n": year_n,
@@ -474,11 +588,11 @@ class TaskCreationMixin:
     ) -> dict[str, Any]:
         """更新任务配置。"""
         try:
-            task = db.session.get(Task, task_id)
+            task = task_repository.get(task_id)
             if not task:
                 return {"status": "error", "message": "任务不存在"}
 
-            if task.status == "running":
+            if task["status"] == "running":
                 return {
                     "status": "error",
                     "message": "正在运行的任务无法直接修改，请先停止任务",
@@ -497,8 +611,10 @@ class TaskCreationMixin:
                 if next_status not in allowed_statuses:
                     return {"status": "error", "message": f"不支持的任务状态: {next_status}"}
 
-            new_config = self._normalize_task_config_for_type(task.task_type, new_config)
-            old_config = json.loads(task.config) if task.config else {}
+            new_config = self._normalize_task_config_for_type(task["task_type"], new_config)
+            if task["task_type"] == "backtest_training":
+                self.validate_backtest_training_sheet(new_config)
+            old_config = task["config"] or {}
             old_google_sheet_id = (
                 old_config.get("google_sheet_id") if isinstance(old_config, dict) else None
             )
@@ -510,23 +626,23 @@ class TaskCreationMixin:
                 if new_google_sheet_id:
                     self.ensure_google_sheet_occupancy(task_id, new_config)
 
-            task.config = json.dumps(new_config)
+            fields = {"config": json.dumps(new_config)}
             if update_name:
-                task.name = update_name
+                fields["name"] = update_name
             if update_description is not None:
-                task.description = update_description
-            old_status = task.status
-            if next_status and next_status != task.status:
-                task.status = next_status
+                fields["description"] = update_description
+            old_status = task["status"]
+            if next_status and next_status != old_status:
+                fields["status"] = next_status
                 if next_status == TaskStatus.PENDING.value:
-                    task.start_time = None
-                    task.end_time = None
-                    task.error_message = None
+                    fields["start_time"] = None
+                    fields["end_time"] = None
+                    fields["error_message"] = None
                 elif next_status in {TaskStatus.COMPLETED.value, TaskStatus.CANCELLED.value}:
-                    task.end_time = task.end_time or datetime.now()
+                    fields["end_time"] = task["end_time"] or datetime.now()
                     if next_status == TaskStatus.COMPLETED.value:
-                        task.error_message = None
-            db.session.commit()
+                        fields["error_message"] = None
+            updated = task_repository.update_fields(task_id, **fields)
 
             task_logger = get_task_logger(task_id, f"{__name__}.update_config")
             if next_status and next_status != old_status:
@@ -539,42 +655,36 @@ class TaskCreationMixin:
             return {
                 "status": "success",
                 "message": "任务更新成功",
-                "task": task.to_dict(),
+                "task": updated,
             }
         except Exception as exc:
-            db.session.rollback()
+            task_repository.rollback()
             logger.error("更新任务配置失败: %s, 错误: %s", task_id, exc)
             return {"status": "error", "message": f"更新任务配置失败: {exc}"}
 
     def create_restart_task(self, original_task_id: str) -> str:
         """基于原任务创建新的重启任务。"""
         try:
-            original_task = db.session.get(Task, original_task_id)
+            original_task = task_repository.get(original_task_id)
             if not original_task:
                 raise ValueError("原任务不存在")
 
             new_task_id = str(uuid.uuid4())
-            original_config = (
-                json.loads(original_task.config)
-                if isinstance(original_task.config, str)
-                else original_task.config
-            )
+            original_config = original_task["config"] or {}
             original_config = self._normalize_task_config_for_type(
-                original_task.task_type,
+                original_task["task_type"],
                 original_config,
             )
 
-            new_task = Task(
-                id=new_task_id,
-                name=f"{original_task.name} (重启)",
-                description=f"{original_task.description}基于任务 {original_task_id} 重启",
-                task_type=original_task.task_type,
-                config=json.dumps(original_config),
-                status="pending",
-                created_by_user_id=original_task.created_by_user_id,
-            )
-            db.session.add(new_task)
-            db.session.commit()
+            task_repository.create({
+                "id": new_task_id,
+                "name": f"{original_task['name']} (重启)",
+                "description": f"{original_task['description']}基于任务 {original_task_id} 重启",
+                "task_type": original_task["task_type"],
+                "config": json.dumps(original_config),
+                "status": "pending",
+                "created_by_user_id": original_task["created_by_user_id"],
+            })
 
             if isinstance(original_config, dict) and original_task.task_type not in ("backtest_training", "backtest_multi_product"):
                 self.ensure_google_sheet_occupancy(new_task_id, original_config)

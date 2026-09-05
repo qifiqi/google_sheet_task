@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/layout/AppLayout.vue'
 import { useAuth } from '@/composables/useAuth'
+import { useNavigation } from '@/composables/useNavigation'
 
 const routes = [
   {
@@ -76,7 +77,9 @@ router.beforeEach(async (to, _from, next) => {
   const { user, fetchUser, hasPermission } = useAuth()
   if (!user.value) await fetchUser()
 
-  const perm = to.meta.permission
+  const { ensureNavLoaded, getPagePermission } = useNavigation()
+  await ensureNavLoaded()
+  const perm = getPagePermission(to.fullPath)
   if (perm && !hasPermission(perm)) return next('/403')
 
   next()

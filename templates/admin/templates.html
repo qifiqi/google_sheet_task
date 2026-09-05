@@ -366,7 +366,7 @@ function loadTemplates() {
     fetch('/api/templates')
         .then(response => response.json())
         .then(data => {
-            allTemplates = Array.isArray(data.templates) ? data.templates : [];
+            allTemplates = (data.data && Array.isArray(data.data.templates)) ? data.data.templates : [];
             updateTemplateStats();
             renderTemplateCards();
         })
@@ -585,10 +585,10 @@ async function editTemplate(id) {
             return;
         }
 
-        document.getElementById('editTemplateId').value = template.id;
-        document.getElementById('editTemplateName').value = template.name;
-        document.getElementById('editTemplateDescription').value = template.description || '';
-        document.getElementById('editTemplateConfig').value = JSON.stringify(template.config, null, 2);
+        document.getElementById('editTemplateId').value = template.data.id;
+        document.getElementById('editTemplateName').value = template.data.name;
+        document.getElementById('editTemplateDescription').value = template.data.description || '';
+        document.getElementById('editTemplateConfig').value = JSON.stringify(template.data.config, null, 2);
         
         const modal = document.getElementById('editTemplateModal');
         const modalInstance = bootstrap.Modal.getOrCreateInstance(modal);
@@ -692,9 +692,9 @@ async function duplicateTemplate(id) {
 
         // 创建新模板
         const newTemplate = {
-            name: template.name + ' (副本)',
-            description: template.description,
-            config: template.config
+            name: template.data.name + ' (副本)',
+            description: template.data.description,
+            config: template.data.config
         };
 
         const createResponse = await fetch('/api/templates', {

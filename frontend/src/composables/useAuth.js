@@ -60,6 +60,8 @@ export function useAuth() {
   }
 
   function hasPermission(code) {
+    // 接口权限保留在用户数据中，但不再限制页面内操作。
+    if (!String(code || '').startsWith('page:')) return true
     return permissions.value.includes(code)
   }
 

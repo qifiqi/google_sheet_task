@@ -480,7 +480,7 @@
         showProgress('正在生成文件，请稍候…', 0);
 
         streamingDownload(
-            '/api/tasks/batch-export',
+            '/api/exports/tasks/batch',
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

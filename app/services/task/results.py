@@ -1,8 +1,9 @@
-"""任务结果查询能力。"""
+"""任务结果查询能力（数据层：task_result_repository）。"""
 
 from __future__ import annotations
 
-from app.models import TaskResult
+from app.exceptions import NotFoundError
+from app.repositories import task_result_repository
 
 
 class TaskResultMixin:
@@ -18,26 +19,44 @@ class TaskResultMixin:
 
         传入分页参数时返回分页结构，否则返回完整结果列表。
         """
-        query = (
-            TaskResult.query.filter_by(task_id=task_id)
-            .order_by(TaskResult.step_index.asc())
-        )
-
         if page is not None and per_page is not None:
-            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-            items = [result.to_dict() for result in pagination.items]
-            total = pagination.total
-            success_total = query.filter_by(success=True).count()
-            failed_total = total - success_total
+            counts = task_result_repository.count_by_task_success(task_id)
+            page_data = task_result_repository.list_by_task_paginated(task_id, page, per_page)
             return {
-                "items": items,
-                "total": total,
-                "pages": pagination.pages,
-                "current_page": page,
-                "per_page": per_page,
-                "total_success": success_total,
-                "total_failed": failed_total,
+                "items": page_data["items"],
+                "total": page_data["total"],
+                "pages": page_data["pages"],
+                "current_page": page_data["current_page"],
+                "per_page": page_data["per_page"],
+                "total_success": counts["total_success"],
+                "total_failed": counts["total_failed"],
             }
 
-        results = query.all()
-        return [result.to_dict() for result in results]
+        return task_result_repository.list_by_task(task_id)
+
+    def get_results_paginated(self, page: int, per_page: int, task_id: str | None = None):
+        """跨任务结果分页列表（/results GET）。"""
+        return task_result_repository.list_paginated(page, per_page, task_id=task_id)
+
+    def get_result_detail(self, result_id: int):
+        """结果详情（含 task_type 投影）；不存在返回 None。"""
+        return task_result_repository.get_with_task_type(result_id)
+
+    def delete_result(self, result_id: int) -> bool:
+        """删除结果；不存在返回 False。"""
+        return task_result_repository.delete(result_id)
+
+    def get_task_results_page_raw(self, task_id: str, page: int, per_page: int):
+        """结果分页（parameters 保持原始 JSON 串，由调用方按需解析）。"""
+        return task_result_repository.list_by_task_paginated_raw_parameters(task_id, page, per_page)
+
+    def get_required_result_entity(self, result_id: int):
+        """结果实体访问（多品详情页消费）；不存在抛 NotFoundError。"""
+        task_result = task_result_repository.get_entity(result_id)
+        if not task_result:
+            raise NotFoundError("任务结果不存在")
+        return task_result
+
+    def get_return_entity(self, series_id):
+        """收益序列实体访问（结果详情页消费 stock_code/stock_name）。"""
+        return task_result_repository.get_return_entity(series_id)

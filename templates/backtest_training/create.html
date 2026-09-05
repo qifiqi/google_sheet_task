@@ -40,6 +40,32 @@
     .stock-search-item.active {
         background: rgba(var(--bs-primary-rgb), 0.08);
     }
+    .sheet-selector-shell {
+        position: relative;
+    }
+    .sheet-selector-results {
+        position: absolute;
+        inset: calc(100% + 0.35rem) 0 auto 0;
+        z-index: 30;
+        max-height: 18rem;
+        overflow-y: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.9rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+    }
+    .sheet-selector-item {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        padding: 0.7rem 0.85rem;
+        text-align: left;
+        white-space: normal;
+    }
+    .sheet-selector-item:hover,
+    .sheet-selector-item:focus {
+        background: rgba(var(--bs-primary-rgb), 0.08);
+    }
     .config-toggle {
         border: 0;
         background: transparent;
@@ -147,7 +173,12 @@
             <div class="row g-3 align-items-end">
                 <div class="col-xl-6">
                     <label for="modelUrl" class="form-label">Google Sheet 链接</label>
-                    <input type="text" class="form-control" id="modelUrl" placeholder="粘贴完整 Google Sheet URL">
+                    <div class="sheet-selector-shell">
+                        <input type="text" class="form-control" id="modelUrl" placeholder="输入 Google Sheet 链接或 Sheet ID" autocomplete="off">
+                        <div class="sheet-selector-results d-none" id="googleSheetMenuList">
+                            <div class="px-3 py-3 small text-body-secondary">加载中...</div>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-xl-4">
                     <label for="stockCode" class="form-label">股票代码</label>
@@ -213,16 +244,7 @@
                     </div>
                     <div class="config-box">
                         <label class="form-label d-block">市场类型</label>
-                        <div class="market-toggle-group">
-                            <div class="form-check form-check-inline mb-0">
-                                <input class="form-check-input" type="radio" name="market_type" id="market_type_cn" value="cn" checked>
-                                <label class="form-check-label" for="market_type_cn">cn</label>
-                            </div>
-                            <div class="form-check form-check-inline mb-0">
-                                <input class="form-check-input" type="radio" name="market_type" id="market_type_en" value="en">
-                                <label class="form-check-label" for="market_type_en">en</label>
-                            </div>
-                        </div>
+                        <select class="form-select" id="market_type"></select>
                     </div>
                     <div class="config-box">
                         <label for="klineAdjustmentInput" class="form-label">K线复权</label>
@@ -235,8 +257,17 @@
                     <div class="config-box">
                         <label for="priceModeInput" class="form-label">价格模式</label>
                         <select class="form-select" id="priceModeInput">
+                            <option value="vwap_price">加权平均价</option>
                             <option value="kp_price">开盘价</option>
                             <option value="sp_price" selected>收盘价</option>
+                            <option value="ohlc_price" disabled>OHLC（开高低收）</option>
+                        </select>
+                        <label for="klineDataSourceInput" class="form-label mt-2">K线数据源</label>
+                        <select class="form-select" id="klineDataSourceInput">
+                            <option value="dfcf" selected>东方财富（默认）</option>
+                            <option value="qq">腾讯</option>
+                            <option value="yahoo">Yahoo</option>
+                            <option value="tdx">通达信（仅A股）</option>
                         </select>
                     </div>
                     <div class="config-box">
@@ -264,7 +295,7 @@
                         <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
                             <label class="form-label mb-0" for="fullYearsCheck">完整年份</label>
                             <div class="form-check form-switch mb-0">
-                                <input class="form-check-input" type="checkbox" id="fullYearsCheck" checked>
+                                <input class="form-check-input" type="checkbox" id="fullYearsCheck">
                             </div>
                         </div>
                         <div id="fullYearsOptions" class="d-none">
@@ -337,6 +368,10 @@ const BACKTEST_TASK_TYPE = 'backtest_training';
 const STOCK_SEARCH_DEBOUNCE_MS = 1000;
 const DEFAULT_C3_COMMISSION = '0.0350%';
 const FIELD_MAP = {
+    c7: [
+        { key: 'xm', label: 'X Multiplier (xm)' },
+        { key: 'ml', label: 'ML (ml)' }
+    ],
     c5: [
         { key: 'xm', label: 'X Multiplier (xm)' },
         { key: 'ml', label: 'ML (ml)' }
@@ -356,29 +391,37 @@ let spreadsheetId = '';
 let sheetTitle = '';
 let selectedWorksheetName = '';
 let currentModelVersion = 'c3';
+let currentC7ModelVersion = 'c7_0_2';
 let currentFields = FIELD_MAP.c3;
+let backtestGoogleSheets = [];
+let selectedGoogleSheetId = null;
 let importedParameterRows = [];
 let currentExcelImport = null;
 let backtestTokens = [];
 let isCreatingTask = false;
 let stockSearchTimer = null;
+let lastEditablePriceMode = 'sp_price';
 let stockSearchAbortController = null;
 let lastStockSearchResults = [];
 let selectedStockSuggestion = null;
 let taskNameTouched = false;
 
 const currentYear = new Date().getFullYear();
+const BACKTEST_GOOGLE_SHEETS_CACHE_KEY = 'backtest_training_google_sheets_v2';
+const BACKTEST_GOOGLE_SHEETS_CACHE_TTL = 5 * 60 * 1000;
 const PARAMETER_HELP_HTML = `
     <div class="param-help-content">
-        <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统自动补默认手续费；每行 7 列时第 1 列按手续费处理。</div>
+        <div><strong>C3 粘贴</strong>：每行 6 个业务参数时顺序为 <code>xm</code>、<code>单边保护 1</code>、<code>中立限仓</code>、<code>指数跟踪</code>、<code>一窝蜂 S</code>、<code>一窝蜂 B</code>，系统自动计算 <code>单边保护 2 = 2 - 单边保护 1</code>；每行 7 个业务参数时按完整字段处理。</div>
         <div><strong>C3 复制</strong>：复制当前表格为 Tab 分隔行，包含 <code>Commission</code> 和后续参数列，可直接贴到其他任务或 Excel。</div>
         <div><strong>C5 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
+        <div><strong>C7 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
     </div>
 `;
 const modelUrlInput = document.getElementById('modelUrl');
 const stockCodeInput = document.getElementById('stockCode');
 const stockSearchResults = document.getElementById('stockSearchResults');
 const analyzeBtn = document.getElementById('analyzeBtn');
+const googleSheetMenuList = document.getElementById('googleSheetMenuList');
 const configToggleBtn = document.getElementById('configToggleBtn');
 const taskConfigCollapse = document.getElementById('taskConfigCollapse');
 const taskNameInput = document.getElementById('taskName');
@@ -413,7 +456,34 @@ const copyParamBtn = document.getElementById('copyParamBtn');
 const addParamBtn = document.getElementById('addParamBtn');
 const createBtn = document.getElementById('createBtn');
 const excelImportStatus = document.getElementById('excelImportStatus');
-const marketTypeInputs = Array.from(document.querySelectorAll('input[name="market_type"]'));
+const marketTypeSelect = document.getElementById('market_type');
+let stockMarkets = [];
+
+function bindMarketTypeSelect() {
+    marketTypeSelect.addEventListener('change', () => {
+        if (selectedStockSuggestion) {
+            if (marketTypeSelect.value !== selectedStockSuggestion.market_type) selectedStockSuggestion = null;
+        }
+        syncCommissionWithMarketType(marketTypeSelect.value);
+        updateStockMeta();
+    });
+}
+
+async function loadStockMarkets() {
+    try {
+        const response = await fetch('/api/meta/enums');
+        const payload = await response.json();
+        stockMarkets = payload?.data?.stock_markets || [];
+        marketTypeSelect.innerHTML = stockMarkets.map((market) =>
+            `<option value="${escapeHtml(market.value)}">${escapeHtml(market.label)}</option>`
+        ).join('');
+        marketTypeSelect.value = 'cn';
+        bindMarketTypeSelect();
+    } catch (error) {
+        marketTypeSelect.innerHTML = '<option value="">市场枚举加载失败</option>';
+        marketTypeSelect.disabled = true;
+    }
+}
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -426,41 +496,87 @@ function escapeHtml(value) {
 
 function inferModelVersion(title) {
     const normalized = String(title || '').toUpperCase();
+    if (normalized.includes('C7')) {
+        return 'c7';
+    }
     return normalized.includes('C5') || normalized.includes('C4') ? 'c5' : 'c3';
 }
 
 function resolveModelVersion(version) {
-    return version === 'c5' ? 'c5' : 'c3';
+    return ['c5', 'c7'].includes(version) ? version : 'c3';
 }
 
-function extractSpreadsheetId(rawUrl) {
-    const value = String(rawUrl || '').trim();
-    if (!value) {
-        return '';
+function inferC7ModelVersion(value) {
+    const normalized = String(value || '').toUpperCase();
+    return normalized.includes('C7.0.3') || normalized.includes('C7_0_3')
+        ? 'c7_0_3'
+        : 'c7_0_2';
+}
+
+function isC7V03Model() {
+    return resolveModelVersion(currentModelVersion) === 'c7'
+        && currentC7ModelVersion === 'c7_0_3';
+}
+
+function syncPriceModeForModel() {
+    const priceModeInput = document.getElementById('priceModeInput');
+    const ohlcOption = priceModeInput?.querySelector('option[value="ohlc_price"]');
+    if (!priceModeInput) {
+        return;
     }
-    const match = value.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    return match ? match[1] : '';
+
+    if (isC7V03Model()) {
+        if (!priceModeInput.disabled && priceModeInput.value !== 'ohlc_price') {
+            lastEditablePriceMode = priceModeInput.value;
+        }
+        if (ohlcOption) {
+            ohlcOption.disabled = false;
+        }
+        priceModeInput.value = 'ohlc_price';
+        priceModeInput.disabled = true;
+        return;
+    }
+
+    if (priceModeInput.disabled && priceModeInput.value === 'ohlc_price') {
+        priceModeInput.value = lastEditablePriceMode;
+    }
+    priceModeInput.disabled = false;
+    if (ohlcOption) {
+        ohlcOption.disabled = true;
+    }
 }
 
 function normalizeMarketTypeValue(value) {
-    const normalized = String(value || '').trim().toLowerCase();
-    return normalized === 'en' ? 'en' : 'cn';
+    const market = String(value || '').trim().toLowerCase();
+    return stockMarkets.some((item) => item.value === market) ? market : (stockMarkets[0]?.value || 'cn');
 }
 
-function resolveMarketTypeBySecurityTypeName(securityTypeName) {
-    return String(securityTypeName || '').includes('美股') ? 'en' : 'cn';
+function extractSpreadsheetId(value) {
+    const rawValue = String(value || '').trim();
+    const urlMatch = rawValue.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (urlMatch) {
+        return urlMatch[1];
+    }
+    return /^[a-zA-Z0-9-_]+$/.test(rawValue) ? rawValue : '';
+}
+
+function buildGoogleSheetUrl(spreadsheetId) {
+    return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(spreadsheetId)}/edit`;
 }
 
 function getSelectedMarketType() {
-    return normalizeMarketTypeValue(document.querySelector('input[name="market_type"]:checked')?.value || 'cn');
+    return normalizeMarketTypeValue(marketTypeSelect.value || 'cn');
 }
 
 function setMarketTypeSelection(value) {
     const normalized = normalizeMarketTypeValue(value);
-    const target = marketTypeInputs.find((item) => item.value === normalized);
-    if (target) {
-        target.checked = true;
-    }
+    marketTypeSelect.value = normalized;
+    syncCommissionWithMarketType(normalized);
+}
+
+function syncCommissionWithMarketType(value = getSelectedMarketType()) {
+    const market = stockMarkets.find((item) => item.value === normalizeMarketTypeValue(value));
+    commissionInput.value = market?.default_commission || '';
 }
 
 function updateStockMeta() {
@@ -476,10 +592,20 @@ function sanitizeTaskTitlePart(value) {
         .replace(/^-|-$/g, '');
 }
 
+<!--?function buildDefaultTaskName() {-->
+<!--?    const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());-->
+<!--?    const modelVersion = resolveModelVersion(currentModelVersion).toUpperCase();-->
+<!--?    return stockCode ? `${modelVersion}-${stockCode}` : '';-->
+<!--?}-->
 function buildDefaultTaskName() {
-    const stockCode = sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase());
+    const fallbackCode = stockCodeInput.value.trim()
+            ? sanitizeTaskTitlePart(stockCodeInput.value.trim().toUpperCase())
+            : '';
+    const stockPart = selectedStockSuggestion && getSelectedMarketType() === 'cn'
+        ? sanitizeTaskTitlePart(selectedStockSuggestion.name) || fallbackCode
+        : fallbackCode;
     const modelVersion = resolveModelVersion(currentModelVersion).toUpperCase();
-    return stockCode ? `${modelVersion}-${stockCode}` : '';
+    return stockPart ? `${modelVersion}-${stockPart}` : '';
 }
 
 function syncTaskNameInput(force = false) {
@@ -680,6 +806,42 @@ function isPastedHeaderRow(cells) {
     return cells.some((cell) => headerTokens.has(normalizeHeaderToken(cell)));
 }
 
+function formatDerivedProtectionValue(value) {
+    if (!Number.isFinite(value)) {
+        return '';
+    }
+    const fixed = value.toFixed(12).replace(/0+$/, '').replace(/\.$/, '');
+    return fixed === '-0' ? '0' : fixed;
+}
+
+function deriveSingleSideProtection2(value) {
+    const normalized = normalizePastedCell(value).replace(/,/g, '');
+    if (!normalized) {
+        return '';
+    }
+    const numericValue = Number(normalized);
+    if (!Number.isFinite(numericValue)) {
+        return '';
+    }
+    return formatDerivedProtectionValue(2 - numericValue);
+}
+
+function normalizeC3BusinessCells(cells) {
+    const sourceCells = cells.slice();
+    if (sourceCells.length === 6) {
+        return [
+            sourceCells[0],
+            sourceCells[1],
+            deriveSingleSideProtection2(sourceCells[1]),
+            sourceCells[2],
+            sourceCells[3],
+            sourceCells[4],
+            sourceCells[5]
+        ];
+    }
+    return sourceCells;
+}
+
 function parsePastedParameterRows(rawText) {
     const rows = String(rawText || '')
         .split(/\n+/)
@@ -695,7 +857,7 @@ function parsePastedParameterRows(rawText) {
     const expectedColumnCount = currentFields.length;
     const firstDataRow = dataRows[0] || [];
     const hasLeadingCommission = c3Mode
-        && firstDataRow.length > expectedColumnCount
+        && firstDataRow.length > expectedColumnCount - 1
         && (isCommissionCell(firstDataRow[0]) || firstDataRow.length === expectedColumnCount + 1);
 
     if (hasLeadingCommission && firstDataRow[0]) {
@@ -704,7 +866,9 @@ function parsePastedParameterRows(rawText) {
 
     return dataRows
         .map((cells) => {
-            const sourceCells = hasLeadingCommission ? cells.slice(1) : cells;
+            const sourceCells = c3Mode
+                ? normalizeC3BusinessCells(hasLeadingCommission ? cells.slice(1) : cells)
+                : (hasLeadingCommission ? cells.slice(1) : cells);
             const projected = {};
             currentFields.forEach((field, index) => {
                 projected[field.key] = sourceCells[index] || '';
@@ -734,6 +898,14 @@ function collectParameterDraftRows() {
 
 function hasParameterDraftValues() {
     return collectParameterDraftRows().some((row) => row.some(Boolean));
+}
+
+function clearPlaceholderRowsBeforeAppend() {
+    if (hasParameterDraftValues()) {
+        return;
+    }
+    paramTableBody.innerHTML = '';
+    syncEmptyState();
 }
 
 function getCommissionValue() {
@@ -867,6 +1039,7 @@ async function pasteParametersFromClipboard() {
             setExcelImportStatus('剪切板中没有解析到有效参数', 'danger');
             return;
         }
+        clearPlaceholderRowsBeforeAppend();
         rows.forEach((row) => addParameterRow(row));
         syncEmptyState();
         setExcelImportStatus(`已追加 ${rows.length} 行参数`, 'success');
@@ -893,7 +1066,8 @@ function setExcelImportStatus(message, tone = 'muted') {
     excelImportStatus.textContent = message || '';
 }
 
-function setAnalyzeButtonState(isLoading) {
+function setGoogleSheetLoading(isLoading) {
+    modelUrlInput.disabled = isLoading;
     analyzeBtn.disabled = isLoading;
     analyzeBtn.innerHTML = isLoading
         ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>识别中'
@@ -918,6 +1092,7 @@ function setCreateButtonState(isLoading) {
 function renderSheetInfo(title, worksheets) {
     const modelVersion = inferModelVersion(title);
     currentModelVersion = modelVersion;
+    currentC7ModelVersion = inferC7ModelVersion(title);
     sheetTitle = title || '';
     selectedWorksheetName = Array.isArray(worksheets) && worksheets.length ? String(worksheets[0]).trim() : '';
     modelVersionBadge.textContent = modelVersion.toUpperCase();
@@ -926,6 +1101,7 @@ function renderSheetInfo(title, worksheets) {
     sheetInfo.classList.add('is-visible');
     importedParameterRows = [];
     currentExcelImport = null;
+    syncPriceModeForModel();
     setExcelImportStatus('');
     syncTaskNameInput(true);
     resetParameterTable();
@@ -959,7 +1135,7 @@ async function loadBacktestTokens() {
         if (data.status !== 'success') {
             throw new Error(data.message || '加载 Token 失败');
         }
-        backtestTokens = Array.isArray(data.tokens) ? data.tokens : [];
+        backtestTokens = Array.isArray(data.data.tokens) ? data.data.tokens : [];
         renderTokenOptions(backtestTokens);
     } catch (error) {
         tokenIdSelect.innerHTML = '<option value="">加载 Token 失败</option>';
@@ -1002,7 +1178,7 @@ function selectStockSuggestion(item) {
     }
     stockCodeInput.value = item.code || '';
     selectedStockSuggestion = item;
-    setMarketTypeSelection(resolveMarketTypeBySecurityTypeName(item.security_type_name));
+    setMarketTypeSelection(item.market_type);
     syncTaskNameInput(true);
     updateStockMeta();
     showStockSearchResults();
@@ -1022,18 +1198,18 @@ async function fetchStockSuggestions(keyword, options = {}) {
     stockSearchAbortController = new AbortController();
 
     try {
-        const response = await fetch(`/api/search-stocks?q=${encodeURIComponent(trimmedKeyword)}`, {
+        const response = await fetch(`/api/search-stocks?q=${encodeURIComponent(trimmedKeyword)}&market_type=${encodeURIComponent(getSelectedMarketType())}`, {
             signal: stockSearchAbortController.signal
         });
         const data = await response.json();
         if (data.status !== 'success') {
             throw new Error(data.message || '股票搜索失败');
         }
-        renderStockSearchResults(data.results || [], trimmedKeyword);
+        renderStockSearchResults((data.data && data.data.results) || [], trimmedKeyword);
         if (options.keepOpen) {
             showStockSearchResults();
         }
-        return data.results || [];
+        return (data.data && data.data.results) || [];
     } catch (error) {
         if (error.name === 'AbortError') {
             return [];
@@ -1055,14 +1231,8 @@ function padNumber(value) {
     return String(value).padStart(2, '0');
 }
 
-function formatDateInputValue(date) {
-    return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
-}
-
 function getDefaultEndDateValue() {
-    const date = new Date();
-    date.setDate(date.getDate() - 1);
-    return formatDateInputValue(date);
+    return TradingDate.formatDate(TradingDate.previousWeekday());
 }
 
 function buildMinuteTimestamp() {
@@ -1089,15 +1259,113 @@ function buildC3TaskName() {
     return buildDefaultTaskName();
 }
 
-async function analyzeSheetUrl() {
-    const url = modelUrlInput.value.trim();
-    spreadsheetId = extractSpreadsheetId(url);
-    if (!spreadsheetId) {
-        alert('请填写有效的 Google Sheet 链接');
+function clearSelectedSheetInfo() {
+    spreadsheetId = '';
+    sheetTitle = '';
+    selectedWorksheetName = '';
+    currentModelVersion = 'c3';
+    currentC7ModelVersion = 'c7_0_2';
+    syncPriceModeForModel();
+    updateTableHeader();
+    sheetInfo.classList.remove('is-visible');
+    sheetTitleEl.textContent = '-';
+    sheetNamesEl.textContent = '-';
+}
+
+function showGoogleSheetOptions() {
+    googleSheetMenuList.classList.remove('d-none');
+}
+
+function hideGoogleSheetOptions() {
+    googleSheetMenuList.classList.add('d-none');
+}
+
+function getCachedBacktestGoogleSheets() {
+    try {
+        const cached = JSON.parse(sessionStorage.getItem(BACKTEST_GOOGLE_SHEETS_CACHE_KEY) || 'null');
+        if (cached && cached.expires_at > Date.now() && Array.isArray(cached.items)) {
+            return cached.items;
+        }
+    } catch (error) {
+        sessionStorage.removeItem(BACKTEST_GOOGLE_SHEETS_CACHE_KEY);
+    }
+    return null;
+}
+
+function cacheBacktestGoogleSheets(items) {
+    try {
+        sessionStorage.setItem(BACKTEST_GOOGLE_SHEETS_CACHE_KEY, JSON.stringify({
+            expires_at: Date.now() + BACKTEST_GOOGLE_SHEETS_CACHE_TTL,
+            items
+        }));
+    } catch (error) {
+        return;
+    }
+}
+
+function renderBacktestGoogleSheetOptions(items) {
+    googleSheetMenuList.innerHTML = '';
+    if (!items.length) {
+        googleSheetMenuList.innerHTML = '<div class="px-3 py-3 small text-body-secondary">暂无可用预设 Sheet</div>';
+        return;
+    }
+    items.forEach((sheet) => {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.className = 'sheet-selector-item';
+        option.dataset.sheetId = String(sheet.id);
+        option.innerHTML = `<div class="fw-semibold">${escapeHtml(sheet.name || '未命名 Sheet')} <span class="text-body-secondary">ID: ${escapeHtml(sheet.spreadsheet_id || '-')}</span></div>${sheet.remark ? `<div class="small text-body-secondary">${escapeHtml(sheet.remark)}</div>` : ''}`;
+        googleSheetMenuList.appendChild(option);
+    });
+}
+
+async function loadBacktestGoogleSheets() {
+    const cachedItems = getCachedBacktestGoogleSheets();
+    if (cachedItems) {
+        backtestGoogleSheets = cachedItems;
+        renderBacktestGoogleSheetOptions(backtestGoogleSheets);
+        showGoogleSheetOptions();
         return;
     }
 
-    setAnalyzeButtonState(true);
+    googleSheetMenuList.innerHTML = '<div class="px-3 py-3 small text-body-secondary">加载中...</div>';
+    showGoogleSheetOptions();
+    try {
+        const response = await fetch('/api/google-sheets?table_type=backtest_training');
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '加载单品回测 Sheet 失败');
+        }
+        backtestGoogleSheets = Array.isArray(data.items) ? data.items : [];
+        cacheBacktestGoogleSheets(backtestGoogleSheets);
+        renderBacktestGoogleSheetOptions(backtestGoogleSheets);
+    } catch (error) {
+        backtestGoogleSheets = [];
+        googleSheetMenuList.innerHTML = '<div class="px-3 py-3 small text-danger">加载单品回测 Sheet 失败</div>';
+    }
+}
+
+async function selectBacktestGoogleSheet(googleSheetId) {
+    const selectedSheet = backtestGoogleSheets.find((sheet) => String(sheet.id) === String(googleSheetId));
+    if (!selectedSheet) {
+        return;
+    }
+
+    selectedGoogleSheetId = Number(selectedSheet.id);
+    modelUrlInput.value = buildGoogleSheetUrl(selectedSheet.spreadsheet_id);
+    hideGoogleSheetOptions();
+    await analyzeSheetInput();
+}
+
+async function analyzeSheetInput() {
+    spreadsheetId = extractSpreadsheetId(modelUrlInput.value);
+    if (!spreadsheetId) {
+        clearSelectedSheetInfo();
+        alert('请输入有效的 Google Sheet 链接或 Sheet ID');
+        return;
+    }
+
+    setGoogleSheetLoading(true);
     try {
         const response = await fetch('/api/google-sheet/worksheets', {
             method: 'POST',
@@ -1108,11 +1376,12 @@ async function analyzeSheetUrl() {
         if (data.status !== 'success') {
             throw new Error(data.message || '识别链接失败');
         }
-        renderSheetInfo(data.title || '', data.worksheets || []);
+        renderSheetInfo(data.data.title || '', data.data.worksheets || []);
     } catch (error) {
+        clearSelectedSheetInfo();
         alert(error.message || '识别链接失败');
     } finally {
-        setAnalyzeButtonState(false);
+        setGoogleSheetLoading(false);
     }
 }
 
@@ -1136,9 +1405,9 @@ async function importExcelFile(file) {
         }
 
         currentModelVersion = inferModelVersion(data.model_version || 'c3');
+        currentC7ModelVersion = inferC7ModelVersion(data.model_version || sheetTitle);
         importedParameterRows = Array.isArray(data.parameters) ? data.parameters : [];
         currentExcelImport = data.excel_import || null;
-        spreadsheetId = spreadsheetId || extractSpreadsheetId(modelUrlInput.value.trim());
         if (data.stock_code) {
             stockCodeInput.value = String(data.stock_code).trim().toUpperCase();
         }
@@ -1160,6 +1429,7 @@ async function importExcelFile(file) {
 
         syncYearsWrapper();
         syncYearsDisplay();
+        syncPriceModeForModel();
         modelVersionBadge.textContent = currentModelVersion.toUpperCase();
         if (data.sheet_name) {
             selectedWorksheetName = String(data.sheet_name).trim();
@@ -1201,10 +1471,7 @@ async function createTask() {
         return;
     }
     if (!spreadsheetId) {
-        spreadsheetId = extractSpreadsheetId(modelUrlInput.value.trim());
-    }
-    if (!spreadsheetId) {
-        alert('请先识别有效的 Google Sheet 链接');
+        alert('请选择并识别单品回测 Google Sheet');
         return;
     }
     if (!stockCode) {
@@ -1234,16 +1501,24 @@ async function createTask() {
 
     setCreateButtonState(true);
     try {
+        const sheetConfig = {
+            spreadsheet_id: spreadsheetId,
+            sheet_name: selectedWorksheetName,
+            title: sheetTitle
+        };
+        if (resolveModelVersion(currentModelVersion) === 'c7') {
+            sheetConfig.c7_model_version = currentC7ModelVersion;
+        }
+        if (selectedGoogleSheetId) {
+            sheetConfig.google_sheet_id = selectedGoogleSheetId;
+        }
         const config = {
-            sheet: {
-                spreadsheet_id: spreadsheetId,
-                sheet_name: selectedWorksheetName,
-                title: sheetTitle
-            },
+            sheet: sheetConfig,
             stock_code: stockCode,
             market_type: getSelectedMarketType(),
             kline_adjustment: document.getElementById('klineAdjustmentInput')?.value || 'forward',
-            price_mode: document.getElementById('priceModeInput')?.value || 'sp_price',
+            kline_data_source: document.getElementById('klineDataSourceInput')?.value || 'dfcf',
+            price_mode: document.getElementById('priceModeInput')?.value || 'vwap_price',
             token_type: 'file',
             token_id: Number(tokenId),
             parameters,
@@ -1251,6 +1526,12 @@ async function createTask() {
             full_years: fullYears,
             end_date: endDate || undefined
         };
+        if (selectedStockSuggestion) {
+            config.stock_name = selectedStockSuggestion.name || undefined;
+            config.exchange_market = selectedStockSuggestion.market || undefined;
+            config.security_type_name = selectedStockSuggestion.security_type_name || undefined;
+            config.stock_source = selectedStockSuggestion.source || undefined;
+        }
         if (currentExcelImport) {
             config.excel_import = currentExcelImport;
         }
@@ -1289,11 +1570,27 @@ updateConfigToggleText();
 updateStockMeta();
 loadBacktestTokens();
 
-analyzeBtn.addEventListener('click', analyzeSheetUrl);
+analyzeBtn.addEventListener('click', analyzeSheetInput);
+modelUrlInput.addEventListener('focus', loadBacktestGoogleSheets);
+modelUrlInput.addEventListener('click', () => {
+    if (googleSheetMenuList.classList.contains('d-none')) {
+        loadBacktestGoogleSheets();
+    }
+});
+modelUrlInput.addEventListener('input', () => {
+    selectedGoogleSheetId = null;
+    clearSelectedSheetInfo();
+});
 modelUrlInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
         event.preventDefault();
-        analyzeSheetUrl();
+        analyzeSheetInput();
+    }
+});
+googleSheetMenuList.addEventListener('click', (event) => {
+    const target = event.target.closest('.sheet-selector-item');
+    if (target) {
+        selectBacktestGoogleSheet(target.dataset.sheetId);
     }
 });
 
@@ -1337,22 +1634,15 @@ stockSearchResults.addEventListener('click', (event) => {
     selectStockSuggestion(item);
 });
 
+loadStockMarkets();
+
 document.addEventListener('click', (event) => {
     if (!event.target.closest('.stock-search-shell')) {
         hideStockSearchResults();
     }
-});
-
-marketTypeInputs.forEach((input) => {
-    input.addEventListener('change', () => {
-        if (selectedStockSuggestion) {
-            const inferred = resolveMarketTypeBySecurityTypeName(selectedStockSuggestion.security_type_name);
-            if (normalizeMarketTypeValue(input.value) !== inferred) {
-                selectedStockSuggestion = null;
-            }
-        }
-        updateStockMeta();
-    });
+    if (!event.target.closest('.sheet-selector-shell')) {
+        hideGoogleSheetOptions();
+    }
 });
 
 recentYearsCheck.addEventListener('change', () => {

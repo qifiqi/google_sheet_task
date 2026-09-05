@@ -1,0 +1,1466 @@
+<!doctype html>
+<html style="height: 100%; width: 100%">
+  <head>
+    <meta charset="utf-8" />
+    <title>东方财富K线</title>
+    <meta name="renderer" content="webkit" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="{{ url_for('static', filename='eastmoney-kline/css/layui.css') }}" rel="stylesheet" />
+      <link href="{{ url_for('static', filename='eastmoney-kline/css/extend.css') }}" rel="stylesheet"/>
+  </head>
+
+  <body class="index-body">
+    <div class="search">
+      <form class="layui-form" lay-filter="form-val-filter">
+        <div class="layui-row">
+          <div class="layui-input-wrap">
+            <label class="layui-input-label stock-keyword-label">股票查询：</label>
+            <div class="stock-search-control">
+              <input
+                type="text"
+                id="stock-keyword"
+                placeholder="输入股票代码或名称"
+                autocomplete="off"
+                class="layui-input"
+                aria-autocomplete="list"
+                aria-controls="stock-suggestions"
+                aria-expanded="false"
+              />
+              <div id="stock-suggestions" class="stock-suggestions" role="listbox" hidden></div>
+            </div>
+          </div>
+        </div>
+        <div class="layui-row">
+          <div class="layui-input-wrap">
+            <label class="layui-input-label">K线周期：</label>
+            <select name="klt">
+              <option value="101" selected>日K</option>
+              <option value="102">周K</option>
+              <option value="103">月K</option>
+              <option value="1">1分钟</option>
+              <option value="5">5分钟</option>
+              <option value="15">15分钟</option>
+              <option value="30">30分钟</option>
+              <option value="60">60分钟</option>
+            </select>
+          </div>
+        </div>
+        <div class="layui-row">
+          <div class="layui-input-wrap">
+            <label class="layui-input-label">条数：</label>
+            <input
+              type="number"
+              name="lmt"
+              value="2000"
+              min="2"
+              max="10000"
+              class="layui-input"
+              lay-verify="required|number|lmt"
+            />
+          </div>
+        </div>
+        <div class="layui-row">
+          <div class="layui-input-wrap">
+            <label class="layui-input-label">复权方式：</label>
+            <select name="fqt">
+              <option value="0">不复权</option>
+              <option value="1" selected>前复权</option>
+              <option value="2">后复权</option>
+            </select>
+          </div>
+        </div>
+        <button
+          type="submit"
+          class="layui-btn layui-btn-normal layui-btn-radius kline-submit"
+          lay-submit
+          lay-filter="search-btn"
+        >
+          <i class="layui-icon layui-icon-search layui-font-18"></i>
+          拉取K线
+        </button>
+      </form>
+    </div>
+
+    <div class="volatility-analysis" id="volatility-analysis" hidden>
+      <div class="analysis-header">
+        <span class="title">股票波动率分析</span>
+        <div class="analysis-controls layui-form">
+          <div class="analysis-basis">
+            <label for="volatility-price-basis">计算价格：</label>
+            <select id="volatility-price-basis" lay-filter="volatility-price-basis">
+              <option value="vwap" selected>VWAP</option>
+              <option value="open">开盘价</option>
+              <option value="close">收盘价</option>
+              <option value="high">最高价</option>
+              <option value="low">最低价</option>
+            </select>
+          </div>
+          <div class="analysis-basis">
+            <label for="volatility-reference-date">计算基准日期：</label>
+            <input id="volatility-reference-date" class="layui-input" readonly />
+          </div>
+        </div>
+      </div>
+      <div class="analysis-summary" id="analysis-summary"></div>
+      <div class="volatility-comparison-wrap">
+        <table class="layui-table volatility-comparison">
+          <thead>
+            <tr>
+              <th>指标</th>
+              <th>半年</th>
+              <th>1年</th>
+              <th>2年</th>
+              <th>3年</th>
+              <th>4年</th>
+              <th>5年</th>
+              <th>6年</th>
+              <th>7年</th>
+              <th>汇总</th>
+            </tr>
+          </thead>
+          <tbody id="volatility-comparison-body"></tbody>
+        </table>
+      </div>
+      <div class="average-turnover-analysis">
+        <div class="average-turnover-header">
+          <span>平均成交额分析</span>
+          <small>按计算基准日期分段计算</small>
+        </div>
+        <div class="volatility-comparison-wrap">
+          <table class="layui-table volatility-comparison">
+            <thead>
+              <tr>
+                <th>指标</th>
+                <th>第1年</th>
+                <th>第2年</th>
+                <th>第3年</th>
+                <th>第4年</th>
+                <th>第5年</th>
+                <th>第6年</th>
+                <th>第7年</th>
+                <th>总体</th>
+              </tr>
+            </thead>
+            <tbody id="average-turnover-comparison-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="table">
+      <div class="table-header">
+        <span class="title">
+          东方财富K线数据
+          <small class="table-meta" id="table-meta" hidden></small>
+        </span>
+        <span class="operate">
+          <input
+            id="export-file-name"
+            type="text"
+            class="layui-input export-file-name"
+            placeholder="自定义导出文件名"
+            aria-label="导出文件名"
+          />
+          <div class="layui-form export-date-order">
+            <label for="export-date-order">导出日期：</label>
+            <select id="export-date-order" aria-label="导出日期排序">
+              <option value="asc" selected>日期升序</option>
+              <option value="desc">日期降序</option>
+            </select>
+          </div>
+          <button id="export-btn" type="button" class="layui-btn layui-btn-primary" disabled>
+            <i class="layui-icon layui-icon-export"></i>
+            导出Excel
+          </button>
+        </span>
+      </div>
+      <table class="layui-hide" id="table-container" lay-filter="table-filter"></table>
+    </div>
+
+    <script src="https://cdn.staticfile.org/jquery/3.7.1/jquery.min.js"></script>
+    <script src="{{ url_for('static', filename='eastmoney-kline/js/layui.js') }}"></script>
+    <script src="{{ url_for('static', filename='eastmoney-kline/js/utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='eastmoney-kline/js/http/eastMoneyKlineApi.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <script src="{{ url_for('static', filename='eastmoney-kline/js/excelExport.js') }}"></script>
+    <script>
+      layui.use(["form", "table", "laydate"], function () {
+        // 页面状态与价格口径配置。
+        var form = layui.form;
+        var table = layui.table;
+        var laydate = layui.laydate;
+        var klineRows = [];
+        var queryData = null;
+        var volatility = null;
+        var selectedStock = null;
+        var securityCandidates = [];
+        var securitySearchTimer = null;
+        var securitySearchRequestId = 0;
+        var volatilityPriceBases = {
+          vwap: { field: "vwap", label: "VWAP" },
+          open: { field: "open", label: "开盘价" },
+          close: { field: "close", label: "收盘价" },
+          high: { field: "high", label: "最高价" },
+          low: { field: "low", label: "最低价" },
+        };
+
+        form.verify({
+          lmt: function (value) {
+            var count = Number(value);
+            if (!Number.isInteger(count) || count < 2 || count > 10000) {
+              return "获取条数应为 2 至 10000 的整数";
+            }
+          },
+        });
+
+        // 展示和导出工具。
+        function formatNumber(value, digits) {
+          return Number.isFinite(value) ? value.toFixed(digits) : "-";
+        }
+
+        function formatPercent(value) {
+          return Number.isFinite(value) ? (value * 100).toFixed(2) + "%" : "不可计算";
+        }
+
+        function roundVwap(value) {
+          return Number.isFinite(value) ? Number(value.toFixed(4)) : null;
+        }
+
+        function getVolatilityPriceBasis(value) {
+          return volatilityPriceBases[value] || volatilityPriceBases.vwap;
+        }
+
+        // 为文本单元格添加前导单引号，避免 Excel 按公式执行。
+        function safeExportText(value) {
+          var text = String(value || "");
+          return /^[=+\-@]/.test(text) ? "'" + text : text;
+        }
+
+        function getDefaultExportFileName(query, calculation) {
+          var stockCode = query.secid.split(".")[1] || query.secid;
+          var oneYear = calculation && calculation.recent.values.find(
+            function (item) {
+              return item.label === "1年";
+            },
+          );
+          var oneYearVolatility = oneYear && oneYear.result
+            ? formatPercent(oneYear.result.value)
+            : "无数据";
+          return stockCode + "-" + (query.stockName || "股票") + "-" + oneYearVolatility;
+        }
+
+        function getExportFileName(query) {
+          var fileName = $("#export-file-name").val().trim() || getDefaultExportFileName(query, volatility);
+          return fileName.replace(/[\\/:*?"<>|]/g, "_").replace(/\.xlsx$/i, "");
+        }
+
+        // 导出排序始终基于副本，避免影响页面当前的日期倒序展示。
+        function getExportRows(rows, dateOrder) {
+          var exportRows = rows.slice();
+          return dateOrder === "desc" ? exportRows.reverse() : exportRows;
+        }
+
+        // 股票搜索结果标准化。
+        function stripSearchHighlight(value) {
+          return String(value || "").replace(/<\/?em\b[^>]*>/gi, "");
+        }
+
+        function getStockCode(item) {
+          return stripSearchHighlight(item.code || item.securityCode);
+        }
+
+        function getSecurityMarket(item) {
+          return item.market === undefined || item.market === null || item.market === ""
+            ? item.mkt
+            : item.market;
+        }
+
+        function getSecid(item) {
+          var market = getSecurityMarket(item);
+          var code = getStockCode(item);
+          return /^\d+$/.test(String(market)) && code ? String(market) + "." + String(code) : "";
+        }
+
+        function getVolumeUnitByMarket(market) {
+          return String(market) === "0" || String(market) === "1"
+            ? "hand"
+            : "share";
+        }
+
+        // 股票搜索与候选列表。
+        function getSecurityCandidates(items) {
+          return items
+            .map(function (item) {
+              var code = getStockCode(item);
+              var name = stripSearchHighlight(item.shortName || item.name);
+              return {
+                secid: getSecid(item),
+                code: code,
+                name: name,
+                market: getSecurityMarket(item),
+                displayName: code + (name ? " | " + name : ""),
+              };
+            })
+            .filter(function (item) { return item.secid; });
+        }
+
+        function renderSecurityCandidates() {
+          var $suggestions = $("#stock-suggestions").empty();
+          securityCandidates.forEach(function (item, index) {
+            $("<button>", { type: "button" })
+              .addClass("stock-suggestion")
+              .attr({ "data-index": index, role: "option" })
+              .text(item.displayName)
+              .appendTo($suggestions);
+          });
+          $suggestions.prop("hidden", !securityCandidates.length);
+          $("#stock-keyword").attr("aria-expanded", securityCandidates.length ? "true" : "false");
+        }
+
+        function hideSecurityCandidates() {
+          $("#stock-suggestions").prop("hidden", true);
+          $("#stock-keyword").attr("aria-expanded", "false");
+        }
+
+        function cacheSelectedStock(value) {
+          var normalizedValue = String(value || "").trim().toUpperCase();
+          var candidate = securityCandidates.find(function (item) {
+            return item.displayName.toUpperCase() === normalizedValue
+              || item.code.toUpperCase() === normalizedValue;
+          });
+          if (!candidate) {
+            return false;
+          }
+          selectedStock = candidate;
+          $("#stock-keyword").val(candidate.displayName);
+          hideSecurityCandidates();
+          return true;
+        }
+
+        // 通过请求序号丢弃过期响应，避免快速输入时旧结果覆盖新结果。
+        function querySecurities(keyword) {
+          var requestId = ++securitySearchRequestId;
+          eastMoneyKlineApi.SearchSecurities(keyword)
+            .done(function (response) {
+              if (requestId !== securitySearchRequestId) {
+                return;
+              }
+              var items = response && response.result && response.result.codetable;
+              securityCandidates = Array.isArray(items) ? getSecurityCandidates(items) : [];
+              renderSecurityCandidates();
+            })
+            .fail(function () {
+              if (requestId === securitySearchRequestId) {
+                securityCandidates = [];
+                renderSecurityCandidates();
+              }
+          });
+        }
+
+        // K线字段依次为日期、开高低收、成交量、成交额及三个涨跌指标。
+        // A 股成交量以手返回，VWAP 计算时统一换算为股。
+        function parseKlines(klines, volumeUnit, klt) {
+          var uniqueRows = {};
+          var invalidCount = 0;
+          var multiplier = null;
+          if (volumeUnit === "hand") {
+            multiplier = 100;
+          } else if (volumeUnit === "share") {
+            multiplier = 1;
+          }
+          klines.forEach(function (line) {
+            var fields = String(line).split(",");
+            var values = fields.slice(1, 11).map(Number);
+            if (
+              fields.length < 11 ||
+              !fields[0] ||
+              !getKlineDate({ stock_date: fields[0] }) ||
+              values.some(function (value) { return !Number.isFinite(value); }) ||
+              values[0] < 0 ||
+              values[1] < 0 ||
+              values[4] < 0 ||
+              values[5] < 0 ||
+              values[2] < Math.max(values[0], values[1]) ||
+              values[3] > Math.min(values[0], values[1])
+            ) {
+              invalidCount++;
+              return;
+            }
+            var volume = multiplier === null ? null : values[4] * multiplier;
+            uniqueRows[fields[0]] = {
+              stock_date: fields[0],
+              vwap: volume > 0 ? roundVwap(values[5] / volume) : null,
+              open: values[0],
+              close: values[1],
+              high: values[2],
+              low: values[3],
+              volume_raw: values[4],
+              volume_unit: volumeUnit === "hand" ? "手" : volumeUnit === "share" ? "股" : "不确定",
+              volume: volume,
+              amount: values[5],
+              amplitude: values[6],
+              pct_change: values[7],
+              change: values[8],
+              turnover_rate: values[9],
+              is_final: String(klt) === "101" && fields[0] === getToday() ? "待确认" : "是",
+            };
+          });
+          return {
+            rows: Object.keys(uniqueRows)
+              .sort()
+              .map(function (date) { return uniqueRows[date]; }),
+            invalidCount: invalidCount,
+          };
+        }
+
+        function getToday() {
+          var today = new Date();
+          return [
+            today.getFullYear(),
+            String(today.getMonth() + 1).padStart(2, "0"),
+            String(today.getDate()).padStart(2, "0"),
+          ].join("-");
+        }
+
+        function getKlineDate(row) {
+          var value = String(row.stock_date || "").replace(/\//g, "-");
+          if (value.length === 10) {
+            value += "T00:00:00";
+          } else {
+            value = value.replace(" ", "T");
+          }
+          var date = new Date(value);
+          return Number.isNaN(date.getTime()) ? null : date;
+        }
+
+        // 日K线只有日期，按所选日结束时刻计算以匹配桌面端 datetime.now() 的边界。
+        function getVolatilityReferenceDate() {
+          var referenceDate = getKlineDate({
+            stock_date: $("#volatility-reference-date").val(),
+          });
+          if (referenceDate) {
+            referenceDate.setHours(23, 59, 59, 999);
+          }
+          return referenceDate;
+        }
+
+        function formatKlineDate(date) {
+          return [
+            date.getFullYear(),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            String(date.getDate()).padStart(2, "0"),
+          ].join("-");
+        }
+
+        // 波动率采用相邻价格简单收益率绝对值的算术平均。
+        function calculateAbsoluteVolatility(rows, priceField) {
+          var prices = rows
+            .map(function (row) { return Number(row[priceField || "vwap"]); })
+            .filter(function (price) { return Number.isFinite(price) && price > 0; });
+          if (prices.length < 2) {
+            return null;
+          }
+          var absoluteReturns = [];
+          for (var index = 1; index < prices.length; index++) {
+            absoluteReturns.push(Math.abs((prices[index] - prices[index - 1]) / prices[index - 1]));
+          }
+          return {
+            value: absoluteReturns.reduce(function (sum, value) {
+              return sum + value;
+            }, 0) / absoluteReturns.length,
+            observationCount: absoluteReturns.length,
+          };
+        }
+
+        function filterRowsByDate(rows, startDate, endDate) {
+          return rows.filter(function (row) {
+            var date = getKlineDate(row);
+            return date && date >= startDate && date <= endDate;
+          });
+        }
+
+        function hasCompleteSpan(rows, requiredDays, toleranceDays) {
+          if (rows.length < 2) {
+            return false;
+          }
+          var earliestDate = getKlineDate(rows[0]);
+          var latestDate = getKlineDate(rows[rows.length - 1]);
+          if (!earliestDate || !latestDate) {
+            return false;
+          }
+          return (latestDate.getTime() - earliestDate.getTime()) / 86400000
+            >= requiredDays - toleranceDays;
+        }
+
+        function shiftDate(referenceDate, days) {
+          return new Date(referenceDate.getTime() - days * 86400000);
+        }
+
+        function getKlineDataRange(rows) {
+          var dates = rows
+            .map(getKlineDate)
+            .filter(function (date) { return date; })
+            .sort(function (left, right) { return left - right; });
+          if (!dates.length) {
+            return "-";
+          }
+          return formatKlineDate(dates[0]) + " 至 " + formatKlineDate(dates[dates.length - 1]);
+        }
+
+        function logVolatilityRange(type, label, rows, startDate, endDate, isComplete) {
+          var firstDate = rows.length ? getKlineDate(rows[0]) : null;
+          var lastDate = rows.length ? getKlineDate(rows[rows.length - 1]) : null;
+          console.info("[波动率计算] " + type + "-" + label, {
+            请求开始日期: formatKlineDate(startDate),
+            请求结束日期: formatKlineDate(endDate),
+            实际最早K线日期: firstDate ? formatKlineDate(firstDate) : "-",
+            实际最新K线日期: lastDate ? formatKlineDate(lastDate) : "-",
+            K线记录数: rows.length,
+            满足计算条件: isComplete,
+          });
+        }
+
+        // 以指定日期为基准，计算半年至七年的近年波动率。
+        function calculateRecentVolatilities(rows, priceField, referenceDate) {
+          referenceDate = referenceDate || getKlineDate(rows[rows.length - 1]);
+          var periods = [
+            { key: "6m", label: "半年", days: 182, tolerance: 15 },
+            { key: "1y", label: "1年", days: 365, tolerance: 30 },
+            { key: "2y", label: "2年", days: 730, tolerance: 30 },
+            { key: "3y", label: "3年", days: 1095, tolerance: 30 },
+            { key: "4y", label: "4年", days: 1460, tolerance: 30 },
+            { key: "5y", label: "5年", days: 1825, tolerance: 30 },
+            { key: "6y", label: "6年", days: 2190, tolerance: 30 },
+            { key: "7y", label: "7年", days: 2555, tolerance: 30 },
+          ];
+          var values = periods.map(function (period) {
+            var startDate = shiftDate(referenceDate, period.days);
+            var periodRows = filterRowsByDate(rows, startDate, referenceDate);
+            var isComplete = hasCompleteSpan(periodRows, period.days, period.tolerance);
+            logVolatilityRange(
+              "近年",
+              period.label,
+              periodRows,
+              startDate,
+              referenceDate,
+              isComplete,
+            );
+            return {
+              label: period.label,
+              dataRange: getKlineDataRange(periodRows),
+              result: isComplete
+                ? calculateAbsoluteVolatility(periodRows, priceField)
+                : null,
+            };
+          });
+          logVolatilityRange(
+            "近年",
+            "总体",
+            rows,
+            getKlineDate(rows[0]),
+            referenceDate,
+            rows.length >= 2,
+          );
+          values.push({
+            label: "总体",
+            dataRange: getKlineDataRange(rows),
+            result: calculateAbsoluteVolatility(rows, priceField),
+          });
+          return { referenceDate: referenceDate, values: values };
+        }
+
+        // 将历史数据按连续 365 天划分年度，年度样本少于 200 条时不参与计算。
+        function calculateYearlyVolatilities(rows, referenceDate, priceField) {
+          var values = [];
+          var validYearRows = [];
+          for (var year = 1; year <= 7; year++) {
+            var endDate = shiftDate(referenceDate, (year - 1) * 365);
+            var startDate = shiftDate(endDate, 365);
+            var yearRows = filterRowsByDate(rows, startDate, endDate);
+            var isComplete = yearRows.length >= 200;
+            logVolatilityRange(
+              "年度",
+              "第" + year + "年",
+              yearRows,
+              startDate,
+              endDate,
+              isComplete,
+            );
+            var result = isComplete ? calculateAbsoluteVolatility(yearRows, priceField) : null;
+            if (result) {
+              validYearRows = validYearRows.concat(yearRows);
+            }
+            values.push({
+              label: "第" + year + "年",
+              dataRange: getKlineDataRange(yearRows),
+              result: result,
+            });
+          }
+          var calculatedValues = values
+            .map(function (item) { return item.result ? item.result.value : null; })
+            .filter(function (value) { return value !== null; });
+          values.push({
+            label: "年度平均",
+            detailLabel: "有效年度",
+            dataRange: getKlineDataRange(validYearRows),
+            result: calculatedValues.length
+              ? {
+                value: calculatedValues.reduce(function (sum, value) {
+                  return sum + value;
+                }, 0) / calculatedValues.length,
+                observationCount: calculatedValues.length,
+              }
+              : null,
+          });
+          return values;
+        }
+
+        // 平均成交额使用每根有效 K 线的成交额算术平均。
+        function calculateAverageTurnover(rows) {
+          var amounts = rows
+            .map(function (row) { return Number(row.amount); })
+            .filter(function (amount) { return Number.isFinite(amount) && amount >= 0; });
+          if (!amounts.length) {
+            return null;
+          }
+          return {
+            value: amounts.reduce(function (sum, amount) { return sum + amount; }, 0) / amounts.length,
+            observationCount: amounts.length,
+          };
+        }
+
+        // 平均成交额与年度波动率共用同一年度窗口和样本完整性规则。
+        function calculateYearlyAverageTurnovers(rows, referenceDate) {
+          var values = [];
+          for (var year = 1; year <= 7; year++) {
+            var endDate = shiftDate(referenceDate, (year - 1) * 365);
+            var startDate = shiftDate(endDate, 365);
+            var yearRows = filterRowsByDate(rows, startDate, endDate);
+            values.push({
+              label: "第" + year + "年",
+              dataRange: getKlineDataRange(yearRows),
+              result: yearRows.length >= 200 ? calculateAverageTurnover(yearRows) : null,
+            });
+          }
+          values.push({
+            label: "总体",
+            dataRange: getKlineDataRange(rows),
+            result: calculateAverageTurnover(rows),
+          });
+          return values;
+        }
+
+        // 汇总当前价格口径下的近年、年度波动率及年度平均成交额。
+        function calculateVolatilityAnalysis(rows, priceBasis, referenceDate) {
+          var basis = getVolatilityPriceBasis(priceBasis);
+          console.info("[波动率计算] 价格口径", {
+            名称: basis.label,
+            字段: basis.field,
+          });
+          var recentVolatilities = calculateRecentVolatilities(rows, basis.field, referenceDate);
+          return {
+            priceBasis: priceBasis,
+            recent: recentVolatilities,
+            yearly: calculateYearlyVolatilities(rows, recentVolatilities.referenceDate, basis.field),
+            turnover: calculateYearlyAverageTurnovers(rows, recentVolatilities.referenceDate),
+          };
+        }
+
+        // 表格单元格只使用 text() 写入，避免外部数据被当作 HTML 解析。
+        function appendVolatilityComparisonRow($body, label, values, unavailableText) {
+          var $row = $("<tr>");
+          $("<td>").addClass("volatility-row-label").text(label).appendTo($row);
+          values.forEach(function (item) {
+            var detail = item.result
+              ? (item.detailLabel || "有效收益率") + " " + item.result.observationCount + " 项"
+              : unavailableText;
+            $("<td>")
+              .attr("title", detail)
+              .append(
+                $("<strong>").text(item.result ? formatPercent(item.result.value) : "-"),
+              )
+              .appendTo($row);
+          });
+          $body.append($row);
+        }
+
+        function appendAverageTurnoverRow($body, values) {
+          var $row = $("<tr>");
+          $("<td>").addClass("volatility-row-label").text("平均成交额").appendTo($row);
+          values.forEach(function (item) {
+            var detail = item.result
+              ? "有效K线 " + item.result.observationCount + " 条；数据范围：" + item.dataRange
+              : "数据不足（至少200条）";
+            $("<td>")
+              .attr("title", detail)
+              .append(
+                $("<strong>").text(
+                  item.result
+                    ? item.result.value.toLocaleString("en-US", {
+                      maximumFractionDigits: 2,
+                    })
+                    : "-",
+                ),
+              )
+              .appendTo($row);
+          });
+          $body.append($row);
+        }
+
+        // 优先使用现代剪贴板 API，非安全上下文退回到兼容方案。
+        function copyText(text) {
+          function showResult(success) {
+            layer.msg(success ? "已复制到剪切板" : "复制失败，请手动复制", { icon: success ? 1 : 5 });
+          }
+
+          function copyWithFallback() {
+            var $textarea = $("<textarea>")
+              .val(text)
+              .css({ position: "fixed", opacity: 0 })
+              .appendTo("body");
+            $textarea[0].select();
+            try {
+              showResult(document.execCommand("copy"));
+            } catch (error) {
+              showResult(false);
+            }
+            $textarea.remove();
+          }
+
+          if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(function () {
+              showResult(true);
+            }).catch(copyWithFallback);
+            return;
+          }
+          copyWithFallback();
+        }
+
+        // 分析结果渲染。
+        function renderVolatilityAnalysis(query, recentVolatilities, yearlyVolatilities, yearlyTurnovers) {
+          var $comparisonBody = $("#volatility-comparison-body").empty();
+          var $turnoverBody = $("#average-turnover-comparison-body").empty();
+          var stockCode = query.secid.split(".")[1] || query.secid;
+          var referenceText = "参考日期：" + formatKlineDate(recentVolatilities.referenceDate);
+          var $summary = $("#analysis-summary").empty();
+          [
+            { label: "股票代码", value: stockCode },
+            { label: "股票名称", value: query.stockName || "-" },
+          ].forEach(function (item) {
+            $("<button>", { type: "button" })
+              .addClass("analysis-copyable analysis-copy-block")
+              .attr("title", "点击复制" + item.label)
+              .data("copyText", item.value)
+              .append($("<span>").text(item.label))
+              .append($("<strong>").text(item.value))
+              .appendTo($summary);
+          });
+          $("<span>")
+            .addClass("analysis-copyable analysis-reference")
+            .attr({ role: "button", tabindex: 0, title: "点击复制参考日期" })
+            .data("copyText", formatKlineDate(recentVolatilities.referenceDate))
+            .text(referenceText)
+            .appendTo($summary);
+          appendVolatilityComparisonRow(
+            $comparisonBody,
+            "近年",
+            recentVolatilities.values,
+            "数据跨度不足",
+          );
+          appendVolatilityComparisonRow(
+            $comparisonBody,
+            "年度",
+            [{ result: null }].concat(yearlyVolatilities),
+            "数据不足（至少200条）",
+          );
+          appendAverageTurnoverRow($turnoverBody, yearlyTurnovers);
+          $("#volatility-analysis").prop("hidden", false);
+        }
+
+        function getDisplayRows(rows) {
+          if (rows.length <= 40) {
+            return rows.slice().reverse();
+          }
+          return rows.slice(-20).reverse().concat(rows.slice(0, 20).reverse());
+        }
+
+        // K线较多时仅展示最新和最早各 20 条，完整数据仍保留用于计算和导出。
+        function renderTable() {
+          var displayRows = getDisplayRows(klineRows);
+          table.render({
+            elem: "#table-container",
+            cols: [[
+              { field: "stock_date", title: "日期", width: 160, fixed: "left" },
+              {
+                field: "stock_code",
+                title: "股票代码",
+                width: 120,
+                templet: function () {
+                  return queryData ? queryData.secid.split(".")[1] : "-";
+                },
+              },
+              {
+                field: "open",
+                title: "开盘",
+                width: 100,
+                templet: function (item) { return formatNumber(item.open, 2); },
+              },
+              {
+                field: "close",
+                title: "收盘",
+                width: 100,
+                templet: function (item) { return formatNumber(item.close, 2); },
+              },
+              {
+                field: "high",
+                title: "最高",
+                width: 100,
+                templet: function (item) { return formatNumber(item.high, 2); },
+              },
+              {
+                field: "low",
+                title: "最低",
+                width: 100,
+                templet: function (item) { return formatNumber(item.low, 2); },
+              },
+              {
+                field: "volume_raw",
+                title: "成交量",
+                width: 120,
+                templet: function (item) { return item.volume_raw.toLocaleString("en-US"); },
+              },
+              {
+                field: "amount",
+                title: "成交额",
+                width: 150,
+                templet: function (item) { return item.amount.toLocaleString("en-US"); },
+              },
+              {
+                field: "amplitude",
+                title: "振幅%",
+                width: 90,
+                templet: function (item) { return formatNumber(item.amplitude, 2); },
+              },
+              {
+                field: "pct_change",
+                title: "涨跌幅%",
+                width: 100,
+                templet: function (item) { return formatNumber(item.pct_change, 2); },
+              },
+              {
+                field: "turnover_rate",
+                title: "换手率%",
+                width: 100,
+                templet: function (item) { return formatNumber(item.turnover_rate, 2); },
+              },
+              {
+                field: "vwap",
+                title: "VWAP",
+                width: 110,
+                templet: function (item) { return formatNumber(item.vwap, 4); },
+              },
+            ]],
+            data: displayRows,
+            even: true,
+            page: false,
+          });
+          $("#table-meta")
+            .text(
+              klineRows.length > 40
+                ? "已按日期倒序展示最新20条和最早20条"
+                : "已按日期倒序展示全部",
+            )
+            .prop("hidden", false);
+        }
+
+        // 页面事件与交互。
+        $("#stock-keyword").on("input", function () {
+          var keyword = $(this).val().trim();
+          securitySearchRequestId++;
+          clearTimeout(securitySearchTimer);
+          if (!keyword || cacheSelectedStock(keyword)) {
+            if (!keyword) {
+              selectedStock = null;
+              securityCandidates = [];
+              renderSecurityCandidates();
+            }
+            return;
+          }
+          selectedStock = null;
+          securitySearchTimer = setTimeout(function () {
+            querySecurities(keyword);
+          }, 300);
+        });
+
+        $("#stock-keyword").on("change", function () {
+          cacheSelectedStock($(this).val());
+        });
+
+        $("#stock-keyword").on("focus", function () {
+          if (securityCandidates.length) {
+            $("#stock-suggestions").prop("hidden", false);
+            $(this).attr("aria-expanded", "true");
+          }
+        });
+
+        $("#stock-keyword").on("keydown", function (event) {
+          if (event.key === "Escape") {
+            hideSecurityCandidates();
+          }
+        });
+
+        $("#stock-suggestions").on("click", ".stock-suggestion", function () {
+          var candidate = securityCandidates[Number($(this).attr("data-index"))];
+          if (candidate) {
+            selectedStock = candidate;
+            $("#stock-keyword").val(candidate.displayName);
+            hideSecurityCandidates();
+          }
+        });
+
+        $(document).on("mousedown", function (event) {
+          if (!$(event.target).closest(".stock-search-control").length) {
+            hideSecurityCandidates();
+          }
+        });
+
+        $("#analysis-summary").on("click keydown", ".analysis-copyable", function (event) {
+          if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") {
+            return;
+          }
+          if (event.type === "keydown" && $(this).is("button")) {
+            return;
+          }
+          event.preventDefault();
+          copyText($(this).data("copyText"));
+        });
+
+        // 重算不会重新请求接口，避免切换日期或价格口径时覆盖当前快照。
+        function refreshVolatilityAnalysis() {
+          if (!klineRows.length || !queryData) {
+            return;
+          }
+          var referenceDate = getVolatilityReferenceDate();
+          if (!referenceDate) {
+            layer.msg("请选择有效的计算基准日期", { icon: 5 });
+            return;
+          }
+          var oldDefaultFileName = getDefaultExportFileName(queryData, volatility);
+          var currentFileName = $("#export-file-name").val().trim();
+          queryData.priceBasis = $("#volatility-price-basis").val() || "vwap";
+          volatility = calculateVolatilityAnalysis(klineRows, queryData.priceBasis, referenceDate);
+          renderVolatilityAnalysis(queryData, volatility.recent, volatility.yearly, volatility.turnover);
+          if (!currentFileName || currentFileName === oldDefaultFileName) {
+            $("#export-file-name").val(getDefaultExportFileName(queryData, volatility));
+          }
+        }
+
+        form.on("select(volatility-price-basis)", function () {
+          refreshVolatilityAnalysis();
+        });
+
+        laydate.render({
+          elem: "#volatility-reference-date",
+          value: getToday(),
+          done: refreshVolatilityAnalysis,
+        });
+        form.render("select");
+
+        form.on("submit(search-btn)", function (data) {
+          var query = data.field;
+          if (!selectedStock) {
+            layer.msg("请先完成股票查询", { icon: 5 });
+            return false;
+          }
+          query.secid = selectedStock.secid;
+          query.stockName = selectedStock.name;
+          query.priceBasis = $("#volatility-price-basis").val() || "vwap";
+          query.volumeUnit = getVolumeUnitByMarket(selectedStock.market);
+          eastMoneyKlineApi.GetKlines(query)
+            .done(function (response) {
+              if (
+                !response
+                || !response.data
+                || !Array.isArray(response.data.klines)
+                || !response.data.klines.length
+              ) {
+                layer.msg((response && response.msg) || "东方财富未返回有效K线数据", { icon: 5 });
+                return;
+              }
+              var parsed = parseKlines(response.data.klines, query.volumeUnit, query.klt);
+              if (!parsed.rows.length) {
+                layer.msg("返回数据均未通过K线字段校验", { icon: 5 });
+                return;
+              }
+              klineRows = parsed.rows;
+              queryData = query;
+              volatility = calculateVolatilityAnalysis(
+                klineRows,
+                query.priceBasis,
+                getVolatilityReferenceDate(),
+              );
+              renderVolatilityAnalysis(query, volatility.recent, volatility.yearly, volatility.turnover);
+              renderTable();
+              $("#export-file-name").val(getDefaultExportFileName(query, volatility));
+              $("#export-btn").prop("disabled", false);
+              layer.msg("已拉取 " + klineRows.length + " 条K线数据", { icon: 1 });
+            })
+            .fail(function () {
+              layer.msg("K线接口请求失败。若浏览器拦截 JSONP，请通过后端同源代理请求东方财富接口。", { icon: 5, time: 5000 });
+            });
+          return false;
+        });
+
+        // 导出当前快照及与页面一致的分析结果。
+        $("#export-btn").on("click", function () {
+          if (!klineRows.length || !queryData || !volatility) {
+            layer.msg("请先拉取K线数据", { icon: 5 });
+            return;
+          }
+          var klineExportRows = [
+            [
+              "证券标识",
+              "证券代码",
+              "证券名称",
+              "日期",
+              "VWAP",
+              "开盘",
+              "收盘",
+              "最高",
+              "最低",
+              "原始成交量",
+              "换算成交量(股)",
+              "成交额",
+              "振幅%",
+              "涨跌幅%",
+              "涨跌额",
+              "换手率%",
+            ],
+          ];
+          getExportRows(klineRows, $("#export-date-order").val()).forEach(function (item) {
+            klineExportRows.push([
+              queryData.secid,
+              queryData.secid.split(".")[1],
+              safeExportText(queryData.stockName),
+              item.stock_date,
+              item.vwap,
+              item.open,
+              item.close,
+              item.high,
+              item.low,
+              item.volume_raw,
+              item.volume,
+              item.amount,
+              item.amplitude,
+              item.pct_change,
+              item.change,
+              item.turnover_rate,
+            ]);
+          });
+          var analysisRows = [
+            [
+              "数据源",
+              "东方财富",
+              "证券标识",
+              queryData.secid,
+              "证券名称",
+              safeExportText(queryData.stockName),
+              "K线周期",
+              queryData.klt,
+              "复权方式",
+              queryData.fqt,
+            ],
+            [
+              "取数时间",
+              new Date().toISOString(),
+              "成交量单位",
+              klineRows[0].volume_unit,
+              "波动率价格",
+              getVolatilityPriceBasis(volatility.priceBasis).label,
+              "算法版本",
+              "mean_abs_simple_return",
+            ],
+            [],
+            ["波动率参考日期", formatKlineDate(volatility.recent.referenceDate)],
+            ["近年波动率"],
+            ["区间", "波动率", "有效收益率数", "数据范围"],
+          ];
+          volatility.recent.values.forEach(function (item) {
+            analysisRows.push([
+              item.label,
+              item.result ? formatPercent(item.result.value) : "-",
+              item.result ? item.result.observationCount : 0,
+              item.dataRange,
+            ]);
+          });
+          analysisRows.push(["年度波动率"]);
+          analysisRows.push(["区间", "波动率", "有效收益率数", "数据范围"]);
+          volatility.yearly.forEach(function (item) {
+            analysisRows.push([
+              item.label,
+              item.result ? formatPercent(item.result.value) : "-",
+              item.result ? item.result.observationCount : 0,
+              item.dataRange,
+            ]);
+          });
+          try {
+            excelExport.exportSheets([
+              {
+                rows: klineExportRows,
+                sheetName: "K线数据",
+                columnWidths: [
+                  16, 14, 18, 20, 15, 15, 15, 15,
+                  18, 18, 20, 15, 12, 12, 15, 14,
+                ],
+              },
+              {
+                rows: analysisRows,
+                sheetName: "分析说明",
+                columnWidths: [16, 18, 16, 18, 16, 18, 16, 18, 16, 18],
+                getCellStyle: function (rowIndex) {
+                  if (rowIndex === 4 || rowIndex === 5 || rowIndex === 15 || rowIndex === 16) {
+                    return {
+                      font: { bold: true },
+                      fill: { patternType: "solid", fgColor: { rgb: "FFF2CC" } },
+                    };
+                  }
+                },
+              },
+            ], getExportFileName(queryData));
+          } catch (error) {
+            layer.msg(error.message || "Excel导出失败", { icon: 5 });
+          }
+        });
+      });
+    </script>
+    <style>
+      /* 页面与查询区 */
+      body.index-body {
+        margin: 0;
+        padding: 20px 20px 0;
+        background-color: #f9fafb;
+      }
+
+      .search .layui-form {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+        align-items: end;
+        gap: 16px 24px;
+      }
+
+      .search .layui-row {
+        width: auto;
+        min-width: 0;
+      }
+
+      .search .layui-input-wrap {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+      }
+
+      .search .layui-input-label {
+        display: flex;
+        flex: 0 0 72px;
+        align-items: center;
+        justify-content: flex-end;
+      }
+
+      .search .stock-keyword-label {
+        flex-basis: 104px;
+      }
+
+      .search .layui-input-wrap > .layui-input,
+      .search .layui-input-wrap > .layui-form-select {
+        min-width: 0;
+        flex: 1 1 auto;
+        width: 0;
+      }
+
+      .search .stock-search-control {
+        position: relative;
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .search .stock-search-control .layui-input {
+        box-sizing: border-box;
+        width: 100%;
+      }
+
+      /* 股票搜索候选列表 */
+      .stock-suggestions {
+        position: absolute;
+        z-index: 1000;
+        top: calc(100% + 4px);
+        left: 0;
+        width: max-content;
+        min-width: 100%;
+        max-width: min(360px, calc(100vw - 40px));
+        max-height: 240px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        background-color: #fff;
+        border: 1px solid #d8d8d8;
+        border-radius: 4px;
+      }
+
+      .stock-suggestion {
+        display: block;
+        box-sizing: border-box;
+        width: auto;
+        min-width: 100%;
+        height: 36px;
+        padding: 0 12px;
+        overflow: hidden;
+        color: #111827;
+        background-color: #fff;
+        border: 0;
+        cursor: pointer;
+        font-size: 13px;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .stock-suggestion:hover,
+      .stock-suggestion:focus {
+        background-color: #f3f4f6;
+        outline: 0;
+      }
+
+      .search .layui-input-wrap > .layui-form-select {
+        display: block;
+      }
+
+      .search .layui-form-select .layui-select-title {
+        width: 100%;
+      }
+
+      .search .layui-form-select .layui-input {
+        display: block;
+        box-sizing: border-box;
+        width: 100% !important;
+        min-width: 0;
+        flex: none;
+      }
+
+      .search .kline-submit {
+        justify-self: end;
+        margin: 0;
+      }
+
+      /* 波动率分析区 */
+      .volatility-analysis {
+        box-sizing: border-box;
+        margin-bottom: 1.5rem;
+        padding: 20px;
+        background-color: #fff;
+        border-radius: 16px;
+      }
+
+      .analysis-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+
+      .analysis-header .title {
+        font-size: 18px;
+        font-weight: 800;
+        color: #111827;
+      }
+
+      .analysis-controls,
+      .analysis-basis {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .analysis-controls {
+        gap: 16px;
+      }
+
+      .analysis-basis label {
+        color: #6b7280;
+        font-size: 13px;
+      }
+
+      .analysis-basis .layui-form-select {
+        width: 140px;
+      }
+
+      .analysis-basis .layui-input {
+        width: 120px;
+      }
+
+      .analysis-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 20px;
+        margin-bottom: 10px;
+        color: #6b7280;
+        font-size: 13px;
+      }
+
+      .analysis-copyable {
+        color: #4f46e5;
+        cursor: pointer;
+      }
+
+      .analysis-copy-block {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 32px;
+        padding: 0 10px;
+        color: #111827;
+        background-color: #fff;
+        border: 1px solid #d8d8d8;
+        border-radius: 4px;
+        font-size: 13px;
+      }
+
+      .analysis-copy-block span {
+        color: #6b7280;
+      }
+
+      .analysis-copy-block strong {
+        color: #4f46e5;
+        font-weight: 600;
+      }
+
+      .analysis-copy-block:hover,
+      .analysis-copy-block:focus {
+        border-color: #4f46e5;
+      }
+
+      .analysis-copyable:focus,
+      .analysis-copyable:hover {
+        text-decoration: underline;
+        outline: 0;
+      }
+
+      .analysis-copy-block:focus,
+      .analysis-copy-block:hover {
+        text-decoration: none;
+      }
+
+      .volatility-comparison-wrap {
+        overflow-x: auto;
+      }
+
+      .volatility-comparison {
+        min-width: 900px;
+        margin: 0;
+      }
+
+      .volatility-comparison th,
+      .volatility-comparison td {
+        min-width: 72px;
+        padding: 8px 10px;
+        color: #6b7280;
+        font-size: 13px;
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      .volatility-comparison th:first-child,
+      .volatility-comparison td:first-child {
+        min-width: 80px;
+        color: #111827;
+        text-align: left;
+      }
+
+      .volatility-comparison td strong {
+        color: #111827;
+        font-size: 14px;
+      }
+
+      .average-turnover-analysis {
+        margin-top: 1.5rem;
+      }
+
+      .average-turnover-header {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: #111827;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .average-turnover-header small {
+        color: #6b7280;
+        font-size: 12px;
+        font-weight: 400;
+      }
+
+      .volatility-row-label {
+        color: #4f46e5 !important;
+        font-weight: 700;
+      }
+
+      .table-meta {
+        margin-left: 12px;
+        color: #6b7280;
+        font-size: 13px;
+        font-weight: 400;
+      }
+
+      .export-file-name {
+        width: 260px;
+      }
+
+      .export-date-order {
+        display: flex;
+        align-items: center;
+      }
+
+      .export-date-order label {
+        margin-right: 6px;
+        color: #6b7280;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .export-date-order .layui-form-select {
+        width: 130px;
+      }
+
+      /* 窄宽度 iframe 布局 */
+      @media (max-width: 1100px) {
+        .search .layui-form {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .search .layui-row:first-child {
+          grid-column: 1 / -1;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .search .layui-form {
+          grid-template-columns: 1fr;
+        }
+
+        .search .kline-submit {
+          justify-self: start;
+        }
+
+        .analysis-header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .analysis-controls {
+          flex-wrap: wrap;
+        }
+      }
+    </style>
+  </body>
+</html>

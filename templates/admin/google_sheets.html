@@ -231,7 +231,7 @@ function loadGoogleSheetsAdmin() {
             if (data.status !== 'success') {
                 throw new Error(data.message || '加载表格列表失败');
             }
-            googleSheetAdminItems = Array.isArray(data.items) ? data.items : [];
+            googleSheetAdminItems = Array.isArray(data.data.items) ? data.data.items : [];
             renderGoogleSheetsAdmin();
         })
         .catch(function(error) {

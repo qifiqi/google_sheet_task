@@ -278,7 +278,7 @@
         button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中';
 
         try {
-            const response = await fetch(`/backtest-training/api/global-preview/${encodeURIComponent(TASK_ID)}/export`);
+            const response = await fetch(`/api/exports/global-previews/${encodeURIComponent(TASK_ID)}`);
             if (!response.ok) {
                 const text = await response.text();
                 let message = '导出失败';

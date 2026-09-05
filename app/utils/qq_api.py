@@ -16,7 +16,15 @@ from typing import Dict, List, Optional, Tuple
 import requests
 from requests.adapters import HTTPAdapter
 
-from apis.proxy_utils import configure_session_proxy, get_proxy_for_request
+try:
+    from apis.proxy_utils import configure_session_proxy, get_proxy_for_request
+except ImportError:
+    # 旧版部署中的 apis 包已移除；腾讯源默认直连，保留可替换的适配函数。
+    def configure_session_proxy(session):
+        return session
+
+    def get_proxy_for_request():
+        return None
 
 # ── User-Agent 池 ─────────────────────────────────────────
 _USER_AGENTS: List[str] = [
@@ -61,11 +69,14 @@ class QQStockApi:
         '60': 'min60',
     }
 
-    # 复权类型映射（DFCF adjust_type → 腾讯 qfq/hfq/空）
+    # 复权类型映射（统一 K 线 adjust_type → 腾讯 qfq/hfq/空）
     ADJUST_TYPE_MAP = {
         '1': 'qfq',   # 前复权
         '2': 'hfq',   # 后复权
         '0': '',       # 不复权
+        'forward': 'qfq',
+        'back': 'hfq',
+        'none': '',
     }
 
     def __init__(self):
@@ -107,14 +118,18 @@ class QQStockApi:
     # ── 市场前缀 ────────────────────────────────────────────
 
     @staticmethod
-    def resolve_market_prefix(exchange: str, stock_code: str) -> str:
-        """根据东方财富的 market 字段或股票代码推断腾讯接口所需的市场前缀 (sh/sz)。
+    def resolve_market_prefix(exchange: str, stock_code: str, market_type: str | None = None) -> str:
+        """根据市场类型、东方财富 market 字段或股票代码推断腾讯代码前缀。
 
         东方财富 search 接口返回的 market 字段：
         - '0' → 深圳 (sz)
         - '1' → 上海 (sh)
+        - '105' → 美股 (us)
         若 market 值不可识别，则按代码规则兜底。
         """
+        normalized_market = str(market_type or '').strip().lower()
+        if normalized_market in {'us', 'en', '美股', 'usa'} or str(exchange).strip() == '105':
+            return 'us'
         exchange_str = str(exchange).strip()
         if exchange_str == '0':
             return 'sz'
@@ -190,12 +205,13 @@ class QQStockApi:
         limit: int = 640,
         kline_type: str = '101',
         adjust_type: str = '1',
+        market_type: str | None = None,
     ) -> List[Dict]:
         """获取股票 K 线数据，自动翻页直到收集够 limit 条或无更多历史数据。
 
         Args:
             stock_code:  纯数字股票代码，如 '300308'
-            exchange:    东方财富 market 字段（'0'=深圳, '1'=上海）
+            exchange:    东方财富 market 字段（'0'=深圳, '1'=上海, '105'=美股）
             limit:       期望获取的总条数
             kline_type:  K线周期（'101'日K / '102'周K / '103'月K / '5'/'15'/'30'/'60'分钟）
             adjust_type: 复权方式（'1'前复权 / '2'后复权 / '0'不复权）
@@ -203,8 +219,11 @@ class QQStockApi:
         Returns:
             K 线记录列表，按日期升序排列
         """
-        market_prefix = self.resolve_market_prefix(exchange, stock_code)
-        qq_symbol = f"{market_prefix}{stock_code}"
+        market_prefix = self.resolve_market_prefix(exchange, stock_code, market_type)
+        normalized_code = str(stock_code).strip().upper()
+        if market_prefix == 'us' and normalized_code.lower().startswith('us'):
+            normalized_code = normalized_code[2:]
+        qq_symbol = f"{market_prefix}{normalized_code}"
 
         qq_kline_type = self.KLINE_TYPE_MAP.get(kline_type, 'day')
         qq_adjust = self.ADJUST_TYPE_MAP.get(adjust_type, 'qfq')
@@ -259,7 +278,7 @@ class QQStockApi:
             batch_records = []
             earliest_date = None
             for item in raw_klines:
-                record = self._parse_kline_item(item, stock_code)
+                record = self._parse_kline_item(item, stock_code, market_type)
                 if record:
                     batch_records.append(record)
                     if earliest_date is None or record['stock_date'] < earliest_date:
@@ -318,13 +337,19 @@ class QQStockApi:
         return None
 
     @staticmethod
-    def _parse_kline_item(item: list, stock_code: str) -> Optional[Dict]:
+    def _parse_kline_item(
+        item: list | Dict,
+        stock_code: str,
+        market_type: str | None = None,
+    ) -> Optional[Dict]:
         """解析腾讯K线单条数据为标准格式。
 
         腾讯格式:
           [日期, 开盘, 收盘, 最高, 最低, 成交量, {分红信息}, 换手率, 成交额, ...]
         """
         try:
+            if isinstance(item, dict):
+                item = item.get('value')
             if not isinstance(item, list) or len(item) < 6:
                 return None
 
@@ -333,7 +358,8 @@ class QQStockApi:
             close_price = float(item[2])
             high_price = float(item[3])
             low_price = float(item[4])
-            volume = int(float(item[5]) * 100)  # 手→股
+            is_us_market = str(market_type or '').strip().lower() in {'us', 'en', '美股', 'usa'}
+            volume = int(float(item[5]) if is_us_market else float(item[5]) * 100)
 
             # 换手率（索引 7，可能不存在）
             turnover_rate = 0.0
@@ -344,42 +370,42 @@ class QQStockApi:
                     turnover_rate = 0.0
 
             # 成交额（索引 8，可能不存在）
-            # 腾讯接口成交额单位为「万元」，乘以 10000 转为「元」以与东方财富保持一致
+            # A 股接口成交额单位为万元；美股接口已是美元，不再换算。
             turnover_amount = 0.0
             if len(item) > 8:
                 try:
-                    turnover_amount = float(item[8]) * 10000.0
+                    turnover_amount = float(item[8]) if is_us_market else float(item[8]) * 10000.0
                 except (ValueError, TypeError):
                     turnover_amount = 0.0
 
             # 计算涨跌额和涨跌幅（腾讯接口不直接提供，用收盘-开盘估算）
             # 注意：严格来说涨跌幅应用昨收计算，但腾讯接口不提供昨收
             # 这里先用开盘价近似（仅供展示，不影响核心OHLCV数据）
-            stock_zde = round(close_price - open_price, 4)
+            change = round(close_price - open_price, 4)
             if open_price != 0:
-                stock_zdf = round((stock_zde / open_price) * 100, 2)
+                pct_change = round((change / open_price) * 100, 2)
             else:
-                stock_zdf = 0.0
+                pct_change = 0.0
 
             # 振幅%
             if low_price != 0:
-                stock_zf = round(((high_price - low_price) / low_price) * 100, 2)
+                amplitude = round(((high_price - low_price) / low_price) * 100, 2)
             else:
-                stock_zf = 0.0
+                amplitude = 0.0
 
             return {
                 'stock_code': stock_code,
                 'stock_date': date_str,
-                'stock_kp': round(open_price, 2),
-                'stock_sp': round(close_price, 2),
-                'stock_zg': round(high_price, 2),
-                'stock_zd': round(low_price, 2),
-                'stock_cjl': volume,
-                'stock_cje': round(turnover_amount, 2),
-                'stock_zf': stock_zf,
-                'stock_zdf': stock_zdf,
-                'stock_zde': round(stock_zde, 2),
-                'stock_hsl': turnover_rate,
+                'open': round(open_price, 2),
+                'close': round(close_price, 2),
+                'high': round(high_price, 2),
+                'low': round(low_price, 2),
+                'volume': volume,
+                'amount': round(turnover_amount, 2),
+                'amplitude': amplitude,
+                'pct_change': pct_change,
+                'change': round(change, 2),
+                'turnover_rate': turnover_rate,
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             }
         except Exception:

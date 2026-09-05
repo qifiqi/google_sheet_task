@@ -1,6 +1,6 @@
 """
 数据库重试工具模块
-专门处理SQLite数据库锁定和重试逻辑
+处理暂时性数据库错误的重试逻辑
 """
 import time
 import random
@@ -12,9 +12,57 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+TRANSIENT_DATABASE_ERROR_MARKERS = (
+    'database is locked',
+    'database table is locked',
+    'deadlock',
+    'lock wait timeout',
+    'could not serialize',
+    'serialization failure',
+)
+
+
 class DatabaseLockError(Exception):
-    """数据库锁定异常"""
+    """暂时性数据库冲突在重试后仍未恢复。"""
     pass
+
+
+def _is_transient_database_error(error: OperationalError) -> bool:
+    message = str(error).lower()
+    return any(marker in message for marker in TRANSIENT_DATABASE_ERROR_MARKERS)
+
+
+def _retry_operation(
+    operation: Callable,
+    max_attempts: int,
+    base_delay: float,
+    max_delay: float,
+    exponential_base: float,
+    jitter: bool,
+    *args,
+    **kwargs,
+) -> Any:
+    for attempt in range(max_attempts):
+        try:
+            return operation(*args, **kwargs)
+        except OperationalError as exc:
+            if not _is_transient_database_error(exc):
+                raise
+            if attempt == max_attempts - 1:
+                logger.error("数据库暂时性错误重试失败，已达到最大次数 %s", max_attempts)
+                raise DatabaseLockError(
+                    f"数据库暂时性错误重试失败: {exc}"
+                ) from exc
+
+            delay = min(base_delay * (exponential_base ** attempt), max_delay)
+            if jitter:
+                delay *= 0.5 + random.random() * 0.5
+            logger.warning(
+                "数据库暂时性错误，第 %s 次重试，等待 %.2f 秒",
+                attempt + 1,
+                delay,
+            )
+            time.sleep(delay)
 
 
 def db_retry(
@@ -26,7 +74,7 @@ def db_retry(
 ):
     """
     数据库操作重试装饰器
-    专门处理SQLite数据库锁定问题
+    处理可恢复的锁冲突或事务序列化失败。
     
     Args:
         max_attempts: 最大重试次数
@@ -38,44 +86,16 @@ def db_retry(
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs) -> Any:
-            last_exception = None
-            
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except OperationalError as e:
-                    last_exception = e
-                    error_str = str(e).lower()
-                    
-                    # 检查是否是数据库锁定错误
-                    if 'database is locked' in error_str or 'database table is locked' in error_str:
-                        if attempt < max_attempts - 1:  # 不是最后一次尝试
-                            # 计算延迟时间
-                            delay = min(base_delay * (exponential_base ** attempt), max_delay)
-                            
-                            # 添加随机抖动
-                            if jitter:
-                                delay *= (0.5 + random.random() * 0.5)
-                            
-                            logger.warning(
-                                f"数据库锁定，第 {attempt + 1} 次重试，等待 {delay:.2f} 秒后重试"
-                            )
-                            time.sleep(delay)
-                            continue
-                        else:
-                            logger.error(f"数据库锁定重试失败，已达到最大重试次数 {max_attempts}")
-                            raise DatabaseLockError(f"数据库锁定重试失败: {str(e)}")
-                    else:
-                        # 其他数据库错误，直接抛出
-                        raise
-                except Exception as e:
-                    # 非数据库错误，直接抛出
-                    raise
-            
-            # 如果所有重试都失败了
-            if last_exception:
-                raise last_exception
-                
+            return _retry_operation(
+                func,
+                max_attempts,
+                base_delay,
+                max_delay,
+                exponential_base,
+                jitter,
+                *args,
+                **kwargs,
+            )
         return wrapper
     return decorator
 
@@ -102,33 +122,16 @@ def safe_db_operation(
     Returns:
         操作结果
     """
-    last_exception = None
-    
-    for attempt in range(max_attempts):
-        try:
-            return operation(*args, **kwargs)
-        except OperationalError as e:
-            last_exception = e
-            error_str = str(e).lower()
-            
-            if 'database is locked' in error_str or 'database table is locked' in error_str:
-                if attempt < max_attempts - 1:
-                    delay = min(base_delay * (2 ** attempt), max_delay)
-                    delay *= (0.5 + random.random() * 0.5)  # 添加抖动
-                    
-                    logger.warning(f"数据库锁定，第 {attempt + 1} 次重试，等待 {delay:.2f} 秒")
-                    time.sleep(delay)
-                    continue
-                else:
-                    logger.error(f"数据库锁定重试失败，已达到最大重试次数 {max_attempts}")
-                    raise DatabaseLockError(f"数据库锁定重试失败: {str(e)}")
-            else:
-                raise
-        except Exception as e:
-            raise
-    
-    if last_exception:
-        raise last_exception
+    return _retry_operation(
+        operation,
+        max_attempts,
+        base_delay,
+        max_delay,
+        2.0,
+        True,
+        *args,
+        **kwargs,
+    )
 
 
 class DatabaseRetryManager:

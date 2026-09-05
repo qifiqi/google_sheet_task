@@ -6,18 +6,25 @@ from datetime import datetime
 from functools import cmp_to_key
 from io import BytesIO
 from typing import Any, Protocol
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.utils.c7_result_normalizer import normalize_c7_result_metrics
+
 
 EXCEL_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+ZIP_MIMETYPE = "application/zip"
 
 # C5 分组 sheet 只展示业务关注列；kline_range 仅作为拆 sheet 的分组依据，不展示在表格里。
 C5_EXPORT_COLUMNS = [
     "xm",
     "ml",
+    "ReturnBeats_0",
+    "ddBeats_0",
+    "AnnualizedBeats_0",
     "ReturnBeats",
     "ddBeats",
     "Return",
@@ -35,10 +42,14 @@ C5_EXPORT_COLUMNS = [
 ]
 
 C5_EXPORT_METRIC_KEYS = ["D11", "D12", "D2", "D3", "D4", "D5", "D6", "D7", "D17", "D20"]
+C5_PERCENT_METRIC_KEYS = frozenset(C5_EXPORT_METRIC_KEYS)
 
 PERCENT_COLUMN_NAMES = {
     "ReturnBeats",
     "ddBeats",
+    "ReturnBeats_0",
+    "ddBeats_0",
+    "AnnualizedBeats_0",
     "Return",
     "Annualized",
     "Max DD%",
@@ -159,6 +170,9 @@ C5_COLUMN_WIDTHS = {
     "ml": 7,
     "ReturnBeats": 12,
     "ddBeats": 10,
+    "ReturnBeats_0": 14,
+    "ddBeats_0": 12,
+    "AnnualizedBeats_0": 18,
     "Return": 10,
     "Annualized": 12,
     "Max DD%": 10,
@@ -203,6 +217,13 @@ class GeneratedExport:
 
 
 @dataclass(frozen=True)
+class GeneratedArchive:
+    filename: str
+    mimetype: str
+    buffer: BytesIO
+
+
+@dataclass(frozen=True)
 class WorksheetData:
     name: str
     header: list[Any]
@@ -241,6 +262,23 @@ class C5ResultGroup:
 class C5ExportRecord:
     group: C5ResultGroup
     row: list[Any]
+
+
+class C7TaskResultExporter:
+    """C7 专用导出：展开每个模型为一行，并按 K 线范围拆分 worksheet。"""
+
+    key = "google_sheet_C7"
+
+    def supports(self, task: Any) -> bool:
+        return _task_type(task) == "google_sheet_c7"
+
+    def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
+        worksheets = build_c5_worksheets(normalize_c7_export_results(results))
+        return GeneratedExport(
+            filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
+            mimetype=EXCEL_MIMETYPE,
+            workbook=build_workbook(worksheets),
+        )
 
 
 class C5TaskResultExporter:
@@ -309,6 +347,48 @@ def build_task_export(task: Any, results: list[dict[str, Any]]) -> GeneratedExpo
     return exporter.build(task, results)
 
 
+def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]]) -> GeneratedArchive:
+    """按股票代码拆分 C7 结果，并将现有 Excel 导出格式打包为 ZIP。"""
+
+    if _task_type(task) != "google_sheet_c7":
+        raise ValueError("按股票代码导出仅支持 C7 任务")
+    if not results:
+        raise ValueError("任务暂无可导出结果")
+
+    grouped_results: dict[str, list[dict[str, Any]]] = {}
+    for item in results:
+        parameters = item.get("parameters") or {}
+        if not isinstance(parameters, dict):
+            parameters = {}
+        stock_code = str(parameters.get("stock_code") or "未命名股票").strip() or "未命名股票"
+        grouped_results.setdefault(stock_code, []).append(item)
+
+    archive_buffer = BytesIO()
+    used_filenames: set[str] = set()
+    task_name = sanitize_export_filename(_task_name(task))
+    with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
+        for stock_code in sorted(grouped_results, reverse=True):
+            workbook_export = build_task_export(task, grouped_results[stock_code])
+            workbook_buffer = BytesIO()
+            workbook_export.workbook.save(workbook_buffer)
+
+            filename_base = sanitize_export_filename(f"{task_name}_{stock_code}")
+            filename = f"{filename_base}.xlsx"
+            suffix = 2
+            while filename in used_filenames:
+                filename = f"{filename_base}_{suffix}.xlsx"
+                suffix += 1
+            used_filenames.add(filename)
+            archive.writestr(filename, workbook_buffer.getvalue())
+
+    archive_buffer.seek(0)
+    return GeneratedArchive(
+        filename=f"{task_name}_按股票代码导出.zip",
+        mimetype=ZIP_MIMETYPE,
+        buffer=archive_buffer,
+    )
+
+
 def get_task_result_exporter(task: Any) -> TaskResultExporter:
     for exporter in EXPORTERS:
         if exporter.supports(task):
@@ -375,12 +455,12 @@ def build_c5_model(model_key: Any, metrics: Any) -> dict[str, Any]:
         flat_result = raw_metrics.get("flat_result") if isinstance(raw_metrics.get("flat_result"), dict) else {}
         if not start_xpl:
             start_xpl = {
-                "annual_std_dev": flat_result.get("start_annual_std_dev", ""),
+                "annual_std_dev": flat_result.get("start_annual_std_dev", flat_result.get("start_monthly_std_dev", "")),
                 "sharpe_ratio": flat_result.get("start_sharpe_ratio", ""),
             }
         if not index_xpl:
             index_xpl = {
-                "annual_std_dev": flat_result.get("index_annual_std_dev", ""),
+                "annual_std_dev": flat_result.get("index_annual_std_dev", flat_result.get("index_monthly_std_dev", "")),
                 "sharpe_ratio": flat_result.get("index_sharpe_ratio", ""),
             }
 
@@ -407,11 +487,19 @@ def c5_model_row(group: C5ResultGroup, model: dict[str, Any]) -> list[Any]:
     metrics = model["metrics"]
     start_xpl = model["start_xpl"]
     index_xpl = model["index_xpl"]
+    return_beats_0 = c5_percent_difference(metrics.get("D2"), metrics.get("D5"))
+    dd_beats_0 = c5_percent_difference(metrics.get("D4"), metrics.get("D7"))
+    annualized_beats_0 = c5_percent_difference(metrics.get("D3"), metrics.get("D6"))
 
     return [
         group.xm if group.xm is not None else "",
         group.ml if group.ml is not None else "",
-        *[c5_metric_value(metrics, key) for key in C5_EXPORT_METRIC_KEYS],
+        return_beats_0,
+        dd_beats_0,
+        annualized_beats_0,
+        c5_metric_value(metrics, "D11"),
+        c5_metric_value(metrics, "D12"),
+        *[c5_metric_value(metrics, key) for key in C5_EXPORT_METRIC_KEYS[2:]],
         start_xpl.get("annual_std_dev", ""),
         index_xpl.get("annual_std_dev", ""),
         model.get("index_sharpe", ""),
@@ -420,19 +508,73 @@ def c5_model_row(group: C5ResultGroup, model: dict[str, Any]) -> list[Any]:
 
 
 def c5_metric_value(metrics: dict[str, Any], key: str) -> Any:
-    """D11/D12 是导出时计算列，其它 D 指标直接读取原始结果。"""
+    """结果表已计算 D11/D12，导出直接保留原始指标。"""
 
-    if key == "D11":
-        return percent_diff(metrics.get("D2"), metrics.get("D5"))
-    if key == "D12":
-        return percent_diff(metrics.get("D4"), metrics.get("D7"))
     return metrics.get(key, "")
+
+
+def c5_percent_difference(left: Any, right: Any) -> Any:
+    """按导出百分比规则计算两项指标差值。"""
+
+    left_value = excel_cell(left, "Return")
+    right_value = excel_cell(right, "Return")
+    return _safe_subtract(left_value, right_value)
 
 
 def c5_metric_keys() -> list[str]:
     """分组 sheet 只导出业务需要的 D 指标，顺序与 C5_EXPORT_COLUMNS 对齐。"""
 
     return C5_EXPORT_METRIC_KEYS[:]
+
+
+def normalize_c7_export_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把 C7 的 D8:D26 结果键映射成 C5 导出函数使用的 D2:D20 键。"""
+
+    normalized_results = []
+    for item in results:
+        result = item.get("result")
+        if not isinstance(result, dict):
+            normalized_results.append(item)
+            continue
+
+        parameters = item.get("parameters") or {}
+        if parameters.get("c7_model_version") == "c7_0_3":
+            normalized_results.append(item)
+            continue
+
+        normalized_models = {}
+        for model_key, metrics in result.items():
+            normalized_models[model_key] = normalize_c7_model_metrics(metrics)
+
+        normalized_item = dict(item)
+        normalized_item["result"] = normalized_models
+        normalized_results.append(normalized_item)
+    return normalized_results
+
+
+def normalize_c7_model_metrics(metrics: Any) -> Any:
+    if not isinstance(metrics, dict):
+        return metrics
+
+    # 旧数据若已经是 D2:D20 结构，不做二次平移，避免把 D8 fee_total 当成 Return。
+    has_c7_shifted_keys = (
+        any(f"D{index}" in metrics for index in range(21, 27))
+        or ("D2" not in metrics and any(f"D{index}" in metrics for index in range(8, 21)))
+    )
+    if not has_c7_shifted_keys:
+        return metrics
+
+    source_metrics = normalize_c7_result_metrics(metrics)
+    normalized = dict(source_metrics)
+    for c5_index in range(2, 21):
+        c7_key = f"D{c5_index + 6}"
+        if c7_key in source_metrics:
+            normalized_key = f"D{c5_index}"
+            value = source_metrics[c7_key]
+            if normalized_key in C5_PERCENT_METRIC_KEYS and isinstance(value, str) and "%" not in value:
+                value = f"{value}%"
+            normalized[normalized_key] = value
+    return normalized
 
 
 def metric_sort_key(key: str) -> tuple[bool, str, int]:
@@ -446,24 +588,6 @@ def metric_sort_key(key: str) -> tuple[bool, str, int]:
 
 def metric_label(key: str) -> str:
     return METRIC_DISPLAY_NAME_MAP.get(str(key), str(key))
-
-
-def percent_diff(left: Any, right: Any) -> str:
-    left_number = to_number(left)
-    right_number = to_number(right)
-    if left_number is None or right_number is None:
-        return ""
-    return f"{left_number - right_number:.2f}%"
-
-
-def to_number(value: Any) -> float | None:
-    if value is None:
-        return None
-    try:
-        number = float(str(value).replace("%", "").strip())
-    except (TypeError, ValueError):
-        return None
-    return None if number != number else number
 
 
 def sort_c5_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]:
@@ -688,7 +812,7 @@ def parse_percent_cell(value: str) -> float | None:
     if not text:
         return None
     if text.endswith("%"):
-        number = to_number(text)
+        number = parse_numeric_cell(text[:-1])
         return None if number is None else number / 100
     return parse_numeric_cell(text)
 
@@ -775,7 +899,7 @@ def parse_datetime_timestamp(value: str) -> float:
 
 
 def parse_percent(value: Any) -> float:
-    number = to_number(value)
+    number = parse_numeric_cell(str(value).replace("%", ""))
     return number if number is not None else float("-inf")
 
 
@@ -1129,6 +1253,7 @@ def build_batch_export_file(
 
 # 注册顺序很重要：专用导出器必须放在通用兜底导出器前面。
 EXPORTERS = (
+    C7TaskResultExporter(),
     C5TaskResultExporter(),
     C3TaskResultExporter(),
     GenericTaskResultExporter(),

@@ -18,8 +18,12 @@ pandas
 numpy
 concurrent-log-handler
 yfinance
+easy-tdx
 openpyxl
 xlsxwriter
-PyJWT>=2.0
-
-
+python-docx
+matplotlib
+PyJWT
+dingtalk-stream
+Flask-Limiter
+pydantic

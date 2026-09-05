@@ -1,19 +1,27 @@
 import json
 import math
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from flask import current_app
+from flask import current_app, has_app_context
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.models import Task, TaskLog, db
+from app.repositories import task_log_repository, task_repository, task_result_repository
+from app.models import TaskLog
+from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.utils.db_retry import safe_db_operation
 from app.utils.db_stock_api import StockAPIClient
+from app.utils.market import infer_market_type, normalize_stock_code
+from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.utils.logger import get_logger
+from app.services.task.error_handling import format_task_error_message, record_task_exception
 
 
 logger = get_logger(__name__)
+
+DEFAULT_EXECUTION_DELAY_MIN = 20
+DEFAULT_EXECUTION_DELAY_MAX = 30
 
 
 def should_alert_execute_task_result(result):
@@ -79,12 +87,66 @@ class BaseGoogleSheetService:
 
         return value
 
+    def _normalize_result_parameters(self, parameters: Any) -> dict[str, Any]:
+        """Ensure persisted result parameters always contain stock_code."""
+        safe = self._sanitize_json_value(parameters)
+        normalized = dict(safe) if isinstance(safe, dict) else {"parameters": safe}
+        stock_code = (
+            normalized.get("stock_code")
+            or normalized.get("stock_no")
+            or normalized.get("symbol")
+            or (self.config or {}).get("stock_code")
+        )
+        if not stock_code and self.task and self.task.config:
+            try:
+                task_config = (
+                    self.task.config
+                    if isinstance(self.task.config, dict)
+                    else json.loads(self.task.config)
+                )
+                stock_code = task_config.get("stock_code") if isinstance(task_config, dict) else None
+            except (TypeError, ValueError):
+                stock_code = None
+        effective_market = normalized.get("market_type") or self._get_return_series_market_type(normalized)
+        normalized["stock_code"] = normalize_stock_code(
+            stock_code,
+            effective_market or infer_market_type(stock_code),
+            normalized.get("exchange_market") or self._get_return_series_exchange_market(normalized),
+        )
+        return normalized
+
+    def _get_return_series_market_type(self, parameters: Any):
+        """优先使用参数中的市场代码，缺失时回退到任务配置。"""
+        return self._get_return_series_config_value(parameters, "market_type")
+
+    def _get_return_series_exchange_market(self, parameters: Any):
+        """获取 Yahoo ticker 所需的交易所市场编号。"""
+        return self._get_return_series_config_value(parameters, "exchange_market")
+
+    def _get_return_series_config_value(self, parameters: Any, key: str):
+        if isinstance(parameters, dict) and parameters.get(key):
+            return parameters[key]
+        if isinstance(self.config, dict) and self.config.get(key):
+            return self.config[key]
+        if self.task and self.task.config:
+            try:
+                task_config = (
+                    self.task.config
+                    if isinstance(self.task.config, dict)
+                    else json.loads(self.task.config)
+                )
+                if isinstance(task_config, dict):
+                    return task_config.get(key)
+            except (TypeError, ValueError):
+                pass
+        return None
+
 
     def _is_cancel_requested(self) -> bool:
         if self.stop_event and self.stop_event.is_set():
             return True
         try:
-            task = db.session.get(Task, self.task_id)
+            task = task_repository.get_entity(self.task_id)
             return bool(task and task.status == 'cancelled')
         except Exception:
             return False
@@ -97,6 +159,27 @@ class BaseGoogleSheetService:
         import time
         time.sleep(seconds)
         return not self._is_cancel_requested()
+
+    def _get_execution_poll_delay_bounds(self) -> tuple[int, int]:
+        try:
+            config_manager = get_config_manager()
+            delay_min = int(config_manager.get_config('execution_delay_min', DEFAULT_EXECUTION_DELAY_MIN))
+            delay_max = int(config_manager.get_config('execution_delay_max', DEFAULT_EXECUTION_DELAY_MAX))
+        except (TypeError, ValueError) as exc:
+            self._log_warning(f"执行等待配置无效，使用默认值 20-30 秒: {exc}")
+            return DEFAULT_EXECUTION_DELAY_MIN, DEFAULT_EXECUTION_DELAY_MAX
+
+        if delay_min < 0 or delay_max < 0 or delay_min > delay_max:
+            self._log_warning(
+                f"执行等待配置无效，使用默认值 20-30 秒: min={delay_min}, max={delay_max}"
+            )
+            return DEFAULT_EXECUTION_DELAY_MIN, DEFAULT_EXECUTION_DELAY_MAX
+
+        return delay_min, delay_max
+
+    @staticmethod
+    def _get_execution_poll_delay(attempt: int, delay_min: int, delay_max: int) -> int:
+        return int(min(delay_min + max(attempt, 0) * 5, delay_max))
 
     def _task_display_name(self) -> str:
         return self.task_name or self.task_id
@@ -159,19 +242,126 @@ class BaseGoogleSheetService:
 
     def _save_to_database(self, level: str, message: str):
         def save_log_operation():
-            log = TaskLog(task_id=self.task_id, level=level, message=message)
-            db.session.add(log)
-            db.session.commit()
+            log = TaskLog(
+                task_id=self.task_id,
+                level=level,
+                message=TaskLog.normalize_message(message),
+            )
+            task_log_repository.add_entity(log)
+            task_result_repository.commit()
 
         try:
-            if self.app:
+            if has_app_context():
+                safe_db_operation(save_log_operation)
+            elif self.app:
                 with self.app.app_context():
                     safe_db_operation(save_log_operation)
             else:
                 with current_app.app_context():
                     safe_db_operation(save_log_operation)
         except Exception:
+            # 提交失败后 SQLAlchemy session 会处于 failed state；必须回滚，
+            # 否则后续任务结果写入会触发 PendingRollbackError。
+            try:
+                task_result_repository.rollback()
+            except Exception:
+                pass
             pass
+
+    def _summarize_result_for_log(self, result: Any) -> str:
+        """返回不包含收益序列的短结果摘要，避免将大对象写入任务日志。"""
+        if not isinstance(result, dict):
+            return str(result)[:1000]
+
+        summary = {}
+        for key, value in result.items():
+            if key in {"_return_date", "return_date", "returns_json"}:
+                continue
+            if isinstance(value, (list, tuple, dict)):
+                summary[key] = f"<{type(value).__name__}, len={len(value)}>"
+            else:
+                summary[key] = value
+        return json.dumps(
+            self._sanitize_json_value(summary),
+            ensure_ascii=False,
+            default=str,
+        )[:1000]
+
+    @classmethod
+    def _prepare_result_for_persistence(cls, result: Any):
+        """移除已单独保存到 TaskResultReturn 的收益明细，保留结果指标。"""
+        if isinstance(result, dict):
+            return {
+                key: cls._prepare_result_for_persistence(value)
+                for key, value in result.items()
+                if key not in {"_return_date", "return_date", "returns_json"}
+            }
+        if isinstance(result, list):
+            return [cls._prepare_result_for_persistence(value) for value in result]
+        if isinstance(result, tuple):
+            return [cls._prepare_result_for_persistence(value) for value in result]
+        return result
+
+    def _build_task_result_persistence_payload(
+        self, safe_parameters: dict[str, Any], result: Any, return_date=None
+    ):
+        """持久化前的结果载荷整形钩子；默认透传，子类按需重写。"""
+        return result
+
+    def _get_return_series_stock_name(self, safe_parameters: dict[str, Any]):
+        """收益序列 stock_name 取值钩子；子类可重写以增加回退字段。"""
+        return safe_parameters.get("stock_name")
+
+    def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool, return_date=None):
+        """保存任务结果到数据库，包含重试逻辑。
+
+        return_date 不为 None 时作为收益序列唯一行来源（空列表即不写序列）；
+        为 None 时从 result 提取（C3~C7 行为）。
+        """
+        def save_result_operation():
+            safe_parameters = self._normalize_result_parameters(parameters)
+            safe_result = self._sanitize_json_value(
+                self._prepare_result_for_persistence(
+                    self._build_task_result_persistence_payload(safe_parameters, result, return_date)
+                )
+            )
+            return_rows = return_date if return_date is not None else extract_return_rows(result)
+            series_fields = None
+            if return_rows:
+                series_fields = build_return_series_fields(
+                    return_rows,
+                    stock_code=safe_parameters.get("stock_code"),
+                    stock_name=self._get_return_series_stock_name(safe_parameters),
+                    market_type=self._get_return_series_market_type(safe_parameters),
+                    exchange_market=self._get_return_series_exchange_market(safe_parameters),
+                )
+                if return_date and not series_fields:
+                    raise ValueError("收益序列缺少有效日期")
+            result_fields = {
+                "task_id": self.task_id,
+                "step_index": step_index,
+                "parameters": json.dumps(safe_parameters, allow_nan=False),
+                "result": json.dumps(safe_result, allow_nan=False),
+                "success": success,
+            }
+            return_fields = {"task_id": self.task_id, **series_fields} if series_fields else None
+            task_result_repository.create_with_return(result_fields, return_fields)
+
+        try:
+            if self.app:
+                # 在后台线程中使用传递的应用实例
+                with self.app.app_context():
+                    safe_db_operation(save_result_operation)
+            else:
+                # 在主线程中使用当前应用上下文
+                with current_app.app_context():
+                    safe_db_operation(save_result_operation)
+        except Exception as e:
+            task_result_repository.rollback()
+            error_msg = f"保存任务结果失败: {str(e)}"
+            self._log_error(error_msg)
+            raise
+            # 注意：这里不能使用_push_log，因为可能导致循环调用
 
     def _log_info(self, message: str, log_type: str = 'general', **kwargs):
         self._log('info', message, log_type, **kwargs)
@@ -181,6 +371,23 @@ class BaseGoogleSheetService:
 
     def _log_error(self, message: str, log_type: str = 'general', **kwargs):
         self._log('error', message, log_type, **kwargs)
+
+    def _record_execution_error_message(
+        self,
+        exc: Exception,
+        phase: str = "google_sheet_service",
+    ) -> str:
+        try:
+            record = record_task_exception(
+                self.task_id,
+                exc,
+                phase,
+                self.app,
+            )
+            return format_task_error_message(record)
+        except Exception as update_error:
+            logger.warning("记录 Google Sheet 任务错误摘要失败: %s", update_error)
+            return f"{exc.__class__.__name__}: {exc}"
 
     def _log_step(self, step: int, total: int, message: str):
         self._log('info', message, 'step', step=step, total=total)
@@ -231,10 +438,11 @@ class BaseGoogleSheetService:
         #     # or str(task_name or "").split("-", 1)[0].strip()
         #     or ""
         # )
-        if config_data.get("stock_code",None) in (None, ""):
-            stock_code = str(task_name or "").strip()
-        else:
-            stock_code = f'{config_data.get("stock_code",None)}-{task_name}'
+        # if config_data.get("stock_code",None) in (None, ""):
+        #     stock_code = str(task_name or "").strip()
+        # else:
+        #     stock_code = f'{config_data.get("stock_code",None)}-{task_name}'
+        stock_code = str(task_name or "").strip()
 
         return {
             "task_id": self.task_id,
@@ -294,10 +502,10 @@ class BaseGoogleSheetService:
             "start_sharpe_ratio": 0,
             "index_kama_ratio": 0,
             "start_kama_ratio": 0,
-            "index_sotino_ratio": 0,
-            "start_sotino_ratio": 0,
-            "excess_sharp": 0,
-            "excess_of_promissory_note": 0,
+            "index_sortino_ratio": 0,
+            "start_sortino_ratio": 0,
+            "excess_sharpe": 0,
+            "excess_sortino": 0,
         }
 
     @retry(

@@ -273,6 +273,17 @@
                         <strong id="ratioTotal">0%</strong>
                     </div>
                 </div>
+                <div class="col-12">
+                    <!-- 旧版累计收益直接加权算法已停用，仅保留日收益加权后复利一种算法。
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" id="weightingModeLegacy" type="checkbox">
+                        <label class="form-check-label" for="weightingModeLegacy">
+                            使用旧版累计收益率加权算法
+                        </label>
+                        <div class="form-text">默认按当天收益率加权后复利计算；勾选后使用累计收益率直接乘比例的旧算法。</div>
+                    </div>
+                    -->
+                </div>
             </div>
         </div>
     </div>
@@ -295,13 +306,12 @@
 <script>
 const TASK_API_BASE = '/api/tasks';
 const TASK_TYPE = 'backtest_multi_product';
-const DEFAULT_C3_COMMISSION_CN = '0.035%';
-const DEFAULT_C3_COMMISSION_US = '0.002%';
 const PARAMETER_HELP_HTML = `
     <div class="param-help-content">
         <div><strong>C3 粘贴</strong>：每行 6 列时按不含手续费处理，系统按当前市场自动补手续费（A股 0.035%，美股 0.002%）；每行 7 列时第 1 列按手续费处理。</div>
         <div><strong>C3 复制</strong>：复制当前表格为 Tab 分隔行，包含 <code>Commission</code> 和后续参数列，可直接贴到其他产品或 Excel。</div>
         <div><strong>C5 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
+        <div><strong>C7 粘贴/复制</strong>：每行 2 列，顺序为 <code>X Multiplier</code>、<code>ML</code>。</div>
     </div>
 `;
 const FIELD_MAP = {
@@ -318,6 +328,10 @@ const FIELD_MAP = {
     c5: [
         { key: 'xm', label: 'X Multiplier' },
         { key: 'ml', label: 'ML' }
+    ],
+    c7: [
+        { key: 'xm', label: 'X Multiplier' },
+        { key: 'ml', label: 'ML' }
     ]
 };
 
@@ -326,6 +340,7 @@ let stockTimers = {};
 let stockAbortControllers = {};
 let sheetTimers = {};
 let sheetAbortControllers = {};
+let stockMarkets = [];
 
 const productsContainer = document.getElementById('productsContainer');
 const tokenIdSelect = document.getElementById('tokenId');
@@ -348,17 +363,27 @@ function extractSpreadsheetId(rawUrl) {
 
 function inferModelVersion(title) {
     const normalized = String(title || '').toUpperCase();
+    if (normalized.includes('C7')) {
+        return 'c7';
+    }
     return normalized.includes('C5') || normalized.includes('C4') ? 'c5' : 'c3';
 }
 
-function resolveMarketTypeBySecurityTypeName(securityTypeName) {
-    return String(securityTypeName || '').includes('美股') ? 'en' : 'cn';
+function marketOptionsHtml(selectedMarket) {
+    return stockMarkets.map((market) => `
+        <option value="${escapeHtml(market.value)}" ${market.value === selectedMarket ? 'selected' : ''}>${escapeHtml(market.label)}</option>
+    `).join('');
+}
+
+async function loadStockMarkets() {
+    const response = await fetch('/api/meta/enums');
+    const payload = await response.json();
+    stockMarkets = payload?.data?.stock_markets || [];
+    if (!stockMarkets.length) throw new Error('市场枚举为空');
 }
 
 function getDefaultCommissionByMarket(marketType) {
-    return String(marketType || '').trim().toLowerCase() === 'en'
-        ? DEFAULT_C3_COMMISSION_US
-        : DEFAULT_C3_COMMISSION_CN;
+    return stockMarkets.find((market) => market.value === marketType)?.default_commission || '';
 }
 
 function getCardMarketType(card) {
@@ -541,8 +566,7 @@ function addProduct(defaults = {}) {
                 <div class="col-xl-2">
                     <label class="form-label">市场</label>
                     <select class="form-select market-type">
-                        <option value="cn">cn</option>
-                        <option value="en">en</option>
+                        ${marketOptionsHtml(defaults.market_type || 'cn')}
                     </select>
                 </div>
                 <div class="col-xl-2">
@@ -556,8 +580,9 @@ function addProduct(defaults = {}) {
                 <div class="col-xl-2">
                     <label class="form-label">价格模式</label>
                     <select class="form-select price-mode">
+                        <option value="vwap_price">加权平均价</option>
                         <option value="kp_price">开盘价</option>
-                        <option value="sp_price">收盘价</option>
+                        <option value="sp_price" selected>收盘价</option>
                     </select>
                 </div>
                 <div class="col-xl-2">
@@ -588,9 +613,8 @@ function addProduct(defaults = {}) {
         </div>
     `;
     productsContainer.appendChild(card);
-    card.querySelector('.market-type').value = defaults.market_type || 'cn';
     card.querySelector('.kline-adjustment').value = defaults.kline_adjustment || 'forward';
-    card.querySelector('.price-mode').value = defaults.price_mode || 'sp_price';
+    card.querySelector('.price-mode').value = defaults.price_mode || 'vwap_price';
     resetParameterTable(card, 'c3');
     initParameterHelpPopover(card);
     card.querySelector('.ratio-input').addEventListener('input', () => {
@@ -682,8 +706,8 @@ async function analyzeSheet(card, options = {}) {
         if (data.status !== 'success') {
             throw new Error(data.message || '识别失败');
         }
-        const sheetName = Array.isArray(data.worksheets) && data.worksheets.length ? data.worksheets[0] : 'data';
-        const title = data.title || '';
+        const sheetName = Array.isArray(data.data.worksheets) && data.data.worksheets.length ? data.data.worksheets[0] : 'data';
+        const title = data.data.title || '';
         card.dataset.spreadsheetId = spreadsheetId;
         card.dataset.sheetName = sheetName;
         card.dataset.sheetTitle = title;
@@ -724,13 +748,14 @@ async function fetchStockSuggestions(card, keyword) {
     }
     stockAbortControllers[productId] = new AbortController();
     try {
-        const response = await fetch(`/backtest-multi-product/api/search-stocks?q=${encodeURIComponent(keyword.trim())}`, {
+        const marketType = getCardMarketType(card);
+        const response = await fetch(`/api/search-stocks?q=${encodeURIComponent(keyword.trim())}&market_type=${encodeURIComponent(marketType)}`, {
             signal: stockAbortControllers[productId].signal
         });
         const data = await response.json();
-        const results = Array.isArray(data.results) ? data.results : [];
+        const results = Array.isArray(data.data && data.data.results) ? data.data.results : [];
         resultsEl.innerHTML = results.length ? results.map((item) => `
-            <button class="stock-search-item" type="button" data-code="${escapeHtml(item.code)}" data-market="${escapeHtml(resolveMarketTypeBySecurityTypeName(item.security_type_name))}" data-name="${escapeHtml(item.name || item.code)}">
+            <button class="stock-search-item" type="button" data-code="${escapeHtml(item.code)}" data-market="${escapeHtml(item.market_type || getCardMarketType(card))}" data-exchange-market="${escapeHtml(item.market || '')}" data-name="${escapeHtml(item.name || item.code)}">
                 <div class="fw-semibold">${escapeHtml(item.code)}</div>
                 <div class="small text-body-secondary">${escapeHtml(item.label || '')}</div>
             </button>
@@ -944,8 +969,9 @@ function collectProducts() {
         product_name: card.querySelector('.product-name').value.trim() || `产品 ${index + 1}`,
         stock_code: card.querySelector('.stock-code').value.trim().toUpperCase(),
         market_type: card.querySelector('.market-type').value,
+        exchange_market: card.dataset.exchangeMarket || undefined,
         kline_adjustment: card.querySelector('.kline-adjustment').value || 'forward',
-        price_mode: card.querySelector('.price-mode').value || 'sp_price',
+        price_mode: card.querySelector('.price-mode').value || 'vwap_price',
         ratio: card.querySelector('.ratio-input').value.trim(),
         is_fixed: Boolean(card.querySelector('.fixed-product')?.checked),
         sheet: {
@@ -1006,7 +1032,7 @@ async function loadBacktestTokens() {
     try {
         const response = await fetch('/api/google-sheet-tokens?task_type=backtest_training');
         const data = await response.json();
-        const tokens = Array.isArray(data.tokens) ? data.tokens : [];
+        const tokens = Array.isArray(data.data.tokens) ? data.data.tokens : [];
         tokenIdSelect.innerHTML = tokens.length ? tokens.map((token) => `
             <option value="${escapeHtml(token.id)}" ${token.is_available ? '' : 'disabled'}>
                 ${escapeHtml(token.name)} | 占用 ${escapeHtml(token.current_in_use_count || 0)}
@@ -1049,6 +1075,8 @@ async function createTask() {
                         token_type: 'file',
                         token_id: Number(tokenIdSelect.value),
                         fixed_product_batch_id: batchId,
+                        // 旧版累计收益直接加权算法已停用，固定使用日收益加权后复利。
+                        weighting_mode: 'daily_compound',
                         products: groupProducts
                     }
                 })
@@ -1107,6 +1135,7 @@ productsContainer.addEventListener('click', (event) => {
         card.querySelector('.stock-code').value = stockItem.dataset.code || '';
         card.querySelector('.product-name').value = stockItem.dataset.name || stockItem.dataset.code || '';
         card.querySelector('.market-type').value = stockItem.dataset.market || 'cn';
+        card.dataset.exchangeMarket = stockItem.dataset.exchangeMarket || '';
         syncEmptyCommissionRows(card);
         updateProductSummary(card);
         card.querySelector('.stock-search-results').classList.add('d-none');
@@ -1123,6 +1152,7 @@ productsContainer.addEventListener('input', (event) => {
     const stockInput = event.target.closest('.stock-code');
     if (!stockInput) return;
     const card = event.target.closest('.product-card');
+    card.dataset.exchangeMarket = '';
     window.clearTimeout(stockTimers[card.dataset.productId]);
     stockTimers[card.dataset.productId] = window.setTimeout(() => fetchStockSuggestions(card, stockInput.value), 600);
 });
@@ -1143,21 +1173,16 @@ document.addEventListener('click', (event) => {
 document.getElementById('addProductBtn').addEventListener('click', () => addProduct());
 document.getElementById('createBtn').addEventListener('click', createTask);
 
-function formatDateInput(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-const defaultEndDate = new Date();
-defaultEndDate.setDate(defaultEndDate.getDate() - 1);
-const defaultStartDate = new Date(defaultEndDate);
-defaultStartDate.setFullYear(defaultEndDate.getFullYear() - 3);
-document.getElementById('endDate').value = formatDateInput(defaultEndDate);
-document.getElementById('startDate').value = formatDateInput(defaultStartDate);
-addProduct({ ratio: 50 });
-addProduct({ ratio: 50 });
+const defaultDateRange = TradingDate.defaultDateRange(3);
+document.getElementById('endDate').value = TradingDate.formatDate(defaultDateRange.end);
+document.getElementById('startDate').value = TradingDate.formatDate(defaultDateRange.start);
+loadStockMarkets().then(() => {
+    addProduct({ ratio: 50 });
+    addProduct({ ratio: 50 });
+}).catch((error) => {
+    createStatus.textContent = error.message || '市场枚举加载失败';
+    createStatus.className = 'small align-self-center text-danger';
+});
 loadBacktestTokens();
 </script>
 {% endblock %}

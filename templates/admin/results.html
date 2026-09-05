@@ -208,8 +208,9 @@ function loadResults(page = 1) {
         .then(data => {
             const resultList = document.getElementById('resultList');
             resultList.innerHTML = '';
-            
-            data.results.forEach(result => {
+            const payload = data.data || {};
+
+            payload.results.forEach(result => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${result.id}</td>
@@ -234,7 +235,7 @@ function loadResults(page = 1) {
             });
 
             // 更新分页
-            updatePagination(data.total, page);
+            updatePagination(payload.total, page);
         })
         .catch(error => console.error('Error:', error));
 }
@@ -312,7 +313,8 @@ function updatePagination(total, currentPageNum) {
 function viewResult(id) {
     fetch(`/api/results/${id}`)
         .then(response => response.json())
-        .then(result => {
+        .then(resp => {
+            const result = resp.data || {};
             currentResultPayload = result;
             document.getElementById('resultDetailId').textContent = result.id ?? '-';
             document.getElementById('resultDetailTaskId').textContent = result.task_id ?? '-';

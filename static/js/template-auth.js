@@ -11,6 +11,7 @@
     let isRefreshing = false;
     let refreshPromise = null;
     let navItems = [];
+    let pagePermissions = [];
 
     const legacyPathMap = new Map([
         ["/admin", "/admin/"],
@@ -24,26 +25,6 @@
     ]);
 
     const templateUnsupportedPaths = new Set([]);
-
-    const pagePermissionMatchers = [
-        { test: /^\/admin\/?$/, permissions: ["page:admin:dashboard"] },
-        { test: /^\/admin\/tasks\/?$/, permissions: ["page:admin:tasks"] },
-        { test: /^\/admin\/config\/?$/, permissions: ["page:admin:config"] },
-        { test: /^\/admin\/navigation\/?$/, permissions: ["page:admin:navigation"] },
-        { test: /^\/admin\/logs\/?$/, permissions: ["page:admin:logs"] },
-        { test: /^\/admin\/templates\/?$/, permissions: ["page:admin:templates"] },
-        { test: /^\/admin\/results\/?$/, permissions: ["page:admin:results"] },
-        { test: /^\/admin\/model-summary\/?$/, permissions: ["page:admin:model_summary"] },
-        { test: /^\/admin\/google-sheets\/?$/, permissions: ["page:admin:google_sheets"] },
-        { test: /^\/admin\/scheduler\/?$/, permissions: ["page:admin:scheduler"] },
-        { test: /^\/admin\/users\/?$/, permissions: ["page:admin:users"] },
-        { test: /^\/admin\/roles\/?$/, permissions: ["page:admin:roles"] },
-        { test: /^\/backtest-training\/list\/?$/, permissions: ["page:backtest:list"] },
-        { test: /^\/backtest-training\/create\/?$/, permissions: ["page:backtest:create"] },
-        { test: /^\/backtest-training\/detail\/.+$/, permissions: ["page:backtest:list"] },
-        { test: /^\/backtest-training\/global-preview\/.+$/, permissions: ["page:backtest:list"] },
-        { test: /^\/backtest-training\/result\/.+$/, permissions: ["page:backtest:list"] },
-    ];
 
     function parseJsonSafely(text) {
         if (!text) {
@@ -95,6 +76,7 @@
         currentUser = null;
         currentPermissions = [];
         navItems = [];
+        pagePermissions = [];
     }
 
     function isAuthEnabled() {
@@ -211,9 +193,7 @@
         if (!code) {
             return true;
         }
-        if (code === "task:any") {
-            return currentPermissions.some((permission) => String(permission).startsWith("task:"));
-        }
+        // 系统仅保留页面权限（page:*），全部通过页面权限表控制访问。
         return currentPermissions.includes(code);
     }
 
@@ -233,20 +213,6 @@
             .replace(/'/g, "&#39;");
     }
 
-    function getGoogleSheetPermissionByVersion() {
-        const version = (new URLSearchParams(window.location.search).get("version") || "c3").toLowerCase();
-        if (version === "c4") {
-            return "page:google_sheet:c4";
-        }
-        if (version === "c5") {
-            return "page:google_sheet:c5";
-        }
-        if (version === "c31") {
-            return "page:google_sheet:c3";
-        }
-        return "page:google_sheet:c3";
-    }
-
     function getPagePermissions() {
         const datasetValue = (document.body?.dataset?.requiredPermissions || "")
             .split(",")
@@ -258,10 +224,14 @@
 
         const pathname = window.location.pathname;
         if (/^\/google-sheet(?:\/|$)/.test(pathname)) {
-            return [getGoogleSheetPermissionByVersion()];
+            const googleSheetPath = `/google-sheet/?version=${new URLSearchParams(window.location.search).get("version") || "c3"}`;
+            const googleSheetPermission = pagePermissions.find((item) => item.path === googleSheetPath);
+            return googleSheetPermission ? [googleSheetPermission.permission] : [];
         }
-        const matcher = pagePermissionMatchers.find((item) => item.test.test(pathname));
-        return matcher ? matcher.permissions : [];
+        const currentUrl = getCurrentUrl();
+        const match = pagePermissions.find((item) => item.path === currentUrl)
+            || pagePermissions.find((item) => normalizePath(item.path) === normalizePath(pathname));
+        return match ? [match.permission] : [];
     }
 
     function redirectToLogin() {
@@ -290,7 +260,8 @@
         }
 
         const data = payload.data || {};
-        setTokens(data.access_token, refreshToken);
+        // 后端会轮换 refresh_token（滑动续期），一并更新；兼容旧版仅返回 access_token 的情况。
+        setTokens(data.access_token, data.refresh_token || refreshToken);
         currentUser = data.user || currentUser;
         currentPermissions = Array.isArray(data.user?.permissions) ? data.user.permissions : currentPermissions;
         updateUserPanels();
@@ -567,7 +538,13 @@
 
     async function loadNav() {
         const payload = await requestJson("/api/meta/nav", { method: "GET" });
-        navItems = filterTemplateNav(payload?.data || []);
+        const navigationData = payload?.data || {};
+        navItems = filterTemplateNav(
+            Array.isArray(navigationData) ? navigationData : navigationData.items || []
+        );
+        pagePermissions = Array.isArray(navigationData.page_permissions)
+            ? navigationData.page_permissions
+            : [];
         renderSidebarMenu(navItems);
         renderTopMenu(navItems);
     }

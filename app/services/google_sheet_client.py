@@ -1,4 +1,3 @@
-import os
 import time
 import traceback
 from typing import Optional
@@ -176,7 +175,12 @@ class GoogleSheet:
         return None
 
     def _apply_proxy_settings(self):
-        """设置代理，兼容 gspread 6.x 等不同 client 结构"""
+        """设置代理，兼容 gspread 6.x 等不同 client 结构。
+
+        只写入当前 client 的 session，不改写进程级 os.environ：
+        环境变量代理是全局副作用，并发任务会互相覆盖，还会波及
+        东方财富等其他与本连接无关的 HTTP 请求。
+        """
         if not self.client or not self._proxy_url:
             return
 
@@ -185,24 +189,16 @@ class GoogleSheet:
             return
 
         logger.info(f"{self._log_ctx()}使用代理：{proxy_url}")
-        os.environ['HTTP_PROXY'] = proxy_url
-        os.environ['HTTPS_PROXY'] = proxy_url
 
         session = self._get_client_session()
         if session is None:
-            logger.warning(f"{self._log_ctx()}当前 gspread client 不支持直接访问 session，将仅使用环境变量代理")
+            logger.warning(f"{self._log_ctx()}当前 gspread client 不支持直接访问 session，本次连接不使用代理")
             return
 
         try:
             session.proxies.update({"http": proxy_url, "https": proxy_url})
         except Exception:
             logger.warning(f"{self._log_ctx()}写入 session 代理失败，将仅使用环境变量代理", exc_info=True)
-
-    @staticmethod
-    def _clear_proxy_settings():
-        for proxy_key in ('HTTP_PROXY', 'HTTPS_PROXY'):
-            if proxy_key in os.environ:
-                del os.environ[proxy_key]
 
     def get(self, name):
         """获取属性"""
@@ -215,8 +211,9 @@ class GoogleSheet:
     def get_last_row(self, col_letter):
         """获取指定列的最后非空行"""
         try:
+            _, column_number = a1_to_rowcol(f"{str(col_letter).strip().upper()}1")
             col_data = self.worksheet.col_values(
-                ord(col_letter) - ord('A') + 1)  # 字母转数字列号
+                column_number)
             return len(col_data) if col_data else 0
         except Exception as e:
             logger.error(f'获取最后非空行错误。错误内容：{str(e)}')
@@ -234,6 +231,39 @@ class GoogleSheet:
             self.worksheet.batch_clear([range_a1])
 
         self._retry_network_operation(_clear_operation, f"clear_range({range_a1})")
+
+    def clear_jumped_cells(self, cell_refs):
+        """清空非连续 A1 单元格列表（带网络重试）"""
+        self._ensure_worksheet()
+
+        if not cell_refs:
+            logger.warning(f"{self._log_ctx()}cell_refs为空，跳过清空操作")
+            return None
+
+        valid_refs = []
+        for cell_ref in cell_refs:
+            if not cell_ref or not isinstance(cell_ref, str):
+                logger.warning(f"{self._log_ctx()}无效的单元格地址: {cell_ref}")
+                continue
+
+            try:
+                a1_to_rowcol(cell_ref)
+            except Exception:
+                logger.warning(f"{self._log_ctx()}无效的单元格地址: {cell_ref}")
+                continue
+
+            valid_refs.append(cell_ref)
+
+        if not valid_refs:
+            logger.warning(f"{self._log_ctx()}没有有效的单元格需要清空")
+            return None
+
+        logger.info(f"{self._log_ctx()}清空非连续单元格: {valid_refs}")
+
+        def _clear_operation():
+            self.worksheet.batch_clear(valid_refs)
+
+        return self._retry_network_operation(_clear_operation, "clear_jumped_cells")
 
     @staticmethod
     def col_letter_to_num(col_letter):
@@ -706,9 +736,6 @@ class GoogleSheet:
     def close(self):
         """关闭连接并清理资源"""
         try:
-            # 清理代理设置
-            self._clear_proxy_settings()
-            
             # 清理对象引用
             self.worksheet = None
             self.sheet = None

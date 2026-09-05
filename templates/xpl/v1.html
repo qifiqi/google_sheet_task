@@ -165,7 +165,7 @@
                                 data-bs-target="#tab-kama" type="button" role="tab">卡玛比率
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
-                                data-bs-target="#tab-sotino" type="button" role="tab">所提诺比例
+                                data-bs-target="#tab-sotino" type="button" role="tab">索提诺比例
                         </button>
                         <button class="list-group-item list-group-item-action" data-bs-toggle="list"
                                 data-bs-target="#tab-sharpe" type="button" role="tab">夏普比率
@@ -529,7 +529,7 @@
             </div>
             <div class="col-lg-6">
                 <div class="card h-100">
-                    <div class="card-header py-2"><h6 class="card-title mb-0">所提诺比例（指数 vs 模型）</h6></div>
+                    <div class="card-header py-2"><h6 class="card-title mb-0">索提诺比例（指数 vs 模型）</h6></div>
                     <div class="card-body p-2">
                         <div style="height:320px;">
                             <canvas id="chart-sotino"></canvas>
@@ -626,6 +626,36 @@
         lastSheetName: '',
         charts: {}
     };
+
+    function normalizeApiResponse(payload) {
+        const isStandard = payload
+            && typeof payload === 'object'
+            && Object.prototype.hasOwnProperty.call(payload, 'code')
+            && Object.prototype.hasOwnProperty.call(payload, 'data');
+        const body = isStandard && payload.data && typeof payload.data === 'object'
+            ? payload.data
+            : payload;
+        return {
+            ok: isStandard ? payload.code === 0 : body?.status === 'success',
+            message: payload?.message || body?.message || '',
+            body,
+            data: isStandard ? payload.data : body
+        };
+    }
+
+    function getWorksheetsPayload(api) {
+        if (api.body?.worksheets !== undefined || api.body?.title !== undefined) {
+            return api.body;
+        }
+        if (api.data && typeof api.data === 'object') {
+            return api.data;
+        }
+        return {worksheets: Array.isArray(api.data) ? api.data : []};
+    }
+
+    function getAnalyzeResults(api) {
+        return api.body?.results ?? api.data?.results ?? api.data;
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('btn-fetch-sheets').addEventListener('click', fetchWorksheets);
@@ -809,12 +839,14 @@
                 signal: abortController.signal
             });
             const data = await resp.json().catch(() => ({}));
-            if (!resp.ok || data.status !== 'success') {
-                throw new Error(data.message || `HTTP error! status: ${resp.status}`);
+            const api = normalizeApiResponse(data);
+            if (!resp.ok || !api.ok) {
+                throw new Error(api.message || `HTTP error! status: ${resp.status}`);
             }
 
-            state.worksheets = Array.isArray(data.worksheets) ? data.worksheets : [];
-            state.spreadsheetTitle = data.title || '';
+            const worksheetsPayload = getWorksheetsPayload(api);
+            state.worksheets = Array.isArray(worksheetsPayload.worksheets) ? worksheetsPayload.worksheets : [];
+            state.spreadsheetTitle = worksheetsPayload.title || '';
 
             const meta = document.getElementById('gs-meta');
             meta.innerHTML = `<span class="text-body-secondary">spreadsheet_id: </span><span class="fw-semibold">${spreadsheetId}</span>` + (state.spreadsheetTitle ? ` <span class="text-body-secondary">| 标题：</span><span class="fw-semibold">${escapeHtml(state.spreadsheetTitle)}</span>` : '');
@@ -865,7 +897,7 @@
             const filenameSafeSheet = (state.lastSheetName || 'sheet').replaceAll(/[\\/:*?"<>|]/g, '_');
             const defaultFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
 
-            const resp = await fetch('/xpl/export', {
+            const resp = await fetch('/api/exports/xpl', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -880,7 +912,8 @@
 
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({}));
-                throw new Error(err.message || `HTTP error! status: ${resp.status}`);
+                const api = normalizeApiResponse(err);
+                throw new Error(api.message || `HTTP error! status: ${resp.status}`);
             }
 
             const blob = await resp.blob();
@@ -976,23 +1009,25 @@
                 signal: abortController.signal
             });
             const data = await resp.json().catch(() => ({}));
-            if (!resp.ok || data.status !== 'success') {
-                throw new Error(data.message || `HTTP error! status: ${resp.status}`);
+            const api = normalizeApiResponse(data);
+            if (!resp.ok || !api.ok) {
+                throw new Error(api.message || `HTTP error! status: ${resp.status}`);
             }
 
-            if (!data.results) {
+            const results = getAnalyzeResults(api);
+            if (!results) {
                 showAlert('后端未返回 results', 'warning');
                 return;
             }
 
-            state.lastResults = data.results;
+            state.lastResults = results;
             state.lastSheetName = sheetName;
             const exportBtn = document.getElementById('btn-export-v1');
             if (exportBtn) exportBtn.disabled = false;
 
-            renderSummary(data.results);
-            renderTables(data.results);
-            renderCharts(data.results);
+            renderSummary(results);
+            renderTables(results);
+            renderCharts(results);
             showAlert('V1 分析完成', 'success');
         } catch (e) {
             if (e.name === 'AbortError') {
@@ -1066,8 +1101,8 @@
             outperform_year: '跑赢年份',
             monthly_excess_volatility: '月超额波动率',
             excess_drawdown_winning_rate: '超额回撤胜率',
-            excess_sharp: '超额夏普',
-            excess_of_promissory_note: '超额所提诺',
+            excess_sharpe: '超额夏普',
+            excess_sortino: '超额索提诺',
             index_profit_annual: '指数盈利年百分比',
             start_profit_annual: '策略盈利年百分比',
             index_monthly_return_volatility: '指数月收益率波动率',
@@ -1081,8 +1116,8 @@
             'outperform_year',
             'monthly_excess_volatility',
             'excess_drawdown_winning_rate',
-            'excess_sharp',
-            'excess_of_promissory_note',
+            'excess_sharpe',
+            'excess_sortino',
             'index_profit_annual',
             'start_profit_annual',
             'index_monthly_return_volatility',
@@ -1223,9 +1258,9 @@
         fillKamaMerged(r.index_kama_ratio, r.start_kama_ratio, 'tbl-kama');
     }
 
-    // 所提诺 tab
+    // 索提诺 tab
     function renderTabSotino(r) {
-        fillSotinoMerged(r.index_sotino_ratio, r.start_sotino_ratio, 'tbl-sotino');
+        fillSotinoMerged(r.index_sortino_ratio, r.start_sortino_ratio, 'tbl-sotino');
     }
 
     // 夏普 tab
@@ -1339,7 +1374,7 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${item?.year ?? '-'}</td>
-                <td>${fmtNum(item?.sotino_ratio, 6)}</td>
+                <td>${fmtNum(item?.sortino_ratio, 6)}</td>
                 <td>${fmtNum(item?.average_monthly_annualized_return, 6)}</td>
                 <td>${fmtNum(item?.downside_standard_deviation, 6)}</td>
             `;
@@ -1352,8 +1387,8 @@
         if (!tbody) return;
         tbody.innerHTML = '';
 
-        const idx = idxByYear(indexList, 'sotino_ratio');
-        const st = idxByYear(startList, 'sotino_ratio');
+        const idx = idxByYear(indexList, 'sortino_ratio');
+        const st = idxByYear(startList, 'sortino_ratio');
         const years = Array.from(new Set([...idx.keys(), ...st.keys()])).filter(y => y !== 'all').sort();
 
         if (years.length === 0) {
@@ -1367,8 +1402,8 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${y}</td>
-                <td>${fmtNum(i?.sotino_ratio, 6)}</td>
-                <td>${fmtNum(s?.sotino_ratio, 6)}</td>
+                <td>${fmtNum(i?.sortino_ratio, 6)}</td>
+                <td>${fmtNum(s?.sortino_ratio, 6)}</td>
                 <td>${fmtNum(i?.average_monthly_annualized_return, 6)}</td>
                 <td>${fmtNum(s?.average_monthly_annualized_return, 6)}</td>
                 <td>${fmtNum(i?.downside_standard_deviation, 6)}</td>
@@ -1467,8 +1502,8 @@
         tbody.innerHTML = '';
 
         const rows = [
-            ['excess_sharp', r.excess_sharp],
-            ['excess_of_promissory_note', r.excess_of_promissory_note]
+            ['excess_sharpe', r.excess_sharpe],
+            ['excess_sortino', r.excess_sortino]
         ];
 
         rows.forEach(([key, value]) => {
@@ -1729,8 +1764,8 @@
                 'Kama Ratio'
         );
 
-        const sotIdx = normalizeYearSeries(r.index_sotino_ratio, 'sotino_ratio');
-        const sotSt = normalizeYearSeries(r.start_sotino_ratio, 'sotino_ratio');
+        const sotIdx = normalizeYearSeries(r.index_sortino_ratio, 'sortino_ratio');
+        const sotSt = normalizeYearSeries(r.start_sortino_ratio, 'sortino_ratio');
         const sotLabels = Array.from(new Set([...sotIdx.labels, ...sotSt.labels])).sort();
         const sotIdxVals = sotLabels.map(y => sotIdx.map.get(y) ?? null);
         const sotStVals = sotLabels.map(y => sotSt.map.get(y) ?? null);
@@ -1979,10 +2014,10 @@
         state.charts.excessMetrics = new Chart(el, {
             type: 'bar',
             data: {
-                labels: ['excess_sharp', 'excess_of_promissory_note'],
+                labels: ['excess_sharpe', 'excess_sortino'],
                 datasets: [{
                     label: 'Value',
-                    data: [r.excess_sharp ?? null, r.excess_of_promissory_note ?? null],
+                    data: [r.excess_sharpe ?? null, r.excess_sortino ?? null],
                     backgroundColor: ['rgba(13,110,253,0.5)', 'rgba(25,135,84,0.5)'],
                     borderColor: ['#0d6efd', '#198754'],
                     borderWidth: 1

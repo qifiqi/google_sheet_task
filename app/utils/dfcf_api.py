@@ -3,6 +3,7 @@ import json
 import os
 import random
 import time
+from datetime import datetime
 from urllib.parse import quote
 
 import requests
@@ -12,6 +13,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from app.services.config_manager import get_config_manager
 from app.utils.kline_adjustment import eastmoney_fqt
 from app.utils.logger import get_logger
+from app.utils.market import market_type_from_eastmoney
 from app.utils.proxy_manager import SmartProxyManager, get_smart_proxy_manager
 from app.utils.task_error_utils import is_retryable_network_error
 
@@ -127,7 +129,11 @@ class DFCJStockApi:
 
             kline_data = []
             for line in data["data"]["klines"]:
-                kline = self._parse_kline_data(line, data["data"]["code"])
+                kline = self._parse_kline_data(
+                    line,
+                    data["data"]["code"],
+                    stock_type=stock_type,
+                )
                 if kline:
                     kline_data.append(kline)
 
@@ -168,21 +174,47 @@ class DFCJStockApi:
         self.logger.debug(f"构建的URL: {built}")
         return built
 
-    def _parse_kline_data(self, line, stock_code):
+    def _parse_kline_data(self, line, stock_code, stock_type=None):
         try:
             data = line.split(",")
             if len(data) < 10:
                 logger.warning(f"K线原始数据字段数量不足: {line}")
                 return None
+
+            volume = float(data[5])
+            # 东方财富 A 股成交量单位为“手”，需要换算成股；港股代码也常为纯数字，
+            # 不能仅按 stock_code.isdigit() 判断，否则会把港股 VWAP 压低约 100 倍。
+            if self._is_a_share_market(stock_type, stock_code):
+                volume *= 100
+
+            amount = float(data[6]) if len(data) > 6 else 0
             return {
                 "stock_code": stock_code,
                 "stock_date": data[0],
-                "stock_kp": float(data[1]),
-                "stock_sp": float(data[2]),
+                "open": round(float(data[1]), 3),
+                "close": round(float(data[2]), 3),
+                "high": round(float(data[3]), 3),
+                "low": round(float(data[4]), 3),
+                "volume": volume,
+                "amount": round(amount, 3),
+                "vwap": round(amount / volume, 3) if volume > 0 else 0.0,
+                "amplitude": round(float(data[7]), 3) if len(data) > 7 else 0,
+                "pct_change": round(float(data[8]), 3) if len(data) > 8 else 0,
+                "change": round(float(data[9]), 3) if len(data) > 9 else 0,
+                "turnover_rate": round(float(data[10]), 3) if len(data) > 10 else 0,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
         except Exception:
             logger.exception("解析K线数据失败")
             return None
+
+    @staticmethod
+    def _is_a_share_market(stock_type, stock_code=None) -> bool:
+        """判断东方财富市场参数是否为 A 股；港股等数字代码不能按此换算。"""
+        if stock_type in (None, ""):
+            # 兼容历史上直接调用解析方法的代码；正式接口始终传入 market 参数。
+            return str(stock_code or "").isdigit()
+        return str(stock_type).strip() in {"0", "1"}
 
     def get_search_list_by_stock_code(self, stock, page_size=20):
         normalized_page_size = max(1, min(int(page_size or 20), 20))
@@ -239,6 +271,7 @@ class DFCJStockApi:
                     "shortName": str(item.get("shortName") or "").strip(),
                     "securityTypeName": str(item.get("securityTypeName") or "").strip(),
                     "market": market,
+                    "marketType": market_type_from_eastmoney(market, item.get("securityTypeName")),
                     "status": item.get("status", 10),
                     "isExactMatch": code == keyword_upper,
                     "innerCode": str(item.get("innerCode") or "").strip(),
@@ -304,7 +337,10 @@ class DFCJStockApi:
                     "flag": None,
                     "extSmallType": None,
                     "quoteId": quote_id,
-                    "marketType": item.get("MarketType"),
+                    "marketType": market_type_from_eastmoney(
+                        market,
+                        item.get("SecurityTypeName"),
+                    ) or item.get("MarketType"),
                     "unifiedCode": str(item.get("UnifiedCode") or "").strip(),
                     "jys": str(item.get("JYS") or "").strip(),
                     "classify": str(item.get("Classify") or "").strip(),
@@ -324,4 +360,4 @@ class DFCJStockApi:
 
 if __name__ == "__main__":
     api = DFCJStockApi()
-    print(api.get_search_list_by_stock_code("000001", 10))
+    print(api.get_search_list_by_stock_code("AMD", 10))

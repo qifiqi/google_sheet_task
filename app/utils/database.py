@@ -68,6 +68,9 @@ def safe_delete(model_class, **filters):
 
 def safe_update(model_or_instance, instance_id=None, commit=True, **updates):
     """
+    .. deprecated:: 2026-09 数据层重构
+        调用点已清零；请改用 app/repositories/ 对应仓储的 update 方法。
+
     安全更新操作，包含重试逻辑
     
     Args:
@@ -109,6 +112,9 @@ def safe_update(model_or_instance, instance_id=None, commit=True, **updates):
 
 def safe_create(model_class, commit=False, **fields):
     """
+    .. deprecated:: 2026-09 数据层重构
+        调用点已清零；请改用 app/repositories/ 对应仓储的 create 方法。
+
     安全创建操作
     
     Args:

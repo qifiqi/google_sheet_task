@@ -70,6 +70,10 @@
                             <div class="card-body">
                                 <h6 class="card-title text-muted mb-3">时间信息</h6>
                                 <div class="row mb-2">
+                                    <div class="col-4"><strong>创建时间:</strong></div>
+                                    <div class="col-8 text-success" id="create-time">-</div>
+                                </div>
+                                <div class="row mb-2">
                                     <div class="col-4"><strong>开始时间:</strong></div>
                                     <div class="col-8 text-success" id="start-time">-</div>
                                 </div>
@@ -579,8 +583,8 @@
         console.log('开始加载任务详情，任务ID:', currentTaskId);
         ajaxRequest(`/api/tasks/${currentTaskId}`, 'GET', null, function(err, data) {
             console.log('API响应:', err, data);
-            if (!err && data && data.task) {
-                const task = data.task;
+            if (!err && data && data.data && data.data.task) {
+                const task = data.data.task;
                 console.log('任务数据:', task);
                 
                 // 保存任务数据供编辑使用
@@ -613,7 +617,8 @@
                 // 更新时间信息
                 document.getElementById('start-time').textContent = formatTime(task.start_time);
                 document.getElementById('end-time').textContent = formatTime(task.end_time);
-                
+                document.getElementById('create-time').textContent = formatTime(task.created_at);
+
                 // 保存任务开始时间用于计算耗时
                 if (task.start_time) {
                     taskStartTime = new Date(task.start_time);
@@ -621,10 +626,10 @@
                 
                 // 计算执行时长
                 let duration = 0;
-                if (task.start_time) {
-                    const startTime = new Date(task.start_time);
+                if (task.created_at) {
+                    const cTime = new Date(task.created_at);
                     const endTime = task.end_time ? new Date(task.end_time) : new Date();
-                    duration = Math.max(0, Math.round((endTime - startTime) / 1000)); // 确保不为负数
+                    duration = Math.max(0, Math.round((endTime - cTime) / 1000)); // 确保不为负数
                 }
                 document.getElementById('execution-duration').textContent = formatDuration(duration);
                 
@@ -708,10 +713,12 @@
             configItems.splice(2, 0, { label: 'Sheet Title', value: config.title || config.spreadsheet_title || '-', icon: 'bi-type' });
             const endDateIcon = 'bi-calendar-event';
             const marketTypeIcon = 'bi-graph-up-arrow';
-            if (config.end_date || config.market_type) {
+            if (config.end_date || config.market_type || config.exchange_market || config.market || config.kline_data_source || config.data_source) {
                 configItems.push(
                     { label: '结束日期', value: config.end_date || '无', icon: endDateIcon },
-                    { label: '市场类型', value: config.market_type || '无', icon: marketTypeIcon }
+                    { label: '市场类型', value: config.market_type || '无', icon: marketTypeIcon },
+                    { label: '市场代码', value: config.exchange_market || config.market || '无', icon: 'bi-building' },
+                    { label: '数据源', value: config.kline_data_source || config.data_source || '无', icon: 'bi-database' }
                 );
             }
             configItems.forEach(item => {
@@ -734,17 +741,17 @@
         console.log('开始加载任务日志...');
         ajaxRequest(`/api/tasks/${currentTaskId}/logs`, 'GET', null, function(err, data) {
             console.log('日志API响应:', err, data);
-            if (!err && data && data.logs) {
+            if (!err && data && data.data && data.data.logs) {
                 const logContainer = document.getElementById('log-container');
                 console.log('找到日志容器:', logContainer);
-                console.log('日志数量:', data.logs.length);
+                console.log('日志数量:', data.data.logs.length);
                 
-                if (data.logs.length > 0) {
+                if (data.data.logs.length > 0) {
                     // 保存当前滚动位置
                     const wasAtBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 5;
                     
                     // 更新日志内容
-                    logContainer.innerHTML = renderTaskLogs(data.logs);
+                    logContainer.innerHTML = renderTaskLogs(data.data.logs);
                     
                     // 如果之前在底部，保持滚动到底部
                     if (wasAtBottom) {
@@ -978,8 +985,8 @@
         avg_monthly_excess_returns: '平均月超额',
         excess_drawdown_winning_rate: '超额回撤胜率',
         excess_maximum_number_of_backtest_repair_days: '超额最大修复天数',
-        excess_of_promissory_note: '超额所提诺',
-        excess_sharp: '超额夏普',
+        excess_sortino: '超额索提诺',
+        excess_sharpe: '超额夏普',
         index_annual_std_dev: '指数年化波动率',
         index_annualized_return: '指数年化收益',
         index_avg_monthly_return: '指数平均月收益率',
@@ -990,7 +997,7 @@
         index_profit_annual: '指数盈利年份百分比',
         index_profit_monthly_percentage: '指数月盈利百分比',
         index_sharpe_ratio: '指数夏普比率',
-        index_sotino_ratio: '指数所提诺比率',
+        index_sortino_ratio: '指数索提诺比率',
         max_drawdown: '年最大超额回撤',
         monthly_excess_return_percentage_last_return: '月超额收益胜率',
         monthly_excess_volatility: '月超额波动率',
@@ -1007,7 +1014,7 @@
         start_profit_annual: '模型盈利年份百分比',
         start_profit_monthly_percentage: '模型月盈利百分比',
         start_sharpe_ratio: '模型夏普比率',
-        start_sotino_ratio: '模型所提诺比率'
+        start_sortino_ratio: '模型索提诺比率'
     };
 
     const c3SummaryMetrics = [
@@ -1123,22 +1130,23 @@
         ajaxRequest(url, 'GET', null, function(err, data) {
             if (!err && data) {
                 // 检查是否有分页数据
-                if (data.results !== undefined && data.total !== undefined) {
+                const rdata = data.data || {};
+                if (rdata.results !== undefined && rdata.total !== undefined) {
                     // 分页接口返回的数据
-                    allResults = data.results;
-                    resultsTotal = data.total || 0;
-                    resultsPages = data.pages || 0;
-                    resultsTotalSuccess = data.total_success || 0;
-                    resultsTotalFailed = data.total_failed || 0;
+                    allResults = rdata.results;
+                    resultsTotal = rdata.total || 0;
+                    resultsPages = rdata.pages || 0;
+                    resultsTotalSuccess = rdata.total_success || 0;
+                    resultsTotalFailed = rdata.total_failed || 0;
                     updateResultsStatistics();
                     renderResults();
-                } else if (data.results && Array.isArray(data.results)) {
+                } else if (rdata.results && Array.isArray(rdata.results)) {
                     // 兼容旧接口（无分页参数时返回全部数据）
-                    allResults = data.results;
-                    resultsTotal = data.results.length;
+                    allResults = rdata.results;
+                    resultsTotal = rdata.results.length;
                     resultsPages = 1;
-                    resultsTotalSuccess = data.results.filter(r => r.success).length;
-                    resultsTotalFailed = data.results.filter(r => !r.success).length;
+                    resultsTotalSuccess = rdata.results.filter(r => r.success).length;
+                    resultsTotalFailed = rdata.results.filter(r => !r.success).length;
                     updateResultsStatistics();
                     renderResults();
                 } else {
@@ -1541,7 +1549,7 @@
             btn.disabled = false;
             
             if (!err && data && data.status === 'success') {
-                const statusCheck = data.status_check;
+                const statusCheck = data.data.status_check;
                 let message = `状态检查结果:\n`;
                 message += `数据库状态: ${statusCheck.db_status}\n`;
                 message += `内存运行状态: ${statusCheck.memory_running ? '运行中' : '未运行'}\n`;
@@ -1614,7 +1622,7 @@
                 if (confirm('是否跳转到新任务的详情页面？')) {
                     const version = new URLSearchParams(window.location.search).get('version');
                     const versionParam = version ? `&version=${encodeURIComponent(version)}` : '';
-                    window.location.href = `/google-sheet/detail?task_id=${data.new_task_id}${versionParam}`;
+                    window.location.href = `/google-sheet/detail?task_id=${data.data.new_task_id}${versionParam}`;
                 }
             } else {
                 // 处理错误情况 - data可能包含错误信息，即使err存在
@@ -1763,7 +1771,7 @@
         try {
             const defaultFilename = ensureExcelExtension(`${currentTaskData?.name || currentTaskId}.xlsx`);
             const saveTarget = await prepareExcelSaveTarget(defaultFilename);
-            const response = await fetch(`/api/tasks/${encodeURIComponent(currentTaskId)}/export`);
+                const response = await fetch(`/api/exports/tasks/${encodeURIComponent(currentTaskId)}`);
             if (!response.ok) {
                 const text = await response.text();
                 let message = `导出失败，状态码 ${response.status}`;
