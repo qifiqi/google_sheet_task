@@ -27,6 +27,7 @@ from app.utils.task_error_utils import (
     unwrap_exception,
 )
 from app.utils.kline_validation import require_kline_rows
+from app.services.kline_prep import project_and_validate_write_ready
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
@@ -986,21 +987,16 @@ class C7Service(BaseGoogleSheetService):
 
         # 外部数据源可能返回配置区间外的历史K线；从这里开始，所有后续
         # 区间拆分、写入 Sheet 和收益计算都只使用用户指定时间范围内的数据。
-        klines = [
-            kline for kline in klines
-            if start_date <= kline['stock_date'] <= end_date
-        ]
-        all_kline = KlineService.build_price_rows(
-            klines, projection_mode, start_date=start_date, end_date=end_date, include_ohlc=True
-        )
-        all_kline = require_kline_rows(
-            parameter,
-            market_type,
-            all_kline,
-            context="写入Sheet K线",
+        all_kline = project_and_validate_write_ready(
+            self.kline_service,
+            parameter=parameter,
+            market_type=market_type,
+            klines=klines,
+            price_mode=projection_mode,
             start_date=start_date,
             end_date=end_date,
-            latest_date=data_end_date,
+            data_end_date=data_end_date,
+            include_ohlc=True,
         )
         data = []
 
