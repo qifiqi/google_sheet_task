@@ -155,6 +155,10 @@ pytest tests/unit/test_p0_p1_refactor.py::test_name   # 定向
 - 分层方向：`routes`（HTTP 编排）→ `services`（业务编排）→ `repositories`（独占 ORM）→ `models`；
 - routes/services 内**禁止直接书写 ORM 查询**（`db.session` / `Model.query`）；
   从 `app.models` import 枚举常量（`TaskStatus`/`TaskType` 等）允许；
+- routes **禁止直接 import / 调用 repository**（2026-09-05 R 系列收编后生效）：
+  路由一律经 service 访问数据（任务读走 task_manager 门面、模板走 task_template_service、
+  导航走 navigation_service、RBAC 走 rbac_service、配置走 config_manager 等），
+  终验 `grep -rn "from app\.repositories\|_repository\." app/routes` 为空；
 - `app/repositories/` 命名约定：`get_`（可 None）/ `get_required_`（抛 NotFoundError）/
   `list_` / `count_` / `exists_` / `create_` / `update_` / `delete_` / `bulk_` / `delete_older_than_`；
   领域动词补录（2026-09-05 审计批 D）：`upsert_`（唯一键幂等写）、`acquire_` / `release_` /
@@ -247,6 +251,9 @@ pytest tests/unit/test_p0_p1_refactor.py::test_name   # 定向
 - `app/repositories/` 是唯一 ORM 层；routes/services 已全部迁移（2026-09-05 审计批 A~D
   收尾复验：ORM 精确 grep 与服务层手写信封均为 0，执行记录见
   `docs/design/data-layer-refactor/03-execution-checklist.md`）；
+- 路由直连 repository 已收编（2026-09-05 R1~R5 批次）：路由零 repository import，
+  读路径统一经 service（新增 task_template_service / navigation_service /
+  rbac_service；task 门面补 get_task/get_required_task 等只读入口），执行记录同上；
 - 响应信封/异常/校验/分层细则见上文“接口规范”章节；
 - `app/utils/database.py` 的 safe_create/safe_update 已弃用（调用点清零），
   transaction_required 仍被 creation/restart/stock_metadata 使用（提交重试语义）。
