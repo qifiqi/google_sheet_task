@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 from app.services.google_sheet_client import GoogleSheet
 from app.services.kline_service import KlineService
-from app.services.google_sheet_service_C7 import GoogleSheetService
+from app.services.google_sheet_service_C7 import C7Service
 
 
 class _C7V03Sheet:
@@ -61,7 +61,7 @@ def _c7_v03_config():
 
 
 def test_c7_v03_uses_ohlc_layout_and_c5_result_range(monkeypatch):
-    service = GoogleSheetService({}, "task-id")
+    service = C7Service({}, "task-id")
     sheet = _C7V03Sheet()
     service.google_sheets = [sheet]
     service.xpl = type(
@@ -126,7 +126,7 @@ def test_c7_v03_uses_ohlc_layout_and_c5_result_range(monkeypatch):
 
 
 def test_c7_v03_result_payload_uses_c5_metric_cells():
-    service = object.__new__(GoogleSheetService)
+    service = object.__new__(C7Service)
     service.task_id = "task-c7-v03"
 
     payload = service._build_stock_param_result_payload(
@@ -143,7 +143,7 @@ def test_c7_v03_result_payload_uses_c5_metric_cells():
 
 
 def test_c7_v03_rewrites_kline_when_stock_changes(monkeypatch):
-    service = GoogleSheetService({}, "task-id")
+    service = C7Service({}, "task-id")
     sheet = _C7V03Sheet()
     service.google_sheets = [sheet]
     service.xpl = type(
@@ -181,7 +181,7 @@ def test_c7_v03_rewrites_kline_when_stock_changes(monkeypatch):
 
 
 def test_c7_model_version_falls_back_to_sheet_title():
-    service = GoogleSheetService({}, "task-id")
+    service = C7Service({}, "task-id")
     sheet = type("Sheet", (), {"spreadsheet_id": "sheet-v03", "title": "C7.0.3.v20260729"})()
     config = {"sheets": [{"spreadsheet_id": "sheet-v03"}]}
 
@@ -199,7 +199,7 @@ def test_get_last_row_supports_multi_letter_column():
 
 
 def test_c7_deduplicates_same_parameters_and_kline_period():
-    service = object.__new__(GoogleSheetService)
+    service = object.__new__(C7Service)
     logs = []
     service._log_info = logs.append
     same_kline = [
@@ -224,13 +224,13 @@ def test_c7_deduplicates_same_parameters_and_kline_period():
 
 
 def test_c7_resume_starts_after_last_completed_combination():
-    assert GoogleSheetService._get_resume_start_index(0, 6) == 0
-    assert GoogleSheetService._get_resume_start_index(5, 6) == 5
-    assert GoogleSheetService._get_resume_start_index(6, 6) == 6
+    assert C7Service._get_resume_start_index(0, 6) == 0
+    assert C7Service._get_resume_start_index(5, 6) == 5
+    assert C7Service._get_resume_start_index(6, 6) == 6
 
 
 def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
-    service = GoogleSheetService({}, "task-id")
+    service = C7Service({}, "task-id")
     rows = []
     first_date = date(2026, 1, 1)
     for offset in range(31):
@@ -303,7 +303,7 @@ def test_c7_random_open_close_handles_close_above_open(monkeypatch):
 
 
 def test_c7_random_groups_are_stable_for_task_restart():
-    service = object.__new__(GoogleSheetService)
+    service = object.__new__(C7Service)
     service.task_id = "task-random-price"
     combinations = [{
         "stock_code": "600000",
@@ -334,7 +334,7 @@ def test_c7_random_groups_are_stable_for_task_restart():
 
 
 def test_c7_uses_first_available_kline_when_listing_is_newer_than_start_date(monkeypatch):
-    service = GoogleSheetService({}, "task-id")
+    service = C7Service({}, "task-id")
     logs = []
     first_date = date(2021, 12, 15)
     rows = []

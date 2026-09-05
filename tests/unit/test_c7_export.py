@@ -6,7 +6,7 @@ import pytest
 from openpyxl import load_workbook
 
 from app.services.export_file_service import build_c7_stock_code_export_archive, build_task_export
-from app.services.google_sheet_service_C7 import GoogleSheetService
+from app.services.google_sheet_service_C7 import C7Service
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
@@ -156,7 +156,7 @@ def test_c7_export_preserves_shifted_beats_and_unformatted_percentages():
 
 
 def test_c7_result_payload_reads_d8_to_d26_and_normalizes_percentages():
-    service = object.__new__(GoogleSheetService)
+    service = object.__new__(C7Service)
     service.task_id = "task-c7"
     result = {
         "模型A": {

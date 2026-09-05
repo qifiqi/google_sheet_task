@@ -8,7 +8,7 @@ from requests.exceptions import ProxyError, SSLError
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.stock_search_service import StockSearchService
 import app.services.backtest_training_service as backtest_training_service
-from app.services.google_sheet_service_C7 import GoogleSheetService as GoogleSheetServiceC7
+from app.services.google_sheet_service_C7 import C7Service as C7Service
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.task_error_utils import RetryableNetworkTaskError
 
@@ -89,7 +89,7 @@ def test_backtest_rethrows_network_error_as_retryable():
 
 
 def test_c7_rethrows_ssl_error_as_retryable_network_error():
-    service = GoogleSheetServiceC7.__new__(GoogleSheetServiceC7)
+    service = C7Service.__new__(C7Service)
 
     with pytest.raises(RetryableNetworkTaskError, match="批量数据处理网络请求失败"):
         service._raise_retryable_network_error(

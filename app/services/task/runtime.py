@@ -20,10 +20,10 @@ from app.models import Task
 from app.services.backtest_multi_product_service import BacktestMultiProductService
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
-from app.services.google_sheet_service import GoogleSheetService
-from app.services.google_sheet_service_C4 import GoogleSheetService as GoogleSheetServiceC4
-from app.services.google_sheet_service_C5 import GoogleSheetService as GoogleSheetServiceC5
-from app.services.google_sheet_service_C7 import GoogleSheetService as GoogleSheetServiceC7
+from app.services.google_sheet_service import C3Service
+from app.services.google_sheet_service_C4 import C4Service as C4Service
+from app.services.google_sheet_service_C5 import C5Service as C5Service
+from app.services.google_sheet_service_C7 import C7Service as C7Service
 from app.services.google_sheet_token_service import get_google_sheet_token_service
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger, get_task_logger
@@ -764,7 +764,7 @@ class TaskRuntimeMixin:
             app,
             logger_name=f"{__name__}.{task_id}",
             start_message="开始执行Google Sheet任务",
-            service_class=GoogleSheetService,
+            service_class=C3Service,
             business_message="开始执行任务业务逻辑",
             failure_label="执行任务失败",
         )
@@ -775,7 +775,7 @@ class TaskRuntimeMixin:
             app,
             logger_name=f"{__name__}.C4.{task_id}",
             start_message="开始执行Google Sheet C4 任务",
-            service_class=GoogleSheetServiceC4,
+            service_class=C4Service,
             business_message="开始执行 C4 任务业务逻辑",
             failure_label="执行 C4 任务失败",
         )
@@ -786,7 +786,7 @@ class TaskRuntimeMixin:
             app,
             logger_name=f"{__name__}.C5.{task_id}",
             start_message="开始执行Google Sheet C5 任务",
-            service_class=GoogleSheetServiceC5,
+            service_class=C5Service,
             business_message="开始执行 C5 任务业务逻辑",
             failure_label="执行 C5 任务失败",
         )
@@ -797,7 +797,7 @@ class TaskRuntimeMixin:
             app,
             logger_name=f"{__name__}.C7.{task_id}",
             start_message="开始执行Google Sheet C7 任务",
-            service_class=GoogleSheetServiceC7,
+            service_class=C7Service,
             business_message="开始执行 C7 任务业务逻辑",
             failure_label="执行 C7 任务失败",
         )

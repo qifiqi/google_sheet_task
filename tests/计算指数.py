@@ -1,11 +1,11 @@
 from datetime import datetime
 
 from app.utils.yf_api import YFApi
-from app.services.google_sheet_service_C7 import GoogleSheetService
+from app.services.google_sheet_service_C7 import C7Service
 
 yf = YFApi()
 
-ser = GoogleSheetService({
+ser = C7Service({
     "count_mode": "n_plus_1",
     "date_range_mode": [
         "recent"

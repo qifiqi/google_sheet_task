@@ -28,7 +28,7 @@ from app.services.kline_service import KlineService, get_kline_price_field
 logger = get_logger(__name__)
 
 
-class GoogleSheetService(BaseGoogleSheetService):
+class C3Service(BaseGoogleSheetService):
     """Google Sheet服务"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
@@ -525,19 +525,10 @@ class GoogleSheetService(BaseGoogleSheetService):
                     self._log_info(f'task {self.task_id} cancellation requested')
                     return 'cancelled'
 
-                # stock_param = self.get_single_stock_template_param(name)
-                stock_param = None
-                if stock_param is not None and stock_param != "error":
-                    multiplier_index = 0 if stock_param.get('multiplier_index', 0) == 0 else stock_param.get(
-                        'multiplier_index', 0) + 1
-                    self._log_info(f"开始执行参数批量处理，multiplier_index: {multiplier_index}")
-                    success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data, multiplier_index)
-                elif stock_param != "error":
-                    self._log_info("开始执行参数批量处理（默认参数模式）")
-                    success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data,task.current_step)
-                else:
-                    self._log_error("获取股票参数失败")
-                    return 'error'
+                # 历史上的 get_single_stock_template_param 单股参数流已废弃（stock_param 恒为 None），
+                # 仅保留默认参数模式路径；对应 final_status 死分支一并移除。
+                self._log_info("开始执行参数批量处理（默认参数模式）")
+                success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data, task.current_step)
 
                 # 根据任务状态决定返回结果
                 if task_status == 'cancelled':
@@ -548,14 +539,6 @@ class GoogleSheetService(BaseGoogleSheetService):
                     return 'cancelled'
                 elif task_status == 'error':
                     return 'error'
-                else:
-                    if stock_param is not None and stock_param != "error":
-                        final_status = 'completed' if success_count > 0 else 'error'
-                        if final_status == 'completed':
-                            self._refresh_model_summary_index()
-                            # 推送成功完成通知
-                            self.task_ok_to_dd(f'任务成功完成！成功执行: {success_count}, 失败: {failed_count}')
-                        return final_status
 
                 if success_count == 0 and failed_count == 0:
                     self._log_error('任务执行失败')

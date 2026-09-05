@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.services.google_sheet_client import GoogleSheet
-from app.services.google_sheet_service import GoogleSheetService
+from app.services.google_sheet_service import C3Service
 
 
 def make_google_sheet():
@@ -38,7 +38,7 @@ def test_clear_jumped_cells_skips_empty_or_invalid_refs():
 
 
 def make_service():
-    service = GoogleSheetService({}, "task-1")
+    service = C3Service({}, "task-1")
     service.google_sheet = MagicMock()
     service._log_info = MagicMock()
     service._interruptible_sleep = MagicMock(return_value=True)

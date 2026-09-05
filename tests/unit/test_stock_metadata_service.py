@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from app.extensions import db
 from app.models import StockMetadata, Task
-from app.services.google_sheet_service_C4 import GoogleSheetService as C4GoogleSheetService
+from app.services.google_sheet_service_C4 import C4Service as C4GoogleSheetService
 from app.services.stock_metadata_service import upsert_stock_metadata, upsert_stock_metadata_in_session
 from app.services.task.facade import TaskManager
 

@@ -88,7 +88,7 @@ def test_c5_checkforerrors_branch_records_error_message(app_factory, monkeypatch
     """BUG-02：SheetCheckError 失败分支现在必须把错误摘要写入 Task.error_message。"""
     app = app_factory
     with app.app_context():
-        from app.services.google_sheet_service_C5 import GoogleSheetService as C5GoogleSheetService
+        from app.services.google_sheet_service_C5 import C5Service as C5GoogleSheetService
 
         task = Task(
             id="c5-sheet-error-task",

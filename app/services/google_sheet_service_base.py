@@ -16,6 +16,7 @@ from app.utils.market import infer_market_type, normalize_stock_code
 from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.utils.logger import get_logger
 from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.utils.task_error_utils import unwrap_exception
 
 
 logger = get_logger(__name__)
@@ -315,6 +316,106 @@ class BaseGoogleSheetService:
     def _get_return_series_stock_name(self, safe_parameters: dict[str, Any]):
         """收益序列 stock_name 取值钩子；子类可重写以增加回退字段。"""
         return safe_parameters.get("stock_name")
+
+    def execute_task(self):
+        """执行任务的模板方法（原 C4/C5/C7 逐字相同的 97 行骨架，C1 收敛为基类唯一实现）。
+
+        子类通过覆盖 get_bdl / _init_google_sheet 钩子体现任务差异；
+        C3 因头部取消检查/多重收益收尾差异保留自己的 execute_task 覆盖。
+        """
+        try:
+
+            # 统一使用应用上下文
+            context_app = self.app or current_app
+            with context_app.app_context():
+                task = task_repository.get_entity(self.task_id)
+                self.task = task
+                if not task:
+                    self._log_error(f'任务 {self.task_id} 不存在')
+                    return 'error'
+
+                # 检查任务是否已被取消
+                if task.status == 'cancelled':
+                    self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
+                    return 'cancelled'
+
+                # 解析配置
+                if isinstance(task.config, str):
+                    try:
+                        config_data = json.loads(task.config)
+                    except json.JSONDecodeError as e:
+                        self._log_error(f"配置解析失败: {str(e)}")
+                        return 'error'
+                else:
+                    config_data = task.config or {}
+
+                config_manager = get_config_manager()
+                config_data = {**config_manager.get_google_sheet_config(), **config_data}
+
+                # 推送任务开始日志
+                self._log_info('开始执行Google Sheet任务')
+
+                # 初始化Google Sheet连接
+                self._init_google_sheet(config_data)
+
+                # 获取参数列表
+                parameters = config_data.get('parameters', [])
+                if not parameters:
+                    self._log_error("没有参数配置")
+                    return 'error'
+
+                name = task.name
+                self.task_name = name
+                # 检查任务是否已被取消
+                if task.status == 'cancelled':
+                    self._log_info(f'任务 {self.task_id} 已被取消，停止执行')
+                    return 'cancelled'
+
+                success_count, failed_count, task_status = self.get_bdl(task, name, parameters, config_data)
+
+                # 根据任务状态决定返回结果
+                if task_status == 'cancelled':
+                    # 任务被取消，保持cancelled状态
+                    self._log_info(f'任务已取消，成功执行: {success_count}, 失败: {failed_count}')
+                    return 'cancelled'
+                elif task_status == 'error':
+                    return 'error'
+
+                if success_count == 0 and failed_count == 0:
+                    self._log_error('任务执行失败')
+                    return 'error'
+
+                # 刷新汇总索引并推送完成通知
+                self._refresh_model_summary_index()
+                self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
+                # 推送任务完成信息
+                completion_msg = f'任务执行完成！成功: {success_count}, 失败: {failed_count}'
+                self._log_info(completion_msg)
+
+                return 'completed'
+
+        except Exception as e:
+            # 检查是否是任务被取消导致的异常
+            try:
+                task = task_repository.get_entity(self.task_id)
+                if task and task.status == 'cancelled':
+                    self._log_info(f'任务已被取消: {str(e)}')
+                    return 'cancelled'
+            except Exception:  # best-effort 取消探测：失败不中断主流程
+                pass
+
+            # 其他异常情况
+            root = unwrap_exception(e) or e
+            try:
+                record = record_task_exception(self.task_id, e, "execute_task", self.app)
+                error_summary = format_task_error_message(record)
+            except Exception as record_error:
+                self._log_warning(f"记录任务异常失败: {record_error}")
+                error_summary = f"{root.__class__.__name__}: {root}"
+            error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
+            self._log_error(error_msg)
+            self._log_error(f"任务异常摘要: {error_summary}")
+            return 'error'
 
     def _save_task_result(self, step_index: int, parameters, result: Dict, success: bool, return_date=None):
         """保存任务结果到数据库，包含重试逻辑。
