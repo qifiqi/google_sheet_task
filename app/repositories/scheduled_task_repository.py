@@ -1,4 +1,6 @@
 """ScheduledTask 仓储（契约见 docs/design/data-layer-refactor/02 §2.10）。"""
+from sqlalchemy import or_
+
 from app.extensions import db
 from app.exceptions import NotFoundError
 from app.models import ScheduledTask
@@ -84,14 +86,26 @@ class ScheduledTaskRepository(BaseRepository):
             .first()
         )
 
-    def acquire_run_lock(self, task_id, instance_id, now, commit=True):
-        """乐观锁获取执行权：仅当 is_running 为假时置位；返回受影响行数。"""
+    def acquire_run_lock(self, task_id, instance_id, now, stale_before=None, commit=True):
+        """乐观锁获取执行权：仅当 is_running 为假时置位；返回受影响行数。
+
+        stale_before 提供时，is_running 为真但 last_run_time 缺失或早于该时刻的
+        陈旧锁（子进程崩溃未释放）允许被接管，避免任务被永久跳过。
+        """
+        clauses = [ScheduledTask.id == task_id]
+        if stale_before is None:
+            clauses.append(ScheduledTask.is_running.is_(False))
+        else:
+            clauses.append(
+                or_(
+                    ScheduledTask.is_running.is_(False),
+                    ScheduledTask.last_run_time.is_(None),
+                    ScheduledTask.last_run_time < stale_before,
+                )
+            )
         rows_updated = (
             ScheduledTask.query
-            .filter(
-                ScheduledTask.id == task_id,
-                ScheduledTask.is_running.is_(False),
-            )
+            .filter(*clauses)
             .update(
                 {
                     "is_running": True,

@@ -268,11 +268,16 @@ class TaskResultRepository(BaseRepository):
 
     # ---- TaskResult 写 ----
 
-    def create(self, fields):
-        result = TaskResult(**fields)
-        db.session.add(result)
-        self._commit()
-        return result.to_dict()
+    def create(self, fields, commit: bool = True):
+        try:
+            result = TaskResult(**fields)
+            db.session.add(result)
+            if commit:
+                self._commit()
+            return result.to_dict()
+        except Exception:
+            db.session.rollback()
+            raise
 
     def create_with_return(self, result_fields, return_fields=None, commit=True):
         """TaskResult + TaskResultReturn 原子写入（执行链 _save_task_result 出口）。
@@ -295,11 +300,16 @@ class TaskResultRepository(BaseRepository):
             db.session.rollback()
             raise
 
-    def bulk_create(self, rows):
-        for fields in rows or []:
-            db.session.add(TaskResult(**fields))
-        self._commit()
-        return len(rows or [])
+    def bulk_create(self, rows, commit: bool = True):
+        try:
+            for fields in rows or []:
+                db.session.add(TaskResult(**fields))
+            if commit:
+                self._commit()
+            return len(rows or [])
+        except Exception:
+            db.session.rollback()
+            raise
 
     def delete(self, result_id, commit=True):
         result = db.session.get(TaskResult, result_id)
@@ -421,17 +431,27 @@ class TaskResultRepository(BaseRepository):
 
     # ---- TaskResultReturn 写 ----
 
-    def create_return(self, fields):
-        record = TaskResultReturn(**fields)
-        db.session.add(record)
-        self._commit()
-        return record.to_dict()
+    def create_return(self, fields, commit: bool = True):
+        try:
+            record = TaskResultReturn(**fields)
+            db.session.add(record)
+            if commit:
+                self._commit()
+            return record.to_dict()
+        except Exception:
+            db.session.rollback()
+            raise
 
-    def bulk_create_returns(self, rows):
-        for fields in rows or []:
-            db.session.add(TaskResultReturn(**fields))
-        self._commit()
-        return len(rows or [])
+    def bulk_create_returns(self, rows, commit: bool = True):
+        try:
+            for fields in rows or []:
+                db.session.add(TaskResultReturn(**fields))
+            if commit:
+                self._commit()
+            return len(rows or [])
+        except Exception:
+            db.session.rollback()
+            raise
 
     def delete_returns_by_task(self, task_id, commit=True):
         deleted = (

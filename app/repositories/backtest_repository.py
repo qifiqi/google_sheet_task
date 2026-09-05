@@ -62,8 +62,18 @@ class BacktestRepository(BaseRepository):
             self._commit()
         return row.to_dict()
 
-    def delete_xpl_analysis_jobs(self, *, task_id=None, result_ids=None, return_series_ids=None):
-        """遗留 xpl_analysis_jobs 表清理（目标库存在该表时）。"""
+    def delete_xpl_analysis_jobs(
+        self,
+        *,
+        task_id=None,
+        result_ids=None,
+        return_series_ids=None,
+        commit: bool = True,
+    ):
+        """遗留 xpl_analysis_jobs 表清理（目标库存在该表时）。
+
+        commit=False 时写入留在会话内，供调用方与其它清理步骤凑批提交。
+        """
         if not inspect(db.engine).has_table("xpl_analysis_jobs"):
             return
 
@@ -81,6 +91,8 @@ class BacktestRepository(BaseRepository):
             clauses.append(jobs_table.c.return_series_id.in_(return_series_ids))
         if clauses:
             db.session.execute(jobs_table.delete().where(or_(*clauses)))
+            if commit:
+                self._commit()
 
     def list_summary_index_entities_by_result(self, task_result_id):
         return TaskResultSummaryIndex.query.filter_by(task_result_id=task_result_id).all()
@@ -136,10 +148,6 @@ class BacktestRepository(BaseRepository):
             query.order_by(TaskResult.timestamp.desc(), TaskResult.id.desc()).all()
         )
 
-    def list_rebuild_task_ids(self, task_ids_query):
-        """占位（由调用方传入查询的复杂场景不使用）。"""
-        raise NotImplementedError
-
     def list_finished_task_ids(self, finished_statuses, supported_types, task_type=None, task_id=None):
         query = db.session.query(Task.id).filter(Task.status.in_(finished_statuses))
         if task_type:
@@ -181,11 +189,12 @@ class BacktestRepository(BaseRepository):
             self._commit()
         return deleted
 
-    def dedupe_best_per_task(self, group_expression=None, task_type=None, task_id=None):
+    def dedupe_best_per_task(self, group_expression=None, task_type=None, task_id=None, commit: bool = True):
         """按分组窗口函数去重，仅保留每组最新最优一条；返回删除行数。
 
         group_expression 缺省为汇总索引的周期分组
         （coalesce(nullif(period_key), nullif(year_label), nullif(kline_range))）。
+        commit=False 时写入留在会话内，由调用方（重建任务批处理）统一提交。
         """
         if group_expression is None:
             group_expression = func.coalesce(
@@ -221,6 +230,8 @@ class BacktestRepository(BaseRepository):
                 db.session.query(ranked.c.id).filter(ranked.c.row_number == 1)
             )
         ).update({"is_best": True}, synchronize_session=False)
+        if commit:
+            self._commit()
         return deleted
 
     def list_summary_index_entities_by_task_ordered(self, task_id):

@@ -92,7 +92,13 @@ def test_scheduler_execute_task_skips_disabled_or_locked(app_factory, monkeypatc
     launched = []
     with app.app_context():
         disabled = _scheduled_task(is_active=False)
-        locked = _scheduled_task(name="locked", is_running=True, running_instance_id="other")
+        # BUG-09 新语义：is_running 且持锁时间未超时（last_run_time 新鲜）才跳过。
+        locked = _scheduled_task(
+            name="locked",
+            is_running=True,
+            running_instance_id="other",
+            last_run_time=datetime.now(),
+        )
         db.session.add_all([disabled, locked])
         db.session.commit()
 

@@ -445,9 +445,11 @@ class SummaryJobMixin:
 
     def _dedupe_best_per_task(self, task_type: str | None = None, task_id: str | None = None) -> int:
         """处理_dedupe_best_per_task相关逻辑。"""
+        # commit=False：重建流程内多步凑批，由统一提交点落库。
         return backtest_repository.dedupe_best_per_task(
             task_type=task_type,
             task_id=task_id,
+            commit=False,
         )
 
     def _keep_only_best_for_task(self, task_id: str) -> None:

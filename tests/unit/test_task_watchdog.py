@@ -56,6 +56,12 @@ class _FakeTaskManager:
     def get_start_error(self, task_id):
         return "start failed"
 
+    def force_detach_running_task(self, task_id):
+        # 与真实 TaskManager 契约一致：持锁原子移除运行态句柄与停止事件。
+        handle = self.running_tasks.pop(task_id, None)
+        self.task_stop_events.pop(task_id, None)
+        return handle
+
     def release_backtest_sheet_locks(self, task_id):
         pass
 

@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -20,6 +21,9 @@ from app.services.task.data_cleanup import delete_task_result_dependencies
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# 运行锁超时阈值默认值（小时）：超过视为持锁方已崩溃，允许其他实例强制接管。
+_RUN_LOCK_TIMEOUT_HOURS_DEFAULT = 6.0
 
 
 class SchedulerService:
@@ -230,16 +234,26 @@ class SchedulerService:
                     logger.warning(f"定时任务 {task_id} 不存在或已禁用")
                     return
 
-                # 尝试获取分布式锁
+                # 尝试获取分布式锁；持锁时间超过阈值的陈旧锁（子进程崩溃未释放）
+                # 允许被强制接管，避免该任务从此每次都被跳过。
+                stale_before = None
                 if scheduled_task.is_running:
-                    logger.warning(f"定时任务 {scheduled_task.name} 正在被实例 {scheduled_task.running_instance_id} 执行，跳过")
-                    return
+                    stale_before = datetime.now() - timedelta(hours=self._run_lock_timeout_hours())
+                    if scheduled_task.last_run_time and scheduled_task.last_run_time >= stale_before:
+                        logger.warning(f"定时任务 {scheduled_task.name} 正在被实例 {scheduled_task.running_instance_id} 执行，跳过")
+                        return
+                    logger.warning(
+                        f"定时任务 {scheduled_task.name} 的执行锁已超时"
+                        f"（last_run_time={scheduled_task.last_run_time}，"
+                        f"持锁实例={scheduled_task.running_instance_id}），强制接管"
+                    )
 
                 # 使用乐观锁获取执行权
                 rows_updated = scheduled_task_repository.acquire_run_lock(
                     task_id,
                     self.instance_id,
                     datetime.now(),
+                    stale_before=stale_before,
                 )
 
                 if rows_updated == 0:
@@ -266,20 +280,53 @@ class SchedulerService:
             script_path = 'app/services/scheduled_task_worker.py'
             cmd = [sys.executable, script_path, str(scheduled_task.id), self.instance_id]
 
-            # 启动子进程（非阻塞）
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd='.',
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-            )
+            # 输出重定向到文件而非 PIPE：PIPE 无人读取，子进程输出写满管道缓冲区
+            # 会永久阻塞；文件同时保留子进程早期（logging 配置前）的崩溃输出供诊断。
+            log_path = self._subprocess_log_path(scheduled_task.id)
+            try:
+                output_target = open(log_path, "a", encoding="utf-8")
+            except OSError:
+                logger.warning(f"无法打开子进程日志文件 {log_path}，输出丢弃")
+                output_target = subprocess.DEVNULL
+
+            try:
+                # 启动子进程（非阻塞）
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=output_target,
+                    stderr=subprocess.STDOUT,
+                    cwd='.',
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                )
+            finally:
+                if output_target is not subprocess.DEVNULL:
+                    output_target.close()
 
             logger.info(f"定时任务 {scheduled_task.name} 已在独立进程 {process.pid} 中启动")
 
         except Exception as e:
             logger.error(f"启动独立进程失败: {e}")
             self._release_task_lock(scheduled_task.id)
+
+    @staticmethod
+    def _subprocess_log_path(task_id) -> str:
+        """子进程输出日志路径（logs/scheduled_task_<id>.log）。"""
+        log_dir = os.path.join(os.getcwd(), "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        return os.path.join(log_dir, f"scheduled_task_{task_id}.log")
+
+    @staticmethod
+    def _run_lock_timeout_hours() -> float:
+        """运行锁超时阈值（小时），可经 SystemConfig 键 scheduled_task_lock_timeout_hours 调整。"""
+        from app.services.config_manager import get_config_manager
+
+        try:
+            raw = get_config_manager().get_config(
+                "scheduled_task_lock_timeout_hours", _RUN_LOCK_TIMEOUT_HOURS_DEFAULT
+            )
+            return float(raw)
+        except (TypeError, ValueError):
+            return _RUN_LOCK_TIMEOUT_HOURS_DEFAULT
 
     def _release_task_lock(self, task_id):
         """释放任务锁"""

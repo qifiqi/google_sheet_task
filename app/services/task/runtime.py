@@ -304,16 +304,25 @@ class TaskRuntimeMixin:
             return spec.max_concurrency_default
 
     def _cleanup_runtime_state(self, task_id: str, task_logger=None) -> None:
-        thread = self.running_tasks.pop(task_id, None)
+        """清理任务运行态（worker 收尾路径）。
+
+        持运行态锁完成多 dict 清理；_active_worker_ids 仅在仍指向本线程时清理，
+        防止被替换的老一代线程误删新一代线程登记的 worker id。
+        """
+        current_thread_id = threading.get_ident()
+        with self._runtime_state_lock:
+            thread = self.running_tasks.pop(task_id, None)
+            stop_event = self.task_stop_events.pop(task_id, None)
+            self.task_execution_types.pop(task_id, None)
+            if self._active_worker_ids.get(task_id) == current_thread_id:
+                self._active_worker_ids.pop(task_id, None)
+
         if thread and task_logger:
             task_logger.info("清理任务线程资源")
 
-        stop_event = self.task_stop_events.pop(task_id, None)
         if stop_event and task_logger:
             task_logger.info("stop event cleaned")
             task_logger.info("清理任务事件队列")
-        self.task_execution_types.pop(task_id, None)
-        self._active_worker_ids.pop(task_id, None)
 
     def _finalize_task_execution(
         self,
@@ -388,15 +397,16 @@ class TaskRuntimeMixin:
         acquired_token_id = None
         reserved_backtest_spreadsheet_ids: list[str] = []
 
-        thread = self.running_tasks.get(task_id)
-        if thread and thread.is_alive():
-            error_msg = "任务已在启动或运行中，拒绝重复启动"
-            self.start_errors[task_id] = error_msg
-            logger.warning("重复启动任务被拒绝: %s", task_id)
-            return False
+        with self._runtime_state_lock:
+            thread = self.running_tasks.get(task_id)
+            if thread and thread.is_alive():
+                error_msg = "任务已在启动或运行中，拒绝重复启动"
+                self.start_errors[task_id] = error_msg
+                logger.warning("重复启动任务被拒绝: %s", task_id)
+                return False
 
-        task_logger = get_task_logger(task_id, f"{__name__}.start")
-        self.running_tasks.pop(task_id, None)
+            task_logger = get_task_logger(task_id, f"{__name__}.start")
+            self.running_tasks.pop(task_id, None)
 
         task = task_repository.get_entity(task_id)
         if not task:
@@ -555,12 +565,15 @@ class TaskRuntimeMixin:
 
         type_limit = self._get_type_concurrency_limit(spec)
         if type_limit is not None:
+            with self._runtime_state_lock:
+                execution_types_snapshot = list(self.task_execution_types.items())
+                running_snapshot = dict(self.running_tasks)
             type_running = sum(
                 1
-                for running_id, running_type in self.task_execution_types.items()
+                for running_id, running_type in execution_types_snapshot
                 if running_type == task_type
-                and self.running_tasks.get(running_id)
-                and self.running_tasks[running_id].is_alive()
+                and running_snapshot.get(running_id)
+                and running_snapshot[running_id].is_alive()
             )
             if type_running >= type_limit:
                 error_msg = (
@@ -596,10 +609,10 @@ class TaskRuntimeMixin:
         handle = None
         try:
             handle = self.submit_task_execution(task_id, app, runner)
-            self.running_tasks[task_id] = handle
         except Exception as exc:
-            if handle is not None:
-                self.running_tasks.pop(task_id, None)
+            # submit_task_execution 可能已在入队前注册运行态句柄后失败，
+            # 无论失败发生在哪一步都需撤回注册。
+            self.running_tasks.pop(task_id, None)
             self.task_stop_events.pop(task_id, None)
             self._rollback_start_reservation(
                 task_id, reserved_backtest_spreadsheet_ids, backtest_marked_running

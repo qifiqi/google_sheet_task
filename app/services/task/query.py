@@ -168,7 +168,7 @@ class TaskQueryService:
             return status_check
 
         if db_status == "running" and memory_running:
-            timeout_seconds = self._task_manager._get_config(
+            timeout_seconds = self._task_manager.get_config_value(
                 "task_status_check_timeout",
                 600,
             )

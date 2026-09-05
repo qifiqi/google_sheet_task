@@ -76,24 +76,29 @@ class TaskRestartMixin:
                     "message": f"任务状态 '{original_status}' 不允许重启",
                 }
 
-            if task_id in self.running_tasks:
+            # 持锁取运行态快照，避免与 start_task/watchdog 的注册清理并发竞争。
+            with self._runtime_state_lock:
+                existing_handle = self.running_tasks.get(task_id)
+            if existing_handle is not None:
                 try:
-                    thread = self.running_tasks.get(task_id)
                     self.cancel_task(task_id)
-                    if thread and thread.is_alive():
-                        thread.join(timeout=3.0)
+                    if existing_handle.is_alive():
+                        existing_handle.join(timeout=3.0)
                     logger.info("已停止原有任务线程: %s", task_id)
                 except Exception as exc:
                     logger.warning("停止原有任务线程失败: %s", exc)
 
-            alive_thread = self.running_tasks.get(task_id)
-            if alive_thread and alive_thread.is_alive():
+            with self._runtime_state_lock:
+                alive_thread = self.running_tasks.get(task_id)
+                still_alive = bool(alive_thread and alive_thread.is_alive())
+                if not still_alive:
+                    self.task_stop_events.pop(task_id, None)
+            if still_alive:
                 return {
                     "status": "error",
                     "message": "task is still stopping, please retry shortly",
                 }
 
-            self.task_stop_events.pop(task_id, None)
             start_time = None
             if resume_from_checkpoint:
                 restart_step = current_step

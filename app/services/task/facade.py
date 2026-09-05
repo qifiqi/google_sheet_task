@@ -38,6 +38,10 @@ class TaskManager(
         self.start_errors: dict[str, str] = {}
         self.task_token_occupancy: dict[str, int] = {}
         self.task_execution_types: dict[str, str] = {}
+        # 运行态锁：HTTP 请求线程 / watchdog 线程 / 任务 worker 线程并发读写上述
+        # dict。约定：复合操作（check-then-act、遍历+判断、注册+提交）必须持锁；
+        # 单次 get/set/setdefault 因 GIL 原子，可不持锁。
+        self._runtime_state_lock = threading.RLock()
         self.backtest_sheet_start_lock = threading.RLock()
         self._pool: ThreadPoolExecutor | None = None
         self._pool_lock = threading.RLock()
@@ -60,41 +64,62 @@ class TaskManager(
             return self._pool
 
     def count_running_executions(self) -> int:
-        return sum(1 for handle in self.running_tasks.values() if handle.is_alive())
+        with self._runtime_state_lock:
+            handles = list(self.running_tasks.values())
+        return sum(1 for handle in handles if handle.is_alive())
 
-    def submit_task_execution(self, task_id: str, app, runner) -> Future:
+    def get_config_value(self, key: str, default: Any = None) -> Any:
+        """运行时配置读取出口（任务域组件统一经此访问，勿穿透 _get_config 私有方法）。"""
+        return self._get_config(key, default)
+
+    def force_detach_running_task(self, task_id: str) -> "_TaskExecution | None":
+        """watchdog 强制重启路径：持锁原子移除运行态句柄与停止事件，返回被移除的句柄。"""
+        with self._runtime_state_lock:
+            handle = self.running_tasks.pop(task_id, None)
+            self.task_stop_events.pop(task_id, None)
+        return handle
+
+    def submit_task_execution(self, task_id: str, app, runner) -> "_TaskExecution":
         """把任务执行提交到全局线程池（启动前配额检查由 runtime.start_task 负责）。"""
         pool = self._get_pool()
         handle = _TaskExecution(None)
 
         def _wrapped():
             handle.thread_id = threading.get_ident()
-            self._active_worker_ids[task_id] = handle.thread_id
+            with self._runtime_state_lock:
+                self._active_worker_ids[task_id] = handle.thread_id
             try:
                 runner(task_id, app)
             finally:
-                self._active_worker_ids.pop(task_id, None)
+                # 仅当代号仍是本 worker 时才清理：老一代线程被 watchdog detach 后
+                # 才退出时，不得误删新一代线程登记的 worker id。
+                with self._runtime_state_lock:
+                    if self._active_worker_ids.get(task_id) == handle.thread_id:
+                        self._active_worker_ids.pop(task_id, None)
 
-        handle.future = pool.submit(_wrapped)
+        # 先注册运行态句柄再入队：worker 可能先于 submit 返回开始执行，
+        # 保证其视角下 running_tasks 已包含本任务（消除提交窗口竞态）。
+        with self._runtime_state_lock:
+            self.running_tasks[task_id] = handle
+        try:
+            handle.future = pool.submit(_wrapped)
+        except Exception:
+            # 入队失败必须撤回注册，避免运行态残留。
+            with self._runtime_state_lock:
+                if self.running_tasks.get(task_id) is handle:
+                    self.running_tasks.pop(task_id, None)
+            raise
         return handle
 
     def get_runtime_snapshot(self) -> dict[str, Any]:
         """返回当前门面维护的核心运行态快照。"""
-        return {
-            "running_task_ids": list(self.running_tasks.keys()),
-            "stop_event_task_ids": list(self.task_stop_events.keys()),
-            "start_error_task_ids": list(self.start_errors.keys()),
-            "token_occupancy_task_ids": list(self.task_token_occupancy.keys()),
-        }
-
-    def get_runtime_snapshot(self) -> dict[str, Any]:
-        """返回当前门面维护的核心运行态快照。"""
-        return {
-            "running_task_ids": list(self.running_tasks.keys()),
-            "stop_event_task_ids": list(self.task_stop_events.keys()),
-            "start_error_task_ids": list(self.start_errors.keys()),
-            "token_occupancy_task_ids": list(self.task_token_occupancy.keys()),
-        }
+        with self._runtime_state_lock:
+            return {
+                "running_task_ids": list(self.running_tasks.keys()),
+                "stop_event_task_ids": list(self.task_stop_events.keys()),
+                "start_error_task_ids": list(self.start_errors.keys()),
+                "token_occupancy_task_ids": list(self.task_token_occupancy.keys()),
+            }
 
 
 class _TaskExecution:

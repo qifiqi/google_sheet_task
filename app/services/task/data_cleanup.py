@@ -10,10 +10,12 @@ from app.repositories import (
 
 
 def _delete_xpl_analysis_jobs(*, task_id: str | None = None, result_ids: list[int] | None = None, return_series_ids: list[int] | None = None) -> None:
+    # commit=False：清理链路多表凑批，由调用方统一提交。
     backtest_repository.delete_xpl_analysis_jobs(
         task_id=task_id,
         result_ids=result_ids,
         return_series_ids=return_series_ids,
+        commit=False,
     )
 
 

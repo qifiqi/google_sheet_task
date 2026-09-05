@@ -380,19 +380,19 @@ class TaskWatchdog:
                 stop_event.set()
 
             stopped = self._wait_for_task_thread_stop(task_id, wait_seconds)
+            # 持锁原子移除运行态句柄与停止事件，避免与 start_task 的注册竞争。
+            detached_handle = task_manager.force_detach_running_task(task_id)
             if stopped:
-                task_manager.running_tasks.pop(task_id, None)
                 task_manager.add_task_log(
                     task_id,
                     "warning",
                     f"watchdog 已停止原任务线程: {reason}",
                 )
             else:
-                stale_thread = task_manager.running_tasks.pop(task_id, None)
                 logger.warning(
                     "watchdog detached hung task thread: task_id=%s, thread=%s",
                     task_id,
-                    stale_thread,
+                    detached_handle,
                 )
                 task_manager.add_task_log(
                     task_id,
@@ -400,7 +400,6 @@ class TaskWatchdog:
                     f"watchdog 等待 {wait_seconds}s 后原任务线程仍未退出, "
                     f"已强制 detach: {reason}",
                 )
-            task_manager.task_stop_events.pop(task_id, None)
 
             task = self._prepare_task_for_force_restart(task_id, reason)
             if not task:
