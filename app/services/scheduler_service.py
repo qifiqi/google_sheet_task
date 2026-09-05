@@ -10,6 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from croniter import croniter
 from flask import current_app
 
+from app.exceptions import BadRequestError, ServiceError, ValidationError
 from app.repositories import (
     scheduled_task_repository,
     task_log_repository,
@@ -441,7 +442,155 @@ class SchedulerService:
             
         if to_remove:
             logger.info(f"清理了 {len(to_remove)} 个已完成的任务记录")
-    
+
+    # ── 定时任务 CRUD 编排（/admin/scheduler* 端点，R4 自路由下沉） ──
+
+    # 管理端可更新字段白名单（与 ScheduledTaskUpdateSchema 对齐）
+    SCHEDULER_TASK_FIELDS = (
+        'name', 'description', 'cron_expression',
+        'task_type', 'task_function', 'task_params', 'is_active',
+    )
+
+    @staticmethod
+    def _validate_cron_expression(expression):
+        """cron 表达式校验；无效抛 ValidationError（400 语义）。"""
+        try:
+            croniter(expression)
+        except Exception as e:
+            raise ValidationError(f"无效的cron表达式: {e}")
+
+    @staticmethod
+    def _validate_task_params_json(task_params):
+        """任务参数 JSON 校验；无效抛 ValidationError（400 语义）。"""
+        if task_params:
+            try:
+                json.loads(task_params)
+            except Exception as e:
+                raise ValidationError(f"任务参数必须是有效的JSON格式: {e}")
+
+    def get_required_task(self, task_id):
+        """定时任务 dict 访问；不存在抛 NotFoundError（路由 404 前置检查用）。"""
+        return scheduled_task_repository.get_required(task_id)
+
+    def get_scheduler_stats(self) -> dict:
+        """调度器统计（/admin/scheduler/stats）。"""
+        stats = scheduled_task_repository.stats()
+        return {
+            'total_tasks': stats["total"],
+            'active_tasks': stats["active"],
+            'inactive_tasks': stats["total"] - stats["active"],
+            'scheduler_running': self.is_running,
+        }
+
+    def list_tasks_page(self, page: int, per_page: int) -> dict:
+        """定时任务分页列表（/admin/scheduler/tasks GET 响应结构）。"""
+        page_data = scheduled_task_repository.list_paginated(page, per_page)
+        return {
+            'tasks': page_data["items"],
+            'pagination': {
+                'page': page_data["current_page"],
+                'per_page': page_data["per_page"],
+                'total': page_data["total"],
+                'pages': page_data["pages"],
+            },
+        }
+
+    def create_task(self, payload: dict) -> dict:
+        """创建定时任务；活跃且调度器运行中则注册调度。"""
+        self._validate_cron_expression(payload["cron_expression"])
+        self._validate_task_params_json(payload["task_params"])
+
+        task = scheduled_task_repository.create(payload)
+        if task["is_active"] and self.is_running:
+            self.add_job(scheduled_task_repository.get_entity(task["id"]))
+
+        logger.info(f"创建定时任务成功: {task['name']}")
+        return task
+
+    def update_task(self, task_id: int, data: dict) -> dict:
+        """按白名单更新定时任务字段并重新同步调度。"""
+        scheduled_task_repository.get_required(task_id)
+
+        if 'cron_expression' in data:
+            self._validate_cron_expression(data['cron_expression'])
+        if 'task_params' in data and data['task_params']:
+            self._validate_task_params_json(data['task_params'])
+
+        fields = {field: data[field] for field in self.SCHEDULER_TASK_FIELDS if field in data}
+        fields['updated_at'] = datetime.now()
+        updated = scheduled_task_repository.update(task_id, fields)
+
+        # 更新调度器中的任务（调度器消费实体）
+        if self.is_running:
+            self.remove_job(task_id)
+            entity = scheduled_task_repository.get_entity(task_id)
+            if entity.is_active:
+                self.add_job(entity)
+
+        logger.info(f"更新定时任务成功: {updated['name']}")
+        return updated
+
+    def delete_task(self, task_id: int) -> None:
+        """删除定时任务并移除调度。"""
+        task = scheduled_task_repository.get_required(task_id)
+
+        if self.is_running:
+            self.remove_job(task_id)
+
+        scheduled_task_repository.delete(task_id)
+        logger.info(f"删除定时任务成功: {task['name']}")
+
+    def toggle_task(self, task_id: int, data: dict) -> tuple:
+        """切换定时任务启停（data 未带 is_active 时取反）。返回 (更新后任务, 状态文案)。"""
+        task = scheduled_task_repository.get_required(task_id)
+
+        is_active = data.get('is_active', not task["is_active"])
+        updated = scheduled_task_repository.update(task_id, {
+            'is_active': is_active,
+            'updated_at': datetime.now(),
+        })
+
+        if self.is_running:
+            self.remove_job(task_id)
+            if is_active:
+                self.add_job(scheduled_task_repository.get_entity(task_id))
+
+        status_text = '启用' if is_active else '禁用'
+        logger.info(f"{status_text}定时任务: {updated['name']}")
+        return updated, status_text
+
+    def run_task_now(self, task_id: int) -> None:
+        """立即执行定时任务（异步提交）；未运行/执行中/提交失败按原语义抛异常。"""
+        task = scheduled_task_repository.get_required(task_id)
+
+        if not self.is_running:
+            raise BadRequestError('调度器未运行')
+
+        current_status = self.get_async_task_status(task_id)
+        if current_status and current_status['status'] == 'running':
+            raise BadRequestError('任务正在执行中，请稍后再试')
+
+        if not self.run_job_once(task_id):
+            raise ServiceError('任务提交执行失败')
+
+        logger.info(f"立即执行定时任务: {task['name']}")
+
+    def get_task_execution_status(self, task_id: int) -> dict:
+        """任务执行状态（任务摘要 + 异步状态 + 调度状态）。"""
+        task = scheduled_task_repository.get_required(task_id)
+        return {
+            'task': {
+                'id': task["id"],
+                'name': task["name"],
+                'is_active': task["is_active"],
+                'last_run_time': task["last_run_time"],
+                'next_run_time': task["next_run_time"],
+                'run_count': task["run_count"],
+            },
+            'async_status': self.get_async_task_status(task_id),
+            'job_status': self.get_job_status(task_id),
+        }
+
     def create_default_tasks(self):
         """创建默认定时任务"""
         if not self.app:
