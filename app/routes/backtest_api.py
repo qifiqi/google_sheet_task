@@ -7,13 +7,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from io import BytesIO
 import json
 import math
-from zipfile import ZIP_DEFLATED, ZipFile
 
-from flask import Blueprint, current_app, jsonify, request, send_file
+from flask import Blueprint, current_app, request
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -34,16 +31,12 @@ from app.services.backtest_training_api_service import (
     _build_backtest_result_export_rows,
     _build_c3_summary_rows,
     _build_global_preview_payload,
-    _build_global_preview_workbook,
     _infer_backtest_model_version,
-    _load_backtest_task_or_response,
-    _load_backtest_task_result_or_response,
-    _sanitize_json_value,
-    _validate_batch_global_preview_task_ids,
+    _load_backtest_task,
+    _load_backtest_task_result,
 )
 from app.services.performance_analysis.historical_metrics import extract_core_metrics
-from app.services.xpl_service import xpl_analyzer
-from app.utils.api_response import error, success
+from app.utils.api_response import success
 from app.utils.auth import login_required
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
@@ -54,8 +47,6 @@ from app.utils.task_types import normalize_task_type
 
 bt_api_bp = Blueprint("backtest_training_api", __name__, url_prefix="/backtest-training")
 bmp_api_bp = Blueprint("backtest_multi_product_api", __name__, url_prefix="/backtest-multi-product")
-
-BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS = 10
 
 
 def _rate_limit(config_key, default):
@@ -90,16 +81,6 @@ def _parse_json(raw, default):
         return default
 
 
-def _sanitize_json_value(value):
-    if isinstance(value, float):
-        return value if value == value and value not in (float("inf"), float("-inf")) else None
-    if isinstance(value, dict):
-        return {key: _sanitize_json_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_sanitize_json_value(item) for item in value]
-    return value
-
-
 # ==================== bt：Excel 导入 / 结果查询 ====================
 
 
@@ -125,9 +106,7 @@ def import_excel():
 @login_required
 def get_task_results_by_task_id(task_id):
     """Return paginated task result summaries for the detail page."""
-    _, error_response = _load_backtest_task_or_response(task_id, action="view")
-    if error_response:
-        return error_response
+    _load_backtest_task(task_id)
 
     page = request.args.get("page", default=1, type=int) or 1
     per_page = request.args.get("per_page", default=10, type=int) or 10
@@ -163,9 +142,7 @@ def get_task_results_by_task_id(task_id):
 @login_required
 def get_task_result_detail(task_result_id):
     """Return the full task result payload for the result page."""
-    task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
-    if error_response:
-        return error_response
+    task_result, task = _load_backtest_task_result(task_result_id)
 
     export_data = _build_backtest_result_export_data(task_result, task)
 
@@ -205,9 +182,7 @@ def get_task_result_detail(task_result_id):
     key_func=_user_key,
 )
 def get_task_result_export_preview(task_result_id):
-    task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
-    if error_response:
-        return error_response
+    task_result, task = _load_backtest_task_result(task_result_id)
 
     try:
         export_data = _build_backtest_result_export_data(task_result, task)
@@ -222,32 +197,10 @@ def get_task_result_export_preview(task_result_id):
     })
 
 
-def download_task_result_export_preview(task_result_id):
-    task_result, task, error_response = _load_backtest_task_result_or_response(task_result_id)
-    if error_response:
-        return error_response
-
-    try:
-        export_data = _build_backtest_result_export_data(task_result, task)
-        export_file, mimetype = xpl_analyzer.export_file(export_data)
-    except Exception:
-        current_app.logger.exception("Failed to export backtest result preview")
-        raise BadRequestError("导出数据生成失败")
-
-    return send_file(
-        export_file,
-        mimetype=mimetype,
-        as_attachment=True,
-        download_name=export_data["filename"],
-    )
-
-
 @bt_api_bp.route("/api/task-summary/<task_id>", methods=["GET"])
 @login_required
 def get_task_summary(task_id):
-    task, error_response = _load_backtest_task_or_response(task_id, action="view")
-    if error_response:
-        return error_response
+    task = _load_backtest_task(task_id)
 
     task_config = task.to_dict().get("config") or {}
     model_version = _infer_backtest_model_version(task_config)
@@ -277,9 +230,7 @@ def get_task_summary(task_id):
 @bt_api_bp.route("/api/global-preview/<task_id>", methods=["GET"])
 @login_required
 def get_global_preview(task_id):
-    _, error_response = _load_backtest_task_or_response(task_id, action="view")
-    if error_response:
-        return error_response
+    _load_backtest_task(task_id)
 
     payload = _build_global_preview_payload(task_id)
     if payload is None:
@@ -311,23 +262,6 @@ def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: 
             used_names.add(candidate)
             return candidate
         index += 1
-
-
-def _validate_batch_global_preview_task_ids(raw_task_ids):
-    if not isinstance(raw_task_ids, list) or not raw_task_ids:
-        raise BadRequestError("请选择至少一个任务")
-
-    task_ids = [str(task_id).strip() for task_id in raw_task_ids if str(task_id).strip()]
-    task_ids = list(dict.fromkeys(task_ids))
-    if not task_ids:
-        raise BadRequestError("请选择至少一个任务")
-
-    if len(task_ids) > BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS:
-        raise BadRequestError(
-            f"批量导出最多支持 {BATCH_GLOBAL_PREVIEW_EXPORT_MAX_TASKS} 个任务，当前选择了 {len(task_ids)} 个"
-        )
-
-    return task_ids
 
 
 def _parse_excel_percent_text(value: str) -> float | None:

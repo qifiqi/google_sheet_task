@@ -6,13 +6,13 @@ from collections import OrderedDict
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 
-from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import load_only
 
-from app.models import Task, TaskResult, TaskResultReturn
+from app.exceptions import NotFoundError, ValidationError
+from app.models import Task, TaskResult
 from app.repositories import task_repository, task_result_repository
 from app.services.performance_analysis.historical_metrics import resolve_preview_metrics
 from app.services.xpl_service import xpl_analyzer
@@ -92,23 +92,16 @@ def _normalize_scientific_text(text: str) -> str:
 
 
 
-def _load_backtest_task_or_response(task_id: str, action: str = "view", result_id: int | None = None):
+def _load_backtest_task(task_id: str):
+    """加载回测任务实体；不存在或类型不符直接抛异常，由全局错误处理器渲染信封。"""
     task = task_repository.get_entity(task_id)
     if not task:
-        return None, (jsonify({
-            "status": "error",
-            "message": "任务不存在",
-        }), 404)
+        raise NotFoundError("任务不存在")
 
     if normalize_task_type(task.task_type) != "backtest_training":
-        return None, (jsonify({
-            "status": "error",
-            "message": "当前接口仅支持回测任务",
-            "task_id": task_id,
-            "task_type": task.task_type,
-        }), 400)
+        raise ValidationError("当前接口仅支持回测任务")
 
-    return task, None
+    return task
 
 
 def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: set[str]) -> str:
@@ -127,18 +120,6 @@ def _build_zip_member_name(task_name: str | None, fallback_id: str, used_names: 
             used_names.add(candidate)
             return candidate
         index += 1
-
-
-def _validate_batch_global_preview_task_ids(raw_task_ids):
-    if not isinstance(raw_task_ids, list) or not raw_task_ids:
-        return None, (jsonify({"status": "error", "message": "请选择至少一个任务"}), 400)
-
-    task_ids = [str(task_id).strip() for task_id in raw_task_ids if str(task_id).strip()]
-    task_ids = list(dict.fromkeys(task_ids))
-    if not task_ids:
-        return None, (jsonify({"status": "error", "message": "请选择至少一个任务"}), 400)
-
-    return task_ids, None
 
 
 def _sanitize_json_value(value):
@@ -287,7 +268,7 @@ def _extract_task_result_payload(task_result, return_rows=None):
     return calculate_metrics, sheet_result
 
 
-def _load_backtest_task_result_or_response(task_result_id: int):
+def _load_backtest_task_result(task_result_id: int):
     task_result = (
         TaskResult.query
         .options(load_only(TaskResult.id, TaskResult.task_id, TaskResult.result))
@@ -295,20 +276,11 @@ def _load_backtest_task_result_or_response(task_result_id: int):
         .first()
     )
     if not task_result:
-        return None, None, (jsonify({
-            "status": "error",
-            "message": "任务结果不存在",
-        }), 404)
+        raise NotFoundError("任务结果不存在")
 
-    task, error_response = _load_backtest_task_or_response(
-        task_result.task_id,
-        action="view",
-        result_id=task_result_id,
-    )
-    if error_response:
-        return None, None, error_response
+    task = _load_backtest_task(task_result.task_id)
 
-    return task_result, task, None
+    return task_result, task
 
 
 def _build_backtest_result_export_filename(task: Task, result_id: int) -> tuple[str, str]:
