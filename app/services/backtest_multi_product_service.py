@@ -155,10 +155,8 @@ def update_task_ratios(task_id: str, task_config, ratios: list) -> dict:
         raise ValidationError("比例数量与产品数量不一致")
     for product, ratio in zip(products, ratios):
         product["ratio"] = str(ratio.get("ratio") if isinstance(ratio, dict) else ratio).strip()
-    try:
-        config = normalize_multi_product_config({**config, "products": products})
-    except ValueError as exc:
-        raise ValidationError(str(exc))
+    # normalize_multi_product_config 现直接抛 ValidationError（400 语义一致）
+    config = normalize_multi_product_config({**config, "products": products})
 
     task_repository.update_fields(task_id, config=json.dumps(config, ensure_ascii=False))
     return config
