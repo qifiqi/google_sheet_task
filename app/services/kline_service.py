@@ -165,57 +165,38 @@ class KlineService:
     @staticmethod
     def get_stock_market(code):
         """
-        A股股票代码映射市场后缀
+        A股场内证券代码映射内置库市场后缀（股票/ETF/LOF/可转债等）。
 
-        Args:
-            code (str or int): 6位股票代码
-
-        Returns:
-            str: 带市场后缀的代码，如 "000001.SZ"
+        按首位数字范围判断交易所，覆盖：
+        - 沪市：5(基金/ETF)、6(主板/科创板)、9(B股)
+        - 深市：0(主板)、1(基金/ETF/债券)、2(B股)、3(创业板)
+        - 北交所：4/8
 
         Examples:
             >>> get_stock_market("000001")
             '000001.SZ'
             >>> get_stock_market(600000)
             '600000.SH'
-            >>> get_stock_market("688001")
-            '688001.SH'
+            >>> get_stock_market("510300")
+            '510300.SH'
+            >>> get_stock_market("159919")
+            '159919.SZ'
         """
-        # 转为字符串并去除空格
-        code = str(code).strip()
+        code = str(code).strip().zfill(6)
 
-        # 如果长度不足6位，前面补0
-        code = code.zfill(6)
-
-        # 取前3位作为判断依据
-        prefix = code[:3]
-
-        # 深圳市场（主板、中小板、创业板）
-        sz_prefixes = ['000', '001', '002', '003', '004', '300']
-        if prefix in sz_prefixes:
-            return f"{code}.SZ"
-
-        # 上海市场（主板、科创板）
-        sh_prefixes = ['600', '601', '603', '605', '688', '689']
-        if prefix in sh_prefixes:
-            return f"{code}.SH"
-
-        # 北京证券交易所
-        bj_prefixes = ['830', '831', '832', '833', '834', '835', '836', '837', '838', '839',
-                       '870', '871', '872', '873', '874', '875', '876', '877', '878', '879',
-                       '880', '881', '882', '883', '884', '885', '886', '887', '888', '889']
-        if prefix in bj_prefixes:
-            return f"{code}.BJ"
-
-        # 退市股票
-        if prefix in ['400', '420']:
+        # 退市股票（老三板 400/420）
+        if code[:3] in ("400", "420"):
             return f"{code}.退市"
 
-        # B股
-        if prefix == '900':
-            return f"{code}.SH"  # 沪市B股
-        if prefix == '200':
-            return f"{code}.SZ"  # 深市B股
+        # 按首位数字范围判断交易所；此前用三位前缀白名单，
+        # ETF/基金（如 510300/159919）不在表内被判为未知。
+        first = code[:1]
+        if first in {"5", "6", "9"}:
+            return f"{code}.SH"
+        if first in {"0", "1", "2", "3"}:
+            return f"{code}.SZ"
+        if first in {"4", "8"}:
+            return f"{code}.BJ"
 
         # 未知代码
         return f"{code}.未知"
@@ -512,16 +493,16 @@ class KlineService:
 
     @staticmethod
     def _get_tdx_market(code: str, market_enum: Any) -> Any:
-        """将 A 股代码映射为 easy-tdx 市场枚举。"""
+        """将 A 股场内代码映射为 easy-tdx 市场枚举（含 ETF/基金：沪 5/深 1）。"""
         normalized_code = str(code).strip()
-        prefix = normalized_code[:1]
-        if prefix == "6":
+        first = normalized_code[:1]
+        if first == "5" or first == "6":
             return market_enum.SH
-        if prefix in {"0", "2", "3"}:
+        if first in {"0", "1", "2", "3"}:
             return market_enum.SZ
-        if prefix in {"4", "8"}:
+        if first in {"4", "8"}:
             return market_enum.BJ
-        raise ValueError(f"TDX 数据源仅支持 A股股票代码: {code}")
+        raise ValueError(f"TDX 数据源仅支持 A股场内证券代码: {code}")
 
     def _resolve_exchange_and_name(
         self,

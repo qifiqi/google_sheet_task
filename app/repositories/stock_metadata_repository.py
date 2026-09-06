@@ -28,6 +28,27 @@ class StockMetadataRepository(BaseRepository):
         )
         return row.to_dict() if row else None
 
+    def find_latest_by_codes(self, stock_codes, market_type):
+        """在候选代码（同一证券的不同后缀形态）中取最新一条；不存在返回 None。
+
+        用于市场代码统一解析的 stock_meta 前置查询：任务传入无后缀代码时，
+        命中此前以东财交易所编号归一出的带后缀行（如 510300 → 510300.SS）。
+        查询使用 in_ 参数绑定。
+        """
+        candidates = [str(code) for code in stock_codes if code]
+        if not candidates:
+            return None
+        row = (
+            StockMetadata.query
+            .filter(
+                StockMetadata.stock_code.in_(candidates),
+                StockMetadata.market_type == market_type,
+            )
+            .order_by(StockMetadata.updated_at.desc(), StockMetadata.id.desc())
+            .first()
+        )
+        return row.to_dict() if row else None
+
     def count(self):
         return StockMetadata.query.count()
 

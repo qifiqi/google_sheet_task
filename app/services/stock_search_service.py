@@ -12,6 +12,7 @@ from app.utils.dfcf_api import DFCJStockApi
 from app.utils.logger import get_logger
 from app.utils.market import (
     MARKET_LABELS,
+    STOCK_CODE_SUFFIXES,
     market_type_from_eastmoney,
     normalize_market_type,
     normalize_stock_code,
@@ -59,13 +60,32 @@ class StockSearchService:
         return results
 
     def resolve_stock(self, stock_code: str, market_type: str) -> dict[str, Any]:
-        """按代码和市场精确解析证券，避免任务误取同名或跨市场标的。"""
+        """按代码和市场精确解析证券，避免任务误取同名或跨市场标的。
+
+        统一解析流程：先查内部 stock_meta 表（此前成功解析过的代码直接命中，
+        不再被搜索过滤），未命中走东财查询接口并回写 stock_meta（commit=False，
+        随当前任务事务提交）。
+        """
         code = str(stock_code or "").strip().upper()
         requested_market = self._normalize_requested_market(market_type)
         if not code:
             raise ValidationError("股票代码不能为空")
         if not requested_market:
             raise ValidationError("任务市场类型不能为空")
+
+        meta = self._lookup_stock_meta(code, requested_market)
+        if meta is not None:
+            return {
+                "source": "stock_meta",
+                "code": meta["stock_code"],
+                "name": meta.get("stock_name") or code,
+                "security_type_name": meta.get("security_type_name") or "",
+                "market": meta.get("exchange_market") or "",
+                "exchange_market": meta.get("exchange_market") or "",
+                "market_type": meta.get("market_type") or requested_market,
+                "status": 10,
+                "is_exact_match": True,
+            }
 
         source_code = strip_stock_code_suffix(code)
         results = self.search_stocks(source_code, market_type=requested_market, page_size=20)
@@ -84,7 +104,48 @@ class StockSearchService:
             )
         if not result["exchange_market"]:
             raise ValidationError(f"股票{code}搜索结果缺少交易市场编码")
+
+        # 解析成功即回写 stock_meta（随当前任务事务提交，不单独 commit），
+        # 后续同代码任务经 stock_meta 前置查询直接命中，不再依赖东财搜索。
+        # 无应用上下文（单元测试直连调用）时跳过回写。
+        try:
+            from flask import has_app_context as _has_ctx
+
+            if _has_ctx():
+                self.save_metadata([result])
+        except Exception as exc:
+            logger.warning("stock_meta 回写失败 code=%s: %s", code, exc)
         return result
+
+    @staticmethod
+    def _lookup_stock_meta(code: str, requested_market: str) -> dict[str, Any] | None:
+        """stock_meta 前置查询：命中此前成功解析过的代码；失败静默跳过。"""
+        try:
+            from flask import has_app_context
+
+            if not has_app_context():
+                return None
+            return stock_metadata_repository.find_latest_by_codes(
+                StockSearchService._meta_code_candidates(code, requested_market),
+                requested_market,
+            )
+        except Exception as exc:
+            logger.warning("stock_meta 前置查询失败 code=%s: %s", code, exc)
+            return None
+
+    @staticmethod
+    def _meta_code_candidates(code: str, market_type: str) -> list[str]:
+        """同一证券在 stock_meta 中的候选主键形态（不同后缀规则的历史行）。"""
+        code = str(code or "").strip().upper()
+        if market_type == "cn":
+            base = strip_stock_code_suffix(code)
+            if base != code:
+                return [code, base]
+            return [f"{base}.SS", f"{base}.SZ", f"{base}.BJ", base]
+        suffix = STOCK_CODE_SUFFIXES.get(market_type)
+        if suffix:
+            return [code, f"{strip_stock_code_suffix(code)}{suffix}"]
+        return [code]
 
     @staticmethod
     def save_metadata(results: list[dict[str, Any]]) -> None:

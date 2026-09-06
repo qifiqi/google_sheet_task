@@ -58,6 +58,29 @@ EASTMONEY_MARKET_TYPES = {
     "116": "hk", "155": "uk", "176": "jp", "177": "kr", "185": "de", "186": "fr",
 }
 
+# A 股场内品种（股票/ETF/LOF/可转债等）在东方财富接口中的 market 数字：
+# 沪市 = "1"，深市 = "0"。数字落在该集合内一律归为 A 股（cn），
+# 避免 ETF/基金/场内品种因 securityTypeName 缺少市场信息而被判为未知。
+CN_EASTMONEY_MARKETS = {"0", "1"}
+
+
+def resolve_market_type(market_number: Any, security_type_name: Any = None) -> str | None:
+    """统一市场判定接口：按东方财富 market 数字范围判断。
+
+    判定顺序：
+    1. 已知市场映射表（美股/港股/日韩等按编号对应）；
+    2. A 股场内数字范围（沪 1 / 深 0，覆盖股票、ETF、LOF 等场内品种）→ cn；
+    3. securityTypeName 别名兜底；仍无法判定返回 None。
+    """
+    number = str(market_number or "").strip()
+    if number:
+        resolved = EASTMONEY_MARKET_TYPES.get(number)
+        if resolved:
+            return resolved
+        if number in CN_EASTMONEY_MARKETS:
+            return "cn"
+    return normalize_market_type(security_type_name)
+
 STOCK_CODE_SUFFIXES = {
     # A 股后缀由 normalize_stock_code 按交易所/代码规则处理。
     "en": ".US",
@@ -88,10 +111,8 @@ def normalize_market_type(value: Any, default: str | None = None) -> str | None:
 
 
 def market_type_from_eastmoney(market: Any, security_type_name: Any = None) -> str | None:
-    resolved = EASTMONEY_MARKET_TYPES.get(str(market or "").strip())
-    if resolved:
-        return resolved
-    return normalize_market_type(security_type_name)
+    """兼容入口：统一走 resolve_market_type 判定。"""
+    return resolve_market_type(market, security_type_name)
 
 
 def split_stock_code(stock_code: Any) -> tuple[str, str | None]:
@@ -153,10 +174,13 @@ def normalize_stock_code(
             return f"{code}.SS"
         if existing_suffix in {".SZ", ".BJ"}:
             return f"{code}{existing_suffix}"
-        if exchange == "1" or code.startswith(("6", "68")):
+        # 沪市：6(股票/科创板)、5(基金/ETF，如 510300)
+        if exchange == "1" or code.startswith(("5", "6")):
             return f"{code}.SS"
-        if exchange == "0" or code.startswith(("0", "2", "3")):
+        # 深市：0(主板)、1(基金/ETF/债券)、2(B股)、3(创业板，如 159919)
+        if exchange == "0" or code.startswith(("0", "1", "2", "3")):
             return f"{code}.SZ"
+        # 北交所：4/8 开头
         if code.startswith(("4", "8")):
             return f"{code}.BJ"
         return code
