@@ -52,8 +52,8 @@
 |---|---|---|---|
 | 接口端点总数 | 148（任务域 41 / 回测导出域 50 / 管理认证域 57） | 147（删除重复的 /api/admin/scheduler/status；新增 POST /api/google-sheet-tokens/reconcile） | B2/B3 |
 | 手拼信封/裸 jsonify 端点 | 5 处（task_api ×4、admin_api ×1） | **0**（剩余 3 处 grep 命中均为 task.get("status") 业务字段读取） | B2 |
-| `paginated()` / `parse_query` 使用次数 | 0 / 0 | 3 文件 / 2 文件（主列表端点全覆盖；`/api/tasks/<id>/results` 为登记延期项 D-3） | B2/B3 |
-| `BadRequestError(str(exc))` 类翻译链 | 14 端点 | task 域全清；24 处残留集中在 export/google_sheet 域（登记偏差 D-1，随服务层领域异常化收尾） | B2 |
+| `paginated()` / `parse_query` 使用次数 | 0 / 0 | 3 文件 / 3 文件；`/api/tasks/<id>/results` 分页与非分页分支均统一 items 形状 | B2/B3 |
+| `BadRequestError(str(exc))` 类翻译链 | 14 端点 | **路由层 0**（service 层 ValueError/LookupError 全部转 ValidationError/NotFoundError，约 70 处） | B2/D-1 |
 | 无鉴权端点 | 页面 25+ 全裸 + API 4 | 页面全部挂 `page_login_required`（43 处装饰器，匿名 302 登录页）+ cookie 回退；xpl analyze 挂 `login_required`；admin CUD/vacuum/rebuild 挂 `admin_required`（11 处） | A3/B1 |
 | 写操作零日志端点 | 13 个 | **0**（auth/navigation/task/admin/database 写路径全部补审计日志） | B1 |
 | C4/C5/C7 execute_task 重复 | 97 行逐字相同 ×3 | **基类唯一模板实现**（C4/C5/C7 零本地副本；C3 保留差异化覆盖并删除死分支） | C1 |
