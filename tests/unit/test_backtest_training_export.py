@@ -7,7 +7,7 @@ from openpyxl import Workbook
 from app.services.export_service import GeneratedFile
 from app.extensions import db
 from app.models import Task
-from app.services.backtest_training_api_service import (
+from app.services.backtest_report_query_service import (
     build_global_preview_workbook,
     _extract_summary_rows,
     _negative_percent_display,

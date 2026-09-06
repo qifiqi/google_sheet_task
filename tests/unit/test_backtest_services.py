@@ -6,7 +6,7 @@ import pytest
 from app.utils.return_series import parse_return_series_fields
 from app.extensions import db
 from app.models import BacktestProductResultCache, TaskResult, TaskResultReturn
-from app.services.backtest_training_api_service import _get_summary_derived_value
+from app.services.backtest_report_query_service import _get_summary_derived_value
 from app.services.backtest_multi_product_service import (
     BacktestMultiProductService,
     normalize_multi_product_config,

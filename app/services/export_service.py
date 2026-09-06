@@ -19,7 +19,7 @@ from app.services.backtest_multi_product_service import (
     build_multi_product_global_preview_payload,
     build_multi_product_global_preview_word_payload,
 )
-from app.services.backtest_training_api_service import (
+from app.services.backtest_report_query_service import (
     build_backtest_result_export_data,
     build_global_preview_payload,
     build_global_preview_workbook,

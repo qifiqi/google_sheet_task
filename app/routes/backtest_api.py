@@ -21,7 +21,7 @@ from app.services.backtest_multi_product_service import (
     normalize_multi_product_config,
     update_task_ratios,
 )
-from app.services.backtest_training_api_service import (
+from app.services.backtest_report_query_service import (
     C3_PARAMETER_FIELDS,
     build_backtest_result_export_data,
     build_backtest_result_export_rows,

@@ -20,10 +20,10 @@ from app.models import (
     TaskResult,
     TaskResultReturn,
 )
-from app.services.backtest_training_api_service import _build_zip_member_name
+from app.services.backtest_report_query_service import _build_zip_member_name
 from app.services.export_service import GeneratedFile, export_service
 from app.routes.backtest_api import _build_excel_download_name
-from app.services.backtest_training_api_service import build_global_preview_workbook
+from app.services.backtest_report_query_service import build_global_preview_workbook
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     BacktestMultiProductService,

@@ -3,7 +3,7 @@
 from flask import Blueprint, request
 
 from app.exceptions import BadRequestError
-from app.services.backtest_training_api_service import (
+from app.services.backtest_report_query_service import (
     build_global_preview_group_payload,
     build_global_preview_initial_payload,
 )
