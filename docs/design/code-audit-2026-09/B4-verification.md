@@ -35,9 +35,9 @@
 
 | 编号 | 内容 | 原因 | 归宿 |
 |---|---|---|---|
-| D-1 | `ValueError→BadRequestError(str(exc))` 翻译链残留 24 处（export_api 13、google_sheet_api 6、backtest_api 3、stock_api 2） | 需先在 service 层把 ValueError 校验改为带用户文案的领域异常，属服务层契约改造；现残留文案均为面向用户的校验文案，泄露风险低 | 随 C6（api_service 改名/领域异常化）一并完成 |
+| D-1 | ~~`ValueError→BadRequestError(str(exc))` 翻译链残留 24 处~~ | **已清零（2026-09 后续收尾）**：export/export_file/registry/token/search/excel/creation/occupancy/preview 服务改抛 ValidationError/NotFoundError（约 70 处），export_api/google_sheet_api/stock_api/task_api/backtest_api 路由翻译块全部删除；`grep "str(exc)"` 路由层为 0 | 已收口 |
 | D-2 | routes 中 `request.get_json(` 残留 21 处；`request.args` 手读残留（次要列表端点） | 多数 body 为 RootModel 透传型或操作型小负载，schema 化需逐端点设计 | B 系列后续滚动收敛；新端点由 §10 清单约束 |
-| D-3 | `/api/tasks/<task_id>/results` 的 `results` 键未翻转为 `items` | 该端点为条件分页（page/per_page 可选），前端 5 个 C 系详情页消费，翻转需同批改 5 处模板 JS | 与 C5（C 系拆包后详情页改造）同批 |
+| D-3 | ~~`/api/tasks/<task_id>/results` 的 `results` 键未翻转为 `items`~~ | **已完成（2026-09 后续收尾）**：分页与非分页分支统一为 items 形状，google_sheet/c4/c5/c7 四个详情页消费端同步（bmp/bt create 的 search-stocks `results` 为业务键，不属分页形状，保持不变） | 已收口 |
 | D-4 | `_load_backtest_task` 已公开化，但路由内 `_load_multi_product_task_or_raise`、`_build_excel_download_name`、`_build_word_report_payload`、`_infer_product_export_model_name` 仍为路由文件内函数 | 前两者耦合路由上下文，下沉目标（backtest_report_query_service）在 C6 才创建 | C6 |
 | D-5 | `tests/test/`（tests 根残留目录）与 archive 不在清理范围 | pytest norecursedirs 已排除，不影响收集 | 保持现状 |
 
