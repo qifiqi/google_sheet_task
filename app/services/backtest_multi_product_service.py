@@ -64,13 +64,13 @@ def normalize_price_mode(value: Any) -> str:
 def parse_ratio(value: Any) -> Decimal:
     raw = str(value if value is not None else "").strip().replace("%", "")
     if not raw:
-        raise ValueError("产品比例不能为空")
+        raise ValidationError("产品比例不能为空")
     try:
         ratio = Decimal(raw)
     except InvalidOperation as exc:
-        raise ValueError(f"产品比例不是有效数字: {value}") from exc
+        raise ValidationError(f"产品比例不是有效数字: {value}") from exc
     if ratio < 0:
-        raise ValueError("产品比例不能小于 0")
+        raise ValidationError("产品比例不能小于 0")
     return ratio
 
 
@@ -136,7 +136,7 @@ def _normalize_sheet(product: dict[str, Any]) -> dict[str, str]:
     sheet_name = str(sheet.get("sheet_name") or product.get("sheet_name") or "data").strip()
     title = str(sheet.get("title") or product.get("title") or "").strip()
     if not spreadsheet_id:
-        raise ValueError("每个产品都必须配置 Google Sheet 链接")
+        raise ValidationError("每个产品都必须配置 Google Sheet 链接")
     return {
         "spreadsheet_id": spreadsheet_id,
         "sheet_name": sheet_name or "data",
@@ -166,26 +166,26 @@ def update_task_ratios(task_id: str, task_config, ratios: list) -> dict:
 
 def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(config, dict):
-        raise ValueError("多品数据回测 config 必须是 JSON 对象")
+        raise ValidationError("多品数据回测 config 必须是 JSON 对象")
 
     start_date = str(config.get("start_date") or "").strip()
     end_date = str(config.get("end_date") or "").strip()
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start_date):
-        raise ValueError("请填写有效的 K 线开始日期")
+        raise ValidationError("请填写有效的 K 线开始日期")
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end_date):
-        raise ValueError("请填写有效的 K 线结束日期")
+        raise ValidationError("请填写有效的 K 线结束日期")
     if start_date > end_date:
-        raise ValueError("K 线开始日期不能晚于结束日期")
+        raise ValidationError("K 线开始日期不能晚于结束日期")
 
     products = config.get("products")
     if not isinstance(products, list) or len(products) < 2:
-        raise ValueError("多品数据回测至少需要 2 个产品")
+        raise ValidationError("多品数据回测至少需要 2 个产品")
 
     normalized_products = []
     expected_parameter_count = None
     for index, product in enumerate(products, start=1):
         if not isinstance(product, dict):
-            raise ValueError(f"产品 {index} 配置格式不正确")
+            raise ValidationError(f"产品 {index} 配置格式不正确")
         raw_stock_code = str(product.get("stock_code") or "").strip().upper()
         market_type = normalize_market_type(
             product.get("market_type") or config.get("market_type")
@@ -196,17 +196,17 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             product.get("exchange_market") or config.get("exchange_market"),
         )
         if not stock_code:
-            raise ValueError(f"产品 {index} 缺少股票代码")
+            raise ValidationError(f"产品 {index} 缺少股票代码")
         parameters = product.get("parameters")
         if not isinstance(parameters, list) or not parameters:
-            raise ValueError(f"产品 {index} 至少需要一行参数")
+            raise ValidationError(f"产品 {index} 至少需要一行参数")
         for row_index, row in enumerate(parameters, start=1):
             if not isinstance(row, list) or not any(str(item).strip() for item in row):
-                raise ValueError(f"产品 {index} 第 {row_index} 行参数为空")
+                raise ValidationError(f"产品 {index} 第 {row_index} 行参数为空")
         if expected_parameter_count is None:
             expected_parameter_count = len(parameters)
         elif len(parameters) != expected_parameter_count:
-            raise ValueError("所有产品的参数行数必须一致，才能按行号对齐")
+            raise ValidationError("所有产品的参数行数必须一致，才能按行号对齐")
 
         normalized_products.append({
             **product,

@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from app.exceptions import ValidationError
+
 from app.utils.return_series import parse_return_series_fields
 from app.extensions import db
 from app.models import BacktestProductResultCache, TaskResult, TaskResultReturn
@@ -425,7 +427,7 @@ def test_c7_summary_formats_raw_drawdown_as_percentage_points():
 
 
 def test_multi_product_normalize_rejects_parameter_count_mismatch():
-    with pytest.raises(ValueError, match="参数行数必须一致"):
+    with pytest.raises(ValidationError, match="参数行数必须一致"):
         normalize_multi_product_config({
             "start_date": "2024-01-01",
             "end_date": "2024-12-31",

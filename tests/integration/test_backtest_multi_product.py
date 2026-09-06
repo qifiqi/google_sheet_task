@@ -4,6 +4,8 @@ from io import BytesIO
 from zipfile import ZipFile
 
 import pytest
+
+from app.exceptions import ValidationError
 from openpyxl import Workbook
 
 from app.services.performance_analysis.portfolio_combiner import (
@@ -166,7 +168,7 @@ def test_normalize_multi_product_config_validates_parameter_alignment():
         "products": [product_1, product_2],
     }
 
-    with pytest.raises(ValueError, match="参数行数必须一致"):
+    with pytest.raises(ValidationError, match="参数行数必须一致"):
         normalize_multi_product_config(config)
 
 

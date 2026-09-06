@@ -272,7 +272,8 @@ def _build_word_report_payload(task: dict, task_result) -> dict | None:
     """按当前结果的参数方案构造多品 Word 报告请求。"""
     try:
         config = normalize_multi_product_config(task.get("config") or {})
-    except ValueError:
+    except ValidationError:
+        # 软失败：历史/残缺配置下 Word 报告段落返回 None，主流程继续
         return None
     selected_parameters = _parse_json(task_result.parameters, {})
     group_index = str(selected_parameters.get("parameter_group_index") or 0)
