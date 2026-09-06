@@ -1,8 +1,8 @@
 """统一文件导出接口。
 
 任务/结果读取经 task 查询服务（task_manager）；导出编排经 export_service。
-导出服务的 ValueError/LookupError 语义保持原有 400/404 映射；
-其余未预期异常交全局处理器转 500。
+导出服务抛领域异常（ValidationError→400、NotFoundError→404），
+由全局处理器统一渲染信封；路由不做异常翻译。
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import json
 from dataclasses import replace
 from urllib.parse import quote
 
-from flask import Blueprint, Response, g, jsonify, request, send_file, stream_with_context
+from flask import Blueprint, Response, g, request, send_file, stream_with_context
 
 from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter
@@ -101,10 +101,7 @@ def _parse_ratios_query():
 def export_task_results(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
-    try:
-        return _file_response(export_service.export_task_results(task["id"]))
-    except (ValueError, LookupError) as exc:
-        raise BadRequestError(str(exc))
+    return _file_response(export_service.export_task_results(task["id"]))
 
 
 @export_api_bp.route("/tasks/<task_id>/stocks", methods=["GET"])
@@ -113,10 +110,7 @@ def export_task_results(task_id):
 def export_task_results_by_stock(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
-    try:
-        return _file_response(export_service.export_task_results_by_stock(task["id"]))
-    except (ValueError, LookupError) as exc:
-        raise BadRequestError(str(exc))
+    return _file_response(export_service.export_task_results_by_stock(task["id"]))
 
 
 @export_api_bp.route("/tasks/batch", methods=["POST"])
@@ -127,12 +121,7 @@ def export_task_results_batch():
     task_ids = data.get("task_ids")
     if not isinstance(task_ids, list):
         raise BadRequestError("task_ids 必须是数组")
-    try:
-        return _file_response(export_service.export_task_results_batch(task_ids))
-    except LookupError as exc:
-        raise NotFoundError(str(exc))
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
+    return _file_response(export_service.export_task_results_batch(task_ids))
 
 
 @export_api_bp.route("/global-previews/<task_id>", methods=["GET"])
@@ -142,17 +131,14 @@ def export_global_preview(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
-    try:
-        generated = export_service.export_global_preview(task["id"], ratios_override=ratios)
-        export_name = request.args.get("export_name")
-        if export_name:
-            generated = replace(
-                generated,
-                filename=f"{sanitize_export_filename(export_name)}.xlsx",
-            )
-        return _file_response(generated)
-    except (ValueError, LookupError) as exc:
-        raise BadRequestError(str(exc))
+    generated = export_service.export_global_preview(task["id"], ratios_override=ratios)
+    export_name = request.args.get("export_name")
+    if export_name:
+        generated = replace(
+            generated,
+            filename=f"{sanitize_export_filename(export_name)}.xlsx",
+        )
+    return _file_response(generated)
 
 
 @export_api_bp.route("/global-previews/<task_id>/stocks", methods=["GET"])
@@ -162,11 +148,8 @@ def export_global_preview_by_stock(task_id):
     task = task_manager.get_required_task(task_id)
     _require_completed_task(task)
     ratios = _parse_ratios_query()
-    try:
-        generated = export_service.export_global_preview_by_stock(task["id"], ratios_override=ratios)
-        return _stream_response(generated)
-    except (ValueError, LookupError) as exc:
-        raise BadRequestError(str(exc))
+    generated = export_service.export_global_preview_by_stock(task["id"], ratios_override=ratios)
+    return _stream_response(generated)
 
 
 @export_api_bp.route("/global-previews/batch", methods=["POST"])
@@ -178,12 +161,7 @@ def export_global_preview_batch():
     if not isinstance(task_ids, list):
         raise BadRequestError("task_ids 必须是数组")
     normalized_ids = list(dict.fromkeys(str(item).strip() for item in task_ids if str(item).strip()))
-    try:
-        return _file_response(export_service.export_global_preview_batch(normalized_ids))
-    except LookupError as exc:
-        raise NotFoundError(str(exc))
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
+    return _file_response(export_service.export_global_preview_batch(normalized_ids))
 
 
 @export_api_bp.route("/backtest-results/<int:result_id>", methods=["GET"])
@@ -194,20 +172,14 @@ def export_backtest_result(result_id):
     if not task_result:
         raise NotFoundError("任务结果不存在")
     task_manager.get_required_task(task_result["task_id"])
-    try:
-        return _file_response(export_service.export_backtest_result(result_id))
-    except (ValueError, LookupError) as exc:
-        raise BadRequestError(str(exc))
+    return _file_response(export_service.export_backtest_result(result_id))
 
 
 @export_api_bp.route("/xpl", methods=["POST"])
 @login_required
 @_export_limit
 def export_xpl():
-    try:
-        return _file_response(export_service.export_xpl(request.get_json(silent=True) or {}))
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
+    return _file_response(export_service.export_xpl(request.get_json(silent=True) or {}))
 
 
 @export_api_bp.route("/backtest-reports/word", methods=["POST"])
@@ -216,27 +188,21 @@ def export_xpl():
 def export_backtest_word_report():
     """接收单产品或多产品回测收益序列并导出 DOCX 报告。"""
     report_request = parse_body(StrategyBacktestReportSchema)
-    try:
-        generated = export_service.export_backtest_word(report_request)
-        generated = replace(
-            generated,
-            filename=sanitize_export_filename(generated.filename, "策略回测绩效分析报告.docx"),
-        )
-        return _file_response(generated)
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
+    generated = export_service.export_backtest_word(report_request)
+    generated = replace(
+        generated,
+        filename=sanitize_export_filename(generated.filename, "策略回测绩效分析报告.docx"),
+    )
+    return _file_response(generated)
 
 
 @export_api_bp.route("/model-summary", methods=["GET"])
 @login_required
 @_export_limit
 def export_model_summary():
-    try:
-        generated = export_service.export_model_summary(
-            getattr(g, "current_user", None),
-            request.args.to_dict(),
-            ignore_permissions=True,
-        )
-        return _file_response(generated)
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
+    generated = export_service.export_model_summary(
+        getattr(g, "current_user", None),
+        request.args.to_dict(),
+        ignore_permissions=True,
+    )
+    return _file_response(generated)

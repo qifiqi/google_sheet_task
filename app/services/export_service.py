@@ -13,6 +13,7 @@ from typing import Any, BinaryIO, Callable, Iterable
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
 
 from app.models import Task
+from app.exceptions import NotFoundError, ValidationError
 from app.repositories import task_repository, task_result_repository
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.backtest_multi_product_preview import (
@@ -100,7 +101,7 @@ class ExportService:
         task = self._get_task(task_id)
         results = task_manager.get_task_results(task_id)
         if not results:
-            raise ValueError("任务暂无可导出结果")
+            raise ValidationError("任务暂无可导出结果")
         export = build_task_export(task, results)
         buffer = BytesIO()
         export.workbook.save(buffer)
@@ -112,9 +113,9 @@ class ExportService:
         task = self._get_task(task_id)
         results = task_manager.get_task_results(task_id)
         if str(task.task_type or "").strip().lower() != "google_sheet_c7":
-            raise ValueError("按股票代码导出仅支持 C7 任务")
+            raise ValidationError("按股票代码导出仅支持 C7 任务")
         if not results:
-            raise ValueError("任务暂无可导出结果")
+            raise ValidationError("任务暂无可导出结果")
         export = build_c7_stock_code_export_archive(task, results)
         return GeneratedFile(export.filename, export.mimetype, export.buffer, export.buffer.getbuffer().nbytes)
 
@@ -122,15 +123,15 @@ class ExportService:
         """处理export_task_results_batch相关逻辑。"""
         task_ids = self._validate_task_ids(task_ids)
         if len(task_ids) > MAX_BATCH_TASKS:
-            raise ValueError(f"合并导出最多支持 {MAX_BATCH_TASKS} 个任务，当前选择了 {len(task_ids)} 个")
+            raise ValidationError(f"合并导出最多支持 {MAX_BATCH_TASKS} 个任务，当前选择了 {len(task_ids)} 个")
 
         tasks = task_repository.list_by_ids(task_ids)
         if not tasks:
-            raise LookupError("未找到匹配任务")
+            raise NotFoundError("未找到匹配任务")
         task_map = {task["id"]: task for task in tasks}
         missing = [task_id for task_id in task_ids if task_id not in task_map]
         if missing:
-            raise LookupError(f"任务不存在: {', '.join(missing)}")
+            raise NotFoundError(f"任务不存在: {', '.join(missing)}")
 
         rows = task_result_repository.list_export_rows(task_ids)
         result_map: dict[str, list[dict[str, Any]]] = {}
@@ -154,7 +155,7 @@ class ExportService:
                 item["task_name"] = task["name"] or ""
                 merged_results.append(item)
         if not merged_results:
-            raise ValueError("所选任务均无结果数据")
+            raise ValidationError("所选任务均无结果数据")
 
         worksheets = build_c3_worksheets(merged_results)
         csv_buffer = StringIO(newline="")
@@ -178,7 +179,7 @@ class ExportService:
         task = self._get_task(task_id)
         payload = self._global_preview_payload(task, ratios_override=ratios_override)
         if payload is None:
-            raise LookupError("任务不存在")
+            raise NotFoundError("任务不存在")
         workbook = build_global_preview_workbook(payload)
         buffer = BytesIO()
         workbook.save(buffer)
@@ -196,7 +197,7 @@ class ExportService:
         task = self._get_task(task_id)
         payload = self._global_preview_payload(task, ratios_override=ratios_override)
         if payload is None:
-            raise LookupError("任务不存在")
+            raise NotFoundError("任务不存在")
         task_name = sanitize_export_filename(task.name or task_id)
         return GeneratedStream(
             filename=f"{task_name}_global_preview.zip",
@@ -208,7 +209,7 @@ class ExportService:
         """处理export_global_preview_batch相关逻辑。"""
         task_ids = self._validate_task_ids(task_ids)
         if len(task_ids) > MAX_BATCH_TASKS:
-            raise ValueError(f"批量导出最多支持 {MAX_BATCH_TASKS} 个任务，当前选择了 {len(task_ids)} 个")
+            raise ValidationError(f"批量导出最多支持 {MAX_BATCH_TASKS} 个任务，当前选择了 {len(task_ids)} 个")
 
         zip_buffer = BytesIO()
         used_names: set[str] = set()
@@ -216,10 +217,10 @@ class ExportService:
             for task_id in task_ids:
                 task = self._get_task(task_id)
                 if task.status != "completed":
-                    raise ValueError(f"任务 {task.name or task_id} 尚未完成，不能导出")
+                    raise ValidationError(f"任务 {task.name or task_id} 尚未完成，不能导出")
                 payload = self._global_preview_payload(task)
                 if payload is None:
-                    raise LookupError(f"任务不存在: {task_id}")
+                    raise NotFoundError(f"任务不存在: {task_id}")
                 workbook = build_global_preview_workbook(payload)
                 workbook_buffer = BytesIO()
                 workbook.save(workbook_buffer)
@@ -240,7 +241,7 @@ class ExportService:
         """处理export_backtest_result相关逻辑。"""
         task_result = task_result_repository.get_export_entity(result_id)
         if not task_result:
-            raise LookupError("任务结果不存在")
+            raise NotFoundError("任务结果不存在")
         task = self._get_task(task_result.task_id)
         export_data = build_backtest_result_export_data(task_result, task)
         buffer, mimetype = xpl_analyzer.export_file(export_data)
@@ -249,7 +250,7 @@ class ExportService:
     def export_xpl(self, payload: dict[str, Any]) -> GeneratedFile:
         """处理export_xpl相关逻辑。"""
         if not isinstance(payload, dict) or not payload:
-            raise ValueError("请求数据不能为空")
+            raise ValidationError("请求数据不能为空")
         buffer, mimetype = xpl_analyzer.export_file(payload)
         filename = payload.get("filename") or "xpl_export.csv"
         if not str(filename).lower().endswith(".csv"):
@@ -270,7 +271,7 @@ class ExportService:
             ignore_permissions=ignore_permissions,
         )
         if payload.get("status") != "success":
-            raise ValueError(payload.get("message") or "模型汇总导出失败")
+            raise ValidationError(payload.get("message") or "模型汇总导出失败")
         content = "\ufeff" + (payload.get("content") or "")
         raw = content.encode("utf-8")
         buffer = BytesIO(raw)
@@ -288,18 +289,18 @@ class ExportService:
         payload = report_request
         if report_request.report_type == "RPT-M":
             if not report_request.task_id:
-                raise ValueError("RPT-M 报告必须传入 task_id")
+                raise ValidationError("RPT-M 报告必须传入 task_id")
             if report_request.group_key in (None, ""):
-                raise ValueError("RPT-M 报告必须传入 group_key")
+                raise ValidationError("RPT-M 报告必须传入 group_key")
             if not isinstance(report_request.ratios, list):
-                raise ValueError("RPT-M 报告的 ratios 必须是数组")
+                raise ValidationError("RPT-M 报告的 ratios 必须是数组")
             word_payload = build_multi_product_global_preview_word_payload(
                 report_request.task_id,
                 str(report_request.group_key),
                 ratios_override=report_request.ratios,
             )
             if word_payload is None:
-                raise ValueError("task_id 不是有效的多产品回测任务")
+                raise ValidationError("task_id 不是有效的多产品回测任务")
             payload = StrategyBacktestReportSchema.model_validate(word_payload)
         filename, buffer = strategy_backtest_report_service.generate_word(payload)
         return GeneratedFile(filename, DOCX_MIMETYPE, buffer, buffer.getbuffer().nbytes)
@@ -308,17 +309,17 @@ class ExportService:
         """按 ID 获取任务（实体供导出构造器消费）。"""
         task = task_repository.get_entity(task_id)
         if not task:
-            raise LookupError("任务不存在")
+            raise NotFoundError("任务不存在")
         return task
 
     @staticmethod
     def _validate_task_ids(task_ids: Any) -> list[str]:
         """校验并规范化任务 ID 列表。"""
         if not isinstance(task_ids, list) or not task_ids:
-            raise ValueError("请选择至少一个任务")
+            raise ValidationError("请选择至少一个任务")
         normalized = list(dict.fromkeys(str(item).strip() for item in task_ids if str(item).strip()))
         if not normalized:
-            raise ValueError("请选择至少一个任务")
+            raise ValidationError("请选择至少一个任务")
         return normalized
 
     @staticmethod

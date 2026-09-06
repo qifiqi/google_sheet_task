@@ -12,6 +12,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.exceptions import ValidationError
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
@@ -351,9 +352,9 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
     """按股票代码拆分 C7 结果，并将现有 Excel 导出格式打包为 ZIP。"""
 
     if _task_type(task) != "google_sheet_c7":
-        raise ValueError("按股票代码导出仅支持 C7 任务")
+        raise ValidationError("按股票代码导出仅支持 C7 任务")
     if not results:
-        raise ValueError("任务暂无可导出结果")
+        raise ValidationError("任务暂无可导出结果")
 
     grouped_results: dict[str, list[dict[str, Any]]] = {}
     for item in results:
@@ -394,7 +395,7 @@ def get_task_result_exporter(task: Any) -> TaskResultExporter:
         if exporter.supports(task):
             return exporter
     task_type = getattr(task, "task_type", None) or "unknown"
-    raise ValueError(f"暂不支持导出任务类型: {task_type}")
+    raise ValidationError(f"暂不支持导出任务类型: {task_type}")
 
 
 def build_c5_rows(results: list[dict[str, Any]]) -> list[list[Any]]:
@@ -1232,7 +1233,7 @@ def build_batch_export_file(
         ValueError: 当 merged_results 为空时抛出，由路由层返回 400。
     """
     if not merged_results:
-        raise ValueError("所选任务均无结果数据")
+        raise ValidationError("所选任务均无结果数据")
 
     # ① 构建 worksheet 数据（含排序、分组、格式化）
     worksheets = build_c3_worksheets(merged_results)
