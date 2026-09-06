@@ -3,8 +3,8 @@
 数据层说明：列表/详情/导入/删除全部经 google_sheet_registry_service /
 google_sheet_token_service；路由层不直接感知 repository。
 
-服务层仍以 ValueError 表达请求校验失败（400 语义），本层显式翻译为
-BadRequestError；待服务层改抛语义异常后移除该翻译。
+服务层抛领域异常（ValidationError→400、NotFoundError→404），
+由全局处理器统一渲染信封。
 """
 from flask import Blueprint, request
 
@@ -37,10 +37,7 @@ def get_worksheets():
     if not spreadsheet_id:
         raise BadRequestError("缺少spreadsheet_id参数")
 
-    try:
-        result = get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
-    except ValueError as e:
-        raise BadRequestError(str(e))
+    result = get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
     return success(data=result)
 
 
@@ -65,16 +62,13 @@ def google_sheets():
         })
 
     data = request.get_json() or {}
-    try:
-        item = service.create_sheet(
-            spreadsheet_id=data.get('spreadsheet_id', ''),
-            name=data.get('name'),
-            table_type=data.get('table_type'),
-            remark=data.get('remark'),
-            is_active=data.get('is_active', True),
-        )
-    except ValueError as e:
-        raise BadRequestError(str(e))
+    item = service.create_sheet(
+        spreadsheet_id=data.get('spreadsheet_id', ''),
+        name=data.get('name'),
+        table_type=data.get('table_type'),
+        remark=data.get('remark'),
+        is_active=data.get('is_active', True),
+    )
     return success(data={"item": item}, message="Google Sheet 创建成功")
 
 
@@ -102,16 +96,10 @@ def google_sheet_detail(sheet_id):
                 payload[key] = data.get(key)
         if 'is_active' in data:
             payload['is_active'] = data.get('is_active')
-        try:
-            item = service.update_sheet(sheet_id, **payload)
-        except ValueError as e:
-            raise BadRequestError(str(e))
+        item = service.update_sheet(sheet_id, **payload)
         return success(data={"item": item}, message="Google Sheet 更新成功")
 
-    try:
-        service.delete_sheet(sheet_id)
-    except ValueError as e:
-        raise BadRequestError(str(e))
+    service.delete_sheet(sheet_id)
     return success(message="Google Sheet 删除成功")
 
 
@@ -156,10 +144,7 @@ def google_sheet_token_detail(token_id):
     if 'max_usage_count' in data:
         payload['max_usage_count'] = data.get('max_usage_count')
 
-    try:
-        token = token_service.update_token(token_id, **payload)
-    except ValueError as e:
-        raise BadRequestError(str(e))
+    token = token_service.update_token(token_id, **payload)
     return success(data={"token": token}, message="Token更新成功")
 
 
@@ -174,16 +159,13 @@ def import_google_sheet_token():
     task_type = data.task_type
     max_usage_count = data.max_usage_count
 
-    try:
-        token, created = get_google_sheet_token_service().import_token(
-            token_context=token_context,
-            token_file=token_file,
-            name=name,
-            max_usage_count=max_usage_count,
-            task_type=task_type,
-        )
-    except ValueError as e:
-        raise BadRequestError(str(e))
+    token, created = get_google_sheet_token_service().import_token(
+        token_context=token_context,
+        token_file=token_file,
+        name=name,
+        max_usage_count=max_usage_count,
+        task_type=task_type,
+    )
     return success(
         data={"token": token},
         message="Token新增成功" if created else "Token更新成功",

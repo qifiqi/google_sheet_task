@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.models import GoogleSheetTableType
+from app.exceptions import ValidationError
 from app.repositories import google_sheet_repository, task_repository
 from app.services.google_sheet_registry_service import (
     get_google_sheet_registry_service,
@@ -96,9 +97,9 @@ class TaskOccupancyMixin:
         for sheet_id in self._collect_google_sheet_ids(config):
             sheet = google_sheet_repository.get(sheet_id)
             if not sheet:
-                raise ValueError("所选 Google Sheet 不存在")
+                raise ValidationError("所选 Google Sheet 不存在")
             if not sheet["is_active"]:
-                raise ValueError("所选 Google Sheet 未启用")
+                raise ValidationError("所选 Google Sheet 未启用")
             if (
                 not allow_in_use
                 and
@@ -106,19 +107,19 @@ class TaskOccupancyMixin:
                 and sheet["current_task_id"]
                 and sheet["current_task_id"] != task_id
             ):
-                raise ValueError("该 Google Sheet 已被其他任务使用")
+                raise ValidationError("该 Google Sheet 已被其他任务使用")
 
     def validate_backtest_training_sheet(self, config: dict[str, Any] | None) -> None:
         """Verify that a single-product backtest uses its dedicated sheet type."""
         sheet_config = config.get("sheet") if isinstance(config, dict) else None
         if not isinstance(sheet_config, dict):
-            raise ValueError("单品回测缺少 Google Sheet 配置")
+            raise ValidationError("单品回测缺少 Google Sheet 配置")
 
         google_sheet_id = sheet_config.get("google_sheet_id")
         spreadsheet_id = str(sheet_config.get("spreadsheet_id") or "").strip()
         if not google_sheet_id:
             if not spreadsheet_id:
-                raise ValueError("单品回测缺少 Google Sheet ID")
+                raise ValidationError("单品回测缺少 Google Sheet ID")
             return
 
         try:
@@ -127,13 +128,13 @@ class TaskOccupancyMixin:
             sheet = None
 
         if not sheet:
-            raise ValueError("所选单品回测 Sheet 不存在")
+            raise ValidationError("所选单品回测 Sheet 不存在")
         if not sheet["is_active"]:
-            raise ValueError("所选单品回测 Sheet 未启用")
+            raise ValidationError("所选单品回测 Sheet 未启用")
         if sheet["table_type"] != GoogleSheetTableType.BACKTEST_TRAINING.value:
-            raise ValueError("所选 Sheet 不是单品回测模板")
+            raise ValidationError("所选 Sheet 不是单品回测模板")
         if not spreadsheet_id or sheet["spreadsheet_id"] != spreadsheet_id:
-            raise ValueError("所选单品回测 Sheet 信息不一致")
+            raise ValidationError("所选单品回测 Sheet 信息不一致")
 
     def release_google_sheet_occupancy(self, task_id: str) -> None:
         """释放任务关联的 Google Sheet 占用。"""

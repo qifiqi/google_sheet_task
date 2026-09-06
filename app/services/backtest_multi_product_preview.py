@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import Any
 
+from app.exceptions import ValidationError
 from app.repositories import task_repository, task_result_repository
 from app.services.backtest_multi_product_service import (
     SUMMARY_ROW_DEFS,
@@ -51,7 +52,7 @@ def build_multi_product_global_preview_payload(
     products = config["products"]
     if ratios_override is not None:
         if len(ratios_override) != len(products):
-            raise ValueError("比例数量与产品数量不一致")
+            raise ValidationError("比例数量与产品数量不一致")
         for product, ratio in zip(products, ratios_override):
             product["ratio"] = normalize_ratio_display(
                 ratio.get("ratio") if isinstance(ratio, dict) else ratio
@@ -227,7 +228,7 @@ def build_multi_product_global_preview_word_payload(
     products = config["products"]
     if ratios_override is not None:
         if len(ratios_override) != len(products):
-            raise ValueError("比例数量与产品数量不一致")
+            raise ValidationError("比例数量与产品数量不一致")
         for product, ratio in zip(products, ratios_override):
             product["ratio"] = normalize_ratio_display(
                 ratio.get("ratio") if isinstance(ratio, dict) else ratio
@@ -250,7 +251,7 @@ def build_multi_product_global_preview_word_payload(
         if not product_results.get(product["product_index"], {}).get("return_date")
     ]
     if missing_indexes:
-        raise ValueError(f"参数方案缺少产品 {', '.join(missing_indexes)} 的收益序列")
+        raise ValidationError(f"参数方案缺少产品 {', '.join(missing_indexes)} 的收益序列")
 
     returns = _build_portfolio_return_date(
         product_results,
@@ -258,7 +259,7 @@ def build_multi_product_global_preview_word_payload(
         normalize_weighting_mode(config.get("weighting_mode")),
     )
     if len(returns) < 2:
-        raise ValueError("比例组合后的共同交易日不足 2 天")
+        raise ValidationError("比例组合后的共同交易日不足 2 天")
 
     model_versions: list[str] = []
     price_types: list[str] = []

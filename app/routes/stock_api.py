@@ -1,6 +1,6 @@
 from flask import Blueprint, request
 
-from app.exceptions import BadRequestError, ServiceError
+from app.exceptions import ServiceError
 from app.services.stock_search_service import StockSearchService
 from app.utils.api_response import success
 from app.utils.auth import login_required
@@ -16,19 +16,15 @@ def search_stocks():
     page_size = request.args.get("page_size", default=10, type=int) or 10
     page_size = max(1, min(page_size, 20))
 
-    try:
-        results = StockSearchService().search_stocks(
-            keyword,
-            # 搜索接口展示所有市场；市场类型仅用于任务侧的精确解析。
-            market_type=None,
-            page_size=page_size,
-        )
-        StockSearchService.save_metadata(results)
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
-    except RuntimeError as exc:
-        # 上游搜索服务不可用，保持原有 502 语义。
-        raise ServiceError(str(exc), http_status=502)
+    # ValidationError→400、上游不可用 RuntimeError→ServiceError(502)，
+    # 均由全局处理器渲染；上游错误文本不透传客户端。
+    results = StockSearchService().search_stocks(
+        keyword,
+        # 搜索接口展示所有市场；市场类型仅用于任务侧的精确解析。
+        market_type=None,
+        page_size=page_size,
+    )
+    StockSearchService.save_metadata(results)
 
     return success(data={
         "keyword": keyword,

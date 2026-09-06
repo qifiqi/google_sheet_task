@@ -1,5 +1,7 @@
 import pytest
 
+from app.exceptions import ValidationError
+
 from app.models import GoogleSheetTokenTaskType
 from app.services.google_sheet_tasks.c5 import C5Service as C5GoogleSheetService
 from app.services.google_sheet_tasks.c7 import C7Service as C7GoogleSheetService
@@ -57,7 +59,7 @@ def test_c5_custom_kline_config_normalizes_disabled_options():
 
 
 def test_c7_rejects_invalid_kline_source():
-    with pytest.raises(ValueError, match="kline_source"):
+    with pytest.raises(ValidationError, match="kline_source"):
         _TaskCreation()._normalize_task_config_for_type(
             "google_sheet_C7",
             {"kline_source": "manual"},
@@ -73,7 +75,7 @@ def test_c7_random_price_config_uses_defaults_and_validates_group_count():
     assert normalized["random_price_range"] == "high_low"
     assert normalized["random_group_count"] == 1
 
-    with pytest.raises(ValueError, match="随机组数"):
+    with pytest.raises(ValidationError, match="随机组数"):
         _TaskCreation()._normalize_task_config_for_type(
             "google_sheet_C7",
             {
@@ -83,7 +85,7 @@ def test_c7_random_price_config_uses_defaults_and_validates_group_count():
             },
         )
 
-    with pytest.raises(ValueError, match="随机组数"):
+    with pytest.raises(ValidationError, match="随机组数"):
         _TaskCreation()._normalize_task_config_for_type(
             "google_sheet_C7",
             {
@@ -95,7 +97,7 @@ def test_c7_random_price_config_uses_defaults_and_validates_group_count():
 
 
 def test_c7_random_price_rejects_c7_0_3_sheet():
-    with pytest.raises(ValueError, match="C7.0.2"):
+    with pytest.raises(ValidationError, match="C7.0.2"):
         _TaskCreation()._normalize_task_config_for_type(
             "google_sheet_C7",
             {
@@ -128,7 +130,7 @@ def test_custom_kline_parameters_use_existing_sheet_kline_without_auto_conversio
 
 
 def test_custom_kline_rejects_market_selection():
-    with pytest.raises(ValueError, match="A股/美股"):
+    with pytest.raises(ValidationError, match="A股/美股"):
         _TaskCreation()._normalize_task_config_for_type(
             "google_sheet_C5",
             {

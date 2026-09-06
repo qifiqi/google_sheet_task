@@ -6,8 +6,10 @@ import json
 import re
 from typing import Any
 
+from app.exceptions import ValidationError
 from app.repositories import stock_metadata_repository
 from app.utils.dfcf_api import DFCJStockApi
+from app.utils.logger import get_logger
 from app.utils.market import (
     MARKET_LABELS,
     market_type_from_eastmoney,
@@ -15,6 +17,9 @@ from app.utils.market import (
     normalize_stock_code,
     strip_stock_code_suffix,
 )
+
+logger = get_logger(__name__)
+
 
 
 class StockSearchService:
@@ -41,7 +46,9 @@ class StockSearchService:
             strip_stock_code_suffix(keyword), page_size
         )
         if isinstance(raw_results, dict):
-            raise RuntimeError(raw_results.get("error") or "股票搜索失败")
+            upstream_message = raw_results.get("error") or "股票搜索失败"
+            logger.warning("股票搜索上游失败: %s", upstream_message)
+            raise RuntimeError("股票搜索服务暂时不可用，请稍后重试")
 
         results = [
             item for raw in raw_results or []
@@ -56,9 +63,9 @@ class StockSearchService:
         code = str(stock_code or "").strip().upper()
         requested_market = self._normalize_requested_market(market_type)
         if not code:
-            raise ValueError("股票代码不能为空")
+            raise ValidationError("股票代码不能为空")
         if not requested_market:
-            raise ValueError("任务市场类型不能为空")
+            raise ValidationError("任务市场类型不能为空")
 
         source_code = strip_stock_code_suffix(code)
         results = self.search_stocks(source_code, market_type=requested_market, page_size=20)
@@ -71,12 +78,12 @@ class StockSearchService:
         )
         if not result:
             market_label = MARKET_LABELS.get(requested_market, requested_market)
-            raise ValueError(
+            raise ValidationError(
                 f"未找到{market_label}（{requested_market}）市场股票代码 {code}。"
                 "请确认代码和市场类型一致；港股代码可使用 0700 或 00700。"
             )
         if not result["exchange_market"]:
-            raise ValueError(f"股票{code}搜索结果缺少交易市场编码")
+            raise ValidationError(f"股票{code}搜索结果缺少交易市场编码")
         return result
 
     @staticmethod
@@ -102,7 +109,7 @@ class StockSearchService:
             return None
         normalized = normalize_market_type(value)
         if not normalized:
-            raise ValueError("market_type 不支持该市场类型")
+            raise ValidationError("market_type 不支持该市场类型")
         return normalized
 
     @staticmethod

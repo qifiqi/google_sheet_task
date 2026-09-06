@@ -17,6 +17,7 @@ from app.utils.return_series import build_return_series_fields, extract_return_r
 from app.utils.logger import get_logger
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.task_error_utils import RetryableNetworkTaskError, is_retryable_network_error, unwrap_exception
+from app.exceptions import ValidationError
 from app.exceptions.sheet_check_error import SheetCheckError
 
 
@@ -991,7 +992,7 @@ class BaseGoogleSheetService:
             with GoogleSheet(spreadsheet_id, None, token_file, proxy_url) as google_sheet:
                 worksheets = google_sheet.get_all_worksheets()
                 if not worksheets:
-                    raise ValueError("未找到任何工作表")
+                    raise ValidationError("未找到任何工作表")
 
                 title = google_sheet.sheet.title if google_sheet.sheet else ""
                 return {"title": title, "worksheets": worksheets}

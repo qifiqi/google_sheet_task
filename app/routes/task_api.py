@@ -73,14 +73,11 @@ def batch_create_tasks():
     data = parse_body(TasksBatchCreateSchema).root
     logger.info("C31 batch create request: %s", json.dumps(data, ensure_ascii=False, default=str))
 
-    try:
-        result = task_manager.batch_create_and_start_task(
-            data,
-            created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
-        )
-    except ValueError as exc:
-        # 服务层以 ValueError 表达请求校验失败（400 语义）。
-        raise BadRequestError(str(exc))
+    # 服务层抛 ValidationError（400）/NotFoundError，由全局处理器渲染信封。
+    result = task_manager.batch_create_and_start_task(
+        data,
+        created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
+    )
     return success(
         data={
             "task_id": result["task_id"],

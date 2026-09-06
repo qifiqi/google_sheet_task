@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from app.exceptions import BadRequestError, ConflictError
+from app.exceptions import BadRequestError, ConflictError, ValidationError
 from app.extensions import db
 from app.models import BacktestSheetRunLock, GoogleSheet, Task, TaskLog, TaskResult, TaskResultReturn
 from app.services.backtest_training_service import BacktestTrainingService
@@ -232,7 +232,7 @@ def test_create_backtest_task_rejects_non_backtest_sheet(app_factory):
 
         manager = TaskManager()
 
-        with pytest.raises(ValueError, match="不是单品回测模板"):
+        with pytest.raises(ValidationError, match="不是单品回测模板"):
             manager.create_task(
                 name="backtest",
                 description="",
@@ -304,13 +304,13 @@ def test_registry_separates_backtest_sheet_from_c_series_sheet(app_factory):
         )
 
         assert c3_sheet["id"] != backtest_sheet["id"]
-        with pytest.raises(ValueError, match="同类表类型"):
+        with pytest.raises(ValidationError, match="同类表类型"):
             service.create_sheet(
                 spreadsheet_id="shared-spreadsheet",
                 name="c4-sheet",
                 table_type="c4",
             )
-        with pytest.raises(ValueError, match="同类表类型"):
+        with pytest.raises(ValidationError, match="同类表类型"):
             service.create_sheet(
                 spreadsheet_id="shared-spreadsheet",
                 name="backtest-sheet-2",

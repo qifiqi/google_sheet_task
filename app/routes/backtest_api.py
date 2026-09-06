@@ -92,10 +92,7 @@ def import_excel():
     if not excel_file or not excel_file.filename:
         raise BadRequestError("请先上传 Excel 文件")
 
-    try:
-        data = BacktestExcelService().import_uploaded_excel(excel_file)
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
+    data = BacktestExcelService().import_uploaded_excel(excel_file)
     return success(data=_sanitize_json_value(data))
 
 
@@ -302,10 +299,7 @@ def bmp_import_excel():
     excel_file = request.files.get("file")
     if not excel_file or not excel_file.filename:
         raise BadRequestError("请先上传 Excel 文件")
-    try:
-        data = BacktestExcelService().import_uploaded_excel(excel_file)
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
+    data = BacktestExcelService().import_uploaded_excel(excel_file)
     return success(data=_sanitize_json_value(data))
 
 
@@ -408,10 +402,7 @@ def bmp_calculate_ratios(task_id):
     _load_multi_product_task_or_raise(task_id)
     data = parse_body(CalculateRatiosSchema)
     ratios = data.ratios
-    try:
-        payload = build_multi_product_global_preview_payload(task_id, ratios_override=ratios)
-    except ValueError as exc:
-        raise BadRequestError(str(exc))
+    payload = build_multi_product_global_preview_payload(task_id, ratios_override=ratios)
     if payload is None:
         raise NotFoundError("任务不存在")
     return success(data=_sanitize_json_value(payload))

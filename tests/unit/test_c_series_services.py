@@ -5,6 +5,7 @@ import pytest
 
 from requests.exceptions import SSLError
 
+from app.exceptions import ValidationError
 from app.extensions import db
 from app.models import Task, TaskLog
 from app.services.google_sheet_tasks.c5 import C5Service as C5GoogleSheetService
@@ -312,7 +313,7 @@ def test_c31_batch_create_transfers_market_end_date_and_adjustment(app_factory, 
 def test_c31_batch_create_rejects_unaligned_sheet_count():
     manager = TaskManager()
 
-    with pytest.raises(ValueError, match="参数组合数"):
+    with pytest.raises(ValidationError, match="参数组合数"):
         manager.batch_create_and_start_task({
             "name": "bad",
             "config": {

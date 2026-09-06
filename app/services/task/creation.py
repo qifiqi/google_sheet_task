@@ -40,26 +40,26 @@ def _normalize_c_series_kline_source_config(config: dict[str, Any]) -> dict[str,
     normalized = dict(config)
     kline_source = str(normalized.get("kline_source") or KLINE_SOURCE_AUTO).strip().lower()
     if kline_source not in VALID_KLINE_SOURCES:
-        raise ValueError("kline_source 仅支持 auto 或 custom")
+        raise ValidationError("kline_source 仅支持 auto 或 custom")
 
     normalized["kline_source"] = kline_source
     if kline_source != KLINE_SOURCE_CUSTOM:
         return normalized
 
     if normalized.get("count_mode") not in (None, "", "total"):
-        raise ValueError("自定义K线模式不支持 N+1 或其它统计方式")
+        raise ValidationError("自定义K线模式不支持 N+1 或其它统计方式")
     if not _is_empty_custom_kline_option(normalized.get("market_type")) and normalized.get("market_type") != "custom":
-        raise ValueError("自定义K线模式不支持选择 A股/美股市场")
+        raise ValidationError("自定义K线模式不支持选择 A股/美股市场")
     if not _is_empty_custom_kline_option(normalized.get("price_mode")):
-        raise ValueError("自定义K线模式不支持选择价格类型")
+        raise ValidationError("自定义K线模式不支持选择价格类型")
     if not _is_empty_custom_kline_option(normalized.get("kline_adjustment")):
-        raise ValueError("自定义K线模式不支持选择K线复权")
+        raise ValidationError("自定义K线模式不支持选择K线复权")
     if not _is_empty_custom_kline_option(normalized.get("date_range_mode")):
-        raise ValueError("自定义K线模式不支持整年/近年选项")
+        raise ValidationError("自定义K线模式不支持整年/近年选项")
     if not _is_empty_custom_kline_option(normalized.get("exclude_recent_years")):
-        raise ValueError("自定义K线模式不支持近年排除选项")
+        raise ValidationError("自定义K线模式不支持近年排除选项")
     if not _is_empty_custom_kline_option(normalized.get("start_date")) or not _is_empty_custom_kline_option(normalized.get("end_date")):
-        raise ValueError("自定义K线模式不支持开始日期/结束日期")
+        raise ValidationError("自定义K线模式不支持开始日期/结束日期")
 
     normalized["count_mode"] = "total"
     normalized["market_type"] = "custom"
@@ -85,19 +85,19 @@ def _normalize_c7_random_price_config(config: dict[str, Any]) -> dict[str, Any]:
         for sheet in normalized.get("sheets") or []
     }
     if "c7_0_3" in versions:
-        raise ValueError("随机价格仅支持 C7.0.2")
+        raise ValidationError("随机价格仅支持 C7.0.2")
     random_range = str(normalized.get("random_price_range") or "high_low").strip().lower()
     if random_range not in {"high_low", "open_close"}:
-        raise ValueError("随机价格范围仅支持最高最低或开盘收盘")
+        raise ValidationError("随机价格范围仅支持最高最低或开盘收盘")
     try:
         raw_group_count = normalized.get("random_group_count")
         group_count = 1 if raw_group_count in (None, "") else int(raw_group_count)
     except (TypeError, ValueError) as exc:
-        raise ValueError("随机组数必须是正整数") from exc
+        raise ValidationError("随机组数必须是正整数") from exc
     if isinstance(raw_group_count, bool) or (
         isinstance(raw_group_count, float) and not raw_group_count.is_integer()
     ) or group_count < 1:
-        raise ValueError("随机组数必须是正整数")
+        raise ValidationError("随机组数必须是正整数")
     normalized["random_price_range"] = random_range
     normalized["random_group_count"] = group_count
     return normalized
@@ -300,15 +300,15 @@ class TaskCreationMixin:
     ):
         """将 C31 批量请求拆分为多个 C3 子任务。"""
         if not isinstance(data, dict):
-            raise ValueError("批量任务请求体必须是 JSON 对象")
+            raise ValidationError("批量任务请求体必须是 JSON 对象")
 
         config = data.get("config") or {}
         if not isinstance(config, dict):
-            raise ValueError("缺少有效的 config 配置")
+            raise ValidationError("缺少有效的 config 配置")
 
         base_name = str(config.get("base_task_name") or data.get("name") or "").strip()
         if not base_name:
-            raise ValueError("缺少 base_task_name")
+            raise ValidationError("缺少 base_task_name")
 
         description = str(
             data.get("description") or config.get("task_description") or ""
@@ -331,16 +331,16 @@ class TaskCreationMixin:
                 stock_codes = [item.get("stock_code") or item.get("code") for item in stocks if isinstance(item, dict)]
         parameter_groups = config.get("parameters") or []
         if not isinstance(sheets, list) or not sheets:
-            raise ValueError("至少需要一组 sheets 配置")
+            raise ValidationError("至少需要一组 sheets 配置")
         if not isinstance(stock_codes, list) or not stock_codes:
-            raise ValueError("至少需要一个 stock_codes")
+            raise ValidationError("至少需要一个 stock_codes")
         if not isinstance(parameter_groups, list) or not parameter_groups:
-            raise ValueError("至少需要一组 parameters")
+            raise ValidationError("至少需要一组 parameters")
 
         normalized_groups = self._normalize_c31_parameter_groups(parameter_groups)
         parameter_combinations = list(product(*normalized_groups))
         if not parameter_combinations:
-            raise ValueError("未生成任何参数组合")
+            raise ValidationError("未生成任何参数组合")
 
         sheet_count = len(
             [
@@ -352,7 +352,7 @@ class TaskCreationMixin:
         )
         combination_count = len(parameter_combinations)
         if not self._is_count_compatible(combination_count, sheet_count):
-            raise ValueError(
+            raise ValidationError(
                 f"参数组合数({combination_count})与Sheet数({sheet_count})必须相等，或其中一方是另一方的整数倍"
             )
 
@@ -360,7 +360,7 @@ class TaskCreationMixin:
         for sheet in sheets:
             sheet_title = str(sheet.get("title") or "").strip()
             if not sheet_title.endswith("]"):
-                raise ValueError("格式必须以“任意前缀-数字y-数字]”结尾，例如：策略A-1y-3]")
+                raise ValidationError("格式必须以“任意前缀-数字y-数字]”结尾，例如：策略A-1y-3]")
 
             segments = sheet_title.strip().strip("]").split("-")
             year_n = segments[-2]
@@ -371,7 +371,7 @@ class TaskCreationMixin:
 
         for year_n, grouped_sheets in sheet_dict.items():
             if len(grouped_sheets) != combination_count:
-                raise ValueError(
+                raise ValidationError(
                     f"{year_n} 所含有的表格数，无法对齐参数数量，{combination_count},检查是否是参数设置过多还是表格创建过少"
                 )
 
@@ -505,7 +505,7 @@ class TaskCreationMixin:
                     time.sleep(0.5)
 
         if not created_task_ids:
-            raise ValueError("没有生成任何子任务，请检查 sheets / stock_codes / parameters 配置")
+            raise ValidationError("没有生成任何子任务，请检查 sheets / stock_codes / parameters 配置")
 
         if not started_task_ids:
             raise BadRequestError(
@@ -531,7 +531,7 @@ class TaskCreationMixin:
         rows = []
         for item in parameter_combo:
             if not isinstance(item, list) or not item:
-                raise ValueError("参数组合项必须是非空一维数组")
+                raise ValidationError("参数组合项必须是非空一维数组")
             rows.append(item)
         return rows
 
@@ -539,13 +539,13 @@ class TaskCreationMixin:
         normalized_groups = []
         for index, group in enumerate(parameter_groups, start=1):
             if not isinstance(group, list) or not group:
-                raise ValueError(f"参数组 {index} 必须是非空数组")
+                raise ValidationError(f"参数组 {index} 必须是非空数组")
 
             if all(isinstance(group_item, list) for group_item in group):
                 candidate_group = []
                 for group_item in group:
                     if not isinstance(group_item, list) or not group_item:
-                        raise ValueError(
+                        raise ValidationError(
                             f"参数组 {index} 的二维子项必须是非空一维数组"
                         )
                     candidate_group.append(group_item)
@@ -649,7 +649,7 @@ class TaskCreationMixin:
         try:
             original_task = task_repository.get(original_task_id)
             if not original_task:
-                raise ValueError("原任务不存在")
+                raise NotFoundError("原任务不存在")
 
             new_task_id = str(uuid.uuid4())
             original_config = original_task["config"] or {}
