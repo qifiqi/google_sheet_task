@@ -61,8 +61,8 @@
 | C1 | ✅ 完成 | C4/C5/C7 逐字相同的 execute_task（97行×3）上移为基类唯一模板实现；四类改名 C3/C4/C5/C7Service（15 引用文件同步）；C3 stock_param 死分支删除 |
 | C2 | ✅ 完成 | kline_prep 公共件（validate_raw_kline / project_and_validate_write_ready）；C5/C7 流水线尾段收敛；C4 四处硬编码价格字段改经 get_kline_price_field 统一映射 |
 | C3 | ✅ 完成 | 断点起点（逐字×2）与去重器（C5/C7 差4行→钩子）收敛基类；get_bdl 批量执行模板（C5 198行/C7 225行→唯一实现）经 5 钩子合并，差异地图固化 §3.3 |
-| C4 | ✅ 核心 / ⚠️ 部分 | result_payload 公共件（19 项指标规格 + 30 项 analyze 透传）C5/C7 收敛，孤儿 _to_decimal_ratio ×2 删除；**check_policy/SheetSession 延期**：check_result×4 为闭包实现且是结果正确性门控，需先补细粒度特征测试再抽取（见 §7） |
-| C5 | ⏸ 延期 | 物理拆包到 google_sheet_tasks/ 为纯目录搬迁、零行为收益；C1~C4 已完成实质去重（模板方法/kline_prep/result_payload 均已独立成件，C5 迁移时直接入包）。执行被文件写入安全钩子约束，作为机械后续项 |
-| C6 | ⏸ 待执行 | 回测家族：summary_contract 单一指标契约、api_service 改名、multi_product 预览拆出。schema 与步骤已定稿 §2/§1.4 |
+| C4 | ✅ 完成 | result_payload 公共件（19 项指标规格 + 30 项 analyze 透传）C5/C7 收敛；check_policy.py 落地（normalize_check_values + C5/C7_INVALID 谓词）配特征测试；_raise_retryable_network_error 上移基类，C3/C4/C5 get_bdl 外层补 [NETWORK_RETRYABLE]（_retryable_outer）并配测试；SheetSession 引导序列随基类 get_bdl 模板落地 |
+| C5 | ✅ 完成 | google_sheet_tasks/ 包落地：base/c3/c4/c5/c7/kline_prep/result_payload/check_policy 全部迁入，旧 google_sheet_service*.py 六文件删除，runtime/routes/registry/测试引用全部切换 |
+| C6 | ✅ 2/3 + 延期 | ✅ summary_contract.py 单一契约（multi_product 消费契约表、api_service 21 行摘要按契约标签对齐）；✅ backtest_training_api_service 改名 backtest_report_query_service（全库引用同步）。⏸ 剩余：multi_product 预览拆出（预览 payload/word 报告 ~700 行迁往 export 域），因执行钩子 `_build_task_result_persistence_payload` 与预览加权指标存在真实耦合，需先解耦该钩子依赖后机械搬迁 |
 
-**C 系列核心度量（实测）**：execute_task 97行×3 → 1；get_bdl C5 198行/C7 225行 → 模板+钩子；kline 流水线尾段 ×2 收敛；去重器/断点起点 ×2 收敛；payload 字段块 49行×2 → 规格表 20 行 + 构建器。四个同名 GoogleSheetService 消失。
+**C 系列核心度量（实测）**：execute_task 97行×3 → 1；get_bdl C5 198行/C7 225行 → 模板+钩子；kline 流水线尾段 ×2 收敛；去重器/断点起点 ×2 收敛；payload 字段块 49行×2 → 规格表 20 行 + 构建器；check_result 闭包核心 ×2 → 策略函数；四个同名 GoogleSheetService 消失；旧 google_sheet_service* 六文件删除。
