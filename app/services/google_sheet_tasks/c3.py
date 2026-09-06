@@ -9,7 +9,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
@@ -171,7 +171,7 @@ class C3Service(BaseGoogleSheetService):
 
         self.google_sheet.update_jumped_cells(cell_updates)
 
-        
+
 
     def _normalize_result_value(self, position: str, value: Any) -> float:
         if not value or not is_valid_result_value(value):
@@ -470,7 +470,7 @@ class C3Service(BaseGoogleSheetService):
     def execute_task(self):
         """执行Google Sheet任务"""
         try:
-            
+
             # 统一使用应用上下文
             context_app = self.app or current_app
             with context_app.app_context():
@@ -500,7 +500,7 @@ class C3Service(BaseGoogleSheetService):
 
                 config_manager = get_config_manager()
                 config_data = {**config_manager.get_google_sheet_config(), **config_data}
-                
+
                 # 推送任务开始日志
                 self._log_info('开始执行Google Sheet任务')
 
@@ -512,7 +512,7 @@ class C3Service(BaseGoogleSheetService):
                 if not parameters:
                     self._log_error("没有参数配置")
                     return 'error'
-                
+
                 name = task.name
                 self.task_name = name
                 sheet_name = config_data.get('sheet_name', "")
@@ -543,7 +543,7 @@ class C3Service(BaseGoogleSheetService):
                 if success_count == 0 and failed_count == 0:
                     self._log_error('任务执行失败')
                     return 'error'
-                
+
                 # 推送任务完成通知
                 self._refresh_model_summary_index()
                 self.task_ok_to_dd(f'任务执行完成！成功: {success_count}, 失败: {failed_count}')
@@ -562,7 +562,7 @@ class C3Service(BaseGoogleSheetService):
                     return 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程
                 pass
-            
+
             # 其他异常情况
             root = unwrap_exception(e) or e
             try:
@@ -598,7 +598,7 @@ class C3Service(BaseGoogleSheetService):
                 year_count = 1
 
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            
+
         start_dt = end_dt - timedelta(days=365 * year_count)
         start_date = start_dt.strftime("%Y-%m-%d")
         end_date = end_dt.strftime("%Y-%m-%d")
@@ -607,34 +607,6 @@ class C3Service(BaseGoogleSheetService):
         trading_days_per_year = 250 if market_type == 'cn' else 252
         limit = max(300, year_count * trading_days_per_year + 80)
 
-        # 旧版这里按 market_type/price_mode 分支直接调用 DFCF 或 Yahoo：
-        # if market_type == 'cn' or price_mode == 'vwap_price':
-        #     stock_config = self.dfcf_api.get_search_list_by_stock_code(stock_code, 10)
-        #     if market_type in ('us', 'en'):
-        #         stock_config = [
-        #             i for i in stock_config
-        #             if i.get('securityTypeName') == '美股' or str(i.get('market') or '') == '105'
-        #         ]
-        #
-        #     # stock_config = [i for i in stock_config if 'A' in  i['securityTypeName']]
-        #     if stock_config:
-        #         stock_config = stock_config[0]
-        #         try:
-        #             upsert_stock_metadata_in_session({
-        #                 **stock_config,
-        #                 "stock_code": stock_code,
-        #                 "stock_name": stock_config.get("shortName") or stock_config.get("name"),
-        #                 "market_type": market_type,
-        #                 "source": stock_config.get("source") or "google_sheet_c3",
-        #             })
-        #         except Exception as metadata_error:
-        #             task_result_repository.rollback()
-        #             logger.warning("同步 C3 股票元数据失败: %s", metadata_error)
-        #     market = stock_config['market']
-        #
-        #     klines = self.dfcf_api.get_stock_kline_data(stock_code, market, limit, adjust_type=adjust_type)
-        # else:
-        #     klines = self.YF_api.get_kline_data(stock_code, '10y', adjust_type=adjust_type)
         # 任务执行统一改由 KlineService 先查内置库，再按数据源回退外部接口。
         klines = self.kline_service.get_kline_data(
             stock_code,
@@ -773,16 +745,16 @@ class C3Service(BaseGoogleSheetService):
                     self._log_warning("task cancellation requested")
                     return success_count, failed_count, 'cancelled'
                 self._log_step(i + 1, total_combinations, f"开始执行参数组合")
-                
+
                 # 按需计算参数组合，避免内存问题
                 combination = self._get_parameter_combination_by_index(parameters, i)
-                
+
                 # 每轮执行前检查数据库中的取消状态。
                 def check_task_status():
                     return task_repository.get_status_value(self.task_id)
-                
+
                 result = safe_db_operation(check_task_status)
-                
+
                 if not result or result == 'cancelled':
                     self._log_warning("任务已被取消，停止执行")
                     return success_count, failed_count, 'cancelled'
@@ -864,7 +836,7 @@ class C3Service(BaseGoogleSheetService):
 
             self._log_info(f"批量数据处理完成，总成功: {success_count}, 总失败: {failed_count}")
             return success_count, failed_count, 'completed'
-            
+
         except Exception as e:
             # 检查是否是任务被取消导致的异常
             try:
@@ -981,11 +953,11 @@ class C3Service(BaseGoogleSheetService):
     def _get_parameter_combination_by_index(self, parameters: List[List], index: int) -> List:
         """
         根据索引按需计算参数组合，避免内存问题
-        
+
         Args:
             parameters: 参数列表的列表
             index: 组合索引
-            
+
         Returns:
             参数组合列表
         """
@@ -1004,4 +976,3 @@ class C3Service(BaseGoogleSheetService):
         except Exception as e:
             self._log_error(f"计算参数组合失败，索引: {index}, 错误: {str(e)}")
             raise
-

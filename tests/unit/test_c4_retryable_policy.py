@@ -56,10 +56,10 @@ def _service_with_failing_expansion(app_factory, service_class, task_id, extra_s
 @pytest.mark.parametrize(
     "module_name,class_name,task_type",
     [
-        ("app.services.google_sheet_service", "C3Service", "google_sheet"),
-        ("app.services.google_sheet_service_C4", "C4Service", "google_sheet_C4"),
-        ("app.services.google_sheet_service_C5", "C5Service", "google_sheet_C5"),
-        ("app.services.google_sheet_service_C7", "C7Service", "google_sheet_C7"),
+        ("app.services.google_sheet_tasks.c3", "C3Service", "google_sheet"),
+        ("app.services.google_sheet_tasks.c4", "C4Service", "google_sheet_C4"),
+        ("app.services.google_sheet_tasks.c5", "C5Service", "google_sheet_C5"),
+        ("app.services.google_sheet_tasks.c7", "C7Service", "google_sheet_C7"),
     ],
 )
 def test_get_bdl_outer_marks_network_errors_retryable(

@@ -7,7 +7,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
@@ -414,26 +414,14 @@ class C4Service(BaseGoogleSheetService):
                         _start_return_date = []
                         _return_data = []
                         for i in range(len(kline)):
-                            # _index_return_date.append({
-                            #     'stock_date': kline[i].get('stock_date'),
-                            #     'stock_val': _index_return[f"{c4_output_column_j}{i + 2}"]
-                            # })
-                            # _start_return_date.append({
-                            #     'stock_date': kline[i].get('stock_date'),
-                            #     'stock_val': _start_return[f"{c4_output_column_l}{i + 2}"]
-                            # })
                             _return_data.append({
                                 'date': kline[i].get('stock_date'),
                                 'index_return': _index_return[f"{c4_output_column_j}{i + 2}"],
                                 'start_return': _start_return[f"{c4_output_column_l}{i + 2}"],
                             })
 
-                        # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
-                        # _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
                         flat_result, metrics_payload = self.xpl.get_return_analysis_v1(_return_data)
                         _result.update(_result_yearly)
-                        # _result['index_return_xpl'] = _index_return_xpl
-                        # _result['start_return_xpl'] = _start_return_xpl
                         _result['metrics_payload'] = metrics_payload
                         _result['flat_result'] = flat_result
                         _result['_return_date'] = _return_data

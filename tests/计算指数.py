@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from app.utils.yf_api import YFApi
-from app.services.google_sheet_service_C7 import C7Service
+from app.services.google_sheet_tasks.c7 import C7Service
 
 yf = YFApi()
 

@@ -2,9 +2,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from app.services.google_sheet_service import C3Service as C3GoogleSheetService
-from app.services.google_sheet_service_C4 import C4Service as C4GoogleSheetService
-from app.services.google_sheet_service_C5 import C5Service as C5GoogleSheetService
+from app.services.google_sheet_tasks.c3 import C3Service as C3GoogleSheetService
+from app.services.google_sheet_tasks.c4 import C4Service as C4GoogleSheetService
+from app.services.google_sheet_tasks.c5 import C5Service as C5GoogleSheetService
 
 
 def _kline_rows(start_date, end_date):

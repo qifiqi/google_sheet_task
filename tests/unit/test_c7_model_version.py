@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 from app.services.google_sheet_client import GoogleSheet
 from app.services.kline_service import KlineService
-from app.services.google_sheet_service_C7 import C7Service
+from app.services.google_sheet_tasks.c7 import C7Service
 
 
 class _C7V03Sheet:
@@ -245,7 +245,7 @@ def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
         })
 
     monkeypatch.setattr(
-        "app.services.google_sheet_service_C7.upsert_stock_metadata_in_session",
+        "app.services.google_sheet_tasks.c7.upsert_stock_metadata_in_session",
         lambda _payload: None,
     )
     monkeypatch.setattr(
@@ -358,7 +358,7 @@ def test_c7_uses_first_available_kline_when_listing_is_newer_than_start_date(mon
     })
 
     monkeypatch.setattr(
-        "app.services.google_sheet_service_C7.upsert_stock_metadata_in_session",
+        "app.services.google_sheet_tasks.c7.upsert_stock_metadata_in_session",
         lambda _payload: None,
     )
     monkeypatch.setattr(service, "_log_info", logs.append)

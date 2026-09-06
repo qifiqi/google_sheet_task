@@ -8,7 +8,7 @@ from requests.exceptions import ProxyError, SSLError
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.stock_search_service import StockSearchService
 import app.services.backtest_training_service as backtest_training_service
-from app.services.google_sheet_service_C7 import C7Service as C7Service
+from app.services.google_sheet_tasks.c7 import C7Service as C7Service
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.task_error_utils import RetryableNetworkTaskError
 

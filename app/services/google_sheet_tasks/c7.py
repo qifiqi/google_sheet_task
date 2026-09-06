@@ -9,7 +9,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
@@ -27,9 +27,9 @@ from app.utils.task_error_utils import (
     unwrap_exception,
 )
 from app.utils.kline_validation import require_kline_rows
-from app.services.check_policy import C7_INVALID, normalize_check_values
-from app.services.kline_prep import project_and_validate_write_ready
-from app.services.result_payload import build_analyze_fields, build_stock_param_metric_fields
+from app.services.google_sheet_tasks.check_policy import C7_INVALID, normalize_check_values
+from app.services.google_sheet_tasks.kline_prep import project_and_validate_write_ready
+from app.services.google_sheet_tasks.result_payload import build_analyze_fields, build_stock_param_metric_fields
 from app.services.kline_service import KlineService, get_kline_price_field
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
@@ -195,8 +195,8 @@ class C7Service(BaseGoogleSheetService):
             "value_column": str(config_data.get("c7_input_column_b") or "B").upper(),
             "output_range_1": config_data.get("c7_output_range_1") or "D8:D26",
             "output_range_2": config_data.get("c7_output_range_2") or "D28:F31",
-            "output_column_j": config_data.get("c7_output_column_j") or "J",
-            "output_column_l": config_data.get("c7_output_column_l") or "L",
+            "output_column_j": config_data.get("c7_output_column_j") or config_data.get("c5_output_column_j") or "J",
+            "output_column_l": config_data.get("c7_output_column_l") or config_data.get("c5_output_column_l") or "L",
             "parameter_positions": parameter_positions,
             "check_positions": check_positions,
         }
@@ -281,17 +281,6 @@ class C7Service(BaseGoogleSheetService):
             index_returns.append(close_price / base_close - 1)
 
         return index_returns
-
-        raw_value = value
-        if isinstance(value, str):
-            raw_value = value.strip().replace("%", "").replace(",", "")
-            if raw_value == "":
-                return 0
-
-        try:
-            return float(raw_value) / 100
-        except (TypeError, ValueError):
-            return 0
 
     @alert_on_failure(
         result_predicate=should_alert_execute_task_result,
@@ -437,11 +426,6 @@ class C7Service(BaseGoogleSheetService):
                 output_range_1 = layout["output_range_1"]
                 check_positions_c_v = check_values.get(":".join(check_positions)) or {}
                 output_range_1_c_v = check_values.get(output_range_1) or {}
-                # for position, value in check_values.items():
-                #     if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
-                #         return False
-                #     if 'target' in str(value).lower():
-                #         return False
 
                 _check_values = initial_results[spreadsheet_id]
                 if layout["version"] != "c7_0_3":
@@ -511,23 +495,6 @@ class C7Service(BaseGoogleSheetService):
                         _result.update(batch_results.get(output_range_1, {}))
                         _result['result_parameters'] = batch_results.get(":".join(check_positions))
 
-                        # # _result = check_result(_result)
-                        # _result_yearly = google_sheet.get_range(c7_output_range_2)
-                        # # _result_yearly = check_result(google_sheet.get_range(c7_output_range_2))
-                        # _result.update(_result_yearly)
-                        #
-                        # try:
-                        #     _index_return = check_result(
-                        #         google_sheet.get_range(f"{c7_output_column_j}2:{c7_output_column_j}{len(kline) + 1}")
-                        #     )
-                        #     _start_return = check_result(
-                        #         google_sheet.get_range(f"{c7_output_column_l}2:{c7_output_column_l}{len(kline) + 1}")
-                        #     )
-                        # except Exception as e:
-                        #     self._log_info(f"获取结果位置 {c7_output_column_j}2:{c7_output_column_j}{len(kline) + 1} 时出错：{str(e)}")
-                        #     self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
-                        #     break
-                        # _result = check_result(_result)
                         if layout["version"] == "c7_0_3":
                             merged_return_range_a1 = (
                                 f"{output_column_l}2:{output_column_l}{len(kline) + 1}"
@@ -539,7 +506,6 @@ class C7Service(BaseGoogleSheetService):
                             merged_return_range_a1,
                         ])
                         _result_yearly = batch_range_values.get(output_range_2, {})
-                        # _result_yearly = check_result(google_sheet.get_range(c7_output_range_2))
                         _result.update(_result_yearly)
 
                         try:
@@ -571,14 +537,6 @@ class C7Service(BaseGoogleSheetService):
                         _return_data = []
                         _index_start_return_date = []
                         for i in range(len(kline)):
-                            # _index_return_date.append({
-                            #     'stock_date': kline[i].get('stock_date'),
-                            #     'stock_val': _index_return[f"{c7_output_column_j}{i + 2}"]
-                            # })
-                            # _start_return_date.append({
-                            #     'stock_date': kline[i].get('stock_date'),
-                            #     'stock_val': _start_return[f"{c7_output_column_l}{i + 2}"]
-                            # })
                             _return_data.append({
                                 'date': kline[i].get('stock_date'),
                                 'index_return': (
@@ -589,11 +547,7 @@ class C7Service(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{output_column_l}{i + 2}"]
                             })
 
-                        # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
-                        # _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
                         flat_result, metrics_payload = self.xpl.get_return_analysis_v1(_return_data)
-                        # _result['index_return_xpl'] = _index_return_xpl
-                        # _result['start_return_xpl'] = _start_return_xpl
                         _result['metrics_payload'] = metrics_payload
                         _result[f"flat_result"] = flat_result
                         _result['_return_date'] = _return_data
@@ -608,11 +562,6 @@ class C7Service(BaseGoogleSheetService):
                 if all_num == len(self.google_sheets):
                     self._log_info(f"所有任务已完成")
                     return True, results
-
-                # if attempt in [5,15,25,35]:
-                #     for google_sheet in self.google_sheets:
-                #         self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                #         google_sheet.update_jumped_cells(cell_updates)
 
             self._log_warning("执行超时，未在规定时间内完成")
             return False, {}
@@ -816,10 +765,6 @@ class C7Service(BaseGoogleSheetService):
                 if year in exclude_recent_years:
                     continue
 
-                # _year = year
-                # if year != 0:
-                #     _year = year - 1
-
                 _end_data = end_date
                 _start_data = max(start_date, f"{_end_year_1 - year}{end_date[4:]}")
                 if _start_data > _end_data:
@@ -830,7 +775,6 @@ class C7Service(BaseGoogleSheetService):
                 if not kline:
                     continue
                 Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
-                # Kline_key = f'{_end_data[:4]}-{_start_data[:4]}'
                 for i, v1 in enumerate(parameters[1]):
                     for j, v2 in enumerate(parameters[2]):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
@@ -854,11 +798,6 @@ class C7Service(BaseGoogleSheetService):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year,'Kline_key':Kline_key}
                         if stock_name:
                             d['stock_name'] = stock_name
-                        # if i == 0 and j == 0:
-                        #     if kline and len(kline) > 30:
-                        #         d['kline'] = kline
-                        #     else:
-                        #         continue
                         if Kline_key not in KLINE_DATA_MAP:
                             KLINE_DATA_MAP[Kline_key] = kline
 
@@ -876,5 +815,3 @@ class C7Service(BaseGoogleSheetService):
 
         data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
         return data, len(all_kline) + 20,KLINE_DATA_MAP
-
-

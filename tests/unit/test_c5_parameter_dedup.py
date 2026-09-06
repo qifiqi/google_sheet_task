@@ -1,4 +1,4 @@
-from app.services.google_sheet_service_C5 import C5Service
+from app.services.google_sheet_tasks.c5 import C5Service
 
 
 def test_c5_resume_starts_after_last_completed_combination():

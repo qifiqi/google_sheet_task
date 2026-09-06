@@ -3,8 +3,8 @@ from urllib.parse import parse_qs, urlparse
 import pandas as pd
 
 from app.services.backtest_multi_product_service import normalize_multi_product_config
-import app.services.google_sheet_service_C4 as google_sheet_service_C4
-from app.services.google_sheet_service_C4 import C4Service as C4GoogleSheetService
+import app.services.google_sheet_tasks.c4 as google_sheet_service_C4
+from app.services.google_sheet_tasks.c4 import C4Service as C4GoogleSheetService
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.kline_adjustment import (
     eastmoney_fqt,

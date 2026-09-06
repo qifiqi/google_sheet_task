@@ -35,6 +35,7 @@ from app.services.performance_analysis.portfolio_combiner import (
     combine_product_returns as _canonical_combine_product_returns,
     normalize_weighting_mode,
 )
+from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DEFS
 from app.services.performance_analysis.historical_metrics import (
     extract_core_metrics,
     extract_core_weighted_metrics,
@@ -46,28 +47,7 @@ BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
 GLOBAL_PREVIEW_CACHE_MAX_SIZE = 64
 _GLOBAL_PREVIEW_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 
-SUMMARY_ROW_DEFS = [
-    ("绝对收益", "年化收益", "index_annualized_return", "start_annualized_return", "percent"),
-    ("绝对收益", "盈利年份百分比", "index_profit_annual", "start_profit_annual", "percent"),
-    ("绝对收益", "月盈利百分比", "index_profit_monthly_percentage", "start_profit_monthly_percentage", "percent"),
-    ("绝对收益", "平均月收益率", "index_avg_monthly_return", "start_avg_monthly_return", "percent"),
-    ("绝对收益", "月收益率波动率", "index_monthly_return_volatility", "start_monthly_return_volatility", "percent"),
-    ("相对收益", "年化超额收益", None, "annualized_return_diff", "percent"),
-    ("相对收益", "跑赢年份(百分比)", None, "outperform_year", "percent"),
-    ("相对收益", "月超额收益胜率", None, "monthly_excess_return_percentage", "percent"),
-    ("相对收益", "平均月超额", None, "avg_monthly_excess_return", "percent"),
-    ("相对收益", "月超额波动率", None, "monthly_excess_volatility", "percent"),
-    ("回撤", "年最大超额回撤", None, "year_max_excess_drawdown", "percent"),
-    ("回撤", "超额回撤胜率", None, "excess_drawdown_winning_rate", "percent"),
-    ("回撤", "年最大回撤", None, "start_max_drawdown", "percent"),
-    ("回撤", "最大修复天数", None, "start_maximum_number_of_backtest_repair_days", "number"),
-    ("回撤", "超额最大修复天数", None, "excess_maximum_number_of_backtest_repair_days", "number"),
-    ("比率", "夏普比率", "index_sharpe_ratio", "start_sharpe_ratio", "number"),
-    ("比率", "卡玛比率", "index_kama_ratio", "start_kama_ratio", "number"),
-    ("比率", "索提诺比率", "index_sortino_ratio", "start_sortino_ratio", "number"),
-    ("夏普", "超额夏普", None, "excess_sharpe", "number"),
-    ("索提诺", "超额索提诺比率", None, "excess_sortino", "number"),
-]
+# SUMMARY_ROW_DEFS（前后端共享行契约）单一来源见 app/services/summary_contract.py。
 
 
 def normalize_market_type(value: Any) -> str:

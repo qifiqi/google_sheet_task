@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from app.services.google_sheet_service_base import (
+from app.services.google_sheet_tasks.base import (
     DEFAULT_EXECUTION_DELAY_MAX,
     DEFAULT_EXECUTION_DELAY_MIN,
     BaseGoogleSheetService,
@@ -19,7 +19,7 @@ def make_service(monkeypatch, values):
     service = BaseGoogleSheetService({}, "task-1")
     service._log_warning = MagicMock()
     monkeypatch.setattr(
-        "app.services.google_sheet_service_base.get_config_manager",
+        "app.services.google_sheet_tasks.base.get_config_manager",
         lambda: FakeConfigManager(values),
     )
     return service

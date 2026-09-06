@@ -14,6 +14,7 @@ from app.exceptions import NotFoundError, ValidationError
 from app.models import Task, TaskResult
 from app.repositories import task_repository, task_result_repository
 from app.services.performance_analysis.historical_metrics import resolve_preview_metrics
+from app.services.summary_contract import SUMMARY_ROW_LABELS as CONTRACT_SUMMARY_ROW_LABELS
 from app.services.xpl_service import xpl_analyzer
 from app.utils.return_series import parse_return_series_fields
 from app.utils.c7_result_normalizer import (
@@ -943,28 +944,40 @@ def _extract_summary_rows(calculate_metrics, model_name):
         )
 
         period_text = excess_all.get("start_end_date", "")
+        # 行标签取自 summary_contract 单一契约（前 15 项 + 单品专属"年最大回测修复天数" + 后 5 项），
+        # value_pairs 与标签按位置一一对应。
+        labels = [
+            *CONTRACT_SUMMARY_ROW_LABELS[:15],
+            ("回撤", "年最大回测修复天数"),
+            *CONTRACT_SUMMARY_ROW_LABELS[15:],
+        ]
+        value_pairs = [
+            (_fmt_percent(excess_all.get("index_annualized_return")), _fmt_percent(excess_all.get("start_annualized_return"))),
+            (_fmt_percent(calculate_metrics.get("index_profit_annual")), _fmt_percent(calculate_metrics.get("start_profit_annual"))),
+            (_fmt_percent(index_profit_monthly_all.get("profit_monthly_percentage")), _fmt_percent(start_profit_monthly_all.get("profit_monthly_percentage"))),
+            (_fmt_percent(index_sharpe_all.get("avg_monthly_return")), _fmt_percent(start_sharpe_all.get("avg_monthly_return"))),
+            (_fmt_percent(calculate_metrics.get("index_monthly_return_volatility")), _fmt_percent(calculate_metrics.get("start_monthly_return_volatility"))),
+            ("", _fmt_percent(excess_all.get("annualized_return_diff"))),
+            ("", _fmt_percent(calculate_metrics.get("outperform_year"))),
+            ("", _fmt_percent(monthly_excess_percentage_all.get("excess_return"))),
+            ("", _fmt_percent(avg_monthly_excess_returns)),
+            ("", _fmt_percent(calculate_metrics.get("monthly_excess_volatility"))),
+            ("", _percent_display(max_drawdown) if max_drawdown is not None else ""),
+            ("", _percent_display(calculate_metrics.get("excess_drawdown_winning_rate")) if calculate_metrics.get("excess_drawdown_winning_rate") is not None else ""),
+            ("", _negative_percent_display(total_max_drawdown.get("drawdown"))) if total_max_drawdown.get("drawdown") is not None else ("", ""),
+            ("", str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or "")),
+            ("", str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or "")),
+            (str(year_index_max_repair_days) if year_index_max_repair_days is not None else "", str(year_start_max_repair_days) if year_start_max_repair_days is not None else ""),
+            (_fmt_number(index_sharpe_all.get("sharpe_ratio")), _fmt_number(start_sharpe_all.get("sharpe_ratio"))),
+            (_fmt_number(index_kama_all.get("kama_ratio")), _fmt_number(start_sharpe_all.get("kama_ratio"))),
+            (_fmt_number(index_sortino_all.get("sortino_ratio")), _fmt_number(start_sortino_all.get("sortino_ratio"))),
+            ("", _fmt_number(calculate_metrics.get("excess_sharpe"))),
+            ("", _fmt_number(calculate_metrics.get("excess_sortino"))),
+        ]
+        assert len(labels) == len(value_pairs) == 21
         rows = [
-            {"category": "绝对收益", "metric": "年化收益", "index_value": _fmt_percent(excess_all.get("index_annualized_return")), "model_value": _fmt_percent(excess_all.get("start_annualized_return"))},
-            {"category": "绝对收益", "metric": "盈利年份百分比", "index_value": _fmt_percent(calculate_metrics.get("index_profit_annual")), "model_value": _fmt_percent(calculate_metrics.get("start_profit_annual"))},
-            {"category": "绝对收益", "metric": "月盈利百分比", "index_value": _fmt_percent(index_profit_monthly_all.get("profit_monthly_percentage")), "model_value": _fmt_percent(start_profit_monthly_all.get("profit_monthly_percentage"))},
-            {"category": "绝对收益", "metric": "平均月收益率", "index_value": _fmt_percent(index_sharpe_all.get("avg_monthly_return")), "model_value": _fmt_percent(start_sharpe_all.get("avg_monthly_return"))},
-            {"category": "绝对收益", "metric": "月收益率波动率", "index_value": _fmt_percent(calculate_metrics.get("index_monthly_return_volatility")), "model_value": _fmt_percent(calculate_metrics.get("start_monthly_return_volatility"))},
-            {"category": "相对收益", "metric": "年化超额收益", "index_value": "", "model_value": _fmt_percent(excess_all.get("annualized_return_diff"))},
-            {"category": "相对收益", "metric": "跑赢年份(百分比)", "index_value": "", "model_value": _fmt_percent(calculate_metrics.get("outperform_year"))},
-            {"category": "相对收益", "metric": "月超额收益胜率", "index_value": "", "model_value": _fmt_percent(monthly_excess_percentage_all.get("excess_return"))},
-            {"category": "相对收益", "metric": "平均月超额", "index_value": "", "model_value": _fmt_percent(avg_monthly_excess_returns)},
-            {"category": "相对收益", "metric": "月超额波动率", "index_value": "", "model_value": _fmt_percent(calculate_metrics.get("monthly_excess_volatility"))},
-            {"category": "回撤", "metric": "年最大超额回撤", "index_value": "", "model_value": _percent_display(max_drawdown) if max_drawdown is not None else ""},
-            {"category": "回撤", "metric": "超额回撤胜率", "index_value": "", "model_value": _percent_display(calculate_metrics.get("excess_drawdown_winning_rate")) if calculate_metrics.get("excess_drawdown_winning_rate") is not None else ""},
-            {"category": "回撤", "metric": "年最大回撤", "index_value": "", "model_value": _negative_percent_display(total_max_drawdown.get("drawdown")) if total_max_drawdown.get("drawdown") is not None else ""},
-            {"category": "回撤", "metric": "最大修复天数", "index_value": "", "model_value": str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or "")},
-            {"category": "回撤", "metric": "超额最大修复天数", "index_value": "", "model_value": str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or "")},
-            {"category": "回撤", "metric": "年最大回测修复天数", "index_value": str(year_index_max_repair_days) if year_index_max_repair_days is not None else "", "model_value": str(year_start_max_repair_days) if year_start_max_repair_days is not None else ""},
-            {"category": "比率", "metric": "夏普比率", "index_value": _fmt_number(index_sharpe_all.get("sharpe_ratio")), "model_value": _fmt_number(start_sharpe_all.get("sharpe_ratio"))},
-            {"category": "比率", "metric": "卡玛比率", "index_value": _fmt_number(index_kama_all.get("kama_ratio")), "model_value": _fmt_number(start_kama_all.get("kama_ratio"))},
-            {"category": "比率", "metric": "索提诺比率", "index_value": _fmt_number(index_sortino_all.get("sortino_ratio")), "model_value": _fmt_number(start_sortino_all.get("sortino_ratio"))},
-            {"category": "夏普", "metric": "超额夏普", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_sharpe"))},
-            {"category": "索提诺", "metric": "超额索提诺比率", "index_value": "", "model_value": _fmt_number(calculate_metrics.get("excess_sortino"))},
+            {"category": category, "metric": metric, "index_value": index_value, "model_value": model_value}
+            for (category, metric), (index_value, model_value) in zip(labels, value_pairs)
         ]
         return period_text, rows
 

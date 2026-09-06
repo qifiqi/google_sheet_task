@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.services.google_sheet_client import GoogleSheet
-from app.services.google_sheet_service import C3Service
+from app.services.google_sheet_tasks.c3 import C3Service
 
 
 def make_google_sheet():

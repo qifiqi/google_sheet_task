@@ -7,8 +7,8 @@ from requests.exceptions import SSLError
 
 from app.extensions import db
 from app.models import Task, TaskLog
-from app.services.google_sheet_service_C5 import C5Service as C5GoogleSheetService
-from app.services.google_sheet_service_C7 import C7Service as C7GoogleSheetService
+from app.services.google_sheet_tasks.c5 import C5Service as C5GoogleSheetService
+from app.services.google_sheet_tasks.c7 import C7Service as C7GoogleSheetService
 from app.services.task.error_handling import (
     TASK_ERROR_MESSAGE_MAX_LENGTH,
     format_task_error_message,

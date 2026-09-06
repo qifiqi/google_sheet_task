@@ -9,7 +9,7 @@
 import pytest
 
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.check_policy import C5_INVALID, C7_INVALID, normalize_check_values
+from app.services.google_sheet_tasks.check_policy import C5_INVALID, C7_INVALID, normalize_check_values
 
 
 def _capture_logs():

@@ -7,9 +7,10 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_resul
 
 from app.repositories import task_repository, task_result_repository
 from app.exceptions.sheet_check_error import SheetCheckError
-from app.services.google_sheet_service_base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
+from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.services.google_sheet_tasks.check_policy import C5_INVALID, normalize_check_values
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation
@@ -21,9 +22,9 @@ from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
-from app.services.kline_prep import project_and_validate_write_ready
+from app.services.google_sheet_tasks.kline_prep import project_and_validate_write_ready
 from app.services.kline_service import KlineService, get_kline_price_field
-from app.services.result_payload import build_analyze_fields, build_stock_param_metric_fields
+from app.services.google_sheet_tasks.result_payload import build_analyze_fields, build_stock_param_metric_fields
 
 
 logger = get_logger(__name__)
@@ -160,24 +161,8 @@ class C5Service(BaseGoogleSheetService):
             kline = current_kline
 
             def check_result(check_values):
-                _check_values = {}
-                for _position, _value in check_values.items():
-                    if not _value or not is_valid_result_value(_value):
-                        self._log_info(f"结果位置 {_position} 值为空或无效，跳过重新检查：{_value}")
-                        raise Exception(f"结果位置 {_position} 值为空或无效，跳过重新检查：{_value}")
-
-                    if str(_value).strip().startswith(("#", "#N/A")):
-                        _error_msg = f"获取结果位置 {_position} 时出错: {str(_value)}"
-                        raise SheetCheckError(f"检查报错，出现#|#N/A 这种异常错误，联系用户检查 {_error_msg}")
-
-                    if '%' in _value:
-                        _value = float(_value.replace('%', '').replace(',', '')) / 100
-                    if isinstance(_value, str) and ',' in _value:
-                        _value = float(_value.replace(',', ''))
-                    if _value == '-':
-                        continue
-                    _check_values[_position] = _value
-                return _check_values
+                # 核心逻辑收敛于 check_policy.normalize_check_values（C4 批次）
+                return normalize_check_values(check_values, log_info=self._log_info, invalid_predicate=C5_INVALID)
 
             def _validate_check_values(check_values: Dict[str, Any], spreadsheet_id) -> bool:
                 """验证检查位置的值是否有效"""
@@ -277,14 +262,6 @@ class C5Service(BaseGoogleSheetService):
                         _return_data = []
                         _index_start_return_date = []
                         for i in range(len(kline)):
-                            # _index_return_date.append({
-                            #     'stock_date': kline[i].get('stock_date'),
-                            #     'stock_val': _index_return[f"{c5_output_column_j}{i + 2}"]
-                            # })
-                            # _start_return_date.append({
-                            #     'stock_date': kline[i].get('stock_date'),
-                            #     'stock_val': _start_return[f"{c5_output_column_l}{i + 2}"]
-                            # })
                             _return_data.append({
                                 'date': kline[i].get('stock_date'),
                                 'index_return': _index_return[f"{c5_output_column_j}{i + 2}"],
@@ -547,5 +524,3 @@ class C5Service(BaseGoogleSheetService):
 
         data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
         return data, len(all_kline) + 20,KLINE_DATA_MAP
-
-

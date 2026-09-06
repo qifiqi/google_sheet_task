@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from app.extensions import db
 from app.models import StockMetadata, Task
-from app.services.google_sheet_service_C4 import C4Service as C4GoogleSheetService
+from app.services.google_sheet_tasks.c4 import C4Service as C4GoogleSheetService
 from app.services.stock_metadata_service import upsert_stock_metadata, upsert_stock_metadata_in_session
 from app.services.task.facade import TaskManager
 
@@ -96,7 +96,7 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
             ]
 
     app = app_factory
-    monkeypatch.setattr("app.services.google_sheet_service_C4.DFCJStockApi", FakeDfcfApi)
+    monkeypatch.setattr("app.services.google_sheet_tasks.c4.DFCJStockApi", FakeDfcfApi)
     with app.app_context():
         combinations, _column_a_length = C4GoogleSheetService._get_all_parameters(
             "600519",

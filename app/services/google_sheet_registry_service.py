@@ -127,7 +127,7 @@ def get_google_sheet_registry_service() -> GoogleSheetRegistryService:
 
 import time as _time
 
-from app.services.google_sheet_service import C3Service as _GoogleSheetService
+from app.services.google_sheet_tasks.c3 import C3Service as _C3Service
 
 _WORKSHEETS_CACHE: dict = {}
 _WORKSHEETS_CACHE_TTL = 5 * 24 * 60 * 60
