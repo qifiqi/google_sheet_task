@@ -3,6 +3,11 @@
 > 审计日期：2026-09-06。覆盖全部 25 个路由文件、148 个端点（任务域 41 / 回测导出域 50 / 管理认证域 57）。
 > 每条记录：方法+完整路径 → handler → 鉴权 → 调用链（service → repository）→ 响应出口 → 问题标记。
 > 调用链均经实读 service/repository 文件确认方法名；"问题标记"只记事实，修复归属见 `01-bugs-and-fixes.md` 与 `02-api-spec.md`。
+>
+> **问题标记处置登记（2026-09 整改完成后）**：下文各表"问题标记"列的处置结果统一登记于
+> `B4-verification.md` §1（grep 断言结果）/ §2（已收敛项）/ §3（偏差 D-1~D-5 与延期项），
+> 鉴权类缺口另见 `api-model-query-audit/07-public-deployment-and-subservice.md` §1（主服务接入清单）。
+> 本文件为审计时点快照，端点计数与形状以整改后代码为准（对照表见 `README.md` §4）。
 
 ## 0. 蓝图注册总表（app/routes/__init__.py，28 次注册）
 

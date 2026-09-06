@@ -46,19 +46,24 @@
 
 **排序原则**：先修 bug（与重构解耦，立即受益）→ 再收敛接口规范（存量回迁）→ 最后做任务代码公共化与拆包（每步有 pytest 回归门槛）。**全程不修改数据库 schema / 迁移 / 存量数据；全库无兼容层（不留双轨开关、不做灰度），每批合入即完成该批范围的一次性切换。**
 
-## 4. 关键数字（审计实测）
+## 4. 关键数字（审计实测 → 整改后复查，2026-09-06）
 
-| 指标 | 数值 |
-|---|---|
-| 接口端点总数 | 148（任务域 41 / 回测导出域 50 / 管理认证域 57） |
-| 手拼信封/裸 jsonify 端点 | 5 处（task_api ×4、admin_api ×1） |
-| `paginated()` / `parse_query` 使用次数 | 0 / 0 |
-| `BadRequestError(str(exc))` 类端点 | 14 个（export_api 10 + backtest_api 3 + stock_api 1） |
-| 无鉴权端点 | 页面 25+（admin 13 页、backtest 系 24 条含 legacy 双注册、xpl/yule/eastmoney）+ API 4（xpl analyze ×2、login/refresh 属合理） |
-| 写操作零日志端点 | 13 个（auth 用户/角色 CUD、navigation CUD、database vacuum 等） |
-| C4/C5/C7 execute_task 重复 | 97 行逐字相同 ×3（diff=0 实测） |
-| >100 行超长方法（任务执行域） | 12 个（最大 C7 `_execute_parameter_combination` 307 行） |
-| 可删死代码 | c5_exceptions.py 148 行 + db_optimizer.py + security.py + log_reader.py + task/types.py + 注释尸体若干 |
+| 指标 | 审计实测 | 整改后复查 | 依据批次 |
+|---|---|---|---|
+| 接口端点总数 | 148（任务域 41 / 回测导出域 50 / 管理认证域 57） | 147（删除重复的 /api/admin/scheduler/status；新增 POST /api/google-sheet-tokens/reconcile） | B2/B3 |
+| 手拼信封/裸 jsonify 端点 | 5 处（task_api ×4、admin_api ×1） | **0**（剩余 3 处 grep 命中均为 task.get("status") 业务字段读取） | B2 |
+| `paginated()` / `parse_query` 使用次数 | 0 / 0 | 3 文件 / 2 文件（主列表端点全覆盖；`/api/tasks/<id>/results` 为登记延期项 D-3） | B2/B3 |
+| `BadRequestError(str(exc))` 类翻译链 | 14 端点 | task 域全清；24 处残留集中在 export/google_sheet 域（登记偏差 D-1，随服务层领域异常化收尾） | B2 |
+| 无鉴权端点 | 页面 25+ 全裸 + API 4 | 页面全部挂 `page_login_required`（43 处装饰器，匿名 302 登录页）+ cookie 回退；xpl analyze 挂 `login_required`；admin CUD/vacuum/rebuild 挂 `admin_required`（11 处） | A3/B1 |
+| 写操作零日志端点 | 13 个 | **0**（auth/navigation/task/admin/database 写路径全部补审计日志） | B1 |
+| C4/C5/C7 execute_task 重复 | 97 行逐字相同 ×3 | **基类唯一模板实现**（C4/C5/C7 零本地副本；C3 保留差异化覆盖并删除死分支） | C1 |
+| get_bdl 重复 | C5 198 行 / C7 225 行各自复制 | **基类模板 + 5 钩子**（`_prepare_batch/_expand_parameters/_clear_input_columns/_stamp_combination/_retryable_outer`） | C3 |
+| >100 行超长方法（任务执行域） | 12 个 | 模板骨架收敛后，执行域仅剩各任务专属逻辑；C5/C7 的 get_bdl/execute_task 本地副本清零 | C1~C3 |
+| 可删死代码 | c5_exceptions 148 行 + db_optimizer + security + log_reader + task/types + 注释尸体 | **全部删除**（含 c5_exceptions 六文件、注释尸体 ~190 行、`__main__` 调试块、孤儿 helper）；checkForErrors 改名 SheetCheckError | A3 |
+| 任务服务文件组织 | 四个同名 GoogleSheetService 散落 app/services/ | **google_sheet_tasks/ 包**（base/c3/c4/c5/c7/kline_prep/result_payload/check_policy）；multi_product 预览拆至 backtest_multi_product_preview.py | C5/C6 |
+| 指标契约 | 20 项汇总指标两种格式各实现一遍 | **summary_contract.py 单一来源**（multi_product 与单品摘要均消费契约表） | C6 |
+
+登记的遗留偏差与延期项见 `B4-verification.md` §3/§6（D-1 str(exc) 翻译链、D-2 get_json 存量、D-3 results 键翻转、C6 剩余项已全部收口）。
 
 ## 5. 验收门槛（所有阶段通用）
 
