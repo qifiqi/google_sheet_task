@@ -23,7 +23,10 @@ from app.models import (
 from app.services.backtest_report_query_service import _build_zip_member_name
 from app.services.export_service import GeneratedFile, export_service
 from app.routes.backtest_api import _build_excel_download_name
-from app.services.backtest_report_query_service import build_global_preview_workbook
+from app.services.backtest_multi_product_preview import (
+    build_multi_product_global_preview_payload,
+    build_multi_product_global_preview_word_payload,
+)
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     BacktestMultiProductService,
@@ -32,10 +35,9 @@ from app.services.backtest_multi_product_service import (
     _derive_metrics,
     _fmt_value,
     _weight_return_date,
-    build_multi_product_global_preview_payload,
-    build_multi_product_global_preview_word_payload,
     normalize_multi_product_config,
 )
+from app.services.backtest_report_query_service import build_global_preview_workbook
 from app.services.task.facade import TaskManager
 from app.services.task.runtime_view import TaskRuntimeViewService
 from app.utils.return_series import build_return_series_fields

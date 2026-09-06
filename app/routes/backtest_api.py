@@ -15,9 +15,9 @@ from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.extensions import limiter
 from app.schemas.backtest import CalculateRatiosSchema
 from app.services.backtest_excel_service import BacktestExcelService
+from app.services.backtest_multi_product_preview import build_multi_product_global_preview_payload
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
-    build_multi_product_global_preview_payload,
     normalize_multi_product_config,
     update_task_ratios,
 )

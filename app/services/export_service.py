@@ -15,7 +15,7 @@ from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
 from app.models import Task
 from app.repositories import task_repository, task_result_repository
 from app.schemas.backtest import StrategyBacktestReportSchema
-from app.services.backtest_multi_product_service import (
+from app.services.backtest_multi_product_preview import (
     build_multi_product_global_preview_payload,
     build_multi_product_global_preview_word_payload,
 )
