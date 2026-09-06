@@ -29,3 +29,9 @@ class SchedulerTaskListQuery(PageQuery):
     """GET /api/admin/scheduler/tasks 查询参数（per_page 默认 50）。"""
 
     per_page: int = Field(default=50, ge=1, le=100)
+
+
+class ToggleTaskSchema(APIModel):
+    """POST /api/admin/scheduler/tasks/<id>/toggle；缺省 is_active 表示取反。"""
+
+    is_active: bool | None = None

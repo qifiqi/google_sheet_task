@@ -7,7 +7,7 @@ from flask import Blueprint, request
 
 from app.services.scheduler_service import scheduler_service
 from app.utils.api_response import paginated, success
-from app.schemas.scheduler import ScheduledTaskCreateSchema, ScheduledTaskUpdateSchema
+from app.schemas.scheduler import ToggleTaskSchema, ScheduledTaskCreateSchema, ScheduledTaskUpdateSchema
 from app.utils.auth import login_required
 from app.utils.request_parsing import parse_body
 
@@ -71,7 +71,9 @@ def delete_scheduled_task(task_id):
 @login_required
 def toggle_scheduled_task(task_id):
     """切换定时任务状态"""
-    updated, status_text = scheduler_service.toggle_task(task_id, request.get_json() or {})
+    toggle_data = parse_body(ToggleTaskSchema)
+    payload = {} if toggle_data.is_active is None else {"is_active": toggle_data.is_active}
+    updated, status_text = scheduler_service.toggle_task(task_id, payload)
     return success(data={'task': updated}, message=f'定时任务已{status_text}')
 
 

@@ -6,6 +6,8 @@ CRUD 编排、payload 校验与权限同步在 navigation_service；
 
 from flask import Blueprint, request
 
+from app.schemas.navigation import NavigationMenuPayloadSchema
+from app.utils.request_parsing import parse_body
 from app.services import navigation_service
 from app.utils.api_response import success
 from app.utils.auth import login_required
@@ -24,7 +26,7 @@ def list_navigation_menu_items():
 @login_required
 def create_navigation_menu_item():
     """新增侧边栏路由表记录，默认不可见，避免新页面直接暴露"""
-    item = navigation_service.create_menu_item(request.get_json() or {})
+    item = navigation_service.create_menu_item(parse_body(NavigationMenuPayloadSchema).root)
     return success(
         data={"item": item},
         message="路由已新增，默认按可见开关和权限控制侧边栏展示",
@@ -35,7 +37,7 @@ def create_navigation_menu_item():
 @login_required
 def update_navigation_menu_item(item_id):
     """更新侧边栏路由表记录"""
-    item = navigation_service.update_menu_item(item_id, request.get_json() or {})
+    item = navigation_service.update_menu_item(item_id, parse_body(NavigationMenuPayloadSchema).root)
     return success(data={"item": item}, message="路由已更新")
 
 

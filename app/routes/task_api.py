@@ -118,20 +118,13 @@ def update_task_config(task_id):
     """更新任务配置"""
     task_manager.get_required_task(task_id)
 
-    data = request.get_json()
-    if not data:
-        raise BadRequestError("请求数据为空")
-
-    config = data.get('config')
-    if not config:
-        raise BadRequestError("配置信息不能为空")
-
+    data = parse_body(TaskConfigUpdateSchema)
     result = task_manager.update_task_config(
         task_id,
-        config,
-        data.get('name'),
-        data.get('description'),
-        data.get('status'),
+        data.config,
+        data.name,
+        data.description,
+        data.status,
     )
     return success(data=result, message="任务更新成功")
 

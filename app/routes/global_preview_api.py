@@ -3,6 +3,8 @@
 from flask import Blueprint, request
 
 from app.exceptions import BadRequestError
+from app.schemas.backtest import PreviewGroupSchema
+from app.utils.request_parsing import parse_body
 from app.services.backtest_report_query_service import (
     build_global_preview_group_payload,
     build_global_preview_initial_payload,
@@ -62,8 +64,8 @@ def get_preview_group(task_id):
         raise BadRequestError("当前任务暂不支持全局预览")
 
     # result_ids 来自初始化接口；服务层仍会附加 task_id 条件，防止跨任务读取。
-    result_ids = (request.get_json(silent=True) or {}).get("result_ids") or []
-    if not isinstance(result_ids, list) or not result_ids:
+    result_ids = parse_body(PreviewGroupSchema).result_ids
+    if not result_ids:
         raise BadRequestError("请选择需要加载的结果分组")
     payload = build_global_preview_group_payload(task_id, result_ids)
     return success(data={"preview": payload})

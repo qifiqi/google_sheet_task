@@ -11,7 +11,15 @@ from app.services import rbac_service
 from app.utils.api_response import success
 from app.utils.request_parsing import parse_body
 from app.utils.auth import login_required, admin_required
-from app.schemas.auth import ChangePasswordSchema, CreateRoleSchema, CreateUserSchema
+from app.schemas.auth import (
+    ChangePasswordSchema,
+    CreateRoleSchema,
+    CreateUserSchema,
+    LoginSchema,
+    RefreshSchema,
+    UpdateRoleSchema,
+    UpdateUserSchema,
+)
 
 auth_api_bp = Blueprint('auth_api', __name__)
 
@@ -20,16 +28,14 @@ auth_api_bp = Blueprint('auth_api', __name__)
 
 @auth_api_bp.route('/auth/login', methods=['POST'])
 def login():
-    data = request.get_json() or {}
-    username = str(data.get('username') or '').strip()
-    password = data.get('password') or ''
-    return success(data=rbac_service.login_user(username, password))
+    data = parse_body(LoginSchema)
+    return success(data=rbac_service.login_user(data.username.strip(), data.password))
 
 
 @auth_api_bp.route('/auth/refresh', methods=['POST'])
 def refresh():
-    data = request.get_json() or {}
-    return success(data=rbac_service.refresh_tokens(data.get('refresh_token', '')))
+    data = parse_body(RefreshSchema)
+    return success(data=rbac_service.refresh_tokens(data.refresh_token))
 
 
 @auth_api_bp.route('/auth/me', methods=['GET'])
@@ -82,7 +88,8 @@ def create_user():
 @auth_api_bp.route('/admin/users/<int:user_id>', methods=['PUT'])
 @admin_required
 def update_user(user_id):
-    updated = rbac_service.update_user(user_id, request.get_json() or {})
+    data = parse_body(UpdateUserSchema)
+    updated = rbac_service.update_user(user_id, data.model_dump(exclude_unset=True))
     return success(data=updated, message='用户更新成功')
 
 
@@ -117,7 +124,8 @@ def create_role():
 @auth_api_bp.route('/admin/roles/<int:role_id>', methods=['PUT'])
 @admin_required
 def update_role(role_id):
-    updated = rbac_service.update_role(role_id, request.get_json() or {})
+    data = parse_body(UpdateRoleSchema)
+    updated = rbac_service.update_role(role_id, data.model_dump(exclude_unset=True))
     return success(data=updated, message='角色更新成功')
 
 

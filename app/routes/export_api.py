@@ -16,6 +16,8 @@ from flask import Blueprint, Response, g, request, send_file, stream_with_contex
 from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter
 from app.schemas.backtest import StrategyBacktestReportSchema
+from app.schemas.task import TaskIdsBatchSchema
+from app.schemas.xpl import AnalyzePayloadSchema
 from app.services.export_service import export_service
 from app.services.export_file_service import sanitize_export_filename
 from app.services.task import task_manager
@@ -117,10 +119,7 @@ def export_task_results_by_stock(task_id):
 @login_required
 @_export_limit
 def export_task_results_batch():
-    data = request.get_json(silent=True) or {}
-    task_ids = data.get("task_ids")
-    if not isinstance(task_ids, list):
-        raise BadRequestError("task_ids 必须是数组")
+    task_ids = parse_body(TaskIdsBatchSchema).task_ids
     return _file_response(export_service.export_task_results_batch(task_ids))
 
 
@@ -156,10 +155,7 @@ def export_global_preview_by_stock(task_id):
 @login_required
 @_export_limit
 def export_global_preview_batch():
-    data = request.get_json(silent=True) or {}
-    task_ids = data.get("task_ids")
-    if not isinstance(task_ids, list):
-        raise BadRequestError("task_ids 必须是数组")
+    task_ids = parse_body(TaskIdsBatchSchema).task_ids
     normalized_ids = list(dict.fromkeys(str(item).strip() for item in task_ids if str(item).strip()))
     return _file_response(export_service.export_global_preview_batch(normalized_ids))
 
@@ -179,7 +175,7 @@ def export_backtest_result(result_id):
 @login_required
 @_export_limit
 def export_xpl():
-    return _file_response(export_service.export_xpl(request.get_json(silent=True) or {}))
+    return _file_response(export_service.export_xpl(parse_body(AnalyzePayloadSchema).root))
 
 
 @export_api_bp.route("/backtest-reports/word", methods=["POST"])

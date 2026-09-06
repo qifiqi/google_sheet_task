@@ -131,3 +131,15 @@ class StrategyBacktestReportSchema(APIModel):
             raise ValueError(f"{label}.return_series_id 必须与 task_id 一起传入")
         if has_sheet and not str(source.get("google_sheet_name") or "").strip():
             raise ValueError(f"{label}.google_sheet_name 不能为空")
+
+
+class UpdateRatiosSchema(APIModel):
+    """PUT /backtest-multi-product/api/global-preview/<task_id>/ratios。"""
+
+    ratios: list[Any]
+
+
+class PreviewGroupSchema(APIModel):
+    """POST /global-preview/api/tasks/<task_id>/preview-group。"""
+
+    result_ids: list[int] = []

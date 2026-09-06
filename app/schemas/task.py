@@ -21,6 +21,21 @@ class TaskResultListQuery(PageQuery):
     task_id: str | None = None
 
 
+class TaskConfigUpdateSchema(APIModel):
+    """PUT /api/tasks/<id>/config。"""
+
+    config: dict[str, Any]
+    name: str | None = None
+    description: str | None = None
+    status: str | None = None
+
+
+class TaskIdsBatchSchema(APIModel):
+    """POST /api/exports/tasks/batch 等批量导出请求体。"""
+
+    task_ids: list[Any]
+
+
 class TaskCreateSchema(APIModel):
     name: str = "未命名任务"
     description: str = ""

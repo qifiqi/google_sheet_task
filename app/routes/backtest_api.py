@@ -13,7 +13,7 @@ from flask import Blueprint, current_app, request
 
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.extensions import limiter
-from app.schemas.backtest import CalculateRatiosSchema
+from app.schemas.backtest import CalculateRatiosSchema, UpdateRatiosSchema
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_preview import build_multi_product_global_preview_payload
 from app.services.backtest_multi_product_service import (
@@ -412,10 +412,7 @@ def bmp_calculate_ratios(task_id):
 @login_required
 def bmp_update_ratios(task_id):
     task = _load_multi_product_task_or_raise(task_id)
-    data = request.get_json() or {}
-    ratios = data.get("ratios")
-    if not isinstance(ratios, list):
-        raise BadRequestError("ratios 必须是数组")
+    ratios = parse_body(UpdateRatiosSchema).ratios
 
     update_task_ratios(task_id, task.get("config") or {}, ratios)
     payload = build_multi_product_global_preview_payload(task_id)

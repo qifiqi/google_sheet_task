@@ -15,7 +15,7 @@ from app.services.google_sheet_registry_service import (
 )
 from app.services.google_sheet_token_service import get_google_sheet_token_service, RANDOM_TOKEN_VALUE
 from app.utils.api_response import success
-from app.schemas.google_sheet import TokenImportSchema
+from app.schemas.google_sheet import SheetCreateSchema, SheetUpdateSchema, TokenImportSchema, TokenUpdateSchema, WorksheetsQuerySchema
 from app.utils.auth import login_required
 from app.utils.request_parsing import parse_body
 
@@ -26,16 +26,13 @@ google_sheet_api_bp = Blueprint('google_sheet_api', __name__)
 @login_required
 def get_worksheets():
     """获取Google Sheet中的所有工作表名称"""
-    data = request.get_json()
-    if not data:
-        raise BadRequestError("请求数据为空")
-
-    spreadsheet_id = data.get('spreadsheet_id')
-    token_file = 'data/token.json'
-    proxy_url = data.get('proxy_url')
-
-    if not spreadsheet_id:
+    data = parse_body(WorksheetsQuerySchema)
+    if not data.spreadsheet_id:
         raise BadRequestError("缺少spreadsheet_id参数")
+
+    spreadsheet_id = data.spreadsheet_id
+    token_file = 'data/token.json'
+    proxy_url = data.proxy_url
 
     result = get_worksheets_with_cache(spreadsheet_id, token_file, proxy_url)
     return success(data=result)
@@ -61,13 +58,13 @@ def google_sheets():
             )
         })
 
-    data = request.get_json() or {}
+    data = parse_body(SheetCreateSchema)
     item = service.create_sheet(
-        spreadsheet_id=data.get('spreadsheet_id', ''),
-        name=data.get('name'),
-        table_type=data.get('table_type'),
-        remark=data.get('remark'),
-        is_active=data.get('is_active', True),
+        spreadsheet_id=data.spreadsheet_id,
+        name=data.name,
+        table_type=data.table_type,
+        remark=data.remark,
+        is_active=data.is_active,
     )
     return success(data={"item": item}, message="Google Sheet 创建成功")
 
@@ -89,13 +86,7 @@ def google_sheet_detail(sheet_id):
         return success(data={"item": item})
 
     if request.method == 'PUT':
-        data = request.get_json() or {}
-        payload = {}
-        for key in ('spreadsheet_id', 'name', 'remark', 'table_type'):
-            if key in data:
-                payload[key] = data.get(key)
-        if 'is_active' in data:
-            payload['is_active'] = data.get('is_active')
+        payload = parse_body(SheetUpdateSchema).model_dump(exclude_unset=True)
         item = service.update_sheet(sheet_id, **payload)
         return success(data={"item": item}, message="Google Sheet 更新成功")
 
@@ -136,14 +127,7 @@ def google_sheet_token_detail(token_id):
             "token": token_service.get_token(token_id, include_context=include_context)
         })
 
-    data = request.get_json() or {}
-    payload = {}
-    for key in ('name', 'token_context', 'is_active', 'task_type'):
-        if key in data:
-            payload[key] = data.get(key)
-    if 'max_usage_count' in data:
-        payload['max_usage_count'] = data.get('max_usage_count')
-
+    payload = parse_body(TokenUpdateSchema).model_dump(exclude_unset=True)
     token = token_service.update_token(token_id, **payload)
     return success(data={"token": token}, message="Token更新成功")
 

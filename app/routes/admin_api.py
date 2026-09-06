@@ -10,6 +10,8 @@ from app.services.model_summary_service import model_summary_service
 from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.extensions import limiter
+from app.schemas.admin import RebuildSchema
+from app.utils.request_parsing import parse_body
 from app.utils.api_response import success
 from app.utils.auth import admin_required, login_required
 from app.utils.logger import get_logger
@@ -63,14 +65,14 @@ def model_summary_api():
 )
 def rebuild_model_summary_api():
     """重建单模型汇总索引。"""
-    logger.info("请求重建模型汇总索引: params=%s", request.get_json(silent=True) or {})
-    data = request.get_json(silent=True) or {}
+    data = parse_body(RebuildSchema)
+    logger.info("请求重建模型汇总索引: params=%s", data.model_dump())
     job = model_summary_service.start_rebuild_job(
         current_app._get_current_object(),
-        task_type=data.get('task_type') or None,
-        task_id=data.get('task_id') or None,
-        batch_size=int(data.get('batch_size') or 20),
-        reset=bool(data.get('reset', False)),
+        task_type=data.task_type,
+        task_id=data.task_id,
+        batch_size=data.batch_size,
+        reset=data.reset,
         created_by_user_id=getattr(getattr(g, "current_user", None), "id", None),
     )
     return success(data={'job': job})
