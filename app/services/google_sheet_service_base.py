@@ -16,7 +16,7 @@ from app.utils.market import infer_market_type, normalize_stock_code
 from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.utils.logger import get_logger
 from app.services.task.error_handling import format_task_error_message, record_task_exception
-from app.utils.task_error_utils import unwrap_exception
+from app.utils.task_error_utils import RetryableNetworkTaskError, is_retryable_network_error, unwrap_exception
 from app.exceptions.sheet_check_error import SheetCheckError
 
 
@@ -370,6 +370,12 @@ class BaseGoogleSheetService:
 
         return deduplicated
 
+
+    def _raise_retryable_network_error(self, exc, context):
+        """网络类异常统一打可重试标记（原 C7 实现上移；供 get_bdl/子类复用）。"""
+        if is_retryable_network_error(exc):
+            root = unwrap_exception(exc) or exc
+            raise RetryableNetworkTaskError(f"{context}: {root}") from exc
 
     # ---- get_bdl 批量执行钩子（C3 批次差异地图见 03 文档 §3.3；默认实现 = C5 行为）----
 

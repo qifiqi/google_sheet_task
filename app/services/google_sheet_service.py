@@ -874,7 +874,10 @@ class C3Service(BaseGoogleSheetService):
                     return success_count, failed_count, 'cancelled'
             except Exception:  # best-effort 取消探测：失败不中断主流程
                 pass
-            
+
+            # 网络类异常打 [NETWORK_RETRYABLE] 供看门狗识别（与 C7 对齐）
+            self._raise_retryable_network_error(e, "批量数据处理网络请求失败")
+
             error_summary = self._record_execution_error_message(e, "get_bdl")
             self._log_error(f"批量数据处理失败: {error_summary}")
             return 0, 1, 'error'

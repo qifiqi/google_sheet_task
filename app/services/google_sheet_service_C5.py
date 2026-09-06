@@ -33,6 +33,9 @@ class C5Service(BaseGoogleSheetService):
     # 去重日志标签（公共去重器见基类）
     _dedupe_label = "C5"
 
+    # get_bdl 外层网络异常打 [NETWORK_RETRYABLE]（与 C7 对齐，2026-09 审计 C4 批次）
+    _retryable_outer = True
+
     """Google Sheet服务 - C5"""
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
