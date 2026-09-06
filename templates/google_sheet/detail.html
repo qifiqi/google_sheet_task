@@ -1131,22 +1131,22 @@
             if (!err && data) {
                 // 检查是否有分页数据
                 const rdata = data.data || {};
-                if (rdata.results !== undefined && rdata.total !== undefined) {
+                if (rdata.items !== undefined && rdata.total !== undefined) {
                     // 分页接口返回的数据
-                    allResults = rdata.results;
+                    allResults = rdata.items;
                     resultsTotal = rdata.total || 0;
                     resultsPages = rdata.pages || 0;
                     resultsTotalSuccess = rdata.total_success || 0;
                     resultsTotalFailed = rdata.total_failed || 0;
                     updateResultsStatistics();
                     renderResults();
-                } else if (rdata.results && Array.isArray(rdata.results)) {
+                } else if (rdata.items && Array.isArray(rdata.items)) {
                     // 兼容旧接口（无分页参数时返回全部数据）
-                    allResults = rdata.results;
-                    resultsTotal = rdata.results.length;
+                    allResults = rdata.items;
+                    resultsTotal = rdata.items.length;
                     resultsPages = 1;
-                    resultsTotalSuccess = rdata.results.filter(r => r.success).length;
-                    resultsTotalFailed = rdata.results.filter(r => !r.success).length;
+                    resultsTotalSuccess = rdata.items.filter(r => r.success).length;
+                    resultsTotalFailed = rdata.items.filter(r => !r.success).length;
                     updateResultsStatistics();
                     renderResults();
                 } else {

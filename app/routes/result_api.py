@@ -29,7 +29,7 @@ def get_task_results(task_id):
     if page is not None and per_page is not None:
         data = task_manager.get_task_results(task_id, page=page, per_page=per_page)
         return success(data={
-            "results": data["items"],
+            "items": data["items"],
             "total": data["total"],
             "pages": data["pages"],
             "current_page": data["current_page"],
@@ -39,7 +39,7 @@ def get_task_results(task_id):
         })
 
     results = task_manager.get_task_results(task_id)
-    return success(data={"results": results})
+    return success(data={"items": results})
 
 
 @result_api_bp.route('/results', methods=['GET'])

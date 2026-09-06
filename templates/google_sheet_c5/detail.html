@@ -1368,10 +1368,10 @@
 
         ajaxRequest(url, 'GET', null, function (err, data) {
             const rdata = data.data || {};
-            if (!err && data && Array.isArray(rdata.results)) {
-                allResults = rdata.results;
-                groupedResults = groupResults(rdata.results);
-                flattenedResults = flattenResults(rdata.results);
+            if (!err && data && Array.isArray(rdata.items)) {
+                allResults = rdata.items;
+                groupedResults = groupResults(rdata.items);
+                flattenedResults = flattenResults(rdata.items);
 
                 resultsTotalPages = rdata.pages || 1;
                 resultsTotalCount = rdata.total != null ? rdata.total : groupedResults.length;
