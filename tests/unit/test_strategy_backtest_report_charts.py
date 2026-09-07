@@ -1,9 +1,49 @@
+import csv
 from datetime import date, timedelta
 from pathlib import Path
 
 import matplotlib.image as mpimg
+from matplotlib.colors import to_rgb
 
 from app.services import strategy_backtest_report_charts as charts
+
+# 真实组合收益夹具（累计收益率），用于验证刻度逻辑在真实数据范围下的表现。
+FIXTURE_CSV = Path(__file__).resolve().parents[1] / "fixtures" / "组合收益.csv"
+
+
+def _load_fixture_returns() -> dict:
+    """加载组合收益 CSV 并按服务语义转为图表序列。
+
+    累计收益率加 1 即净值；日收益按净值复利差分；月度超额取每月最后
+    一天净值差分后相减（与服务端 monthly_excess_return_diff 一致）。
+    """
+    rows = []
+    with FIXTURE_CSV.open(encoding="utf-8-sig") as stream:
+        for row in csv.DictReader(stream):
+            rows.append((date.fromisoformat(row["date"]), float(row["index_return"]), float(row["start_return"])))
+    index_nav = [1.0 + row[1] for row in rows]
+    strategy_nav = [1.0 + row[2] for row in rows]
+    index_daily = [index_nav[offset] / index_nav[offset - 1] - 1 for offset in range(1, len(rows))]
+    strategy_daily = [strategy_nav[offset] / strategy_nav[offset - 1] - 1 for offset in range(1, len(rows))]
+    month_last = {}
+    for offset, (current_date, _, _) in enumerate(rows):
+        month_last[(current_date.year, current_date.month)] = offset
+    monthly_excess = []
+    previous = None
+    for offset in sorted(month_last.values()):
+        index_month = index_nav[offset] / index_nav[previous] - 1 if previous is not None else index_nav[offset] - 1.0
+        strategy_month = (
+            strategy_nav[offset] / strategy_nav[previous] - 1 if previous is not None else strategy_nav[offset] - 1.0
+        )
+        monthly_excess.append(strategy_month - index_month)
+        previous = offset
+    return {
+        "index_nav": index_nav,
+        "strategy_nav": strategy_nav,
+        "index_daily": index_daily,
+        "strategy_daily": strategy_daily,
+        "monthly_excess": monthly_excess,
+    }
 
 
 def _chart_data() -> dict:
@@ -59,7 +99,14 @@ def test_symmetric_histogram_limit_keeps_zero_data_visible():
     assert charts._symmetric_histogram_limit([0.0, 0.0]) == 0.0105
 
 
-def test_dual_histogram_uses_shared_zero_centered_x_limits(monkeypatch, tmp_path: Path):
+def test_symmetric_histogram_limit_ignores_rare_extremes():
+    # 500 个 ±1% 内的样本 + 1 个 30% 极端值：分位数定轴，极值不再撑大范围。
+    series = [0.01, -0.01] * 250 + [0.30]
+    assert charts._symmetric_histogram_limit(series) == 0.0105
+    assert charts._symmetric_histogram_limit([-0.30] + [0.01, -0.01] * 250) == 0.0105
+
+
+def test_dual_histogram_uses_shared_zero_centered_core_limits(monkeypatch, tmp_path: Path):
     captured = {}
 
     def capture_figure(figure, path):
@@ -72,6 +119,163 @@ def test_dual_histogram_uses_shared_zero_centered_x_limits(monkeypatch, tmp_path
         {"index": [-0.02, 0.01], "strategy": [-0.01, 0.05]},
     )
 
-    left, right = captured["limits"]
-    assert left == right
-    assert left[0] == -left[1]
+    limit = charts._symmetric_histogram_limit([-0.02, 0.01, -0.01, 0.05])
+    # 两个面板共用以 0 为中心的核心区间，便于左右对比。
+    assert captured["limits"] == [(-limit, limit), (-limit, limit)]
+
+
+def test_percent_tick_step_adapts_to_data_range():
+    # 常规日收益范围（约 ±6.6%）每 2% 一个刻度，与报告样例一致。
+    assert charts._percent_tick_step(0.066) == 0.02
+    # 范围放大/缩小时步长随之增减，不写死 2%。
+    assert charts._percent_tick_step(0.63) == 0.2
+    assert charts._percent_tick_step(0.0105) == 0.0025
+    # 月度超额 y 轴放宽预算：约 18%~20% 的跨度落到模板样式的 2.5% 间隔。
+    assert charts._percent_tick_step(0.1822, max_intervals=8) == 0.025
+    assert charts._percent_tick_step(0.202, max_intervals=8) == 0.025
+
+
+def test_percent_tick_formatter_shows_plain_numbers_without_percent_sign():
+    formatter = charts._percent_tick_formatter(0.02)
+    assert formatter(0.0, None) == "0"
+    assert formatter(0.02, None) == "2"
+    assert formatter(-0.06, None) == "-6"
+    # 步长小于 1% 时保留小数，避免刻度全部取整为 0。
+    assert charts._percent_tick_formatter(0.005)(0.005, None) == "0.5"
+    # 2.5 一族步长需要一位小数。
+    assert charts._percent_tick_formatter(0.025)(0.025, None) == "2.5"
+    assert charts._percent_tick_formatter(0.025)(0.075, None) == "7.5"
+    # 阈值刻度显示为 <-X%、>+X%，标明尾部极值已归并进边缘箱。
+    assert charts._percent_tick_formatter(0.01, overflow_limit=0.032865)(0.032865, None) == ">+3.3%"
+    assert charts._percent_tick_formatter(0.01, overflow_limit=0.032865)(-0.032865, None) == "<-3.3%"
+    assert charts._percent_tick_formatter(0.01, overflow_limit=0.032865)(0.02, None) == "2"
+
+
+def test_dual_histogram_percent_ticks_are_symmetric_around_zero(monkeypatch, tmp_path: Path):
+    captured = {}
+
+    def capture_figure(figure, path):
+        captured["ticks"] = [axis.get_xticks() for axis in figure.axes]
+
+    monkeypatch.setattr(charts, "_save_figure", capture_figure)
+    combined = [-0.02, 0.01, -0.01, 0.05]
+    charts._draw_dual_histogram(
+        tmp_path / "daily.png",
+        "日收益率分布",
+        {"index": combined[:2], "strategy": combined[2:]},
+    )
+
+    limit = charts._symmetric_histogram_limit(combined)
+    assert len(captured["ticks"]) == 2
+    for ticks in captured["ticks"]:
+        assert ticks[0] == -ticks[-1]
+        assert 0 in ticks
+        assert all(-limit <= tick <= limit for tick in ticks)
+
+
+def test_real_returns_dual_histogram_zooms_into_core_region(monkeypatch, tmp_path: Path):
+    returns = _load_fixture_returns()
+    captured = {}
+
+    def capture_figure(figure, path):
+        figure.canvas.draw()
+        captured["ticks"] = [axis.get_xticks() for axis in figure.axes]
+        captured["labels"] = [label.get_text() for label in figure.axes[0].get_xticklabels()]
+        captured["x_label"] = figure.axes[0].get_xlabel()
+        captured["bar_counts"] = [len(axis.patches) for axis in figure.axes]
+        captured["height_sums"] = [sum(patch.get_height() for patch in axis.patches) for axis in figure.axes]
+        captured["notes"] = [[text.get_text() for text in axis.texts] for axis in figure.axes]
+
+    monkeypatch.setattr(charts, "_save_figure", capture_figure)
+    charts._draw_dual_histogram(
+        tmp_path / "daily.png",
+        "日收益率分布",
+        {"index": returns["index_daily"], "strategy": returns["strategy_daily"]},
+    )
+
+    index_ticks, strategy_ticks = captured["ticks"]
+    # 核心区间按各自分位数确定（指数 ±2.47%、策略 ±3.69%），刻度只显示数值。
+    assert [round(tick / 0.005) for tick in index_ticks] == list(range(-4, 5))
+    assert [round(tick / 0.01) for tick in strategy_ticks] == list(range(-3, 4))
+    assert captured["x_label"] == "日收益率（%）"
+    assert captured["labels"] == ["-2.0", "-1.5", "-1.0", "-0.5", "0.0", "0.5", "1.0", "1.5", "2.0"]
+    # 核心区间内自适应细分行：指数 25 箱、策略 37 箱（约 0.2% 一箱）。
+    assert captured["bar_counts"] == [25, 37]
+    # 尾部极值归并进边缘箱：柱高之和仍等于样本总数，无数据被丢弃。
+    assert captured["height_sums"] == [len(returns["index_daily"]), len(returns["strategy_daily"])]
+    # 归并数量在图内标注。
+    assert captured["notes"][0] == ["18 笔超出 ±2.5% 已并入两端"]
+    assert captured["notes"][1] == ["17 笔超出 ±3.7% 已并入两端"]
+
+
+def test_real_returns_monthly_excess_bars_match_template_style(monkeypatch, tmp_path: Path):
+    returns = _load_fixture_returns()
+    captured = {}
+
+    def capture_figure(figure, path):
+        figure.canvas.draw()
+        axis = figure.axes[0]
+        captured["x_label"] = axis.get_xlabel()
+        captured["y_label"] = axis.get_ylabel()
+        captured["y_labels"] = [label.get_text() for label in axis.get_yticklabels()]
+        captured["x_ticks"] = list(axis.get_xticks())
+        captured["x_limits"] = axis.get_xlim()
+        captured["bar_colors"] = [tuple(bar.get_facecolor()) for bar in axis.containers[0].patches]
+
+    monkeypatch.setattr(charts, "_save_figure", capture_figure)
+    charts._draw_monthly_excess_bars(tmp_path / "monthly.png", "月度超额分布", returns["monthly_excess"])
+
+    positive_count = sum(1 for value in returns["monthly_excess"] if value >= 0)
+    green = to_rgb(charts.GREEN)
+    red = to_rgb(charts.LIGHT_RED)
+    green_count = sum(1 for color in captured["bar_colors"] if color[:3] == green)
+    red_count = sum(1 for color in captured["bar_colors"] if color[:3] == red)
+    assert captured["x_label"] == "月份序号"
+    assert captured["y_label"] == "月度超额收益（%）"
+    # 正超额/负超额月数与绿/红柱一一对应。
+    assert green_count == positive_count
+    assert red_count == len(returns["monthly_excess"]) - positive_count
+    # 月份序号恒为非负整数（定位器会返回视野外的候补刻度，需先过滤）。
+    visible_x = [tick for tick in captured["x_ticks"] if captured["x_limits"][0] <= tick <= captured["x_limits"][1]]
+    assert visible_x
+    assert all(float(tick).is_integer() and tick >= 0 for tick in visible_x)
+    assert captured["y_labels"]
+    assert all("%" not in label for label in captured["y_labels"])
+    assert "0.0" in captured["y_labels"]
+    # y 轴按 1-2-2.5-5 序列自适应，本数据范围（约 18% 跨度）即 2.5% 间隔。
+    y_values = [float(label) for label in captured["y_labels"]]
+    assert all(abs(value / 2.5 - round(value / 2.5)) < 1e-9 for value in y_values)
+    assert "2.5" in captured["y_labels"]
+
+
+def test_histogram_bin_count_adapts_to_sample_size_and_range():
+    returns = _load_fixture_returns()
+    # 核心区间（指数 ±2.5%、策略 ±3.7%）内自适应细分行：箱宽约 0.2%。
+    for series, expected_bins in ((returns["index_daily"], 25), (returns["strategy_daily"], 37)):
+        limit = charts._symmetric_histogram_limit(series)
+        assert charts._histogram_bin_count(series, limit) == expected_bins
+    # 箱数始终被限制在 12~60 之间，小样本与常数序列也有可读的粒度。
+    small = [value / 1000 for value in range(-50, 50)]
+    assert 12 <= charts._histogram_bin_count(small, charts._symmetric_histogram_limit(small)) <= 60
+    assert charts._histogram_bin_count([0.0], 0.0105) >= 12
+
+
+def test_generate_report_charts_with_real_fixture_returns(tmp_path: Path):
+    returns = _load_fixture_returns()
+    paths = charts.generate_report_charts({
+        "dates": [date(2016, 1, 4) + timedelta(days=offset) for offset in range(len(returns["index_nav"]))],
+        "index_nav": returns["index_nav"],
+        "strategy_nav": returns["strategy_nav"],
+        "excess_nav": [
+            strategy / index - 1 for index, strategy in zip(returns["index_nav"], returns["strategy_nav"])
+        ],
+        "index_daily_returns": returns["index_daily"],
+        "strategy_daily_returns": returns["strategy_daily"],
+        "monthly_excess_returns": returns["monthly_excess"],
+        "annual_returns": {"years": ["2024", "2025"], "index": [0.1, -0.02], "strategy": [0.15, 0.04]},
+    }, tmp_path)
+
+    assert set(paths) == {"累计净值曲线", "最大回撤曲线", "超额收益曲线", "分年度收益", "日收益分布", "月度超额分布"}
+    for path in paths.values():
+        image = mpimg.imread(path)
+        assert image.shape[:2] == (760, 1440)

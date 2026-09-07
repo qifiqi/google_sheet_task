@@ -548,8 +548,8 @@ class StrategyBacktestReportService:
     def _extreme_section(self, metrics: dict[str, Any], result: Any) -> list[dict[str, Any]]:
         """构造七、极端行情表现章节的全部表格；数值统一取自 V1 指标结果。
 
-        跑赢次数为 V1 胜率的分子口径（下跌阶段：跑赢且策略仍低于阈值；
-        上涨阶段：跑赢且策略超上涨阈值），见 metrics.py 内的口径 TODO。
+        跑赢次数为 V1 胜率的分子口径（月份以指数为准：指数跌破下跌阈值/
+        超过上涨阈值的月份中，策略月收益高于指数月收益的月数）。
         """
         _ = result
         downturn_threshold = metrics.get("market_downturn_threshold")
@@ -620,16 +620,20 @@ class StrategyBacktestReportService:
              self._decimal(metrics.get("start_net_value_left"), 4)],
             ["期末净值", self._decimal(metrics.get("index_net_value_right"), 4),
              self._decimal(metrics.get("start_net_value_right"), 4)],
-            ["净值创新高次数", self._integer(metrics.get("index_new_high_count")),
-             self._integer(metrics.get("start_new_high_count"))],
-            ["净值创新高频率", self._pct(metrics.get("index_new_high_frequency")),
-             self._pct(metrics.get("start_new_high_frequency"))],
-            ["最大涨幅区间(连续)", self._pct(index_consecutive.get("max_gain")),
-             self._pct(start_consecutive.get("max_gain"))],
-            ["最大跌幅区间(连续)", self._pct(index_consecutive.get("max_loss")),
-             self._pct(start_consecutive.get("max_loss"))],
-            ["创新高平均间隔(天)", self._decimal(metrics.get("index_new_high_avg_interval_days"), 1),
-             self._decimal(metrics.get("start_new_high_avg_interval_days"), 1)]]
+            # ["净值创新高次数", self._integer(metrics.get("index_new_high_count")),
+            #  self._integer(metrics.get("start_new_high_count"))],
+            # ["净值创新高频率", self._pct(metrics.get("index_new_high_frequency")),
+            #  self._pct(metrics.get("start_new_high_frequency"))],
+            # ["最大涨幅区间(连续)", self._pct(index_consecutive.get("max_gain")),
+            #  self._pct(start_consecutive.get("max_gain"))],
+            # ["最大跌幅区间(连续)", self._pct(index_consecutive.get("max_loss")),
+            #  self._pct(start_consecutive.get("max_loss"))],
+            ["最大连涨月份", self._integer(index_consecutive.get("max_gain_months")),
+             self._integer(start_consecutive.get("max_gain_months"))],
+            ["最大连跌月份", self._integer(index_consecutive.get("max_loss_months")),
+             self._integer(start_consecutive.get("max_loss_months"))],
+            ["创新高平均间隔月", self._decimal(metrics.get("index_new_high_avg_interval_months"), 1),
+             self._decimal(metrics.get("start_new_high_avg_interval_months"), 1)]]
         return [{"table": self._table(["指标", "指数", "策略"], rows)}]
 
     @classmethod

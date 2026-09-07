@@ -165,3 +165,40 @@ def test_c5_recent_mode_skips_empty_ranges_and_raises_when_none_left(app_factory
                 [1],
                 [["600000"], [1], [2]],
             )
+
+
+def _multi_product_service(app_factory, kline_start, kline_end):
+    from app.services.backtest_multi_product_service import BacktestMultiProductService
+
+    service = BacktestMultiProductService({}, "task-id")
+    service._log_info = lambda *_args, **_kwargs: None
+    service.kline_service.get_kline_data = (
+        lambda *_args, **_kwargs: _kline_rows(kline_start, kline_end)
+    )
+    return service
+
+
+def test_multi_product_start_date_before_kline_range_clamps_to_first_trading_day(app_factory):
+    """设定起点早于K线首日（节假日/休市日）时往后取首个交易日，不再抛区间错误。"""
+    with app_factory.app_context():
+        service = _multi_product_service(app_factory, "2016-01-04", "2025-12-31")
+
+        kline = service._get_kline_by_date_range(
+            "SOXX.US", "en", "2016-01-01", "2025-12-31",
+            price_mode="sp_price",
+        )
+
+        assert kline, "应返回K线行"
+        assert kline[0]["stock_date"] == "2016-01-04"
+        assert kline[-1]["stock_date"] == "2025-12-31"
+
+
+def test_multi_product_end_date_after_kline_range_still_raises(app_factory):
+    with app_factory.app_context():
+        service = _multi_product_service(app_factory, "2016-01-04", "2025-12-31")
+
+        with pytest.raises(ValueError, match="不在K线数据范围"):
+            service._get_kline_by_date_range(
+                "SOXX.US", "en", "2016-01-04", "2026-06-30",
+                price_mode="sp_price",
+            )

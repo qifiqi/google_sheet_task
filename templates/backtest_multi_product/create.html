@@ -614,7 +614,7 @@ function addProduct(defaults = {}) {
     `;
     productsContainer.appendChild(card);
     card.querySelector('.kline-adjustment').value = defaults.kline_adjustment || 'forward';
-    card.querySelector('.price-mode').value = defaults.price_mode || 'vwap_price';
+    card.querySelector('.price-mode').value = defaults.price_mode || 'sp_price';
     resetParameterTable(card, 'c3');
     initParameterHelpPopover(card);
     card.querySelector('.ratio-input').addEventListener('input', () => {
@@ -971,7 +971,7 @@ function collectProducts() {
         market_type: card.querySelector('.market-type').value,
         exchange_market: card.dataset.exchangeMarket || undefined,
         kline_adjustment: card.querySelector('.kline-adjustment').value || 'forward',
-        price_mode: card.querySelector('.price-mode').value || 'vwap_price',
+        price_mode: card.querySelector('.price-mode').value || 'sp_price',
         ratio: card.querySelector('.ratio-input').value.trim(),
         is_fixed: Boolean(card.querySelector('.fixed-product')?.checked),
         sheet: {

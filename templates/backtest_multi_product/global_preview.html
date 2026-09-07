@@ -471,7 +471,7 @@ async function applyRatioPreview() {
         if (!response.ok || data.status !== 'success') {
             throw new Error(data.message || '计算失败');
         }
-        previewPayload = data;
+        previewPayload = data.data;
         hasUnsavedRatioPreview = true;
         ratioInputsDirty = false;
         appliedRatioSignature = signature;
@@ -552,15 +552,15 @@ async function loadGlobalPreview() {
     const container = document.getElementById('previewContainer');
     try {
         const response = await fetch(`/backtest-multi-product/api/global-preview/${encodeURIComponent(TASK_ID)}`);
-        const data = await response.json();
+        let data = await response.json();
         if (!response.ok || data.status !== 'success') {
             throw new Error(data.message || '加载失败');
         }
-        previewPayload = data;
+        previewPayload = data.data;
         hasUnsavedRatioPreview = false;
         ratioInputsDirty = false;
-        appliedRatioSignature = ratioSignatureFromProducts(data.products || []);
-        activeGroupKey = data.groups && data.groups.length ? data.groups[0].group_key : '';
+        appliedRatioSignature = ratioSignatureFromProducts(previewPayload.products || []);
+        activeGroupKey = previewPayload.groups && previewPayload.groups.length ? previewPayload.groups[0].group_key : '';
         renderSummary();
         renderGroupOptions();
         renderRatios();
@@ -598,10 +598,10 @@ async function saveRatios() {
         if (!response.ok || data.status !== 'success') {
             throw new Error(data.message || '保存失败');
         }
-        previewPayload = data;
+        previewPayload = data.data;
         hasUnsavedRatioPreview = false;
         ratioInputsDirty = false;
-        appliedRatioSignature = ratioSignatureFromProducts(data.products || []);
+        appliedRatioSignature = ratioSignatureFromProducts(data.data.products || []);
         renderSummary();
         renderGroupOptions();
         renderRatios();

@@ -150,7 +150,7 @@ def get_worksheets_with_cache(spreadsheet_id: str, token_file: str, proxy_url: s
                 "cached": True,
             }
 
-    data = _GoogleSheetService.get_worksheets(spreadsheet_id, token_file, proxy_url)
+    data = _C3Service.get_worksheets(spreadsheet_id, token_file, proxy_url)
     try:
         _WORKSHEETS_CACHE[cache_key] = (now, data)
     except Exception as e:

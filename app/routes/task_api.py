@@ -11,7 +11,8 @@ import json
 from flask import Blueprint, g, jsonify, request
 
 from app.exceptions import BadRequestError, NotFoundError
-from app.schemas.task import TaskCreateSchema, TasksBatchCreateSchema, TaskRestartSchema, TaskListQuery
+from app.schemas.task import TaskCreateSchema, TasksBatchCreateSchema, TaskRestartSchema, TaskListQuery, \
+    TaskConfigUpdateSchema
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.utils.api_response import error, success
 from app.utils.request_parsing import parse_body, parse_query

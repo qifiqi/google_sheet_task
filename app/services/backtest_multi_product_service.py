@@ -1100,7 +1100,15 @@ class BacktestMultiProductService(BacktestTrainingService):
             raise ValueError(f"股票 {stock_code} 没有 K 线数据")
         data_start_date = klines[0]["stock_date"]
         data_end_date = klines[-1]["stock_date"]
-        if start_date < data_start_date or end_date > data_end_date:
+        # 设定起点早于K线首日（如节假日/休市日）时，从数据首日（往后第一个交易日）开始，
+        # 与 C3/单产品训练的宽松语义一致；build_price_rows 闭区间过滤天然完成截取。
+        if start_date < data_start_date:
+            self._log_info(
+                f"股票{stock_code} 设定区间起点 {start_date} 早于K线首日 {data_start_date}，"
+                f"将从K线首日开始执行"
+            )
+            start_date = data_start_date
+        if end_date > data_end_date:
             raise ValueError(
                 f"股票{stock_code} 设定区间 [{start_date}, {end_date}] "
                 f"不在K线数据范围 [{data_start_date}, {data_end_date}] 内"
