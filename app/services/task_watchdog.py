@@ -248,12 +248,6 @@ class TaskWatchdog:
         with self._retry_restart_lock:
             return self._retry_restart_attempts.get(task_id, 0)
 
-    def _increment_cached_retry_attempts(self, task_id: str) -> int:
-        with self._retry_restart_lock:
-            attempt = self._retry_restart_attempts.get(task_id, 0) + 1
-            self._retry_restart_attempts[task_id] = attempt
-            return attempt
-
     def _set_cached_retry_attempts(self, task_id: str, attempts: int) -> None:
         with self._retry_restart_lock:
             self._retry_restart_attempts[task_id] = max(attempts, 0)

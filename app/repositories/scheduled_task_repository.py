@@ -18,12 +18,6 @@ class ScheduledTaskRepository(BaseRepository):
     def count_active(self):
         return ScheduledTask.query.filter_by(is_active=True).count()
 
-    def list_all(self):
-        return [
-            row.to_dict()
-            for row in ScheduledTask.query.order_by(ScheduledTask.created_at.desc()).all()
-        ]
-
     def list_paginated(self, page, per_page):
         pagination = ScheduledTask.query.order_by(ScheduledTask.created_at.desc()).paginate(
             page=max(page or 1, 1), per_page=max(min(per_page or 10, 100), 1), error_out=False
@@ -46,21 +40,6 @@ class ScheduledTaskRepository(BaseRepository):
         if data is None:
             raise NotFoundError(f"定时任务不存在: {task_id}")
         return data
-
-    def list_due(self, now):
-        """到期待执行任务（scheduler_service 扫描语义：启用、未在执行、next_run_time <= now）。"""
-        rows = (
-            ScheduledTask.query
-            .filter(
-                ScheduledTask.is_active.is_(True),
-                ScheduledTask.is_running.is_(False),
-                ScheduledTask.next_run_time.isnot(None),
-                ScheduledTask.next_run_time <= now,
-            )
-            .order_by(ScheduledTask.next_run_time.asc())
-            .all()
-        )
-        return [row.to_dict() for row in rows]
 
     def get_stats(self):
         """聚合统计：{total, active}。"""

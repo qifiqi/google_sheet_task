@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from app.models import Task, TaskLog, TaskResult, TaskResultSummaryIndex
+from app.models import Task, TaskLog, TaskResultSummaryIndex
 from app.repositories import backtest_repository, task_log_repository, task_repository, task_result_repository
 from app.services.model_summary import extractor
 from app.utils.logger import get_logger
@@ -24,11 +24,6 @@ logger = get_logger(__name__)
 class SummaryJobMixin:
     """汇总索引差分 upsert、全量 rebuild 与后台重建作业管理。"""
 
-    def upsert_task_result(self, task_result_id: int, *, commit: bool = True) -> int:
-        """处理upsert_task_result相关逻辑。"""
-        with self._index_lock:
-            return self._upsert_task_result_locked(task_result_id, commit=commit)
-
     def upsert_task(self, task_id: str, *, commit: bool = True) -> dict[str, int]:
         """Rebuild summary index rows for one task from all successful results."""
         if not task_id:
@@ -38,38 +33,6 @@ class SummaryJobMixin:
             if commit:
                 task_result_repository.commit()
             return summary
-
-    def _upsert_task_result_locked(self, task_result_id: int, *, commit: bool = True) -> int:
-        """处理_upsert_task_result_locked相关逻辑。"""
-        record = backtest_repository.get_task_result_pair(task_result_id)
-        if not record:
-            return 0
-        task, result = record
-        rows = extractor._extract_candidate_records(task, result)
-        existing = {
-            item.model_key: item
-            for item in backtest_repository.list_summary_index_entities_by_result(result.id)
-        }
-        changed_task_ids = set()
-        for row in rows:
-            item = existing.get(row.model_key)
-            if item is None:
-                item = TaskResultSummaryIndex(task_result_id=row.task_result_id, model_key=row.model_key)
-                backtest_repository.add_entity(item)
-            self._apply_record(item, row)
-            changed_task_ids.add(row.task_id)
-
-        stale_keys = set(existing) - {row.model_key for row in rows}
-        for key in stale_keys:
-            changed_task_ids.add(existing[key].task_id)
-            backtest_repository.delete_entity(existing[key])
-        task_result_repository.flush()
-
-        for changed_task_id in changed_task_ids:
-            self._keep_only_best_for_task(changed_task_id)
-        if commit:
-            task_result_repository.commit()
-        return len(rows)
 
     def rebuild(
         self,
@@ -333,46 +296,6 @@ class SummaryJobMixin:
         item.best_metric_value = row.best_metric_value
         item.metrics_json = extractor._json_text(row.metrics)
         item.result_timestamp = row.result_timestamp
-
-    def _upsert_batch(self, batch: list[tuple[Task, TaskResult]]) -> int:
-        """处理_upsert_batch相关逻辑。"""
-        result_ids = [result.id for _task, result in batch]
-        existing_items = (
-            backtest_repository.list_summary_index_entities_by_result_ids(result_ids)
-        )
-        existing = {
-            (item.task_result_id, item.model_key): item
-            for item in existing_items
-        }
-        seen_keys = set()
-        changed_task_ids = set()
-        indexed = 0
-
-        for task, result in batch:
-            rows = extractor._extract_candidate_records(task, result)
-            indexed += len(rows)
-            for row in rows:
-                key = (row.task_result_id, row.model_key)
-                seen_keys.add(key)
-                item = existing.get(key)
-                if item is None:
-                    item = TaskResultSummaryIndex(
-                        task_result_id=row.task_result_id,
-                        model_key=row.model_key,
-                    )
-                    backtest_repository.add_entity(item)
-                self._apply_record(item, row)
-                changed_task_ids.add(row.task_id)
-
-        for key, item in existing.items():
-            if key not in seen_keys:
-                changed_task_ids.add(item.task_id)
-                backtest_repository.delete_entity(item)
-
-        task_result_repository.flush()
-        for changed_task_id in changed_task_ids:
-            self._keep_only_best_for_task(changed_task_id)
-        return indexed
 
     def _load_rebuild_task_ids(
         self,

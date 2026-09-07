@@ -124,79 +124,6 @@ class StockAPIClient:
             logger.error("插入参数失败")
             return 0
 
-    def update_stock_template_param(self, param_id: int, param_data: Dict) -> bool:
-        """
-        更新股票模板参数
-
-        Args:
-            param_id: 参数ID
-            param_data: 参数数据字典
-
-        Returns:
-            是否更新成功
-        """
-        endpoint = f"api/Stock/UpdateStockTemplateParam/{param_id}"
-
-        response = self._make_request('PUT', endpoint, data=param_data)
-
-        if response:
-            logger.info(f"更新参数 {param_id} 成功")
-            return True
-        else:
-            logger.error(f"更新参数 {param_id} 失败")
-            return False
-
-    def delete_stock_template_param(self, param_id: int) -> bool:
-        """
-        删除股票模板参数
-
-        Args:
-            param_id: 参数ID
-
-        Returns:
-            是否删除成功
-        """
-        endpoint = f"api/Stock/DeleteStockTemplateParam/{param_id}"
-
-        response = self._make_request('DELETE', endpoint)
-
-        if response:
-            logger.info(f"删除参数 {param_id} 成功")
-            return True
-        else:
-            logger.error(f"删除参数 {param_id} 失败")
-            return False
-
-    def get_stock_template_params(self, stock_no: str = None, limit: int = 100, offset: int = 0) -> Optional[Dict]:
-        """
-        获取股票模板参数列表
-
-        Args:
-            stock_no: 股票编号（可选）
-            limit: 限制数量
-            offset: 偏移量
-
-        Returns:
-            参数列表或None
-        """
-        endpoint = "api/Stock/GetStockTemplateParams"
-        params = {
-            "limit": limit,
-            "offset": offset
-        }
-
-        if stock_no:
-            params["stock_no"] = stock_no
-
-        response = self._make_request('GET', endpoint, params=params)
-
-        if response:
-            logger.info(f"获取参数列表成功，共 {len(response.get('data', []))} 条记录")
-            return response
-        else:
-            logger.error("获取参数列表失败")
-            return None
-
     def add_or_modify_stock_param_result(self, result_data: Dict) -> Optional[Dict]:
         """
         调用 StockParamResult/AddOrModify 接口。
@@ -230,21 +157,6 @@ class StockAPIClient:
             return result
 
         raise requests.HTTPError(f"请求失败，状态码: {response.status_code}, 响应: {response.text}")
-
-    def health_check(self) -> bool:
-        """
-        健康检查
-
-        Returns:
-            是否健康
-        """
-        try:
-            # 尝试获取参数列表来检查API是否可用
-            response = self.get_stock_template_params(limit=1)
-            return response is not None
-        except Exception as e:
-            logger.error(f"健康检查失败: {e}")
-            return False
 
     def close(self):
         """关闭会话"""

@@ -43,6 +43,34 @@ def test_resolve_market_type_known_markets_unchanged():
     assert resolve_market_type("177") == "kr"
 
 
+def test_resolve_market_type_futures_exchange_numbers():
+    """期货交易所编号（中金所8/上期所113/大商所114/郑商所115/能源142/广期所225）归 futures。"""
+    for number in ("8", "113", "114", "115", "142", "225"):
+        assert resolve_market_type(number) == "futures", number
+
+
+def test_search_stocks_keeps_futures_market_filter():
+    """期货品种按 market 数字归入 futures 后，不再被 cn/en 过滤丢弃。"""
+    service = StockSearchService(dfcf_api=type(
+        "_DfcfApi",
+        (),
+        {"get_search_list_by_stock_code": staticmethod(lambda *a, **k: [
+            {"code": "IF2501", "shortName": "沪深2501", "market": "8", "status": 10},
+            {"code": "510300", "shortName": "沪深300ETF", "market": "1", "status": 10},
+        ])},
+    )())
+
+    futures = service.search_stocks("IF", market_type="futures")
+    assert [(item["code"], item["market_type"]) for item in futures] == [
+        ("IF2501", "futures"),
+    ]
+
+    cn = service.search_stocks("IF", market_type="cn")
+    assert [(item["code"], item["market_type"]) for item in cn] == [
+        ("510300.SS", "cn"),
+    ]
+
+
 def test_resolve_market_type_unmapped_falls_to_security_type_name():
     assert resolve_market_type("999", "日本") == "jp"
     assert resolve_market_type("999") is None

@@ -1,15 +1,8 @@
 from ding_stream_service.handler import DingStreamEventHandler
-from ding_stream_service.settings import DingStreamSettings
 
 
-def test_process_message_returns_help_menu_when_only_mentioned(tmp_path):
-    handler = DingStreamEventHandler(
-        DingStreamSettings(
-            client_id="test-client-id",
-            client_secret="test-client-secret",
-            project_root=tmp_path,
-        )
-    )
+def test_process_message_returns_help_menu_when_only_mentioned():
+    handler = DingStreamEventHandler()
 
     reply = handler.process_message("@测试机器人", "张三")
 

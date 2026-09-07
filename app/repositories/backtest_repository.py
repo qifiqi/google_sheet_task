@@ -27,41 +27,6 @@ class BacktestRepository(BaseRepository):
 
     # ---- TaskResultSummaryIndex ----
 
-    def get_summary_index(self, task_id):
-        """任务全部汇总索引行（dict 列表，按 id asc）。"""
-        rows = (
-            TaskResultSummaryIndex.query.filter_by(task_id=task_id)
-            .order_by(TaskResultSummaryIndex.id.asc())
-            .all()
-        )
-        return [row.to_dict() for row in rows]
-
-    def get_summary_index_row(self, task_result_id, model_key):
-        row = (
-            TaskResultSummaryIndex.query
-            .filter_by(task_result_id=task_result_id, model_key=model_key)
-            .first()
-        )
-        return row.to_dict() if row else None
-
-    def upsert_summary_index(self, task_result_id, model_key, fields, commit=True):
-        """按 (task_result_id, model_key) 唯一键存在则更新、否则新建。"""
-        with db.session.no_autoflush:
-            row = (
-                TaskResultSummaryIndex.query
-                .filter_by(task_result_id=task_result_id, model_key=model_key)
-                .first()
-            )
-        if row is None:
-            row = TaskResultSummaryIndex(task_result_id=task_result_id, model_key=model_key, **fields)
-            db.session.add(row)
-        else:
-            for key, value in fields.items():
-                setattr(row, key, value)
-        if commit:
-            self._commit()
-        return row.to_dict()
-
     def delete_xpl_analysis_jobs(
         self,
         *,
@@ -96,15 +61,6 @@ class BacktestRepository(BaseRepository):
 
     def list_summary_index_entities_by_result(self, task_result_id):
         return TaskResultSummaryIndex.query.filter_by(task_result_id=task_result_id).all()
-
-    def list_summary_index_entities_by_result_ids(self, result_ids):
-        if not result_ids:
-            return []
-        return (
-            TaskResultSummaryIndex.query
-            .filter(TaskResultSummaryIndex.task_result_id.in_(result_ids))
-            .all()
-        )
 
     def get_task_result_pair(self, task_result_id):
         """(Task, TaskResult) join 实体，供候选记录提取。"""
@@ -395,29 +351,6 @@ class BacktestRepository(BaseRepository):
             self._commit()
         return deleted
 
-    def delete_summary_index(self, task_id, commit=True):
-        """按任务清汇总索引；返回删除行数。"""
-        deleted = (
-            TaskResultSummaryIndex.query.filter_by(task_id=task_id)
-            .delete(synchronize_session=False)
-        )
-        if commit:
-            self._commit()
-        return deleted
-
-    def delete_summary_index_older_than(self, cutoff, commit=True):
-        """清理窗口条件压 SQL 层；返回删除行数。"""
-        deleted = (
-            TaskResultSummaryIndex.query
-            .filter(TaskResultSummaryIndex.created_at < cutoff)
-            .delete(synchronize_session=False)
-        )
-        if commit:
-            self._commit()
-        return deleted
-
-    # ---- BacktestProductResultCache ----
-
     def exists_product_cache(self, batch_id, cache_key):
         return (
             BacktestProductResultCache.query
@@ -433,39 +366,10 @@ class BacktestRepository(BaseRepository):
         )
         return row.to_dict() if row else None
 
-    def upsert_product_cache(self, batch_id, cache_key, fields, commit=True):
-        """按 (batch_id, cache_key) 唯一键存在则更新、否则新建。"""
-        with db.session.no_autoflush:
-            row = (
-                BacktestProductResultCache.query
-                .filter_by(batch_id=batch_id, cache_key=cache_key)
-                .first()
-            )
-        if row is None:
-            row = BacktestProductResultCache(batch_id=batch_id, cache_key=cache_key, **fields)
-            db.session.add(row)
-        else:
-            for key, value in fields.items():
-                setattr(row, key, value)
-        if commit:
-            self._commit()
-        return row.to_dict()
-
-    def delete_product_cache_by_task(self, task_id, commit=True):
-        """按来源任务清产品缓存；返回删除行数。"""
-        deleted = (
-            BacktestProductResultCache.query.filter_by(source_task_id=task_id)
-            .delete(synchronize_session=False)
-        )
-        if commit:
-            self._commit()
-        return deleted
-
     def insert_product_cache_if_absent(self, batch_id, cache_key, fields, commit=True):
         """已存在则跳过（不覆盖），返回是否新插入。
 
         先查后插 + 唯一约束兜底并发竞态：撞约束回滚并返回 False（先写者胜）。
-        与 upsert_product_cache 的覆盖语义不同，二者不可互换。
         """
         if self.exists_product_cache(batch_id, cache_key):
             return False

@@ -12,7 +12,7 @@ import json
 from flask import Blueprint, current_app, request
 
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
-from app.extensions import limiter
+from app.extensions import limiter, rate_limit_config, rate_limit_user_key
 from app.schemas.backtest import CalculateRatiosSchema, UpdateRatiosSchema
 from app.services.backtest_excel_service import BacktestExcelService
 from app.services.backtest_multi_product_preview import build_multi_product_global_preview_payload
@@ -46,17 +46,6 @@ bt_api_bp = Blueprint("backtest_training_api", __name__, url_prefix="/backtest-t
 bmp_api_bp = Blueprint("backtest_multi_product_api", __name__, url_prefix="/backtest-multi-product")
 
 
-def _rate_limit(config_key, default):
-    """限流阈值经 config_manager 运行时可调（零重启）。"""
-    from app.services.config_manager import get_config_manager
-
-    return get_config_manager().get_config(config_key, default)
-
-
-def _user_key():
-    from flask import g
-
-    return f"user:{getattr(getattr(g, 'current_user', None), 'id', 'anon')}"
 
 
 def _sanitize_json_value(value):
@@ -84,8 +73,8 @@ def _parse_json(raw, default):
 @bt_api_bp.route("/api/import-excel", methods=["POST"])
 @login_required
 @limiter.limit(
-    lambda: f"{_rate_limit('rate_limit_heavy', 6) or 6}/minute",
-    key_func=_user_key,
+    lambda: f"{rate_limit_config('rate_limit_heavy', 6) or 6}/minute",
+    key_func=rate_limit_user_key,
 )
 def import_excel():
     excel_file = request.files.get("file")
@@ -166,8 +155,8 @@ def get_task_result_detail(task_result_id):
 @bt_api_bp.route("/api/task-result/<int:task_result_id>/export-preview", methods=["GET"])
 @login_required
 @limiter.limit(
-    lambda: f"{_rate_limit('rate_limit_export', 10) or 10}/minute",
-    key_func=_user_key,
+    lambda: f"{rate_limit_config('rate_limit_export', 10) or 10}/minute",
+    key_func=rate_limit_user_key,
 )
 def get_task_result_export_preview(task_result_id):
     task_result, task = load_backtest_task_result(task_result_id)
@@ -293,8 +282,8 @@ def _build_word_report_payload(task: dict, task_result) -> dict | None:
 @bmp_api_bp.route("/api/import-excel", methods=["POST"])
 @login_required
 @limiter.limit(
-    lambda: f"{_rate_limit('rate_limit_heavy', 6) or 6}/minute",
-    key_func=_user_key,
+    lambda: f"{rate_limit_config('rate_limit_heavy', 6) or 6}/minute",
+    key_func=rate_limit_user_key,
 )
 def bmp_import_excel():
     excel_file = request.files.get("file")
@@ -396,8 +385,8 @@ def bmp_get_global_preview(task_id):
 @bmp_api_bp.route("/api/global-preview/<task_id>/calculate-ratios", methods=["POST"])
 @login_required
 @limiter.limit(
-    lambda: f"{_rate_limit('rate_limit_heavy', 6) or 6}/minute",
-    key_func=_user_key,
+    lambda: f"{rate_limit_config('rate_limit_heavy', 6) or 6}/minute",
+    key_func=rate_limit_user_key,
 )
 def bmp_calculate_ratios(task_id):
     _load_multi_product_task_or_raise(task_id)

@@ -1,0 +1,231 @@
+    .preview-layout { display: grid; gap: 1rem; }
+    .header-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        background: var(--bs-body-bg);
+        border-radius: 0.875rem;
+        padding: 0.6rem 1.25rem;
+    }
+    .header-toolbar-left {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+    }
+    .summary-panel {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-body-bg);
+    }
+    .summary-toggle {
+        list-style: none;
+        padding: 0.85rem 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--bs-body-color);
+        cursor: pointer;
+    }
+    .summary-toggle::-webkit-details-marker { display: none; }
+    .summary-toggle:focus { outline: none; }
+    .summary-toggle:focus-visible {
+        box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.16);
+        border-radius: 0.75rem;
+    }
+    .summary-panel[open] .summary-toggle-icon { transform: rotate(180deg); }
+    .summary-toggle-icon { transition: transform 0.15s ease; }
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+        padding: 0 1rem 1rem;
+    }
+    .summary-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-tertiary-bg);
+        padding: 1rem;
+    }
+    .summary-card-label {
+        font-size: 0.78rem;
+        color: var(--bs-secondary-color);
+        margin-bottom: 0.2rem;
+    }
+    .summary-card-value {
+        font-weight: 700;
+        word-break: break-word;
+    }
+    .ratio-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .ratio-formula-hint {
+        flex: 1;
+        min-width: 280px;
+        background: #fff7ed;
+        border: 1px solid #fed7aa;
+        border-radius: 0.75rem;
+        padding: 0.6rem 1rem;
+        font-size: 0.82rem;
+    }
+    .ratio-formula-hint .hint-title {
+        color: #9a3412;
+        font-weight: 700;
+    }
+    .ratio-formula-hint .hint-desc {
+        color: var(--bs-body-color);
+    }
+    .ratio-formula-hint .hint-note {
+        color: var(--bs-secondary-color);
+        font-size: 0.76rem;
+    }
+    .ratio-total-badge {
+        font-weight: 700;
+        font-size: 0.88rem;
+        white-space: nowrap;
+    }
+    .ratio-total-badge.is-valid { color: #047857; }
+    .ratio-total-badge.is-invalid { color: #dc3545; }
+    .ratio-list-wrap {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-tertiary-bg);
+        max-height: 320px;
+        overflow-y: auto;
+    }
+    .ratio-list-table {
+        width: 100%;
+        margin-bottom: 0;
+        border-collapse: collapse;
+    }
+    .ratio-list-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #eef4fb;
+        padding: 0.6rem 1rem;
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--bs-secondary-color);
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .ratio-list-table tbody td {
+        padding: 0.55rem 1rem;
+        border-bottom: 1px solid var(--bs-border-color);
+        vertical-align: middle;
+    }
+    .ratio-list-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+    .ratio-list-table .ratio-input-cell {
+        display: flex;
+        align-items: center;
+        gap: 0;
+    }
+    .ratio-list-table .ratio-input-cell input {
+        width: 120px;
+        border-radius: 0.5rem 0 0 0.5rem;
+    }
+    .ratio-list-table .ratio-input-cell .input-group-text {
+        border-radius: 0 0.5rem 0.5rem 0;
+    }
+    .ratio-status-text {
+        font-size: 0.82rem;
+        color: #047857;
+        font-weight: 500;
+    }
+    .preview-table-wrap {
+        overflow: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.35rem;
+        background: var(--bs-body-bg);
+    }
+    .preview-table {
+        --preview-product-header-height: 34px;
+        min-width: 1100px;
+        margin-bottom: 0;
+        font-size: 0.88rem;
+    }
+    .preview-table th,
+    .preview-table td {
+        text-align: center;
+        vertical-align: middle;
+        white-space: nowrap;
+        padding: 0.35rem 0.5rem;
+    }
+    .preview-table th {
+        background: #f7e1a1;
+        color: #000;
+        font-weight: 700;
+    }
+    .preview-table .product-title-row td {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        height: var(--preview-product-header-height);
+        background: #f7e1a1;
+        font-weight: 700;
+    }
+    .preview-table .column-title-row th { background: #f7e1a1; }
+    .preview-table .sticky-col {
+        position: sticky;
+        z-index: 2;
+        background: var(--bs-body-bg);
+    }
+    .preview-table .sticky-col-1 { left: 0; min-width: 108px; background: #f7e1a1; }
+    .preview-table .sticky-col-2 { left: 108px; min-width: 150px; background: #fff; }
+    .preview-table .column-title-row th {
+        position: sticky;
+        top: var(--preview-product-header-height);
+        z-index: 3;
+    }
+    .preview-table thead .sticky-col,
+    .preview-table .column-title-row .sticky-col { z-index: 5; }
+    .preview-table .product-title-row .sticky-col { z-index: 6; }
+    .preview-table thead .sticky-col-1,
+    .preview-table .column-title-row .sticky-col-1 { background: #f7e1a1; }
+    html[data-bs-theme="dark"] .header-toolbar,
+    html[data-bs-theme="dark"] .summary-panel,
+    html[data-bs-theme="dark"] .preview-table-wrap {
+        background: #182132;
+    }
+    html[data-bs-theme="dark"] .summary-card,
+    html[data-bs-theme="dark"] .ratio-list-wrap {
+        background: #111827;
+        border-color: #334155;
+    }
+    html[data-bs-theme="dark"] .ratio-formula-hint {
+        background: #3f341b;
+        border-color: #7c4a03;
+    }
+    html[data-bs-theme="dark"] .ratio-formula-hint .hint-title {
+        color: #fbbf24;
+    }
+    html[data-bs-theme="dark"] .ratio-list-table thead th {
+        background: #1f2937;
+    }
+    html[data-bs-theme="dark"] .preview-table th,
+    html[data-bs-theme="dark"] .preview-table .product-title-row td,
+    html[data-bs-theme="dark"] .preview-table .column-title-row th,
+    html[data-bs-theme="dark"] .preview-table .sticky-col-1,
+    html[data-bs-theme="dark"] .preview-table thead .sticky-col-1,
+    html[data-bs-theme="dark"] .preview-table .column-title-row .sticky-col-1 {
+        background: #3f341b;
+        color: #fde68a;
+    }
+    html[data-bs-theme="dark"] .preview-table .sticky-col,
+    html[data-bs-theme="dark"] .preview-table .sticky-col-2 {
+        background: #182132;
+        color: #e5e7eb;
+    }
+    .empty-state { padding: 4rem 1rem; text-align: center; color: var(--bs-secondary-color); }
+    @media (max-width: 991.98px) {
+        .ratio-toolbar {
+            flex-direction: column;
+            align-items: stretch;
+        }
+    }

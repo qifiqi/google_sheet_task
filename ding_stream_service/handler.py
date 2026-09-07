@@ -12,7 +12,6 @@ import dingtalk_stream
 import requests
 
 from ding_stream_service.message_format import build_markdown_message
-from ding_stream_service.settings import DingStreamSettings
 from ding_stream_service.task_commands import TaskCommandService
 
 
@@ -38,10 +37,7 @@ def build_dingtalk_reply_payload(reply_text: str) -> dict[str, Any]:
 
 
 class DingStreamEventHandler(dingtalk_stream.EventHandler):
-    def __init__(self, settings: DingStreamSettings):
-        self.settings = settings
-        self.access_token = None
-        self.token_expire_time = 0
+    def __init__(self):
         self.task_command_service = TaskCommandService()
 
     async def process(self, event: dingtalk_stream.EventMessage):

@@ -144,7 +144,6 @@ C3_COLUMN_WIDTHS = {
 # C3 导出字段格式说明：
 # 数据库存储的是小数（如 0.15），SQL 层已乘以 100 后存储（如 15.0）。
 # 导出时直接显示为纯数字，不添加 "%" 后缀，不使用 Excel 百分比格式。
-C3_PERCENT_COLUMN_NAMES = set()  # 保留变量名以兼容外部引用，实际不再做百分比转换
 
 # 这些列的值已在 SQL 中乘以 100，导出时用 "0.00" 格式显示纯数字
 C3_NUMBER_COLUMN_NAMES = {
@@ -398,12 +397,6 @@ def get_task_result_exporter(task: Any) -> TaskResultExporter:
     raise ValidationError(f"暂不支持导出任务类型: {task_type}")
 
 
-def build_c5_rows(results: list[dict[str, Any]]) -> list[list[Any]]:
-    """把 C5 任务结果转换成二维表；一个参数组合下的每个模型各占一行。"""
-
-    return [C5_EXPORT_COLUMNS] + [record.row for record in build_c5_records(results)]
-
-
 def build_c5_records(results: list[dict[str, Any]]) -> list[C5ExportRecord]:
     """生成带分组上下文的导出行；上下文用于排序和拆 sheet，不写入最终 Excel。"""
 
@@ -522,12 +515,6 @@ def c5_percent_difference(left: Any, right: Any) -> Any:
     return _safe_subtract(left_value, right_value)
 
 
-def c5_metric_keys() -> list[str]:
-    """分组 sheet 只导出业务需要的 D 指标，顺序与 C5_EXPORT_COLUMNS 对齐。"""
-
-    return C5_EXPORT_METRIC_KEYS[:]
-
-
 def normalize_c7_export_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """把 C7 的 D8:D26 结果键映射成 C5 导出函数使用的 D2:D20 键。"""
 
@@ -576,19 +563,6 @@ def normalize_c7_model_metrics(metrics: Any) -> Any:
                 value = f"{value}%"
             normalized[normalized_key] = value
     return normalized
-
-
-def metric_sort_key(key: str) -> tuple[bool, str, int]:
-    match = re.match(r"^([A-Za-z_]+)(\d+)?$", str(key))
-    if not match:
-        return True, str(key), 0
-    prefix = match.group(1)
-    number = int(match.group(2)) if match.group(2) else 0
-    return prefix != "D", prefix, number
-
-
-def metric_label(key: str) -> str:
-    return METRIC_DISPLAY_NAME_MAP.get(str(key), str(key))
 
 
 def sort_c5_records(records: list[C5ExportRecord]) -> list[C5ExportRecord]:
@@ -756,20 +730,6 @@ def style_table_sheet(sheet: Any) -> None:
             sheet.column_dimensions[letter].width = min(max(max_w + 2, 8), 40)
 
 
-def column_width(sheet: Any, column_index: int) -> int:
-    header = str(sheet.cell(row=1, column=column_index).value or "")
-    if header in C5_COLUMN_WIDTHS:
-        return C5_COLUMN_WIDTHS[header]
-    if header in C3_COLUMN_WIDTHS:
-        return C3_COLUMN_WIDTHS[header]
-
-    max_width = 0
-    for row_index in range(1, sheet.max_row + 1):
-        value = sheet.cell(row=row_index, column=column_index).value
-        max_width = max(max_width, display_width(value))
-    return min(max(max_width + 2, 8), 40)
-
-
 def display_width(value: Any) -> int:
     text = str(value or "")
     width = 0
@@ -792,20 +752,6 @@ def excel_cell(value: Any, column_name: str = "") -> Any:
         numeric_value = parse_numeric_cell(value)
         return value if numeric_value is None else numeric_value
     return json_cell(value)
-
-
-def apply_number_format(cell: Any, column_name: Any) -> None:
-    if cell.row == 1:
-        return
-    column_text = str(column_name or "")
-    if column_text in PERCENT_COLUMN_NAMES and isinstance(cell.value, (int, float)):
-        cell.number_format = "0.00%"
-    elif column_text in FOUR_DECIMAL_COLUMN_NAMES and isinstance(cell.value, (int, float)):
-        cell.number_format = "0.0000"
-    elif column_text in C3_NUMBER_COLUMN_NAMES and isinstance(cell.value, (int, float)):
-        cell.number_format = "0.00"
-    elif column_text in C3_FOUR_DECIMAL_COLUMN_NAMES and isinstance(cell.value, (int, float)):
-        cell.number_format = "0.0000"
 
 
 def parse_percent_cell(value: str) -> float | None:
@@ -1201,55 +1147,6 @@ def build_c3_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
 
 def _task_name(task: Any) -> str:
     return str(getattr(task, "name", None) or getattr(task, "id", None) or "task_export")
-
-
-@dataclass(frozen=True)
-class BatchExportFile:
-    """批量导出生成的文件结果。"""
-
-    filename: str          # 导出文件名（含 .xlsx 后缀）
-    buffer: BytesIO        # Excel 二进制数据缓冲区（指针已 seek 到 0）
-    file_size: int         # 文件字节数，用于设置 Content-Length 响应头
-
-
-def build_batch_export_file(
-    merged_results: list[dict[str, Any]],
-    filename_prefix: str = "C3_合并导出",
-) -> BatchExportFile:
-    """批量合并导出完整封装：结果 → worksheets → workbook → BytesIO。
-
-    将多个 C3 任务的结果合并后，生成带时间戳的 Excel 文件。
-    路由层只需将返回的 buffer 传给 send_file，无需关心 Excel 生成细节。
-
-    参数:
-        merged_results: 已注入 task_name 的合并结果列表，
-                        每条记录包含 parameters、result 等字段。
-        filename_prefix: 文件名前缀，默认 "C3_合并导出"。
-
-    返回:
-        BatchExportFile: 包含 filename、buffer、file_size 的结果对象。
-
-    异常:
-        ValueError: 当 merged_results 为空时抛出，由路由层返回 400。
-    """
-    if not merged_results:
-        raise ValidationError("所选任务均无结果数据")
-
-    # ① 构建 worksheet 数据（含排序、分组、格式化）
-    worksheets = build_c3_worksheets(merged_results)
-
-    # ② 生成 openpyxl Workbook 并应用样式
-    workbook = build_workbook(worksheets)
-
-    # ③ 序列化为 Excel 二进制数据
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = sanitize_export_filename(f"{filename_prefix}_{stamp}") + ".xlsx"
-    buffer = BytesIO()
-    workbook.save(buffer)
-    buffer.seek(0)
-    file_size = buffer.getbuffer().nbytes
-
-    return BatchExportFile(filename=filename, buffer=buffer, file_size=file_size)
 
 
 # 注册顺序很重要：专用导出器必须放在通用兜底导出器前面。

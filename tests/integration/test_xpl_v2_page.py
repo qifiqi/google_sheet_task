@@ -301,23 +301,30 @@ def _page_cookie_client(app, username="xpl-cookie-user"):
 
 
 def test_xpl_v2_page_exposes_all_data_sources(app_factory):
+    """F5 静态化后页面 JS 抽离至 static/js/pages/xpl_v2.js：
+    DOM 断言仍打 HTML，脚本内容断言改读 pages JS 文件（同一交付物）。"""
     client = _page_cookie_client(app_factory)
     response = client.get('/xpl/v2')
 
     assert response.status_code == 200
-    assert 'V2：回测数据分析' in response.get_data(as_text=True)
-    assert 'Google Sheet' in response.get_data(as_text=True)
-    assert '粘贴数据' in response.get_data(as_text=True)
-    assert '导入 Excel' in response.get_data(as_text=True)
-    assert 'id="btn-analyze-v2"' in response.get_data(as_text=True)
-    assert 'id="btn-export-word"' in response.get_data(as_text=True)
-    assert 'id="word-export-options-modal"' in response.get_data(as_text=True)
-    assert '/api/search-stocks?q=${encodeURIComponent(keyword)}&page_size=10' in response.get_data(as_text=True)
-    assert "ratio: '100.00%'" in response.get_data(as_text=True)
-    assert 'date / index_return / start_return' in response.get_data(as_text=True)
-    assert 'xlsx-js-style' in response.get_data(as_text=True)
-    assert 'function applyV2ExportStyles' in response.get_data(as_text=True)
-    assert 'XLSX.writeFile(workbook, defaultFilename' in response.get_data(as_text=True)
+    body = response.get_data(as_text=True)
+    assert 'V2：回测数据分析' in body
+    assert 'Google Sheet' in body
+    assert '粘贴数据' in body
+    assert '导入 Excel' in body
+    assert 'id="btn-analyze-v2"' in body
+    assert 'id="btn-export-word"' in body
+    assert 'id="word-export-options-modal"' in body
+    assert 'date / index_return / start_return' in body
+    assert 'xlsx-js-style' in body
+    assert '/static/js/pages/xpl_v2.js' in body
+
+    with open('static/js/pages/xpl_v2.js', encoding='utf-8') as f:
+        page_js = f.read()
+    assert '/api/search-stocks?q=${encodeURIComponent(keyword)}&page_size=10' in page_js
+    assert "ratio: '100.00%'" in page_js
+    assert 'function applyV2ExportStyles' in page_js
+    assert 'XLSX.writeFile(workbook, defaultFilename' in page_js
 
 
 def test_xpl_v2_accepts_portfolio_return_rows(app_factory):

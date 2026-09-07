@@ -322,18 +322,6 @@ class ConfigManager:
 
         return configs
 
-    def set_google_sheet_config(self, config: Dict[str, Any]) -> bool:
-        """设置Google Sheet相关配置"""
-        try:
-            for key, value in config.items():
-                self.set_config(key, value)
-            # 强制刷新缓存
-            self.refresh_cache()
-            return True
-        except Exception as e:
-            logger.error(f"设置Google Sheet配置失败: {str(e)}")
-            return False
-
     def refresh_cache(self):
         """强制刷新配置缓存"""
         try:

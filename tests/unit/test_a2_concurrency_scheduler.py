@@ -299,23 +299,6 @@ def test_task_result_create_commit_param_wiring(app_factory, monkeypatch):
         assert TaskResult.query.filter_by(task_id="t-x").count() == 2
 
 
-def test_task_result_bulk_and_return_writers_accept_commit_param(app_factory, monkeypatch):
-    app = app_factory
-    with app.app_context():
-        repo = task_result_repository
-        commits = []
-        monkeypatch.setattr(repo, "_commit", lambda: commits.append(True))
-
-        repo.bulk_create([], commit=False)
-        repo.create_return({"task_id": "t-x"}, commit=False)
-        repo.bulk_create_returns([], commit=False)
-        repo.bulk_create([])
-        repo.bulk_create_returns([])
-        repo.create_return({"task_id": "t-x"})
-
-        assert len(commits) == 3
-
-
 def test_delete_xpl_analysis_jobs_missing_table_does_not_commit(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():

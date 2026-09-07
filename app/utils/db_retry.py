@@ -4,7 +4,6 @@
 """
 import time
 import random
-from functools import wraps
 from typing import Callable, Any, Optional
 from sqlalchemy.exc import OperationalError
 from app.utils.logger import get_logger
@@ -63,41 +62,6 @@ def _retry_operation(
                 delay,
             )
             time.sleep(delay)
-
-
-def db_retry(
-    max_attempts: int = 5,
-    base_delay: float = 0.1,
-    max_delay: float = 2.0,
-    exponential_base: float = 2.0,
-    jitter: bool = True
-):
-    """
-    数据库操作重试装饰器
-    处理可恢复的锁冲突或事务序列化失败。
-    
-    Args:
-        max_attempts: 最大重试次数
-        base_delay: 基础延迟时间（秒）
-        max_delay: 最大延迟时间（秒）
-        exponential_base: 指数退避基数
-        jitter: 是否添加随机抖动
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            return _retry_operation(
-                func,
-                max_attempts,
-                base_delay,
-                max_delay,
-                exponential_base,
-                jitter,
-                *args,
-                **kwargs,
-            )
-        return wrapper
-    return decorator
 
 
 def safe_db_operation(
@@ -187,13 +151,6 @@ class DatabaseRetryManager:
                 raise
 
         return self.execute_with_retry(commit_operation)
-    
-    def flush_with_retry(self, session):
-        """带重试的刷新操作"""
-        def flush_operation():
-            session.flush()
-        
-        return self.execute_with_retry(flush_operation)
 
 
 # 全局重试管理器实例

@@ -2,7 +2,7 @@ import pytest
 
 from app.services.kline_service import KlineService
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.market import market_type_from_eastmoney, normalize_stock_code, yahoo_symbol
+from app.utils.market import market_type_from_eastmoney, normalize_stock_code, to_yahoo_ticker
 from app.utils.return_series import build_return_series_fields
 
 
@@ -34,12 +34,12 @@ def test_eastmoney_market_codes_have_business_market_types(market, expected):
     ],
 )
 def test_yahoo_symbol_maps_supported_markets(stock_code, market_type, expected):
-    assert yahoo_symbol(stock_code, market_type) == expected
+    assert to_yahoo_ticker(stock_code, market_type) == expected
 
 
 def test_standard_us_stock_code_uses_us_suffix_but_yahoo_ticker_does_not():
     assert normalize_stock_code("AAPL", "en") == "AAPL.US"
-    assert yahoo_symbol("AAPL.US", "en") == "AAPL"
+    assert to_yahoo_ticker("AAPL.US", "en") == "AAPL"
 
 
 def test_normalize_stock_code_does_not_turn_a_legacy_name_into_us_ticker():

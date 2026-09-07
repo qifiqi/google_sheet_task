@@ -49,11 +49,6 @@ class StockMetadataRepository(BaseRepository):
         )
         return row.to_dict() if row else None
 
-    def count(self):
-        return StockMetadata.query.count()
-
-    # ---- 写 ----
-
     def upsert(self, fields, commit=True):
         """按 (stock_code, market_type) 存在则更新、否则新建；返回 dict。
 

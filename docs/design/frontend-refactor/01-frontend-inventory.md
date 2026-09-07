@@ -1,12 +1,14 @@
 # 01 — 前端资产全量清点
 
 > 本文所有数字为 2026-09-04 对工作区实测（正则提取 / grep），是方案其余各分册的事实依据。代码变动后执行前应重新核对。
+>
+> **2026-09-07 状态注记**：4 个孤儿模板（`templates/{base,index,index2,sjhp}.html`）已在工作区删除（未提交，随 F0 落库），现存 45 个；F0 归档需从 git HEAD 打包拿回完整 49 文件原版（`04` §F0）。其余数字仍以本清点为准。
 
 ## 1. 总量
 
 | 指标 | 数值 |
 |---|---|
-| 模板文件 | 49 个（`templates/` 根 5 个 + 13 个子目录） |
+| 模板文件 | 49 个（`templates/` 根 5 个 + 13 个子目录；现存 45，见上注） |
 | HTML 总量 | 2318 KB / 55,779 行 |
 | 内联 `<script>`（无 src） | 1541 KB，占 HTML 体积 ~66% |
 | 内联 `<style>` | 148 KB |
@@ -95,7 +97,7 @@
 
 | 语句 | 数量 | 说明 |
 |---|---|---|
-| `{% extends %}` | 39 | 布局继承（D6 内联展开） |
+| `{% extends %}` | 39 | 布局继承（基座内联展开；导航条改走 D6 组件，见 `02` §3.7） |
 | `{% block %}/{% endblock %}` | ~146 | 同上 |
 | `{% if %}/{% elif %}/{% else %}/{% endif %}` | 16 | version 分支（google_sheet/base 导航高亮）+ template_id 分支 |
 | `{% for option in ... %}` | 8 | 上表 option 循环 |
@@ -107,7 +109,7 @@
 |---|---|---|
 | `_resolve_task_version()` 按 task_id/restart_task_id 查库决定渲染哪个版本的模板 | `app/routes/google_sheet.py` | dispatcher 页：fetch `/api/tasks/<id>` 取 task_type → `location.replace` 补 `version=` 参数 |
 | result 页由 result_id 查库补 task_id | `app/routes/backtest_training.py:46`、backtest_multi_product 同 | 页面初始化时已 fetch 结果数据，把 task_id 从响应中取（`03` §4.3） |
-| admin/tasks、google_sheets 枚举注入 | `app/routes/admin.py:41,87` | `/api/meta/enums` 已返回全部所需枚举（`meta_api.py:28`） |
+| admin/tasks、google_sheets 枚举注入 | `app/routes/admin.py:41,87` | `/api/meta/enums` 已返回全部所需枚举（`meta_api.py:32`） |
 
 ## 6. CDN 外链依赖（11 个页面，9 种库）
 

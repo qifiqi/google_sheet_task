@@ -36,9 +36,6 @@ class BaseRepository:
             db.session.rollback()
             raise
 
-    def _rollback(self):
-        db.session.rollback()
-
     def flush(self):
         """实体流（执行链/占用记账）的会话 flush 出口。"""
         db.session.flush()

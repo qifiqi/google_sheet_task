@@ -35,11 +35,6 @@ TASK_TYPE_REGISTRY: dict[str, TaskTypeSpec] = {
 }
 
 
-def register_task_type(spec: TaskTypeSpec) -> None:
-    """新任务类型扩展点。"""
-    TASK_TYPE_REGISTRY[spec.type_key] = spec
-
-
 def get_task_type_spec(task_type: str | None) -> TaskTypeSpec | None:
     """按任务类型键取注册项（未注册返回 None，调用方拒绝启动）。"""
     if not task_type:

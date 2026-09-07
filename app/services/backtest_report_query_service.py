@@ -22,6 +22,7 @@ from app.utils.c7_result_normalizer import (
     normalize_c7_result_metrics,
 )
 from app.utils.task_types import normalize_task_type
+from app.utils.value_parser import parse_percent_like
 
 
 
@@ -209,14 +210,15 @@ def _parse_percent_like_value(value):
     if not raw or raw == "-":
         return None
 
-    normalized = raw.replace(",", "").replace("$", "")
+    normalized = raw
     sign = 1
     while normalized.startswith("-"):
         sign *= -1
         normalized = normalized[1:]
+    parsed = parse_percent_like(normalized)
+    if parsed is not None:
+        return sign * parsed
     try:
-        if normalized.endswith("%"):
-            return sign * float(normalized[:-1]) / 100
         return sign * float(normalized)
     except (TypeError, ValueError):
         return raw
@@ -318,28 +320,13 @@ def _build_backtest_result_export_rows(export_data: dict) -> list[list[str]]:
     ]
 
 
-def _extract_year_drawdown_map(section):
-    if not isinstance(section, dict):
+def _safe_all_entry(items, key_name="year"):
+    if not isinstance(items, list):
         return {}
-    return {
-        str(item.get("year")): item
-        for item in section.get("year_maximum_drawdown", [])
-        if isinstance(item, dict) and item.get("year") not in (None, "", "all")
-    }
-
-
-def _extract_year_sharpe_map(section):
-    if not isinstance(section, dict):
-        return {}
-
-    year_map = {}
-    for key, value in section.items():
-        if not isinstance(value, dict):
-            continue
-        match = re.match(r"^year_\d+_(\d{4})$", str(key))
-        if match:
-            year_map[match.group(1)] = value
-    return year_map
+    for item in items:
+        if isinstance(item, dict) and str(item.get(key_name)) == "all":
+            return item
+    return {}
 
 
 def _extract_display_year(source_window):
@@ -380,13 +367,6 @@ def _build_c3_summary_rows(task_id):
             task_result,
             return_rows=_get_task_result_return_rows(task_result),
         )
-        def _safe_all_entry(items, key_name="year"):
-            if not isinstance(items, list):
-                return {}
-            for item in items:
-                if isinstance(item, dict) and str(item.get(key_name)) == "all":
-                    return item
-            return {}
 
         index_sharpe_all = (
             (calculate_metrics.get("index_sharpe_ratios") or {}).get("all")
@@ -865,19 +845,6 @@ def _extract_summary_rows(calculate_metrics, model_name):
         return "", []
     calculate_metrics = _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics)
 
-    def _normalize_metric_label(label):
-        text = str(label or "").strip()
-        text = text.replace("（", "(").replace("）", ")")
-        metric_aliases = {
-            "跑赢年份(百分比)": "跑赢年份(百分比)",
-            "跑赢年份(百分比 )": "跑赢年份(百分比)",
-            "超额最大修复天数": "超额最大修复天数",
-            "最大修复天数": "最大修复天数",
-            "索提诺比率": "索提诺比率",
-            "超额索提诺比率": "超额索提诺比率",
-        }
-        return metric_aliases.get(text, text)
-
     def _normalize_display_value(value):
         text = str(value or "").strip()
         if not text:
@@ -885,11 +852,6 @@ def _extract_summary_rows(calculate_metrics, model_name):
         while text.startswith("--"):
             text = text[1:]
         return _normalize_scientific_text(text)
-
-    def _normalize_negative_display_value(metric, value):
-        if metric == "年最大回撤":
-            return _negative_percent_display(value)
-        return _normalize_display_value(value)
 
     def _fmt_percent(value):
         if value is None or not math.isfinite(value):
@@ -900,14 +862,6 @@ def _extract_summary_rows(calculate_metrics, model_name):
         if value is None or not math.isfinite(value):
             return ""
         return f"{value:.2f}".rstrip("0").rstrip(".")
-
-    def _safe_all_entry(items, key_name):
-        if not isinstance(items, list):
-            return {}
-        for item in items:
-            if isinstance(item, dict) and str(item.get(key_name)) == "all":
-                return item
-        return {}
 
     def _build_fallback_rows():
         excess_all = _safe_all_entry(calculate_metrics.get("excess_returns"), "year")
@@ -1226,23 +1180,6 @@ def _build_global_preview_group_payload(task_id, result_ids):
     return _build_global_preview_payload_from_results(
         task, _query_global_preview_results(task_id, safe_ids)
     )
-
-
-def get_global_preview_result_ids_by_stock(task_id):
-    """导出用的轻量索引：先分股票，再逐股票读取完整结果生成文件。"""
-    task = task_repository.get_entity(task_id)
-    if not task:
-        return None, []
-    task_config = task.to_dict().get("config") or {}
-    rows = task_result_repository.list_preview_index_rows(task_id)
-    stock_groups = OrderedDict()
-    for row in rows:
-        parameters = json.loads(row["parameters"]) if row["parameters"] else {}
-        stock_code = str(
-            parameters.get("stock_code") or task_config.get("stock_code") or "未命名股票"
-        ).strip().upper() or "未命名股票"
-        stock_groups.setdefault(stock_code, []).append(row["id"])
-    return task, list(stock_groups.items())
 
 
 def split_global_preview_payload_by_stock(payload):

@@ -54,9 +54,5 @@ class ConflictError(AppException):
     http_status = 409
 
 
-class RateLimitError(AppException):
-    http_status = 429
-
-
 class ServiceError(AppException):
     http_status = 500

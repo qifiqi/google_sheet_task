@@ -8,22 +8,16 @@ import pytest
 from app.exceptions import NotFoundError
 from app.extensions import db
 from app.models import (
-    BacktestSheetRunLock,
-    NavigationMenuItem,
     Role,
-    StockMetadata,
     SystemConfig,
     Task,
     TaskLog,
     TaskResult,
-    TaskResultReturn,
-    TaskTemplate,
     User,
 )
 from app.repositories import (
     backtest_repository,
     google_sheet_repository,
-    google_sheet_token_repository,
     navigation_repository,
     rbac_repository,
     scheduled_task_repository,
@@ -135,30 +129,6 @@ class TestTaskResultRepository:
         page = task_result_repository.list_paginated(1, 20, task_id="missing")
         assert page == {"items": [], "total": 0, "current_page": 1, "per_page": page["per_page"]}
 
-    def test_returns_crud_and_delete_older_than(self, app_factory, task_row):
-        created = self._make_result()
-        task_result_repository.create_return(
-            {"task_id": "t-1", "stock_code": "sh600000", "stock_name": "x", "return_length": 2}
-        )
-        assert task_result_repository.get_returns(created["id"]) == []
-        assert [r["task_id"] for r in task_result_repository.get_returns_by_task("t-1")] == ["t-1"]
-
-        from datetime import datetime, timedelta
-
-        future = datetime.now() + timedelta(days=1)
-        assert task_result_repository.delete_older_than(future) >= 1
-        assert task_result_repository.get(created["id"]) is None
-
-    def test_bulk_create(self, app_factory, task_row):
-        count = task_result_repository.bulk_create(
-            [
-                {"task_id": "t-1", "step_index": 1},
-                {"task_id": "t-1", "step_index": 2},
-            ]
-        )
-        assert count == 2
-        assert task_result_repository.count_by_task_success("t-1")["total_success"] == 2
-
 
 # ==================== task_log_repository ====================
 
@@ -226,7 +196,6 @@ class TestSystemConfigRepository:
         system_config_repository.upsert("k", "v2")
         row = system_config_repository.get_row("k")
         assert row["value"] == "v2" and row["description"] == "d1"
-        assert [{"key": "k", "description": "d1"}] == system_config_repository.list_key_descriptions()
         assert system_config_repository.delete("k") is True
         assert system_config_repository.delete("k") is False
 
@@ -242,24 +211,20 @@ class TestSystemConfigRepository:
 
 class TestNavigationRepository:
     def test_create_flush_get_key(self, app_factory):
-        created = navigation_repository.create({"key": "home", "label": "首页", "sort_order": 1})
-        assert created["id"] is not None
-        assert navigation_repository.get_by_key("home")["id"] == created["id"]
-        assert navigation_repository.exists_key("home") is True
-        assert navigation_repository.exists_key("nope") is False
+        created = navigation_repository.create_entity({"key": "home", "label": "首页", "sort_order": 1})
+        assert created.id is not None
+        assert navigation_repository.get_by_key("home")["id"] == created.id
 
-    def test_count_children_update_delete(self, app_factory):
-        parent = navigation_repository.create({"key": "p", "label": "P"})
-        navigation_repository.create({"key": "c", "label": "C", "parent_key": "p"})
+    def test_count_children_delete(self, app_factory):
+        parent = navigation_repository.create_entity({"key": "p", "label": "P"})
+        navigation_repository.create_entity({"key": "c", "label": "C", "parent_key": "p"})
         assert navigation_repository.count_children("p") == 1
-        updated = navigation_repository.update(parent["id"], {"label": "P2"})
-        assert updated["label"] == "P2"
-        assert navigation_repository.delete(parent["id"]) is True
+        assert navigation_repository.delete(parent.id) is True
 
-    def test_list_visible(self, app_factory):
-        navigation_repository.create({"key": "vis", "label": "V", "is_visible": True})
-        navigation_repository.create({"key": "hid", "label": "H", "is_visible": False})
-        keys = [item["key"] for item in navigation_repository.list_visible()]
+    def test_list_visible_entities(self, app_factory):
+        navigation_repository.create_entity({"key": "vis", "label": "V", "is_visible": True})
+        navigation_repository.create_entity({"key": "hid", "label": "H", "is_visible": False})
+        keys = [item.key for item in navigation_repository.list_visible_entities()]
         assert keys == ["vis"]
 
 
@@ -318,48 +283,19 @@ class TestRbacRepository:
 
 
 class TestGoogleSheetRepository:
-    def test_create_list_filter_get_required(self, app_factory):
-        google_sheet_repository.create(
+    def test_create_and_update(self, app_factory):
+        created = google_sheet_repository.create(
             {"name": "s1", "spreadsheet_id": "ss1", "table_type": "c3", "registry_scope": "c_series"}
         )
-        google_sheet_repository.create(
-            {"name": "s2", "spreadsheet_id": "ss2", "table_type": "backtest_training", "registry_scope": "backtest_training"}
-        )
-        assert len(google_sheet_repository.list_all()) == 2
-        assert len(google_sheet_repository.list_all(table_type="c3")) == 1
-        with pytest.raises(NotFoundError):
-            google_sheet_repository.get_required(9999)
-        updated = google_sheet_repository.update(1, {"remark": "r"})
+        updated = google_sheet_repository.update(created["id"], {"remark": "r"})
         assert updated["remark"] == "r"
-
-
-class TestGoogleSheetTokenRepository:
-    def test_create_list_include_context_bulk_import(self, app_factory):
-        google_sheet_token_repository.create(
-            {"name": "tok", "token_file": "data/t.json", "token_context": '{"a":1}'}
-        )
-        plain = google_sheet_token_repository.list_all(include_context=False)[0]
-        assert "token_context" not in plain
-        with_ctx = google_sheet_token_repository.list_all(include_context=True)[0]
-        assert with_ctx["token_context"] == '{"a":1}'
-
-        count = google_sheet_token_repository.bulk_import(
-            [
-                {"name": "t2", "token_file": "data/t2.json", "token_context": "{}"},
-                {"name": "t3", "token_file": "data/t3.json", "token_context": "{}"},
-            ]
-        )
-        assert count == 2
-        assert len(google_sheet_token_repository.list_all()) == 3
-        with pytest.raises(NotFoundError):
-            google_sheet_token_repository.get_required(9999)
 
 
 # ==================== scheduled_task ====================
 
 
 class TestScheduledTaskRepository:
-    def test_crud_find_due_stats(self, app_factory):
+    def test_crud_and_stats(self, app_factory):
         from datetime import datetime, timedelta
 
         scheduled_task_repository.create(
@@ -372,19 +308,8 @@ class TestScheduledTaskRepository:
                 "next_run_time": datetime.now() - timedelta(minutes=1),
             }
         )
-        scheduled_task_repository.create(
-            {
-                "name": "job2",
-                "cron_expression": "* * * * *",
-                "task_function": "cleanup",
-                "is_active": False,
-                "next_run_time": datetime.now() - timedelta(minutes=1),
-            }
-        )
         stats = scheduled_task_repository.get_stats()
-        assert stats == {"total": 2, "active": 1}
-        due = scheduled_task_repository.list_due(datetime.now())
-        assert [row["name"] for row in due] == ["job"]
+        assert stats == {"total": 1, "active": 1}
 
         with pytest.raises(NotFoundError):
             scheduled_task_repository.get_required(9999)
@@ -405,7 +330,6 @@ class TestStockMetadataRepository:
         updated = stock_metadata_repository.upsert({**payload, "stock_name": "新名称"})
         assert created["id"] == updated["id"]
         assert updated["stock_name"] == "新名称"
-        assert stock_metadata_repository.count() == 1
         # get 为字面查询：标准化由调用方完成（服务层 normalize + 旧代码回退）。
         assert stock_metadata_repository.get("600000.SS", "cn")["stock_name"] == "新名称"
         assert stock_metadata_repository.get("600000.SS", "us") is None
@@ -434,26 +358,3 @@ class TestBacktestRepository:
         backtest_repository.acquire_lock("ss1", "t-1", "backtest_training")
         backtest_repository.acquire_lock("ss2", "t-1", "backtest_training")
         assert backtest_repository.release_locks_by_task("t-1") == 2
-
-    def test_summary_index_upsert(self, app_factory):
-        created = backtest_repository.upsert_summary_index(
-            101,
-            "default",
-            {"task_id": "t-1", "task_type": "backtest_training", "market_type": "us"},
-        )
-        again = backtest_repository.upsert_summary_index(
-            101, "default", {"task_id": "t-1", "best_metric_value": 1.5}
-        )
-        assert created["id"] == again["id"]
-        assert again["best_metric_value"] == 1.5
-        assert len(backtest_repository.get_summary_index("t-1")) == 1
-        assert backtest_repository.delete_summary_index("t-1") == 1
-
-    def test_product_cache_upsert_and_delete_by_task(self, app_factory):
-        backtest_repository.upsert_product_cache(
-            "batch-1", "key-1",
-            {"result_json": "{}", "source_task_id": "t-9"},
-        )
-        cached = backtest_repository.get_product_cache("batch-1", "key-1")
-        assert cached["source_task_id"] == "t-9"
-        assert backtest_repository.delete_product_cache_by_task("t-9") == 1

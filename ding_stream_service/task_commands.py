@@ -393,6 +393,9 @@ def parse_restart_command(text: str) -> ParsedRestartCommand | None:
     if not RESTART_ACTION_RE.search(normalized_text):
         return None
 
+    direct_match = DIRECT_RESTART_RE.match(normalized_text)
+    direct_target = _clean_field_value(direct_match.group(1)) if direct_match else ""
+
     task_id = extract_task_id(normalized_text)
     if task_id:
         return ParsedRestartCommand(target=task_id, target_type="id")
@@ -401,14 +404,11 @@ def parse_restart_command(text: str) -> ParsedRestartCommand | None:
     if task_name:
         return ParsedRestartCommand(target=task_name, target_type="name")
 
-    direct_match = DIRECT_RESTART_RE.match(normalized_text)
-    if direct_match:
-        direct_target = _clean_field_value(direct_match.group(1))
-        if direct_target:
-            return ParsedRestartCommand(
-                target=direct_target,
-                target_type="id" if _looks_like_task_id(direct_target) else "name",
-            )
+    if direct_target:
+        return ParsedRestartCommand(
+            target=direct_target,
+            target_type="id" if _looks_like_task_id(direct_target) else "name",
+        )
 
     return None
 

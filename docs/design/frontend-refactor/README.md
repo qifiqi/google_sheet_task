@@ -9,6 +9,8 @@
 > - `04-execution-checklist.md` —— 执行清单（批次 F0~F6、步骤、验证命令、回滚方式）
 > - `05-deployment.md` —— 双模式部署（nginx 独立部署 / Flask `send_from_directory`）
 > - `EXECUTION_PROMPT.md` —— 执行提示词（目标模式入口，可整段复制给执行代理）
+>
+> **2026-09-07 修订（B 方案）**：接口统一 `common/api.js`、跨页业务收敛 `common/business/`、组件化 `common/components/`（导航条）纳入本方案（D6、D9 修订）；原"不合并双胞胎、不建 api.js"两条非目标废止。静态版需长期存活，统一层形状对齐 `frontend/src/{api,composables,components}`（Vue 为后续方案，迁移时是翻译不是重设计）。
 
 ## 1. 背景与动机
 
@@ -25,7 +27,7 @@
 
 | 指标 | 数值 | 证据 |
 |---|---|---|
-| 模板总数 | 49 个（含 4 个孤儿） | `find templates -name "*.html"` |
+| 模板总数 | 49 个（含 4 个孤儿；2026-09-07 注：4 孤儿已在工作区删除未提交，现存 45 个，F0 提交时一并落库） | `find templates -name "*.html"` |
 | HTML 总量 | 2318 KB / 55,779 行 | 逐文件统计 |
 | 内联 `<script>` 总量 | 1541 KB（最大单页 84KB） | 正则提取逐文件统计 |
 | 内联 `<style>` 总量 | 148 KB | 同上 |
@@ -44,17 +46,17 @@
 ### 目标
 
 1. 前端继续使用 `templates/` 目录（**目录名与子目录形状不变**），全部文件零 Jinja 语法；原 Jinja 版本在 F0 整体打包 zip 留档（D8）；
-2. 内联 JS 机械抽离到 `static/js/pages/*.js`，共享工具收敛到 `static/js/common/`；
-3. URL、DOM 结构、class、视觉样式、功能点**零变化**；
+2. 内联 JS 机械抽离到 `static/js/pages/*.js`，并完成统一三层收敛（B 修订，D9）：**接口统一 `common/api.js`**（页面禁手写 fetch URL）、**跨页业务收敛 `common/business/`**（c4/c5/c7、backtest 双胞胎明示去重）、**导航条组件化 `common/components/navbar.js`**；共享纯工具收敛 `common/utils.js`；
+3. URL、视觉样式、功能点**零变化**；DOM 零变化（导航条除外——渲染产物逐字节等价，见 `02` §3.7）；
 4. 同一产物支持 nginx 独立部署与 Flask 托管，切换只改部署配置，不改代码；
 5. 清理 4 个孤儿模板与 Bootstrap 冗余变体（grep 验证无引用后删除）。
 
 ### 非目标
 
-1. **不引入 Vue/React/任何框架，不引入构建链**（webpack/vite）——用户明确不要 Vue；
+1. **不引入 Vue/React/任何框架，不引入构建链**（webpack/vite）——统一三层是普通 script 文件；Vue SPA（`frontend/`）是后续方案，本方案的分层形状与其对齐以便迁移翻译；
 2. 不改任何 API 行为、不新增业务接口；
 3. 不做 CDN 库本地化以外的功能增强（CDN 本地化为可选 P2 批次）；
-4. 不合并 c4/c5/c7、backtest 双胞胎等高相似页面（重复度治理另行立项，本次只做"搬移不重构"）。
+4. 跨页 CSS 不做去重设计（JS 三层统一已纳入目标，样式收敛另行立项）。
 
 ## 4. 核心设计决策
 
@@ -63,23 +65,24 @@
 | D1 | **零 Jinja**：所有 `{{ }}`/`{% %}` 移除，注入点用 query/path 参数解析或已有 API 替代 | 注入点仅 15 类，全部有对应替代（`03` 逐条对照） |
 | D2 | **无构建、普通 `<script src>`**：抽离的 JS 保持非 module、不加 `defer`，放在原内联位置 | 内联脚本是按文档顺序同步执行的，改 module/defer 会改变初始化时序，是本次唯一高危点（`02` §3.2） |
 | D3 | **鉴权标志前端写死为开启**：删除 `data-auth-enabled` 属性，`isAuthEnabled()` 属性缺失时天然返回 true | `AUTH_ENABLED=false` 被 `app/utils/auth.py:16,67` 启动校验限制为仅 development；生产永远为 true，无需传给前端 |
-| D4 | **枚举注入改走已有 `/api/meta/enums`**：admin 页 6 处 `<option>` Jinja 循环改前端渲染 | 该接口已存在且已返回全部所需枚举（`app/routes/meta_api.py:28`），零后端改动 |
+| D4 | **枚举注入改走已有 `/api/meta/enums`**：admin 页 6 处 `<option>` Jinja 循环改前端渲染 | 该接口已存在且已返回全部所需枚举（`app/routes/meta_api.py:32`），零后端改动 |
 | D5 | **query 参数版本路由**（`/google-sheet/create?version=c5` 等按参数返回不同文档）：nginx 用 `$arg_version` rewrite 映射；Flask 模式保留现有 python 分发（改为按版本 `send_from_directory`）；无 version 的 `/detail` 由 dispatcher 页 fetch 任务后重定向补参 | 详见 `05` §2.3 / §3.2 |
-| D6 | **布局基座内联展开**：每页成为完整 HTML，导航条标记接受重复（主动态本来就由 `template-auth.js` 接管） | 三套基座共 754 行，JS 共享部分只有 ~120 行；引 layout.js 动态注入 DOM 会改变首屏渲染路径，违背"样式零改动" |
-| D7 | **孤儿与冗余清理**：删 `templates/{base,index,index2,sjhp}.html`；删 Bootstrap rtl/esm/map 等未引用变体 | 4 孤儿模板全库无 `render_template` 引用（已 grep 验证） |
-| D8 | **`templates/` 目录名保留**：页面就地静态化，不做 `frontend/` 迁移；F0 先将原 Jinja 版 `templates/` 全量打包 `docs/design/frontend-refactor/archive/templates-jinja-source.zip` 留档 | 用户决策（2026-09-04）；避免 45 文件 `git mv` 噪音；Flask 与 nginx 均可直接指向该目录 |
+| D6 | **导航条组件化（2026-09-07 B 修订）**：`common/components/navbar.js` 统一渲染三基座导航（内置三族菜单配置，按 pathname 选族），页面用 `<div data-navbar></div>` 占位替换导航标记；渲染产物与原基座逐字节一致；渲染在鉴权揭示前完成（body 仍带 `template-auth-pending`），无首屏闪动 | 原决策"布局基座内联展开、导航接受重复"废止；`template-auth-pending` 已把首屏揭示门控在 JS 之后，组件化不引入额外闪动（`02` §2 要点 3） |
+| D7 | **孤儿与冗余清理**：删 `templates/{base,index,index2,sjhp}.html`；删 Bootstrap rtl/esm/map 等未引用变体 | 4 孤儿模板全库无 `render_template` 引用（已 grep 验证；工作区已删、随 F0 提交） |
+| D8 | **`templates/` 目录名保留**：页面就地静态化，不做 `frontend/` 迁移；F0 先将原 Jinja 版 `templates/` 全量打包 `docs/design/frontend-refactor/archive/templates-jinja-source.zip` 留档（从 git HEAD 打包，含已删孤儿，共 49 文件） | 用户决策（2026-09-04）；避免 45 文件 `git mv` 噪音；Flask 与 nginx 均可直接指向该目录 |
+| D9 | **统一三层（2026-09-07 B 修订）**：接口统一 `common/api.js`（端点集中 + 请求 helper + 信封解包，页面禁手写 fetch URL；`template-auth.js` 拦截器职责不变）；跨页业务收敛 `common/business/`（c4/c5/c7、backtest 双胞胎明示去重，**两步走**：先机械搬移后收敛，commit 分离各自可回滚）；组件 `common/components/`（≥2 处相同 DOM+JS 才提升，只做渲染函数） | 用户决策（2026-09-07）：静态版长期存活，接口/业务/组件必须统一；分层形状对齐 `frontend/src/{api,composables,components}`，Vue 迁移时翻译而非重设计 |
 
 ## 5. 批次索引（详见 `04-execution-checklist.md`）
 
 | 批次 | 范围 | 页数 | 风险 |
 |---|---|---|---|
-| F0 | 原 Jinja 版 `templates/` 打包 zip 归档、孤儿/冗余清理、`common/` 骨架 | 0 页改造 | 低 |
-| F1 | 试点：`google_sheet/merge_export.html`（526 行，最小完整页） | 1 | 低（验证方法论） |
-| F2 | google_sheet 基座族：base + index + create + detail + c31 | 6 | 中（含 dispatcher） |
-| F3 | c4/c5/c7 create + detail（6 个最大页，2510~2801 行） | 6 | 中高（JS 内嵌 Jinja 在此） |
-| F4 | backtest 双胞胎 10 页 + global_preview | 11 | 中（result 页 task_id 推导前端化） |
-| F5 | admin 13 页 + xpl 3 页 + yule 2 页 + eastmoney_kline + login | 20 | 低（多为简单页） |
-| F6 | 收尾：全部页面路由切 `send_from_directory`、AGENTS.md 更新、双部署验收 | 0 | 低 |
+| F0 | 原 Jinja 版 `templates/` 打包 zip 归档（git HEAD，49 文件）、孤儿/vendor 清理落库、`common/` 骨架 + `api.js` 骨架 | 0 页改造 | 低 |
+| F1 | 试点：`google_sheet/merge_export.html`（526 行，最小完整页）+ `api.js` 首个端点迁入 | 1 | 低（验证方法论） |
+| F2 | google_sheet 基座族：base + index + create + detail + c31；**navbar.js 首落地** | 6 | 中（含 dispatcher） |
+| F3 | c4/c5/c7 create + detail（6 个最大页，2510~2801 行）+ 批内**收敛 pass**（create/detail 三胞胎 → business） | 6 | 中高（JS 内嵌 Jinja 在此；收敛为受控改写） |
+| F4 | backtest 双胞胎 10 页 + global_preview + 批内**收敛 pass**（list/result → business） | 11 | 中（result 页 task_id 推导前端化） |
+| F5 | admin 13 页 + xpl 3 页 + yule 2 页 + eastmoney_kline + login；admin 菜单变体并入 navbar.js | 20 | 低（多为简单页） |
+| F6 | 收尾：全部页面路由切 `send_from_directory`、fetch 出口终验、AGENTS.md 更新、双部署验收 | 0 | 低 |
 
 每批完成标准：该批页面在 **Flask 模式**下截图与改造前一致 + 功能清单通过 + `python -m pytest tests/unit tests/integration` 全绿。批次内页面可独立回滚（git revert 单页）。
 
@@ -89,3 +92,5 @@
 2. **JS 内嵌 Jinja**：`google_sheet_c5/c7/detail.html` 的模板字符串里嵌着 `?version={{ version }}`，搬移时必须替换为运行时解析，此类点已逐条列入 `03` §5。
 3. **dispatcher 页首屏闪动**：无 version 的 detail/create 会先渲染 dispatcher 再重定向，视觉上多一次跳转（与现状"服务端直接返回正确版本"不同），可接受，`05` §2.3 给了缓解措施。
 4. **重复劳动量大**：45 页逐一搬移，靠批次化 + 每批固定验证清单控制质量。
+5. **收敛改写风险**（B 修订新增）：business/components 提取是真实重构而非搬移，靠"两步走"控制——搬移 commit 与收敛 commit 分离，各自独立过验证四件套，单域可独立 revert（`02` §3.6）。
+6. **api.js 收口遗漏**：页面残留字面量 fetch URL 会绕过信封解包与错误提示统一；F6 终验 grep 兜底（`04` §F6）。

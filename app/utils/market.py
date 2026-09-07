@@ -19,6 +19,7 @@ MARKET_LABELS = {
     "sg": "新加坡",
     "au": "澳大利亚",
     "my": "马来西亚",
+    "futures": "期货",
 }
 
 MARKET_DEFAULT_COMMISSIONS = {
@@ -34,6 +35,7 @@ MARKET_DEFAULT_COMMISSIONS = {
     "sg": "0.002%",
     "au": "0.002%",
     "my": "0.002%",
+    "futures": "0.002%",
 }
 
 MARKET_TYPE_ALIASES = {
@@ -47,8 +49,9 @@ MARKET_TYPE_ALIASES = {
     "fr": "fr", "france": "fr", "法国": "fr",
     "de": "de", "germany": "de", "德国": "de",
     "sg": "sg", "singapore": "sg", "新加坡": "sg",
-    "au": "au", "australia": "au", "澳大利亚": "au", "澳洲": "au",
+    "au": "au", "australia": "au", "澳洲": "au",
     "my": "my", "malaysia": "my", "马来西亚": "my",
+    "futures": "futures", "期货": "futures",
 }
 
 # 东方财富搜索与 K 线接口使用的 market / secid 前缀。
@@ -56,7 +59,13 @@ EASTMONEY_MARKET_TYPES = {
     "0": "cn", "1": "cn",
     "105": "en", "106": "en", "107": "en", "153": "en",
     "116": "hk", "155": "uk", "176": "jp", "177": "kr", "185": "de", "186": "fr",
+    # 期货交易所（中金所/上期所/大商所/郑商所/上期能源/广期所）
+    "8": "futures", "113": "futures", "114": "futures",
+    "115": "futures", "142": "futures", "225": "futures",
 }
+
+# 期货交易所的 market 数字集合（与 EASTMONEY_MARKET_TYPES 的 futures 项一致）。
+FUTURES_EASTMONEY_MARKETS = {"8", "113", "114", "115", "142", "225"}
 
 # A 股场内品种（股票/ETF/LOF/可转债等）在东方财富接口中的 market 数字：
 # 沪市 = "1"，深市 = "0"。数字落在该集合内一律归为 A 股（cn），
@@ -68,9 +77,10 @@ def resolve_market_type(market_number: Any, security_type_name: Any = None) -> s
     """统一市场判定接口：按东方财富 market 数字范围判断。
 
     判定顺序：
-    1. 已知市场映射表（美股/港股/日韩等按编号对应）；
+    1. 已知市场映射表（A 股/美股/港股/日韩/期货交易所等按编号对应）；
     2. A 股场内数字范围（沪 1 / 深 0，覆盖股票、ETF、LOF 等场内品种）→ cn；
-    3. securityTypeName 别名兜底；仍无法判定返回 None。
+    3. 期货交易所数字（8/113/114/115/142/225）→ futures；
+    4. securityTypeName 别名兜底；仍无法判定返回 None。
     """
     number = str(market_number or "").strip()
     if number:
@@ -79,6 +89,8 @@ def resolve_market_type(market_number: Any, security_type_name: Any = None) -> s
             return resolved
         if number in CN_EASTMONEY_MARKETS:
             return "cn"
+        if number in FUTURES_EASTMONEY_MARKETS:
+            return "futures"
     return normalize_market_type(security_type_name)
 
 STOCK_CODE_SUFFIXES = {
@@ -100,9 +112,6 @@ STANDARD_SUFFIX_MARKETS = {
     ".SS": "cn", ".SH": "cn", ".SZ": "cn", ".BJ": "cn",
     **{suffix.upper(): market for market, suffix in STOCK_CODE_SUFFIXES.items()},
 }
-
-# 历史名称兼容：后缀规则是项目统一证券代码格式，不再是 Yahoo 专属规则。
-YAHOO_SUFFIXES = STOCK_CODE_SUFFIXES
 
 
 def normalize_market_type(value: Any, default: str | None = None) -> str | None:
@@ -196,11 +205,6 @@ def to_yahoo_ticker(stock_code: Any, market_type: Any, exchange_market: Any = No
     if infer_market_type(code, market_type) == "en" and code.endswith(".US"):
         return code[:-3]
     return code
-
-
-def yahoo_symbol(stock_code: Any, market_type: Any, exchange_market: Any = None) -> str:
-    """Yahoo 适配层兼容入口。"""
-    return to_yahoo_ticker(stock_code, market_type, exchange_market)
 
 
 def supports_internal_kline(market_type: Any) -> bool:

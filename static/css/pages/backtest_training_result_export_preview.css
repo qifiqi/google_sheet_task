@@ -1,0 +1,40 @@
+    .export-preview-toolbar {
+        border-bottom: 1px solid var(--bs-border-color);
+    }
+    .export-preview-grid {
+        max-height: calc(100vh - 11rem);
+        overflow: auto;
+        border: 1px solid var(--bs-border-color);
+        background: var(--bs-body-bg);
+    }
+    .export-preview-table {
+        width: max-content;
+        min-width: 100%;
+        margin: 0;
+        table-layout: fixed;
+        font-family: Consolas, "Microsoft YaHei", monospace;
+        font-size: 0.78rem;
+    }
+    .export-preview-table td {
+        min-width: 7.5rem;
+        height: 1.9rem;
+        padding: 0.3rem 0.45rem;
+        white-space: pre-wrap;
+        vertical-align: middle;
+    }
+    .export-preview-table td:nth-child(1) {
+        min-width: 5.5rem;
+    }
+    .export-preview-table td:empty::after {
+        content: "\00a0";
+    }
+    .export-preview-empty {
+        padding: 4rem 1rem;
+        color: var(--bs-secondary-color);
+        text-align: center;
+    }
+    @media (max-width: 767.98px) {
+        .export-preview-grid {
+            max-height: calc(100vh - 13rem);
+        }
+    }

@@ -11,13 +11,6 @@ class CalculateRatiosSchema(APIModel):
     ratios: list[Any]
 
 
-class ImportExcelSchema(BaseModel):
-    """multipart 文件上传不在 JSON body 校验域；
-    文件存在性由路由检查（保留现状）。"""
-
-    model_config = None
-
-
 SINGLE_PRODUCT_REPORT_TYPE = "RPT-S"
 MULTI_PRODUCT_REPORT_TYPE = "RPT-M"
 REPORT_TYPES = {SINGLE_PRODUCT_REPORT_TYPE, MULTI_PRODUCT_REPORT_TYPE}

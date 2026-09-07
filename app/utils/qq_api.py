@@ -17,15 +17,13 @@ from app.utils.logger import get_logger
 import requests
 from requests.adapters import HTTPAdapter
 
-try:
-    from apis.proxy_utils import configure_session_proxy, get_proxy_for_request
-except ImportError:
-    # 旧版部署中的 apis 包已移除；腾讯源默认直连，保留可替换的适配函数。
-    def configure_session_proxy(session):
-        return session
+# 腾讯源默认直连；如需接入代理，替换这两个适配函数即可。
+def configure_session_proxy(session):
+    return session
 
-    def get_proxy_for_request():
-        return None
+
+def get_proxy_for_request():
+    return None
 
 # ── User-Agent 池 ─────────────────────────────────────────
 _USER_AGENTS: List[str] = [
@@ -82,7 +80,6 @@ class QQStockApi:
 
     def __init__(self):
         self.logger = get_logger(self.__class__.__name__)
-        self._request_count = 0
         self._last_request_time = 0.0
         self._current_ua = random.choice(_USER_AGENTS)
         self.session = self._create_session()
@@ -161,7 +158,6 @@ class QQStockApi:
                 kwargs["proxies"] = proxies
 
             try:
-                self._request_count += 1
                 response = self.session.get(url, **kwargs)
                 response.raise_for_status()
                 return response
@@ -413,12 +409,3 @@ class QQStockApi:
             return None
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-    api = QQStockApi()
-    # 测试: 中际旭创 300308 深圳创业板，前复权日K，取 1280 条
-    data = api.get_stock_kline_data('300308', '0', limit=1280, kline_type='101', adjust_type='1')
-    print(f"获取到 {len(data)} 条K线数据")
-    if data:
-        print(f"最早: {data[0]['stock_date']}  最新: {data[-1]['stock_date']}")
-        print("最新一条:", data[-1])

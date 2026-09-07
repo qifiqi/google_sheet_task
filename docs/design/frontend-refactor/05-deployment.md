@@ -25,7 +25,9 @@
 from pathlib import Path
 from flask import send_from_directory
 
-PAGES_DIR = Path(__file__).resolve().parent.parent / "templates"
+# 2026-09-08 修正：page_files.py 位于 app/routes/ 下，templates/ 在仓库根，
+# 需 parents[2]（原稿 parent.parent 得到 app/templates，实测 404）。
+PAGES_DIR = Path(__file__).resolve().parents[2] / "templates"
 
 def send_page(relpath: str):
     """返回静态页面文件；relpath 使用 '/' 分隔，如 'admin/tasks.html'"""

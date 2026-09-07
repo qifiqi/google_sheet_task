@@ -196,11 +196,3 @@ class YFApi:
             self.logger.exception(f"解析多股票数据失败: {str(e)}")
             return []
 
-if __name__ == '__main__':
-    api = YFApi()
-    df = api.get_kline_data(stock_code=["BMO.TO"],period='10y')
-    print(df)
-    # tickers = df.columns.get_level_values('Ticker').unique()
-    # print(tickers)
-    # ticker_data = df.xs('AAPL', level='Ticker', axis=1)
-    # print(api.parse_multiple_tickers(df))

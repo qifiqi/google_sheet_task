@@ -1,66 +1,370 @@
-{% extends "admin/base.html" %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jaspil 任务管理系统</title>
 
-{% block head %}
-<style>
-    .roles-table {
-        table-layout: fixed;
-    }
-    .roles-table th:nth-child(1),
-    .roles-table td:nth-child(1) {
-        width: 56px;
-    }
-    .roles-table th:nth-child(2),
-    .roles-table td:nth-child(2) {
-        width: 110px;
-    }
-    .roles-table th:nth-child(3),
-    .roles-table td:nth-child(3) {
-        width: 96px;
-    }
-    .roles-table th:nth-child(6),
-    .roles-table td:nth-child(6) {
-        width: 96px;
-    }
-    .roles-table th:nth-child(7),
-    .roles-table td:nth-child(7) {
-        width: 140px;
-    }
-    .role-description-cell {
-        word-break: break-word;
-    }
-    .role-permission-summary {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
-        align-items: center;
-    }
-    .role-permission-summary .badge {
-        max-width: 180px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .permission-detail-group + .permission-detail-group {
-        margin-top: 1rem;
-    }
-    .permission-detail-item {
-        display: inline-flex;
-        align-items: center;
-        margin: 0 0.45rem 0.45rem 0;
-        padding: 0.3rem 0.55rem;
-        border-radius: 999px;
-        background: rgba(13, 110, 253, 0.08);
-        color: #0d6efd;
-        font-size: 0.9rem;
-    }
-    html[data-bs-theme="dark"] .permission-detail-item {
-        background: rgba(96, 165, 250, 0.12);
-        color: #bfdbfe;
-    }
-</style>
-{% endblock %}
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/template-auth.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
 
-{% block content %}
+    <style>
+        :root {
+            --bs-secondary-color: rgba(33, 37, 41, 0.75);
+            --bs-tertiary-bg: #f8f9fa;
+            --bs-emphasis-color: #000;
+        }
+        html[data-bs-theme="dark"] {
+            --bs-body-color: #e5e7eb;
+            --bs-body-bg: #111827;
+            --bs-border-color: #334155;
+            --bs-secondary-color: #94a3b8;
+            --bs-tertiary-bg: #1f2937;
+            --bs-emphasis-color: #f8fafc;
+        }
+        .text-body {
+            color: var(--bs-body-color) !important;
+        }
+        .text-body-secondary {
+            color: var(--bs-secondary-color) !important;
+        }
+        .bg-body {
+            background-color: var(--bs-body-bg) !important;
+        }
+        .bg-body-tertiary {
+            background-color: var(--bs-tertiary-bg) !important;
+        }
+        body {
+            background-color: #f8f9fa;
+        }
+        html[data-bs-theme="dark"] body {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        .sidebar {
+            min-height: 100vh;
+            background: #ffffff;
+            overflow-y: scroll;
+            overflow-x: hidden;
+            border-right: 1px solid #e9ecef;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.04);
+            scrollbar-gutter: stable;
+            flex: 0 0 auto;
+        }
+        html[data-bs-theme="dark"] .sidebar {
+            background: #111827;
+            border-right-color: #243041;
+            box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+        }
+        .sidebar-brand-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.85rem;
+            background: linear-gradient(135deg, #0d6efd 0%, #4dabf7 100%);
+            color: #fff;
+            font-size: 1.1rem;
+            box-shadow: 0 10px 20px rgba(13, 110, 253, 0.18);
+        }
+        .sidebar .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: #495057;
+            padding: 0.65rem 0.85rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.2rem;
+            font-weight: 500;
+            transition: all 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link {
+            color: #d1d5db;
+        }
+        .sidebar .nav-link:hover {
+            color: #0d6efd;
+            background-color: #f1f5ff;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link:hover {
+            color: #93c5fd;
+            background-color: rgba(59, 130, 246, 0.14);
+        }
+        .sidebar .nav-link.active {
+            color: #0d6efd;
+            background-color: #e7f1ff;
+            box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.12);
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link.active {
+            color: #bfdbfe;
+            background-color: rgba(59, 130, 246, 0.18);
+            box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.2);
+        }
+        .sidebar .btn-toggle {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #343a40;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 0.8rem 0.85rem 0.55rem;
+            border-radius: 0.75rem;
+            transition: background-color 0.18s ease, color 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle {
+            color: #e5e7eb;
+        }
+        .sidebar .btn-toggle:hover {
+            background: #f8f9fa;
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle:hover {
+            background: rgba(255, 255, 255, 0.04);
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-icon {
+            transition: transform 0.2s ease;
+            color: #868e96;
+            font-size: 0.9rem;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle-icon {
+            color: #94a3b8;
+        }
+        .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            transform: rotate(90deg);
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-nav {
+            padding-left: 0;
+            margin: 0.1rem 0 0;
+            list-style: none;
+            padding-left: 0.15rem;
+        }
+        .sidebar .btn-toggle-nav li {
+            margin: 0;
+        }
+        .sidebar .btn-toggle-nav .nav-link {
+            margin-left: 0.25rem;
+            padding: 0.48rem 0.75rem 0.48rem 0.85rem;
+            white-space: nowrap;
+            font-size: 0.93rem;
+            font-weight: 500;
+            border-radius: 0.7rem;
+        }
+        .sidebar .btn-toggle-nav .nav-link i {
+            font-size: 0.92rem;
+            opacity: 0.9;
+        }
+        .sidebar .btn-toggle-nav .nav-link span {
+            font-size: 0.93rem;
+        }
+        .main-content {
+            min-width: 0;
+        }
+
+        @media (min-width: 768px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 1000;
+                width: 25%;
+                max-width: 25%;
+            }
+            .main-content {
+                margin-left: 25%;
+            }
+        }
+
+        @media (min-width: 992px) {
+            .sidebar {
+                width: 16.666667%;
+                max-width: 16.666667%;
+            }
+            .main-content {
+                margin-left: 16.666667%;
+            }
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 10px;
+        }
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: #ced4da;
+            border-radius: 999px;
+            border: 2px solid #ffffff;
+        }
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: #adb5bd;
+        }
+        .sidebar-user-avatar {
+            width: 2.75rem;
+            height: 2.75rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 1rem;
+            background: linear-gradient(135deg, #fb7185 0%, #8b5cf6 100%);
+            box-shadow: 0 10px 20px rgba(139, 92, 246, 0.18);
+            flex-shrink: 0;
+        }
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        html[data-bs-theme="dark"] .card {
+            background-color: #182132;
+            border-color: #2a3648;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table {
+            --bs-table-color: #e5e7eb;
+            --bs-table-bg: transparent;
+            --bs-table-border-color: #334155;
+            --bs-table-striped-color: #e5e7eb;
+            --bs-table-striped-bg: rgba(148, 163, 184, 0.05);
+            --bs-table-active-color: #f8fafc;
+            --bs-table-active-bg: rgba(59, 130, 246, 0.12);
+            --bs-table-hover-color: #f8fafc;
+            --bs-table-hover-bg: rgba(59, 130, 246, 0.08);
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table > :not(caption) > * > * {
+            color: inherit;
+        }
+        html[data-bs-theme="dark"] .table thead,
+        html[data-bs-theme="dark"] .table-light,
+        html[data-bs-theme="dark"] .bg-white {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .table-light > :not(caption) > * > *,
+        html[data-bs-theme="dark"] .table > thead > tr > th {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+            border-bottom-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .table code {
+            color: #f9a8d4;
+        }
+        html[data-bs-theme="dark"] .table .text-dark {
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .bg-light,
+        html[data-bs-theme="dark"] .alert-light {
+            background-color: #1f2937 !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .dropdown-menu {
+            background-color: #182132;
+            border-color: #2a3648;
+        }
+        html[data-bs-theme="dark"] .dropdown-item {
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .dropdown-item:hover,
+        html[data-bs-theme="dark"] .dropdown-item:focus {
+            color: #f8fafc;
+            background-color: rgba(59, 130, 246, 0.12);
+        }
+        html[data-bs-theme="dark"] .dropdown-divider {
+            border-top-color: #334155;
+        }
+        html[data-bs-theme="dark"] .text-muted {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .form-control,
+        html[data-bs-theme="dark"] .form-select,
+        html[data-bs-theme="dark"] .input-group-text,
+        html[data-bs-theme="dark"] textarea.form-control {
+            background-color: #111827 !important;
+            border-color: #334155 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .form-control:focus,
+        html[data-bs-theme="dark"] .form-select:focus,
+        html[data-bs-theme="dark"] textarea.form-control:focus {
+            background-color: #0f172a !important;
+            border-color: #3b82f6 !important;
+            color: #f8fafc !important;
+            box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18) !important;
+        }
+        html[data-bs-theme="dark"] .form-control::placeholder,
+        html[data-bs-theme="dark"] textarea.form-control::placeholder {
+            color: #7c8aa0 !important;
+        }
+        html[data-bs-theme="dark"] .form-select option {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .input-group-text {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .text-bg-light,
+        html[data-bs-theme="dark"] .badge.text-bg-light {
+            background-color: #1e293b !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .list-group-item {
+            background-color: #111827;
+            color: #e5e7eb;
+            border-color: #334155;
+        }
+        html[data-bs-theme="dark"] .list-group-item.active {
+            background-color: rgba(59, 130, 246, 0.18);
+            border-color: #3b82f6;
+            color: #f8fafc;
+        }
+        html[data-bs-theme="dark"] .card-header.border-0 {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            overflow-x: auto;
+            background-color: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            border-radius: 0.375rem;
+            font-size: 14px;
+            white-space: pre;
+            word-break: normal;
+        }
+    </style>
+    <link href="/static/css/pages/admin_roles.css" rel="stylesheet">
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
 <div class="container-fluid">
     <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
         <h1 class="h2">角色管理</h1>
@@ -148,304 +452,16 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-let roles = [];
-let groupedPermissions = {};
-let roleModal = null;
-let permissionPreviewModal = null;
-
-function canManageRoles() {
-    return Boolean(window.TemplateApp?.isAdmin());
-}
-
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-function getSelectedPermissionIds() {
-    return Array.from(document.querySelectorAll('#permissionGroups input[type="checkbox"]:checked'))
-        .map((input) => Number(input.value));
-}
-
-function renderPermissionGroups(selectedIds = []) {
-    const container = document.getElementById('permissionGroups');
-    const groups = Object.entries(groupedPermissions);
-    if (!groups.length) {
-        container.innerHTML = '<div class="text-muted">暂无可选权限</div>';
-        return;
-    }
-
-    container.innerHTML = groups.map(([group, permissions]) => `
-        <div class="mb-3">
-            <div class="fw-semibold mb-2 text-capitalize">${escapeHtml(group)}</div>
-            <div class="row g-2">
-                ${(permissions || []).map((permission) => `
-                    <div class="col-md-6">
-                        <label class="border rounded px-3 py-2 w-100">
-                            <input class="form-check-input me-2" type="checkbox" value="${permission.id}" ${selectedIds.includes(permission.id) ? 'checked' : ''}>
-                            <span class="fw-semibold">${escapeHtml(permission.name)}</span>
-                            <div class="small text-muted">${escapeHtml(permission.code)}</div>
-                        </label>
-                    </div>
-                `).join('')}
-            </div>
+            </main>
         </div>
-    `).join('');
-}
+    </div>
 
-function getPermissionSummary(role) {
-    const permissions = Array.isArray(role.permissions) ? role.permissions : [];
-    if (!permissions.length) {
-        return '<span class="text-muted">未分配</span>';
-    }
-
-    const preview = permissions.slice(0, 3).map((permission) =>
-        `<span class="badge text-bg-light">${escapeHtml(permission.name)}</span>`
-    ).join('');
-    const remaining = permissions.length - 3;
-    const moreBadge = remaining > 0
-        ? `<span class="badge bg-secondary-subtle text-secondary-emphasis">+${remaining}</span>`
-        : '';
-
-    return `
-        <div class="role-permission-summary">
-            ${preview}
-            ${moreBadge}
-            <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" onclick="openPermissionPreview(${role.id})">
-                查看详情
-            </button>
-        </div>
-    `;
-}
-
-function renderRoles() {
-    const tbody = document.getElementById('rolesTableBody');
-    if (!roles.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">暂无角色</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = roles.map((role) => {
-        const actionButtons = canManageRoles()
-            ? `
-                <button type="button" class="btn btn-sm btn-outline-primary me-2" onclick="openRoleModal(${role.id})">编辑</button>
-                ${role.is_system ? '' : `<button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRole(${role.id})">删除</button>`}
-            `
-            : '<span class="text-muted">只读</span>';
-
-        return `
-            <tr>
-                <td>${role.id}</td>
-                <td>${escapeHtml(role.name)}</td>
-                <td><code>${escapeHtml(role.code)}</code></td>
-                <td class="role-description-cell">${escapeHtml(role.description || '-')}</td>
-                <td>${getPermissionSummary(role)}</td>
-                <td class="text-center">${role.is_system ? '<span class="badge bg-warning text-dark">内置</span>' : '<span class="text-muted">否</span>'}</td>
-                <td class="text-end text-nowrap">${actionButtons}</td>
-            </tr>
-        `;
-    }).join('');
-}
-
-function openPermissionPreview(roleId) {
-    const role = roles.find((item) => item.id === roleId);
-    if (!role) {
-        showNotification('未找到角色信息', 'error');
-        return;
-    }
-
-    const title = document.getElementById('permissionPreviewTitle');
-    const body = document.getElementById('permissionPreviewBody');
-    const permissions = Array.isArray(role.permissions) ? role.permissions : [];
-
-    title.textContent = `${role.name} 权限详情`;
-    if (!permissions.length) {
-        body.innerHTML = '<div class="text-muted">暂无权限</div>';
-        permissionPreviewModal.show();
-        return;
-    }
-
-    const permissionMap = permissions.reduce((result, permission) => {
-        const groupName = permission.group || 'other';
-        if (!result[groupName]) {
-            result[groupName] = [];
-        }
-        result[groupName].push(permission);
-        return result;
-    }, {});
-
-    body.innerHTML = Object.entries(permissionMap).map(([groupName, items]) => `
-        <div class="permission-detail-group">
-            <div class="fw-semibold mb-2 text-capitalize">${escapeHtml(groupName)} (${items.length})</div>
-            <div>
-                ${items.map((permission) => `
-                    <span class="permission-detail-item" title="${escapeHtml(permission.code)}">
-                        ${escapeHtml(permission.name)}
-                    </span>
-                `).join('')}
-            </div>
-        </div>
-    `).join('');
-    permissionPreviewModal.show();
-}
-
-function resetRoleForm() {
-    document.getElementById('roleId').value = '';
-    document.getElementById('roleName').value = '';
-    document.getElementById('roleCode').value = '';
-    document.getElementById('roleCode').disabled = false;
-    document.getElementById('roleDescription').value = '';
-    renderPermissionGroups([]);
-}
-
-function openRoleModal(roleId = null) {
-    if (!canManageRoles()) {
-        showNotification('当前账号没有角色管理权限', 'error');
-        return;
-    }
-
-    const title = document.getElementById('roleModalTitle');
-    resetRoleForm();
-
-    if (roleId != null) {
-        const role = roles.find((item) => item.id === roleId);
-        if (!role) {
-            showNotification('未找到角色信息', 'error');
-            return;
-        }
-        title.textContent = '编辑角色';
-        document.getElementById('roleId').value = role.id;
-        document.getElementById('roleName').value = role.name;
-        document.getElementById('roleCode').value = role.code;
-        document.getElementById('roleCode').disabled = true;
-        document.getElementById('roleDescription').value = role.description || '';
-        renderPermissionGroups((role.permissions || []).map((permission) => permission.id));
-    } else {
-        title.textContent = '新增角色';
-    }
-
-    roleModal.show();
-}
-
-function loadRoles() {
-    ajaxRequest('/api/admin/roles', 'GET', null, function(err, response) {
-        if (err) {
-            showNotification(`加载角色失败: ${err.message}`, 'error');
-            return;
-        }
-        roles = Array.isArray(response.data) ? response.data : [];
-        renderRoles();
-    });
-}
-
-function loadPermissions() {
-    ajaxRequest('/api/admin/permissions', 'GET', null, function(err, response) {
-        if (err) {
-            showNotification(`加载权限失败: ${err.message}`, 'error');
-            return;
-        }
-        groupedPermissions = response.data || {};
-        renderPermissionGroups([]);
-    });
-}
-
-function saveRole() {
-    if (!canManageRoles()) {
-        showNotification('当前账号没有角色管理权限', 'error');
-        return;
-    }
-
-    const roleId = document.getElementById('roleId').value;
-    const name = document.getElementById('roleName').value.trim();
-    const code = document.getElementById('roleCode').value.trim();
-    const payload = {
-        name: name,
-        description: document.getElementById('roleDescription').value.trim(),
-        permission_ids: getSelectedPermissionIds(),
-    };
-
-    if (!name) {
-        showNotification('请输入角色名称', 'error');
-        return;
-    }
-
-    if (!roleId) {
-        if (!code) {
-            showNotification('新增角色时必须填写角色编码', 'error');
-            return;
-        }
-        payload.code = code;
-    }
-
-    const url = roleId ? `/api/admin/roles/${roleId}` : '/api/admin/roles';
-    const method = roleId ? 'PUT' : 'POST';
-    ajaxRequest(url, method, payload, function(err, response) {
-        if (err) {
-            showNotification(`${roleId ? '更新' : '创建'}角色失败: ${err.message}`, 'error');
-            return;
-        }
-        showNotification(response.message || '保存成功', 'success');
-        roleModal.hide();
-        loadRoles();
-    });
-}
-
-function deleteRole(roleId) {
-    if (!canManageRoles()) {
-        showNotification('当前账号没有角色管理权限', 'error');
-        return;
-    }
-
-    if (!window.confirm('确认删除这个角色吗？')) {
-        return;
-    }
-
-    ajaxRequest(`/api/admin/roles/${roleId}`, 'DELETE', null, function(err, response) {
-        if (err) {
-            showNotification(`删除角色失败: ${err.message}`, 'error');
-            return;
-        }
-        showNotification(response.message || '删除成功', 'success');
-        loadRoles();
-    });
-}
-
-function initRolesPage() {
-    roleModal = new bootstrap.Modal(document.getElementById('roleModal'));
-    permissionPreviewModal = new bootstrap.Modal(document.getElementById('permissionPreviewModal'));
-
-    const createRoleBtn = document.getElementById('createRoleBtn');
-    const saveRoleBtn = document.getElementById('saveRoleBtn');
-
-    if (createRoleBtn) {
-        createRoleBtn.addEventListener('click', function() {
-            openRoleModal();
-        });
-    }
-
-    if (saveRoleBtn) {
-        saveRoleBtn.hidden = !canManageRoles();
-        saveRoleBtn.addEventListener('click', saveRole);
-    }
-
-    loadPermissions();
-    loadRoles();
-}
-
-document.addEventListener('template-auth-ready', initRolesPage, { once: true });
-
-document.addEventListener('DOMContentLoaded', function() {
-    if (document.body.classList.contains('template-auth-ready') || document.body.dataset.authEnabled === 'false') {
-        initRolesPage();
-    }
-});
-</script>
-{% endblock %}
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/admin-shell.js"></script>
+    <script src="/static/js/trading-date.js"></script>
+        <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
+<script src="/static/js/pages/admin_roles.js"></script>
+</body>
+</html>

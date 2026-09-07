@@ -226,13 +226,26 @@
         return permissionList.some((permission) => hasPermission(permission));
     }
 
-    function escapeHtml(text) {
-        return String(text || "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
+    function escapeHtml(str) {
+        return String(str)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+    }
+
+    // 防抖函数
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
     }
 
     function getPagePermissions() {
@@ -817,5 +830,7 @@
         window.formatTime = formatTime;
         window.getStatusText = getStatusText;
         window.getStatusClass = getStatusClass;
+        window.escapeHtml = escapeHtml;
+        window.debounce = debounce;
     }
 })();

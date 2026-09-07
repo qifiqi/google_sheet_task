@@ -205,6 +205,6 @@ def combine_product_returns(
         })
     # return weighted_rows if mode == LEGACY_WEIGHTING_MODE else daily_to_cumulative(weighted_rows)
     data = daily_to_cumulative(weighted_rows)
-    import pandas as pd
-    pd.DataFrame(data).to_csv("组合收益.csv",index=False)
+    # import pandas as pd
+    # pd.DataFrame(data).to_csv("组合收益.csv",index=False)
     return data

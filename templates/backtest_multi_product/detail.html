@@ -1,196 +1,370 @@
-{% extends "admin/base.html" %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>回测任务详情</title>
 
-{% block title %}回测任务详情{% endblock %}
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/template-auth.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
 
-{% block head %}
-<style>
-    html[data-bs-theme="dark"] .param-card .card,
-    html[data-bs-theme="dark"] .card.border-0.shadow-sm {
-        background-color: #182132;
-    }
-    html[data-bs-theme="dark"] #taskNameText,
-    html[data-bs-theme="dark"] .card-header .text-body {
-        color: #e5e7eb !important;
-    }
-    .param-card .card-header,
-    .param-card .card-body {
-        padding-top: 0.9rem !important;
-        padding-bottom: 0.9rem !important;
-    }
-    .param-card .table th,
-    .param-card .table td {
-        padding-top: 0.55rem;
-        padding-bottom: 0.55rem;
-        font-size: 0.9rem;
-    }
-    .result-param-summary {
-        display: grid;
-        gap: 0.45rem;
-    }
-    .result-param-main {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.45rem;
-    }
-    .result-param-detail {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.35rem 0.45rem;
-    }
-    .result-param-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        padding: 0.25rem 0.65rem;
-        border: 1px solid var(--bs-border-color);
-        border-radius: 999px;
-        background: var(--bs-body-bg);
-        font-size: 0.84rem;
-        line-height: 1.35;
-    }
-    html[data-bs-theme="dark"] .result-param-chip {
-        background: #1e293b;
-        border-color: #334155;
-        color: #e5e7eb;
-    }
-    html[data-bs-theme="dark"] .result-param-chip strong,
-    html[data-bs-theme="dark"] .result-param-chip span {
-        color: #e5e7eb !important;
-    }
-    .result-param-chip strong {
-        color: var(--bs-body-color);
-        font-weight: 600;
-    }
-    .result-param-chip-muted {
-        color: var(--bs-secondary-color);
-    }
-    html[data-bs-theme="dark"] .result-param-chip-muted {
-        color: #cbd5e1 !important;
-    }
-    .log-container {
-        height: 320px;
-        overflow-y: auto;
-        overflow-x: auto;
-        background: #0b1220;
-        color: #dbeafe;
-        padding: 12px 14px;
-        border-radius: 0.75rem;
-        font-family: "Courier New", monospace;
-        font-size: 14px;
-        line-height: 1.6;
-        white-space: pre;
-        word-break: normal;
-    }
-    .log-container > div {
-        white-space: pre;
-        word-break: normal;
-        margin-bottom: 0.25rem;
-    }
-    .summary-table-wrap {
-        overflow: auto;
-    }
-    .summary-table {
-        min-width: 1680px;
-        margin-bottom: 0;
-    }
-    .summary-table thead th {
-        white-space: nowrap;
-        text-align: center;
-        vertical-align: middle;
-        font-weight: 700;
-    }
-    .summary-table tbody td {
-        white-space: nowrap;
-        text-align: center;
-        vertical-align: middle;
-    }
-    .summary-parameter-cell {
-        background: color-mix(in srgb, var(--bs-tertiary-bg) 78%, white 22%);
-        font-weight: 600;
-    }
-    .summary-highlight {
-        background: linear-gradient(180deg, #fff3bf, #ffe69c) !important;
-    }
-    html[data-bs-theme="dark"] .summary-parameter-cell {
-        background: #111827;
-    }
-    html[data-bs-theme="dark"] .summary-highlight {
-        background: linear-gradient(180deg, rgba(146, 64, 14, 0.82), rgba(161, 98, 7, 0.92)) !important;
-        color: #fef3c7 !important;
-    }
-    .summary-toolbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        padding: 1rem 1rem 0;
-        flex-wrap: wrap;
-    }
-    .summary-config-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 0.75rem 1rem;
-    }
-    .summary-config-item {
-        padding: 0.65rem 0.75rem;
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.85rem;
-        background: var(--bs-tertiary-bg);
-    }
-    .summary-config-item .form-check {
-        margin-bottom: 0;
-    }
-    .task-config-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 0.85rem 1rem;
-    }
-    .task-config-item {
-        padding: 0.8rem 0.9rem;
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.9rem;
-        background: var(--bs-tertiary-bg);
-    }
-    .task-config-label {
-        font-size: 0.8rem;
-        color: var(--bs-secondary-color);
-        margin-bottom: 0.3rem;
-    }
-    .task-config-value {
-        font-weight: 600;
-        word-break: break-word;
-    }
-    .param-detail-table-wrap {
-        max-height: min(62vh, 560px);
-        overflow: auto;
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.85rem;
-    }
-    .param-detail-table {
-        min-width: 720px;
-        margin-bottom: 0;
-    }
-    .param-detail-table thead th {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        background: var(--bs-tertiary-bg);
-        white-space: nowrap;
-    }
-    .param-detail-table td {
-        white-space: nowrap;
-        font-size: 0.9rem;
-    }
-    .param-detail-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        margin-bottom: 0.85rem;
-    }
-</style>
-{% endblock %}
+    <style>
+        :root {
+            --bs-secondary-color: rgba(33, 37, 41, 0.75);
+            --bs-tertiary-bg: #f8f9fa;
+            --bs-emphasis-color: #000;
+        }
+        html[data-bs-theme="dark"] {
+            --bs-body-color: #e5e7eb;
+            --bs-body-bg: #111827;
+            --bs-border-color: #334155;
+            --bs-secondary-color: #94a3b8;
+            --bs-tertiary-bg: #1f2937;
+            --bs-emphasis-color: #f8fafc;
+        }
+        .text-body {
+            color: var(--bs-body-color) !important;
+        }
+        .text-body-secondary {
+            color: var(--bs-secondary-color) !important;
+        }
+        .bg-body {
+            background-color: var(--bs-body-bg) !important;
+        }
+        .bg-body-tertiary {
+            background-color: var(--bs-tertiary-bg) !important;
+        }
+        body {
+            background-color: #f8f9fa;
+        }
+        html[data-bs-theme="dark"] body {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        .sidebar {
+            min-height: 100vh;
+            background: #ffffff;
+            overflow-y: scroll;
+            overflow-x: hidden;
+            border-right: 1px solid #e9ecef;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.04);
+            scrollbar-gutter: stable;
+            flex: 0 0 auto;
+        }
+        html[data-bs-theme="dark"] .sidebar {
+            background: #111827;
+            border-right-color: #243041;
+            box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+        }
+        .sidebar-brand-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.85rem;
+            background: linear-gradient(135deg, #0d6efd 0%, #4dabf7 100%);
+            color: #fff;
+            font-size: 1.1rem;
+            box-shadow: 0 10px 20px rgba(13, 110, 253, 0.18);
+        }
+        .sidebar .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: #495057;
+            padding: 0.65rem 0.85rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.2rem;
+            font-weight: 500;
+            transition: all 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link {
+            color: #d1d5db;
+        }
+        .sidebar .nav-link:hover {
+            color: #0d6efd;
+            background-color: #f1f5ff;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link:hover {
+            color: #93c5fd;
+            background-color: rgba(59, 130, 246, 0.14);
+        }
+        .sidebar .nav-link.active {
+            color: #0d6efd;
+            background-color: #e7f1ff;
+            box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.12);
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link.active {
+            color: #bfdbfe;
+            background-color: rgba(59, 130, 246, 0.18);
+            box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.2);
+        }
+        .sidebar .btn-toggle {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #343a40;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 0.8rem 0.85rem 0.55rem;
+            border-radius: 0.75rem;
+            transition: background-color 0.18s ease, color 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle {
+            color: #e5e7eb;
+        }
+        .sidebar .btn-toggle:hover {
+            background: #f8f9fa;
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle:hover {
+            background: rgba(255, 255, 255, 0.04);
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-icon {
+            transition: transform 0.2s ease;
+            color: #868e96;
+            font-size: 0.9rem;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle-icon {
+            color: #94a3b8;
+        }
+        .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            transform: rotate(90deg);
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-nav {
+            padding-left: 0;
+            margin: 0.1rem 0 0;
+            list-style: none;
+            padding-left: 0.15rem;
+        }
+        .sidebar .btn-toggle-nav li {
+            margin: 0;
+        }
+        .sidebar .btn-toggle-nav .nav-link {
+            margin-left: 0.25rem;
+            padding: 0.48rem 0.75rem 0.48rem 0.85rem;
+            white-space: nowrap;
+            font-size: 0.93rem;
+            font-weight: 500;
+            border-radius: 0.7rem;
+        }
+        .sidebar .btn-toggle-nav .nav-link i {
+            font-size: 0.92rem;
+            opacity: 0.9;
+        }
+        .sidebar .btn-toggle-nav .nav-link span {
+            font-size: 0.93rem;
+        }
+        .main-content {
+            min-width: 0;
+        }
 
-{% block content %}
+        @media (min-width: 768px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 1000;
+                width: 25%;
+                max-width: 25%;
+            }
+            .main-content {
+                margin-left: 25%;
+            }
+        }
+
+        @media (min-width: 992px) {
+            .sidebar {
+                width: 16.666667%;
+                max-width: 16.666667%;
+            }
+            .main-content {
+                margin-left: 16.666667%;
+            }
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 10px;
+        }
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: #ced4da;
+            border-radius: 999px;
+            border: 2px solid #ffffff;
+        }
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: #adb5bd;
+        }
+        .sidebar-user-avatar {
+            width: 2.75rem;
+            height: 2.75rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 1rem;
+            background: linear-gradient(135deg, #fb7185 0%, #8b5cf6 100%);
+            box-shadow: 0 10px 20px rgba(139, 92, 246, 0.18);
+            flex-shrink: 0;
+        }
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        html[data-bs-theme="dark"] .card {
+            background-color: #182132;
+            border-color: #2a3648;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table {
+            --bs-table-color: #e5e7eb;
+            --bs-table-bg: transparent;
+            --bs-table-border-color: #334155;
+            --bs-table-striped-color: #e5e7eb;
+            --bs-table-striped-bg: rgba(148, 163, 184, 0.05);
+            --bs-table-active-color: #f8fafc;
+            --bs-table-active-bg: rgba(59, 130, 246, 0.12);
+            --bs-table-hover-color: #f8fafc;
+            --bs-table-hover-bg: rgba(59, 130, 246, 0.08);
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table > :not(caption) > * > * {
+            color: inherit;
+        }
+        html[data-bs-theme="dark"] .table thead,
+        html[data-bs-theme="dark"] .table-light,
+        html[data-bs-theme="dark"] .bg-white {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .table-light > :not(caption) > * > *,
+        html[data-bs-theme="dark"] .table > thead > tr > th {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+            border-bottom-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .table code {
+            color: #f9a8d4;
+        }
+        html[data-bs-theme="dark"] .table .text-dark {
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .bg-light,
+        html[data-bs-theme="dark"] .alert-light {
+            background-color: #1f2937 !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .dropdown-menu {
+            background-color: #182132;
+            border-color: #2a3648;
+        }
+        html[data-bs-theme="dark"] .dropdown-item {
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .dropdown-item:hover,
+        html[data-bs-theme="dark"] .dropdown-item:focus {
+            color: #f8fafc;
+            background-color: rgba(59, 130, 246, 0.12);
+        }
+        html[data-bs-theme="dark"] .dropdown-divider {
+            border-top-color: #334155;
+        }
+        html[data-bs-theme="dark"] .text-muted {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .form-control,
+        html[data-bs-theme="dark"] .form-select,
+        html[data-bs-theme="dark"] .input-group-text,
+        html[data-bs-theme="dark"] textarea.form-control {
+            background-color: #111827 !important;
+            border-color: #334155 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .form-control:focus,
+        html[data-bs-theme="dark"] .form-select:focus,
+        html[data-bs-theme="dark"] textarea.form-control:focus {
+            background-color: #0f172a !important;
+            border-color: #3b82f6 !important;
+            color: #f8fafc !important;
+            box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18) !important;
+        }
+        html[data-bs-theme="dark"] .form-control::placeholder,
+        html[data-bs-theme="dark"] textarea.form-control::placeholder {
+            color: #7c8aa0 !important;
+        }
+        html[data-bs-theme="dark"] .form-select option {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .input-group-text {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .text-bg-light,
+        html[data-bs-theme="dark"] .badge.text-bg-light {
+            background-color: #1e293b !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .list-group-item {
+            background-color: #111827;
+            color: #e5e7eb;
+            border-color: #334155;
+        }
+        html[data-bs-theme="dark"] .list-group-item.active {
+            background-color: rgba(59, 130, 246, 0.18);
+            border-color: #3b82f6;
+            color: #f8fafc;
+        }
+        html[data-bs-theme="dark"] .card-header.border-0 {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            overflow-x: auto;
+            background-color: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            border-radius: 0.375rem;
+            font-size: 14px;
+            white-space: pre;
+            word-break: normal;
+        }
+    </style>
+    <link href="/static/css/pages/backtest_multi_product_detail.css" rel="stylesheet">
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
 <div class="pt-3 pb-4 d-grid gap-4">
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
         <div class="card-header bg-body-tertiary border-0 p-4 d-flex justify-content-between align-items-start flex-wrap gap-3">
@@ -199,7 +373,7 @@
                 <div class="d-flex align-items-center gap-3 flex-wrap mt-1">
                     <div class="fw-semibold text-body" id="taskNameText">任务详情</div>
                     <span>Task ID:</span>
-                    <code class="bg-body px-2 py-1 rounded text-primary fs-6" id="taskIdText">{{ task_id }}</code>
+                    <code class="bg-body px-2 py-1 rounded text-primary fs-6" id="taskIdText"></code>
                 </div>
             </div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -228,7 +402,7 @@
                 </div>
             </div>
             <div class="d-flex flex-wrap gap-2 mt-4">
-                <a href="/backtest-multi-product/global-preview/{{ task_id }}" class="btn btn-outline-success rounded-pill px-4" id="globalPreviewLink">
+                <a href="/backtest-multi-product/global-preview/" class="btn btn-outline-success rounded-pill px-4" id="globalPreviewLink">
                     <i class="bi bi-layout-text-window-reverse me-1"></i> 全局预览页
                 </a>
                 <button type="button" class="btn btn-warning rounded-pill px-4" id="stopTaskBtn" disabled>
@@ -421,1329 +595,16 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-    const TASK_API_BASE = '/api/tasks';
-    const currentTaskId = {{ task_id|tojson }};
-    const AUTO_REFRESH_INTERVAL = 60 * 1000;
-    const TASK_RESULT_PAGE_SIZE = 10;
-    const LIST_PAGINATION_STORAGE_KEY = 'backtest_multi_product:list_pagination';
-    const RESULT_PAGINATION_STORAGE_KEY = `backtest_multi_product:task_results:${currentTaskId}:pagination`;
-    let currentTaskConfig = {};
-    const FIELD_MAP = {
-        c7: [
-            { key: 'xm', label: 'X Multiplier (xm)' },
-            { key: 'ml', label: 'ML (ml)' }
-        ],
-        c5: [
-            { key: 'xm', label: 'X Multiplier (xm)' },
-            { key: 'ml', label: 'ML (ml)' }
-        ],
-        c3: [
-            { key: 'commission', label: 'Commission' },
-            { key: 'xm', label: 'X Multiplier (xm)' },
-            { key: 'dbbh1', label: '单边保护1' },
-            { key: 'dbbh2', label: '单边保护2' },
-            { key: 'zlxc', label: '中立限仓' },
-            { key: 'zsgz', label: '指数跟踪' },
-            { key: 'ywf1', label: '一窝蜂 smoothing' },
-            { key: 'ywf2', label: '一窝蜂 bordering' }
-        ]
-    };
-    const C3_SUMMARY_STORAGE_KEY = 'backtest_multi_product:c3_summary_metric_keys';
-    const C3_SUMMARY_METRIC_DEFS = [
-        { key: 'strategy_return', label: '策略收益%', format: 'percent', defaultSelected: true, signClass: true },
-        { key: 'index_return', label: '指数收益%', format: 'percent', defaultSelected: true, signClass: true },
-        { key: 'beats_index', label: '收益差%', format: 'percent', defaultSelected: true, signClass: true, highlight: true },
-        { key: 'strategy_max_drawdown', label: '策略最大回撤%', format: 'drawdown', defaultSelected: true, danger: true },
-        { key: 'index_max_drawdown', label: '指数最大回撤%', format: 'drawdown', defaultSelected: true, danger: true },
-        { key: 'drawdown_beats', label: '回撤差%', format: 'percent', defaultSelected: true, signClass: true, highlight: true },
-        { key: 'fee_pair', label: 'Fee total / annualized', format: 'feePair', defaultSelected: true },
-        { key: 'year_rate', label: '年换手率%', format: 'percent', defaultSelected: true },
-        { key: 'index_monthly_sharpe', label: '指数月夏普', format: 'number', defaultSelected: true, signClass: true },
-        { key: 'strategy_monthly_sharpe', label: '策略月夏普', format: 'number', defaultSelected: true, signClass: true },
-        { key: 'avg_abs_change', label: '日均abs(chg%)', format: 'percent', defaultSelected: true },
-        { key: 'max_abs_change', label: 'MAX abs(chg%)', format: 'percent', defaultSelected: true },
-        { key: 'avg_abs_stddev', label: '日均abs标准差', format: 'number', defaultSelected: true },
-        { key: 'strategy_annualized', label: '策略年化收益%', format: 'percent', signClass: true },
-        { key: 'index_annualized', label: '指数年化收益%', format: 'percent', signClass: true },
-        { key: 'fee_total', label: 'Fee total%', format: 'percent' },
-        { key: 'fee_annualized', label: 'Fee annualized%', format: 'percent' },
-        { key: 'index_avg_monthly_return', label: '指数平均月收益%', format: 'percent', signClass: true },
-        { key: 'strategy_avg_monthly_return', label: '策略平均月收益%', format: 'percent', signClass: true },
-        { key: 'index_monthly_return_volatility', label: '指数月波动率%', format: 'percent' },
-        { key: 'strategy_monthly_return_volatility', label: '策略月波动率%', format: 'percent' },
-        { key: 'excess_annualized_return', label: '超额年化收益%', format: 'percent', signClass: true },
-        { key: 'outperform_year', label: '跑赢年份%', format: 'percent', signClass: true },
-        { key: 'monthly_excess_return_percentage', label: '月超额胜率%', format: 'percent', signClass: true },
-        { key: 'avg_monthly_excess_return', label: '平均月超额%', format: 'percent', signClass: true },
-        { key: 'monthly_excess_volatility', label: '月超额波动率%', format: 'percent' },
-        { key: 'index_profit_annual', label: '指数盈利年份%', format: 'percent', signClass: true },
-        { key: 'strategy_profit_annual', label: '策略盈利年份%', format: 'percent', signClass: true },
-        { key: 'index_profit_monthly_percentage', label: '指数月盈利率%', format: 'percent', signClass: true },
-        { key: 'strategy_profit_monthly_percentage', label: '策略月盈利率%', format: 'percent', signClass: true },
-        { key: 'index_kama_ratio', label: '指数卡玛', format: 'number', signClass: true },
-        { key: 'strategy_kama_ratio', label: '策略卡玛', format: 'number', signClass: true },
-        { key: 'index_sortino_ratio', label: '指数索提诺', format: 'number', signClass: true },
-        { key: 'strategy_sortino_ratio', label: '策略索提诺', format: 'number', signClass: true },
-        { key: 'excess_sharpe', label: '超额夏普', format: 'number', signClass: true },
-        { key: 'excess_sortino', label: '超额索提诺', format: 'number', signClass: true },
-        { key: 'excess_drawdown_winning_rate', label: '超额回撤胜率%', format: 'percent', signClass: true },
-        { key: 'index_maximum_number_of_backtest_repair_days', label: '指数最大修复天数', format: 'integer' },
-        { key: 'strategy_maximum_number_of_backtest_repair_days', label: '策略最大修复天数', format: 'integer' },
-        { key: 'excess_maximum_number_of_backtest_repair_days', label: '超额最大修复天数', format: 'integer' },
-        { key: 'date_range', label: '结果区间', format: 'text' },
-        { key: 'source_window', label: '运行窗口', format: 'text' },
-        { key: 'timestamp', label: '结果时间', format: 'datetime' }
-    ];
-    let refreshInterval = null;
-    let taskActionInProgress = false;
-    let currentModelVersion = 'c3';
-    let c3SummaryRowsCache = [];
-    let c3SelectedMetricKeys = [];
-    let taskResultPaginationState = {
-        page: 1,
-        per_page: TASK_RESULT_PAGE_SIZE,
-        pages: 0,
-        total: 0,
-        has_prev: false,
-        has_next: false,
-        prev_num: null,
-        next_num: null
-    };
-
-    function parsePositiveInt(value, fallback) {
-        const parsed = Number.parseInt(value, 10);
-        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-    }
-
-    function readJsonStorage(key) {
-        try {
-            return JSON.parse(localStorage.getItem(key) || '{}') || {};
-        } catch (error) {
-            return {};
-        }
-    }
-
-    function getListPaginationFromNavigation() {
-        const params = new URLSearchParams(window.location.search);
-        const stored = readJsonStorage(LIST_PAGINATION_STORAGE_KEY);
-        return {
-            page: parsePositiveInt(params.get('list_page'), parsePositiveInt(stored.page, 1)),
-            per_page: parsePositiveInt(params.get('list_per_page'), parsePositiveInt(stored.per_page, 20))
-        };
-    }
-
-    function persistListPaginationFromNavigation() {
-        const listState = getListPaginationFromNavigation();
-        localStorage.setItem(LIST_PAGINATION_STORAGE_KEY, JSON.stringify(listState));
-    }
-
-    function buildListHref() {
-        const listState = getListPaginationFromNavigation();
-        return `/backtest-multi-product/list?page=${encodeURIComponent(listState.page)}&per_page=${encodeURIComponent(listState.per_page)}`;
-    }
-
-    function getInitialResultPaginationState() {
-        const params = new URLSearchParams(window.location.search);
-        const stored = readJsonStorage(RESULT_PAGINATION_STORAGE_KEY);
-        return {
-            page: parsePositiveInt(params.get('result_page'), parsePositiveInt(stored.page, 1)),
-            per_page: parsePositiveInt(params.get('result_per_page'), parsePositiveInt(stored.per_page, TASK_RESULT_PAGE_SIZE))
-        };
-    }
-
-    function persistResultPaginationState() {
-        const resultState = {
-            page: taskResultPaginationState.page,
-            per_page: taskResultPaginationState.per_page
-        };
-        localStorage.setItem(RESULT_PAGINATION_STORAGE_KEY, JSON.stringify(resultState));
-
-        const url = new URL(window.location.href);
-        url.searchParams.set('result_page', String(resultState.page));
-        url.searchParams.set('result_per_page', String(resultState.per_page));
-        window.history.replaceState({}, '', url);
-
-        const globalPreviewLink = document.getElementById('globalPreviewLink');
-        if (globalPreviewLink) {
-            globalPreviewLink.href = buildGlobalPreviewHref();
-        }
-    }
-
-    function buildResultHref(resultId) {
-        const listState = getListPaginationFromNavigation();
-        const params = new URLSearchParams({
-            list_page: String(listState.page),
-            list_per_page: String(listState.per_page),
-            result_page: String(taskResultPaginationState.page || 1),
-            result_per_page: String(taskResultPaginationState.per_page || TASK_RESULT_PAGE_SIZE)
-        });
-        return `/backtest-multi-product/result/${encodeURIComponent(resultId)}?${params.toString()}`;
-    }
-
-    function buildGlobalPreviewHref() {
-        const listState = getListPaginationFromNavigation();
-        const params = new URLSearchParams({
-            list_page: String(listState.page),
-            list_per_page: String(listState.per_page),
-            result_page: String(taskResultPaginationState.page || 1),
-            result_per_page: String(taskResultPaginationState.per_page || TASK_RESULT_PAGE_SIZE)
-        });
-        return `/backtest-multi-product/global-preview/${encodeURIComponent(currentTaskId)}?${params.toString()}`;
-    }
-
-    function escapeHtml(value) {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
-    function formatStatus(status) {
-        const statusClassMap = {
-            pending: 'bg-secondary',
-            running: 'bg-warning text-dark',
-            completed: 'bg-success',
-            cancelled: 'bg-info text-dark',
-            error: 'bg-danger'
-        };
-        const statusTextMap = {
-            pending: '待执行',
-            running: '执行中',
-            completed: '已完成',
-            cancelled: '已取消',
-            error: '执行失败'
-        };
-        const badgeClass = statusClassMap[status] || 'bg-secondary';
-        const statusText = statusTextMap[status] || status || '-';
-        return `<span class="badge ${badgeClass} rounded-pill px-3 py-2">${escapeHtml(statusText)}</span>`;
-    }
-
-    function updateStopTaskButton(status) {
-        const button = document.getElementById('stopTaskBtn');
-        if (!button) {
-            return;
-        }
-
-        const canStop = status === 'pending' || status === 'running';
-        button.disabled = !canStop || taskActionInProgress;
-        button.title = canStop ? '停止当前回测任务' : '当前状态不可停止';
-    }
-
-    function renderValue(value) {
-        if (value === null || value === undefined || value === '') {
-            return '<span class="text-body-secondary">-</span>';
-        }
-        if (Array.isArray(value)) {
-            return `<code>${escapeHtml(JSON.stringify(value))}</code>`;
-        }
-        if (typeof value === 'object') {
-            return `<code>${escapeHtml(JSON.stringify(value))}</code>`;
-        }
-        return escapeHtml(value);
-    }
-
-    function inferModelVersion(_config) {
-        return 'multi';
-    }
-
-    function inferProductModelVersion(product) {
-        const sheet = product?.sheet || {};
-        const text = [
-            product?.model_version,
-            product?.product_name,
-            product?.name,
-            sheet.title,
-            sheet.sheet_name
-        ].filter(Boolean).join(' ').toUpperCase();
-        if (text.includes('C7')) {
-            return 'c7';
-        }
-        return text.includes('C5') || text.includes('C4') ? 'c5' : 'c3';
-    }
-
-    function getProductParameterFields(product) {
-        const version = inferProductModelVersion(product);
-        return FIELD_MAP[version] || FIELD_MAP.c3;
-    }
-
-    function formatConfigDisplayValue(value) {
-        if (value === null || value === undefined || value === '') {
-            return '<span class="text-body-secondary">-</span>';
-        }
-        if (Array.isArray(value)) {
-            if (!value.length) {
-                return '<span class="text-body-secondary">-</span>';
-            }
-            return escapeHtml(value.join(', '));
-        }
-        if (typeof value === 'object') {
-            return `<code>${escapeHtml(JSON.stringify(value))}</code>`;
-        }
-        return escapeHtml(value);
-    }
-
-    function renderTaskConfig(config) {
-        const grid = document.getElementById('taskConfigGrid');
-        if (!grid) {
-            return;
-        }
-
-        const products = Array.isArray(config.products) ? config.products : [];
-        const items = [
-            { label: 'K线开始日期', value: config.start_date },
-            { label: 'K线结束日期', value: config.end_date },
-            { label: '产品数量', value: products.length },
-            { label: 'Token ID', value: config.token_id },
-            { label: 'Token 名称', value: config.token_name },
-            { label: 'Token 类型', value: config.token_type },
-            { label: 'Token 任务类型', value: config.token_task_type },
-            { label: 'Token 文件', value: config.token_file },
-        ];
-
-        grid.innerHTML = items.map((item) => `
-            <div class="task-config-item">
-                <div class="task-config-label">${escapeHtml(item.label)}</div>
-                <div class="task-config-value">${formatConfigDisplayValue(item.value)}</div>
-            </div>
-        `).join('');
-    }
-
-    function renderParameterTable(config) {
-        const tableHead = document.getElementById('taskParamHead');
-        const tableBody = document.getElementById('taskParamBody');
-        tableHead.innerHTML = '';
-        tableBody.innerHTML = '';
-
-        const products = Array.isArray(config.products) ? config.products : [];
-
-        if (!products.length) {
-            tableHead.innerHTML = '<tr><th class="ps-4">产品</th><th>参数值</th></tr>';
-            tableBody.innerHTML = '<tr><td colspan="2" class="text-center text-body-secondary py-4">暂无产品配置</td></tr>';
-            return;
-        }
-
-        tableHead.innerHTML = `
-            <tr>
-                <th class="ps-4">产品</th>
-                <th>股票/市场</th>
-                <th>比例</th>
-                <th>Sheet</th>
-                <th>参数行数</th>
-                <th class="pe-4 text-end">详情</th>
-            </tr>
-        `;
-
-        tableBody.innerHTML = products.map((product, index) => {
-            const sheet = product.sheet || {};
-            const parameters = Array.isArray(product.parameters) ? product.parameters : [];
-            return `
-                <tr>
-                    <td class="ps-4 fw-semibold">${escapeHtml(product.product_name || product.name || `产品 ${index + 1}`)}</td>
-                    <td>${escapeHtml(product.stock_code || '-')} / ${escapeHtml(product.market_type || '-')}</td>
-                    <td>${escapeHtml(product.ratio || '-')}%</td>
-                    <td>${escapeHtml(sheet.title || sheet.sheet_name || sheet.spreadsheet_id || '-')}</td>
-                    <td>${parameters.length}</td>
-                    <td class="pe-4 text-end">
-                        <button type="button" class="btn btn-outline-primary btn-sm view-product-params" data-product-index="${index}" title="查看具体参数">
-                            <i class="bi bi-eye"></i>
-                        </button>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-    }
-
-    function renderProductParameterModal(productIndex) {
-        const products = Array.isArray(currentTaskConfig.products) ? currentTaskConfig.products : [];
-        const product = products[productIndex];
-        if (!product) {
-            return;
-        }
-        const parameters = Array.isArray(product.parameters) ? product.parameters : [];
-        const fields = getProductParameterFields(product);
-        const productName = product.product_name || product.name || `产品 ${productIndex + 1}`;
-        const sheet = product.sheet || {};
-        document.getElementById('productParameterModalLabel').textContent = `${productName} 参数详情`;
-        document.getElementById('productParameterModalSubtitle').textContent = [
-            product.stock_code ? `股票：${product.stock_code}` : '',
-            product.market_type ? `市场：${product.market_type}` : '',
-            sheet.title || sheet.sheet_name ? `Sheet：${sheet.title || sheet.sheet_name}` : '',
-            `参数行数：${parameters.length}`
-        ].filter(Boolean).join(' · ');
-
-        const body = document.getElementById('productParameterModalBody');
-        if (!parameters.length) {
-            body.innerHTML = '<div class="text-center text-body-secondary py-4">暂无参数</div>';
-            return;
-        }
-
-        const header = fields.map((field) => `<th>${escapeHtml(field.label)}</th>`).join('');
-        const rows = parameters.map((row, rowIndex) => {
-            const values = Array.isArray(row) ? row : [];
-            return `
-                <tr>
-                    <td class="text-body-secondary">${rowIndex + 1}</td>
-                    ${fields.map((field, index) => `<td>${escapeHtml(values[index] ?? '')}</td>`).join('')}
-                </tr>
-            `;
-        }).join('');
-        body.innerHTML = `
-            <div class="param-detail-meta">
-                <span class="badge rounded-pill text-bg-light border">模型 ${escapeHtml(inferProductModelVersion(product).toUpperCase())}</span>
-                <span class="badge rounded-pill text-bg-light border">${escapeHtml(product.stock_code || '-')}</span>
-                <span class="badge rounded-pill text-bg-light border">${escapeHtml(String(product.ratio ?? '-'))}%</span>
-            </div>
-            <div class="param-detail-table-wrap">
-                <table class="table table-hover align-middle param-detail-table">
-                    <thead class="table-light">
-                        <tr><th>#</th>${header}</tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>
-        `;
-    }
-
-    function openProductParameterModal(productIndex) {
-        renderProductParameterModal(productIndex);
-        const modalEl = document.getElementById('productParameterModal');
-        if (modalEl && window.bootstrap?.Modal) {
-            bootstrap.Modal.getOrCreateInstance(modalEl).show();
-        }
-    }
-
-    async function writeClipboardText(text) {
-        if (navigator.clipboard?.writeText) {
-            await navigator.clipboard.writeText(text);
-            return;
-        }
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.setAttribute('readonly', '');
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        const ok = document.execCommand('copy');
-        textarea.remove();
-        if (!ok) {
-            throw new Error('复制失败，请检查浏览器剪切板权限');
-        }
-    }
-
-    function allProductParametersToClipboard(config) {
-        const products = Array.isArray(config.products) ? config.products : [];
-        return products.map((product, index) => {
-            const productName = product.product_name || product.name || `产品 ${index + 1}`;
-            const rows = (Array.isArray(product.parameters) ? product.parameters : [])
-                .filter((row) => Array.isArray(row) && row.some((value) => String(value ?? '').trim()))
-                .map((row) => row.join('\t'))
-                .join('\n');
-            return rows ? `# ${productName}\n${rows}` : '';
-        }).filter(Boolean).join('\n\n');
-    }
-
-    async function copyAllTaskParameters() {
-        try {
-            const text = allProductParametersToClipboard(currentTaskConfig);
-            if (!text) {
-                throw new Error('当前任务没有可复制的参数');
-            }
-            await writeClipboardText(text);
-            showNotification('全部产品参数已复制', 'success');
-        } catch (error) {
-            showNotification(error.message || '复制参数失败', 'error');
-        }
-    }
-
-    function getDefaultC3MetricKeys() {
-        return C3_SUMMARY_METRIC_DEFS
-            .filter((item) => item.defaultSelected)
-            .map((item) => item.key);
-    }
-
-    function getValidC3MetricKeys(metricKeys) {
-        const validKeys = new Set(C3_SUMMARY_METRIC_DEFS.map((item) => item.key));
-        return (Array.isArray(metricKeys) ? metricKeys : []).filter((key) => validKeys.has(key));
-    }
-
-    function loadSavedC3MetricKeys() {
-        try {
-            const raw = window.localStorage.getItem(C3_SUMMARY_STORAGE_KEY);
-            if (!raw) {
-                return [];
-            }
-            return getValidC3MetricKeys(JSON.parse(raw));
-        } catch (error) {
-            return [];
-        }
-    }
-
-    function persistC3MetricKeys() {
-        try {
-            window.localStorage.setItem(C3_SUMMARY_STORAGE_KEY, JSON.stringify(c3SelectedMetricKeys));
-        } catch (error) {
-            // Ignore storage errors and keep the current in-memory selection.
-        }
-    }
-
-    function ensureC3MetricSelection() {
-        if (!c3SelectedMetricKeys.length) {
-            const savedKeys = loadSavedC3MetricKeys();
-            c3SelectedMetricKeys = savedKeys.length ? savedKeys : getDefaultC3MetricKeys();
-        }
-    }
-
-    function getSelectedC3MetricDefs() {
-        ensureC3MetricSelection();
-        const selectedKeys = new Set(c3SelectedMetricKeys);
-        return C3_SUMMARY_METRIC_DEFS.filter((item) => selectedKeys.has(item.key));
-    }
-
-    function getC3SummaryColumnCount() {
-        return 9 + getSelectedC3MetricDefs().length;
-    }
-
-    function formatPercentValue(value, digits = 2) {
-        if (value === null || value === undefined || value === '') {
-            return '';
-        }
-        if (typeof value === 'string') {
-            return escapeHtml(value);
-        }
-        return `${(Number(value) * 100).toFixed(digits)}%`;
-    }
-
-    function formatNumberValue(value, digits = 6) {
-        if (value === null || value === undefined || value === '') {
-            return '';
-        }
-        if (typeof value === 'string') {
-            return escapeHtml(value);
-        }
-        return Number(value).toFixed(digits);
-    }
-
-    function formatIntegerValue(value) {
-        if (value === null || value === undefined || value === '') {
-            return '';
-        }
-        if (typeof value === 'string') {
-            return escapeHtml(value);
-        }
-        return String(Math.round(Number(value)));
-    }
-
-    function formatDrawdownValue(value) {
-        if (value === null || value === undefined || value === '') {
-            return '';
-        }
-        if (typeof value === 'string') {
-            return escapeHtml(value);
-        }
-        return `${(Number(value) * 100).toFixed(2)}%`;
-    }
-
-    function formatFeeValue(totalValue, annualizedValue) {
-        const totalText = formatPercentValue(totalValue);
-        const annualizedText = formatPercentValue(annualizedValue);
-
-        if (totalText && annualizedText) {
-            return `${totalText} / ${annualizedText}`;
-        }
-        return totalText || annualizedText || '';
-    }
-
-    function formatTextValue(value) {
-        if (value === null || value === undefined || value === '') {
-            return '';
-        }
-        return escapeHtml(value);
-    }
-
-    function formatDateTimeValue(value) {
-        if (!value) {
-            return '';
-        }
-        return escapeHtml(formatTime(value));
-    }
-
-    function metricClass(value) {
-        if (value === null || value === undefined || value === '' || typeof value === 'string') {
-            return '';
-        }
-        return Number(value) >= 0 ? 'text-success' : 'text-danger';
-    }
-
-    function getC3MetricCellClass(metricDef, row) {
-        const classes = [];
-        if (metricDef.danger) {
-            classes.push('text-danger');
-        }
-        if (metricDef.signClass) {
-            classes.push(metricClass(row[metricDef.key]));
-        }
-        return classes.filter(Boolean).join(' ');
-    }
-
-    function formatC3MetricValue(metricDef, row) {
-        switch (metricDef.format) {
-            case 'percent':
-                return formatPercentValue(row[metricDef.key]);
-            case 'drawdown':
-                return formatDrawdownValue(row[metricDef.key]);
-            case 'number':
-                return formatNumberValue(row[metricDef.key]);
-            case 'integer':
-                return formatIntegerValue(row[metricDef.key]);
-            case 'feePair':
-                return formatFeeValue(row.fee_total, row.fee_annualized);
-            case 'datetime':
-                return formatDateTimeValue(row[metricDef.key]);
-            case 'text':
-            default:
-                return formatTextValue(row[metricDef.key]);
-        }
-    }
-
-    function buildSummaryGroupKey(row) {
-        return [
-            row.commission ?? '',
-            row.xm ?? '',
-            row.dbbh1 ?? '',
-            row.dbbh2 ?? '',
-            row.zlxc ?? '',
-            row.zsgz ?? '',
-            row.ywf1 ?? '',
-            row.ywf2 ?? ''
-        ].join('|');
-    }
-
-    function groupSummaryRows(rows) {
-        const groups = [];
-        let currentGroup = null;
-
-        (rows || []).forEach((row) => {
-            const key = buildSummaryGroupKey(row);
-            if (!currentGroup || currentGroup.key !== key) {
-                currentGroup = { key, rows: [] };
-                groups.push(currentGroup);
-            }
-            currentGroup.rows.push(row);
-        });
-
-        return groups;
-    }
-
-    function renderC3SummaryHead() {
-        const thead = document.getElementById('c3SummaryTableHead');
-        if (!thead) {
-            return;
-        }
-
-        const metricHeaders = getSelectedC3MetricDefs().map((item) => {
-            const className = item.highlight ? ' class="summary-highlight"' : '';
-            return `<th${className}>${escapeHtml(item.label)}</th>`;
-        });
-
-        thead.innerHTML = `
-            <tr>
-                <th>X Multiplier</th>
-                <th>tp1</th>
-                <th>tp2</th>
-                <th>nl</th>
-                <th>if</th>
-                <th>ywfs</th>
-                <th>ywfb</th>
-                <th>年份</th>
-                ${metricHeaders.join('')}
-                <th class="pe-4 text-end">操作</th>
-            </tr>
-        `;
-    }
-
-    function updateC3MetricHint() {
-        const hint = document.getElementById('c3SummaryMetricHint');
-        if (!hint) {
-            return;
-        }
-        hint.textContent = `当前已显示 ${getSelectedC3MetricDefs().length} 个数据项，可随时切换。`;
-    }
-
-    function syncC3MetricSelector() {
-        const container = document.getElementById('c3MetricSelectorList');
-        if (!container) {
-            return;
-        }
-
-        ensureC3MetricSelection();
-        const selectedKeys = new Set(c3SelectedMetricKeys);
-        container.innerHTML = C3_SUMMARY_METRIC_DEFS.map((item) => `
-            <label class="summary-config-item">
-                <span class="form-check">
-                    <input class="form-check-input c3-metric-option" type="checkbox" value="${escapeHtml(item.key)}" ${selectedKeys.has(item.key) ? 'checked' : ''}>
-                    <span class="form-check-label">${escapeHtml(item.label)}</span>
-                </span>
-            </label>
-        `).join('');
-    }
-
-    function applyC3MetricSelection(metricKeys) {
-        c3SelectedMetricKeys = getValidC3MetricKeys(metricKeys);
-        persistC3MetricKeys();
-        syncC3MetricSelector();
-        updateC3MetricHint();
-        renderC3SummaryRows(c3SummaryRowsCache);
-    }
-
-    function resetC3MetricSelection() {
-        applyC3MetricSelection(getDefaultC3MetricKeys());
-    }
-
-    function renderC3SummaryRows(rows) {
-        const tbody = document.getElementById('c3SummaryTableBody');
-        if (!tbody) {
-            return;
-        }
-
-        c3SummaryRowsCache = Array.isArray(rows) ? rows : [];
-        renderC3SummaryHead();
-        updateC3MetricHint();
-
-        const groups = groupSummaryRows(c3SummaryRowsCache);
-        if (!groups.length) {
-            tbody.innerHTML = `<tr><td colspan="${getC3SummaryColumnCount()}" class="text-center text-body-secondary py-4">暂无参数汇总数据</td></tr>`;
-            return;
-        }
-
-        const selectedMetricDefs = getSelectedC3MetricDefs();
-        const html = [];
-        groups.forEach((group) => {
-            const rowspan = group.rows.length;
-            group.rows.forEach((row, rowIndex) => {
-                const resultLinkWithState = buildResultHref(row.task_result_id);
-                html.push('<tr>');
-
-                if (rowIndex === 0) {
-                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.xm ?? '')}</td>`);
-                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.dbbh1 ?? '')}</td>`);
-                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.dbbh2 ?? '')}</td>`);
-                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.zlxc ?? '')}</td>`);
-                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.zsgz ?? '')}</td>`);
-                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.ywf1 ?? '')}</td>`);
-                    html.push(`<td rowspan="${rowspan}" class="summary-parameter-cell">${escapeHtml(row.ywf2 ?? '')}</td>`);
-                }
-
-                html.push(`<td class="fw-semibold">${escapeHtml(row.year ?? '')}</td>`);
-                selectedMetricDefs.forEach((metricDef) => {
-                    const className = getC3MetricCellClass(metricDef, row);
-                    html.push(`<td class="${className}">${formatC3MetricValue(metricDef, row)}</td>`);
-                });
-                html.push(`<td class="pe-4 text-end"><a href="${resultLinkWithState}" class="btn btn-sm btn-outline-primary">查看结果</a></td>`);
-                html.push('</tr>');
-            });
-        });
-
-        tbody.innerHTML = html.join('');
-    }
-
-    function updateTaskResultSectionMode(config) {
-        currentModelVersion = inferModelVersion(config);
-        const title = document.getElementById('taskResultSectionTitle');
-        const c3View = document.getElementById('c3SummaryView');
-        const c5View = document.getElementById('c5TaskResultView');
-
-        if (title) title.textContent = '多品回测生成结果';
-        if (c3View) c3View.classList.add('d-none');
-        if (c5View) c5View.classList.remove('d-none');
-    }
-
-    function loadC3Summary(options = {}) {
-        const { silent = false } = options;
-        ajaxRequest(`/backtest-multi-product/api/task-summary/${encodeURIComponent(currentTaskId)}`, 'GET', null, function(err, data) {
-            if (err || !data || data.status !== 'success') {
-                const tbody = document.getElementById('c3SummaryTableBody');
-                if (tbody) {
-                    renderC3SummaryHead();
-                    tbody.innerHTML = `<tr><td colspan="${getC3SummaryColumnCount()}" class="text-center text-body-secondary py-4">参数汇总加载失败</td></tr>`;
-                }
-                if (!silent) {
-                    showNotification(`加载参数汇总失败：${err ? err.message : '未知错误'}`, 'error');
-                }
-                return;
-            }
-            syncC3MetricSelector();
-            renderC3SummaryRows((data.data && data.data.rows) || []);
-        });
-    }
-
-    function summarizeParameters(parameters) {
-        if (parameters === null || parameters === undefined) {
-            return '<span class="text-body-secondary">-</span>';
-        }
-
-        function stringifyCompact(value) {
-            if (value === null || value === undefined || value === '') {
-                return '-';
-            }
-            if (Array.isArray(value)) {
-                return JSON.stringify(value);
-            }
-            if (typeof value === 'object') {
-                return JSON.stringify(value);
-            }
-            return String(value);
-        }
-
-        function formatParameterArray(values) {
-            if (!Array.isArray(values) || !values.length) {
-                return '<span class="result-param-chip"><strong>参数</strong><span class="result-param-chip-muted">-</span></span>';
-            }
-
-            return values.map((value, index) => {
-                const display = stringifyCompact(value);
-                const safeDisplay = display.length > 24 ? `${display.slice(0, 24)}...` : display;
-                return `<span class="result-param-chip"><strong>P${index + 1}</strong><span>${escapeHtml(safeDisplay)}</span></span>`;
-            }).join('');
-        }
-
-        if (Array.isArray(parameters)) {
-            if (!parameters.length) {
-                return '<span class="text-body-secondary">-</span>';
-            }
-            return parameters.map((item, index) => {
-                const display = (item !== null && typeof item === 'object')
-                    ? JSON.stringify(item)
-                    : String(item);
-                return `<span class="badge rounded-pill text-bg-light border me-1 mb-1">参数 ${index + 1}: ${escapeHtml(display)}</span>`;
-            }).join('');
-        }
-        if (typeof parameters === 'object') {
-            const entries = Object.entries(parameters);
-            if (!entries.length) {
-                return '<span class="text-body-secondary">-</span>';
-            }
-
-            const stockCode = parameters.stock_code;
-            const kline = Array.isArray(parameters.kline) ? parameters.kline : [];
-            const parameterValues = Array.isArray(parameters.parameter) ? parameters.parameter : [];
-            const primaryChips = [];
-
-            if (parameters.product_name) {
-                primaryChips.push(`<span class="result-param-chip"><strong>产品</strong><span>${escapeHtml(String(parameters.product_name))}</span></span>`);
-            }
-            if (stockCode) {
-                primaryChips.push(`<span class="result-param-chip"><strong>股票</strong><span>${escapeHtml(String(stockCode))}</span></span>`);
-            }
-            if (parameters.ratio !== undefined && parameters.ratio !== null && parameters.ratio !== '') {
-                primaryChips.push(`<span class="result-param-chip"><strong>比例</strong><span>${escapeHtml(String(parameters.ratio))}%</span></span>`);
-            }
-            if (kline.length) {
-                const firstDate = kline[0] && kline[0].stock_date ? String(kline[0].stock_date) : '-';
-                const lastDate = kline[kline.length - 1] && kline[kline.length - 1].stock_date ? String(kline[kline.length - 1].stock_date) : '-';
-                primaryChips.push(`<span class="result-param-chip"><strong>K 线范围</strong><span>${escapeHtml(`${firstDate} ~ ${lastDate}`)}</span></span>`);
-            }
-
-            const hiddenKeys = [
-                'stock_code',
-                'year',
-                'Kline_key',
-                'kline',
-                'parameter',
-                'product_name',
-                'parameter_group_index',
-                'product_index',
-                'ratio',
-                'sheet',
-                'start_date',
-                'end_date'
-            ];
-            const extraEntries = entries.filter(([key]) => !hiddenKeys.includes(key));
-            const extraChips = extraEntries.map(([key, value]) => {
-                const display = stringifyCompact(value);
-                const safeDisplay = display.length > 36 ? `${display.slice(0, 36)}...` : display;
-                return `<span class="result-param-chip"><strong>${escapeHtml(key)}</strong><span>${escapeHtml(safeDisplay)}</span></span>`;
-            }).join('');
-
-            return `
-                <div class="result-param-summary">
-                    <div class="result-param-main">${primaryChips.join('') || '<span class="text-body-secondary">-</span>'}</div>
-                    <div class="result-param-detail">${formatParameterArray(parameterValues)}${extraChips}</div>
-                </div>
-            `;
-        }
-        return escapeHtml(parameters);
-    }
-
-    function renderSubTasks(results) {
-        const tbody = document.getElementById('subTaskTableBody');
-        if (!Array.isArray(results) || !results.length) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-body-secondary py-4">暂无回测结果</td></tr>';
-            return;
-        }
-
-        tbody.innerHTML = results.map((result) => {
-            const actionHref = buildResultHref(result.id);
-            return `
-                <tr>
-                    <td class="ps-4 fw-semibold">${escapeHtml(result.id)}</td>
-                    <td>${summarizeParameters(result.parameters)}</td>
-                    <td>${result.success ? '<span class="badge bg-success rounded-pill px-3 py-2">成功</span>' : '<span class="badge bg-danger rounded-pill px-3 py-2">失败</span>'}</td>
-                    <td>${escapeHtml(formatTime(result.timestamp))}</td>
-                    <td class="pe-4 text-end">
-                        <a href="${actionHref}" class="btn btn-sm btn-outline-primary">查看结果</a>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-    }
-
-    function buildPaginationPages(currentPage, totalPages) {
-        const pages = [];
-        if (totalPages <= 7) {
-            for (let page = 1; page <= totalPages; page += 1) {
-                pages.push(page);
-            }
-            return pages;
-        }
-
-        pages.push(1);
-        if (currentPage > 3) {
-            pages.push('ellipsis-left');
-        }
-
-        const start = Math.max(2, currentPage - 1);
-        const end = Math.min(totalPages - 1, currentPage + 1);
-        for (let page = start; page <= end; page += 1) {
-            pages.push(page);
-        }
-
-        if (currentPage < totalPages - 2) {
-            pages.push('ellipsis-right');
-        }
-        pages.push(totalPages);
-        return pages;
-    }
-
-    function renderTaskResultPagination() {
-        const summary = document.getElementById('taskResultPaginationSummary');
-        const pagination = document.getElementById('taskResultPagination');
-        if (!summary || !pagination) {
-            return;
-        }
-
-        const { page, per_page, pages, total, has_prev, has_next, prev_num, next_num } = taskResultPaginationState;
-        if (!total) {
-            summary.textContent = '共 0 条结果';
-            pagination.innerHTML = '';
-            return;
-        }
-
-        const start = (page - 1) * per_page + 1;
-        const end = Math.min(page * per_page, total);
-        summary.textContent = `显示 ${start}-${end} 条，共 ${total} 条结果`;
-
-        const items = [];
-        items.push(`
-            <li class="page-item ${has_prev ? '' : 'disabled'}">
-                <button class="page-link" type="button" data-page="${has_prev ? prev_num : ''}" ${has_prev ? '' : 'disabled'}>上一页</button>
-            </li>
-        `);
-
-        buildPaginationPages(page, pages).forEach((item) => {
-            if (typeof item !== 'number') {
-                items.push('<li class="page-item disabled"><span class="page-link">...</span></li>');
-                return;
-            }
-            items.push(`
-                <li class="page-item ${item === page ? 'active' : ''}">
-                    <button class="page-link" type="button" data-page="${item}">${item}</button>
-                </li>
-            `);
-        });
-
-        items.push(`
-            <li class="page-item ${has_next ? '' : 'disabled'}">
-                <button class="page-link" type="button" data-page="${has_next ? next_num : ''}" ${has_next ? '' : 'disabled'}>下一页</button>
-            </li>
-        `);
-
-        pagination.innerHTML = items.join('');
-    }
-
-    function bindTaskResultPaginationEvents() {
-        const pagination = document.getElementById('taskResultPagination');
-        if (!pagination || pagination.dataset.bound === 'true') {
-            return;
-        }
-
-        pagination.addEventListener('click', function(event) {
-            const target = event.target.closest('[data-page]');
-            if (!target || target.disabled) {
-                return;
-            }
-            const nextPage = Number(target.getAttribute('data-page'));
-            if (!nextPage || nextPage === taskResultPaginationState.page) {
-                return;
-            }
-            loadTaskResults({ page: nextPage });
-        });
-
-        pagination.dataset.bound = 'true';
-    }
-
-    function renderTaskLogs(logs) {
-        if (!Array.isArray(logs) || !logs.length) {
-            return '<div class="text-body-secondary">暂无日志</div>';
-        }
-
-        return logs.map((log) => {
-            const level = String(log.level || 'info').toLowerCase();
-            const levelClass = level === 'error' ? 'text-danger'
-                : level === 'warning' ? 'text-warning'
-                : level === 'info' ? 'text-info'
-                : 'text-light';
-            return `<div class="${levelClass}">[${formatTime(log.timestamp)}] ${escapeHtml(log.message || '')}</div>`;
-        }).join('');
-    }
-
-    function updateRefreshTime() {
-        document.getElementById('logLastUpdated').textContent = `最近刷新：${formatTime(new Date().toISOString())}`;
-    }
-
-    function setTaskActionButtonsDisabled(disabled) {
-        ['stopTaskBtn', 'resumeRestartTaskBtn', 'restartFromScratchBtn'].forEach((id) => {
-            const button = document.getElementById(id);
-            if (button) {
-                button.disabled = disabled;
-            }
-        });
-    }
-
-    function withTaskActionLock(action) {
-        if (taskActionInProgress) {
-            showNotification('当前已有任务操作正在执行，请稍候', 'warning');
-            return Promise.resolve();
-        }
-
-        taskActionInProgress = true;
-        setTaskActionButtonsDisabled(true);
-
-        return Promise.resolve()
-            .then(action)
-            .finally(() => {
-                taskActionInProgress = false;
-                setTaskActionButtonsDisabled(false);
-                loadTaskDetail({ silent: true });
-            });
-    }
-
-    function postTaskAction(url, payload) {
-        return new Promise((resolve, reject) => {
-            ajaxRequest(url, 'POST', payload, function(err, data) {
-                if (err || !data || data.status !== 'success') {
-                    reject(new Error((data && data.message) || (err && err.message) || '未知错误'));
-                    return;
-                }
-                resolve(data);
-            });
-        });
-    }
-
-    function handleResumeRestartTask() {
-        if (!confirm('确认按断点继续重启当前任务吗？系统会尽量从当前进度恢复执行。')) {
-            return Promise.resolve();
-        }
-
-        return withTaskActionLock(async function() {
-            const data = await postTaskAction(`${TASK_API_BASE}/${currentTaskId}/restart`, {
-                resume_from_checkpoint: true
-            });
-            showNotification(data.message || '任务已按断点重启', 'success');
-            refreshPageData();
-        });
-    }
-
-    function handleRestartFromScratch() {
-        if (!confirm('确认重头开始当前任务吗？这会清空当前任务已有结果并从第 1 步重新执行。')) {
-            return Promise.resolve();
-        }
-
-        return withTaskActionLock(async function() {
-            const data = await postTaskAction(`${TASK_API_BASE}/${currentTaskId}/restart`, {
-                resume_from_checkpoint: false
-            });
-            showNotification(data.message || '任务已重头开始', 'success');
-            refreshPageData();
-        });
-    }
-
-    function handleStopTask() {
-        if (!confirm('确认停止当前回测任务吗？已完成的结果会保留，任务状态会变为已取消。')) {
-            return Promise.resolve();
-        }
-
-        return withTaskActionLock(async function() {
-            const data = await postTaskAction(`${TASK_API_BASE}/${currentTaskId}/cancel`, {});
-            showNotification(data.message || '任务已停止', 'success');
-            refreshPageData();
-        });
-    }
-
-    function loadTaskDetail(options = {}) {
-        const { silent = false } = options;
-        ajaxRequest(`${TASK_API_BASE}/${currentTaskId}`, 'GET', null, function(err, data) {
-            if (err || !data || data.status !== 'success' || !data.data.task) {
-                if (!silent) {
-                    showNotification(`加载任务详情失败：${err ? err.message : '未知错误'}`, 'error');
-                }
-                return;
-            }
-
-            const task = data.data.task;
-            currentTaskConfig = {
-                ...(task.config || {}),
-                task_name: task.name,
-                model_version: task.model_version || (task.config || {}).model_version
-            };
-            document.getElementById('taskNameText').textContent = task.name || '任务详情';
-            document.getElementById('taskStatus').innerHTML = formatStatus(task.status);
-            document.getElementById('taskCreated').innerHTML = renderValue(formatTime(task.created_at));
-            document.getElementById('taskStart').innerHTML = renderValue(formatTime(task.start_time));
-            document.getElementById('taskEnd').innerHTML = renderValue(formatTime(task.end_time));
-            updateStopTaskButton(task.status);
-            renderTaskConfig(currentTaskConfig);
-            renderParameterTable(currentTaskConfig);
-            updateTaskResultSectionMode(currentTaskConfig);
-            loadTaskResults({ silent });
-        });
-    }
-
-    function loadTaskResults(options = {}) {
-        const {
-            silent = false,
-            page = taskResultPaginationState.page,
-            perPage = taskResultPaginationState.per_page || TASK_RESULT_PAGE_SIZE
-        } = options;
-        const resultUrl = `/backtest-multi-product/api/task-results/${encodeURIComponent(currentTaskId)}?page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(perPage)}`;
-        ajaxRequest(resultUrl, 'GET', null, function(err, data) {
-            if (err || !data || data.status !== 'success') {
-                if (!silent) {
-                    showNotification(`加载回测结果失败：${err ? err.message : '未知错误'}`, 'error');
-                }
-                return;
-            }
-            const pg = data.data || {};
-            taskResultPaginationState = {
-                page: Number(pg.current_page || page || 1),
-                per_page: Number(pg.per_page || perPage || TASK_RESULT_PAGE_SIZE),
-                pages: Number(pg.pages || 0),
-                total: Number(pg.total || 0),
-                has_prev: Number(pg.current_page || 1) > 1,
-                has_next: Number(pg.current_page || 1) < Number(pg.pages || 0),
-                prev_num: null,
-                next_num: null
-            };
-            renderSubTasks((data.data && data.data.items) || []);
-            renderTaskResultPagination();
-            persistResultPaginationState();
-        });
-    }
-
-    function loadTaskLogs(options = {}) {
-        const { silent = false } = options;
-        ajaxRequest(`${TASK_API_BASE}/${currentTaskId}/logs`, 'GET', null, function(err, data) {
-            const logContainer = document.getElementById('log-container');
-            if (!logContainer) {
-                return;
-            }
-
-            if (err || !data || data.status !== 'success') {
-                logContainer.innerHTML = '<div class="text-danger">加载日志失败</div>';
-                if (!silent) {
-                    showNotification(`加载任务日志失败：${err ? err.message : '未知错误'}`, 'error');
-                }
-                return;
-            }
-
-            const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
-            logContainer.innerHTML = renderTaskLogs((data.data && data.data.logs) || []);
-            if (wasNearBottom) {
-                logContainer.scrollTop = logContainer.scrollHeight;
-            }
-            updateRefreshTime();
-        });
-    }
-
-    function refreshPageData(options = {}) {
-        const { silent = false } = options;
-        loadTaskDetail({ silent });
-        loadTaskLogs({ silent });
-    }
-
-    function startAutoRefresh() {
-        if (refreshInterval) {
-            clearInterval(refreshInterval);
-        }
-        refreshInterval = setInterval(function() {
-            refreshPageData({ silent: true });
-        }, AUTO_REFRESH_INTERVAL);
-    }
-
-    function stopAutoRefresh() {
-        if (refreshInterval) {
-            clearInterval(refreshInterval);
-            refreshInterval = null;
-        }
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        persistListPaginationFromNavigation();
-        taskResultPaginationState.page = getInitialResultPaginationState().page;
-        taskResultPaginationState.per_page = getInitialResultPaginationState().per_page;
-        const backToListLink = document.getElementById('backToListLink');
-        if (backToListLink) {
-            backToListLink.href = buildListHref();
-        }
-        const globalPreviewLink = document.getElementById('globalPreviewLink');
-        if (globalPreviewLink) {
-            globalPreviewLink.href = buildGlobalPreviewHref();
-        }
-        ensureC3MetricSelection();
-        syncC3MetricSelector();
-        renderC3SummaryHead();
-        updateC3MetricHint();
-        bindTaskResultPaginationEvents();
-        refreshPageData({ silent: true });
-        startAutoRefresh();
-
-        const refreshButton = document.getElementById('manualRefreshBtn');
-        if (refreshButton) {
-            refreshButton.addEventListener('click', function() {
-                refreshPageData();
-                showNotification('详情与日志已刷新', 'info');
-            });
-        }
-
-        const stopTaskBtn = document.getElementById('stopTaskBtn');
-        if (stopTaskBtn) {
-            stopTaskBtn.addEventListener('click', function() {
-                handleStopTask().catch(function(err) {
-                    showNotification(`停止任务失败：${err ? err.message : '未知错误'}`, 'error');
-                });
-            });
-        }
-
-        const resumeRestartTaskBtn = document.getElementById('resumeRestartTaskBtn');
-        if (resumeRestartTaskBtn) {
-            resumeRestartTaskBtn.addEventListener('click', function() {
-                handleResumeRestartTask().catch(function(err) {
-                    showNotification(`断点重启失败：${err ? err.message : '未知错误'}`, 'error');
-                });
-            });
-        }
-
-        const restartFromScratchBtn = document.getElementById('restartFromScratchBtn');
-        if (restartFromScratchBtn) {
-            restartFromScratchBtn.addEventListener('click', function() {
-                handleRestartFromScratch().catch(function(err) {
-                    showNotification(`重头开始失败：${err ? err.message : '未知错误'}`, 'error');
-                });
-            });
-        }
-
-        const taskParamBody = document.getElementById('taskParamBody');
-        if (taskParamBody) {
-            taskParamBody.addEventListener('click', function(event) {
-                const button = event.target.closest('.view-product-params');
-                if (!button) {
-                    return;
-                }
-                openProductParameterModal(Number(button.dataset.productIndex || 0));
-            });
-        }
-
-        const copyTaskParamsBtn = document.getElementById('copyTaskParamsBtn');
-        if (copyTaskParamsBtn) {
-            copyTaskParamsBtn.addEventListener('click', copyAllTaskParameters);
-        }
-
-        const logCollapse = document.getElementById('taskLogCollapse');
-        const logToggleIcon = document.getElementById('taskLogToggleIcon');
-        if (logCollapse && logToggleIcon) {
-            logCollapse.addEventListener('show.bs.collapse', function() {
-                logToggleIcon.classList.remove('bi-chevron-right');
-                logToggleIcon.classList.add('bi-chevron-down');
-            });
-            logCollapse.addEventListener('hide.bs.collapse', function() {
-                logToggleIcon.classList.remove('bi-chevron-down');
-                logToggleIcon.classList.add('bi-chevron-right');
-            });
-        }
-
-        const paramCollapse = document.getElementById('taskParamCollapse');
-        const paramToggleIcon = document.getElementById('taskParamToggleIcon');
-        if (paramCollapse && paramToggleIcon) {
-            paramCollapse.addEventListener('show.bs.collapse', function() {
-                paramToggleIcon.classList.remove('bi-chevron-right');
-                paramToggleIcon.classList.add('bi-chevron-down');
-            });
-            paramCollapse.addEventListener('hide.bs.collapse', function() {
-                paramToggleIcon.classList.remove('bi-chevron-down');
-                paramToggleIcon.classList.add('bi-chevron-right');
-            });
-        }
-
-        const configCollapse = document.getElementById('taskConfigCollapse');
-        const configToggleIcon = document.getElementById('taskConfigToggleIcon');
-        if (configCollapse && configToggleIcon) {
-            configCollapse.addEventListener('show.bs.collapse', function() {
-                configToggleIcon.classList.remove('bi-chevron-right');
-                configToggleIcon.classList.add('bi-chevron-down');
-            });
-            configCollapse.addEventListener('hide.bs.collapse', function() {
-                configToggleIcon.classList.remove('bi-chevron-down');
-                configToggleIcon.classList.add('bi-chevron-right');
-            });
-        }
-
-        const resultCollapse = document.getElementById('taskResultCollapse');
-        const resultToggleIcon = document.getElementById('taskResultToggleIcon');
-        if (resultCollapse && resultToggleIcon) {
-            resultCollapse.addEventListener('show.bs.collapse', function() {
-                resultToggleIcon.classList.remove('bi-chevron-right');
-                resultToggleIcon.classList.add('bi-chevron-down');
-            });
-            resultCollapse.addEventListener('hide.bs.collapse', function() {
-                resultToggleIcon.classList.remove('bi-chevron-down');
-                resultToggleIcon.classList.add('bi-chevron-right');
-            });
-        }
-
-        const c3MetricSelectorList = document.getElementById('c3MetricSelectorList');
-        if (c3MetricSelectorList) {
-            c3MetricSelectorList.addEventListener('change', function() {
-                const checkedKeys = Array.from(
-                    c3MetricSelectorList.querySelectorAll('.c3-metric-option:checked')
-                ).map((input) => input.value);
-                applyC3MetricSelection(checkedKeys);
-            });
-        }
-
-        const resetC3MetricSelectionBtn = document.getElementById('resetC3MetricSelectionBtn');
-        if (resetC3MetricSelectionBtn) {
-            resetC3MetricSelectionBtn.addEventListener('click', function() {
-                resetC3MetricSelection();
-            });
-        }
-    });
-
-    window.addEventListener('beforeunload', stopAutoRefresh);
-</script>
-{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/admin-shell.js"></script>
+    <script src="/static/js/trading-date.js"></script>
+    <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
+    <script src="/static/js/pages/backtest_multi_product_detail.js"></script>
+</body>
+</html>

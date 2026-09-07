@@ -1,198 +1,370 @@
-{% extends "admin/base.html" %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据回测</title>
 
-{% block title %}数据回测{% endblock %}
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/template-auth.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
 
-{% block head %}
-<style>
-    .backtest-shell { display: grid; gap: 1.5rem; }
-    .task-meta { font-size: 0.875rem; }
-    .time-sub { font-size: 0.75rem; }
-    .metric-card {
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.75rem;
-        background: var(--bs-body-bg);
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
-        min-height: 10.375rem;
-    }
-    .metric-card__body {
-        display: grid;
-        grid-template-columns: 3rem minmax(0, 1fr);
-        gap: 1rem;
-        padding: 1.125rem;
-        height: 100%;
-    }
-    .metric-icon {
-        width: 3rem;
-        height: 3rem;
-        border-radius: 0.5rem;
-        display: grid;
-        place-items: center;
-        font-size: 1.35rem;
-    }
-    .metric-value {
-        font-size: 2.875rem;
-        line-height: 1;
-        font-weight: 800;
-        letter-spacing: 0;
-    }
-    .metric-progress {
-        grid-column: 1 / -1;
-        height: 0.375rem;
-        border-radius: 999px;
-        overflow: hidden;
-        align-self: end;
-        background: var(--bs-tertiary-bg);
-    }
-    .metric-progress__bar {
-        height: 100%;
-        min-width: 0.75rem;
-        border-radius: inherit;
-    }
-    .metric-card--total {
-        border-color: #e2e8f0;
-    }
-    .metric-card--total .metric-icon {
-        background: #f1f5f9;
-        color: #475569;
-    }
-    .metric-card--total .metric-progress {
-        background: #e2e8f0;
-    }
-    .metric-card--total .metric-progress__bar {
-        width: 100%;
-        background: #64748b;
-    }
-    .metric-card--running {
-        border-color: #dbeafe;
-    }
-    .metric-card--running .metric-icon {
-        background: #eff6ff;
-        color: #2563eb;
-    }
-    .metric-card--running .metric-progress {
-        background: #dbeafe;
-    }
-    .metric-card--running .metric-progress__bar {
-        width: 0%;
-        background: #2563eb;
-    }
-    .metric-card--completed {
-        border-color: #ccf0dc;
-    }
-    .metric-card--completed .metric-icon {
-        background: #ecfdf5;
-        color: #059669;
-    }
-    .metric-card--completed .metric-progress {
-        background: #d1fae5;
-    }
-    .metric-card--completed .metric-progress__bar {
-        width: 0%;
-        background: #059669;
-    }
-    .metric-card--failed {
-        border-color: #ffe4e6;
-    }
-    .metric-card--failed .metric-icon {
-        background: #fff1f2;
-        color: #e11d48;
-    }
-    .metric-card--failed .metric-progress {
-        background: #ffe4e6;
-    }
-    .metric-card--failed .metric-progress__bar {
-        width: 0%;
-        background: #e11d48;
-    }
-    .list-toolbar {
-        border-top: 1px solid var(--bs-border-color);
-        background: var(--bs-body-bg);
-    }
-    .page-size-select {
-        width: auto;
-        min-width: 5.25rem;
-    }
-    .batch-export-modal .modal-content {
-        border: 0;
-        border-radius: 1rem;
-        overflow: hidden;
-    }
-    .batch-export-summary {
-        border: 1px solid #bbf7d0;
-        border-radius: 0.75rem;
-        background: #ecfdf5;
-        color: #166534;
-    }
-    .batch-export-task-list {
-        display: grid;
-        gap: 0.75rem;
-        max-height: 23rem;
-        overflow-y: auto;
-        padding-right: 0.25rem;
-    }
-    .batch-export-task-card {
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr) auto;
-        gap: 0.875rem;
-        align-items: start;
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.75rem;
-        padding: 0.875rem;
-        background: var(--bs-body-bg);
-        cursor: pointer;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
-    }
-    .batch-export-task-card:hover {
-        border-color: #86efac;
-        box-shadow: 0 8px 20px rgba(22, 163, 74, 0.08);
-    }
-    .batch-export-task-card.is-selected {
-        border-color: #16a34a;
-        box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
-    }
-    .batch-export-task-card.is-disabled {
-        cursor: not-allowed;
-        background: var(--bs-tertiary-bg);
-        opacity: 0.72;
-    }
-    .batch-export-task-card.is-disabled:hover {
-        border-color: var(--bs-border-color);
-        box-shadow: none;
-    }
-    .batch-export-task-title {
-        overflow-wrap: anywhere;
-    }
-    .batch-export-empty {
-        border: 1px dashed var(--bs-border-color);
-        border-radius: 0.75rem;
-        padding: 2rem 1rem;
-        text-align: center;
-        color: var(--bs-secondary-color);
-    }
-    html[data-bs-theme="dark"] .backtest-shell h1,
-    html[data-bs-theme="dark"] .backtest-shell .text-body {
-        color: #e5e7eb !important;
-    }
-    html[data-bs-theme="dark"] .backtest-shell .card {
-        background-color: #182132;
-    }
-    html[data-bs-theme="dark"] .metric-card {
-        background-color: #182132;
-        border-color: rgba(148, 163, 184, 0.28);
-    }
-    html[data-bs-theme="dark"] .metric-card--total .metric-icon { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
-    html[data-bs-theme="dark"] .metric-card--running .metric-icon { background: rgba(37, 99, 235, 0.18); color: #93c5fd; }
-    html[data-bs-theme="dark"] .metric-card--completed .metric-icon { background: rgba(5, 150, 105, 0.18); color: #6ee7b7; }
-    html[data-bs-theme="dark"] .metric-card--failed .metric-icon { background: rgba(225, 29, 72, 0.18); color: #fda4af; }
-    html[data-bs-theme="dark"] .batch-export-summary {
-        background: rgba(22, 163, 74, 0.14);
-        border-color: rgba(134, 239, 172, 0.26);
-        color: #bbf7d0;
-    }
-</style>
-{% endblock %}
+    <style>
+        :root {
+            --bs-secondary-color: rgba(33, 37, 41, 0.75);
+            --bs-tertiary-bg: #f8f9fa;
+            --bs-emphasis-color: #000;
+        }
+        html[data-bs-theme="dark"] {
+            --bs-body-color: #e5e7eb;
+            --bs-body-bg: #111827;
+            --bs-border-color: #334155;
+            --bs-secondary-color: #94a3b8;
+            --bs-tertiary-bg: #1f2937;
+            --bs-emphasis-color: #f8fafc;
+        }
+        .text-body {
+            color: var(--bs-body-color) !important;
+        }
+        .text-body-secondary {
+            color: var(--bs-secondary-color) !important;
+        }
+        .bg-body {
+            background-color: var(--bs-body-bg) !important;
+        }
+        .bg-body-tertiary {
+            background-color: var(--bs-tertiary-bg) !important;
+        }
+        body {
+            background-color: #f8f9fa;
+        }
+        html[data-bs-theme="dark"] body {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        .sidebar {
+            min-height: 100vh;
+            background: #ffffff;
+            overflow-y: scroll;
+            overflow-x: hidden;
+            border-right: 1px solid #e9ecef;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.04);
+            scrollbar-gutter: stable;
+            flex: 0 0 auto;
+        }
+        html[data-bs-theme="dark"] .sidebar {
+            background: #111827;
+            border-right-color: #243041;
+            box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+        }
+        .sidebar-brand-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.85rem;
+            background: linear-gradient(135deg, #0d6efd 0%, #4dabf7 100%);
+            color: #fff;
+            font-size: 1.1rem;
+            box-shadow: 0 10px 20px rgba(13, 110, 253, 0.18);
+        }
+        .sidebar .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: #495057;
+            padding: 0.65rem 0.85rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.2rem;
+            font-weight: 500;
+            transition: all 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link {
+            color: #d1d5db;
+        }
+        .sidebar .nav-link:hover {
+            color: #0d6efd;
+            background-color: #f1f5ff;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link:hover {
+            color: #93c5fd;
+            background-color: rgba(59, 130, 246, 0.14);
+        }
+        .sidebar .nav-link.active {
+            color: #0d6efd;
+            background-color: #e7f1ff;
+            box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.12);
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link.active {
+            color: #bfdbfe;
+            background-color: rgba(59, 130, 246, 0.18);
+            box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.2);
+        }
+        .sidebar .btn-toggle {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #343a40;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 0.8rem 0.85rem 0.55rem;
+            border-radius: 0.75rem;
+            transition: background-color 0.18s ease, color 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle {
+            color: #e5e7eb;
+        }
+        .sidebar .btn-toggle:hover {
+            background: #f8f9fa;
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle:hover {
+            background: rgba(255, 255, 255, 0.04);
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-icon {
+            transition: transform 0.2s ease;
+            color: #868e96;
+            font-size: 0.9rem;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle-icon {
+            color: #94a3b8;
+        }
+        .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            transform: rotate(90deg);
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-nav {
+            padding-left: 0;
+            margin: 0.1rem 0 0;
+            list-style: none;
+            padding-left: 0.15rem;
+        }
+        .sidebar .btn-toggle-nav li {
+            margin: 0;
+        }
+        .sidebar .btn-toggle-nav .nav-link {
+            margin-left: 0.25rem;
+            padding: 0.48rem 0.75rem 0.48rem 0.85rem;
+            white-space: nowrap;
+            font-size: 0.93rem;
+            font-weight: 500;
+            border-radius: 0.7rem;
+        }
+        .sidebar .btn-toggle-nav .nav-link i {
+            font-size: 0.92rem;
+            opacity: 0.9;
+        }
+        .sidebar .btn-toggle-nav .nav-link span {
+            font-size: 0.93rem;
+        }
+        .main-content {
+            min-width: 0;
+        }
 
-{% block content %}
+        @media (min-width: 768px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 1000;
+                width: 25%;
+                max-width: 25%;
+            }
+            .main-content {
+                margin-left: 25%;
+            }
+        }
+
+        @media (min-width: 992px) {
+            .sidebar {
+                width: 16.666667%;
+                max-width: 16.666667%;
+            }
+            .main-content {
+                margin-left: 16.666667%;
+            }
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 10px;
+        }
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: #ced4da;
+            border-radius: 999px;
+            border: 2px solid #ffffff;
+        }
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: #adb5bd;
+        }
+        .sidebar-user-avatar {
+            width: 2.75rem;
+            height: 2.75rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 1rem;
+            background: linear-gradient(135deg, #fb7185 0%, #8b5cf6 100%);
+            box-shadow: 0 10px 20px rgba(139, 92, 246, 0.18);
+            flex-shrink: 0;
+        }
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        html[data-bs-theme="dark"] .card {
+            background-color: #182132;
+            border-color: #2a3648;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table {
+            --bs-table-color: #e5e7eb;
+            --bs-table-bg: transparent;
+            --bs-table-border-color: #334155;
+            --bs-table-striped-color: #e5e7eb;
+            --bs-table-striped-bg: rgba(148, 163, 184, 0.05);
+            --bs-table-active-color: #f8fafc;
+            --bs-table-active-bg: rgba(59, 130, 246, 0.12);
+            --bs-table-hover-color: #f8fafc;
+            --bs-table-hover-bg: rgba(59, 130, 246, 0.08);
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table > :not(caption) > * > * {
+            color: inherit;
+        }
+        html[data-bs-theme="dark"] .table thead,
+        html[data-bs-theme="dark"] .table-light,
+        html[data-bs-theme="dark"] .bg-white {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .table-light > :not(caption) > * > *,
+        html[data-bs-theme="dark"] .table > thead > tr > th {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+            border-bottom-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .table code {
+            color: #f9a8d4;
+        }
+        html[data-bs-theme="dark"] .table .text-dark {
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .bg-light,
+        html[data-bs-theme="dark"] .alert-light {
+            background-color: #1f2937 !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .dropdown-menu {
+            background-color: #182132;
+            border-color: #2a3648;
+        }
+        html[data-bs-theme="dark"] .dropdown-item {
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .dropdown-item:hover,
+        html[data-bs-theme="dark"] .dropdown-item:focus {
+            color: #f8fafc;
+            background-color: rgba(59, 130, 246, 0.12);
+        }
+        html[data-bs-theme="dark"] .dropdown-divider {
+            border-top-color: #334155;
+        }
+        html[data-bs-theme="dark"] .text-muted {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .form-control,
+        html[data-bs-theme="dark"] .form-select,
+        html[data-bs-theme="dark"] .input-group-text,
+        html[data-bs-theme="dark"] textarea.form-control {
+            background-color: #111827 !important;
+            border-color: #334155 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .form-control:focus,
+        html[data-bs-theme="dark"] .form-select:focus,
+        html[data-bs-theme="dark"] textarea.form-control:focus {
+            background-color: #0f172a !important;
+            border-color: #3b82f6 !important;
+            color: #f8fafc !important;
+            box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18) !important;
+        }
+        html[data-bs-theme="dark"] .form-control::placeholder,
+        html[data-bs-theme="dark"] textarea.form-control::placeholder {
+            color: #7c8aa0 !important;
+        }
+        html[data-bs-theme="dark"] .form-select option {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .input-group-text {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .text-bg-light,
+        html[data-bs-theme="dark"] .badge.text-bg-light {
+            background-color: #1e293b !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .list-group-item {
+            background-color: #111827;
+            color: #e5e7eb;
+            border-color: #334155;
+        }
+        html[data-bs-theme="dark"] .list-group-item.active {
+            background-color: rgba(59, 130, 246, 0.18);
+            border-color: #3b82f6;
+            color: #f8fafc;
+        }
+        html[data-bs-theme="dark"] .card-header.border-0 {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            overflow-x: auto;
+            background-color: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            border-radius: 0.375rem;
+            font-size: 14px;
+            white-space: pre;
+            word-break: normal;
+        }
+    </style>
+    <link href="/static/css/pages/backtest_multi_product_list.css" rel="stylesheet">
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
 <div class="backtest-shell pt-3">
     <div class="row g-3">
         <div class="col-12 col-md-6 col-xl-3">
@@ -262,7 +434,7 @@
                 <button type="button" class="btn btn-outline-success rounded-pill px-4" id="openBatchExportBtn">
                     <i class="bi bi-file-earmark-zip me-1"></i> 批量导出
                 </button>
-                <a href="{{ url_for('backtest_multi_product.create_page') }}" class="btn btn-primary rounded-pill px-4">
+                <a href="/backtest-multi-product/create" class="btn btn-primary rounded-pill px-4">
                     <i class="bi bi-plus-lg me-1"></i> 创建新任务
                 </a>
             </div>
@@ -331,581 +503,17 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-const TASK_API_BASE = '/api/tasks';
-const BACKTEST_TASK_TYPE = 'backtest_multi_product';
-const BATCH_EXPORT_API = '/api/exports/global-previews/batch';
-const DEFAULT_PAGE_SIZE = 20;
-const BATCH_EXPORT_MAX_TASKS = 10;
-const LIST_PAGINATION_STORAGE_KEY = 'backtest_multi_product:list_pagination';
-let paginationState = {
-    page: 1,
-    per_page: DEFAULT_PAGE_SIZE,
-    pages: 0,
-    total: 0,
-    has_prev: false,
-    has_next: false,
-    prev_num: null,
-    next_num: null
-};
-let isLoadingTasks = false;
-let currentPageTasks = [];
-const selectedBatchExportTaskIds = new Set();
-
-function parsePositiveInt(value, fallback) {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function readStoredListPaginationState() {
-    try {
-        return JSON.parse(localStorage.getItem(LIST_PAGINATION_STORAGE_KEY) || '{}') || {};
-    } catch (error) {
-        return {};
-    }
-}
-
-function getInitialListPaginationState() {
-    const params = new URLSearchParams(window.location.search);
-    const stored = readStoredListPaginationState();
-    return {
-        page: parsePositiveInt(params.get('page'), parsePositiveInt(stored.page, 1)),
-        per_page: parsePositiveInt(params.get('per_page'), parsePositiveInt(stored.per_page, DEFAULT_PAGE_SIZE))
-    };
-}
-
-function persistListPaginationState() {
-    const state = {
-        page: paginationState.page,
-        per_page: paginationState.per_page
-    };
-    localStorage.setItem(LIST_PAGINATION_STORAGE_KEY, JSON.stringify(state));
-
-    const url = new URL(window.location.href);
-    url.searchParams.set('page', String(state.page));
-    url.searchParams.set('per_page', String(state.per_page));
-    window.history.replaceState({}, '', url);
-}
-
-function buildDetailHref(taskId) {
-    const params = new URLSearchParams({
-        list_page: String(paginationState.page || 1),
-        list_per_page: String(paginationState.per_page || DEFAULT_PAGE_SIZE)
-    });
-    return `/backtest-multi-product/detail/${encodeURIComponent(taskId)}?${params.toString()}`;
-}
-
-function formatTime(value) {
-    if (!value) return '-';
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return date.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-    });
-}
-
-function getStatusText(status) {
-    const labels = {
-        pending: '待执行',
-        running: '运行中',
-        completed: '已完成',
-        cancelled: '已取消',
-        error: '失败',
-        failed: '失败'
-    };
-    return labels[status] || status || '-';
-}
-
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-function renderTimeCell(value) {
-    if (!value) {
-        return '<span class="text-body-secondary">-</span>';
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return `<span class="fw-medium">${escapeHtml(value)}</span>`;
-    }
-
-    const main = date.toLocaleDateString('zh-CN');
-    const sub = date.toLocaleTimeString('zh-CN', { hour12: false });
-    return `<div class="fw-medium">${main}</div><div class="time-sub text-body-secondary">${sub}</div>`;
-}
-
-function renderStatus(status) {
-    const normalized = status || 'pending';
-    const classMap = {
-        pending: 'text-bg-secondary',
-        running: 'text-bg-primary',
-        completed: 'text-bg-success',
-        cancelled: 'text-bg-info',
-        error: 'text-bg-danger',
-        failed: 'text-bg-danger'
-    };
-    const badgeClass = classMap[normalized] || 'text-bg-secondary';
-    return `<span class="badge ${badgeClass} rounded-pill px-3 py-2">${escapeHtml(getStatusText(normalized))}</span>`;
-}
-
-function inferModelVersion(task) {
-    const products = Array.isArray(task.config?.products) ? task.config.products : [];
-    return `多品 x ${products.length || '-'}`;
-}
-
-function renderTaskCell(task) {
-    const shortId = String(task.id || '').slice(0, 8);
-    const taskName = task.name || '未命名任务';
-    const products = Array.isArray(task.config?.products) ? task.config.products : [];
-    const productNames = products.map((item) => item.product_name || item.stock_code).filter(Boolean).join(' / ') || '-';
-
-    return `
-        <div class="fw-semibold" title="${escapeHtml(task.id || '')}">${escapeHtml(taskName)}</div>
-        <div class="task-meta text-body-secondary">ID: ${escapeHtml(shortId)} · 产品: ${escapeHtml(productNames)}</div>
-    `;
-}
-
-function getTaskSecondaryText(task) {
-    const shortId = String(task.id || '').slice(0, 8);
-    const products = Array.isArray(task.config?.products) ? task.config.products : [];
-    const productNames = products.map((item) => item.product_name || item.stock_code).filter(Boolean).join(' / ') || '-';
-    return `ID: ${shortId} · 产品: ${productNames}`;
-}
-
-function getExportableTasks() {
-    return currentPageTasks.filter((task) => task.status === 'completed');
-}
-
-function updateBatchExportSummary() {
-    const summary = document.getElementById('batchExportSummary');
-    const confirmButton = document.getElementById('confirmBatchExportBtn');
-    const exportableCount = getExportableTasks().length;
-    const selectedCount = selectedBatchExportTaskIds.size;
-    if (summary) {
-        summary.textContent = `当前页 ${currentPageTasks.length} 个任务，可导出 ${exportableCount} 个，已选 ${selectedCount} 个`;
-    }
-    if (confirmButton) {
-        confirmButton.disabled = selectedCount < 1;
-    }
-}
-
-function renderBatchExportTaskList() {
-    const container = document.getElementById('batchExportTaskList');
-    if (!container) {
-        return;
-    }
-
-    if (!currentPageTasks.length) {
-        container.innerHTML = '<div class="batch-export-empty">当前页暂无可展示任务</div>';
-        updateBatchExportSummary();
-        return;
-    }
-
-    const knownIds = new Set(currentPageTasks.map((task) => String(task.id || '')));
-    [...selectedBatchExportTaskIds].forEach((taskId) => {
-        if (!knownIds.has(taskId)) {
-            selectedBatchExportTaskIds.delete(taskId);
-        }
-    });
-
-    container.innerHTML = currentPageTasks.map((task) => {
-        const taskId = String(task.id || '');
-        const isCompleted = task.status === 'completed';
-        const isSelected = selectedBatchExportTaskIds.has(taskId);
-        const cardClass = [
-            'batch-export-task-card',
-            isSelected ? 'is-selected' : '',
-            isCompleted ? '' : 'is-disabled'
-        ].filter(Boolean).join(' ');
-        const statusText = getStatusText(task.status);
-        const statusClass = isCompleted ? 'text-bg-success' : 'text-bg-secondary';
-        const disabledReason = isCompleted ? '' : '<div class="small text-body-secondary mt-1">尚未完成，不可导出</div>';
-
-        return `
-            <div class="${cardClass}" role="button" tabindex="${isCompleted ? '0' : '-1'}" data-task-id="${escapeHtml(taskId)}" data-disabled="${isCompleted ? 'false' : 'true'}" aria-disabled="${isCompleted ? 'false' : 'true'}">
-                <input class="form-check-input mt-1" type="checkbox" tabindex="-1" ${isSelected ? 'checked' : ''} ${isCompleted ? '' : 'disabled'} aria-label="选择任务">
-                <span class="text-start">
-                    <span class="d-block fw-semibold batch-export-task-title">${escapeHtml(task.name || '未命名任务')}</span>
-                    <span class="d-block small text-body-secondary mt-1">${escapeHtml(getTaskSecondaryText(task))}</span>
-                    <span class="d-block small text-body-secondary mt-1">模型版本：${escapeHtml(inferModelVersion(task))} · 创建：${escapeHtml(formatTime(task.created_at))}</span>
-                    ${disabledReason}
-                </span>
-                <span class="badge ${statusClass} rounded-pill px-3 py-2">${escapeHtml(statusText)}</span>
-            </div>
-        `;
-    }).join('');
-    updateBatchExportSummary();
-}
-
-function selectAllExportableTasks() {
-    selectedBatchExportTaskIds.clear();
-    getExportableTasks().slice(0, BATCH_EXPORT_MAX_TASKS).forEach((task) => {
-        selectedBatchExportTaskIds.add(String(task.id));
-    });
-    renderBatchExportTaskList();
-}
-
-function clearBatchExportSelection() {
-    selectedBatchExportTaskIds.clear();
-    renderBatchExportTaskList();
-}
-
-function resolveDownloadFilename(disposition, fallback) {
-    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-    if (utf8Match) {
-        try {
-            return decodeURIComponent(utf8Match[1]);
-        } catch (_error) {
-            return utf8Match[1];
-        }
-    }
-    const asciiMatch = disposition.match(/filename="?([^"]+)"?/i);
-    return asciiMatch ? asciiMatch[1] : fallback;
-}
-
-async function exportSelectedBatchTasks() {
-    const button = document.getElementById('confirmBatchExportBtn');
-    const originalHtml = button.innerHTML;
-    const taskIds = [...selectedBatchExportTaskIds];
-    if (!taskIds.length) {
-        return;
-    }
-
-    button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中';
-    try {
-        const response = await fetch(BATCH_EXPORT_API, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ task_ids: taskIds })
-        });
-        if (!response.ok) {
-            const text = await response.text();
-            let message = '导出失败';
-            try {
-                const payload = JSON.parse(text);
-                message = payload.message || message;
-            } catch (_error) {
-                message = text || message;
-            }
-            throw new Error(message);
-        }
-
-        const blob = await response.blob();
-        const filename = resolveDownloadFilename(
-            response.headers.get('Content-Disposition') || '',
-            'backtest_multi_product_global_preview_batch.zip'
-        );
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-        bootstrap.Modal.getOrCreateInstance(document.getElementById('batchExportModal')).hide();
-    } catch (error) {
-        alert(error.message || '导出失败');
-    } finally {
-        button.innerHTML = originalHtml;
-        updateBatchExportSummary();
-    }
-}
-
-async function deleteTask(taskId) {
-    if (!confirm(`确认删除任务 ${taskId} 吗？`)) {
-        return;
-    }
-
-    const res = await fetch(`${TASK_API_BASE}/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
-    const data = await res.json();
-
-    if (res.ok && data.status === 'success') {
-        const nextPage = paginationState.total > 1 && paginationState.page > 1 && document.querySelectorAll('#taskTableBody tr').length <= 1
-            ? paginationState.page - 1
-            : paginationState.page;
-        loadTasks({ page: nextPage });
-        return;
-    }
-
-    alert(`删除失败：${data.message || '未知错误'}`);
-}
-
-function buildPaginationPages(currentPage, totalPages) {
-    const pages = [];
-    if (totalPages <= 7) {
-        for (let page = 1; page <= totalPages; page += 1) {
-            pages.push(page);
-        }
-        return pages;
-    }
-
-    pages.push(1);
-    if (currentPage > 3) {
-        pages.push('ellipsis-left');
-    }
-
-    const start = Math.max(2, currentPage - 1);
-    const end = Math.min(totalPages - 1, currentPage + 1);
-    for (let page = start; page <= end; page += 1) {
-        pages.push(page);
-    }
-
-    if (currentPage < totalPages - 2) {
-        pages.push('ellipsis-right');
-    }
-    pages.push(totalPages);
-    return pages;
-}
-
-function renderPagination() {
-    const summary = document.getElementById('paginationSummary');
-    const pagination = document.getElementById('taskPagination');
-    const pageSizeSelect = document.getElementById('pageSizeSelect');
-    if (!summary || !pagination || !pageSizeSelect) {
-        return;
-    }
-
-    const { page, per_page, pages, total, has_prev, has_next, prev_num, next_num } = paginationState;
-    pageSizeSelect.value = String(per_page || DEFAULT_PAGE_SIZE);
-
-    if (!total) {
-        summary.textContent = '共 0 条任务';
-        pagination.innerHTML = '';
-        return;
-    }
-
-    const start = (page - 1) * per_page + 1;
-    const end = Math.min(page * per_page, total);
-    summary.textContent = `显示 ${start}-${end} 条，共 ${total} 条任务`;
-
-    const items = [];
-    items.push(`
-        <li class="page-item ${has_prev ? '' : 'disabled'}">
-            <button class="page-link" type="button" data-page="${has_prev ? prev_num : ''}" ${has_prev ? '' : 'disabled'}>上一页</button>
-        </li>
-    `);
-
-    buildPaginationPages(page, pages).forEach((item) => {
-        if (typeof item !== 'number') {
-            items.push('<li class="page-item disabled"><span class="page-link">...</span></li>');
-            return;
-        }
-        items.push(`
-            <li class="page-item ${item === page ? 'active' : ''}">
-                <button class="page-link" type="button" data-page="${item}">${item}</button>
-            </li>
-        `);
-    });
-
-    items.push(`
-        <li class="page-item ${has_next ? '' : 'disabled'}">
-            <button class="page-link" type="button" data-page="${has_next ? next_num : ''}" ${has_next ? '' : 'disabled'}>下一页</button>
-        </li>
-    `);
-
-    pagination.innerHTML = items.join('');
-}
-
-function setMetricProgress(id, value, total) {
-    const bar = document.getElementById(id);
-    if (!bar) {
-        return;
-    }
-    const safeTotal = Math.max(Number(total) || 0, 0);
-    const safeValue = Math.max(Number(value) || 0, 0);
-    const percent = safeTotal ? Math.min((safeValue / safeTotal) * 100, 100) : 0;
-    bar.style.width = `${percent}%`;
-}
-
-function updateStatistics(statistics, fallbackTasks) {
-    const tasks = Array.isArray(fallbackTasks) ? fallbackTasks : [];
-    const total = Number(statistics?.total_tasks ?? paginationState.total ?? tasks.length);
-    const running = Number(statistics?.running_tasks ?? tasks.filter((task) => task.status === 'running').length);
-    const completed = Number(statistics?.completed_tasks ?? tasks.filter((task) => task.status === 'completed').length);
-    const failed = Number(statistics?.error_tasks ?? tasks.filter((task) => task.status === 'error' || task.status === 'failed').length);
-
-    document.getElementById('totalTasks').textContent = total;
-    document.getElementById('runningTasks').textContent = running;
-    document.getElementById('completedTasks').textContent = completed;
-    document.getElementById('failedTasks').textContent = failed;
-    setMetricProgress('totalTasksBar', total, total);
-    setMetricProgress('runningTasksBar', running, total);
-    setMetricProgress('completedTasksBar', completed, total);
-    setMetricProgress('failedTasksBar', failed, total);
-}
-
-async function loadTasks(options = {}) {
-    if (isLoadingTasks) {
-        return;
-    }
-
-    const nextPage = Math.max(Number(options.page || paginationState.page || 1), 1);
-    const nextPerPage = Math.max(Number(options.perPage || paginationState.per_page || DEFAULT_PAGE_SIZE), 1);
-    const query = new URLSearchParams({
-        task_type: BACKTEST_TASK_TYPE,
-        page: String(nextPage),
-        per_page: String(nextPerPage)
-    });
-    isLoadingTasks = true;
-    try {
-        const res = await fetch(`${TASK_API_BASE}?${query.toString()}`);
-        const data = await res.json();
-        const tasks = Array.isArray(data.data && data.data.items) ? data.data.items : [];
-        currentPageTasks = tasks;
-        const pagination = data.data || {};
-
-        const tbody = document.getElementById('taskTableBody');
-        tbody.innerHTML = '';
-
-        const total = Number(pagination.total || 0);
-        const totalPages = Number(pagination.pages || 0);
-        if (!tasks.length && total > 0 && nextPage > Math.max(totalPages, 1)) {
-            isLoadingTasks = false;
-            loadTasks({ page: Math.max(totalPages, 1), perPage: nextPerPage });
-            return;
-        }
-
-        tasks.forEach((task) => {
-            const detailHref = buildDetailHref(task.id);
-            const row = `
-                <tr>
-                    <td class="ps-4">${renderTaskCell(task)}</td>
-                    <td><span class="badge rounded-pill text-bg-light border">${escapeHtml(inferModelVersion(task))}</span></td>
-                    <td>${renderStatus(task.status)}</td>
-                    <td>${renderTimeCell(task.created_at)}</td>
-                    <td>${renderTimeCell(task.start_time)}</td>
-                    <td>${renderTimeCell(task.end_time)}</td>
-                    <td class="pe-4 text-end">
-                        <a href="${detailHref}" class="btn btn-sm btn-outline-primary">查看详情</a>
-                        <button type="button" class="btn btn-sm btn-outline-danger delete-task-btn ms-2" data-task-id="${escapeHtml(task.id)}">删除</button>
-                    </td>
-                </tr>
-            `;
-            tbody.insertAdjacentHTML('beforeend', row);
-        });
-
-        paginationState = {
-            page: Number(pagination.current_page || nextPage),
-            per_page: Number(pagination.per_page || nextPerPage),
-            pages: Number(pagination.pages || 0),
-            total: Number(pagination.total || tasks.length),
-            has_prev: Number(pagination.current_page || 1) > 1,
-            has_next: Number(pagination.current_page || 1) < Number(pagination.pages || 0),
-            prev_num: null,
-            next_num: null
-        };
-
-        if (!tasks.length) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="7" class="text-center text-body-secondary py-5">
-                        当前还没有数据回测任务，点击右上角“创建新任务”开始。
-                    </td>
-                </tr>
-            `;
-        }
-
-        updateStatistics(data.statistics, tasks);
-        renderPagination();
-        renderBatchExportTaskList();
-        persistListPaginationState();
-        document.getElementById('lastUpdated').textContent = formatTime(new Date().toISOString());
-    } catch (error) {
-        console.error(error);
-    } finally {
-        isLoadingTasks = false;
-    }
-}
-
-document.addEventListener('click', (event) => {
-    const exportCard = event.target.closest('.batch-export-task-card');
-    if (exportCard && exportCard.dataset.disabled !== 'true') {
-        event.preventDefault();
-        const taskId = exportCard.dataset.taskId;
-        if (selectedBatchExportTaskIds.has(taskId)) {
-            selectedBatchExportTaskIds.delete(taskId);
-        } else if (selectedBatchExportTaskIds.size < BATCH_EXPORT_MAX_TASKS) {
-            selectedBatchExportTaskIds.add(taskId);
-        } else {
-            alert(`批量导出最多支持 ${BATCH_EXPORT_MAX_TASKS} 个任务`);
-        }
-        renderBatchExportTaskList();
-        return;
-    }
-
-    const button = event.target.closest('.delete-task-btn');
-    if (!button) {
-        return;
-    }
-    deleteTask(button.dataset.taskId);
-});
-
-document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter' && event.key !== ' ') {
-        return;
-    }
-    const exportCard = event.target.closest('.batch-export-task-card');
-    if (!exportCard || exportCard.dataset.disabled === 'true') {
-        return;
-    }
-    event.preventDefault();
-    exportCard.click();
-});
-
-document.getElementById('taskPagination').addEventListener('click', (event) => {
-    const target = event.target.closest('[data-page]');
-    if (!target || target.disabled) {
-        return;
-    }
-    const nextPage = Number(target.getAttribute('data-page'));
-    if (!nextPage || nextPage === paginationState.page) {
-        return;
-    }
-    loadTasks({ page: nextPage });
-});
-
-document.getElementById('pageSizeSelect').addEventListener('change', (event) => {
-    const nextPerPage = Number(event.target.value) || DEFAULT_PAGE_SIZE;
-    loadTasks({ page: 1, perPage: nextPerPage });
-});
-
-document.getElementById('openBatchExportBtn').addEventListener('click', () => {
-    renderBatchExportTaskList();
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('batchExportModal')).show();
-});
-
-document.getElementById('selectAllExportableBtn').addEventListener('click', selectAllExportableTasks);
-document.getElementById('selectCompletedOnlyBtn').addEventListener('click', selectAllExportableTasks);
-document.getElementById('clearBatchExportSelectionBtn').addEventListener('click', clearBatchExportSelection);
-document.getElementById('confirmBatchExportBtn').addEventListener('click', () => {
-    exportSelectedBatchTasks();
-});
-
-const initialListPagination = getInitialListPaginationState();
-paginationState.page = initialListPagination.page;
-paginationState.per_page = initialListPagination.per_page;
-loadTasks();
-setInterval(loadTasks, 5000);
-</script>
-{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/admin-shell.js"></script>
+    <script src="/static/js/trading-date.js"></script>
+    <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
+    <script src="/static/js/common/business/task-list.js"></script>
+    <script src="/static/js/pages/backtest_multi_product_list.js"></script>
+</body>
+</html>

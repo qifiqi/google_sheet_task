@@ -407,19 +407,7 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"清理旧结果失败: {e}")
             return False
-    
-    def _cleanup_old_data(self, params):
-        """清理旧数据（日志和结果）"""
-        try:
-            log_success = self._cleanup_old_logs(params)
-            return log_success
-            # result_success = self._cleanup_old_results(params)
-            # return log_success and result_success
-            
-        except Exception as e:
-            logger.error(f"清理旧数据失败: {e}")
-            return False
-    
+
     def _record_task_run(self, scheduled_task):
         """累计执行次数并更新下次执行时间"""
         next_time = self._compute_next_run(scheduled_task)

@@ -358,6 +358,3 @@ class DFCJStockApi:
             return {"error": f"未知错误: {str(e)}"}
 
 
-if __name__ == "__main__":
-    api = DFCJStockApi()
-    print(api.get_search_list_by_stock_code("AMD", 10))

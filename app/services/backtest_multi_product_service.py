@@ -470,23 +470,6 @@ def _set_weighted_metrics_on_result_payload(
     return result_payload
 
 
-def _return_date_by_date(return_date: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
-    rows: dict[str, dict[str, float]] = {}
-    for item in return_date:
-        if not isinstance(item, dict):
-            continue
-        date = str(item.get("date") or item.get("stock_date") or "").strip()
-        index_return = _safe_number(item.get("index_return"))
-        start_return = _safe_number(item.get("start_return"))
-        if not date or index_return is None or start_return is None:
-            continue
-        rows[date] = {
-            "index_return": index_return,
-            "start_return": start_return,
-        }
-    return rows
-
-
 def _build_portfolio_return_date(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],

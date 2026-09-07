@@ -1,6 +1,8 @@
-from flask import Blueprint, g, render_template, request
+from flask import Blueprint, request
 
-from app.extensions import limiter
+from app.routes.page_files import send_page
+
+from app.extensions import limiter, rate_limit_config, rate_limit_user_key
 from app.schemas.xpl import AnalyzePayloadSchema
 from app.services.xpl_analysis_service import xpl_analysis_service
 from app.utils.api_response import error, success
@@ -13,43 +15,34 @@ logger = get_logger(__name__)
 xpl_bp = Blueprint('xpl', __name__)
 
 
-def _rate_limit(config_key, default):
-    """限流阈值经 config_manager 运行时可调（零重启）。"""
-    from app.services.config_manager import get_config_manager
-
-    return get_config_manager().get_config(config_key, default)
-
-
-def _user_key():
-    return f"user:{getattr(getattr(g, 'current_user', None), 'id', 'anon')}"
 
 
 @xpl_bp.route('/')
 @page_login_required
 def index():
     """Excel数据分析工具首页"""
-    return render_template('xpl/index.html')
+    return send_page('xpl/index.html')
 
 
 @xpl_bp.route('/v1', methods=['GET'])
 @page_login_required
 def index_v1():
     """V1：Google Sheet 分析页面"""
-    return render_template('xpl/v1.html')
+    return send_page('xpl/v1.html')
 
 
 @xpl_bp.route('/v2', methods=['GET'])
 @page_login_required
 def index_v2():
     """V2：支持多数据源的回测分析页面。"""
-    return render_template('xpl/v2.html')
+    return send_page('xpl/v2.html')
 
 
 @xpl_bp.route('/analyze', methods=['POST'])
 @login_required
 @limiter.limit(
-    lambda: f"{_rate_limit('rate_limit_analyze', 10) or 10}/minute",
-    key_func=_user_key,
+    lambda: f"{rate_limit_config('rate_limit_analyze', 10) or 10}/minute",
+    key_func=rate_limit_user_key,
 )
 def analyze_data():
     """
@@ -78,8 +71,8 @@ def analyze_data():
 @xpl_bp.route('/v1/analyze', methods=['POST'])
 @login_required
 @limiter.limit(
-    lambda: f"{_rate_limit('rate_limit_analyze', 10) or 10}/minute",
-    key_func=_user_key,
+    lambda: f"{rate_limit_config('rate_limit_analyze', 10) or 10}/minute",
+    key_func=rate_limit_user_key,
 )
 def analyze_data_v1():
     """

@@ -645,12 +645,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 if not check_values:
                     return False
 
-                # for position, value in check_values.items():
-                #     if not value or value in ['#DIV/0!', '', '#N/A', '#ERROR!', '#VALUE!']:
-                #         return False
-                #     if 'target' in str(value).lower():
-                #         return False
-
                 _check_values = initial_results[spreadsheet_id]
 
                 cell_k = output_range_1[0]
@@ -689,10 +683,8 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     value_render_option=result_value_render_option,
                 )
                 if _validate_check_values(_result, self.google_sheet.spreadsheet_id):
-                    # _result = check_result(_result)
                     batch_range_values = self.google_sheet.get_ranges(output_cell_list)
                     _result_yearly = batch_range_values.get(output_range_2, {})
-                    # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
                     _result.update(_result_yearly)
 
                     try:
@@ -819,9 +811,6 @@ class BacktestTrainingService(BaseGoogleSheetService):
         )
         if klines and klines[0].get("stock_code"):
             stock_code = klines[0]["stock_code"]
-
-        # from app.services.kline import get_d
-        # klines = get_d()
 
         klines = require_kline_rows(
             stock_code,

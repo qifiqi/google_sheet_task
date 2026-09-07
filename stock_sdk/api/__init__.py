@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._metadata import collect_operations
-
 from .east_money_stock_quote import EastmoneystockquoteApi
 from .param_backtest_product_result_cache import ParambacktestproductresultcacheApi
 from .param_backtest_sheet_run_locks import ParambacktestsheetrunlocksApi
@@ -120,60 +118,3 @@ def bind_api_groups(client: Any) -> None:
     client.sys_role = SysroleApi(client)
     client.sys_user = SysuserApi(client)
 
-API_OPERATIONS = collect_operations(
-    ('east_money_stock_quote', EastmoneystockquoteApi),
-    ('param_backtest_product_result_cache', ParambacktestproductresultcacheApi),
-    ('param_backtest_sheet_run_locks', ParambacktestsheetrunlocksApi),
-    ('param_google_sheet', ParamgooglesheetApi),
-    ('param_google_sheet_tokens', ParamgooglesheettokensApi),
-    ('param_scheduled_tasks', ParamscheduledtasksApi),
-    ('param_stock_metadata', ParamstockmetadataApi),
-    ('param_system_configs', ParamsystemconfigsApi),
-    ('param_task_logs', ParamtasklogsApi),
-    ('param_task_results', ParamtaskresultsApi),
-    ('param_task_results_return', ParamtaskresultsreturnApi),
-    ('param_task_result_summary_index', ParamtaskresultsummaryindexApi),
-    ('param_tasks', ParamtasksApi),
-    ('param_task_templates', ParamtasktemplatesApi),
-    ('param_xpl_analysis_jobs', ParamxplanalysisjobsApi),
-    ('stock_atarget', StockatargetApi),
-    ('stock_atarget_cond', StockatargetcondApi),
-    ('stock_atarget_log', StockatargetlogApi),
-    ('stock_cn_order', StockcnorderApi),
-    ('stock_data', StockdataApi),
-    ('stock_data_area', StockdataareaApi),
-    ('stock_data_concept', StockdataconceptApi),
-    ('stock_data_index', StockdataindexApi),
-    ('stock_data_industry', StockdataindustryApi),
-    ('stock_data_us', StockdatausApi),
-    ('stock_data_volume', StockdatavolumeApi),
-    ('stock_date', StockdateApi),
-    ('stock_dic', StockdicApi),
-    ('stock_financial_data', StockfinancialdataApi),
-    ('stock_industry', StockindustryApi),
-    ('stock_minute_tick', StockminutetickApi),
-    ('stock_param_data', StockparamdataApi),
-    ('stock_param_result', StockparamresultApi),
-    ('stock_param_template', StockparamtemplateApi),
-    ('stock_param_tuning', StockparamtuningApi),
-    ('stock_sms_msg', StocksmsmsgApi),
-    ('stock_top10_circulating', Stocktop10circulatingApi),
-    ('stock_trs_account', StocktrsaccountApi),
-    ('stock_trs_child_order', StocktrschildorderApi),
-    ('stock_trs_deal_records', StocktrsdealrecordsApi),
-    ('stock_trs_events_log', StocktrseventslogApi),
-    ('stock_trs_order', StocktrsorderApi),
-    ('stock_trs_pool', StocktrspoolApi),
-    ('stock_trs_position_snapshot', StocktrspositionsnapshotApi),
-    ('stock_ws', StockwsApi),
-    ('stock_xt_credit_detail', StockxtcreditdetailApi),
-    ('stock_xt_data', StockxtdataApi),
-    ('stock_xt_data_trading', StockxtdatatradingApi),
-    ('stock_xt_order', StockxtorderApi),
-    ('stock_xt_position', StockxtpositionApi),
-    ('stock_xt_trade', StockxttradeApi),
-    ('sys_log', SyslogApi),
-    ('sys_model', SysmodelApi),
-    ('sys_role', SysroleApi),
-    ('sys_user', SysuserApi),
-)

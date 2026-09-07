@@ -192,15 +192,7 @@ class DatabaseMonitor:
             })
         
         return suggestions
-    
-    @staticmethod
-    def vacuum_database():
-        """数据库维护没有跨数据库的通用 SQL 实现。"""
-        return {
-            'success': False,
-            'message': '数据库物理维护请通过对应数据库的运维工具执行',
-        }
-    
+
     @staticmethod
     def get_full_report() -> Dict[str, Any]:
         """获取完整的性能报告"""

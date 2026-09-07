@@ -1,8 +1,369 @@
-{% extends "admin/base.html" %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>仪表盘 - Jaspil 任务管理系统</title>
 
-{% block title %}仪表盘 - Jaspil 任务管理系统{% endblock %}
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/template-auth.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
 
-{% block content %}
+    <style>
+        :root {
+            --bs-secondary-color: rgba(33, 37, 41, 0.75);
+            --bs-tertiary-bg: #f8f9fa;
+            --bs-emphasis-color: #000;
+        }
+        html[data-bs-theme="dark"] {
+            --bs-body-color: #e5e7eb;
+            --bs-body-bg: #111827;
+            --bs-border-color: #334155;
+            --bs-secondary-color: #94a3b8;
+            --bs-tertiary-bg: #1f2937;
+            --bs-emphasis-color: #f8fafc;
+        }
+        .text-body {
+            color: var(--bs-body-color) !important;
+        }
+        .text-body-secondary {
+            color: var(--bs-secondary-color) !important;
+        }
+        .bg-body {
+            background-color: var(--bs-body-bg) !important;
+        }
+        .bg-body-tertiary {
+            background-color: var(--bs-tertiary-bg) !important;
+        }
+        body {
+            background-color: #f8f9fa;
+        }
+        html[data-bs-theme="dark"] body {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        .sidebar {
+            min-height: 100vh;
+            background: #ffffff;
+            overflow-y: scroll;
+            overflow-x: hidden;
+            border-right: 1px solid #e9ecef;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.04);
+            scrollbar-gutter: stable;
+            flex: 0 0 auto;
+        }
+        html[data-bs-theme="dark"] .sidebar {
+            background: #111827;
+            border-right-color: #243041;
+            box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+        }
+        .sidebar-brand-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.85rem;
+            background: linear-gradient(135deg, #0d6efd 0%, #4dabf7 100%);
+            color: #fff;
+            font-size: 1.1rem;
+            box-shadow: 0 10px 20px rgba(13, 110, 253, 0.18);
+        }
+        .sidebar .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: #495057;
+            padding: 0.65rem 0.85rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.2rem;
+            font-weight: 500;
+            transition: all 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link {
+            color: #d1d5db;
+        }
+        .sidebar .nav-link:hover {
+            color: #0d6efd;
+            background-color: #f1f5ff;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link:hover {
+            color: #93c5fd;
+            background-color: rgba(59, 130, 246, 0.14);
+        }
+        .sidebar .nav-link.active {
+            color: #0d6efd;
+            background-color: #e7f1ff;
+            box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.12);
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link.active {
+            color: #bfdbfe;
+            background-color: rgba(59, 130, 246, 0.18);
+            box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.2);
+        }
+        .sidebar .btn-toggle {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #343a40;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 0.8rem 0.85rem 0.55rem;
+            border-radius: 0.75rem;
+            transition: background-color 0.18s ease, color 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle {
+            color: #e5e7eb;
+        }
+        .sidebar .btn-toggle:hover {
+            background: #f8f9fa;
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle:hover {
+            background: rgba(255, 255, 255, 0.04);
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-icon {
+            transition: transform 0.2s ease;
+            color: #868e96;
+            font-size: 0.9rem;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle-icon {
+            color: #94a3b8;
+        }
+        .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            transform: rotate(90deg);
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-nav {
+            padding-left: 0;
+            margin: 0.1rem 0 0;
+            list-style: none;
+            padding-left: 0.15rem;
+        }
+        .sidebar .btn-toggle-nav li {
+            margin: 0;
+        }
+        .sidebar .btn-toggle-nav .nav-link {
+            margin-left: 0.25rem;
+            padding: 0.48rem 0.75rem 0.48rem 0.85rem;
+            white-space: nowrap;
+            font-size: 0.93rem;
+            font-weight: 500;
+            border-radius: 0.7rem;
+        }
+        .sidebar .btn-toggle-nav .nav-link i {
+            font-size: 0.92rem;
+            opacity: 0.9;
+        }
+        .sidebar .btn-toggle-nav .nav-link span {
+            font-size: 0.93rem;
+        }
+        .main-content {
+            min-width: 0;
+        }
+
+        @media (min-width: 768px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 1000;
+                width: 25%;
+                max-width: 25%;
+            }
+            .main-content {
+                margin-left: 25%;
+            }
+        }
+
+        @media (min-width: 992px) {
+            .sidebar {
+                width: 16.666667%;
+                max-width: 16.666667%;
+            }
+            .main-content {
+                margin-left: 16.666667%;
+            }
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 10px;
+        }
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: #ced4da;
+            border-radius: 999px;
+            border: 2px solid #ffffff;
+        }
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: #adb5bd;
+        }
+        .sidebar-user-avatar {
+            width: 2.75rem;
+            height: 2.75rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 1rem;
+            background: linear-gradient(135deg, #fb7185 0%, #8b5cf6 100%);
+            box-shadow: 0 10px 20px rgba(139, 92, 246, 0.18);
+            flex-shrink: 0;
+        }
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        html[data-bs-theme="dark"] .card {
+            background-color: #182132;
+            border-color: #2a3648;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table {
+            --bs-table-color: #e5e7eb;
+            --bs-table-bg: transparent;
+            --bs-table-border-color: #334155;
+            --bs-table-striped-color: #e5e7eb;
+            --bs-table-striped-bg: rgba(148, 163, 184, 0.05);
+            --bs-table-active-color: #f8fafc;
+            --bs-table-active-bg: rgba(59, 130, 246, 0.12);
+            --bs-table-hover-color: #f8fafc;
+            --bs-table-hover-bg: rgba(59, 130, 246, 0.08);
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table > :not(caption) > * > * {
+            color: inherit;
+        }
+        html[data-bs-theme="dark"] .table thead,
+        html[data-bs-theme="dark"] .table-light,
+        html[data-bs-theme="dark"] .bg-white {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .table-light > :not(caption) > * > *,
+        html[data-bs-theme="dark"] .table > thead > tr > th {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+            border-bottom-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .table code {
+            color: #f9a8d4;
+        }
+        html[data-bs-theme="dark"] .table .text-dark {
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .bg-light,
+        html[data-bs-theme="dark"] .alert-light {
+            background-color: #1f2937 !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .dropdown-menu {
+            background-color: #182132;
+            border-color: #2a3648;
+        }
+        html[data-bs-theme="dark"] .dropdown-item {
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .dropdown-item:hover,
+        html[data-bs-theme="dark"] .dropdown-item:focus {
+            color: #f8fafc;
+            background-color: rgba(59, 130, 246, 0.12);
+        }
+        html[data-bs-theme="dark"] .dropdown-divider {
+            border-top-color: #334155;
+        }
+        html[data-bs-theme="dark"] .text-muted {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .form-control,
+        html[data-bs-theme="dark"] .form-select,
+        html[data-bs-theme="dark"] .input-group-text,
+        html[data-bs-theme="dark"] textarea.form-control {
+            background-color: #111827 !important;
+            border-color: #334155 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .form-control:focus,
+        html[data-bs-theme="dark"] .form-select:focus,
+        html[data-bs-theme="dark"] textarea.form-control:focus {
+            background-color: #0f172a !important;
+            border-color: #3b82f6 !important;
+            color: #f8fafc !important;
+            box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18) !important;
+        }
+        html[data-bs-theme="dark"] .form-control::placeholder,
+        html[data-bs-theme="dark"] textarea.form-control::placeholder {
+            color: #7c8aa0 !important;
+        }
+        html[data-bs-theme="dark"] .form-select option {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .input-group-text {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .text-bg-light,
+        html[data-bs-theme="dark"] .badge.text-bg-light {
+            background-color: #1e293b !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .list-group-item {
+            background-color: #111827;
+            color: #e5e7eb;
+            border-color: #334155;
+        }
+        html[data-bs-theme="dark"] .list-group-item.active {
+            background-color: rgba(59, 130, 246, 0.18);
+            border-color: #3b82f6;
+            color: #f8fafc;
+        }
+        html[data-bs-theme="dark"] .card-header.border-0 {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            overflow-x: auto;
+            background-color: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            border-radius: 0.375rem;
+            font-size: 14px;
+            white-space: pre;
+            word-break: normal;
+        }
+    </style>
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">仪表盘</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
@@ -84,245 +445,17 @@
         </div>
     </div>
 </div>
-{% endblock %}
+            </main>
+        </div>
+    </div>
 
-{% block scripts %}
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/admin-shell.js"></script>
+    <script src="/static/js/trading-date.js"></script>
+        <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script>
-    let dashboardCharts = {};
-    let dashboardRefreshTimer = null;
-
-    function upsertChart(key, canvasId, config) {
-        if (dashboardCharts[key]) {
-            dashboardCharts[key].destroy();
-        }
-        const ctx = document.getElementById(canvasId).getContext('2d');
-        dashboardCharts[key] = new Chart(ctx, config);
-    }
-
-    function normalizeTaskType(taskType) {
-        const normalizedType = String(taskType || '').trim().toLowerCase();
-        if (['google_sheet', 'google_sheet_c3', 'google_sheet_c31'].includes(normalizedType)) {
-            return 'google_sheet';
-        }
-        if (normalizedType === 'google_sheet_c4') {
-            return 'google_sheet_c4';
-        }
-        if (normalizedType === 'google_sheet_c5') {
-            return 'google_sheet_c5';
-        }
-        if (['backtest_training', 'backtest'].includes(normalizedType)) {
-            return 'backtest_training';
-        }
-        if (['backtest_multi_product', 'multi_product_backtest', 'backtest_multi'].includes(normalizedType)) {
-            return 'backtest_multi_product';
-        }
-        return normalizedType;
-    }
-
-    function getGoogleSheetVersion(taskType) {
-        const normalizedType = normalizeTaskType(taskType);
-        if (normalizedType === 'google_sheet_c5') {
-            return 'c5';
-        }
-        if (normalizedType === 'google_sheet_c4') {
-            return 'c4';
-        }
-        if (normalizedType === 'google_sheet') {
-            return 'c3';
-        }
-        return '';
-    }
-
-    function buildTaskDetailUrl(task) {
-        const taskId = task && task.id ? task.id : '';
-        const normalizedType = normalizeTaskType(task && task.task_type);
-
-        if (normalizedType === 'backtest_training') {
-            return `/backtest-training/detail/${encodeURIComponent(taskId)}`;
-        }
-        if (normalizedType === 'backtest_multi_product') {
-            return `/backtest-multi-product/detail/${encodeURIComponent(taskId)}`;
-        }
-
-        const params = new URLSearchParams({ task_id: taskId });
-        const version = getGoogleSheetVersion(normalizedType);
-        if (version) {
-            params.set('version', version);
-        }
-        return `/google-sheet/detail?${params.toString()}`;
-    }
-
-    function renderSummary(summary) {
-        document.getElementById('summary-total').textContent = summary.total_tasks || 0;
-        document.getElementById('summary-completed').textContent = summary.completed_tasks || 0;
-        document.getElementById('summary-running').textContent = summary.running_tasks || 0;
-        document.getElementById('summary-error').textContent = summary.error_tasks || 0;
-        document.getElementById('summary-cancelled').textContent = summary.cancelled_tasks || 0;
-        document.getElementById('summary-pending').textContent = summary.pending_tasks || 0;
-    }
-
-    function renderTrendChart(items) {
-        upsertChart('trend', 'taskTrendChart', {
-            type: 'line',
-            data: {
-                labels: items.map(item => item.date),
-                datasets: [
-                    {
-                        label: '创建任务',
-                        data: items.map(item => item.created),
-                        borderColor: '#0d6efd',
-                        backgroundColor: 'rgba(13, 110, 253, 0.15)',
-                        fill: true,
-                        tension: 0.3
-                    },
-                    {
-                        label: '完成任务',
-                        data: items.map(item => item.completed),
-                        borderColor: '#198754',
-                        backgroundColor: 'rgba(25, 135, 84, 0.12)',
-                        fill: true,
-                        tension: 0.3
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'top' } }
-            }
-        });
-    }
-
-    function renderDoughnutChart() {
-        const statusData = window.dashboardData.status_distribution || {};
-        upsertChart('status', 'taskStatusChart', {
-            type: 'doughnut',
-            data: {
-                labels: Object.keys(statusData),
-                datasets: [{
-                    data: Object.values(statusData),
-                    backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6c757d', '#20c997']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom' } }
-            }
-        });
-    }
-
-    function renderTypeChart() {
-        const typeData = window.dashboardData.task_type_distribution || {};
-        upsertChart('type', 'taskTypeChart', {
-            type: 'bar',
-            data: {
-                labels: Object.keys(typeData),
-                datasets: [{
-                    label: '任务数',
-                    data: Object.values(typeData),
-                    backgroundColor: '#6f42c1'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                plugins: { legend: { display: false } }
-            }
-        });
-    }
-
-    function renderActiveTasks(tasks) {
-        const container = document.getElementById('active-task-list');
-        if (!tasks.length) {
-            container.innerHTML = '<div class="col-12 text-muted">当前没有运行中的任务。</div>';
-            return;
-        }
-
-        container.innerHTML = tasks.map(task => `
-            <div class="col-md-6">
-                <div class="border rounded p-3 h-100">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <div>
-                            <div class="fw-semibold">${task.name}</div>
-                            <div class="small text-muted">${task.task_type}</div>
-                        </div>
-                        <span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span>
-                    </div>
-                    <div class="small text-muted mb-2">参数组: ${task.config_summary.parameter_groups || 0}</div>
-                    <div class="progress mb-2" style="height: 18px;">
-                        <div class="progress-bar" style="width:${task.progress_percentage || 0}%">${task.current_step || 0}/${task.total_steps || 0}</div>
-                    </div>
-                    <div class="small mb-1">停止请求: ${task.stop_confirmation.stop_requested ? '<span class="text-warning">已发出</span>' : '<span class="text-muted">未发出</span>'}</div>
-                    <div class="small mb-2">完全停止: ${task.stop_confirmation.stop_confirmed ? '<span class="text-success">是</span>' : '<span class="text-muted">否</span>'}</div>
-                    <a class="btn btn-sm btn-outline-primary" href="${buildTaskDetailUrl(task)}">查看详情</a>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    function renderRecentTasks(tasks) {
-        const tbody = document.getElementById('recent-task-table');
-        tbody.innerHTML = tasks.map(task => `
-            <tr>
-                <td>
-                    <div class="fw-semibold">${task.name}</div>
-                    <div class="small text-muted">${task.task_type}</div>
-                </td>
-                <td><span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span></td>
-                <td>
-                    ${task.stop_confirmation.stop_confirmed
-                        ? '<span class="badge bg-success">已完全停止</span>'
-                        : (task.stop_confirmation.stop_requested
-                            ? '<span class="badge bg-warning text-dark">停止中</span>'
-                            : '<span class="badge bg-secondary">未停止</span>')}
-                </td>
-                <td>${task.config_summary.parameter_groups || 0}</td>
-                <td style="min-width:160px;">
-                    <div class="progress" style="height: 18px;">
-                        <div class="progress-bar" style="width:${task.progress_percentage || 0}%">${task.current_step || 0}/${task.total_steps || 0}</div>
-                    </div>
-                </td>
-                <td>${task.duration_seconds != null ? task.duration_seconds + 's' : '-'}</td>
-                <td>${formatTime(task.created_at)}</td>
-                <td><a class="btn btn-sm btn-outline-info" href="${buildTaskDetailUrl(task)}">查看</a></td>
-            </tr>
-        `).join('');
-    }
-
-    function loadDashboard(showToast = false) {
-        ajaxRequest('/admin/api/dashboard/overview', 'GET', null, function(err, data) {
-            const overview = data && data.data ? data.data : null;
-            if (err || !overview || !overview.success) {
-                showNotification('加载仪表盘失败', 'error');
-                return;
-            }
-
-            window.dashboardData = overview;
-            renderSummary(overview.summary || {});
-            renderTrendChart(overview.daily_trend || []);
-            renderDoughnutChart();
-            renderTypeChart();
-            renderActiveTasks(overview.active_tasks || []);
-            renderRecentTasks(overview.recent_tasks || []);
-            document.getElementById('dashboard-last-update').textContent = formatTime(overview.checked_at);
-
-            if (showToast) {
-                showNotification('仪表盘已刷新', 'success');
-            }
-        });
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        loadDashboard(false);
-        ajaxRequest('/api/config', 'GET', null, function(err, data) {
-            const interval = (data && data.data.config && data.data.config.dashboard_refresh_interval)
-                ? data.data.config.dashboard_refresh_interval
-                : 30000;
-            dashboardRefreshTimer = setInterval(loadDashboard, interval);
-        });
-    });
-</script>
-{% endblock %}
+<script src="/static/js/pages/admin_dashboard.js"></script>
+</body>
+</html>

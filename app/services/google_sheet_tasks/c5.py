@@ -207,37 +207,18 @@ class C5Service(BaseGoogleSheetService):
                     raise RuntimeError("task cancelled")
                 all_num = 0
                 for google_sheet in self.google_sheets:
-                    # _result = google_sheet.get_range(c5_output_range_1)
                     _result = {}
                     batch_results = google_sheet.get_ranges([c5_output_range_1,":".join(c5_check_positions)])
                     if _validate_check_values(batch_results, google_sheet.spreadsheet_id):
                         _result.update(batch_results.get(c5_output_range_1, {}))
                         _result['result_parameters'] = batch_results.get(":".join(c5_check_positions))
 
-                        # # _result = check_result(_result)
-                        # _result_yearly = google_sheet.get_range(c5_output_range_2)
-                        # # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
-                        # _result.update(_result_yearly)
-                        #
-                        # try:
-                        #     _index_return = check_result(
-                        #         google_sheet.get_range(f"{c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1}")
-                        #     )
-                        #     _start_return = check_result(
-                        #         google_sheet.get_range(f"{c5_output_column_l}2:{c5_output_column_l}{len(kline) + 1}")
-                        #     )
-                        # except Exception as e:
-                        #     self._log_info(f"获取结果位置 {c5_output_column_j}2:{c5_output_column_j}{len(kline) + 1} 时出错：{str(e)}")
-                        #     self._log_info(f"_result：{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
-                        #     break
-                        # _result = check_result(_result)
                         merged_return_range_a1 = f"{c5_output_column_j}2:{c5_output_column_l}{len(kline) + 1}"
                         batch_range_values = google_sheet.get_ranges([
                             c5_output_range_2,
                             merged_return_range_a1,
                         ])
                         _result_yearly = batch_range_values.get(c5_output_range_2, {})
-                        # _result_yearly = check_result(google_sheet.get_range(c5_output_range_2))
                         _result.update(_result_yearly)
 
                         try:
@@ -268,17 +249,12 @@ class C5Service(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{c5_output_column_l}{i + 2}"]
                             })
 
-                        # _index_return_xpl = self.xpl.get_xpl(_index_return_date,'stock_date','stock_val')
-                        # _start_return_xpl = self.xpl.get_xpl(_start_return_date,'stock_date','stock_val')
                         flat_result, metrics_payload = self.xpl.get_return_analysis_v1(_return_data)
-                        # _result['index_return_xpl'] = _index_return_xpl
-                        # _result['start_return_xpl'] = _start_return_xpl
                         _result['metrics_payload'] = metrics_payload
                         _result[f"flat_result"] = flat_result
                         _result['_return_date'] = _return_data
 
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
-                        # results[f"flat_result"] = flat_result
                         all_num += 1
                     else:
                         self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
@@ -288,11 +264,6 @@ class C5Service(BaseGoogleSheetService):
                 if all_num == len(self.google_sheets):
                     self._log_info(f"所有任务已完成")
                     return True, results
-
-                # if attempt in [5,15,25,35]:
-                #     for google_sheet in self.google_sheets:
-                #         self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                #         google_sheet.update_jumped_cells(cell_updates)
 
             self._log_warning("执行超时，未在规定时间内完成")
             return False, {}
@@ -396,10 +367,6 @@ class C5Service(BaseGoogleSheetService):
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']
         data_end_date = klines[-1]['stock_date']
-        # # 检查用户设定的区间是否在数据范围内
-        # if start_date < data_start_date or end_date > data_end_date:
-        #     raise Exception(
-        #         f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
 
         # 获取K线数据的时间范围
         data_start_date = klines[0]['stock_date']
@@ -468,10 +435,6 @@ class C5Service(BaseGoogleSheetService):
                 if year in exclude_recent_years:
                     continue
 
-                # _year = year
-                # if year != 0:
-                #     _year = year - 1
-
                 _end_data = end_date
                 _start_data = max(start_date, f"{_end_year_1 - year}{end_date[4:]}")
                 if _start_data > _end_data:
@@ -506,11 +469,6 @@ class C5Service(BaseGoogleSheetService):
                         d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year,'Kline_key':Kline_key}
                         if stock_name:
                             d['stock_name'] = stock_name
-                        # if i == 0 and j == 0:
-                        #     if kline and len(kline) > 30:
-                        #         d['kline'] = kline
-                        #     else:
-                        #         continue
                         if Kline_key not in KLINE_DATA_MAP:
                             KLINE_DATA_MAP[Kline_key] = kline
 

@@ -16,7 +16,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 class DingStreamSettings:
     client_id: str
     client_secret: str
-    project_root: Path
 
     @classmethod
     def from_env(cls) -> "DingStreamSettings":
@@ -44,5 +43,4 @@ class DingStreamSettings:
         return cls(
             client_id=client_id,
             client_secret=client_secret,
-            project_root=PROJECT_ROOT,
         )

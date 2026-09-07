@@ -10,7 +10,6 @@ from urllib3.exceptions import ProtocolError
 NETWORK_ERROR_PREFIX = "[NETWORK_RETRYABLE]"
 WATCHDOG_RESTART_PREFIX = "[WATCHDOG_FORCE_RESTART]"
 GOOGLE_SHEET_EXECUTION_ERROR_PREFIX = "[GOOGLE_SHEET_RETRYABLE]"
-C3_EXECUTION_ERROR_PREFIX = GOOGLE_SHEET_EXECUTION_ERROR_PREFIX
 
 
 class RetryableNetworkTaskError(Exception):
@@ -84,21 +83,4 @@ def is_retryable_network_error(exc: BaseException | None) -> bool:
         if any(keyword in error_text for keyword in network_keywords):
             return True
 
-    return False
-
-
-def _retry_error_finished_with_failed_result(error: RetryError) -> bool:
-    last_attempt = getattr(error, "last_attempt", None)
-    if last_attempt is None:
-        return False
-
-    try:
-        result = last_attempt.result()
-    except Exception:
-        return False
-
-    if result is False:
-        return True
-    if isinstance(result, (tuple, list)) and result:
-        return result[0] is False
     return False

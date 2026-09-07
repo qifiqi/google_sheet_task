@@ -11,27 +11,6 @@ from typing import Any
 
 from app.utils.kline_validation import require_kline_rows
 
-# 各任务共享的原始 K 线最小行数（C3 的 100 为其独立语义，不经此件）。
-DEFAULT_MIN_RAW_ROWS = 30
-
-
-def validate_raw_kline(
-    parameter: str,
-    market_type: str,
-    klines: list[dict[str, Any]],
-    price_field: str | None,
-    min_raw_rows: int = DEFAULT_MIN_RAW_ROWS,
-) -> list[dict[str, Any]]:
-    """原始K线最小行数校验（require_kline_rows 的 context 固定封装）。"""
-    return require_kline_rows(
-        parameter,
-        market_type,
-        klines,
-        context="原始K线",
-        min_rows=min_raw_rows,
-        price_field=price_field,
-    )
-
 
 def project_and_validate_write_ready(
     kline_service,

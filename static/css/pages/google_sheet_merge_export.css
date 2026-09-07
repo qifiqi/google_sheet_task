@@ -1,0 +1,3 @@
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { background-color: #e9ecef; }
+.sort-icon { font-size: 0.75rem; color: #0d6efd; }

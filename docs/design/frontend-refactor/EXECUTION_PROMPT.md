@@ -20,40 +20,43 @@
 ## 目标
 
 1. `templates/` 45 个在用页面（F0 后）全部**零 Jinja 语法**：终验 `grep -rn "{{\|{%" templates --include="*.html"` 输出为空；
-2. 全部内联 `<script>` 剪切到 `static/js/pages/<模板名>.js`（与页面一一对应），内联 `<style>` 剪切到 `static/css/pages/`；跨页重复工具收敛 `static/js/common/`（`utils.js`、`admin-shell.js`）；
+2. 全部内联 `<script>` 剪切到 `static/js/pages/<模板名>.js`（与页面一一对应），内联 `<style>` 剪切到 `static/css/pages/`；并完成统一三层（B 修订，`02` §3.5~§3.7）：**接口统一 `common/api.js`**（页面 JS 禁止字面量 fetch URL）、**跨页业务收敛 `common/business/`**（c4/c5/c7、backtest list/result 双胞胎明示去重）、**导航条组件化 `common/components/navbar.js`**（三族菜单合一，渲染产物与原基座逐字节一致）；跨页重复纯工具收敛 `common/utils.js`；
 3. 37 条页面路由全部改为 `send_page()`（新增 `app/routes/page_files.py`，`send_from_directory` 封装）：终验 `grep -rn "render_template" app/routes --include="*.py"` 输出为空；
-4. 原 Jinja 版 `templates/` 在 F0 打包归档 `docs/design/frontend-refactor/archive/templates-jinja-source.zip`（D8）；
+4. 原 Jinja 版 `templates/` 在 F0 打包归档 `docs/design/frontend-refactor/archive/templates-jinja-source.zip`（D8；从 git HEAD 打包，含已删孤儿共 49 文件）；
 5. 同一产物支持双部署：Flask 模式（每批验收形态）+ nginx 模式（`05` §3 conf，落地为 `docs/design/frontend-refactor/nginx.conf.example`）。
 
 ## 红线（任何批次不得违反）
 
-- **视觉与 DOM 零改动**：不改结构、class、id、属性顺序；除已知替换点外 HTML diff 必须为空；每页改造前后同 URL 截图对比；
+- **视觉零改动；DOM 改动仅限两处明示点**：① 删除 `data-auth-enabled`；② 导航条整段替换为 `<div data-navbar></div>` 占位（navbar.js 渲染产物与原基座逐字节一致）。其余不改结构、class、id、属性顺序；每页改造前后同 URL 截图对比；
 - **URL 零变化**：37 条页面路由路径、query 参数、`/login?next=` 形态逐一保持；
-- **脚本搬移纪律**：普通 `<script src>`（禁 defer/async/type=module），放在原内联位置；JS 原样剪切不改写、不"顺手优化"；`template-auth.js`/`trading-date.js` **不迁移路径**；
-- **机械搬移原则**：localStorage 恢复、模板回填、restart 回填逻辑必须整体搬移，禁止重写；发现 `04` 未收录的 Jinja 注入点 → **先补 `03` 文档再动代码**；
+- **脚本搬移纪律**：普通 `<script src>`（禁 defer/async/module），放在原内联位置；common 层引入顺序固定：`template-auth.js` → `navbar.js` → `api.js` → `utils.js` → 页面 JS；机械搬移阶段 JS 原样剪切不改写、不"顺手优化"；`template-auth.js`/`trading-date.js` **不迁移路径**；
+- **两步走（B 修订）**：收敛对象页先 `refactor(frontend): de-jinja <page>` 机械搬移并过验证四件套，再做 `refactor(frontend): dedupe <域>` 收敛 commit（提升 `common/business/` 并改写调用点），两个 commit 独立验证、独立可 revert（`02` §3.6）；
+- **接口统一（B 修订）**：页面 JS 的后端请求一律经 `common/api.js`（端点常量 + 信封解包）；api.js 不实现鉴权传输（那是 `template-auth.js` 全局 fetch 拦截的职责），不改任何请求/响应 wire 格式；
+- **机械搬移原则**：localStorage 恢复、模板回填、restart 回填逻辑必须整体搬移，禁止重写（收敛 pass 中的等价迁移除外，需逐键回归）；发现 `04` 未收录的 Jinja 注入点 → **先补 `03` 文档再动代码**；
 - 鉴权：删除 `data-auth-enabled` 属性（4 处），`template-auth.js` 的 `isAuthEnabled()` 对缺失属性默认 true（依据 `app/utils/auth.py:16,67` + `static/js/template-auth.js`），**不改其函数逻辑**；
 - 服务端逻辑前端化的三处契约（`03` §4）：`_resolve_task_version` → dispatcher 页（版本映射原文抄录）；backtest result 页 task_id → 从既有结果接口响应取；枚举 → 已有 `/api/meta/enums`（**不新增任何后端接口**）；
 - 孤儿/vendor 删除前必须 grep 验证零引用（`04` §F0 命令），`static/eastmoney-kline/js/layui.js` 与根 `static/js/layui.js` 是两份文件，勿混删；
 - 后端只允许改页面路由返回方式；API 蓝图、任务执行链、模型层零改动；
-- 每批一个分支/每页一个 commit（`refactor(frontend): de-jinja <page>`），单页可独立 revert；**全量 pytest 通过才进下一批**。
+- 每批一个分支/每页一个 commit（`refactor(frontend): de-jinja <page>`；收敛 `refactor(frontend): dedupe <域>`），单页/单域可独立 revert；**全量 pytest 通过才进下一批**。
 
 ## 关键契约速记
 
-- 页面骨架：基座内联展开（D6），导航高亮/版本徽标由 JS 按 `URLSearchParams` 计算（`03` §4.2），active class 结果与 Jinja 版逐字节一致；
+- 页面骨架：导航条占位 `<div data-navbar></div>`（D6 修订），navbar.js 按 pathname 选族渲染、active 按 URL 计算，渲染结果与 Jinja 版逐字节一致；navbar.js 紧随 `template-auth.js` 同步执行，渲染完成早于鉴权揭示（body 仍带 `template-auth-pending`），无首屏闪动；
+- **接口层**：页面请求全部走 `common/api.js`（端点按域分组，分域对齐 `frontend/src/api/*.js`）；非 success 响应解包抛错、`message` 交调用方 toast；dispatcher 页请求同样走 api.js；
+- **业务层**：收敛对象共同逻辑进 `common/business/`（挂 `window.Biz.*`），页面差异留在 pages 层；"同名同签名"仅约束 `common/utils.js`（以 `google_sheet/base.html:117-145` 内联版为基准）；
 - URL 参数获取：task_id/result_id 路径正则解析，version/next 用 `URLSearchParams`；`{{ version }}` 在 JS 模板字符串内的 4 处高危点见 `03` §5（`CURRENT_VERSION` 常量）；
 - dispatcher 页（仅 2 个新增 HTML）：带 `template-auth-loading` 遮罩，`fetch /api/tasks/<id>` → 补 `version=` → `location.replace`；有 version 参数时 nginx/Flask 直出对应文档，不经过 dispatcher；
-- 缓存：HTML `no-cache`，`/static/**` 长缓存 + 发布时统一替换 `?v=<release>`；
-- `common/utils.js` 函数与被收敛的复制粘贴版**同名同签名**（以 `google_sheet/base.html:117-145` 内联版为基准）。
+- 缓存：HTML `no-cache`，`/static/**` 长缓存 + 发布时统一替换 `?v=<release>`（api/business/components 新文件同样带）。
 
 ## 执行顺序（每批详见 04 文档）
 
-1. **F0**：zip 归档原版（命令在 04）→ 删 4 孤儿模板（grep 验证）→ vendor 冗余清理（逐项 grep + `*.map` 全删）→ 建 `static/{js,css}/{common,pages}` 骨架 → 新增 `common/utils.js`；
-2. **F1 试点**：`google_sheet/merge_export.html`（526 行）完整走一遍流程 + 路由切 `send_page`，验证方法论后批量；
-3. **F2**：google_sheet 基座族 index/create/detail/c31 + 2 个 dispatcher 页 + 基座删除；`/google-sheet/`、`/create`、`/detail` 路由改按 version 分发；
-4. **F3**：c4/c5/c7 六大页（先 create 后 detail；c5/c7 detail 含 JS 内嵌 Jinja 高危点）；
-5. **F4**：backtest 双胞胎 10 页 + global_preview（bt/multi **各自独立搬移禁止互相参考**；result 页 task_id 前端化前先核对响应字段）；
-6. **F5**：admin 13 页（tasks/google_sheets 的 6 组 option 循环改 `/api/meta/enums` 渲染）+ xpl 3 + yule 2 + eastmoney_kline + login；`admin/base.html` 最后删除；
-7. **F6**：终验 grep 双清零 → 删 `_resolve_task_version()` → `template-auth.js` 删 `data-auth-enabled` 读取分支 → AGENTS.md 前端章节更新 → nginx.conf.example 落地 → 双部署验收（`05` §8 清单）。
+1. **F0**：zip 归档原版（**git HEAD 打包**，命令在 04）→ 孤儿模板删除复核后随批提交 → vendor 冗余清理（逐项 grep + `*.map` 全删）→ 建 `static/{js,css}/{common,pages}` 与 `common/{business,components}` 骨架 → 新增 `common/utils.js` + `common/api.js` 骨架；
+2. **F1 试点**：`google_sheet/merge_export.html`（526 行）完整走一遍流程 + 路由切 `send_page` + **api.js 首个端点迁入**，验证方法论后批量；
+3. **F2**：google_sheet 基座族 index/create/detail/c31 + 2 个 dispatcher 页 + **navbar.js 首落地** + 基座删除；`/google-sheet/`、`/create`、`/detail` 路由改按 version 分发；
+4. **F3**：c4/c5/c7 六大页（先 create 后 detail；c5/c7 detail 含 JS 内嵌 Jinja 高危点）+ 批内**收敛 pass**（create/detail 三胞胎共同逻辑 → `common/business/`）；
+5. **F4**：backtest 双胞胎 10 页 + global_preview（result 页 task_id 前端化前先核对响应字段）+ 批内**收敛 pass**（list/result 92% 相同部分 → `common/business/`；bt/multi create 相似度仅 14%，禁止强行合并）；
+6. **F5**：admin 13 页（tasks/google_sheets 的 6 组 option 循环改 `/api/meta/enums` 渲染）+ xpl 3 + yule 2 + eastmoney_kline + login；admin 菜单变体并入 navbar.js，`admin/base.html` 最后删除；
+7. **F6**：终验 grep 双清零 + fetch 出口终检（pages 目录零 `fetch(`）→ 删 `_resolve_task_version()` → `template-auth.js` 删 `data-auth-enabled` 读取分支 → AGENTS.md 前端章节更新（pages/api/business/components 分层）→ nginx.conf.example 落地 → 双部署验收（`05` §8 清单）。
 
 ## 每页/每批完成动作（固定循环）
 

@@ -28,18 +28,6 @@ class SystemConfigRepository(BaseRepository):
             for row in SystemConfig.query.order_by(SystemConfig.key.asc()).all()
         ]
 
-    def list_key_descriptions(self):
-        """[{key, description}]（config.py 启动期读取）。"""
-        rows = (
-            SystemConfig.query
-            .with_entities(SystemConfig.key, SystemConfig.description)
-            .order_by(SystemConfig.key.asc())
-            .all()
-        )
-        return [{"key": key, "description": description} for key, description in rows]
-
-    # ---- 写 ----
-
     def update(self, key, fields, commit=True):
         """按 key 更新指定列（值可为 None，用于清空）；key 不存在返回 None。"""
         row = SystemConfig.query.filter_by(key=key).first()

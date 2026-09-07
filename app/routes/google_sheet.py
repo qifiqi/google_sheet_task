@@ -1,86 +1,57 @@
 from flask import Blueprint, render_template, request
 
-from app.services.task import task_manager
-from app.utils.logger import get_logger
+from app.routes.page_files import send_page
 from app.utils.auth import page_login_required
+from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 google_sheet_bp = Blueprint('google_sheet', __name__)
 
 
-def _version_from_task_type(task_type):
-    normalized_type = (task_type or '').lower()
-    if normalized_type == 'google_sheet_c5':
-        return 'c5'
-    if normalized_type == 'google_sheet_c7':
-        return 'c7'
-    if normalized_type == 'google_sheet_c4':
-        return 'c4'
-    if normalized_type == 'google_sheet':
-        return 'c3'
-    return None
-
-
-def _resolve_task_version(*task_id_params):
-    for param_name in task_id_params:
-        task_id = request.args.get(param_name)
-        if not task_id:
-            continue
-
-        task = task_manager.get_task(task_id)
-        version = _version_from_task_type(task.get("task_type") if task else None)
-        if version:
-            return version
-
-    return None
-
 @google_sheet_bp.route('/')
 @page_login_required
 def index():
-    """Google Sheet参数批量校验首页
-
-    使用 query 参数 version 区分不同版本：
-    - version=c4 -> C4 模板
-    - version=c5 -> C5 模板
-    - 其它 / 无 -> 默认模板
-    """
-    version = request.args.get('version')
-
-    return render_template('google_sheet/index.html', version=version)
+    """Google Sheet参数批量校验首页（静态文档，version 仅由前端消费）"""
+    return send_page('google_sheet/index.html')
 
 @google_sheet_bp.route('/create')
 @page_login_required
 def create():
-    """创建Google Sheet任务页面"""
-    version = request.args.get('version') or _resolve_task_version('restart_task_id')
+    """创建Google Sheet任务页面：有 version 按版本分发；仅缺 version 时落 dispatcher"""
+    version = request.args.get('version')
+    if not version and request.args.get('restart_task_id'):
+        return send_page('google_sheet/create_dispatcher.html')
     if version == 'c31':
-        return render_template('google_sheet_c31/create.html', version='c31')
+        return send_page('google_sheet_c31/create.html')
+    # c4/c5/c七 六大页暂维持 Jinja 渲染（F5 事故后尚未重做 F3 静态化，见 04 执行清单 F5 记录）
     if version == 'c5':
-        return render_template('google_sheet_c5/create.html', version='c5')
+        return render_template('google_sheet_c5/create.html')
     if version == 'c7':
-        return render_template('google_sheet_c7/create.html', version='c7')
+        return render_template('google_sheet_c7/create.html')
     if version == 'c4':
-        return render_template('google_sheet_c4/create.html', version='c4')
-    return render_template('google_sheet/create.html', version=None)
+        return render_template('google_sheet_c4/create.html')
+    return send_page('google_sheet/create.html')
 
 @google_sheet_bp.route('/merge-export')
 @page_login_required
 def merge_export():
     """C3 合并导出独立页面"""
-    return render_template('google_sheet/merge_export.html')
+    return send_page('google_sheet/merge_export.html')
 
 
 @google_sheet_bp.route('/detail')
 @page_login_required
 def detail():
-    """任务详情页面"""
-    version = request.args.get('version') or _resolve_task_version('task_id')
+    """任务详情页面：有 version 按版本分发；仅缺 version 时落 dispatcher"""
+    version = request.args.get('version')
+    if not version and request.args.get('task_id'):
+        return send_page('google_sheet/detail_dispatcher.html')
 
     if version == 'c5':
-        return render_template('google_sheet_c5/detail.html', version='c5')
+        return render_template('google_sheet_c5/detail.html')
     if version == 'c7':
-        return render_template('google_sheet_c7/detail.html', version='c7')
+        return render_template('google_sheet_c7/detail.html')
     if version == 'c4':
-        return render_template('google_sheet_c4/detail.html', version='c4')
-    return render_template('google_sheet/detail.html', version=None)
+        return render_template('google_sheet_c4/detail.html')
+    return send_page('google_sheet/detail.html')

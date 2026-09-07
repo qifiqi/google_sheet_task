@@ -1,0 +1,9 @@
+    .preview-hub { display: grid; gap: 1rem; }
+    .preview-toolbar .form-control { min-width: 0; }
+    .preview-table-wrap { overflow: auto; border: 1px solid var(--bs-border-color); border-radius: .75rem; }
+    .preview-table { min-width: 920px; margin-bottom: 0; font-size: .88rem; }
+    .preview-table th, .preview-table td { text-align: center; vertical-align: middle; white-space: nowrap; }
+    .preview-table thead th { background: #f7e1a1; color: #000; }
+    .empty-state { padding: 4rem 1rem; text-align: center; color: var(--bs-secondary-color); }
+    .preview-loading { min-height: 11rem; display: grid; place-items: center; gap: .75rem; }
+    html[data-bs-theme="dark"] .preview-table thead th { background: #3f341b; color: #fde68a; }

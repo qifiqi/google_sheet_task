@@ -1,0 +1,28 @@
+    html[data-bs-theme="dark"] #summary-cards .card,
+    html[data-bs-theme="dark"] #details-card,
+    html[data-bs-theme="dark"] .card.border-0.shadow-sm {
+        background-color: #182132;
+    }
+    html[data-bs-theme="dark"] #summary-cards .card-subtitle,
+    html[data-bs-theme="dark"] #summary-cards .card-text {
+        color: #94a3b8 !important;
+    }
+    html[data-bs-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > * {
+        --bs-table-accent-bg: rgba(148, 163, 184, 0.05);
+    }
+    #summary-cards .card-body {
+        padding: 0.9rem 1rem;
+    }
+    #summary-cards .card-subtitle {
+        font-size: 0.95rem;
+    }
+    #summary-cards .card-title {
+        font-size: 1.15rem;
+        margin-bottom: 0.35rem;
+        line-height: 1.2;
+    }
+    #summary-cards .card-text {
+        margin-bottom: 0;
+        font-size: 0.82rem;
+        word-break: break-all;
+    }

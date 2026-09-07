@@ -6,8 +6,9 @@ API 端点已归位 global_preview_api.py；导出流统一在 export_service.py
 
 from __future__ import annotations
 
-from flask import Blueprint, render_template
+from flask import Blueprint
 
+from app.routes.page_files import send_page
 from app.utils.auth import page_login_required
 
 
@@ -18,4 +19,4 @@ bp = Blueprint("global_preview", __name__, url_prefix="/global-preview")
 @bp.route("/single_product")
 @page_login_required
 def page():
-    return render_template("global_preview/index.html")
+    return send_page("global_preview/index.html")

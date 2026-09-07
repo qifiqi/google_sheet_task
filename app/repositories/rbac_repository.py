@@ -29,10 +29,6 @@ class RbacRepository(BaseRepository):
         user = db.session.get(User, user_id)
         return user.to_dict(include_permissions=include_permissions) if user else None
 
-    def get_user_by_username(self, username, include_permissions=False):
-        user = User.query.filter_by(username=username).first()
-        return user.to_dict(include_permissions=include_permissions) if user else None
-
     def get_user_credentials(self, username):
         """登录用：仅投影鉴权所需列（不暴露给接口响应）。"""
         row = (
@@ -208,6 +204,3 @@ class RbacRepository(BaseRepository):
         """启用中且参与值班的用户实体（钉钉通知取手机号/角色）。"""
         return User.query.filter_by(is_active=True, is_alert_oncall=True).all()
 
-    def list_roles_all_entities(self):
-        """角色实体全量（含权限关联懒加载），供 is_alert_oncall 判断等场景。"""
-        return Role.query.all()

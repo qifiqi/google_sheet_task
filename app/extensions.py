@@ -14,3 +14,17 @@ limiter = Limiter(
     default_limits=[],
     headers_enabled=True,
 )
+
+
+def rate_limit_config(config_key, default):
+    """端点级限流阈值经 config_manager 运行时可调（零重启）。"""
+    from app.services.config_manager import get_config_manager
+
+    return get_config_manager().get_config(config_key, default)
+
+
+def rate_limit_user_key():
+    """端点级限流键：登录用户按 id，未登录归 anon。"""
+    from flask import g
+
+    return f"user:{getattr(getattr(g, 'current_user', None), 'id', 'anon')}"

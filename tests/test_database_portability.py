@@ -11,7 +11,6 @@ def test_database_monitor_uses_sqlalchemy_inspector(app_factory):
 
         assert "tasks" in indexes
         assert DatabaseMonitor.get_database_size()["type"] == "sqlite"
-        assert not DatabaseMonitor.vacuum_database()["success"]
 
 
 def test_safe_db_operation_retries_transient_database_errors(monkeypatch):

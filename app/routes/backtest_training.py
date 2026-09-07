@@ -1,8 +1,8 @@
 """Backtest training 页面路由（API 已归位 backtest_api.py）。"""
 
-from flask import Blueprint, render_template
+from flask import Blueprint
 
-from app.services.task import task_manager
+from app.routes.page_files import send_page
 from app.utils.auth import page_login_required
 
 bp = Blueprint("backtest_training", __name__, url_prefix="/backtest-training")
@@ -10,41 +10,37 @@ legacy_bp = Blueprint("backtest_training_legacy", __name__, url_prefix="/backtes
 @bp.route("/create")
 @page_login_required
 def create_page():
-    return render_template("backtest_training/create.html")
+    return send_page("backtest_training/create.html")
 
 
 @bp.route("/list")
 @page_login_required
 def list_page():
-    return render_template("backtest_training/list.html")
+    return send_page("backtest_training/list.html")
 
 
 @bp.route("/detail/<task_id>")
 @page_login_required
 def detail_page(task_id):
-    return render_template("backtest_training/detail.html", task_id=task_id)
+    return send_page("backtest_training/detail.html")
 
 
 @bp.route("/global-preview/<task_id>")
 @page_login_required
 def global_preview_page(task_id):
-    return render_template("backtest_training/global_preview.html", task_id=task_id)
+    return send_page("backtest_training/global_preview.html")
 
 
 @bp.route("/result/<int:result_id>")
 @page_login_required
 def result_page(result_id):
-    task_id = task_manager.resolve_result_task_id(result_id, "backtest_training")
-    return render_template("backtest_training/result.html", result_id=result_id, task_id=task_id)
+    return send_page("backtest_training/result.html")
 
 
 @bp.route("/result/<int:result_id>/export-preview")
 @page_login_required
 def result_export_preview_page(result_id):
-    return render_template(
-        "backtest_training/result_export_preview.html",
-        result_id=result_id,
-    )
+    return send_page("backtest_training/result_export_preview.html")
 
 
 legacy_bp.add_url_rule("/create", view_func=create_page)

@@ -14,17 +14,6 @@ class GoogleSheetRepository(BaseRepository):
 
     # ---- 读 ----
 
-    def list_all(self, table_type=None, scope=None):
-        query = GoogleSheet.query
-        if table_type:
-            query = query.filter_by(table_type=table_type)
-        if scope:
-            query = query.filter_by(registry_scope=scope)
-        return [
-            row.to_dict()
-            for row in query.order_by(GoogleSheet.id.asc()).all()
-        ]
-
     def list_filtered(self, include_inactive=False, only_available=False, task_id=None, table_type=None):
         """管理端/选择器列表（google_sheet_registry_service.list_sheets 语义）。"""
         from sqlalchemy import or_
@@ -101,14 +90,6 @@ class GoogleSheetRepository(BaseRepository):
     def get(self, sheet_id):
         row = db.session.get(GoogleSheet, sheet_id)
         return row.to_dict() if row else None
-
-    def get_required(self, sheet_id):
-        data = self.get(sheet_id)
-        if data is None:
-            raise NotFoundError(f"Google Sheet 配置不存在: {sheet_id}")
-        return data
-
-    # ---- 写 ----
 
     def create(self, fields, commit=True):
         row = GoogleSheet(**fields)

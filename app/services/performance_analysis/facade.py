@@ -103,7 +103,6 @@ def calculate_v1_metrics(
     returns: Iterable[dict[str, Any]],
     *,
     runtime_params: Any = None,
-    return_dataframes: bool = False,
     analyzer: Any = None,
 ) -> MetricsV1Result:
     """根据累计收益行计算统一的 V1 结果。"""
@@ -123,7 +122,6 @@ def calculate_v1_metrics(
         raise ValueError("收益数据无法生成 V1 指标")
     metrics = _convert_pandas_to_native(raw_metrics)
     canonical = _convert_pandas_to_native(_canonical_metrics(metrics, index_df, start_df))
-    _ = return_dataframes
     return MetricsV1Result(
         schema_version=SCHEMA_VERSION,
         metrics=metrics,

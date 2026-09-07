@@ -179,6 +179,7 @@ class GoogleSheetTableType(str, Enum):
 class StockMarketType(str, Enum):
     CN = "cn"
     EN = "en"
+    FUTURES = "futures"
     CA = "ca"
     KR = "kr"
     JP = "jp"
@@ -246,14 +247,6 @@ class TaskStatus(str, Enum):
     ERROR = "error"
 
     @classmethod
-    def normalize(cls, value: str | None, default: str | None = None) -> str | None:
-        raw = (value or "").strip().lower()
-        valid_values = {item.value for item in cls}
-        if raw in valid_values:
-            return raw
-        return default
-
-    @classmethod
     def choices(cls):
         labels = {
             cls.PENDING: "待执行",
@@ -280,26 +273,6 @@ class TaskType(str, Enum):
     BACKTEST_TRAINING = "backtest_training"
     BACKTEST_MULTI_PRODUCT = "backtest_multi_product"
     MODEL_SUMMARY_REBUILD = "model_summary_rebuild"
-
-    @classmethod
-    def normalize(cls, value: str | None, default: str | None = None) -> str | None:
-        raw = (value or "").strip()
-        normalized = raw.lower()
-        aliases = {
-            "google_sheet": cls.GOOGLE_SHEET.value,
-            "google_sheet_c3": cls.GOOGLE_SHEET.value,
-            "google_sheet_c31": cls.GOOGLE_SHEET.value,
-            "google_sheet_c4": cls.GOOGLE_SHEET_C4.value,
-            "google_sheet_c5": cls.GOOGLE_SHEET_C5.value,
-            "google_sheet_c7": cls.GOOGLE_SHEET_C7.value,
-            "backtest": cls.BACKTEST_TRAINING.value,
-            "backtest_training": cls.BACKTEST_TRAINING.value,
-            "backtest_multi": cls.BACKTEST_MULTI_PRODUCT.value,
-            "multi_product_backtest": cls.BACKTEST_MULTI_PRODUCT.value,
-            "backtest_multi_product": cls.BACKTEST_MULTI_PRODUCT.value,
-            "model_summary_rebuild": cls.MODEL_SUMMARY_REBUILD.value,
-        }
-        return aliases.get(normalized, default)
 
     @classmethod
     def choices(cls, include_system=False):

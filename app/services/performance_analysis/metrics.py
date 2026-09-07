@@ -21,55 +21,6 @@ logger = get_logger(__name__)
 class PerformanceMetricsMixin:
     # Metric methods are kept in their original order to preserve implementation behavior.
     @staticmethod
-    def monthly_maximum_drawdown(df):
-        """
-
-        每年每月最好的那个
-        """
-        all_years = df['year_month'].unique()
-        result = {"year_maximum_drawdown": []}
-
-        # 计算每年的最大回撤
-        # Calculate maximum drawdown for each year
-        df_yearly = df.copy()
-
-        for year in all_years:
-            yearly_data = df_yearly[df_yearly['year_month'] == year]
-
-            # 按时间排序，确保计算正确
-            # Sort by date to ensure correct calculation
-            yearly_data = yearly_data.sort_values('date').reset_index(drop=True)
-
-            # 计算每个时间点的回撤
-            # Calculate drawdown for each time point
-            for index in range(len(yearly_data)):
-                current_row = yearly_data.iloc[index]
-
-                # 获取当前时间及之前的所有数据
-                # Get all data up to the current time
-                historical_data = yearly_data.iloc[:index + 1]
-
-                # 计算到当前时间的最高净值
-                # Calculate maximum net value up to current time
-                historical_max = historical_data['net_value'].max()
-
-                # 计算回撤：(历史最高净值 - 当前净值) / 历史最高净值
-                if historical_max > 0:
-                    drawdown = (historical_max - current_row['net_value']) / historical_max
-                else:
-                    drawdown = 0
-
-                yearly_data.at[index, 'drawdown'] = drawdown  # 回撤值 Drawdown value
-
-            # 找到该年度的最大回撤
-            max_drawdown_row = yearly_data.loc[yearly_data['drawdown'].idxmax()]
-            _ = max_drawdown_row.to_dict()
-            _['date'] = _['date'].strftime('%Y-%m-%d')
-            result['year_maximum_drawdown'].append(_)
-
-        return result
-
-    @staticmethod
     def calculate_max_drawdown_by_year_and_total(df):
         """
         计算按年份和总计的最大回撤
@@ -101,26 +52,10 @@ class PerformanceMetricsMixin:
             # Sort by date to ensure correct calculation
             yearly_data = yearly_data.sort_values('date').reset_index(drop=True)
 
-            # 计算每个时间点的回撤
+            # 计算每个时间点的回撤：(历史最高净值 - 当前净值) / 历史最高净值
             # Calculate drawdown for each time point
-            for index in range(len(yearly_data)):
-                current_row = yearly_data.iloc[index]
-
-                # 获取当前时间及之前的所有数据
-                # Get all data up to the current time
-                historical_data = yearly_data.iloc[:index + 1]
-
-                # 计算到当前时间的最高净值
-                # Calculate maximum net value up to current time
-                historical_max = historical_data['net_value'].max()
-
-                # 计算回撤：(历史最高净值 - 当前净值) / 历史最高净值
-                if historical_max > 0:
-                    drawdown = (historical_max - current_row['net_value']) / historical_max
-                else:
-                    drawdown = 0
-
-                yearly_data.at[index, 'drawdown'] = drawdown  # 回撤值 Drawdown value
+            running_max = yearly_data['net_value'].cummax()
+            yearly_data['drawdown'] = ((running_max - yearly_data['net_value']) / running_max).where(running_max > 0, 0)
 
             # 找到该年度的最大回撤
             max_drawdown_row = yearly_data.loc[yearly_data['drawdown'].idxmax()]
@@ -136,32 +71,10 @@ class PerformanceMetricsMixin:
         # Ensure data is sorted by date
         df_total = df_total.sort_values('date').reset_index(drop=True)
 
-        # 计算每个时间点的回撤
+        # 计算每个时间点的回撤：(历史最高净值 - 当前净值) / 历史最高净值
         # Calculate drawdown for each time point
-        for index in range(len(df_total)):
-            current_row = df_total.iloc[index]
-
-            # 获取从开始到当前时间的所有数据
-            # Get all data from start to current time
-            historical_data = df_total.iloc[:index + 1]
-
-            # 计算到当前时间的最高净值
-            # Calculate maximum net value up to current time
-            historical_max = historical_data['net_value'].max()
-
-            # 计算回撤：(历史最高净值 - 当前净值) / 历史最高净值
-            # Calculate drawdown: (historical max - current) / historical max
-            if historical_max > 0:
-                drawdown = (historical_max - current_row['net_value']) / historical_max
-            else:
-                drawdown = 0
-
-            # 检查NaN值
-            # Check for NaN values
-            if pd.isna(drawdown):
-                drawdown = 0
-
-            df_total.at[index, 'drawdown'] = drawdown
+        running_max = df_total['net_value'].cummax()
+        df_total['drawdown'] = ((running_max - df_total['net_value']) / running_max).where(running_max > 0, 0).fillna(0)
 
         # 找到总计的最大回撤
         # Find the total maximum drawdown
@@ -555,59 +468,6 @@ class PerformanceMetricsMixin:
             })
 
         return kama_ratios
-    #
-    # def calculate_sortino_ratio(self, monthly_data):
-    #     """
-    #         修改 下行边准差  月 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (12)
-    #                         周 =SQRT (SUMSQ (D2:D36)/COUNT (D2:D36))*SQRT (52)
-    #                             周均年化收益率	周均收益率*52（所有周）
-    #
-    #         索提诺比例
-    #         月均年化收益率/下行标准差（
-    #             # 下行边准差	所有月低于0的收益率的标准差*√12
-    #             下行边准差	所有月的收益率的标准差*√12 （大于0的设置成0）
-    #            月均年化收益率	月均收益率*12（所有月）
-    #     """
-    #     sortino_ratios = []
-    #     # 计算月度收益率数据
-    #     monthly_data_df = monthly_data.copy()
-    #     monthly_groups = monthly_data_df.groupby('year')
-    #     for year, year_df in monthly_groups:
-    #         average_monthly_annualized_return = year_df['monthly_return'].mean() * 12
-    #         # monthly_return_0 = year_df[year_df['monthly_return'] < 0]['monthly_return']
-    #         monthly_return_0 = year_df['monthly_return'].mask(
-    #             year_df['monthly_return'] > 0, 0
-    #         )
-    #
-    #         downside_standard_deviation = 0
-    #         sortino_ratio = 0
-    #
-    #         if len(monthly_return_0) > 1:
-    #             downside_standard_deviation = monthly_return_0.std() * np.sqrt(12)
-    #             sortino_ratio = average_monthly_annualized_return / downside_standard_deviation
-    #
-    #         sortino_ratios.append({
-    #             "year": year,
-    #             "sortino_ratio": sortino_ratio,
-    #             "average_monthly_annualized_return": average_monthly_annualized_return,
-    #             "downside_standard_deviation": downside_standard_deviation
-    #         })
-    #
-    #     average_monthly_annualized_return = monthly_data_df['monthly_return'].mean() * 12
-    #     # downside_standard_deviation = monthly_data_df[monthly_data_df['monthly_return'] < 0][
-    #     #                                   'monthly_return'].std() * np.sqrt(12)
-    #     downside_standard_deviation_monthly_return = monthly_data_df['monthly_return'].mask(
-    #         monthly_data_df['monthly_return'] > 0, 0
-    #     )
-    #     downside_standard_deviation = downside_standard_deviation_monthly_return.std() * np.sqrt(12)
-    #     sortino_ratio = average_monthly_annualized_return / downside_standard_deviation
-    #     sortino_ratios.append({
-    #         "year": "all",
-    #         "sortino_ratio": sortino_ratio,
-    #         "average_monthly_annualized_return": average_monthly_annualized_return,
-    #         "downside_standard_deviation": downside_standard_deviation
-    #     })
-    #     return sortino_ratios
 
     def calculate_sortino_ratio(self, data, frequency='monthly'):
         """
@@ -852,32 +712,6 @@ class PerformanceMetricsMixin:
         start_index = maximum_drawdown[maximum_drawdown['start_drawdown'] < maximum_drawdown['index_drawdown']]
         return len(start_index['start_drawdown']) / len(maximum_drawdown['start_drawdown'])
 
-    # def maximum_number_of_backtest_repair_days(self, data_df):
-    #     """
-    #         # 最大回测修复天数 = （出现最大净值最多次数的天数）（每年）(index，start)
-    #     """
-    #
-    #     data_df['previous_max'] = data_df['net_value'].expanding().max().shift(1)
-    #     #
-    #     # # 按年份分组处理
-    #     # yearly_groups = data_df.groupby('year')
-    #     #
-    #     # max_net_value_count = {}
-    #     #
-    #     # for year, year_df in yearly_groups:
-    #     #     if len(year_df) == 0:
-    #     #         continue
-    #     #     # mode_values = year_df['previous_max'].mode()
-    #     #     mode_freq = year_df['previous_max'].value_counts().max()
-    #     #
-    #     #     max_net_value_count[year] = int(mode_freq)
-    #     #
-    #     # return max_net_value_count
-    #
-    #     return int(data_df['previous_max'].value_counts().max())
-    #     # d_max = data_df['previous_max'].max()
-    #     # return data_df[data_df['previous_max'] == d_max]['previous_max'].count()
-
     def maximum_number_of_backtest_repair_days(self, data_df):
         """
         最大回测修复天数（整体区间）
@@ -1046,19 +880,6 @@ class PerformanceMetricsMixin:
             yearly_result[int(year)] = int(max_repair_days)
 
         return yearly_result
-
-    def exceeding_maximum_number_of_backtest_repair_days(self, index_data, start_data):
-        """
-        """
-
-        # start_index_data = {}
-        #
-        # for k,v in start_data.items():
-        #     start_index_data[k] = v - index_data[k]
-        # return start_index_data
-
-        return start_data - index_data
-
 
     def _calculate_metrics_v1(self, data, *, return_dataframes: bool = False, runtime_params=None):
         """
@@ -1231,10 +1052,6 @@ class PerformanceMetricsMixin:
             data_df_2['net_value'] = start_df['net_value'] - index_df['net_value']
             excess_maximum_number_of_backtest_repair_days = self.maximum_number_of_backtest_repair_days(data_df_2)
 
-            # # 超额最大回测修复天数 = start - index
-            # excess_maximum_number_of_backtest_repair_days = self.exceeding_maximum_number_of_backtest_repair_days(
-            #     index_maximum_number_of_backtest_repair_days, start_maximum_number_of_backtest_repair_days
-            # )
 
             # 累计回报率
             index_cumulative_return = index_df['index_return'].iloc[-1]
@@ -1970,9 +1787,3 @@ class PerformanceMetricsMixin:
         count = len(data_df[data_df['daily_return'] < -threshold])
         return count
 
-if __name__ == '__main__':
-    data_df = pd.read_csv(r"D:\Users\Administrator\Desktop\谷歌参数批量校验\组合收益.csv")
-
-    ddd = PerformanceMetricsMixin()._calculate_metrics_v1(data_df.to_dict())
-
-    print(json.dumps(_convert_pandas_to_native(ddd), indent=4))

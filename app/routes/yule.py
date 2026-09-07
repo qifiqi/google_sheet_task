@@ -1,4 +1,6 @@
-from flask import Blueprint, render_template, request, jsonify, url_for, redirect, flash, current_app
+from flask import Blueprint
+
+from app.routes.page_files import send_page
 import json
 from app.services.config_manager import get_config_manager
 from app.utils.logger import get_logger
@@ -12,10 +14,10 @@ yule_bp = Blueprint('yule', __name__)
 @page_login_required
 def index():
     """Excel数据分析工具首页"""
-    return render_template('yule/index.html')
+    return send_page('yule/index.html')
 
 @yule_bp.route('/sjxz')
 @page_login_required
 def sjxz():
     """数据选择"""
-    return render_template('yule/sjxz.html')
+    return send_page('yule/sjxz.html')

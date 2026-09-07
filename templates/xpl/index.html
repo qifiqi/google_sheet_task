@@ -1,8 +1,369 @@
-{% extends "admin/base.html" %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel数据分析 - Jaspil 任务管理系统</title>
 
-{% block title %}Excel数据分析 - Jaspil 任务管理系统{% endblock %}
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/template-auth.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
 
-{% block content %}
+    <style>
+        :root {
+            --bs-secondary-color: rgba(33, 37, 41, 0.75);
+            --bs-tertiary-bg: #f8f9fa;
+            --bs-emphasis-color: #000;
+        }
+        html[data-bs-theme="dark"] {
+            --bs-body-color: #e5e7eb;
+            --bs-body-bg: #111827;
+            --bs-border-color: #334155;
+            --bs-secondary-color: #94a3b8;
+            --bs-tertiary-bg: #1f2937;
+            --bs-emphasis-color: #f8fafc;
+        }
+        .text-body {
+            color: var(--bs-body-color) !important;
+        }
+        .text-body-secondary {
+            color: var(--bs-secondary-color) !important;
+        }
+        .bg-body {
+            background-color: var(--bs-body-bg) !important;
+        }
+        .bg-body-tertiary {
+            background-color: var(--bs-tertiary-bg) !important;
+        }
+        body {
+            background-color: #f8f9fa;
+        }
+        html[data-bs-theme="dark"] body {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        .sidebar {
+            min-height: 100vh;
+            background: #ffffff;
+            overflow-y: scroll;
+            overflow-x: hidden;
+            border-right: 1px solid #e9ecef;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.04);
+            scrollbar-gutter: stable;
+            flex: 0 0 auto;
+        }
+        html[data-bs-theme="dark"] .sidebar {
+            background: #111827;
+            border-right-color: #243041;
+            box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+        }
+        .sidebar-brand-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.85rem;
+            background: linear-gradient(135deg, #0d6efd 0%, #4dabf7 100%);
+            color: #fff;
+            font-size: 1.1rem;
+            box-shadow: 0 10px 20px rgba(13, 110, 253, 0.18);
+        }
+        .sidebar .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: #495057;
+            padding: 0.65rem 0.85rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.2rem;
+            font-weight: 500;
+            transition: all 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link {
+            color: #d1d5db;
+        }
+        .sidebar .nav-link:hover {
+            color: #0d6efd;
+            background-color: #f1f5ff;
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link:hover {
+            color: #93c5fd;
+            background-color: rgba(59, 130, 246, 0.14);
+        }
+        .sidebar .nav-link.active {
+            color: #0d6efd;
+            background-color: #e7f1ff;
+            box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.12);
+        }
+        html[data-bs-theme="dark"] .sidebar .nav-link.active {
+            color: #bfdbfe;
+            background-color: rgba(59, 130, 246, 0.18);
+            box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.2);
+        }
+        .sidebar .btn-toggle {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #343a40;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 0.8rem 0.85rem 0.55rem;
+            border-radius: 0.75rem;
+            transition: background-color 0.18s ease, color 0.18s ease;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle {
+            color: #e5e7eb;
+        }
+        .sidebar .btn-toggle:hover {
+            background: #f8f9fa;
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle:hover {
+            background: rgba(255, 255, 255, 0.04);
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-icon {
+            transition: transform 0.2s ease;
+            color: #868e96;
+            font-size: 0.9rem;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle-icon {
+            color: #94a3b8;
+        }
+        .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            transform: rotate(90deg);
+            color: #0d6efd;
+        }
+        html[data-bs-theme="dark"] .sidebar .btn-toggle[aria-expanded="true"] .btn-toggle-icon {
+            color: #93c5fd;
+        }
+        .sidebar .btn-toggle-nav {
+            padding-left: 0;
+            margin: 0.1rem 0 0;
+            list-style: none;
+            padding-left: 0.15rem;
+        }
+        .sidebar .btn-toggle-nav li {
+            margin: 0;
+        }
+        .sidebar .btn-toggle-nav .nav-link {
+            margin-left: 0.25rem;
+            padding: 0.48rem 0.75rem 0.48rem 0.85rem;
+            white-space: nowrap;
+            font-size: 0.93rem;
+            font-weight: 500;
+            border-radius: 0.7rem;
+        }
+        .sidebar .btn-toggle-nav .nav-link i {
+            font-size: 0.92rem;
+            opacity: 0.9;
+        }
+        .sidebar .btn-toggle-nav .nav-link span {
+            font-size: 0.93rem;
+        }
+        .main-content {
+            min-width: 0;
+        }
+
+        @media (min-width: 768px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 1000;
+                width: 25%;
+                max-width: 25%;
+            }
+            .main-content {
+                margin-left: 25%;
+            }
+        }
+
+        @media (min-width: 992px) {
+            .sidebar {
+                width: 16.666667%;
+                max-width: 16.666667%;
+            }
+            .main-content {
+                margin-left: 16.666667%;
+            }
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 10px;
+        }
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: #ced4da;
+            border-radius: 999px;
+            border: 2px solid #ffffff;
+        }
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: #adb5bd;
+        }
+        .sidebar-user-avatar {
+            width: 2.75rem;
+            height: 2.75rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 1rem;
+            background: linear-gradient(135deg, #fb7185 0%, #8b5cf6 100%);
+            box-shadow: 0 10px 20px rgba(139, 92, 246, 0.18);
+            flex-shrink: 0;
+        }
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border: 1px solid rgba(0, 0, 0, 0.125);
+        }
+        html[data-bs-theme="dark"] .card {
+            background-color: #182132;
+            border-color: #2a3648;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table {
+            --bs-table-color: #e5e7eb;
+            --bs-table-bg: transparent;
+            --bs-table-border-color: #334155;
+            --bs-table-striped-color: #e5e7eb;
+            --bs-table-striped-bg: rgba(148, 163, 184, 0.05);
+            --bs-table-active-color: #f8fafc;
+            --bs-table-active-bg: rgba(59, 130, 246, 0.12);
+            --bs-table-hover-color: #f8fafc;
+            --bs-table-hover-bg: rgba(59, 130, 246, 0.08);
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .table > :not(caption) > * > * {
+            color: inherit;
+        }
+        html[data-bs-theme="dark"] .table thead,
+        html[data-bs-theme="dark"] .table-light,
+        html[data-bs-theme="dark"] .bg-white {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .table-light > :not(caption) > * > *,
+        html[data-bs-theme="dark"] .table > thead > tr > th {
+            background-color: #182132 !important;
+            color: #e5e7eb !important;
+            border-bottom-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .table code {
+            color: #f9a8d4;
+        }
+        html[data-bs-theme="dark"] .table .text-dark {
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .bg-light,
+        html[data-bs-theme="dark"] .alert-light {
+            background-color: #1f2937 !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .dropdown-menu {
+            background-color: #182132;
+            border-color: #2a3648;
+        }
+        html[data-bs-theme="dark"] .dropdown-item {
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .dropdown-item:hover,
+        html[data-bs-theme="dark"] .dropdown-item:focus {
+            color: #f8fafc;
+            background-color: rgba(59, 130, 246, 0.12);
+        }
+        html[data-bs-theme="dark"] .dropdown-divider {
+            border-top-color: #334155;
+        }
+        html[data-bs-theme="dark"] .text-muted {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .form-control,
+        html[data-bs-theme="dark"] .form-select,
+        html[data-bs-theme="dark"] .input-group-text,
+        html[data-bs-theme="dark"] textarea.form-control {
+            background-color: #111827 !important;
+            border-color: #334155 !important;
+            color: #e5e7eb !important;
+        }
+        html[data-bs-theme="dark"] .form-control:focus,
+        html[data-bs-theme="dark"] .form-select:focus,
+        html[data-bs-theme="dark"] textarea.form-control:focus {
+            background-color: #0f172a !important;
+            border-color: #3b82f6 !important;
+            color: #f8fafc !important;
+            box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18) !important;
+        }
+        html[data-bs-theme="dark"] .form-control::placeholder,
+        html[data-bs-theme="dark"] textarea.form-control::placeholder {
+            color: #7c8aa0 !important;
+        }
+        html[data-bs-theme="dark"] .form-select option {
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        html[data-bs-theme="dark"] .input-group-text {
+            color: #94a3b8 !important;
+        }
+        html[data-bs-theme="dark"] .text-bg-light,
+        html[data-bs-theme="dark"] .badge.text-bg-light {
+            background-color: #1e293b !important;
+            color: #e5e7eb !important;
+            border-color: #334155 !important;
+        }
+        html[data-bs-theme="dark"] .list-group-item {
+            background-color: #111827;
+            color: #e5e7eb;
+            border-color: #334155;
+        }
+        html[data-bs-theme="dark"] .list-group-item.active {
+            background-color: rgba(59, 130, 246, 0.18);
+            border-color: #3b82f6;
+            color: #f8fafc;
+        }
+        html[data-bs-theme="dark"] .card-header.border-0 {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            overflow-x: auto;
+            background-color: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            border-radius: 0.375rem;
+            font-size: 14px;
+            white-space: pre;
+            word-break: normal;
+        }
+    </style>
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">数据分析工具</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
@@ -471,69 +832,16 @@
         <i class="bi bi-x-circle me-1"></i> 取消
     </button>
 </div>
-{% endblock %}
+            </main>
+        </div>
+    </div>
 
-{% block style %}
-
-
-<style>
-    
-/* 数据输入框样式 */
-#data-input {
-    height: 200px !important;
-    max-height: 200px !important;
-    min-height: 200px !important;
-    resize: none !important;
-    overflow-y: auto !important;
-    font-family: 'Courier New', monospace !important;
-    font-size: 0.9em !important;
-    line-height: 1.4 !important;
-    white-space: pre !important;
-}
-
-/* 优化卡片悬停效果 */
-.card {
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-    border-radius: 0.5rem;
-}
-.card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.08) !important;
-}
-
-/* 优化按钮悬停效果 */
-.btn-outline-secondary:hover {
-    background-color: #f8f9fa;
-}
-
-/* 优化输入框焦点效果 */
-.form-control:focus {
-    border-color: #86b7fe;
-    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.1);
-}
-
-/* 优化步骤指示器 */
-.vstack .d-flex {
-    padding: 0.75rem;
-    border-radius: 0.5rem;
-    transition: background-color 0.2s;
-}
-.vstack .d-flex:hover {
-    background-color: rgba(13, 110, 253, 0.05);
-}
-
-/* 响应式调整 */
-@media (max-width: 992px) {
-    .col-lg-5, .col-lg-3, .col-lg-4 {
-        margin-bottom: 1rem;
-    }
-}
-</style>
-
-{% endblock %}
-
-{% block scripts %}
-{{ super() }}
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/admin-shell.js"></script>
+    <script src="/static/js/trading-date.js"></script>
+        <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
 <!-- Load jQuery first -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <!-- Then load DataTables -->
@@ -541,916 +849,6 @@
 <script type="text/javascript" src="https://cdn.datatables.net/1.13.1/js/dataTables.bootstrap5.min.js"></script>
 <!-- Then load Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<!-- Your custom scripts --><script>
-    // 全局变量
-    let chart = null;
-    let drawdownChart = null;
-    let sharpePastChart = null;
-    let sharpeYearChart = null;
-    let rawData = [];
-    let processedData = [];
-    let currentResults = null;
-
-    function normalizeApiResponse(payload) {
-        const isStandard = payload
-            && typeof payload === 'object'
-            && Object.prototype.hasOwnProperty.call(payload, 'code')
-            && Object.prototype.hasOwnProperty.call(payload, 'data');
-        const body = isStandard && payload.data && typeof payload.data === 'object'
-            ? payload.data
-            : payload;
-        return {
-            ok: isStandard ? payload.code === 0 : body?.status === 'success',
-            message: payload?.message || body?.message || '',
-            body,
-            data: isStandard ? payload.data : body
-        };
-    }
-
-    function getAnalyzeResults(api) {
-        return api.body?.results ?? api.data?.results ?? api.data;
-    }
-
-    function formatPercent(value, digits = 2) {
-        if (value === undefined || value === null || value === '') {
-            return '-';
-        }
-        const num = Number(value);
-        return Number.isFinite(num) ? `${(num * 100).toFixed(digits)}%` : '-';
-    }
-
-    function formatNumber(value, digits = 4) {
-        if (value === undefined || value === null || value === '') {
-            return '-';
-        }
-        const num = Number(value);
-        return Number.isFinite(num) ? num.toFixed(digits) : '-';
-    }
-
-    function getReturnRateValue(item) {
-        return item?.annual_return ?? item?.monthly_return ?? item?.daily_return ?? item?.return;
-    }
-
-    function isDualResults(results) {
-        return results?.analysis_mode === 'dual'
-            || Boolean(results?.start_returns_rate || results?.index_returns_rate);
-    }
-
-    function getPrimaryResults(results) {
-        if (!isDualResults(results)) {
-            return results;
-        }
-
-        return {
-            maximum_drawdown: results.start_maximum_drawdown,
-            returns_rate: results.start_returns_rate,
-            sharpe_ratios: results.start_sharpe_ratios,
-            analysis_mode: results.analysis_mode
-        };
-    }
-
-    function getSecondaryResults(results) {
-        if (!isDualResults(results)) {
-            return null;
-        }
-
-        return {
-            maximum_drawdown: results.index_maximum_drawdown,
-            returns_rate: results.index_returns_rate,
-            sharpe_ratios: results.index_sharpe_ratios,
-            analysis_mode: results.analysis_mode
-        };
-    }
-
-    function formatSharpePeriodLabel(key) {
-        if (key === 'all') {
-            return '全部';
-        }
-
-        const pastMatch = key.match(/^past_(\d+)_years_since_(\d{4})$/);
-        if (pastMatch) {
-            return `近${pastMatch[1]}年（${pastMatch[2]}起）`;
-        }
-
-        const yearMatch = key.match(/^year_(\d+)_(\d{4})$/);
-        if (yearMatch) {
-            return `第${yearMatch[1]}年（${yearMatch[2]}）`;
-        }
-
-        return key;
-    }
-
-    // 页面加载完成
-    document.addEventListener('DOMContentLoaded', () => {
-        initEventListeners();
-        showAlert('欢迎使用收益率分析工具！请从Excel复制数据并粘贴到上方区域。', 'info');
-        
-        // 不初始化默认图表，等待数据加载后再创建
-    });
-    
-    // 刷新数据
-    function refreshData() {
-        if (rawData.length > 0) {
-            parseExcelData();
-        } else {
-            showAlert('没有可刷新的数据', 'warning');
-        }
-    }
-
-    // 从剪贴板粘贴
-    async function pasteFromClipboard() {
-        try {
-            const text = await navigator.clipboard.readText();
-            document.getElementById('data-input').value = text;
-            showAlert('已从剪贴板粘贴数据', 'success');
-        } catch (err) {
-            console.error('无法访问剪贴板:', err);
-            showAlert('无法访问剪贴板，请手动粘贴', 'danger');
-        }
-    }
-
-    // 全局变量用于取消请求
-    let abortController = null;
-
-    // 取消加载
-    document.getElementById('cancel-loading')?.addEventListener('click', () => {
-        if (abortController) {
-            abortController.abort();
-            hideLoading();
-            showAlert('已取消操作', 'info');
-        }
-    });
-
-    // 显示加载中
-    function showLoading() {
-        const overlay = document.getElementById('loading-overlay');
-        if (overlay) {
-            overlay.style.display = 'flex';
-            // 禁用页面滚动
-            document.body.style.overflow = 'hidden';
-        }
-    }
-
-    // 隐藏加载中
-    function hideLoading() {
-        const overlay = document.getElementById('loading-overlay');
-        if (overlay) {
-            overlay.style.display = 'none';
-            // 恢复页面滚动
-            document.body.style.overflow = '';
-        }
-    }
-
-    // 解析Excel数据并发送到后端处理
-    function parseExcelData() {
-        const inputText = document.getElementById('data-input').value.trim();
-        
-        // 添加更严格的输入验证
-        if (!inputText) {
-            showAlert('请输入要分析的数据', 'warning');
-            return;
-        }
-
-        // 检查是否只有空白行
-        const nonEmptyLines = inputText.split('\n').filter(line => line.trim().length > 0);
-        if (nonEmptyLines.length === 0) {
-            showAlert('请输入有效的分析数据', 'warning');
-            return;
-        }
-        rawData = nonEmptyLines;
-
-        // 显示加载中
-        showLoading();
-        
-        // 准备请求数据
-        const requestData = {
-            data: inputText,
-            time_format: document.getElementById('time-format').value
-        };
-
-        // 创建新的AbortController
-        abortController = new AbortController();
-        const signal = abortController.signal;
-        
-        // 设置超时
-        const timeoutId = setTimeout(() => {
-            if (abortController) {
-                abortController.abort('请求超时，请稍后重试');
-            }
-        }, 30000); // 30秒超时
-
-        // 发送数据到后端API
-        fetch('/xpl/analyze', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
-            },
-            body: JSON.stringify(requestData),
-            signal: signal
-        })
-        .then(async response => {
-            clearTimeout(timeoutId);
-            if (!response.ok) {
-                const error = await response.json().catch(() => ({}));
-                const api = normalizeApiResponse(error);
-                throw new Error(api.message || `HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            const api = normalizeApiResponse(data);
-            const results = getAnalyzeResults(api);
-            if (api.ok) {
-                showAlert('数据分析完成', 'success');
-                console.log('API Response:', data); // 调试日志
-                
-                // 保存当前结果用于导出
-                currentResults = {results};
-                
-                // 更新所有数据
-                if (results) {
-                    updateMetrics(results);
-                    updateAllTables(results);
-                }
-            } else {
-                throw new Error(api.message || '处理数据时出错');
-            }
-        })
-        .catch(error => {
-            console.error('请求出错:', error);
-            if (error.name === 'AbortError') {
-                showAlert(error.message || '操作已取消', 'info');
-            } else {
-                showAlert('请求出错: ' + (error.message || '未知错误'), 'danger');
-            }
-        })
-        .finally(() => {
-            hideLoading();
-            abortController = null;
-            clearTimeout(timeoutId);
-        });
-    }
-    // 更新数据预览
-    function updateDataPreview(data) {
-        const tbody = document.getElementById('data-preview');
-        tbody.innerHTML = '';
-        
-        if (!data || data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">暂无数据</td></tr>';
-            return;
-        }
-        
-        data.forEach((item, index) => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${index + 1}</td>
-                <td>${item.date || '-'}</td>
-                <td class="${(item.return || 0) >= 0 ? 'text-success' : 'text-danger'}">
-                    ${((item.return || 0) * 100).toFixed(2)}%
-                </td>
-                <td>${((item.cumulative_return || 0) * 100).toFixed(2)}%</td>
-            `;
-            tbody.appendChild(row);
-        });
-        
-        document.getElementById('data-count').textContent = data.length;
-    }
-    
-    // 更新指标
-    function updateMetrics(results) {
-        if (!results) return;
-        const primaryResults = getPrimaryResults(results);
-
-        // 更新核心指标
-        if (Array.isArray(primaryResults.returns_rate) && primaryResults.returns_rate.length > 0) {
-            const latestReturn = primaryResults.returns_rate[primaryResults.returns_rate.length - 1];
-            const totalReturn = latestReturn.net_value !== undefined ? latestReturn.net_value - 1 : getReturnRateValue(latestReturn);
-            document.getElementById('total-return').textContent = `${formatNumber(totalReturn, 2)}%`;
-            document.getElementById('annual-return').textContent = formatPercent(latestReturn.annual_return);
-        }
-        
-        if (primaryResults.maximum_drawdown !== undefined) {
-            document.getElementById('max-drawdown').textContent = formatPercent(primaryResults.maximum_drawdown.total_maximum_drawdown?.drawdown);
-        }
-        if (primaryResults.sharpe_ratios !== undefined) {
-            document.getElementById('sharpe-ratio').textContent = formatNumber(primaryResults.sharpe_ratios.all?.sharpe_ratio);
-        }
-        
-        // // 更新其他指标
-        // if (results.data_points !== undefined) {
-        //     document.getElementById('data-points').textContent = results.data_points;
-        // }
-        // if (results.date_range) {
-        //     document.getElementById('date-range').textContent = results.date_range;
-        // }
-        // if (results.annual_volatility !== undefined) {
-        //     document.getElementById('annual-volatility').textContent = (results.annual_volatility * 100).toFixed(2) + '%';
-        // }
-        // if (results.win_rate !== undefined) {
-        //     document.getElementById('win-rate').textContent = (results.win_rate * 100).toFixed(2) + '%';
-        // }
-    }
-
-    // 加载示例数据
-    function loadSampleData() {
-        const sampleData = `2025-01-01 0.0234
-2025-01-02 -0.0156
-2025-01-03 0.0089
-2025-01-04 0.0123
-2025-01-05 -0.0078
-2025-01-06 0.0189
-2025-01-07 -0.0056
-2025-01-08 0.0098
-2025-01-09 0.0145
-2025-01-10 -0.0032`;
-        
-        document.getElementById('data-input').value = sampleData;
-        showAlert('已加载示例数据', 'info');
-    }
-
-    // 清空所有数据
-    function clearAllData() {
-        if (confirm('确定要清空所有数据吗？此操作不可恢复。')) {
-            document.getElementById('data-input').value = '';
-            document.getElementById('data-preview').innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">暂无数据</td></tr>';
-            document.getElementById('results-tbody').innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">分析后将显示数据预览</td></tr>';
-            document.getElementById('data-count').textContent = '0';
-            
-            // 重置图表
-            if (chart) {
-                chart.data.labels = [];
-                chart.data.datasets[0].data = [];
-                chart.update();
-            }
-            
-            // 重置指标
-            ['total-return', 'annual-return', 'max-drawdown', 'sharpe-ratio', 
-             'data-points', 'date-range', 'annual-volatility', 'win-rate'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.textContent = '-';
-            });
-            
-            showAlert('已清空所有数据', 'success');
-        }
-    }
-
-    // 导出结果
-    function exportResults() {
-        if (!currentResults) {
-            showAlert('没有可导出的结果', 'warning');
-            return;
-        }
-        
-        // 直接导出接口响应的数据
-        const exportData = {
-            meta: {
-                generatedAt: new Date().toISOString(),
-                dataPoints: rawData.length
-            },
-            results: currentResults.results
-        };
-        
-        document.getElementById('export-data').value = JSON.stringify(exportData, null, 2);
-        const exportModal = new bootstrap.Modal(document.getElementById('exportModal'));
-        exportModal.show();
-    }
-
-    // 复制到剪贴板
-    async function copyToClipboard() {
-        const exportData = document.getElementById('export-data');
-        try {
-            await navigator.clipboard.writeText(exportData.value);
-            showAlert('已复制到剪贴板', 'success');
-        } catch (err) {
-            console.error('复制失败:', err);
-            showAlert('复制失败: ' + err.message, 'danger');
-        }
-    }
-
-    // 下载JSON文件
-    function downloadJSON() {
-        const exportData = document.getElementById('export-data');
-        const blob = new Blob([exportData.value], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `analysis-${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
-    // 显示提示信息
-    function showAlert(message, type = 'info') {
-        const alert = document.createElement('div');
-        alert.className = `alert alert-${type} alert-dismissible fade show`;
-        alert.role = 'alert';
-        alert.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        `;
-        
-        const container = document.createElement('div');
-        container.className = 'position-fixed top-0 end-0 p-3';
-        container.style.zIndex = '9999';
-        container.appendChild(alert);
-        
-        document.body.appendChild(container);
-        
-        // 2秒后自动移除
-        setTimeout(() => {
-            const bsAlert = new bootstrap.Alert(alert);
-            bsAlert.close();
-            setTimeout(() => container.remove(), 150);
-        }, 2000);
-    }
-
-    // 初始化事件监听器
-    function initEventListeners() {
-        // 监听键盘快捷键
-        document.addEventListener('keydown', (e) => {
-            // Ctrl+Enter 触发计算
-            if (e.ctrlKey && e.key === 'Enter') {
-                e.preventDefault();
-                parseExcelData();
-            }
-            
-            // Esc 清空输入
-            if (e.key === 'Escape') {
-                clearAllData();
-            }
-        });
-        
-        // 监听输入框变化
-        document.getElementById('data-input').addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = (this.scrollHeight) + 'px';
-        });
-    }
-
-    // 添加行数统计功能
-    document.addEventListener('DOMContentLoaded', function() {
-        const textarea = document.getElementById('data-input');
-        const lineCount = document.getElementById('line-count');
-        
-        function updateLineCount() {
-            const lines = textarea.value.split('\n').filter(line => line.trim() !== '');
-            lineCount.textContent = `${lines.length} 行数据`;
-        }
-        
-        textarea.addEventListener('input', updateLineCount);
-        
-        // 初始化工具提示
-        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl);
-        });
-    });
-
-    // 更新最大回撤表格
-    function updateDrawdownTable(data) {
-        const table = document.getElementById('drawdown-table');
-        if (!table) {
-            console.error('Drawdown table not found');
-            return;
-        }
-
-        const tbody = table.querySelector('tbody');
-        if (!tbody) {
-            console.error('Drawdown table body not found');
-            return;
-        }
-
-        tbody.innerHTML = ''; // 清空现有内容
-
-        const primaryResults = getPrimaryResults(data);
-        const secondaryResults = getSecondaryResults(data);
-        if (!primaryResults.maximum_drawdown || !primaryResults.maximum_drawdown.year_maximum_drawdown) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">没有可用的回撤数据</td></tr>';
-            return;
-        }
-
-        // 添加数据行
-        primaryResults.maximum_drawdown.year_maximum_drawdown.forEach((item, index) => {
-            const secondaryItem = secondaryResults?.maximum_drawdown?.year_maximum_drawdown?.[index];
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${item.date}</td>
-                <td>${item.year}</td>
-                <td class="${item.drawdown >= 0 ? 'text-danger' : 'text-success'}">
-                    ${isDualResults(data) ? '模型 ' : ''}${formatPercent(item.drawdown)}
-                    ${secondaryItem ? `<div class="small text-muted">指数 ${formatPercent(secondaryItem.drawdown)}</div>` : ''}
-                </td>
-                <td>${formatNumber(item.daily_return, 2)}%${secondaryItem ? `<div class="small text-muted">指数 ${formatNumber(secondaryItem.daily_return, 2)}%</div>` : ''}</td>
-                <td>${formatNumber(item.net_value)}${secondaryItem ? `<div class="small text-muted">指数 ${formatNumber(secondaryItem.net_value)}</div>` : ''}</td>
-            `;
-            tbody.appendChild(row);
-        });
-    }
-
-    // 更新主收益率曲线图表
-    function updateMainReturnsChart(results) {
-        const ctx = document.getElementById('return-chart');
-        if (!ctx) {
-            console.error('Main return chart canvas not found');
-            return;
-        }
-
-        const primaryResults = Array.isArray(results) ? { returns_rate: results } : getPrimaryResults(results);
-        const secondaryResults = Array.isArray(results) ? null : getSecondaryResults(results);
-        const returnsData = primaryResults?.returns_rate;
-        if (!returnsData || !Array.isArray(returnsData)) {
-            console.error('Invalid returns data for main chart');
-            return;
-        }
-
-        // 准备图表数据
-        const labels = returnsData.map(item => {
-            const date = new Date(item.date);
-            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        });
-
-        const data = returnsData.map(item => getReturnRateValue(item) * 100);
-        const datasets = [{
-            label: isDualResults(results) ? '模型年度收益率 (%)' : '年度收益率 (%)',
-            data: data,
-            borderColor: '#007bff',
-            backgroundColor: 'rgba(0, 123, 255, 0.1)',
-            borderWidth: 2,
-            fill: true,
-            tension: 0.1
-        }];
-        if (secondaryResults?.returns_rate) {
-            datasets.push({
-                label: '指数年度收益率 (%)',
-                data: secondaryResults.returns_rate.map(item => getReturnRateValue(item) * 100),
-                borderColor: '#6c757d',
-                backgroundColor: 'rgba(108, 117, 125, 0.08)',
-                borderWidth: 2,
-                fill: false,
-                tension: 0.1
-            });
-        }
-
-        // 创建或更新图表
-        if (chart) {
-            chart.data.labels = labels;
-            chart.data.datasets = datasets;
-            chart.update();
-        } else {
-            chart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: '收益率 (%)'
-                            },
-                            ticks: {
-                                callback: function(value) {
-                                    return value + '%';
-                                }
-                            }
-                        },
-                        x: {
-                            title: {
-                                display: true,
-                                text: '日期'
-                            }
-                        }
-                    }
-                }
-            });
-        }
-    }
-
-    // 更新收益率表格和图表
-    function updateReturnsData(data) {
-        const table = document.getElementById('returns-table');
-        if (!table) {
-            console.error('Returns table not found');
-            return;
-        }
-
-        const tbody = table.querySelector('tbody');
-        if (!tbody) {
-            console.error('Returns table body not found');
-            return;
-        }
-
-        tbody.innerHTML = ''; // 清空现有内容
-
-        const primaryResults = getPrimaryResults(data);
-        const secondaryResults = getSecondaryResults(data);
-        if (!primaryResults.returns_rate || !Array.isArray(primaryResults.returns_rate)) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">没有可用的收益率数据</td></tr>';
-            return;
-        }
-
-        // 添加数据行
-        primaryResults.returns_rate.forEach((item, index) => {
-            const secondaryItem = secondaryResults?.returns_rate?.[index];
-            const row = document.createElement('tr');
-            // const date = new Date(item.date);
-            // const year = date.getFullYear();
-            // const month = String(date.getMonth() + 1).padStart(2, '0');
-            
-            row.innerHTML = `
-                <td>${item.date}</td>
-                <td>${item.year}</td>
-                <td class="${getReturnRateValue(item) >= 0 ? 'text-success' : 'text-danger'}">
-                    ${formatPercent(getReturnRateValue(item))}
-                    ${secondaryItem ? `<div class="small text-muted">指数 ${formatPercent(getReturnRateValue(secondaryItem))}</div>` : ''}
-                </td>
-                <td>${formatNumber(item.net_value)}</td>
-            `;
-            tbody.appendChild(row);
-        });
-
-        // 更新图表到主收益率曲线区域
-        if (primaryResults.returns_rate && Array.isArray(primaryResults.returns_rate)) {
-            updateMainReturnsChart(data);
-        }
-    }
-
-    // 更新夏普比率表格
-    function updateSharpeTable(data) {
-        const table = document.getElementById('sharpe-table');
-        if (!table) {
-            console.error('Sharpe table not found');
-            return;
-        }
-
-        const tbody = table.querySelector('tbody');
-        if (!tbody) {
-            console.error('Sharpe table body not found');
-            return;
-        }
-
-        tbody.innerHTML = ''; // 清空现有内容
-
-        const primaryResults = getPrimaryResults(data);
-        const secondaryResults = getSecondaryResults(data);
-        if (!primaryResults.sharpe_ratios) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">没有可用的夏普比率数据</td></tr>';
-            return;
-        }
-
-        // 添加数据行
-        Object.entries(primaryResults.sharpe_ratios).forEach(([key, value]) => {
-            if (typeof value === 'object' && value !== null) {
-                const secondaryValue = secondaryResults?.sharpe_ratios?.[key];
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${formatSharpePeriodLabel(key)}</td>
-                    <td>${formatNumber(value.sharpe_ratio)}${secondaryValue ? `<div class="small text-muted">指数 ${formatNumber(secondaryValue.sharpe_ratio)}</div>` : ''}</td>
-                    <td>${formatPercent(value.avg_monthly_return)}${secondaryValue ? `<div class="small text-muted">指数 ${formatPercent(secondaryValue.avg_monthly_return)}</div>` : ''}</td>
-                    <td>${formatPercent(value.monthly_std_dev)}${secondaryValue ? `<div class="small text-muted">指数 ${formatPercent(secondaryValue.monthly_std_dev)}</div>` : ''}</td>
-                    <td>${formatPercent(value.annual_std_dev)}${secondaryValue ? `<div class="small text-muted">指数 ${formatPercent(secondaryValue.annual_std_dev)}</div>` : ''}</td>
-                    <td>${value.start_date || '-'}</td>
-                    <td>${value.end_date || '-'}</td>
-                `;
-                tbody.appendChild(row);
-            }
-        });
-    }
-
-    // 更新最大回撤图表
-    function updateDrawdownChart(data) {
-        const ctx = document.getElementById('drawdown-chart');
-        if (!ctx) {
-            console.error('Drawdown chart canvas not found');
-            return;
-        }
-
-        const primaryResults = getPrimaryResults(data);
-        const secondaryResults = getSecondaryResults(data);
-        if (!primaryResults || !primaryResults.maximum_drawdown || !primaryResults.maximum_drawdown.year_maximum_drawdown) {
-            console.error('Invalid drawdown data for chart');
-            return;
-        }
-
-        const drawdownData = primaryResults.maximum_drawdown.year_maximum_drawdown;
-        const labels = drawdownData.map(item => item.year);
-        const drawdownValues = drawdownData.map(item => item.drawdown * 100);
-        const datasets = [{
-            label: isDualResults(data) ? '模型最大回撤 (%)' : '最大回撤 (%)',
-            data: drawdownValues,
-            borderColor: '#dc3545',
-            backgroundColor: 'rgba(220, 53, 69, 0.1)',
-            borderWidth: 2,
-            fill: true,
-            tension: 0.1
-        }];
-        if (secondaryResults?.maximum_drawdown?.year_maximum_drawdown) {
-            datasets.push({
-                label: '指数最大回撤 (%)',
-                data: secondaryResults.maximum_drawdown.year_maximum_drawdown.map(item => item.drawdown * 100),
-                borderColor: '#6c757d',
-                backgroundColor: 'rgba(108, 117, 125, 0.08)',
-                borderWidth: 2,
-                fill: false,
-                tension: 0.1
-            });
-        }
-
-        if (drawdownChart) {
-            drawdownChart.data.labels = labels;
-            drawdownChart.data.datasets = datasets;
-            drawdownChart.update();
-        } else {
-            drawdownChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: '回撤 (%)'
-                            }
-                        },
-                        x: {
-                            title: {
-                                display: true,
-                                text: '年份'
-                            }
-                        }
-                    }
-                }
-            });
-        }
-    }
-
-    // 更新夏普率图表（过去期间）
-    function updateSharpePastChart(data) {
-        const ctx = document.getElementById('sharpe-past-chart');
-        if (!ctx) {
-            console.error('Sharpe past chart canvas not found');
-            return;
-        }
-
-        const primaryResults = getPrimaryResults(data);
-        const secondaryResults = getSecondaryResults(data);
-        if (!primaryResults || !primaryResults.sharpe_ratios) {
-            console.error('Invalid sharpe data for past chart');
-            return;
-        }
-
-        // 过滤出past_开头的数据
-        const pastData = Object.entries(primaryResults.sharpe_ratios)
-            .filter(([key]) => key.includes('past_'))
-            .map(([key, value]) => ({
-                key,
-                label: formatSharpePeriodLabel(key),
-                sharpe: value.sharpe_ratio
-            }));
-
-        const labels = pastData.map(item => item.label);
-        const sharpeValues = pastData.map(item => item.sharpe);
-        const datasets = [{
-            label: isDualResults(data) ? '模型夏普比率' : '夏普比率',
-            data: sharpeValues,
-            backgroundColor: sharpeValues.map(value => value >= 1 ? 'rgba(40, 167, 69, 0.5)' : 'rgba(255, 193, 7, 0.5)'),
-            borderColor: sharpeValues.map(value => value >= 1 ? '#28a745' : '#ffc107'),
-            borderWidth: 1
-        }];
-        if (secondaryResults?.sharpe_ratios) {
-            datasets.push({
-                label: '指数夏普比率',
-                data: pastData.map(item => secondaryResults.sharpe_ratios[item.key]?.sharpe_ratio ?? null),
-                backgroundColor: 'rgba(108, 117, 125, 0.35)',
-                borderColor: '#6c757d',
-                borderWidth: 1
-            });
-        }
-
-        if (sharpePastChart) {
-            sharpePastChart.data.labels = labels;
-            sharpePastChart.data.datasets = datasets;
-            sharpePastChart.update();
-        } else {
-            sharpePastChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: '夏普比率'
-                            }
-                        }
-                    }
-                }
-            });
-        }
-    }
-
-    // 更新夏普率图表（按年度）
-    function updateSharpeYearChart(data) {
-        const ctx = document.getElementById('sharpe-year-chart');
-        if (!ctx) {
-            console.error('Sharpe year chart canvas not found');
-            return;
-        }
-
-        const primaryResults = getPrimaryResults(data);
-        const secondaryResults = getSecondaryResults(data);
-        if (!primaryResults || !primaryResults.sharpe_ratios) {
-            console.error('Invalid sharpe data for year chart');
-            return;
-        }
-
-        // 过滤出year_开头的数据
-        const yearData = Object.entries(primaryResults.sharpe_ratios)
-            .filter(([key]) => key.includes('year_'))
-            .map(([key, value]) => ({
-                key,
-                label: formatSharpePeriodLabel(key),
-                sharpe: value.sharpe_ratio
-            }));
-
-        const labels = yearData.map(item => item.label);
-        const sharpeValues = yearData.map(item => item.sharpe);
-        const datasets = [{
-            label: isDualResults(data) ? '模型夏普比率' : '夏普比率',
-            data: sharpeValues,
-            backgroundColor: sharpeValues.map(value => value >= 1 ? 'rgba(40, 167, 69, 0.5)' : 'rgba(220, 53, 69, 0.5)'),
-            borderColor: sharpeValues.map(value => value >= 1 ? '#28a745' : '#dc3545'),
-            borderWidth: 1
-        }];
-        if (secondaryResults?.sharpe_ratios) {
-            datasets.push({
-                label: '指数夏普比率',
-                data: yearData.map(item => secondaryResults.sharpe_ratios[item.key]?.sharpe_ratio ?? null),
-                backgroundColor: 'rgba(108, 117, 125, 0.35)',
-                borderColor: '#6c757d',
-                borderWidth: 1
-            });
-        }
-
-        if (sharpeYearChart) {
-            sharpeYearChart.data.labels = labels;
-            sharpeYearChart.data.datasets = datasets;
-            sharpeYearChart.update();
-        } else {
-            sharpeYearChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: '夏普比率'
-                            }
-                        }
-                    }
-                }
-            });
-        }
-    }
-
-    // 更新所有表格和图表
-    function updateAllTables(results) {
-        updateDrawdownTable(results);
-        updateReturnsData(results);
-        updateSharpeTable(results);
-        
-        // 更新所有图表
-        updateMainReturnsChart(results);
-        updateDrawdownChart(results);
-        updateSharpePastChart(results);
-        updateSharpeYearChart(results);
-    }
-</script>
-{% endblock %}
+<!-- Your custom scripts --><script src="/static/js/pages/xpl_index.js"></script>
+</body>
+</html>

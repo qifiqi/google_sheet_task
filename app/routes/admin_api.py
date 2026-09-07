@@ -9,7 +9,7 @@ from flask import Blueprint, current_app, g, jsonify, request
 from app.services.model_summary_service import model_summary_service
 from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
-from app.extensions import limiter
+from app.extensions import limiter, rate_limit_config
 from app.schemas.admin import RebuildSchema
 from app.utils.request_parsing import parse_body
 from app.utils.api_response import success
@@ -19,13 +19,6 @@ from app.utils.logger import get_logger
 admin_api_bp = Blueprint('admin_api', __name__, url_prefix='/admin')
 logger = get_logger(__name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
-
-def get_config_value(key, default):
-    """限流阈值经 config_manager 运行时可调（零重启）。"""
-    from app.services.config_manager import get_config_manager
-
-    return get_config_manager().get_config(key, default)
-
 @admin_api_bp.route('/api/scheduler/status')
 @login_required
 def scheduler_status():
@@ -60,7 +53,7 @@ def model_summary_api():
 @admin_api_bp.route('/api/model-summary/rebuild', methods=['POST'])
 @admin_required
 @limiter.limit(
-    lambda: f"{get_config_value('rate_limit_rebuild', 2) or 2}/minute",
+    lambda: f"{rate_limit_config('rate_limit_rebuild', 2) or 2}/minute",
     key_func=lambda: f"user:{getattr(getattr(g, 'current_user', None), 'id', 'anon')}",
 )
 def rebuild_model_summary_api():

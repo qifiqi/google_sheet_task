@@ -4,7 +4,6 @@ from .base import (
     ConflictError,
     ForbiddenError,
     NotFoundError,
-    RateLimitError,
     ServiceError,
     UnauthorizedError,
     ValidationError,
@@ -20,7 +19,6 @@ __all__ = [
     'ForbiddenError',
     'NotFoundError',
     'ConflictError',
-    'RateLimitError',
     'ServiceError',
     # 任务线程域异常（无 HTTP 语义，不并入统一体系）
     'SheetCheckError',

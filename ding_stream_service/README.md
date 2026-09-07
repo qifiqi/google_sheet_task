@@ -26,7 +26,6 @@
 | `handler.py` | `DingStreamEventHandler`：处理 `/v1.0/im/bot/messages/get` 事件，经 sessionWebhook 回复 markdown |
 | `task_commands.py` | 任务指令解析与执行：懒加载 `create_app()` 后查询/重启任务，带会话级列表缓存（10 分钟 TTL） |
 | `message_format.py` | markdown 回复消息拼装 |
-| `project_factory.py` | 按关键字在仓库根创建独立项目脚手架（当前 handler 未接入，预留） |
 
 ## 配置
 

@@ -11,10 +11,10 @@ import json
 from dataclasses import replace
 from urllib.parse import quote
 
-from flask import Blueprint, Response, g, request, send_file, stream_with_context
+from flask import Blueprint, Response, request, send_file, stream_with_context
 
 from app.exceptions import BadRequestError, NotFoundError
-from app.extensions import limiter
+from app.extensions import limiter, rate_limit_config, rate_limit_user_key
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.schemas.task import TaskIdsBatchSchema
 from app.schemas.xpl import AnalyzePayloadSchema
@@ -30,21 +30,12 @@ logger = get_logger(__name__)
 export_api_bp = Blueprint("export_api", __name__)
 
 
-def _rate_limit(config_key, default):
-    """限流阈值经 config_manager 运行时可调（零重启）。"""
-    from app.services.config_manager import get_config_manager
-
-    return get_config_manager().get_config(config_key, default)
-
-
-def _user_key():
-    return f"user:{getattr(getattr(g, 'current_user', None), 'id', 'anon')}"
 
 
 # 06 §3：导出端点统一 rate_limit_export（10/min，user 键）。
 _export_limit = limiter.limit(
-    lambda: f"{_rate_limit('rate_limit_export', 10) or 10}/minute",
-    key_func=_user_key,
+    lambda: f"{rate_limit_config('rate_limit_export', 10) or 10}/minute",
+    key_func=rate_limit_user_key,
 )
 
 

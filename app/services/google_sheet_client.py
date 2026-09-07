@@ -255,84 +255,7 @@ class GoogleSheet:
 
         return self._retry_network_operation(_clear_operation, "clear_jumped_cells")
 
-    @staticmethod
-    def col_letter_to_num(col_letter):
-        """将Excel列字母转换为数字"""
-        num = 0
-        for c in col_letter:
-            num = num * 26 + (ord(c) - ord('A') + 1)
-        return num
 
-    @staticmethod
-    def num_to_col_letter(num):
-        """将数字转换为Excel列字母"""
-        if num <= 0:
-            return ""
-        result = ""
-        while num > 0:
-            num -= 1  # Adjust for 1-based indexing
-            result = chr(num % 26 + ord('A')) + result
-            num //= 26
-        return result
-
-    def calculate_stock_column(self, start_cell, stock_index, is_number=False):
-        """
-        动态计算股票在表格中的列位置
-
-        Args:
-            start_cell: 起始单元格，例如'I1'
-            stock_index: 股票序号（从1开始）
-            is_number: 是否返回数字格式
-
-        Returns:
-            (当前股票列, 后一列) 例如 ('M1', 'N1')
-        """
-        # 解析起始单元格
-        start_col_letter = ''.join(filter(str.isalpha, start_cell))
-        start_row = ''.join(filter(str.isdigit, start_cell))
-
-        # 起始列号（I=9）
-        start_col_num = self.col_letter_to_num(start_col_letter)
-
-        # 第一支股票从M列开始（M=13）
-        # 计算M列相对于起始列的偏移量
-        base_col_offset = 13 - start_col_num
-
-        # 计算当前股票应该在的列号
-        # 第一支股票在M列，第二支在V列，第三支在AE列，间隔9列
-        current_col_num = start_col_num + base_col_offset + (stock_index - 1) * 9
-        current_col_letter = self.num_to_col_letter(current_col_num)
-
-        # 计算后一列
-        next_col_num = current_col_num + 1
-        next_col_letter = self.num_to_col_letter(next_col_num)
-
-        if is_number:
-            return current_col_num, next_col_num
-        return f"{current_col_letter}{start_row}", f"{next_col_letter}{start_row}"
-
-    def update_row(self, sheet_row, sheet_value):
-        """更新单行数据"""
-        try:
-            logger.info(f"{self._log_ctx()}写入：sheet_rows：{sheet_row}, sheet_values：{sheet_value}")
-            self.worksheet.update(sheet_row, [[sheet_value]], value_input_option="USER_ENTERED")
-        except Exception as e:
-            logger.error(f'设置表格{sheet_row},值:{sheet_value}错误。错误内容：{str(e)}')
-            return f'设置表格{sheet_row},值:{sheet_value}错误。错误内容：{str(e)}'
-
-    def clear_row(self, sheet_rows):
-        """清除指定行"""
-        self.worksheet.range(sheet_rows).clear()
-
-    def update_rows(self, sheet_rows, sheet_values):
-        """批量更新行数据"""
-        try:
-            logger.info(f"{self._log_ctx()}批量写入：sheet_rows：{sheet_rows}, sheet_values：{sheet_values}")
-            self.worksheet.update(sheet_rows, sheet_values, value_input_option="USER_ENTERED")
-        except Exception as e:
-            logger.error(f'设置表格{sheet_rows},值:{sheet_values}错误。错误内容：{str(e)}')
-            return f'设置表格{sheet_rows},值:{sheet_values}错误。错误内容：{str(e)}'
-        
     def update_cell(self, cell_address, cell_value):
         """更新单个单元格"""
         try:
@@ -556,31 +479,6 @@ class GoogleSheet:
                     logger.error(f"{self._log_ctx()}获取单元格 {cell_ref} 失败: {cell_error}")
                     results[cell_ref] = ""
             return results
-
-    def get_trade_count_with_retry(self, cell_ref, max_retries=None, delay=None):
-        """带重试机制获取交易数量"""
-        # 从配置获取重试参数
-        from app.services.config_manager import get_config_manager
-        config_manager = get_config_manager()
-        if max_retries is None:
-            max_retries = config_manager.get_config('api_retry_max_attempts', 10)
-        if delay is None:
-            delay = config_manager.get_config('api_retry_delay', 30)
-            
-        retry_count = 0
-        while retry_count < max_retries:
-            try:
-                trade_count = self.get_cell(cell_ref)
-                if trade_count != '#DIV/0!' and trade_count.find("target") == -1:
-                    return trade_count
-            except Exception as e:
-                logger.error(f'{self._log_ctx()}获取交易数量出错: {str(e)}')
-            logger.info(f'{self._log_ctx()}重试中，已尝试{retry_count}次')
-            retry_count += 1
-            if retry_count < max_retries:
-                time.sleep(delay)
-        logger.warning(f'{self._log_ctx()}多次尝试后，仍无法获取有效的交易数量，返回0')
-        return '0'
 
     def get_all_worksheets(self):
         """获取电子表格中的所有工作表名称"""

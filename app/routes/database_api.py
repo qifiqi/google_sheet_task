@@ -1,8 +1,7 @@
 from flask import Blueprint
 
-from app.exceptions import BadRequestError
 from app.utils.api_response import success
-from app.utils.auth import login_required, admin_required
+from app.utils.auth import login_required
 from app.utils.db_monitor import DatabaseMonitor
 from app.utils.logger import get_logger
 
@@ -16,16 +15,6 @@ def get_database_status():
     """获取数据库状态"""
     report = DatabaseMonitor.get_full_report()
     return success(data={"report": report})
-
-@database_api_bp.route('/database/vacuum', methods=['POST'])
-@admin_required
-def vacuum_database():
-    """压缩数据库"""
-    logger.info("请求执行数据库 VACUUM")
-    result = DatabaseMonitor.vacuum_database()
-    if result.get('success'):
-        return success(data={"result": result})
-    raise BadRequestError(result.get('message', result.get('error')))
 
 @database_api_bp.route('/database/suggestions', methods=['GET'])
 @login_required

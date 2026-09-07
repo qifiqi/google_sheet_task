@@ -2,7 +2,6 @@ Flask
 python-dotenv
 Flask-SQLAlchemy
 Flask-Migrate
-Flask-RESTX
 gspread
 google-auth
 google-auth-oauthlib
@@ -20,7 +19,6 @@ concurrent-log-handler
 yfinance
 easy-tdx
 openpyxl
-xlsxwriter
 python-docx
 matplotlib
 PyJWT

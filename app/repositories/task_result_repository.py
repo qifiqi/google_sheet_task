@@ -300,17 +300,6 @@ class TaskResultRepository(BaseRepository):
             db.session.rollback()
             raise
 
-    def bulk_create(self, rows, commit: bool = True):
-        try:
-            for fields in rows or []:
-                db.session.add(TaskResult(**fields))
-            if commit:
-                self._commit()
-            return len(rows or [])
-        except Exception:
-            db.session.rollback()
-            raise
-
     def delete(self, result_id, commit=True):
         result = db.session.get(TaskResult, result_id)
         if result is None:
@@ -323,16 +312,6 @@ class TaskResultRepository(BaseRepository):
     def delete_by_task(self, task_id, commit=True):
         deleted = (
             TaskResult.query.filter_by(task_id=task_id)
-            .delete(synchronize_session=False)
-        )
-        if commit:
-            self._commit()
-        return deleted
-
-    def delete_older_than(self, cutoff, commit=True):
-        """清理窗口条件压 SQL 层；返回删除行数。"""
-        deleted = (
-            TaskResult.query.filter(TaskResult.timestamp < cutoff)
             .delete(synchronize_session=False)
         )
         if commit:
@@ -409,49 +388,6 @@ class TaskResultRepository(BaseRepository):
         return deleted
 
     # ---- TaskResultReturn 读 ----
-
-    def get_returns(self, result_id):
-        """按结果 id 取其收益序列（return_series_id 关联）。"""
-        result = db.session.get(TaskResult, result_id)
-        if result is None or not result.return_series_id:
-            return []
-        returns = (
-            TaskResultReturn.query.filter_by(id=result.return_series_id)
-            .all()
-        )
-        return [r.to_dict() for r in returns]
-
-    def get_returns_by_task(self, task_id):
-        return [
-            r.to_dict()
-            for r in TaskResultReturn.query.filter_by(task_id=task_id)
-            .order_by(TaskResultReturn.id.asc())
-            .all()
-        ]
-
-    # ---- TaskResultReturn 写 ----
-
-    def create_return(self, fields, commit: bool = True):
-        try:
-            record = TaskResultReturn(**fields)
-            db.session.add(record)
-            if commit:
-                self._commit()
-            return record.to_dict()
-        except Exception:
-            db.session.rollback()
-            raise
-
-    def bulk_create_returns(self, rows, commit: bool = True):
-        try:
-            for fields in rows or []:
-                db.session.add(TaskResultReturn(**fields))
-            if commit:
-                self._commit()
-            return len(rows or [])
-        except Exception:
-            db.session.rollback()
-            raise
 
     def delete_returns_by_task(self, task_id, commit=True):
         deleted = (

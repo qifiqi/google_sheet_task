@@ -47,8 +47,9 @@
 | 7 | `{{ google_sheet_table_type_options \| tojson }}` | admin/google_sheets.html:130 | `fetch('/api/meta/enums')` → `data.google_sheet_table_types`，在原位置以相同结构赋值给 `GOOGLE_SHEET_TABLE_TYPE_OPTIONS` |
 | 8 | `{% for option in google_sheet_table_type_options %}` ×2 | admin/google_sheets.html:35,104 | 由 #7 的数据 JS 渲染 `<option>`，插入到原 `<select>` 位置；`selected` 判断沿用原 Jinja 分支逻辑 |
 | 9 | `{% for option in task_status_options / task_type_filter_options / task_type_options / task_status_editable_options %}` ×4 | admin/tasks.html:161,170,248,467 | `fetch('/api/meta/enums')` → `task_statuses` / `task_types`（filter 用同一 `task_types`，editable 用 `task_status_editable`），同 #8 渲染 |
+| 10 | `{% if template_id %}…{% endif %}`（**JS 内死条件**） | c5/create.html:771-777、c7/create.html:795-801、c31/create.html:892 起 | **2026-09-08 补录**：路由从未向这些模板传 `template_id`（`google_sheet.py` create 各分支只传 version），Jinja 恒为假，该段 JS 现网从未下发。静态化时**整段不搬**（等价于今日实际渲染产物）。 |
 
-> #7~#9 的渲染函数放在对应 `pages/*.js`；`/api/meta/enums` 免登录、已有 6 处页面在用，是既有稳定契约（`meta_api.py:28`）。
+> #7~#9 的渲染函数放在对应 `pages/*.js`；`/api/meta/enums` 免登录、已有 6 处页面在用，是既有稳定契约（`meta_api.py:32`），请求经 `common/api.js` 发出。
 
 ## 4. 服务端页面逻辑前端化
 
@@ -83,7 +84,7 @@ fetch('/api/tasks/' + (taskId || restartId))
 
 ### 4.2 导航版本高亮（google_sheet/base.html 的 `{% if current_version == … %}`）
 
-导航条内联展开后，`active` class 与"当前模式"徽标由页面公共 JS 按 `URLSearchParams.get('version')` 计算（C3/C4/C5/C7/基础模式 五态 + 对应 badge 配色 class，原样迁移 Jinja 分支表）。实现放 `common/utils.js` 的 `initGoogleSheetNav()`，google_sheet 族各页在引入基座片段后调用。
+导航条整段由 `common/components/navbar.js` 渲染（D6 修订：占位 `<div data-navbar></div>`，见 `02` §3.7），`active` class 与"当前模式"徽标由 navbar.js 按 `URLSearchParams.get('version')` 计算（C3/C4/C5/C7/基础模式 五态 + 对应 badge 配色 class，原样迁移 Jinja 分支表，内置于 google_sheet 族菜单配置中），google_sheet 族各页零导航 JS。
 
 ### 4.3 backtest result 页的 task_id 推导
 
@@ -124,10 +125,15 @@ grep -rn "{{" templates --include="*.html" | grep -v url_for
 
 ## 8. 布局基座内联展开细则
 
+> **2026-09-08 执行补记（F1/F2 实测）**：
+> 1. **子页 `{% block styles %}` 是死代码**：`google_sheet/base.html` 只有 title/content/scripts 三个 block，c4/c5/c31/create 与 google_sheet/create 里定义的 `{% block styles %}` 从未被渲染。静态化时**不搬**这些 style 内容（否则反而改变现状）。
+> 2. **基座头部小样式收敛为 `static/css/common/base.css`**（body 背景 + navbar 阴影，逐字节相同片段，02 §4 授权），家族各页以 `<link>` 引入。
+> 3. **template-auth.js / template-auth.css 沿用原路径**（`/static/js/template-auth.js`、`/static/css/template-auth.css`），02 §1 的"不迁移"规则优先于 02 §2 骨架示例里的 common/ 路径写法；Bootstrap 同理走现路径 `/static/css/bootstrap.min.css`、`/static/js/bootstrap.bundle.min.js`（vendor/ 归位属可选整理，未排期）。
+
 | 基座 | 规模 | 展开规则 |
 |---|---|---|
-| `templates/admin/base.html`（482 行） | `<head>` 资源 4 行、导航+侧栏 ~350 行（含 11.6KB 内联 style）、`{% block head %}`(:353)、`{% block content %}`(:402)、共享脚本 3 段(:407-479)、`{% block scripts %}`(:480) | 各 admin 页 = 基座骨架逐字节复制 + 四个 block 位填入本页内容；侧栏脚本(:408-478)收敛为 `static/js/common/admin-shell.js` 引入；**展开后本族最后一页完成时删除 base.html** |
-| `templates/google_sheet/base.html`（148 行） | `<head>` 资源 3 行、导航 100 行（含 version 分支）、工具脚本 28 行、`{% block %}` ×3 | 同上；工具脚本收敛进 `static/js/common/utils.js`（同名同签名）；version 高亮逻辑见 §4.2 |
+| `templates/admin/base.html`（482 行） | `<head>` 资源 4 行、导航+侧栏 ~350 行（含 11.6KB 内联 style）、`{% block head %}`(:353)、`{% block content %}`(:402)、共享脚本 3 段(:407-479)、`{% block scripts %}`(:480) | 各 admin 页 = 基座骨架逐字节复制 + 四个 block 位填入本页内容；侧栏脚本(:408-478)收敛为 `static/js/common/admin-shell.js` 引入；**导航部分替换为 `<div data-navbar></div>` 占位，菜单进 `common/components/navbar.js`（admin 族最后一页时并入）**；展开后本族最后一页完成时删除 base.html |
+| `templates/google_sheet/base.html`（148 行） | `<head>` 资源 3 行、导航 100 行（含 version 分支）、工具脚本 28 行、`{% block %}` ×3 | 同上；工具脚本收敛进 `static/js/common/utils.js`（同名同签名）；**导航 100 行整体进 `common/components/navbar.js`（google_sheet 族菜单 + version 高亮，见 §4.2）**，页面留占位 |
 | `templates/login.html` / yule / eastmoney_kline 等独立页 | 无基座 | 仅做 §3/§5 替换 |
 
-展开是**机械复制**，禁止顺手"优化"任何标记/缩进/属性顺序——保证改造前后 `diff`（除已知替换点外）为空，截图对比才有意义。
+展开是**机械复制**，禁止顺手"优化"任何标记/缩进/属性顺序——保证改造前后 `diff`（除已知替换点外）为空，截图对比才有意义。导航条是唯一"复制后替换为占位"的例外（渲染产物逐字节一致，`02` §3.7）。

@@ -14,56 +14,6 @@ from app.services.performance_analysis.response_dto import MetricsV1ResponseDTO
 from app.utils.value_parser import _convert_pandas_to_native
 
 
-class LegacyMetricsAdapter:
-    """将完整 V1 指标投影为 C 系列使用的扁平结果。"""
-
-    @staticmethod
-    def to_flat(metrics: dict[str, Any]) -> dict[str, Any]:
-        """从标准指标字典提取旧接口所需的核心字段。"""
-        def all_entry(value: Any) -> dict[str, Any]:
-            if isinstance(value, list):
-                return next((item for item in value if isinstance(item, dict) and str(item.get("year")) == "all"), {})
-            return {}
-
-        index_sharpe = (metrics.get("index_sharpe_ratios") or {}).get("all") or {}
-        start_sharpe = (metrics.get("start_sharpe_ratios") or {}).get("all") or {}
-        index_sortino = all_entry(metrics.get("index_sortino_ratio"))
-        start_sortino = all_entry(metrics.get("start_sortino_ratio"))
-        excess_all = all_entry(metrics.get("excess_returns"))
-        index_dd = (metrics.get("index_maximum_drawdown") or {}).get("total_maximum_drawdown") or {}
-        start_dd = (metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {}
-        return {
-            "index_annualized_return": excess_all.get("index_annualized_return"),
-            "start_annualized_return": excess_all.get("start_annualized_return"),
-            "index_profit_annual": metrics.get("index_profit_annual"),
-            "start_profit_annual": metrics.get("start_profit_annual"),
-            "index_profit_monthly_percentage": (next((x for x in metrics.get("index_profit_monthly", []) if str(x.get("year")) == "all"), {}) or {}).get("profit_monthly_percentage"),
-            "start_profit_monthly_percentage": (next((x for x in metrics.get("start_profit_monthly", []) if str(x.get("year")) == "all"), {}) or {}).get("profit_monthly_percentage"),
-            "index_avg_monthly_return": index_sharpe.get("avg_monthly_return"),
-            "start_avg_monthly_return": start_sharpe.get("avg_monthly_return"),
-            "index_monthly_std_dev": index_sharpe.get("monthly_std_dev"),
-            "start_monthly_std_dev": start_sharpe.get("monthly_std_dev"),
-            "index_annual_std_dev": index_sharpe.get("annual_std_dev"),
-            "start_annual_std_dev": start_sharpe.get("annual_std_dev"),
-            "index_monthly_return_volatility": metrics.get("index_monthly_return_volatility"),
-            "start_monthly_return_volatility": metrics.get("start_monthly_return_volatility"),
-            "annualized_return_diff": excess_all.get("annualized_return_diff"),
-            "outperform_year": metrics.get("outperform_year"),
-            "monthly_excess_return_percentage_last_return": (next((x for x in metrics.get("monthly_excess_return_percentage", []) if str(x.get("year")) == "all"), {}) or {}).get("excess_return"),
-            "avg_monthly_excess_returns": metrics.get("average_monthly_excess_return"),
-            "monthly_excess_volatility": metrics.get("monthly_excess_volatility"),
-            "start_drawdown": start_dd.get("drawdown"),
-            "index_sharpe_ratio": index_sharpe.get("sharpe_ratio"),
-            "start_sharpe_ratio": start_sharpe.get("sharpe_ratio"),
-            "index_kama_ratio": (all_entry(metrics.get("index_kama_ratio")) or {}).get("kama_ratio"),
-            "start_kama_ratio": (all_entry(metrics.get("start_kama_ratio")) or {}).get("kama_ratio"),
-            "index_sortino_ratio": index_sortino.get("sortino_ratio"),
-            "start_sortino_ratio": start_sortino.get("sortino_ratio"),
-            "excess_sharpe": metrics.get("excess_sharpe"),
-            "excess_sortino": metrics.get("excess_sortino"),
-        }
-
-
 class PerformanceResultMapperMixin:
     def get_return_analysis_v1(self, data: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
@@ -284,7 +234,6 @@ class PerformanceResultMapperMixin:
         result = calculate_v1_metrics(
             returns,
             runtime_params=runtime_params,
-            return_dataframes=True,
             analyzer=self,
         )
         return MetricsV1ResponseDTO(

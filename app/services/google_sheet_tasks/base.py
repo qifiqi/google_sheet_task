@@ -184,20 +184,8 @@ class BaseGoogleSheetService:
     def _get_execution_poll_delay(attempt: int, delay_min: int, delay_max: int) -> int:
         return int(min(delay_min + max(attempt, 0) * 5, delay_max))
 
-    def _task_display_name(self) -> str:
-        return self.task_name or self.task_id
-
     def _task_detail_url(self) -> str:
         return f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
-
-    def error_dd(self, error_msg):
-        result = self.app.notifier.send_task_notification(
-            self.task_id,
-            notify_type="error",
-            summary=error_msg,
-            detail_url=self._task_detail_url(),
-        )
-        return result
 
     def task_ok_to_dd(self, result):
         payload_result = self.app.notifier.send_task_notification(
@@ -786,12 +774,6 @@ class BaseGoogleSheetService:
 
     def _log_step(self, step: int, total: int, message: str):
         self._log('info', message, 'step', step=step, total=total)
-
-    def _log_progress(self, percentage: float, message: str):
-        self._log('info', message, 'progress', percentage=percentage)
-
-    def _log_api(self, action: str, details: str = ''):
-        self._log('info', '', 'api', action=action, details=details)
 
     def _log_api_error(self, action: str, error: str):
         self._log('error', '', 'api_error', action=action, error=error)

@@ -34,14 +34,13 @@ def main() -> None:
         settings = DingStreamSettings(
             client_id=args.client_id or settings.client_id,
             client_secret=args.client_secret or settings.client_secret,
-            project_root=settings.project_root,
         )
 
     credential = dingtalk_stream.Credential(settings.client_id, settings.client_secret)
     client = dingtalk_stream.DingTalkStreamClient(credential)
     client.register_callback_handler(
         "/v1.0/im/bot/messages/get",
-        DingStreamEventHandler(settings),
+        DingStreamEventHandler(),
     )
 
     logging.getLogger(__name__).info("钉钉 Stream 微服务启动成功")

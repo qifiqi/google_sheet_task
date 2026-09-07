@@ -156,17 +156,3 @@ class TaskOccupancyMixin:
                 )
         except Exception as exc:
             logger.warning("释放 Google Sheet 占用失败: task_id=%s, err=%s", task_id, exc)
-
-    # 兼容旧私有命名。
-    def _release_task_token_occupancy(self, task_id: str) -> None:
-        self.release_task_token_occupancy(task_id)
-
-    def _ensure_google_sheet_occupancy(
-        self,
-        task_id: str,
-        config: dict[str, Any] | None,
-    ) -> None:
-        self.ensure_google_sheet_occupancy(task_id, config)
-
-    def _release_google_sheet_occupancy(self, task_id: str) -> None:
-        self.release_google_sheet_occupancy(task_id)
