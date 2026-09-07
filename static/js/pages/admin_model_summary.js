@@ -337,14 +337,10 @@
         queryButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>查询中`;
         document.getElementById("statusText").textContent = "加载中...";
         try {
-            const response = await fetch(`/admin/api/model-summary?${collectParams().toString()}`, {
+            const data = await Api.endpoints.adminModelSummary.summary(collectParams().toString(), {
                 headers: { Authorization: `Bearer ${getToken()}` },
             });
-            const data = await response.json();
-            if (data.status !== "success") {
-                throw new Error(data.message || "加载失败");
-            }
-            const payload = data.data || {};
+            const payload = data || {};
             state.columns = payload.columns || [];
             state.total = payload.pagination?.total || 0;
             state.pages = payload.pagination?.pages || 0;
@@ -406,7 +402,7 @@
         confirmButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>导出中`;
         document.getElementById("statusText").textContent = "正在生成 CSV...";
         try {
-            const response = await fetch(`/api/exports/model-summary?${params.toString()}`, {
+            const response = await Api.endpoints.export.modelSummaryCsv(params.toString(), {
                 headers: { Authorization: `Bearer ${getToken()}` },
             });
             if (!response.ok) {
@@ -442,20 +438,11 @@
             batch_size: 20,
             reset: true,
         };
-        const response = await fetch("/admin/api/model-summary/rebuild", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${getToken()}`,
-            },
-            body: JSON.stringify(payload),
+        const data = await Api.endpoints.adminModelSummary.rebuild(payload, {
+            headers: { Authorization: `Bearer ${getToken()}` },
         });
-        const data = await response.json();
-        if (data.status !== "success") {
-            throw new Error(data.message || "重建失败");
-        }
-        state.rebuildJobId = data.data.job?.job_id || "";
-        renderRebuildTaskLink(data.data.job);
+        state.rebuildJobId = data.job?.job_id || "";
+        renderRebuildTaskLink(data.job);
         document.getElementById("statusText").textContent = `重建任务已创建 ${state.rebuildJobId.slice(0, 8)}`;
         pollRebuildStatus();
     }
@@ -485,11 +472,10 @@
         }
         if (!state.rebuildJobId) return;
         const params = new URLSearchParams({ job_id: state.rebuildJobId });
-        const response = await fetch(`/admin/api/model-summary/rebuild/status?${params.toString()}`, {
+        const data = await Api.endpoints.adminModelSummary.rebuildStatus(params.toString(), {
             headers: { Authorization: `Bearer ${getToken()}` },
         });
-        const data = await response.json();
-        const job = data.data.job;
+        const job = data.job;
         if (!job) {
             document.getElementById("statusText").textContent = "暂无重建任务";
             renderRebuildTaskLink(null);

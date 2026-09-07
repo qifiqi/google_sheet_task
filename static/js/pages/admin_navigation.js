@@ -49,15 +49,9 @@ function refreshParentSelects() {
 }
 
 function loadNavigationItems() {
-    fetch('/api/navigation-menu-items')
-        .then(function(response) {
-            return response.json();
-        })
+    Api.endpoints.adminNavigation.list()
         .then(function(data) {
-            if (data.status !== 'success') {
-                throw new Error(data.message || '加载路由失败');
-            }
-            navigationItems = (data.data && Array.isArray(data.data.items)) ? data.data.items : [];
+            navigationItems = (data && Array.isArray(data.items)) ? data.items : [];
             refreshParentSelects();
             renderNavigationTable();
         })
@@ -160,25 +154,11 @@ function collectNavigationPayload() {
 function submitNavigationForm() {
     const id = document.getElementById('navigationRecordId').value;
     const payload = collectNavigationPayload();
-    const url = id ? `/api/navigation-menu-items/${encodeURIComponent(id)}` : '/api/navigation-menu-items';
-    const method = id ? 'PUT' : 'POST';
 
-    fetch(url, {
-        method,
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    })
-        .then(function(response) {
-            return response.json().then(function(data) {
-                return {ok: response.ok, data};
-            });
-        })
-        .then(function(result) {
-            if (!result.ok || result.data.status !== 'success') {
-                throw new Error(result.data.message || '保存失败');
-            }
+    (id ? Api.endpoints.adminNavigation.update(id, payload) : Api.endpoints.adminNavigation.create(payload))
+        .then(function(envelope) {
             bootstrap.Modal.getOrCreateInstance(document.getElementById('navigationModal')).hide();
-            showNotification(result.data.message || '保存成功', 'success');
+            showNotification(envelope.message || '保存成功', 'success');
             loadNavigationItems();
         })
         .catch(function(error) {
@@ -191,18 +171,10 @@ function deleteCurrentNavigationItem() {
     if (!id || !confirm('确定删除这条路由记录吗？')) {
         return;
     }
-    fetch(`/api/navigation-menu-items/${encodeURIComponent(id)}`, { method: 'DELETE' })
-        .then(function(response) {
-            return response.json().then(function(data) {
-                return {ok: response.ok, data};
-            });
-        })
-        .then(function(result) {
-            if (!result.ok || result.data.status !== 'success') {
-                throw new Error(result.data.message || '删除失败');
-            }
+    Api.endpoints.adminNavigation.remove(id)
+        .then(function(envelope) {
             bootstrap.Modal.getOrCreateInstance(document.getElementById('navigationModal')).hide();
-            showNotification(result.data.message || '删除成功', 'success');
+            showNotification(envelope.message || '删除成功', 'success');
             loadNavigationItems();
         })
         .catch(function(error) {

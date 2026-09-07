@@ -61,10 +61,9 @@ function getTemplateMeta(template) {
 
 // 加载模板列表
 function loadTemplates() {
-    fetch('/api/templates')
-        .then(response => response.json())
+    Api.endpoints.template.list()
         .then(data => {
-            allTemplates = (data.data && Array.isArray(data.data.templates)) ? data.data.templates : [];
+            allTemplates = (data && Array.isArray(data.templates)) ? data.templates : [];
             updateTemplateStats();
             renderTemplateCards();
         })
@@ -216,45 +215,35 @@ function showError(message) {
 }
 
 // 创建模板
-document.getElementById('saveTemplate').addEventListener('click', async function() {
-    try {
-        const name = document.getElementById('templateName').value.trim();
-        const description = document.getElementById('templateDescription').value.trim();
-        const configStr = document.getElementById('templateConfig').value.trim();
-        
-        // 验证表单
-        if (!name) {
-            showError('请输入模板名称');
-            return;
-        }
-        
-        if (!configStr) {
-            showError('请输入配置信息');
-            return;
-        }
-        
-        if (!validateJSON(configStr)) {
-            showError('配置信息不是有效的JSON格式');
-            return;
-        }
-        
-        const formData = {
-            name: name,
-            description: description,
-            config: configStr
-        };
+document.getElementById('saveTemplate').addEventListener('click', function() {
+    const name = document.getElementById('templateName').value.trim();
+    const description = document.getElementById('templateDescription').value.trim();
+    const configStr = document.getElementById('templateConfig').value.trim();
 
-        const response = await fetch('/api/templates', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(formData)
-        });
+    // 验证表单
+    if (!name) {
+        showError('请输入模板名称');
+        return;
+    }
 
-        const data = await response.json();
-        
-        if (data.status === 'success') {
+    if (!configStr) {
+        showError('请输入配置信息');
+        return;
+    }
+
+    if (!validateJSON(configStr)) {
+        showError('配置信息不是有效的JSON格式');
+        return;
+    }
+
+    const formData = {
+        name: name,
+        description: description,
+        config: configStr
+    };
+
+    Api.endpoints.template.create(formData)
+        .then(function () {
             const modal = document.getElementById('createTemplateModal');
             const modalInstance = bootstrap.Modal.getInstance(modal);
             if (modalInstance) {
@@ -263,37 +252,29 @@ document.getElementById('saveTemplate').addEventListener('click', async function
             document.getElementById('createTemplateForm').reset();
             loadTemplates();
             showNotification('模板创建成功', 'success');
-        } else {
-            showError(data.message || '创建模板失败');
-        }
-    } catch (error) {
-        console.error('Error:', error);
-        showError('创建模板失败');
-    }
+        })
+        .catch(function (error) {
+            console.error('Error:', error);
+            showError(error.message || '创建模板失败');
+        });
 });
 
 // 编辑模板
 async function editTemplate(id) {
     try {
-        const response = await fetch(`/api/templates/${id}`);
-        const template = await response.json();
-        
-        if (template.status === 'error') {
-            showError(template.message || '获取模板详情失败');
-            return;
-        }
+        const data = await Api.endpoints.template.detail(id);
 
-        document.getElementById('editTemplateId').value = template.data.id;
-        document.getElementById('editTemplateName').value = template.data.name;
-        document.getElementById('editTemplateDescription').value = template.data.description || '';
-        document.getElementById('editTemplateConfig').value = JSON.stringify(template.data.config, null, 2);
+        document.getElementById('editTemplateId').value = data.id;
+        document.getElementById('editTemplateName').value = data.name;
+        document.getElementById('editTemplateDescription').value = data.description || '';
+        document.getElementById('editTemplateConfig').value = JSON.stringify(data.config, null, 2);
         
         const modal = document.getElementById('editTemplateModal');
         const modalInstance = bootstrap.Modal.getOrCreateInstance(modal);
         modalInstance.show();
     } catch (error) {
         console.error('Error:', error);
-        showError('获取模板详情失败');
+        showError(error.message || '获取模板详情失败');
     }
 }
 
@@ -304,50 +285,43 @@ document.getElementById('updateTemplate').addEventListener('click', async functi
         const name = document.getElementById('editTemplateName').value.trim();
         const description = document.getElementById('editTemplateDescription').value.trim();
         const configStr = document.getElementById('editTemplateConfig').value.trim();
-        
+
         // 验证表单
         if (!name) {
             showError('请输入模板名称');
             return;
         }
-        
+
         if (!configStr) {
             showError('请输入配置信息');
             return;
         }
-        
+
         if (!validateJSON(configStr)) {
             showError('配置信息不是有效的JSON格式');
             return;
         }
-        
+
         const formData = {
             name: name,
             description: description,
             config: configStr
         };
 
-        const response = await fetch(`/api/templates/${id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(formData)
-        });
-
-        const data = await response.json();
-        
-        if (data.status === 'success') {
-            const modal = document.getElementById('editTemplateModal');
-            const modalInstance = bootstrap.Modal.getInstance(modal);
-            if (modalInstance) {
-                modalInstance.hide();
-            }
-            loadTemplates();
-            showNotification('模板更新成功', 'success');
-        } else {
-            showError(data.message || '更新模板失败');
-        }
+        Api.endpoints.template.update(id, formData)
+            .then(function () {
+                const modal = document.getElementById('editTemplateModal');
+                const modalInstance = bootstrap.Modal.getInstance(modal);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+                loadTemplates();
+                showNotification('模板更新成功', 'success');
+            })
+            .catch(function (error) {
+                console.error('Error:', error);
+                showError(error.message || '更新模板失败');
+            });
     } catch (error) {
         console.error('Error:', error);
         showError('更新模板失败');
@@ -358,18 +332,15 @@ document.getElementById('updateTemplate').addEventListener('click', async functi
 async function deleteTemplate(id) {
     if (confirm('确定要删除这个模板吗？')) {
         try {
-            const response = await fetch(`/api/templates/${id}`, {
-                method: 'DELETE'
-            });
-            
-            const data = await response.json();
-            
-            if (data.status === 'success') {
-                loadTemplates();
-                showNotification('模板已删除', 'success');
-            } else {
-                showError(data.message || '删除模板失败');
-            }
+            Api.endpoints.template.remove(id)
+                .then(function () {
+                    loadTemplates();
+                    showNotification('模板已删除', 'success');
+                })
+                .catch(function (error) {
+                    console.error('Error:', error);
+                    showError(error.message || '删除模板失败');
+                });
         } catch (error) {
             console.error('Error:', error);
             showError('删除模板失败');
@@ -380,36 +351,24 @@ async function deleteTemplate(id) {
 // 复制模板
 async function duplicateTemplate(id) {
     try {
-        const response = await fetch(`/api/templates/${id}`);
-        const template = await response.json();
-        
-        if (template.status === 'error') {
-            showError(template.message || '获取模板详情失败');
-            return;
-        }
+        const data = await Api.endpoints.template.detail(id);
 
         // 创建新模板
         const newTemplate = {
-            name: template.data.name + ' (副本)',
-            description: template.data.description,
-            config: template.data.config
+            name: data.name + ' (副本)',
+            description: data.description,
+            config: data.config
         };
 
-        const createResponse = await fetch('/api/templates', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(newTemplate)
-        });
-
-        const result = await createResponse.json();
-        if (result.status === 'success') {
-            showNotification('模板复制成功', 'success');
-            loadTemplates();
-        } else {
-            showError(result.message || '复制模板失败');
-        }
+        await Api.endpoints.template.create(newTemplate)
+            .then(function () {
+                showNotification('模板复制成功', 'success');
+                loadTemplates();
+            })
+            .catch(function (error) {
+                console.error('复制模板失败:', error);
+                showError('复制模板失败: ' + error.message);
+            });
     } catch (error) {
         console.error('复制模板失败:', error);
         showError('复制模板失败: ' + error.message);

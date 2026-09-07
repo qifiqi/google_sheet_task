@@ -62,6 +62,21 @@
         return request('DELETE', path, undefined, options);
     }
 
+    // 部分 xpl 页面调用点原本显式携带 X-CSRFToken（template-auth.js 不注入该头），
+    // 迁入端点时合并进 options.headers，保持 wire 格式零变化。
+    function withCsrfToken(options) {
+        const merged = {};
+        if (options && typeof options === 'object') {
+            Object.keys(options).forEach(function (key) {
+                merged[key] = options[key];
+            });
+        }
+        merged.headers = Object.assign({}, (options && options.headers) || {}, {
+            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        });
+        return merged;
+    }
+
     // 端点按域分组（对齐 frontend/src/api/*.js 的分域命名）；各批次页面逐个迁入。
     const endpoints = {
         meta: {
@@ -114,12 +129,52 @@
             list: function (query) { return get('/api/templates' + (query ? '?' + query : '')); },
             detail: function (templateId) { return get('/api/templates/' + templateId); },
             create: function (payload) { return post('/api/templates', payload); },
+            update: function (templateId, payload) { return put('/api/templates/' + templateId, payload); },
+            remove: function (templateId) { return del('/api/templates/' + templateId); },
         },
         googleSheet: {
             sheets: function (query) { return get('/api/google-sheets' + (query ? '?' + query : '')); },
             worksheets: function (payload) { return post('/api/google-sheet/worksheets', payload); },
             tokens: function () { return get('/api/google-sheet-tokens'); },
             importToken: function (payload) { return post('/api/google-sheet-tokens/import', payload); },
+            // admin Token 管理页（admin/config）的新增入口：成功 toast 读服务端 message，
+            // 返回完整信封（行为零变化），与上方去信封的 importToken（建单页表单用）并存。
+            importTokenEnvelope: function (payload) { return post('/api/google-sheet-tokens/import', payload, { envelope: true }); },
+            tokenDetail: function (tokenId) { return get('/api/google-sheet-tokens/' + encodeURIComponent(tokenId) + '?include_context=1'); },
+            updateToken: function (tokenId, payload) { return put('/api/google-sheet-tokens/' + encodeURIComponent(tokenId), payload); },
+            deleteToken: function (tokenId) { return del('/api/google-sheet-tokens/' + encodeURIComponent(tokenId)); },
+        },
+        adminGoogleSheets: {
+            // admin Google Sheet 管理页：成功 toast 读服务端 message，返回完整信封。
+            create: function (payload) { return post('/api/google-sheets', payload, { envelope: true }); },
+            update: function (sheetId, payload) { return put('/api/google-sheets/' + sheetId, payload, { envelope: true }); },
+            remove: function (sheetId) { return del('/api/google-sheets/' + sheetId, { envelope: true }); },
+        },
+        adminNavigation: {
+            // admin 路由管理页：成功 toast 读服务端 message，写操作返回完整信封。
+            list: function () { return get('/api/navigation-menu-items'); },
+            create: function (payload) { return post('/api/navigation-menu-items', payload, { envelope: true }); },
+            update: function (itemId, payload) { return put('/api/navigation-menu-items/' + encodeURIComponent(itemId), payload, { envelope: true }); },
+            remove: function (itemId) { return del('/api/navigation-menu-items/' + encodeURIComponent(itemId), { envelope: true }); },
+        },
+        adminResults: {
+            list: function (query) { return get('/api/results' + (query ? '?' + query : '')); },
+            detail: function (resultId) { return get('/api/results/' + resultId); },
+            remove: function (resultId) { return del('/api/results/' + resultId); },
+        },
+        adminModelSummary: {
+            // admin 模型汇总页沿用页面内 JWT Authorization 头，经 options 透传。
+            summary: function (query, options) { return get('/admin/api/model-summary' + (query ? '?' + query : ''), options); },
+            rebuild: function (payload, options) { return post('/admin/api/model-summary/rebuild', payload, options); },
+            rebuildStatus: function (query, options) { return get('/admin/api/model-summary/rebuild/status' + (query ? '?' + query : ''), options); },
+        },
+        xpl: {
+            // xpl 页面蓝图自有 API（/xpl/index、/xpl/v1、/xpl/v2 页共用），信封与 /api/* 同一格式；
+            // 原调用点显式携带 X-CSRFToken，wire 格式保持不变。调用方需要完整信封时传 { envelope: true }。
+            analyze: function (payload, options) { return post('/xpl/analyze', payload, withCsrfToken(options)); },
+            analyzeV1: function (payload, options) { return post('/xpl/v1/analyze', payload, withCsrfToken(options)); },
+            // 与 googleSheet.worksheets 同一 URL，但 xpl 页原调用点带 X-CSRFToken，分开定义各自 wire 格式零变化。
+            worksheets: function (payload, options) { return post('/api/google-sheet/worksheets', payload, withCsrfToken(options)); },
         },
         export: {
             // 合并导出是流式下载（ReadableStream 读进度），返回原始 Response，
@@ -177,6 +232,11 @@
                     },
                     body: JSON.stringify(payload),
                 });
+            },
+            // 模型汇总 CSV 导出（admin 模型汇总页），文件流下载，返回原始 Response；
+            // 页面沿用 JWT Authorization 头，经 options 透传。
+            modelSummaryCsv: function (query, options) {
+                return fetch('/api/exports/model-summary' + (query ? '?' + query : ''), options);
             },
         },
     };

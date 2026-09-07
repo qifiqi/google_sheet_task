@@ -48,12 +48,11 @@ function loadResults(page = 1) {
         url.searchParams.append('task_id', currentTaskId);
     }
 
-    fetch(url)
-        .then(response => response.json())
+    Api.endpoints.adminResults.list(url.searchParams.toString())
         .then(data => {
             const resultList = document.getElementById('resultList');
             resultList.innerHTML = '';
-            const payload = data.data || {};
+            const payload = data || {};
 
             (payload.items || []).forEach(result => {
                 const row = document.createElement('tr');
@@ -156,10 +155,9 @@ function updatePagination(total, currentPageNum) {
 
 // 查看结果详情
 function viewResult(id) {
-    fetch(`/api/results/${id}`)
-        .then(response => response.json())
-        .then(resp => {
-            const result = resp.data || {};
+    Api.endpoints.adminResults.detail(id)
+        .then(data => {
+            const result = data || {};
             currentResultPayload = result;
             document.getElementById('resultDetailId').textContent = result.id ?? '-';
             document.getElementById('resultDetailTaskId').textContent = result.task_id ?? '-';
@@ -194,11 +192,8 @@ function copyCurrentResultJson() {
 // 删除结果
 function deleteResult(id) {
     if (confirm('确定要删除这条结果记录吗？')) {
-        fetch(`/api/results/${id}`, {
-            method: 'DELETE'
-        })
-        .then(response => response.json())
-        .then(data => {
+        Api.endpoints.adminResults.remove(id)
+        .then(() => {
             loadResults(currentPage);
         })
         .catch(error => console.error('Error:', error));

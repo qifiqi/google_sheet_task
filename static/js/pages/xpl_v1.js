@@ -204,19 +204,14 @@
         abortController = new AbortController();
 
         try {
-            const resp = await fetch('/api/google-sheet/worksheets', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
-                },
-                body: JSON.stringify({spreadsheet_id: spreadsheetId}),
+            // envelope 模式返回完整信封，页面沿用 normalizeApiResponse/getWorksheetsPayload 判定
+            const data = await Api.endpoints.xpl.worksheets({spreadsheet_id: spreadsheetId}, {
+                envelope: true,
                 signal: abortController.signal
             });
-            const data = await resp.json().catch(() => ({}));
             const api = normalizeApiResponse(data);
-            if (!resp.ok || !api.ok) {
-                throw new Error(api.message || `HTTP error! status: ${resp.status}`);
+            if (!api.ok) {
+                throw new Error(api.message || '请求失败');
             }
 
             const worksheetsPayload = getWorksheetsPayload(api);
@@ -272,17 +267,11 @@
             const filenameSafeSheet = (state.lastSheetName || 'sheet').replaceAll(/[\\/:*?"<>|]/g, '_');
             const defaultFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
 
-            const resp = await fetch('/api/exports/xpl', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
-                },
-                body: JSON.stringify({
-                    filename:defaultFilename,
-                    filename_title:filenameSafeTitle,
-                    analyze_result: state.lastResults
-                })
+            // 文件流下载，走原始 Response 端点（CSRF 头在端点内保持不变）
+            const resp = await Api.endpoints.export.backtestResultXpl({
+                filename: defaultFilename,
+                filename_title: filenameSafeTitle,
+                analyze_result: state.lastResults
             });
 
             if (!resp.ok) {
@@ -361,23 +350,18 @@
         abortController = new AbortController();
 
         try {
-            const resp = await fetch('/xpl/v1/analyze', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
-                },
-                body: JSON.stringify({
-                    google_sheet_url: url,
-                    spreadsheet_id: spreadsheetId,
-                    google_sheet_name: sheetName
-                }),
+            // envelope 模式返回完整信封，页面沿用 normalizeApiResponse/getAnalyzeResults 判定
+            const data = await Api.endpoints.xpl.analyzeV1({
+                google_sheet_url: url,
+                spreadsheet_id: spreadsheetId,
+                google_sheet_name: sheetName
+            }, {
+                envelope: true,
                 signal: abortController.signal
             });
-            const data = await resp.json().catch(() => ({}));
             const api = normalizeApiResponse(data);
-            if (!resp.ok || !api.ok) {
-                throw new Error(api.message || `HTTP error! status: ${resp.status}`);
+            if (!api.ok) {
+                throw new Error(api.message || '请求失败');
             }
 
             const results = getAnalyzeResults(api);

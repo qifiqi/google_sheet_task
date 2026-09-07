@@ -124,13 +124,9 @@ function loadGoogleSheetsAdmin() {
     if (tableTypeFilter) {
         params.set('table_type', tableTypeFilter);
     }
-    fetch(`/api/google-sheets?${params.toString()}`)
-        .then(function(response) { return response.json(); })
+    Api.endpoints.googleSheet.sheets(params.toString())
         .then(function(data) {
-            if (data.status !== 'success') {
-                throw new Error(data.message || '加载表格列表失败');
-            }
-            googleSheetAdminItems = Array.isArray(data.data.items) ? data.data.items : [];
+            googleSheetAdminItems = Array.isArray(data.items) ? data.items : [];
             renderGoogleSheetsAdmin();
         })
         .catch(function(error) {
@@ -155,21 +151,10 @@ function submitSheetForm() {
         return;
     }
 
-    const method = id ? 'PUT' : 'POST';
-    const url = id ? `/api/google-sheets/${id}` : '/api/google-sheets';
-
-    fetch(url, {
-        method: method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    })
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
-            if (data.status !== 'success') {
-                throw new Error(data.message || '保存失败');
-            }
+    (id ? Api.endpoints.adminGoogleSheets.update(id, payload) : Api.endpoints.adminGoogleSheets.create(payload))
+        .then(function(envelope) {
             bootstrap.Modal.getOrCreateInstance(document.getElementById('sheetModal')).hide();
-            showNotification(data.message || '保存成功', 'success');
+            showNotification(envelope.message || '保存成功', 'success');
             loadGoogleSheetsAdmin();
         })
         .catch(function(error) {
@@ -181,13 +166,9 @@ function deleteGoogleSheetRecord(id) {
     if (!confirm('确定删除这条 Google Sheet 配置吗？')) {
         return;
     }
-    fetch(`/api/google-sheets/${id}`, { method: 'DELETE' })
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
-            if (data.status !== 'success') {
-                throw new Error(data.message || '删除失败');
-            }
-            showNotification(data.message || '删除成功', 'success');
+    Api.endpoints.adminGoogleSheets.remove(id)
+        .then(function(envelope) {
+            showNotification(envelope.message || '删除成功', 'success');
             loadGoogleSheetsAdmin();
         })
         .catch(function(error) {

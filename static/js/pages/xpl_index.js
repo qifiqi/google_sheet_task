@@ -196,35 +196,22 @@
             }
         }, 30000); // 30秒超时
 
-        // 发送数据到后端API
-        fetch('/xpl/analyze', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
-            },
-            body: JSON.stringify(requestData),
+        // 发送数据到后端API（envelope 模式返回完整信封，页面沿用 normalizeApiResponse 判定）
+        Api.endpoints.xpl.analyze(requestData, {
+            envelope: true,
             signal: signal
         })
-        .then(async response => {
-            clearTimeout(timeoutId);
-            if (!response.ok) {
-                const error = await response.json().catch(() => ({}));
-                const api = normalizeApiResponse(error);
-                throw new Error(api.message || `HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
         .then(data => {
+            clearTimeout(timeoutId);
             const api = normalizeApiResponse(data);
             const results = getAnalyzeResults(api);
             if (api.ok) {
                 showAlert('数据分析完成', 'success');
                 console.log('API Response:', data); // 调试日志
-                
+
                 // 保存当前结果用于导出
                 currentResults = {results};
-                
+
                 // 更新所有数据
                 if (results) {
                     updateMetrics(results);

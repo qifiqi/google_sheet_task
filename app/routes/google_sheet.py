@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request
+from flask import Blueprint, request
 
 from app.routes.page_files import send_page
 from app.utils.auth import page_login_required
@@ -24,13 +24,12 @@ def create():
         return send_page('google_sheet/create_dispatcher.html')
     if version == 'c31':
         return send_page('google_sheet_c31/create.html')
-    # c4/c5/c七 六大页暂维持 Jinja 渲染（F5 事故后尚未重做 F3 静态化，见 04 执行清单 F5 记录）
     if version == 'c5':
-        return render_template('google_sheet_c5/create.html')
+        return send_page('google_sheet_c5/create.html')
     if version == 'c7':
-        return render_template('google_sheet_c7/create.html')
+        return send_page('google_sheet_c7/create.html')
     if version == 'c4':
-        return render_template('google_sheet_c4/create.html')
+        return send_page('google_sheet_c4/create.html')
     return send_page('google_sheet/create.html')
 
 @google_sheet_bp.route('/merge-export')
@@ -49,9 +48,9 @@ def detail():
         return send_page('google_sheet/detail_dispatcher.html')
 
     if version == 'c5':
-        return render_template('google_sheet_c5/detail.html')
+        return send_page('google_sheet_c5/detail.html')
     if version == 'c7':
-        return render_template('google_sheet_c7/detail.html')
+        return send_page('google_sheet_c7/detail.html')
     if version == 'c4':
-        return render_template('google_sheet_c4/detail.html')
+        return send_page('google_sheet_c4/detail.html')
     return send_page('google_sheet/detail.html')

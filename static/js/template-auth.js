@@ -92,8 +92,9 @@
     }
 
     function isAuthEnabled() {
-        const raw = document.body?.dataset?.authEnabled;
-        return raw !== "false";
+        // D3（docs/design/frontend-refactor/03 §6）：页面已不再注入 data-auth-enabled，
+        // 鉴权恒为开启（AUTH_ENABLED=false 仅 development 且前端不再感知）。
+        return true;
     }
 
     function isLoginPage() {

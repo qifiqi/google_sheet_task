@@ -2,10 +2,6 @@
 
 已静态化的页面经 send_page 返回：200、text/html、零 Jinja 残留、
 按序引入 common/pages 脚本。每完成一批（F1~F5）在此登记对应页面。
-
-> 2026-09-08 F5 事故注记：F3 六大页（c4/c5/c7 create+detail）的静态版本与
-> 其转换期输入在工作区丢失，本批回退为 render_template（Jinja）继续服务，
-> 对应登记条目整体注释，待 F3 重做后恢复。
 """
 import pytest
 
@@ -26,13 +22,13 @@ STATIC_PAGES = [
     # F2: dispatcher 页（无 version 时按 task/restart_task 查询后重定向的跳板页）
     ("/google-sheet/create?restart_task_id=static-fixture", "/static/js/pages/google_sheet_create_dispatcher.js"),
     ("/google-sheet/detail?task_id=static-fixture", "/static/js/pages/google_sheet_detail_dispatcher.js"),
-    # F3: google_sheet_c4/c5/c7 六大页（create + detail）——静态版丢失，暂回退 Jinja（见文件头注记）
-    # ("/google-sheet/create?version=c4", "/static/js/pages/google_sheet_c4_create.js"),
-    # ("/google-sheet/create?version=c5", "/static/js/pages/google_sheet_c5_create.js"),
-    # ("/google-sheet/create?version=c7", "/static/js/pages/google_sheet_c7_create.js"),
-    # ("/google-sheet/detail?version=c4", "/static/js/pages/google_sheet_c4_detail.js"),
-    # ("/google-sheet/detail?version=c5", "/static/js/pages/google_sheet_c5_detail.js"),
-    # ("/google-sheet/detail?version=c7", "/static/js/pages/google_sheet_c7_detail.js"),
+    # F3: google_sheet_c4/c5/c7 六大页（create + detail）
+    ("/google-sheet/create?version=c4", "/static/js/pages/google_sheet_c4_create.js"),
+    ("/google-sheet/create?version=c5", "/static/js/pages/google_sheet_c5_create.js"),
+    ("/google-sheet/create?version=c7", "/static/js/pages/google_sheet_c7_create.js"),
+    ("/google-sheet/detail?version=c4", "/static/js/pages/google_sheet_c4_detail.js"),
+    ("/google-sheet/detail?version=c5", "/static/js/pages/google_sheet_c5_detail.js"),
+    ("/google-sheet/detail?version=c7", "/static/js/pages/google_sheet_c7_detail.js"),
     # F4: backtest_training 六页（backtest 双胞胎 + global_preview 批次）
     ("/backtest-training/create", "/static/js/pages/backtest_training_create.js"),
     ("/backtest-training/list", "/static/js/pages/backtest_training_list.js"),

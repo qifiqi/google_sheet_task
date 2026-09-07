@@ -321,7 +321,10 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
 
     with open('static/js/pages/xpl_v2.js', encoding='utf-8') as f:
         page_js = f.read()
-    assert '/api/search-stocks?q=${encodeURIComponent(keyword)}&page_size=10' in page_js
+    # F6 D9 收口后 URL 在 common/api.js，页面 JS 经 Api.endpoints.stock.search 调用
+    assert 'Api.endpoints.stock.search' in page_js
+    with open('static/js/common/api.js', encoding='utf-8') as f:
+        assert '/api/search-stocks' in f.read()
     assert "ratio: '100.00%'" in page_js
     assert 'function applyV2ExportStyles' in page_js
     assert 'XLSX.writeFile(workbook, defaultFilename' in page_js

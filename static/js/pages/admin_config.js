@@ -108,14 +108,10 @@
     }
 
     function loadGoogleSheetTokens() {
-        fetch('/api/google-sheet-tokens')
-            .then(response => response.json())
+        Api.endpoints.googleSheet.tokens()
             .then(data => {
-                if (data.status !== 'success') {
-                    throw new Error(data.message || '\u52a0\u8f7d Token \u5931\u8d25');
-                }
-                googleSheetTokens = Array.isArray(data.data.tokens) ? data.data.tokens : [];
-                renderTokenSummary((data.data && data.data.summary) || {});
+                googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
+                renderTokenSummary((data && data.summary) || {});
                 renderTokenTable(googleSheetTokens);
             })
             .catch(error => {
@@ -175,24 +171,14 @@
             return;
         }
 
-        fetch('/api/google-sheet-tokens/import', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                token_context: tokenContext,
-                name: name || null,
-                max_usage_count: maxUsageCount === '' ? null : Number(maxUsageCount),
-                task_type: taskType || 'google_sheet'
-            })
+        Api.endpoints.googleSheet.importTokenEnvelope({
+            token_context: tokenContext,
+            name: name || null,
+            max_usage_count: maxUsageCount === '' ? null : Number(maxUsageCount),
+            task_type: taskType || 'google_sheet'
         })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status !== 'success') {
-                    throw new Error(data.message || '\u65b0\u589e Token \u5931\u8d25');
-                }
-                showNotification(data.message || 'Token \u65b0\u589e\u6210\u529f', 'success');
+            .then(envelope => {
+                showNotification(envelope.message || 'Token \u65b0\u589e\u6210\u529f', 'success');
                 document.getElementById('token-import-name').value = '';
                 document.getElementById('token-import-max-usage').value = '';
                 document.getElementById('token-import-context').value = '';
@@ -204,14 +190,9 @@
     }
 
     function openEditTokenModal(tokenId) {
-        fetch(`/api/google-sheet-tokens/${encodeURIComponent(tokenId)}?include_context=1`)
-            .then(response => response.json())
+        Api.endpoints.googleSheet.tokenDetail(tokenId)
             .then(data => {
-                if (data.status !== 'success') {
-                    throw new Error(data.message || '\u52a0\u8f7d Token \u8be6\u60c5\u5931\u8d25');
-                }
-
-                const token = (data.data && data.data.token) || {};
+                const token = (data && data.token) || {};
                 document.getElementById('edit-token-id').value = token.id || '';
                 document.getElementById('edit-token-name').value = token.name || '';
                 document.getElementById('edit-token-task-type').value = token.task_type || 'google_sheet';
@@ -236,18 +217,8 @@
             token_context: document.getElementById('edit-token-context').value
         };
 
-        fetch(`/api/google-sheet-tokens/${encodeURIComponent(tokenId)}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload)
-        })
-            .then(response => response.json())
+        Api.endpoints.googleSheet.updateToken(tokenId, payload)
             .then(data => {
-                if (data.status !== 'success') {
-                    throw new Error(data.message || '\u4fdd\u5b58 Token \u5931\u8d25');
-                }
                 bootstrap.Modal.getOrCreateInstance(document.getElementById('editTokenModal')).hide();
                 showNotification('Token \u66f4\u65b0\u6210\u529f', 'success');
                 loadGoogleSheetTokens();
@@ -267,14 +238,8 @@
             return;
         }
 
-        fetch(`/api/google-sheet-tokens/${encodeURIComponent(tokenId)}`, {
-            method: 'DELETE'
-        })
-            .then(response => response.json())
+        Api.endpoints.googleSheet.deleteToken(tokenId)
             .then(data => {
-                if (data.status !== 'success') {
-                    throw new Error(data.message || '\u5220\u9664 Token \u5931\u8d25');
-                }
                 bootstrap.Modal.getOrCreateInstance(document.getElementById('editTokenModal')).hide();
                 showNotification('Token \u5220\u9664\u6210\u529f', 'success');
                 loadGoogleSheetTokens();
