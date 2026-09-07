@@ -1336,7 +1336,7 @@ async function loadBacktestGoogleSheets() {
         if (data.status !== 'success') {
             throw new Error(data.message || '加载单品回测 Sheet 失败');
         }
-        backtestGoogleSheets = Array.isArray(data.items) ? data.items : [];
+        backtestGoogleSheets = Array.isArray(data.data?.items) ? data.data.items : [];
         cacheBacktestGoogleSheets(backtestGoogleSheets);
         renderBacktestGoogleSheetOptions(backtestGoogleSheets);
     } catch (error) {

@@ -209,6 +209,16 @@
         return currentPermissions.includes(code);
     }
 
+    function isAdmin() {
+        // 与后端 admin_required/_is_admin_user 同一语义：仅判断是否持有 admin 角色
+        // （细粒度权限随主服务接入统一解决）。鉴权关闭时后端 mock 用户视为管理员。
+        if (!isAuthEnabled()) {
+            return true;
+        }
+        return Array.isArray(currentUser?.roles)
+            && currentUser.roles.some((role) => role?.code === "admin");
+    }
+
     function hasAnyPermission(permissionList) {
         if (!permissionList || !permissionList.length) {
             return true;
@@ -796,6 +806,7 @@
             return currentPermissions.slice();
         },
         hasPermission,
+        isAdmin,
         requestJson,
     };
 

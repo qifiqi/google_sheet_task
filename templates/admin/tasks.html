@@ -607,8 +607,8 @@
             searchDebounceTimer = window.setTimeout(() => filterTasks(), 250);
         });
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
-            const interval = (data && data.config && data.config.tasks_admin_refresh_interval)
-                ? data.config.tasks_admin_refresh_interval : 30000;
+            const interval = (data && data.data.config && data.data.config.tasks_admin_refresh_interval)
+                ? data.data.config.tasks_admin_refresh_interval : 30000;
             setInterval(loadTasks, interval);
         });
 

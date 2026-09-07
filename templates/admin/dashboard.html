@@ -294,19 +294,20 @@
 
     function loadDashboard(showToast = false) {
         ajaxRequest('/admin/api/dashboard/overview', 'GET', null, function(err, data) {
-            if (err || !data || !data.success) {
+            const overview = data && data.data ? data.data : null;
+            if (err || !overview || !overview.success) {
                 showNotification('加载仪表盘失败', 'error');
                 return;
             }
 
-            window.dashboardData = data;
-            renderSummary(data.summary || {});
-            renderTrendChart(data.daily_trend || []);
+            window.dashboardData = overview;
+            renderSummary(overview.summary || {});
+            renderTrendChart(overview.daily_trend || []);
             renderDoughnutChart();
             renderTypeChart();
-            renderActiveTasks(data.active_tasks || []);
-            renderRecentTasks(data.recent_tasks || []);
-            document.getElementById('dashboard-last-update').textContent = formatTime(data.checked_at);
+            renderActiveTasks(overview.active_tasks || []);
+            renderRecentTasks(overview.recent_tasks || []);
+            document.getElementById('dashboard-last-update').textContent = formatTime(overview.checked_at);
 
             if (showToast) {
                 showNotification('仪表盘已刷新', 'success');
@@ -317,8 +318,8 @@
     document.addEventListener('DOMContentLoaded', function() {
         loadDashboard(false);
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
-            const interval = (data && data.config && data.config.dashboard_refresh_interval)
-                ? data.config.dashboard_refresh_interval
+            const interval = (data && data.data.config && data.data.config.dashboard_refresh_interval)
+                ? data.data.config.dashboard_refresh_interval
                 : 30000;
             dashboardRefreshTimer = setInterval(loadDashboard, interval);
         });

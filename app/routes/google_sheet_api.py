@@ -9,6 +9,7 @@ google_sheet_token_service；路由层不直接感知 repository。
 from flask import Blueprint, request
 
 from app.exceptions import BadRequestError, NotFoundError
+from app.models import GoogleSheetTableType
 from app.services.google_sheet_registry_service import (
     get_google_sheet_registry_service,
     get_worksheets_with_cache,

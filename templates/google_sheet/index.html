@@ -247,8 +247,8 @@
         loadTasks(true);
 
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
-            const interval = (data && data.config && data.config.frontend_polling_interval) ?
-                            data.config.frontend_polling_interval : 15000;
+            const interval = (data && data.data.config && data.data.config.frontend_polling_interval) ?
+                            data.data.config.frontend_polling_interval : 15000;
             setInterval(loadTasks, interval);
         });
 

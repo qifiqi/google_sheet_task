@@ -757,8 +757,8 @@
 
                 // 如果接口返回了表标题，自动写入标题输入框（仅当前配置块）
                 const titleInput = item.querySelector('#spreadsheet_title');
-                if (titleInput && typeof data.title === 'string' && data.title.trim() !== '') {
-                    titleInput.value = data.title.trim();
+                if (titleInput && typeof data.data?.title === 'string' && data.data.title.trim() !== '') {
+                    titleInput.value = data.data.title.trim();
                 }
 
                 // 清空并重新填充下拉列表

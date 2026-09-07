@@ -89,13 +89,13 @@
         // 实时获取日志
         function fetchLogs() {
             ajaxRequest('/api/logs', 'GET', null, function(err, data) {
-                if (!err && data && data.logs) {
+                if (!err && data && data.data && data.data.logs) {
                     const logContainer = document.getElementById('log-container');
                     if (logContainer) {
                         // 保存当前滚动位置
                         const wasAtBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 5;
                         
-                        logContainer.innerHTML = data.logs.join('<br>');
+                        logContainer.innerHTML = data.data.logs.join('<br>');
                         
                         // 如果之前在底部，保持滚动到底部
                         if (wasAtBottom) {
@@ -111,8 +111,8 @@
             fetchLogs();
             // 从配置获取日志轮询间隔
             ajaxRequest('/api/config', 'GET', null, function(err, data) {
-                const interval = (data && data.config && data.config.log_polling_interval) ? 
-                                data.config.log_polling_interval : 3000;
+                const interval = (data && data.data.config && data.data.config.log_polling_interval) ? 
+                                data.data.config.log_polling_interval : 3000;
                 setInterval(fetchLogs, interval);
             });
         }

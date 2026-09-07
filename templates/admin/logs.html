@@ -128,8 +128,8 @@
         
         // 从配置获取日志刷新间隔
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
-            const interval = (data && data.config && data.config.log_polling_interval) ? 
-                            data.config.log_polling_interval : 5000;
+            const interval = (data && data.data.config && data.data.config.log_polling_interval) ? 
+                            data.data.config.log_polling_interval : 5000;
             
             refreshInterval = setInterval(function() {
                 if (autoRefresh) {
@@ -334,8 +334,8 @@
         
         // 从配置获取实时更新间隔
         ajaxRequest('/api/config', 'GET', null, function(err, data) {
-            const interval = (data && data.config && data.config.log_realtime_interval) ? 
-                            data.config.log_realtime_interval : 3000;
+            const interval = (data && data.data.config && data.data.config.log_realtime_interval) ? 
+                            data.data.config.log_realtime_interval : 3000;
             
             realtimeInterval = setInterval(function() {
                 fetchLatestLogs();

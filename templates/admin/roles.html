@@ -158,7 +158,7 @@ let roleModal = null;
 let permissionPreviewModal = null;
 
 function canManageRoles() {
-    return Boolean(window.TemplateApp?.hasPermission('user:manage'));
+    return Boolean(window.TemplateApp?.isAdmin());
 }
 
 function escapeHtml(value) {

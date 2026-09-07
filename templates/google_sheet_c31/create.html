@@ -979,7 +979,7 @@
                     throw new Error(data.message || '加载 Google Sheet 列表失败');
                 }
 
-                const items = Array.isArray(data.items) ? data.items : [];
+                const items = Array.isArray(data.data?.items) ? data.data.items : [];
                 spreadsheetSelect.innerHTML = '<option value="">请选择 Google Sheet</option>';
 
                 items.forEach(sheetItem => {

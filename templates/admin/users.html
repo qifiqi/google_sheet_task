@@ -92,7 +92,7 @@ let userModal = null
 const DEV_ROLE_CODES = ['developer']
 
 function canManageUsers() {
-    return Boolean(window.TemplateApp?.hasPermission('user:manage'))
+    return Boolean(window.TemplateApp?.isAdmin())
 }
 
 function escapeHtml(value) {

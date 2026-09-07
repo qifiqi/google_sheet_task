@@ -1224,7 +1224,7 @@
             if (!response.ok || data.status !== 'success') {
                 throw new Error(data.message || '股票搜索失败');
             }
-            const items = Array.isArray(data.results) ? data.results : [];
+            const items = Array.isArray(data.data?.results) ? data.data.results : [];
             results.innerHTML = items.length ? items.map((item) => `
                 <button type="button" class="list-group-item list-group-item-action" data-code="${escapeHtml(item.code || '')}" data-name="${escapeHtml(item.name || item.code || '')}">
                     <span class="fw-semibold">${escapeHtml(item.code || '')}</span>

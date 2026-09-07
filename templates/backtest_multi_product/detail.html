@@ -1573,7 +1573,7 @@
             }
 
             const wasNearBottom = logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 12;
-            logContainer.innerHTML = renderTaskLogs(data.logs || []);
+            logContainer.innerHTML = renderTaskLogs((data.data && data.data.logs) || []);
             if (wasNearBottom) {
                 logContainer.scrollTop = logContainer.scrollHeight;
             }
