@@ -370,6 +370,31 @@ def test_extract_c5_includes_saved_return_analysis_metrics():
     assert rows[0].metrics["max_drawdown_analysis"] == -0.08
 
 
+def test_extract_c5_upgrades_legacy_sortino_key_names():
+    task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
+    result = _result(
+        parameters={"A1": "1.8", "B1": "4", "year": "2025-2024"},
+        result={
+            "sheet__model": {
+                "D11": "15%",
+                "excess_sharp": "1.73",
+                "excess_of_promissory_note": "6.75",
+                "start_sotino_ratio": "10.56",
+                "index_sotino_ratio": "0.77",
+            }
+        },
+    )
+
+    rows = extract_summary_records(task, result)
+
+    assert rows[0].metrics["excess_sharpe"] == 1.73
+    assert rows[0].metrics["excess_sortino"] == 6.75
+    assert rows[0].metrics["start_sortino_ratio"] == 10.56
+    assert rows[0].metrics["index_sortino_ratio"] == 0.77
+    assert "excess_sharp" not in rows[0].metrics
+    assert "excess_of_promissory_note" not in rows[0].metrics
+
+
 def test_extract_c5_falls_back_to_prefixed_task_name_when_stock_code_missing():
     task = _task(task_type="google_sheet_C5", name="C5-600776-东方通信")
     result = _result(

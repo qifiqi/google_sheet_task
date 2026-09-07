@@ -532,6 +532,10 @@ def _extract_return_analysis_metrics(payload: dict[str, Any]) -> dict[str, float
     if isinstance(flat_result, dict):
         payload = {**payload, **flat_result}
 
+    # 历史 TaskResult 仍存旧键名（sotino/excess_sharp/excess_of_promissory_note 等），
+    # 与 _extract_backtest 一致在读取期升级；历史载荷迁移后可移除。
+    payload = upgrade_historical_metrics(payload)
+
     field_map = {
         "start_monthly_std_dev": "start_monthly_std_dev",
         "index_monthly_std_dev": "index_monthly_std_dev",
