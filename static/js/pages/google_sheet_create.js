@@ -1165,6 +1165,7 @@
 
             // 构造配置对象
             return {
+                task_type: 'google_sheet',
                 spreadsheet_id: spreadsheetId,
                 title: spreadsheetTitle || null,
                 sheet_name: sheetName,

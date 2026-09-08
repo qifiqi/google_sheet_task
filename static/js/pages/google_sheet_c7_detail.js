@@ -295,7 +295,7 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         if (!value || !Array.isArray(value) || value.length === 0) {
             return '<span class="text-muted">无</span>';
         }
-        const years = value.map(y => `近${y}年`).join('、');
+        const years = value.map(y => Number(y) === 0.5 ? '近半年' : `近${y}年`).join('、');
         return `<span class="text-danger">${years}</span>`;
     }
 

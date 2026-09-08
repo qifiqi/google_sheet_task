@@ -317,7 +317,7 @@ class KlineService:
         limit = max(1, int(limit or 1))
 
         internal_rows = []
-        if source == DATA_SOURCE_DATABASE and supports_internal_kline(market_type):
+        if supports_internal_kline(market_type):
             internal_rows = self._normalize_rows(
                 self.read_internal_kline_data(
                     stock_code=source_code,

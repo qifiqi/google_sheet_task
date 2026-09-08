@@ -123,7 +123,7 @@ class DFCJStockApi:
                 return []
 
             data = response.json()
-            if "data" not in data or "klines" not in data["data"]:
+            if "data" not in data or data["data"] is None or "klines" not in data["data"]:
                 self.logger.error(f"数据格式错误: {data}")
                 return []
 

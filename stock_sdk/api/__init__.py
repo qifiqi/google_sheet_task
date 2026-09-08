@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from .east_money_stock_quote import EastmoneystockquoteApi
 from .param_backtest_product_result_cache import ParambacktestproductresultcacheApi
 from .param_backtest_sheet_run_locks import ParambacktestsheetrunlocksApi
 from .param_google_sheet import ParamgooglesheetApi
@@ -28,7 +27,6 @@ from .sys_user import SysuserApi
 
 def bind_api_groups(client: Any) -> None:
     """Attach every controller group to a client instance."""
-    client.east_money_stock_quote = EastmoneystockquoteApi(client)
     client.param_backtest_product_result_cache = ParambacktestproductresultcacheApi(client)
     client.param_backtest_sheet_run_locks = ParambacktestsheetrunlocksApi(client)
     client.param_google_sheet = ParamgooglesheetApi(client)

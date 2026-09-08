@@ -467,8 +467,8 @@ if (versionParam && versionParam !== 'c7') {
 
     // 加载模板列表
     function loadTemplates() {
-        // 只加载 c7 类型的模板
-        Api.endpoints.template.list('google_sheet_c7')
+        // 只加载 c7 类型的模板（后端按 config.task_type 精确匹配，必须传 task_type= 查询串）
+        Api.endpoints.template.list('task_type=google_sheet_c7')
             .then(data => {
                 if (!data || !Array.isArray(data.templates)) {
                     console.error('Invalid response format:', data);
@@ -732,7 +732,8 @@ if (versionParam && versionParam !== 'c7') {
         const excluded = [];
         const checkboxes = document.querySelectorAll('.recent-year-checkbox:checked');
         checkboxes.forEach(cb => {
-            excluded.push(parseInt(cb.value));
+            // 近半年为 0.5，必须用 parseFloat，parseInt 会截断成 0
+            excluded.push(parseFloat(cb.value));
         });
         return excluded;
     }

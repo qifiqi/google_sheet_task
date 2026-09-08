@@ -1,3 +1,4 @@
+import calendar
 import json
 import random
 import re
@@ -35,6 +36,16 @@ from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
 
 logger = get_logger(__name__)
+
+
+def _shift_date_months(date_str, months):
+    """ISO 日期字符串按月平移（months 可为负），日超过目标月天数时钳制到月末。"""
+    year = int(date_str[:4])
+    month = int(date_str[5:7])
+    total = year * 12 + (month - 1) + months
+    last_day = calendar.monthrange(total // 12, total % 12 + 1)[1]
+    day = min(int(date_str[8:10]), last_day)
+    return f"{total // 12:04d}-{total % 12 + 1:02d}-{day:02d}"
 
 
 class C7Service(BaseGoogleSheetService):
@@ -760,13 +771,19 @@ class C7Service(BaseGoogleSheetService):
             # 起止年份差就是可生成的近年区间数量；首尾年份相差 5 年时，
             # 应生成近 1 年到近 5 年，不能额外生成近 6 年的区间。
             total_years = max(0, _end_year_1 - _start_date)
-            for year in range(1, total_years + 1):
+            # 近半年（0.5）排在最前，开始日期 = 结束日期往前推 6 个月
+            recent_spans = [(0.5, _shift_date_months(end_date, -6))]
+            recent_spans.extend(
+                (year, f"{_end_year_1 - year}{end_date[4:]}")
+                for year in range(1, total_years + 1)
+            )
+            for year, span_start in recent_spans:
                 # 如果当前年份在排除列表中，跳过
                 if year in exclude_recent_years:
                     continue
 
                 _end_data = end_date
-                _start_data = max(start_date, f"{_end_year_1 - year}{end_date[4:]}")
+                _start_data = max(start_date, span_start)
                 if _start_data > _end_data:
                     continue
                 kline = KlineService.build_price_rows(

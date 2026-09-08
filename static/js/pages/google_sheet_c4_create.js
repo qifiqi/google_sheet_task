@@ -348,8 +348,8 @@ if (versionParam && versionParam !== 'c4') {
 
     // 加载模板列表
     function loadTemplates() {
-        // 只加载 C4 类型的模板
-        Api.endpoints.template.list('google_sheet_C4')
+        // 只加载 C4 类型的模板（后端按 config.task_type 精确匹配，必须传 task_type= 查询串）
+        Api.endpoints.template.list('task_type=google_sheet_C4')
             .then(data => {
                 if (!data || !Array.isArray(data.templates)) {
                     console.error('Invalid response format:', data);

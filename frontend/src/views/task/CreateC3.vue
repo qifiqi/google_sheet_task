@@ -272,7 +272,8 @@ async function loadTokens() {
 
 async function loadTemplates() {
   try {
-    const res = await getTemplates()
+    // 后端按 config.task_type 精确匹配，只加载 C3 模板
+    const res = await getTemplates({ task_type: 'google_sheet' })
     templates.value = res.templates || []
   } catch {}
 }
