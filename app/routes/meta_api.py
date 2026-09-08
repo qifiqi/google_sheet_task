@@ -3,15 +3,19 @@
 鉴权与路由表模式（单 Token 子服务模式，2026-09 启用）:
 
 - 导航路由表仅保留拉取接口：``/api/meta/nav`` 与 ``/api/navigation/menu``
-  按请求头 Token 调用远程 ``POST /api/SysUser/GetUserRoleList``
-  （经 ``MenuService.build_tree`` 组树并只保留映射到本站路由的条目）。
-  本地 ``NavigationMenuItem`` 菜单管理与全量 ``sys_model`` 分支已注释，
-  不再维护本地路由表。
+  按请求头 Token 调用远程 ``POST /api/SysUser/GetUserRoleList``，
+  与主站前端（``SIDEBAR-GUIDE.md``）一致返回平铺模型数组。本接口是
+  纯代理：不做排序、不过滤、不组树（排序与组树由本站前端完成），
+  仅把站内相对路径的图标地址归一化为绝对地址。菜单目标以权限系统
+  配置的 ``model_link`` 为准（运维约定填本站可达路径）。
+  本地 ``NavigationMenuItem`` 菜单管理已注释，不再维护本地路由表。
 - 枚举值已从 ``app.models`` 迁至 ``app.domain_constants``（纯常量，
   不涉及数据库），此处 import 仅为兼容旧引用路径。
 """
+import os
+import re
+
 from flask import Blueprint, current_app, g
-from werkzeug.exceptions import NotFound
 from app.models import (
     GoogleSheetTableType,
     GoogleSheetTokenTaskType,
@@ -24,23 +28,14 @@ from app.models import (
 # from app.repositories.sys_model_repository import SysModelRepository
 # from app.navigation import build_navigation_tree
 from app.repositories.sdk_client import SdkDataAccessError, SdkOperationError
-from app.services.menu_service import MenuService
 from app.utils.api_response import success
 from app.utils.auth import login_required
 from app.utils.auth import get_request_token
 
 meta_api_bp = Blueprint('meta_api', __name__)
 
-# 远程路由表 model_code -> 本站页面路径映射。
-# GetUserRoleList 返回的 model_link 是主站视图路径（/views/*.html），
-# 本子服务只展示映射到本站路由的条目；分组节点（无链接）由子节点
-# 保留情况决定。新增本站页面时在此登记对应模型代码即可。
-# 注意: 映射目标应为前端 Vue 路由可达的路径；``/admin/eastmoney-kline``
-# 当前由 Flask 模板提供，Vue 端访问需先在前端注册对应路由或在
-# nginx 为该路径单独配置反向代理。
-REMOTE_MODEL_ROUTE_MAP = {
-    'eastMoneyKlineManage': '/admin/eastmoney-kline',
-}
+# 绝对地址（http(s):// 或协议相对 //host）图标不参与归一化（文档第 5 节）。
+_ABSOLUTE_ICON_RE = re.compile(r'^(?:[a-z]+:)?//', re.IGNORECASE)
 
 
 # @meta_api_bp.route('/meta/versions', methods=['GET'])
@@ -76,9 +71,10 @@ def get_enums():
 def get_nav():
     """按请求头 Token 读取远程路由表（GetUserRoleList）。
 
-    单 Token 子服务模式下，菜单来自当前用户在主 Web 被授权的模型列表;
-    仅保留 REMOTE_MODEL_ROUTE_MAP 中映射到本站路由的条目。
-    原本地路由表 / 全量 sys_model 分支注释保留。
+    返回平铺模型数组（``model_id / model_name / model_code /
+    parent_model_id / order_num / model_icon / model_link`` 等），
+    排序与两级组树由前端完成；``model_link`` 由权限系统配置保证
+    指向本站可达路径。原本地路由表 / 全量 sys_model 分支注释保留。
     """
     return _remote_role_menu_response()
 
@@ -91,7 +87,7 @@ def get_navigation_menu():
 
 
 def _remote_role_menu_response():
-    """用请求头 Token 拉取 GetUserRoleList 并组装本站菜单树。"""
+    """用请求头 Token 拉取 GetUserRoleList 并原样返回模型数组。"""
 
     token = get_request_token()
     if not token:
@@ -104,62 +100,31 @@ def _remote_role_menu_response():
 
 
 def _get_role_menu_rows(token):
-    """把 GetUserRoleList 模型数组转换为前端 key/label/path 菜单树。"""
-    from app.services.menu_service import MenuService
+    """读取路由表；除图标地址归一化外不改动远程返回的行数据。"""
     from app.services.token_identity_service import get_token_identity_service
 
     role_rows = get_token_identity_service().get_user_role_list(token)
-
-    def is_local_route(link: str) -> bool:
-        """判断映射后的菜单链接是否对应当前应用的可访问 GET 路由。"""
-        path = link.split("?", 1)[0]
-        try:
-            current_app.url_map.bind("").match(path, method="GET")
-            return True
-        except NotFound:
-            return False
-
-    # 仅保留映射到本站路由的模型与分组节点（无链接的父级）。
-    scoped_rows = []
-    for row in role_rows:
-        local_path = REMOTE_MODEL_ROUTE_MAP.get(str(row.get('model_code') or ''))
-        if local_path:
-            scoped = dict(row)
-            scoped['model_link'] = local_path
-            scoped_rows.append(scoped)
-        elif not str(row.get('model_link') or '').strip():
-            scoped_rows.append(dict(row))
-
-    tree = MenuService.build_tree(scoped_rows, is_available=is_local_route)
-    return _to_vue_menu_items(tree)
+    return [
+        {**row, 'model_icon': _normalize_icon_url(row.get('model_icon'))}
+        for row in role_rows
+    ]
 
 
-def _to_vue_menu_items(tree):
-    """把 sys_model 菜单树转换为前端侧边栏使用的 key/label/path 结构。
+def _normalize_icon_url(icon) -> str:
+    """按文档第 5 节归一化菜单图标地址。
 
-    - 叶子节点: 有可用本站链接时输出 ``{key, label, path}``;
-    - 分组节点: 无链接，仅当子树非空时保留 ``children``。
-    前端 AppSidebar 依赖 ``item.path`` 区分页面项与分组项。
+    已是绝对地址（http(s):// 或协议相对 //）的原样返回；站内相对
+    路径拼主站 API 基址（前端不感知 ``STOCK_BASE_URL``）。
     """
-    result = []
-    for node in tree:
-        children = _to_vue_menu_items(node.get('children') or [])
-        link = str(node.get('model_link') or '')
-        if link:
-            if node.get('available') and node.get('model_code'):
-                result.append({
-                    'key': str(node['model_code']),
-                    'label': str(node.get('model_name') or node['model_code']),
-                    'path': link,
-                })
-            continue
-        if children:
-            result.append({
-                'key': str(node.get('model_code') or node.get('model_id')),
-                'label': str(node.get('model_name') or ''),
-                'children': children,
-            })
-    return result
+    raw = str(icon or '').strip()
+    if not raw or _ABSOLUTE_ICON_RE.match(raw):
+        return raw
+    base = str(
+        current_app.config.get('STOCK_BASE_URL')
+        or os.environ.get('STOCK_BASE_URL')
+        or ''
+    ).rstrip('/')
+    return f"{base}/{raw.lstrip('/')}" if base else raw
 
 
 # ---------- 旧导航实现（本地路由表 / 全量 sys_model），注释保留 ----------

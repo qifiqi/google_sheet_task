@@ -185,18 +185,20 @@ class RemoteHttpClient:
     ) -> dict[str, Any]:
         """发送一次请求并返回统一响应信封字典。
 
-        空载荷不携带请求体（如 ``GetUserInfo`` 等无参端点，凭据只走
-        ``Token`` 请求头）；传输错误与 HTTP 错误翻译为本模块异常。
+        与主 Web 前端 ``$.ajaxs`` 的契约一致：请求体恒为 JSON 编码的
+        ``payload``，空载荷也发送 ``{}`` 并携带 ``Content-Type:
+        application/json``——远端 ``[FromBody]`` 接口在请求体缺失或
+        Content-Type 不符时返回 HTTP 415。传输错误与 HTTP 错误翻译为
+        本模块异常。
         """
         headers: dict[str, str] = {}
         if self.token:
             headers["Token"] = self.token
-        body = dict(payload) if payload else None
         try:
             response = self._session.request(
                 method,
                 f"{self.base_url}{path}",
-                json=body,
+                json=dict(payload or {}),
                 headers=headers,
                 timeout=self.timeout,
             )

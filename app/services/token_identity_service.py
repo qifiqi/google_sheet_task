@@ -14,9 +14,10 @@
 远程接口返回信封为 ``{"ret_code", "ret_msg", "ret_count", "ret_obj"}``;
 Token 无效或缺失时 GetUserInfo 返回 ``ret_code=401``（HTTP 仍为 200，
 由数据层转成业务异常后在这里翻译为 :class:`TokenInvalidError`）。
-``GetUserInfo`` 不接收请求体；``GetUserRoleList`` 仅携带 ``sys_type``
-（当前系统固定为 ``1``）。按 Token 的客户端缓存与路由表 TTL 缓存
-均由数据层维护，本服务只负责异常语义翻译与身份 DTO。
+``GetUserInfo`` / ``GetUserRoleList`` 请求体均为空 JSON ``{}``
+（与主 Web 前端 ``$.ajaxs`` 契约一致，凭据只走 ``Token`` 请求头）。
+按 Token 的客户端缓存与路由表
+TTL 缓存均由数据层维护，本服务只负责异常语义翻译与身份 DTO。
 """
 
 from __future__ import annotations
@@ -160,13 +161,12 @@ class TokenIdentityService:
         self,
         token: str,
         *,
-        sys_type: int = 1,
         use_cache: bool = True,
     ) -> list[dict[str, Any]]:
         """用请求头 Token 读取用户可访问的模型（路由表）列表。
 
-        当前系统 ``sys_type`` 固定为 ``1``；路由表缓存由数据层维护，
-        ``use_cache=False`` 用于强制回源刷新。
+        与主 Web 前端一致不携带请求体（见 ``SIDEBAR-GUIDE.md``）；
+        路由表缓存由数据层维护，``use_cache=False`` 用于强制回源刷新。
         """
         raw_token = str(token or "").strip()
         if not raw_token:
@@ -175,7 +175,6 @@ class TokenIdentityService:
         return self._call_identity(
             self._repository.get_user_role_list,
             raw_token,
-            sys_type=sys_type,
             use_cache=use_cache,
         )
 

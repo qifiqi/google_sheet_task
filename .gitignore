@@ -163,3 +163,4 @@ migrations/
 tests/
 dockers/
 *.tar
+.mimosa

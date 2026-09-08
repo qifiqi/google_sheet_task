@@ -56,16 +56,17 @@ class SysUserRepository:
         self,
         token: str,
         *,
-        sys_type: int = 1,
         use_cache: bool = True,
     ) -> list[dict[str, Any]]:
         """用请求头 Token 读取用户可访问的模型（路由表）数组。
 
-        当前系统 ``sys_type`` 固定为 ``1``，作为请求体随接口发送；
-        结果按 (Token, sys_type) 短暂缓存，避免每个请求都回源远程服务，
+        与主 Web 前端 ``$.ajaxs`` 的调用契约一致: 请求体恒为空 JSON
+        ``{}``（携带 ``application/json``），凭据只走 ``Token`` 请求头。
+        主站返回的模型数据本身无序，路由表顺序由前端按 ``order_num``
+        排序。结果按 Token 短暂缓存，避免每个请求都回源远程服务，
         ``use_cache=False`` 用于强制回源刷新。
         """
-        cache_key = (str(token or ""), int(sys_type))
+        cache_key = str(token or "")
         if use_cache:
             cached = self._read_role_list_cache(cache_key)
             if cached is not None:
@@ -74,7 +75,7 @@ class SysUserRepository:
         raw = self.client.call(
             "sys_user",
             "get_user_role_list",
-            {"sys_type": int(sys_type)},
+            {},
             token=token,
         )
         if raw is None:
@@ -88,8 +89,8 @@ class SysUserRepository:
             self._write_role_list_cache(cache_key, rows)
         return rows
 
-    def _read_role_list_cache(self, key: tuple[str, int]) -> list[dict[str, Any]] | None:
-        """在 TTL 内读取该 (Token, sys_type) 的路由表缓存。"""
+    def _read_role_list_cache(self, key: str) -> list[dict[str, Any]] | None:
+        """在 TTL 内读取该 Token 的路由表缓存。"""
         now = time.monotonic()
         with self._role_list_lock:
             cached = self._role_list_cache.get(key)
@@ -101,7 +102,7 @@ class SysUserRepository:
 
     def _write_role_list_cache(
         self,
-        key: tuple[str, int],
+        key: str,
         rows: list[dict[str, Any]],
     ) -> None:
         """写入路由表缓存并清理过期条目，避免缓存无限增长。"""

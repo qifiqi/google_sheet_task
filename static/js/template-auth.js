@@ -6,6 +6,9 @@
     //   双令牌流程已移除）; 401 表示 Token 失效，清空登录态并回 /login。
     const TOKEN_KEY = "access_token";
     const THEME_KEY = "templateTheme";
+    // 路由表缓存（sessionStorage，随标签页关闭失效）：页面切换时先用
+    // 缓存即时渲染侧边栏，避免每次跳转都出现菜单弹出/重排的过程。
+    const MENU_CACHE_KEY = "templateMenuRows";
     const originalFetch = window.fetch.bind(window);
     const authExemptPaths = new Set(["/api/auth/login"]);
     const hiddenClassName = "template-auth-hidden";
@@ -14,19 +17,6 @@
     let currentPermissions = [];
     let navItems = [];
     let pagePermissions = [];
-
-    const legacyPathMap = new Map([
-        ["/admin", "/admin/"],
-        ["/task/list?version=c3", "/google-sheet/?version=c3"],
-        ["/task/list?version=c4", "/google-sheet/?version=c4"],
-        ["/task/list?version=c5", "/google-sheet/?version=c5"],
-        ["/task/create", "/google-sheet/create"],
-        ["/backtest/list", "/backtest-training/list"],
-        ["/backtest/create", "/backtest-training/create"],
-        ["/xpl", "/xpl/"],
-    ]);
-
-    const templateUnsupportedPaths = new Set([]);
 
     function parseJsonSafely(text) {
         if (!text) {
@@ -44,6 +34,53 @@
             return "/";
         }
         return path.replace(/\/+$/, "") || "/";
+    }
+
+    function sortMenuRows(rows) {
+        // 远程返回的路由表本身无序，按文档约定以 order_num 排序（前端完成，
+        // 后端为纯代理）；model_id 与数组下标兜底，保证排序稳定。
+        const rank = (value) => {
+            const parsed = parseInt(value, 10);
+            return Number.isNaN(parsed) ? 0 : parsed;
+        };
+        return rows
+            .map((row, index) => ({ row, index }))
+            .sort((a, b) =>
+                rank(a.row.order_num) - rank(b.row.order_num)
+                || rank(a.row.model_id) - rank(b.row.model_id)
+                || a.index - b.index
+            )
+            .map((entry) => entry.row);
+    }
+
+    function buildMenuTree(rows) {
+        // SIDEBAR-GUIDE.md 第 5 节：平铺数组 → 两级树，顺序跟随返回顺序。
+        const model = rows.filter((item) => item.parent_model_id == 0);
+        model.forEach((element) => {
+            element.children = rows.filter((item) => item.parent_model_id == element.model_id);
+        });
+        return model;
+    }
+
+    // 远程路由表中"退出登录"叶子的约定标识（文档第 10 节建议按 model_code）。
+    const LOGOUT_MODEL_CODE = "LoggoutManage";
+    const LOGOUT_MODEL_NAME = "退出登录";
+
+    function isLogoutItem(item) {
+        return item.model_code === LOGOUT_MODEL_CODE
+            || String(item.model_name || "").trim() === LOGOUT_MODEL_NAME;
+    }
+
+    function menuLabel(item) {
+        return String(item.model_name || item.model_code || "未命名菜单");
+    }
+
+    function menuIconHtml(item) {
+        const icon = String(item.model_icon || "").trim();
+        if (!icon) {
+            return "";
+        }
+        return `<img src="${escapeHtml(icon)}" alt="" onerror="this.remove()">`;
     }
 
     function getCurrentUrl() {
@@ -68,6 +105,7 @@
     function clearAuthState() {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem("refresh_token");
+        sessionStorage.removeItem(MENU_CACHE_KEY);
         currentUser = null;
         currentPermissions = [];
         navItems = [];
@@ -316,43 +354,6 @@
         });
     }
 
-    function resolveLegacyPath(path) {
-        if (!path) {
-            return path;
-        }
-        return legacyPathMap.get(path) || path;
-    }
-
-    function filterTemplateNav(items) {
-        return (Array.isArray(items) ? items : []).reduce((result, item) => {
-            const cloned = {
-                ...item,
-                label: item.model_name || item.label || "未命名菜单",
-                path: item.model_link || item.path || "",
-            };
-            if (cloned.path) {
-                const legacyPath = resolveLegacyPath(cloned.path);
-                if (cloned.disabled || cloned.available === false || !legacyPath || templateUnsupportedPaths.has(cloned.path)) {
-                    cloned.path = "";
-                    cloned.disabled = true;
-                } else {
-                    cloned.path = legacyPath;
-                }
-                result.push(cloned);
-                return result;
-            }
-
-            if (Array.isArray(cloned.children)) {
-                const children = filterTemplateNav(cloned.children);
-                if (children.length) {
-                    cloned.children = children;
-                    result.push(cloned);
-                }
-            }
-            return result;
-        }, []);
-    }
-
     function isItemActive(path) {
         if (!path) {
             return false;
@@ -363,56 +364,85 @@
         return normalizedCurrent === normalizedTarget || currentPath === path;
     }
 
-    function renderSidebarMenu(items) {
+    function readSavedCollapseState() {
+        const saved = parseJsonSafely(localStorage.getItem("sidebarCollapseState"));
+        return saved && typeof saved === "object" ? saved : {};
+    }
+
+    function renderSidebarMenu(tree) {
         const container = document.getElementById("templateSidebarMenu");
         if (!container) {
             return;
         }
 
-        if (!items.length) {
+        if (!tree.length) {
             container.innerHTML = '<div class="template-auth-empty-nav px-2 py-3">当前账号暂无可见菜单</div>';
             return;
         }
 
-        let sequence = 0;
-        const hasActiveDescendant = (item) => isItemActive(item.path)
+        // 折叠状态在渲染时直接写入初始 HTML（按 model_id 记忆），不渲染后再
+        // 补 class，页面切换重建侧边栏时不会触发 Bootstrap 展开动画。
+        const savedCollapse = readSavedCollapseState();
+        const hasActiveDescendant = (item) => isItemActive(item.model_link || "")
             || (item.children || []).some(hasActiveDescendant);
         const renderItem = (item, nested) => {
-            const label = escapeHtml(item.label);
-            if (!item.children?.length) {
-                return item.path
-                    ? `<li><a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${escapeHtml(item.path)}"><span>${label}</span></a></li>`
-                    : `<li><span class="nav-link disabled"><span>${label}</span></span></li>`;
+            const label = escapeHtml(menuLabel(item));
+            const icon = menuIconHtml(item);
+            // 远程路由表的"退出登录"叶子：渲染为登出触发项而非页面跳转，
+            // 点击行为由 bindLogoutButtons 统一绑定（清 Token 并回 /login）。
+            if (isLogoutItem(item)) {
+                return `<li><a class="nav-link text-danger" href="#" data-template-auth-logout>${icon}<span>${label}</span></a></li>`;
             }
-            const collapseId = `templateSidebarGroup${sequence++}`;
-            const expanded = hasActiveDescendant(item);
+            if (!item.children?.length) {
+                const link = String(item.model_link || "");
+                return link
+                    ? `<li><a class="nav-link ${isItemActive(link) ? "active" : ""}" href="${escapeHtml(link)}">${icon}<span>${label}</span></a></li>`
+                    : `<li><span class="nav-link disabled">${icon}<span>${label}</span></span></li>`;
+            }
+            const collapseId = `templateSidebarGroup${item.model_id}`;
+            const savedExpanded = savedCollapse[collapseId];
+            const expanded = savedExpanded !== undefined
+                ? Boolean(savedExpanded)
+                : hasActiveDescendant(item);
             return `<li class="${nested ? "mt-1" : "mt-3"}">
                 <button class="btn-toggle" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="${expanded ? "true" : "false"}">
-                    <span>${label}</span><i class="bi bi-chevron-right btn-toggle-icon"></i>
+                    <span>${icon}${label}</span><i class="bi bi-chevron-right btn-toggle-icon"></i>
                 </button>
                 <div class="collapse ${expanded ? "show" : ""}" id="${collapseId}"><ul class="btn-toggle-nav">${item.children.map((child) => renderItem(child, true)).join("")}</ul></div>
             </li>`;
         };
-        container.innerHTML = `<ul class="btn-toggle-nav">${items.map((item) => renderItem(item, false)).join("")}</ul>`;
+        container.innerHTML = `<ul class="btn-toggle-nav">${tree.map((item) => renderItem(item, false)).join("")}</ul>`;
     }
 
-    function renderTopMenu(items) {
+    function renderTopMenu(tree) {
         const container = document.getElementById("templateTopMenu");
         if (!container) {
             return;
         }
 
         const leaves = [];
-        const collectLeaves = (source) => {
-            (source || []).forEach((item) => {
-                if (item.path) {
-                    leaves.push(item);
-                } else if (Array.isArray(item.children)) {
+        const collectLeaves = (items) => {
+            (items || []).forEach((item) => {
+                if (item.children?.length) {
                     collectLeaves(item.children);
+                } else {
+                    leaves.push(item);
                 }
             });
         };
-        collectLeaves(items);
+        collectLeaves(tree);
+
+        const renderLeaf = (item) => {
+            const label = escapeHtml(menuLabel(item));
+            if (isLogoutItem(item)) {
+                return `<a class="nav-link text-danger" href="#" data-template-auth-logout>${label}</a>`;
+            }
+            const link = String(item.model_link || "");
+            if (!link) {
+                return `<span class="nav-link disabled">${label}</span>`;
+            }
+            return `<a class="nav-link ${isItemActive(link) ? "active" : ""}" href="${escapeHtml(link)}">${label}</a>`;
+        };
 
         const isListContainer = container.tagName === "UL" || container.tagName === "OL";
 
@@ -424,18 +454,12 @@
         }
 
         if (isListContainer) {
-            container.innerHTML = leaves.map((item) => `
-                <li class="nav-item">
-                    <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">${item.label}</a>
-                </li>
-            `).join("");
+            container.innerHTML = leaves.map((item) => `<li class="nav-item">${renderLeaf(item)}</li>`).join("");
             return;
         }
 
         container.classList.add("template-auth-horizontal-nav");
-        container.innerHTML = leaves.map((item) => `
-            <a class="nav-link ${isItemActive(item.path) ? "active" : ""}" href="${item.path}">${item.label}</a>
-        `).join("");
+        container.innerHTML = leaves.map(renderLeaf).join("");
     }
 
     function ensureFloatingEntry() {
@@ -474,17 +498,42 @@
         document.body.appendChild(panel);
     }
 
-    async function loadNav() {
-        const payload = await requestJson("/api/meta/nav", { method: "GET" });
-        const navigationData = payload?.data || {};
-        navItems = filterTemplateNav(
-            Array.isArray(navigationData) ? navigationData : navigationData.items || []
-        );
-        pagePermissions = Array.isArray(navigationData.page_permissions)
-            ? navigationData.page_permissions
-            : [];
+    function applyMenuRows(rows) {
+        navItems = buildMenuTree(sortMenuRows(Array.isArray(rows) ? rows : []));
         renderSidebarMenu(navItems);
         renderTopMenu(navItems);
+    }
+
+    async function loadNav() {
+        // 1) 先用 sessionStorage 缓存即时渲染：MPA 每次页面切换都会重建
+        //    侧边栏，缓存命中时菜单随页面同步出现，无弹出/重排过程。
+        const cachedRows = parseJsonSafely(sessionStorage.getItem(MENU_CACHE_KEY));
+        if (Array.isArray(cachedRows) && cachedRows.length) {
+            applyMenuRows(cachedRows);
+        }
+
+        // 2) 再拉取最新路由表；仅在与缓存不一致时重绘，避免无谓重渲染。
+        try {
+            const payload = await requestJson("/api/meta/nav", { method: "GET" });
+            const navigationData = payload?.data || {};
+            const rows = Array.isArray(navigationData)
+                ? navigationData
+                : navigationData.items || [];
+            if (JSON.stringify(rows) !== JSON.stringify(cachedRows || null)) {
+                sessionStorage.setItem(MENU_CACHE_KEY, JSON.stringify(rows));
+                applyMenuRows(rows);
+            }
+        } catch (error) {
+            // 401 表示 Token 失效，抛回由统一流程清空登录态并回登录页；
+            // 其余失败（如远程菜单服务暂不可用）不强制登出：有缓存时静默
+            // 沿用缓存，无缓存时提示后保留会话。
+            if (error?.response?.status === 401) {
+                throw error;
+            }
+            if (!Array.isArray(cachedRows) || !cachedRows.length) {
+                showNotification(error.message || "菜单加载失败，请稍后刷新重试", "error");
+            }
+        }
     }
 
     function applyPermissionNodes() {
