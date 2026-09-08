@@ -1,6 +1,11 @@
 """
 数据库操作工具模块
 提供事务管理、连接管理等功能
+
+数据库直连迁移状态: 任务业务读写已切换到 stock_sdk HTTP 接口；
+本模块仅保留 ``transaction_required`` 装饰器（任务创建 / 取消路径的
+会话兜底）以及历史工具函数。``safe_delete`` / ``save`` 等基于本地
+ORM 的函数已无业务调用方，仅在历史兼容路径中保留。
 """
 import functools
 from sqlalchemy.exc import IntegrityError, OperationalError

@@ -1,7 +1,27 @@
+"""本地 SQLAlchemy 模型定义（数据库直连迁移残留，逐步停用中）。
+
+数据库直连迁移状态（stock_sdk / HTTP 数据访问改造）:
+
+- 任务业务数据（Task / TaskLog / TaskResult / TaskResultReturn /
+  汇总索引 / StockMetadata / 回测锁与产品缓存等）已全部改为通过
+  ``app/repositories/*`` 走 stock_sdk HTTP 接口读写；对应本地模型已删除
+  或仅作类型标注引用，业务代码不应再新增对本地任务表的 ORM 依赖。
+- 用户 / 角色 / 权限 / 本地导航菜单已随单 Token 子服务模式整体注释停用
+  （``User`` / ``Role`` / ``Permission`` 及关联表、``NavigationMenuItem``）:
+  本服务登录仅校验请求头 Token（远程 GetUserInfo），菜单权限由远程
+  GetUserRoleList 路由表控制；原模型定义注释保留在文件内，便于恢复。
+- 本文件当前保留的模型:
+    - ``Task`` / ``TaskLog`` / ``TaskResult``: 仅剩看门狗（已停用）与
+      部分服务的类型标注引用，业务读写链路已切换到 SDK。
+- 枚举常量（TaskStatus / TaskType / StockMarketType 等）已迁至
+  ``app.domain_constants``，文件末尾保留 re-export 仅作兼容。
+"""
+
 from datetime import datetime
 import json
 
-from sqlalchemy.orm import foreign
+# 本地 RBAC 停用后不再需要 relationship foreign 标注。
+# from sqlalchemy.orm import foreign
 
 from app.extensions import db
 
@@ -27,123 +47,125 @@ def _normalize_summary_metrics(metrics):
     return normalized
 
 
-# ==================== RBAC ====================
-
-role_permissions = db.Table('t_param_role_permissions',
-    db.Column('role_id', db.Integer, primary_key=True),
-    db.Column('permission_id', db.Integer, primary_key=True),
-)
-
-user_roles = db.Table('t_param_user_roles',
-    db.Column('user_id', db.Integer, primary_key=True),
-    db.Column('role_id', db.Integer, primary_key=True),
-)
-
-
-class User(db.Model):
-    """用户模型"""
-
-    __tablename__ = 't_param_user'
-    __table_args__ = {'comment': '用户表'}
-
-    id = db.Column(db.Integer, primary_key=True, comment='用户ID')
-    username = db.Column(db.String(80), unique=True, nullable=False, comment='用户名')
-    password_hash = db.Column(db.String(256), nullable=False, comment='密码哈希')
-    mobile = db.Column(db.String(32), comment='手机号')
-    is_active = db.Column(db.Boolean, default=True, comment='是否启用')
-    is_alert_oncall = db.Column(db.Boolean, default=False, nullable=False, comment='是否参与告警值班')
-    token_version = db.Column(db.Integer, default=0, nullable=False, comment='JWT 会话版本号')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
-    last_login = db.Column(db.DateTime, comment='最后登录时间')
-    roles = db.relationship(
-        'Role',
-        secondary=user_roles,
-        primaryjoin=lambda: User.id == foreign(user_roles.c.user_id),
-        secondaryjoin=lambda: Role.id == foreign(user_roles.c.role_id),
-        backref='users',
-    )
-
-    def get_permissions(self):
-        """汇总用户所有角色关联的权限编码。"""
-        perms = set()
-        for role in self.roles:
-            for p in role.permissions:
-                perms.add(p.code)
-        return perms
-
-    def to_dict(self, include_permissions=False):
-        """将用户模型转换为接口或模板可使用的字典。"""
-        d = {
-            'id': self.id,
-            'username': self.username,
-            'mobile': self.mobile,
-            'is_active': self.is_active,
-            'is_alert_oncall': self.is_alert_oncall,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'last_login': self.last_login.isoformat() if self.last_login else None,
-            'roles': [r.to_dict() for r in self.roles],
-        }
-        if include_permissions:
-            d['permissions'] = sorted(self.get_permissions())
-        return d
-
-
-class Role(db.Model):
-    """角色模型"""
-
-    __tablename__ = 't_param_role'
-    __table_args__ = {'comment': '角色表'}
-
-    id = db.Column(db.Integer, primary_key=True, comment='角色ID')
-    name = db.Column(db.String(50), nullable=False, comment='角色名称')
-    code = db.Column(db.String(50), unique=True, nullable=False, comment='角色编码，如 admin/operator')
-    description = db.Column(db.String(200), comment='角色描述')
-    is_system = db.Column(db.Boolean, default=False, comment='是否系统内置角色（不可删除）')
-    permissions = db.relationship(
-        'Permission',
-        secondary=role_permissions,
-        primaryjoin=lambda: Role.id == foreign(role_permissions.c.role_id),
-        secondaryjoin=lambda: Permission.id == foreign(role_permissions.c.permission_id),
-        backref='roles',
-    )
-
-    def to_dict(self, include_permissions=False):
-        """将角色及可选权限信息转换为字典。"""
-        d = {
-            'id': self.id,
-            'name': self.name,
-            'code': self.code,
-            'description': self.description,
-            'is_system': self.is_system,
-        }
-        if include_permissions:
-            d['permissions'] = [p.to_dict() for p in self.permissions]
-        return d
-
-
-class Permission(db.Model):
-    """权限模型"""
-
-    __tablename__ = 't_param_permission'
-    __table_args__ = {'comment': '权限表'}
-
-    id = db.Column(db.Integer, primary_key=True, comment='权限ID')
-    name = db.Column(db.String(100), nullable=False, comment='权限名称，如"创建任务"')
-    code = db.Column(db.String(100), unique=True, nullable=False, comment='权限编码，格式为 资源:操作，如 task:create')
-    group = db.Column(db.String(50), nullable=False, comment='权限分组，如 task/config/admin')
-    description = db.Column(db.String(200), comment='权限描述')
-    route_path = db.Column(db.String(200), comment='关联前端路由路径，如 /admin/config，仅供展示')
-
-    def to_dict(self):
-        """将权限模型转换为字典。"""
-        return {
-            'id': self.id,
-            'name': self.name,
-            'code': self.code,
-            'group': self.group,
-            'description': self.description,
-            'route_path': self.route_path,
-        }
+# ==================== RBAC（单 Token 子服务模式下停用，注释保留） ====================
+# 本服务不再管理本地用户 / 角色 / 权限：登录仅校验请求头 Token
+# （远程 GetUserInfo，见 app/services/token_identity_service.py），
+# 菜单权限由远程 GetUserRoleList 路由表控制。恢复本地 RBAC 时取消注释。
+# role_permissions = db.Table('t_param_role_permissions',
+#     db.Column('role_id', db.Integer, primary_key=True),
+#     db.Column('permission_id', db.Integer, primary_key=True),
+# )
+#
+# user_roles = db.Table('t_param_user_roles',
+#     db.Column('user_id', db.Integer, primary_key=True),
+#     db.Column('role_id', db.Integer, primary_key=True),
+# )
+#
+#
+# class User(db.Model):
+#     """用户模型"""
+#
+#     __tablename__ = 't_param_user'
+#     __table_args__ = {'comment': '用户表'}
+#
+#     id = db.Column(db.Integer, primary_key=True, comment='用户ID')
+#     username = db.Column(db.String(80), unique=True, nullable=False, comment='用户名')
+#     password_hash = db.Column(db.String(256), nullable=False, comment='密码哈希')
+#     mobile = db.Column(db.String(32), comment='手机号')
+#     is_active = db.Column(db.Boolean, default=True, comment='是否启用')
+#     is_alert_oncall = db.Column(db.Boolean, default=False, nullable=False, comment='是否参与告警值班')
+#     token_version = db.Column(db.Integer, default=0, nullable=False, comment='JWT 会话版本号')
+#     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
+#     last_login = db.Column(db.DateTime, comment='最后登录时间')
+#     roles = db.relationship(
+#         'Role',
+#         secondary=user_roles,
+#         primaryjoin=lambda: User.id == foreign(user_roles.c.user_id),
+#         secondaryjoin=lambda: Role.id == foreign(user_roles.c.role_id),
+#         backref='users',
+#     )
+#
+#     def get_permissions(self):
+#         """汇总用户所有角色关联的权限编码。"""
+#         perms = set()
+#         for role in self.roles:
+#             for p in role.permissions:
+#                 perms.add(p.code)
+#         return perms
+#
+#     def to_dict(self, include_permissions=False):
+#         """将用户模型转换为接口或模板可使用的字典。"""
+#         d = {
+#             'id': self.id,
+#             'username': self.username,
+#             'mobile': self.mobile,
+#             'is_active': self.is_active,
+#             'is_alert_oncall': self.is_alert_oncall,
+#             'created_at': self.created_at.isoformat() if self.created_at else None,
+#             'last_login': self.last_login.isoformat() if self.last_login else None,
+#             'roles': [r.to_dict() for r in self.roles],
+#         }
+#         if include_permissions:
+#             d['permissions'] = sorted(self.get_permissions())
+#         return d
+#
+#
+# class Role(db.Model):
+#     """角色模型"""
+#
+#     __tablename__ = 't_param_role'
+#     __table_args__ = {'comment': '角色表'}
+#
+#     id = db.Column(db.Integer, primary_key=True, comment='角色ID')
+#     name = db.Column(db.String(50), nullable=False, comment='角色名称')
+#     code = db.Column(db.String(50), unique=True, nullable=False, comment='角色编码，如 admin/operator')
+#     description = db.Column(db.String(200), comment='角色描述')
+#     is_system = db.Column(db.Boolean, default=False, comment='是否系统内置角色（不可删除）')
+#     permissions = db.relationship(
+#         'Permission',
+#         secondary=role_permissions,
+#         primaryjoin=lambda: Role.id == foreign(role_permissions.c.role_id),
+#         secondaryjoin=lambda: Permission.id == foreign(role_permissions.c.permission_id),
+#         backref='roles',
+#     )
+#
+#     def to_dict(self, include_permissions=False):
+#         """将角色及可选权限信息转换为字典。"""
+#         d = {
+#             'id': self.id,
+#             'name': self.name,
+#             'code': self.code,
+#             'description': self.description,
+#             'is_system': self.is_system,
+#         }
+#         if include_permissions:
+#             d['permissions'] = [p.to_dict() for p in self.permissions]
+#         return d
+#
+#
+# class Permission(db.Model):
+#     """权限模型"""
+#
+#     __tablename__ = 't_param_permission'
+#     __table_args__ = {'comment': '权限表'}
+#
+#     id = db.Column(db.Integer, primary_key=True, comment='权限ID')
+#     name = db.Column(db.String(100), nullable=False, comment='权限名称，如"创建任务"')
+#     code = db.Column(db.String(100), unique=True, nullable=False, comment='权限编码，格式为 资源:操作，如 task:create')
+#     group = db.Column(db.String(50), nullable=False, comment='权限分组，如 task/config/admin')
+#     description = db.Column(db.String(200), comment='权限描述')
+#     route_path = db.Column(db.String(200), comment='关联前端路由路径，如 /admin/config，仅供展示')
+#
+#     def to_dict(self):
+#         """将权限模型转换为字典。"""
+#         return {
+#             'id': self.id,
+#             'name': self.name,
+#             'code': self.code,
+#             'group': self.group,
+#             'description': self.description,
+#             'route_path': self.route_path,
+#         }
 
 
 from app.domain_constants import (
@@ -326,40 +348,43 @@ class TaskResult(db.Model):
         return result_dict
 
 
-class NavigationMenuItem(db.Model):
-    """侧边栏导航菜单项"""
-
-    __tablename__ = "t_param_navigation_menu_items"
-    __table_args__ = (
-        db.Index("idx_navigation_menu_parent_sort", "parent_key", "sort_order"),
-        {"comment": "侧边栏导航菜单表"},
-    )
-
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="菜单ID")
-    key = db.Column(db.String(100), unique=True, nullable=False, comment="菜单唯一键")
-    label = db.Column(db.String(100), nullable=False, comment="菜单名称")
-    path = db.Column(db.String(255), comment="前端路由路径")
-    permission = db.Column(db.String(100), comment="访问该菜单所需权限编码")
-    parent_key = db.Column(db.String(100), comment="父级菜单key，空表示顶级")
-    sort_order = db.Column(db.Integer, default=0, nullable=False, comment="排序值")
-    is_visible = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否显示")
-    created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
-
-    def to_dict(self, include_children=False):
-        """将导航菜单项转换为字典，并可附带子节点。"""
-        data = {
-            "id": self.id,
-            "key": self.key,
-            "label": self.label,
-            "path": self.path,
-            "permission": self.permission,
-            "parent_key": self.parent_key,
-            "sort_order": self.sort_order,
-            "is_visible": self.is_visible,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
-        if include_children:
-            data["children"] = []
-        return data
+# ==================== 本地导航菜单（单 Token 子服务模式下停用，注释保留） ====================
+# 菜单仅由 /api/meta/nav 拉取远程 GetUserRoleList 提供，本服务不再维护
+# 本地路由表；恢复本地导航管理时取消注释（见 app/routes/meta_api.py）。
+# class NavigationMenuItem(db.Model):
+#     """侧边栏导航菜单项"""
+#
+#     __tablename__ = "t_param_navigation_menu_items"
+#     __table_args__ = (
+#         db.Index("idx_navigation_menu_parent_sort", "parent_key", "sort_order"),
+#         {"comment": "侧边栏导航菜单表"},
+#     )
+#
+#     id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment="菜单ID")
+#     key = db.Column(db.String(100), unique=True, nullable=False, comment="菜单唯一键")
+#     label = db.Column(db.String(100), nullable=False, comment="菜单名称")
+#     path = db.Column(db.String(255), comment="前端路由路径")
+#     permission = db.Column(db.String(100), comment="访问该菜单所需权限编码")
+#     parent_key = db.Column(db.String(100), comment="父级菜单key，空表示顶级")
+#     sort_order = db.Column(db.Integer, default=0, nullable=False, comment="排序值")
+#     is_visible = db.Column(db.Boolean, default=True, nullable=False, index=True, comment="是否显示")
+#     created_at = db.Column(db.DateTime, default=datetime.now, comment="创建时间")
+#     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+#
+#     def to_dict(self, include_children=False):
+#         """将导航菜单项转换为字典，并可附带子节点。"""
+#         data = {
+#             "id": self.id,
+#             "key": self.key,
+#             "label": self.label,
+#             "path": self.path,
+#             "permission": self.permission,
+#             "parent_key": self.parent_key,
+#             "sort_order": self.sort_order,
+#             "is_visible": self.is_visible,
+#             "created_at": self.created_at.isoformat() if self.created_at else None,
+#             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+#         }
+#         if include_children:
+#             data["children"] = []
+#         return data

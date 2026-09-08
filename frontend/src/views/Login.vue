@@ -22,14 +22,14 @@
       <section class="login-page__panel">
         <div class="login-page__intro">
           <p class="login-page__eyebrow">Workspace Access</p>
-          <h1 class="login-page__title">{{ isSignupMode ? '注册申请' : '登录系统' }}</h1>
+          <h1 class="login-page__title">Token 登录</h1>
           <p class="login-page__description">
-            {{ isSignupMode
-              ? '当前项目未开放公开注册，保留申请入口与表单校验。'
-              : '使用现有账号进入任务列表、回测结果和系统配置。' }}
+            本系统为主站子服务，不提供账号密码登录；请使用主站登录后颁发的
+            Token（请求头 Token 字段同款）进入任务列表、回测结果和系统配置。
           </p>
         </div>
 
+        <!-- 旧登录/注册双 Tab 切换（本地登录模式），注释保留便于恢复:
         <div class="login-page__tabs">
           <button
             type="button"
@@ -46,99 +46,41 @@
             注册
           </button>
         </div>
+        -->
 
-        <transition name="login-fade" mode="out-in">
-          <el-form
-            v-if="!isSignupMode"
-            key="login"
-            ref="loginFormRef"
-            :model="loginForm"
-            :rules="loginRules"
-            label-position="top"
-            class="login-form"
+        <el-form label-position="top" class="login-form">
+          <el-form-item label="访问 Token">
+            <el-input
+              v-model="tokenInput"
+              type="textarea"
+              :rows="4"
+              placeholder="粘贴主站颁发的 Token"
+              @keyup.enter="handleTokenLogin"
+            />
+          </el-form-item>
+
+          <!-- 旧用户名/密码表单（本地登录模式），注释保留便于恢复:
+          <el-form-item label="用户名" prop="username">
+            <el-input v-model.trim="loginForm.username" size="large" placeholder="请输入用户名" />
+          </el-form-item>
+          <el-form-item label="密码" prop="password">
+            <el-input v-model="loginForm.password" size="large" type="password" placeholder="请输入密码" show-password />
+          </el-form-item>
+          -->
+
+          <el-button
+            type="primary"
+            size="large"
+            class="login-form__submit"
+            :loading="loginLoading"
+            @click="handleTokenLogin"
           >
-            <el-form-item label="用户名" prop="username">
-              <el-input
-                v-model.trim="loginForm.username"
-                size="large"
-                placeholder="请输入用户名"
-                @keyup.enter="handleLogin"
-              />
-            </el-form-item>
-
-            <el-form-item label="密码" prop="password">
-              <el-input
-                v-model="loginForm.password"
-                size="large"
-                type="password"
-                placeholder="请输入密码"
-                show-password
-                @keyup.enter="handleLogin"
-              />
-            </el-form-item>
-
-            <el-button
-              type="primary"
-              size="large"
-              class="login-form__submit"
-              :loading="loginLoading"
-              @click="handleLogin"
-            >
-              登录
-            </el-button>
-          </el-form>
-
-          <el-form
-            v-else
-            key="signup"
-            ref="signupFormRef"
-            :model="signupForm"
-            :rules="signupRules"
-            label-position="top"
-            class="login-form"
-          >
-            <el-form-item label="用户名" prop="username">
-              <el-input v-model.trim="signupForm.username" size="large" placeholder="请输入用户名" />
-            </el-form-item>
-
-            <el-form-item label="邮箱" prop="email">
-              <el-input v-model.trim="signupForm.email" size="large" placeholder="请输入邮箱" />
-            </el-form-item>
-
-            <el-form-item label="密码" prop="password">
-              <el-input
-                v-model="signupForm.password"
-                size="large"
-                type="password"
-                placeholder="请输入密码"
-                show-password
-              />
-            </el-form-item>
-
-            <el-form-item label="确认密码" prop="confirmPassword">
-              <el-input
-                v-model="signupForm.confirmPassword"
-                size="large"
-                type="password"
-                placeholder="请再次输入密码"
-                show-password
-                @keyup.enter="handleSignup"
-              />
-            </el-form-item>
-
-            <el-button
-              size="large"
-              class="login-form__submit login-form__submit--secondary"
-              :loading="signupLoading"
-              @click="handleSignup"
-            >
-              提交申请
-            </el-button>
-          </el-form>
-        </transition>
+            进入系统
+          </el-button>
+        </el-form>
 
         <footer class="login-page__footer">
-          <span class="login-page__hint">Element Plus 官方组件</span>
+          <span class="login-page__hint">主站颁发 Token</span>
           <span class="login-page__hint">明暗主题同步</span>
           <span class="login-page__hint">简洁后台风格</span>
         </footer>
@@ -148,7 +90,11 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+// 鉴权模式（单 Token 子服务模式，2026-09 启用）:
+// 登录页只负责录入并校验主 Web 颁发的 Token；账号密码登录与注册表单
+// 随本地登录模式一并停用，旧实现注释保留于本文件底部。
+
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Moon, Sunny } from '@element-plus/icons-vue'
@@ -159,80 +105,103 @@ const router = useRouter()
 const { login } = useAuth()
 const { switchValue } = useTheme()
 
-const isSignupMode = ref(false)
+const tokenInput = ref('')
 const loginLoading = ref(false)
-const signupLoading = ref(false)
-const loginFormRef = ref()
-const signupFormRef = ref()
 
-const loginForm = reactive({
-  username: '',
-  password: '',
-})
-
-const signupForm = reactive({
-  username: '',
-  email: '',
-  password: '',
-  confirmPassword: '',
-})
-
-const loginRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-}
-
-const signupRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'change'] },
-  ],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-  confirmPassword: [
-    { required: true, message: '请再次输入密码', trigger: 'blur' },
-    {
-      validator: (_, value, callback) => {
-        if (!value) callback(new Error('请再次输入密码'))
-        else if (value !== signupForm.password) callback(new Error('两次输入的密码不一致'))
-        else callback()
-      },
-      trigger: ['blur', 'change'],
-    },
-  ],
-}
-
-function setMode(value) {
-  isSignupMode.value = value
-}
-
-async function handleLogin() {
-  const valid = await loginFormRef.value?.validate().catch(() => false)
-  if (!valid) return
+async function handleTokenLogin() {
+  const token = tokenInput.value.trim()
+  if (!token) {
+    ElMessage.warning('请输入主站颁发的 Token')
+    return
+  }
 
   loginLoading.value = true
   try {
-    await login(loginForm.username, loginForm.password)
+    await login(token)
     router.push('/')
   } catch {
-    ElMessage.error('登录失败，请检查用户名和密码')
+    ElMessage.error('Token 校验失败，请确认已从主站登录并复制最新 Token')
   } finally {
     loginLoading.value = false
   }
 }
 
-async function handleSignup() {
-  const valid = await signupFormRef.value?.validate().catch(() => false)
-  if (!valid) return
-
-  signupLoading.value = true
-  try {
-    await new Promise((resolve) => setTimeout(resolve, 400))
-    ElMessage.info('当前项目未开放公开注册，请联系管理员创建账号')
-  } finally {
-    signupLoading.value = false
-  }
-}
+// ---------- 旧账号密码登录 / 注册实现（注释保留，恢复本地登录时启用） ----------
+// import { reactive } from 'vue'
+//
+// const isSignupMode = ref(false)
+// const signupLoading = ref(false)
+// const loginFormRef = ref()
+// const signupFormRef = ref()
+//
+// const loginForm = reactive({
+//   username: '',
+//   password: '',
+// })
+//
+// const signupForm = reactive({
+//   username: '',
+//   email: '',
+//   password: '',
+//   confirmPassword: '',
+// })
+//
+// const loginRules = {
+//   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+//   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+// }
+//
+// const signupRules = {
+//   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+//   email: [
+//     { required: true, message: '请输入邮箱', trigger: 'blur' },
+//     { type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'change'] },
+//   ],
+//   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+//   confirmPassword: [
+//     { required: true, message: '请再次输入密码', trigger: 'blur' },
+//     {
+//       validator: (_, value, callback) => {
+//         if (!value) callback(new Error('请再次输入密码'))
+//         else if (value !== signupForm.password) callback(new Error('两次输入的密码不一致'))
+//         else callback()
+//       },
+//       trigger: ['blur', 'change'],
+//     },
+//   ],
+// }
+//
+// function setMode(value) {
+//   isSignupMode.value = value
+// }
+//
+// async function handleLogin() {
+//   const valid = await loginFormRef.value?.validate().catch(() => false)
+//   if (!valid) return
+//
+//   loginLoading.value = true
+//   try {
+//     await login(loginForm.username, loginForm.password)
+//     router.push('/')
+//   } catch {
+//     ElMessage.error('登录失败，请检查用户名和密码')
+//   } finally {
+//     loginLoading.value = false
+//   }
+// }
+//
+// async function handleSignup() {
+//   const valid = await signupFormRef.value?.validate().catch(() => false)
+//   if (!valid) return
+//
+//   signupLoading.value = true
+//   try {
+//     await new Promise((resolve) => setTimeout(resolve, 400))
+//     ElMessage.info('当前项目未开放公开注册，请联系管理员创建账号')
+//   } finally {
+//     signupLoading.value = false
+//   }
+// }
 </script>
 
 <style scoped>
@@ -367,11 +336,16 @@ async function handleSignup() {
   font-weight: 600;
 }
 
-.login-form :deep(.el-input__wrapper) {
-  min-height: 48px;
+.login-form :deep(.el-input__wrapper),
+.login-form :deep(.el-textarea__inner) {
   border-radius: 14px;
   background: color-mix(in srgb, var(--app-surface-elevated) 88%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-border) 82%, transparent) inset;
+}
+
+.login-form :deep(.el-textarea__inner) {
+  min-height: 96px;
+  padding: 12px 14px;
 }
 
 .login-form__submit {
@@ -379,12 +353,6 @@ async function handleSignup() {
   height: 48px;
   margin-top: 6px;
   border-radius: 14px;
-}
-
-.login-form__submit--secondary {
-  color: #fff;
-  border: none;
-  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
 }
 
 .login-page__footer {
@@ -401,17 +369,6 @@ async function handleSignup() {
   color: var(--app-text-muted);
   font-size: 12px;
   background: color-mix(in srgb, var(--app-surface-elevated) 78%, transparent);
-}
-
-.login-fade-enter-active,
-.login-fade-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-
-.login-fade-enter-from,
-.login-fade-leave-to {
-  opacity: 0;
-  transform: translateY(6px);
 }
 
 @media (max-width: 640px) {

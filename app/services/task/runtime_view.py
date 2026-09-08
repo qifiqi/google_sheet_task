@@ -1,4 +1,20 @@
-"""任务运行态视图拼装服务。"""
+"""任务运行态视图拼装服务。
+
+数据库直连迁移状态（stock_sdk / HTTP 数据访问改造）:
+
+- 任务基础信息、停止确认等读取已改为通过 ``TaskRepository`` 走
+  ParamTasks HTTP 接口，不再直连本地数据库。
+- 结果摘要（``build_result_summary``）原先基于本地 ``TaskResult`` /
+  ``TaskResultReturn`` ORM 做逐步指标提取与收益曲线拼装，当前 SDK 无
+  对应聚合能力，已停用本地数据库读取并返回假数据（``demo: True``），
+  原实现注释保留在方法内。
+- 仪表盘总览（``build_dashboard_overview``）原先通过
+  ``TaskDashboardQueryService`` 做本地数据库聚合，现同样返回假数据，
+  原聚合调用链注释保留。
+- 任务最近日志（``serialize_task_runtime``）原先查本地 ``TaskLog``，
+  现返回空列表假数据，原查询注释保留；待 SDK 补齐
+  ParamTaskLogs 按 task_id 查询后恢复。
+"""
 
 from __future__ import annotations
 

@@ -64,6 +64,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { useResponsive } from '@/composables/useResponsive'
 import { useAuth } from '@/composables/useAuth'
+import { goToMainWebLogin } from '@/config/auth'
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
 
@@ -92,7 +93,8 @@ watch(
 function handleCommand(command) {
   if (command === 'logout') {
     logout()
-    router.push('/login')
+    // 本地登录页已停用: 登出后跳回主 Web 重新登录。
+    goToMainWebLogin()
   }
 }
 </script>

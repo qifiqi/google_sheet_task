@@ -2,22 +2,38 @@
 
 数据库结构的长期来源应是 Alembic migration。这里的 ``ensure_*`` 函数仅用于
 兼容尚未完成迁移的历史数据库，避免服务因为缺少新增列或索引而无法启动。
+
+数据库直连迁移状态（stock_sdk / HTTP 数据访问改造）:
+
+- ``bootstrap_app`` 中的 ``_initialize_database_schema``（``db.create_all``
+  + ``ensure_*`` 修补）与 ``_initialize_system_metadata``（本地 RBAC /
+  导航初始化）均已注释停用，业务数据读写已切换到 stock_sdk HTTP 接口。
+- ``init_task_watchdog`` 为停用占位入口：看门狗依赖的本地任务/日志筛选
+  尚无对应 SDK 接口，恢复方式见该函数 docstring。
+- 本地用户 / 角色 / 权限 / 导航菜单能力已整体注释停用（单 Token 子服务
+  模式，2026-09 起）：登录仅校验请求头 Token（远程 GetUserInfo），
+  菜单来自远程 GetUserRoleList；``init_rbac`` / ``init_navigation_menu``
+  / ``ensure_user_schema`` / ``ensure_navigation_menu_schema`` 等原实现
+  注释保留在本文件内，恢复本地身份体系时取消注释即可。
 """
 
 import json
 import os
 
 from sqlalchemy import Boolean, String, Text, cast, case, func, inspect, text, update
-from werkzeug.security import generate_password_hash
+# from werkzeug.security import generate_password_hash
 
-from app.config import PERMISSIONS, init_config
+# 本地 RBAC 停用后 PERMISSIONS 常量不再消费（原供 init_rbac 使用）。
+from app.config import init_config
 from app.extensions import db
-from app.models import NavigationMenuItem, Permission, Role, Task, TaskLog, TaskResult, User
-from app.navigation import (
-    DEFAULT_NAVIGATION_MENU,
-    flatten_navigation_items,
-    sync_navigation_permissions,
-)
+# 用户 / 角色 / 权限 / 本地导航菜单模型已注释停用（见 app/models.py）。
+# from app.models import NavigationMenuItem, Permission, Role, User
+from app.models import Task, TaskLog, TaskResult
+# from app.navigation import (
+#     DEFAULT_NAVIGATION_MENU,
+#     flatten_navigation_items,
+#     sync_navigation_permissions,
+# )
 from app.repositories.backtest_sheet_run_lock_repository import BacktestSheetRunLockRepository
 from app.repositories.config_repository import SystemConfigRepository
 from app.repositories.google_sheet_repository import GoogleSheetRepository
@@ -72,19 +88,19 @@ def normalize_boolean_columns():
     db.session.commit()
 
 
-def ensure_user_schema():
-    """补齐用户表在历史数据库中缺失的身份字段。"""
-    inspector = inspect(db.engine)
-    if 'user' not in inspector.get_table_names():
-        return
-    columns = {column['name'] for column in inspector.get_columns('user')}
-    if 'token_version' not in columns:
-        _add_column('user', 'token_version', 'INTEGER NOT NULL DEFAULT 0')
-    if 'mobile' not in columns:
-        _add_column('user', 'mobile', 'VARCHAR(32)')
-    if 'is_alert_oncall' not in columns:
-        _add_column('user', 'is_alert_oncall', 'BOOLEAN NOT NULL DEFAULT FALSE')
-    db.session.commit()
+# def ensure_user_schema():
+#     """补齐用户表在历史数据库中缺失的身份字段。"""
+#     inspector = inspect(db.engine)
+#     if 'user' not in inspector.get_table_names():
+#         return
+#     columns = {column['name'] for column in inspector.get_columns('user')}
+#     if 'token_version' not in columns:
+#         _add_column('user', 'token_version', 'INTEGER NOT NULL DEFAULT 0')
+#     if 'mobile' not in columns:
+#         _add_column('user', 'mobile', 'VARCHAR(32)')
+#     if 'is_alert_oncall' not in columns:
+#         _add_column('user', 'is_alert_oncall', 'BOOLEAN NOT NULL DEFAULT FALSE')
+#     db.session.commit()
 
 
 def ensure_task_schema():
@@ -183,38 +199,38 @@ def ensure_task_result_payload_schema():
     db.session.commit()
 
 
-def ensure_navigation_menu_schema():
-    """补齐导航菜单表及其唯一约束。"""
-    inspector = inspect(db.engine)
-    if 'navigation_menu_items' not in inspector.get_table_names():
-        NavigationMenuItem.__table__.create(db.engine, checkfirst=True)
-        return
-
-    columns = {column['name'] for column in inspector.get_columns('navigation_menu_items')}
-    column_definitions = {
-        'key': 'VARCHAR(100) NOT NULL',
-        'label': 'VARCHAR(100) NOT NULL DEFAULT \'\'',
-        'path': 'VARCHAR(255)',
-        'permission': 'VARCHAR(100)',
-        'parent_key': 'VARCHAR(100)',
-        'sort_order': 'INTEGER NOT NULL DEFAULT 0',
-        'is_visible': 'BOOLEAN NOT NULL DEFAULT 1',
-        'created_at': 'TIMESTAMP',
-        'updated_at': 'TIMESTAMP',
-    }
-    changed = False
-    for column_name, definition in column_definitions.items():
-        if column_name not in columns:
-            _add_column('navigation_menu_items', column_name, definition)
-            changed = True
-    if changed:
-        db.session.commit()
-
-    _ensure_model_index(NavigationMenuItem, 'idx_navigation_menu_parent_sort')
-    _ensure_model_index(NavigationMenuItem, 'ix_navigation_menu_items_is_visible')
-    db.session.commit()
-
-
+# def ensure_navigation_menu_schema():
+#     """补齐导航菜单表及其唯一约束。"""
+#     inspector = inspect(db.engine)
+#     if 'navigation_menu_items' not in inspector.get_table_names():
+#         NavigationMenuItem.__table__.create(db.engine, checkfirst=True)
+#         return
+#
+#     columns = {column['name'] for column in inspector.get_columns('navigation_menu_items')}
+#     column_definitions = {
+#         'key': 'VARCHAR(100) NOT NULL',
+#         'label': 'VARCHAR(100) NOT NULL DEFAULT \'\'',
+#         'path': 'VARCHAR(255)',
+#         'permission': 'VARCHAR(100)',
+#         'parent_key': 'VARCHAR(100)',
+#         'sort_order': 'INTEGER NOT NULL DEFAULT 0',
+#         'is_visible': 'BOOLEAN NOT NULL DEFAULT 1',
+#         'created_at': 'TIMESTAMP',
+#         'updated_at': 'TIMESTAMP',
+#     }
+#     changed = False
+#     for column_name, definition in column_definitions.items():
+#         if column_name not in columns:
+#             _add_column('navigation_menu_items', column_name, definition)
+#             changed = True
+#     if changed:
+#         db.session.commit()
+#
+#     _ensure_model_index(NavigationMenuItem, 'idx_navigation_menu_parent_sort')
+#     _ensure_model_index(NavigationMenuItem, 'ix_navigation_menu_items_is_visible')
+#     db.session.commit()
+#
+#
 def reset_google_sheet_token_occupancy():
     """应用启动时通过 HTTP 清零遗留的 Token 实时占用计数。"""
     repository = GoogleSheetTokenRepository()
@@ -304,216 +320,216 @@ def register_cli(app):
         print('默认配置初始化完成')
 
 
-def init_rbac():
-    """幂等同步内置权限、角色及首次安装的管理员账号。"""
-    logger = get_logger('rbac')
-
-    for group, code, name, route_path in PERMISSIONS:
-        perm = Permission.query.filter_by(code=code).first()
-        if not perm:
-            db.session.add(Permission(group=group, code=code, name=name, route_path=route_path))
-        elif perm.route_path != route_path:
-            perm.route_path = route_path
-    db.session.commit()
-
-    admin_role = Role.query.filter_by(code='admin').first()
-    if not admin_role:
-        admin_role = Role(name='管理员', code='admin', description='系统管理员，拥有全部权限', is_system=True)
-        db.session.add(admin_role)
-        db.session.commit()
-    admin_role.permissions = Permission.query.all()
-    db.session.commit()
-
-    developer_role = Role.query.filter_by(code='developer').first()
-    if not developer_role:
-        db.session.add(Role(
-            name='开发',
-            code='developer',
-            description='开发内置角色，用于值班与告警筛选',
-            is_system=True,
-        ))
-        db.session.commit()
-
-    if not User.query.filter_by(username='admin').first():
-        admin_user = User(
-            username='admin',
-            password_hash=generate_password_hash('admin123'),
-            is_active=True,
-        )
-        admin_user.roles = [admin_role]
-        db.session.add(admin_user)
-        db.session.commit()
-        logger.info('已创建默认管理员用户 admin / admin123')
-
-def init_navigation_menu():
-    """幂等写入默认导航，并兼容旧版 ``nav_menu`` 系统配置。"""
-    logger = get_logger('navigation')
-    config_repository = SystemConfigRepository()
-    nav_config = config_repository.get_by_key('nav_menu')
-    has_existing_items = NavigationMenuItem.query.count() > 0
-    source_menu = DEFAULT_NAVIGATION_MENU
-    should_seed_missing = not has_existing_items
-
-    if nav_config and nav_config.get('value'):
-        try:
-            nav_data = json.loads(nav_config.get('value'))
-            if isinstance(nav_data, list) and nav_data:
-                source_menu = nav_data
-                should_seed_missing = True
-        except (TypeError, ValueError):
-            logger.warning('旧 system_configs.nav_menu 解析失败，将使用默认导航菜单初始化')
-
-    default_rows = flatten_navigation_items(source_menu)
-    permission_map = _build_nav_permission_map()
-    existing = {item.key: item for item in NavigationMenuItem.query.all()}
-
-    if has_existing_items and not should_seed_missing:
-        _normalize_existing_navigation_menu()
-        _seed_missing_default_navigation_items(default_rows, permission_map, existing)
-        sync_navigation_permissions(NavigationMenuItem.query.all())
-        if nav_config:
-            config_repository.delete(int(nav_config['id']))
-        db.session.commit()
-        return
-
-    for row in default_rows:
-        key = row.get('key')
-        if not key:
-            continue
-
-        path = _normalize_nav_path(row.get('path'))
-        expected_permission = permission_map.get(path) or row.get('permission')
-        item = existing.get(key)
-        if not item:
-            db.session.add(NavigationMenuItem(
-                key=key,
-                label=_normalize_nav_label(key, row.get('label') or key),
-                path=path,
-                permission=expected_permission,
-                parent_key=row.get('parent_key'),
-                sort_order=row.get('sort_order') or 0,
-                is_visible=True,
-            ))
-            continue
-
-        if nav_config:
-            item.label = _normalize_nav_label(key, row.get('label') or item.label)
-            item.path = path
-            item.permission = expected_permission
-            item.parent_key = row.get('parent_key')
-            item.sort_order = row.get('sort_order') or 0
-
-    if nav_config:
-        config_repository.delete(int(nav_config['id']))
-
-    sync_navigation_permissions(NavigationMenuItem.query.all())
-    db.session.commit()
-
-
-def _seed_missing_default_navigation_items(default_rows, permission_map, existing):
-    """将默认导航中缺失的菜单项写入数据库。"""
-    for row in default_rows:
-        key = row.get('key')
-        if not key or key in existing:
-            continue
-        path = _normalize_nav_path(row.get('path'))
-        db.session.add(NavigationMenuItem(
-            key=key,
-            label=_normalize_nav_label(key, row.get('label') or key),
-            path=path,
-            permission=permission_map.get(path) or row.get('permission'),
-            parent_key=row.get('parent_key'),
-            sort_order=row.get('sort_order') or 0,
-            is_visible=True,
-        ))
-
-
-def _normalize_existing_navigation_menu():
-    """修正历史导航菜单的路径、标签和权限字段。"""
-    permission_map = _build_nav_permission_map()
-    default_rows = {
-        row.get('key'): row
-        for row in flatten_navigation_items(DEFAULT_NAVIGATION_MENU)
-        if row.get('key')
-    }
-    for item in NavigationMenuItem.query.all():
-        item.path = _normalize_nav_path(item.path)
-        default_row = default_rows.get(item.key)
-        item.label = _normalize_nav_label(
-            item.key,
-            default_row.get('label') if default_row else item.label,
-        )
-        if default_row:
-            item.parent_key = default_row.get('parent_key')
-            item.sort_order = default_row.get('sort_order') or 0
-            if default_row.get('path'):
-                item.path = _normalize_nav_path(default_row.get('path'))
-        expected_permission = permission_map.get(item.path)
-        if expected_permission:
-            item.permission = expected_permission
-
-
-def _build_nav_permission_map():
-    """建立默认导航路径到页面权限编码的映射。"""
-    return {
-        '/admin': 'page:admin:dashboard',
-        '/admin/': 'page:admin:dashboard',
-        '/admin/tasks': 'page:admin:tasks',
-        '/admin/templates': 'page:admin:templates',
-        '/admin/results': 'page:admin:results',
-        '/admin/model-summary': 'page:admin:model_summary',
-        '/admin/scheduler': 'page:admin:scheduler',
-        '/admin/config': 'page:admin:config',
-        '/admin/navigation': 'page:admin:navigation',
-        '/admin/google-sheets': 'page:admin:google_sheets',
-        '/admin/logs': 'page:admin:logs',
-        '/admin/users': 'page:admin:users',
-        '/admin/roles': 'page:admin:roles',
-        '/task/list?version=c3': 'page:google_sheet:c3',
-        '/task/list?version=c4': 'page:google_sheet:c4',
-        '/task/list?version=c5': 'page:google_sheet:c5',
-        '/task/create/c3': 'page:google_sheet:c3',
-        '/task/create/c4': 'page:google_sheet:c4',
-        '/task/create/c5': 'page:google_sheet:c5',
-        '/google-sheet/?version=c3': 'page:google_sheet:c3',
-        '/google-sheet/?version=c4': 'page:google_sheet:c4',
-        '/google-sheet/?version=c5': 'page:google_sheet:c5',
-        '/google-sheet/?version=c31': 'page:google_sheet:c3',
-        '/backtest/list': 'page:backtest:list',
-        '/backtest-training/list': 'page:backtest:list',
-        '/backtest/create': 'page:backtest:create',
-        '/backtest-training/create': 'page:backtest:create',
-        '/backtest-multi/list': 'page:backtest_multi_product:list',
-        '/backtest-multi/create': 'page:backtest_multi_product:create',
-        '/backtest-multi-product/list': 'page:backtest_multi_product:list',
-        '/backtest-multi-product/create': 'page:backtest_multi_product:create',
-        '/global-preview/c7_0_3': 'page:global_preview:c7_0_3',
-    }
-
-
-def _normalize_nav_path(path):
-    """归一化历史菜单路径，兼容旧路径和查询参数。"""
-    legacy_path_map = {
-        '/task/list?version=c3': '/google-sheet/?version=c3',
-        '/task/list?version=c4': '/google-sheet/?version=c4',
-        '/task/list?version=c5': '/google-sheet/?version=c5',
-        '/task/create': '/google-sheet/create',
-        '/task/create/c3': '/google-sheet/?version=c3',
-        '/task/create/c4': '/google-sheet/?version=c4',
-        '/task/create/c5': '/google-sheet/?version=c5',
-        '/backtest/list': '/backtest-training/list',
-        '/backtest/create': '/backtest-training/create',
-        '/backtest-multi/list': '/backtest-multi-product/list',
-        '/backtest-multi/create': '/backtest-multi-product/create',
-    }
-    return legacy_path_map.get(path, path)
-
-
-def _normalize_nav_label(key, label):
-    """为历史菜单键生成标准中文显示名称。"""
-    if key == 'backtest' and label == '数据回测':
-        return '单品数据回测'
-    return label
+# def init_rbac():
+#     """幂等同步内置权限、角色及首次安装的管理员账号。"""
+#     logger = get_logger('rbac')
+#
+#     for group, code, name, route_path in PERMISSIONS:
+#         perm = Permission.query.filter_by(code=code).first()
+#         if not perm:
+#             db.session.add(Permission(group=group, code=code, name=name, route_path=route_path))
+#         elif perm.route_path != route_path:
+#             perm.route_path = route_path
+#     db.session.commit()
+#
+#     admin_role = Role.query.filter_by(code='admin').first()
+#     if not admin_role:
+#         admin_role = Role(name='管理员', code='admin', description='系统管理员，拥有全部权限', is_system=True)
+#         db.session.add(admin_role)
+#         db.session.commit()
+#     admin_role.permissions = Permission.query.all()
+#     db.session.commit()
+#
+#     developer_role = Role.query.filter_by(code='developer').first()
+#     if not developer_role:
+#         db.session.add(Role(
+#             name='开发',
+#             code='developer',
+#             description='开发内置角色，用于值班与告警筛选',
+#             is_system=True,
+#         ))
+#         db.session.commit()
+#
+#     if not User.query.filter_by(username='admin').first():
+#         admin_user = User(
+#             username='admin',
+#             password_hash=generate_password_hash('admin123'),
+#             is_active=True,
+#         )
+#         admin_user.roles = [admin_role]
+#         db.session.add(admin_user)
+#         db.session.commit()
+#         logger.info('已创建默认管理员用户 admin / admin123')
+#
+# def init_navigation_menu():
+#     """幂等写入默认导航，并兼容旧版 ``nav_menu`` 系统配置。"""
+#     logger = get_logger('navigation')
+#     config_repository = SystemConfigRepository()
+#     nav_config = config_repository.get_by_key('nav_menu')
+#     has_existing_items = NavigationMenuItem.query.count() > 0
+#     source_menu = DEFAULT_NAVIGATION_MENU
+#     should_seed_missing = not has_existing_items
+#
+#     if nav_config and nav_config.get('value'):
+#         try:
+#             nav_data = json.loads(nav_config.get('value'))
+#             if isinstance(nav_data, list) and nav_data:
+#                 source_menu = nav_data
+#                 should_seed_missing = True
+#         except (TypeError, ValueError):
+#             logger.warning('旧 system_configs.nav_menu 解析失败，将使用默认导航菜单初始化')
+#
+#     default_rows = flatten_navigation_items(source_menu)
+#     permission_map = _build_nav_permission_map()
+#     existing = {item.key: item for item in NavigationMenuItem.query.all()}
+#
+#     if has_existing_items and not should_seed_missing:
+#         _normalize_existing_navigation_menu()
+#         _seed_missing_default_navigation_items(default_rows, permission_map, existing)
+#         sync_navigation_permissions(NavigationMenuItem.query.all())
+#         if nav_config:
+#             config_repository.delete(int(nav_config['id']))
+#         db.session.commit()
+#         return
+#
+#     for row in default_rows:
+#         key = row.get('key')
+#         if not key:
+#             continue
+#
+#         path = _normalize_nav_path(row.get('path'))
+#         expected_permission = permission_map.get(path) or row.get('permission')
+#         item = existing.get(key)
+#         if not item:
+#             db.session.add(NavigationMenuItem(
+#                 key=key,
+#                 label=_normalize_nav_label(key, row.get('label') or key),
+#                 path=path,
+#                 permission=expected_permission,
+#                 parent_key=row.get('parent_key'),
+#                 sort_order=row.get('sort_order') or 0,
+#                 is_visible=True,
+#             ))
+#             continue
+#
+#         if nav_config:
+#             item.label = _normalize_nav_label(key, row.get('label') or item.label)
+#             item.path = path
+#             item.permission = expected_permission
+#             item.parent_key = row.get('parent_key')
+#             item.sort_order = row.get('sort_order') or 0
+#
+#     if nav_config:
+#         config_repository.delete(int(nav_config['id']))
+#
+#     sync_navigation_permissions(NavigationMenuItem.query.all())
+#     db.session.commit()
+#
+#
+# def _seed_missing_default_navigation_items(default_rows, permission_map, existing):
+#     """将默认导航中缺失的菜单项写入数据库。"""
+#     for row in default_rows:
+#         key = row.get('key')
+#         if not key or key in existing:
+#             continue
+#         path = _normalize_nav_path(row.get('path'))
+#         db.session.add(NavigationMenuItem(
+#             key=key,
+#             label=_normalize_nav_label(key, row.get('label') or key),
+#             path=path,
+#             permission=permission_map.get(path) or row.get('permission'),
+#             parent_key=row.get('parent_key'),
+#             sort_order=row.get('sort_order') or 0,
+#             is_visible=True,
+#         ))
+#
+#
+# def _normalize_existing_navigation_menu():
+#     """修正历史导航菜单的路径、标签和权限字段。"""
+#     permission_map = _build_nav_permission_map()
+#     default_rows = {
+#         row.get('key'): row
+#         for row in flatten_navigation_items(DEFAULT_NAVIGATION_MENU)
+#         if row.get('key')
+#     }
+#     for item in NavigationMenuItem.query.all():
+#         item.path = _normalize_nav_path(item.path)
+#         default_row = default_rows.get(item.key)
+#         item.label = _normalize_nav_label(
+#             item.key,
+#             default_row.get('label') if default_row else item.label,
+#         )
+#         if default_row:
+#             item.parent_key = default_row.get('parent_key')
+#             item.sort_order = default_row.get('sort_order') or 0
+#             if default_row.get('path'):
+#                 item.path = _normalize_nav_path(default_row.get('path'))
+#         expected_permission = permission_map.get(item.path)
+#         if expected_permission:
+#             item.permission = expected_permission
+#
+#
+# def _build_nav_permission_map():
+#     """建立默认导航路径到页面权限编码的映射。"""
+#     return {
+#         '/admin': 'page:admin:dashboard',
+#         '/admin/': 'page:admin:dashboard',
+#         '/admin/tasks': 'page:admin:tasks',
+#         '/admin/templates': 'page:admin:templates',
+#         '/admin/results': 'page:admin:results',
+#         '/admin/model-summary': 'page:admin:model_summary',
+#         '/admin/scheduler': 'page:admin:scheduler',
+#         '/admin/config': 'page:admin:config',
+#         '/admin/navigation': 'page:admin:navigation',
+#         '/admin/google-sheets': 'page:admin:google_sheets',
+#         '/admin/logs': 'page:admin:logs',
+#         '/admin/users': 'page:admin:users',
+#         '/admin/roles': 'page:admin:roles',
+#         '/task/list?version=c3': 'page:google_sheet:c3',
+#         '/task/list?version=c4': 'page:google_sheet:c4',
+#         '/task/list?version=c5': 'page:google_sheet:c5',
+#         '/task/create/c3': 'page:google_sheet:c3',
+#         '/task/create/c4': 'page:google_sheet:c4',
+#         '/task/create/c5': 'page:google_sheet:c5',
+#         '/google-sheet/?version=c3': 'page:google_sheet:c3',
+#         '/google-sheet/?version=c4': 'page:google_sheet:c4',
+#         '/google-sheet/?version=c5': 'page:google_sheet:c5',
+#         '/google-sheet/?version=c31': 'page:google_sheet:c3',
+#         '/backtest/list': 'page:backtest:list',
+#         '/backtest-training/list': 'page:backtest:list',
+#         '/backtest/create': 'page:backtest:create',
+#         '/backtest-training/create': 'page:backtest:create',
+#         '/backtest-multi/list': 'page:backtest_multi_product:list',
+#         '/backtest-multi/create': 'page:backtest_multi_product:create',
+#         '/backtest-multi-product/list': 'page:backtest_multi_product:list',
+#         '/backtest-multi-product/create': 'page:backtest_multi_product:create',
+#         '/global-preview/c7_0_3': 'page:global_preview:c7_0_3',
+#     }
+#
+#
+# def _normalize_nav_path(path):
+#     """归一化历史菜单路径，兼容旧路径和查询参数。"""
+#     legacy_path_map = {
+#         '/task/list?version=c3': '/google-sheet/?version=c3',
+#         '/task/list?version=c4': '/google-sheet/?version=c4',
+#         '/task/list?version=c5': '/google-sheet/?version=c5',
+#         '/task/create': '/google-sheet/create',
+#         '/task/create/c3': '/google-sheet/?version=c3',
+#         '/task/create/c4': '/google-sheet/?version=c4',
+#         '/task/create/c5': '/google-sheet/?version=c5',
+#         '/backtest/list': '/backtest-training/list',
+#         '/backtest/create': '/backtest-training/create',
+#         '/backtest-multi/list': '/backtest-multi-product/list',
+#         '/backtest-multi/create': '/backtest-multi-product/create',
+#     }
+#     return legacy_path_map.get(path, path)
+#
+#
+# def _normalize_nav_label(key, label):
+#     """为历史菜单键生成标准中文显示名称。"""
+#     if key == 'backtest' and label == '数据回测':
+#         return '单品数据回测'
+#     return label
 
 
 def check_and_cleanup_dead_tasks(app):
@@ -577,7 +593,16 @@ def init_scheduler(app):
 
 
 def init_task_watchdog(app):
-    """任务看门狗已停用，避免继续执行依赖本地任务/日志查询的巡检。"""
+    """任务看门狗停用入口（保留作为运行记录）。
+
+    数据库直连迁移状态: 看门狗实现（``app/services/task_watchdog.py``）
+    依赖本地 ``Task`` / ``TaskLog`` ORM 做近期任务筛选、错误前缀匹配和
+    按 task_id 取最近日志，当前 stock_sdk 的 ParamTasks / ParamTaskLogs
+    接口未覆盖这些筛选与聚合需求，因此本函数停用为空实现，
+    不再调用 ``task_watchdog.start(app)`` 创建巡检线程。
+    待 SDK 补齐对应接口后，在此处恢复 ``task_watchdog.start(app)``
+    即可整体重新启用看门狗（原实现代码完整保留在 task_watchdog.py）。
+    """
     _ = app
     get_logger('watchdog').info('任务看门狗已停用：当前 SDK 未覆盖看门狗筛选与聚合需求')
 
@@ -599,13 +624,14 @@ def _initialize_database_schema():
     normalize_boolean_columns()
 
     # 顺序保持与旧 bootstrap 一致，避免历史库修补之间产生依赖变化。
+    # 用户表与本地导航菜单的 schema 修补已随对应模型一并注释停用。
     for schema_repair in (
-        ensure_user_schema,
+        # ensure_user_schema,
         ensure_task_schema,
         ensure_task_result_schema,
         ensure_task_log_schema,
         ensure_task_result_payload_schema,
-        ensure_navigation_menu_schema,
+        # ensure_navigation_menu_schema,
     ):
         schema_repair()
 
@@ -621,16 +647,22 @@ def _recover_runtime_resources():
 
 
 def _initialize_system_metadata():
-    """幂等初始化运行必需的配置、RBAC 和导航元数据。"""
+    """幂等初始化运行必需的配置元数据。"""
     init_config()
-    # 本地登录、RBAC 和导航表临时恢复；主 Web 网关相关服务仍保留，
-    # 后续将 REMOTE_IDENTITY_GATEWAY_ENABLED 设为 true 即可切回。
-    init_rbac()
-    init_navigation_menu()
+    # 本地 RBAC（init_rbac）与本地导航菜单（init_navigation_menu）已随
+    # 单 Token 子服务模式一并注释停用：本服务不再管理本地用户 / 角色 /
+    # 路由表，登录仅校验请求头 Token，菜单来自远程 GetUserRoleList。
+    # init_rbac()
+    # init_navigation_menu()
 
 
 def _start_background_components(app):
-    """启动依赖当前 Flask 进程的后台组件。"""
+    """启动依赖当前 Flask 进程的后台组件。
+
+    当前仅启动调度器；任务看门狗的入口 ``init_task_watchdog`` 已停用，
+    只保留停用日志记录，不创建巡检线程（详见该函数 docstring 与
+    ``app/services/task_watchdog.py`` 顶部说明）。
+    """
     init_scheduler(app)
     # 看门狗仍保留停用入口作为运行记录，但不会创建巡检线程。
     init_task_watchdog(app)

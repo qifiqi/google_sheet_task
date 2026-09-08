@@ -1,5 +1,23 @@
 """任务挂死检测与强制重启看门狗。
 
+【当前状态: 入口已停用，本模块代码完整保留】
+
+- ``app/startup.py::init_task_watchdog`` 已改为空实现，不再调用
+  ``task_watchdog.start(app)``，因此本模块的巡检线程不会在进程中创建。
+- 停用原因: 看门狗核心筛选依赖本地 ``Task`` / ``TaskLog`` ORM 查询
+  （近期任务窗口、状态 + 错误前缀筛选、按 task_id 取最近日志），而
+  stock_sdk 的 ParamTasks / ParamTaskLogs 接口暂未覆盖这些筛选与
+  聚合需求；按"使用 stock_sdk 替代本地数据库直连"的改造要求先行停用。
+- 恢复条件: 待 SDK 补齐以下能力后，在 ``init_task_watchdog`` 中恢复
+  ``task_watchdog.start(app)`` 即可整体重新启用:
+    1. ParamTasks 按创建时间窗口 + 多状态 + 错误前缀的组合筛选
+       （对应 ``_fetch_watched_tasks``，文件内标注 TODO）;
+    2. ParamTaskLogs 按 task_id 取最近一条日志
+       （对应 ``_process_watched_task``，文件内标注 TODO）;
+    3. 活跃任务 ID 集合查询（对应 ``_prune_retry_attempt_cache``）。
+- 本模块内 ``Task`` / ``TaskLog`` ORM 引用与 ``db.session.rollback()``
+  在停用期间不会执行（无巡检线程），保留原样以便恢复后直接可用。
+
 逻辑要点:
 
 - 周期扫描最近 ``WATCHED_TASK_CREATED_WITHIN_DAYS`` 天的任务，只关注三类:

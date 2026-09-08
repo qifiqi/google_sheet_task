@@ -1,3 +1,9 @@
+<!--
+  本页面已停用（单 Token 子服务模式，2026-09 起）:
+  本服务不再管理本地用户 / 角色 / 路由表，对应后端接口与前端路由注册
+  均已注释停用。此文件仅为恢复本地管理能力时保留的参考实现，
+  当前不会被打包（路由注册见 src/router/index.js 注释块）。
+-->
 <template>
   <div class="app-page users-page">
     <PageToolbar eyebrow="管理后台" title="用户管理">

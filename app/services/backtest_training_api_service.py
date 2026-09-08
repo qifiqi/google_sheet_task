@@ -1,3 +1,10 @@
+"""backtest_training / 回测任务结果查询与导出 API 服务。
+
+数据库直连迁移状态: 任务与结果读取均通过 TaskRepository /
+TaskResultRepository 走 stock_sdk HTTP 接口完成；
+``from app.models import Task, TaskResult`` 仅保留类型标注用途，
+运行时对象是 repository 返回的远程记录 DTO，本模块无本地 ORM 查询。
+"""
 
 import json
 import math

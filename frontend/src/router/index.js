@@ -2,14 +2,17 @@ import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/layout/AppLayout.vue'
 import { useAuth } from '@/composables/useAuth'
 import { useNavigation } from '@/composables/useNavigation'
+import { goToMainWebLogin } from '@/config/auth'
 
 const routes = [
-  {
-    path: '/login',
-    name: 'Login',
-    component: () => import('@/views/Login.vue'),
-    meta: { public: true },
-  },
+  // 本地登录页已停用（Token 由主 Web 颁发，Token 缺失/失效时由
+  // 路由守卫直接跳回主 Web 重新登录）；恢复本地登录时取消下方注释。
+  // {
+  //   path: '/login',
+  //   name: 'Login',
+  //   component: () => import('@/views/Login.vue'),
+  //   meta: { public: true },
+  // },
   {
     path: '/403',
     name: 'Forbidden',
@@ -53,9 +56,11 @@ const routes = [
       { path: 'admin/results',        name: 'AdminResults',    component: () => import('@/views/admin/Results.vue'),      meta: { title: '结果查询',          permission: 'task:view' } },
       { path: 'admin/google-sheets',  name: 'AdminGoogleSheets',component: () => import('@/views/admin/GoogleSheets.vue'),meta: { title: 'Google Sheets',    permission: 'google_sheet:view' } },
       { path: 'admin/scheduler',      name: 'AdminScheduler',  component: () => import('@/views/admin/Scheduler.vue'),    meta: { title: '定时任务',          permission: 'scheduler:view' } },
-      { path: 'admin/users',          name: 'AdminUsers',      component: () => import('@/views/admin/Users.vue'),        meta: { title: '用户管理',          permission: 'user:view' } },
-      { path: 'admin/roles',          name: 'AdminRoles',      component: () => import('@/views/admin/Roles.vue'),        meta: { title: '角色管理',          permission: 'user:view' } },
-      { path: 'admin/navigation',    name: 'AdminNavigation', component: () => import('@/views/admin/Navigation.vue'),   meta: { title: '导航管理',          permission: 'navigation:view' } },
+      // 用户 / 角色 / 路由表管理已随本地 RBAC 一并停用（后端接口已注释，
+      // 菜单改由远程 GetUserRoleList 路由表下发）；恢复时取消下方注释。
+      // { path: 'admin/users',          name: 'AdminUsers',      component: () => import('@/views/admin/Users.vue'),        meta: { title: '用户管理',          permission: 'user:view' } },
+      // { path: 'admin/roles',          name: 'AdminRoles',      component: () => import('@/views/admin/Roles.vue'),        meta: { title: '角色管理',          permission: 'user:view' } },
+      // { path: 'admin/navigation',    name: 'AdminNavigation', component: () => import('@/views/admin/Navigation.vue'),   meta: { title: '导航管理',          permission: 'navigation:view' } },
       { path: 'admin/model-summary',    name: 'ModelSummary', component: () => import('@/views/admin/Results.vue'),   meta: { title: '单模型汇总',          permission: 'modelsummary:view' } },
     ],
   },
@@ -67,11 +72,28 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to, _from, next) => {
+  // 单 Token 子服务模式: 支持主站跳转时通过 ?token= 携带登录态，
+  // 写入 localStorage 后清除 URL 参数，避免 Token 泄漏到历史记录。
+  if (to.query.token) {
+    localStorage.setItem('access_token', String(to.query.token))
+    const { token: _dropped, ...restQuery } = to.query
+    return next({ path: to.path, query: restQuery, replace: true })
+  }
+
   const token = localStorage.getItem('access_token')
 
+  // 本地登录页已停用: 访问 /login 或无 Token 时统一跳回主 Web 重新登录，
+  // 由主 Web 登录后通过 ?token= 跳转携带登录态返回本站。
+  if (to.path === '/login') {
+    goToMainWebLogin()
+    return next(false)
+  }
+
   if (to.meta.public) return next()
-  if (!token) return next('/login')
-  if (to.path === '/login') return next('/')
+  if (!token) {
+    goToMainWebLogin()
+    return next(false)
+  }
 
   // 确保用户信息已加载（含 permissions）
   const { user, fetchUser, hasPermission } = useAuth()

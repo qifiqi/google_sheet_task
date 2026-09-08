@@ -1,6 +1,21 @@
+"""管理后台页面与接口路由。
+
+数据库直连迁移状态（stock_sdk / HTTP 数据访问改造）:
+
+- 任务列表、任务运行细节等接口已改为通过 ``TaskRepository`` 走 ParamTasks
+  HTTP 接口读取，不再直连本地数据库。
+- 任务仪表盘聚合接口（``/admin/api/dashboard/overview``）原先依赖本地
+  ``Task`` ORM 的分组聚合查询，当前 SDK 无对应聚合能力，已停用本地数据库
+  读取并返回假数据（``demo: True``），原实现注释保留在
+  ``app/services/task/dashboard_query.py`` 与 ``runtime_view.py`` 中，
+  便于 SDK 补齐聚合接口后恢复。
+- 页面渲染路由（``/``、``/tasks`` 等）仅输出模板，不涉及数据库访问。
+"""
+
 from urllib.parse import quote
 
-from flask import Blueprint, Response, current_app, g, jsonify, render_template, request
+# 页面渲染停用后 render_template 不再使用。
+from flask import Blueprint, Response, current_app, g, jsonify, request
 
 from app.services.model_summary_service import model_summary_service
 from app.services.scheduler_service import scheduler_service
@@ -43,101 +58,113 @@ def _task_permission_denied(action: str, task_type: str | None, decision: dict, 
     }), 403
 
 
-@admin_bp.route('/')
-def dashboard():
-    """管理面板首页"""
-    # 任务主表统计统一通过 ParamTasks HTTP 获取，避免管理员页面直连数据库。
-    total_tasks = _task_repository.list_tasks(page_size=1)["total"]
-    def count_status(status: str) -> int:
-        return _task_repository.list_tasks(
-            page_size=1,
-            statuses=[status],
-            order_field="created_at",
-            order_type="desc",
-        )["total"]
-    completed_tasks = count_status("completed")
-    running_tasks = count_status("running")
-    error_tasks = count_status("error")
-    recent_tasks = _task_repository.list_tasks(
-        page_size=10,
-        order_field="created_at",
-        order_type="desc",
-    )["items"]
-    
-    return render_template('admin/dashboard.html', 
-                         total_tasks=total_tasks,
-                         completed_tasks=completed_tasks,
-                         running_tasks=running_tasks,
-                         error_tasks=error_tasks,
-                         recent_tasks=recent_tasks)
+# ---------- 管理后台旧版 Jinja 页面路由（单 Token 子服务模式下停用，页面由 Vue 前端提供） ----------
+# @admin_bp.route('/')
+# def dashboard():
+#     """管理面板首页。
+#
+#     页面统计说明: 任务总数 / 各状态数量 / 最近任务列表原先通过本地 ``Task``
+#     ORM 统计，现统一通过 ``TaskRepository`` 走 ParamTasks HTTP 接口获取，
+#     避免管理员页面直连数据库。
+#     """
+#     # 任务主表统计统一通过 ParamTasks HTTP 获取，避免管理员页面直连数据库。
+#     total_tasks = _task_repository.list_tasks(page_size=1)["total"]
+#     def count_status(status: str) -> int:
+#         return _task_repository.list_tasks(
+#             page_size=1,
+#             statuses=[status],
+#             order_field="created_at",
+#             order_type="desc",
+#         )["total"]
+#     completed_tasks = count_status("completed")
+#     running_tasks = count_status("running")
+#     error_tasks = count_status("error")
+#     recent_tasks = _task_repository.list_tasks(
+#         page_size=10,
+#         order_field="created_at",
+#         order_type="desc",
+#     )["items"]
+#
+#     return render_template('admin/dashboard.html', 
+#                          total_tasks=total_tasks,
+#                          completed_tasks=completed_tasks,
+#                          running_tasks=running_tasks,
+#                          error_tasks=error_tasks,
+#                          recent_tasks=recent_tasks)
 
-@admin_bp.route('/tasks')
-def tasks():
-    """任务管理页面"""
-    return render_template(
-        'admin/tasks.html',
-        task_status_options=TaskStatus.choices(),
-        task_status_editable_options=TaskStatus.editable_choices(),
-        task_type_options=TaskType.choices(),
-        task_type_filter_options=TaskType.choices(include_system=True),
-    )
+# @admin_bp.route('/tasks')
+# def tasks():
+#     """任务管理页面"""
+#     return render_template(
+#         'admin/tasks.html',
+#         task_status_options=TaskStatus.choices(),
+#         task_status_editable_options=TaskStatus.editable_choices(),
+#         task_type_options=TaskType.choices(),
+#         task_type_filter_options=TaskType.choices(include_system=True),
+#     )
 
-@admin_bp.route('/config')
-def config():
-    """配置管理页面"""
-    return render_template('admin/config.html')
+# @admin_bp.route('/config')
+# def config():
+#     """配置管理页面"""
+#     return render_template('admin/config.html')
 
-@admin_bp.route('/navigation')
-def navigation():
-    """路由表管理页面"""
-    return render_template('admin/navigation.html')
+# ---------- 用户 / 角色 / 路由表管理页面（随本地 RBAC 一并停用，注释保留） ----------
+# 本服务不再管理本地用户、角色和路由表：登录仅校验请求头 Token，
+# 菜单由 /api/meta/nav 拉取远程 GetUserRoleList 提供。
+# 恢复本地管理能力时取消下方注释（对应 Jinja 模板仍保留在 templates/admin/）。
+# @admin_bp.route('/navigation')
+# def navigation():
+#     """路由表管理页面"""
+#     return render_template('admin/navigation.html')
+#
+#
+# @admin_bp.route('/users')
+# def users():
+#     """用户管理页面"""
+#     return render_template('admin/users.html')
+#
+#
+# @admin_bp.route('/roles')
+# def roles():
+#     """角色管理页面"""
+#     return render_template('admin/roles.html')
 
-@admin_bp.route('/logs')
-def logs():
-    """日志管理页面"""
-    return render_template('admin/logs.html')
+# @admin_bp.route('/logs')
+# def logs():
+#     """日志管理页面"""
+#     return render_template('admin/logs.html')
 
-@admin_bp.route('/templates')
-def templates():
-    """任务模板管理页面"""
-    return render_template('admin/templates.html')
+# @admin_bp.route('/templates')
+# def templates():
+#     """任务模板管理页面"""
+#     return render_template('admin/templates.html')
 
-@admin_bp.route('/results')
-def results():
-    """任务结果管理页面"""
-    return render_template('admin/results.html')
+# @admin_bp.route('/results')
+# def results():
+#     """任务结果管理页面"""
+#     return render_template('admin/results.html')
 
-@admin_bp.route('/model-summary')
-def model_summary():
-    """单模型汇总数据看板"""
-    return render_template('admin/model_summary.html')
-
-
-@admin_bp.route('/eastmoney-kline')
-def eastmoney_kline():
-    """渲染东方财富 K 线管理页面。"""
-    return render_template('admin/eastmoney_kline.html')
+# @admin_bp.route('/model-summary')
+# def model_summary():
+#     """单模型汇总数据看板"""
+#     return render_template('admin/model_summary.html')
 
 
-@admin_bp.route('/google-sheets')
-def google_sheets():
-    """渲染 Google Sheet 注册表管理页面。"""
-    return render_template('admin/google_sheets.html', google_sheet_table_type_options=GoogleSheetTableType.choices())
+# @admin_bp.route('/eastmoney-kline')
+# def eastmoney_kline():
+#     """渲染东方财富 K 线管理页面。"""
+#     return render_template('admin/eastmoney_kline.html')
 
-@admin_bp.route('/scheduler')
-def scheduler():
-    """定时任务管理页面"""
-    return render_template('admin/scheduler.html')
 
-@admin_bp.route('/users')
-def users():
-    """用户管理页面"""
-    return render_template('admin/users.html')
+# @admin_bp.route('/google-sheets')
+# def google_sheets():
+#     """渲染 Google Sheet 注册表管理页面。"""
+#     return render_template('admin/google_sheets.html', google_sheet_table_type_options=GoogleSheetTableType.choices())
 
-@admin_bp.route('/roles')
-def roles():
-    """角色管理页面"""
-    return render_template('admin/roles.html')
+# @admin_bp.route('/scheduler')
+# def scheduler():
+#     """定时任务管理页面"""
+#     return render_template('admin/scheduler.html')
 
 @admin_bp.route('/api/scheduler/status')
 @login_required
@@ -191,7 +218,15 @@ def scheduler_status():
 @login_required
 @permission_required('task:view')
 def dashboard_overview():
-    """管理后台仪表盘总览数据"""
+    """管理后台仪表盘总览数据。
+
+    接口说明: 该接口原先通过 TaskDashboardQueryService 直连本地数据库做
+    状态分布 / 任务类型分布 / 每日趋势等聚合查询。数据库直连停用后改由
+    ``TaskRuntimeViewService.build_dashboard_overview`` 返回结构完整的假
+    数据（``demo: True``），前端页面无需改动即可继续渲染；
+    原 ORM 聚合实现注释保留在 ``app/services/task/dashboard_query.py``，
+    待 SDK 提供聚合接口后在此处恢复真实数据源。
+    """
     try:
         return jsonify(
             runtime_view_service.build_dashboard_overview(

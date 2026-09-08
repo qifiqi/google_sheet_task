@@ -1,3 +1,14 @@
+"""Google Sheet 任务执行服务公共基类。
+
+数据库直连迁移状态（stock_sdk / HTTP 数据访问改造）:
+
+- 任务日志写入已通过 ``TaskLogRepository`` 走 ParamTaskLogs HTTP 接口，
+  不再直接操作本地 ORM。
+- ``from app.models import Task, db`` 中的 ``Task`` 仅保留类型标注用途；
+  ``db.session.rollback`` 仅作为日志写入失败后的会话回滚兜底保留。
+- 任务状态更新统一经 ``TaskRepository``（ParamTasks HTTP）完成。
+"""
+
 import json
 import math
 from datetime import date, datetime

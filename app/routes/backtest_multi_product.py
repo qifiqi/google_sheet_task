@@ -8,7 +8,8 @@ import json
 import math
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from flask import Blueprint, current_app, g, jsonify, render_template, request, send_file
+# 页面渲染停用后 render_template 不再使用。
+from flask import Blueprint, current_app, g, jsonify, request, send_file
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -188,47 +189,48 @@ def _format_excel_data_cell(cell):
     cell.number_format = "0.00%"
 
 
-@bp.route("/create")
-def create_page():
-    """渲染多品回测任务创建页面。"""
-    return render_template("backtest_multi_product/create.html")
+# ---------- 旧版 Jinja 页面路由（单 Token 子服务模式下停用，页面由 Vue 前端提供；/api/* 接口保留） ----------
+# @bp.route("/create")
+# def create_page():
+#     """渲染多品回测任务创建页面。"""
+#     return render_template("backtest_multi_product/create.html")
 
 
-@bp.route("/list")
-def list_page():
-    """渲染多品回测任务列表页面。"""
-    return render_template("backtest_multi_product/list.html")
+# @bp.route("/list")
+# def list_page():
+#     """渲染多品回测任务列表页面。"""
+#     return render_template("backtest_multi_product/list.html")
 
 
-@bp.route("/detail/<task_id>")
-def detail_page(task_id):
-    """渲染指定多品回测任务的详情页面。"""
-    return render_template("backtest_multi_product/detail.html", task_id=task_id)
+# @bp.route("/detail/<task_id>")
+# def detail_page(task_id):
+#     """渲染指定多品回测任务的详情页面。"""
+#     return render_template("backtest_multi_product/detail.html", task_id=task_id)
 
 
-@bp.route("/global-preview/<task_id>")
-def global_preview_page(task_id):
-    """渲染指定多品回测任务的全局预览页面。"""
-    return render_template("backtest_multi_product/global_preview.html", task_id=task_id)
+# @bp.route("/global-preview/<task_id>")
+# def global_preview_page(task_id):
+#     """渲染指定多品回测任务的全局预览页面。"""
+#     return render_template("backtest_multi_product/global_preview.html", task_id=task_id)
 
 
-@bp.route("/result/<int:result_id>")
-def result_page(result_id):
-    """渲染指定多品回测结果的详情页面。"""
-    task_result = _task_result_repository.get(result_id)
-    task_id = ""
-    if task_result:
-        task = _task_repository.get(task_result.get("task_id"))
-        if task and normalize_task_type(task.task_type) == BACKTEST_MULTI_PRODUCT_TASK_TYPE:
-            task_id = task_result.task_id
-    return render_template("backtest_multi_product/result.html", result_id=result_id, task_id=task_id)
+# @bp.route("/result/<int:result_id>")
+# def result_page(result_id):
+#     """渲染指定多品回测结果的详情页面。"""
+#     task_result = _task_result_repository.get(result_id)
+#     task_id = ""
+#     if task_result:
+#         task = _task_repository.get(task_result.get("task_id"))
+#         if task and normalize_task_type(task.task_type) == BACKTEST_MULTI_PRODUCT_TASK_TYPE:
+#             task_id = task_result.task_id
+#     return render_template("backtest_multi_product/result.html", result_id=result_id, task_id=task_id)
 
 
-legacy_bp.add_url_rule("/create", view_func=create_page)
-legacy_bp.add_url_rule("/list", view_func=list_page)
-legacy_bp.add_url_rule("/detail/<task_id>", view_func=detail_page)
-legacy_bp.add_url_rule("/global-preview/<task_id>", view_func=global_preview_page)
-legacy_bp.add_url_rule("/result/<int:result_id>", view_func=result_page)
+# legacy_bp.add_url_rule("/create", view_func=create_page)
+# legacy_bp.add_url_rule("/list", view_func=list_page)
+# legacy_bp.add_url_rule("/detail/<task_id>", view_func=detail_page)
+# legacy_bp.add_url_rule("/global-preview/<task_id>", view_func=global_preview_page)
+# legacy_bp.add_url_rule("/result/<int:result_id>", view_func=result_page)
 
 
 @bp.route("/api/import-excel", methods=["POST"])

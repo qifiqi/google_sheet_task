@@ -1,4 +1,19 @@
-"""JWT 认证与权限装饰器"""
+"""JWT 认证与权限装饰器。
+
+鉴权模式（单 Token 子服务模式，2026-09 启用）:
+
+- 本服务作为主 Web（stock.stplan.cn）的子服务，不再签发/存储本地账号，
+  也不再解析本地 JWT；调用方在请求头 ``Token`` 字段携带主 Web 登录后
+  颁发的单一 Token。
+- ``authenticate_current_request`` 把该 Token 转发给远程
+  ``POST /api/SysUser/GetUserInfo`` 校验（app/services/token_identity_service.py），
+  校验通过后构造 ``RemoteTokenUser`` 写入 ``g.current_user``，
+  Token 本身保留在 ``g.current_token`` 供路由表等接口复用。
+- 路由表/菜单权限由 ``POST /api/SysUser/GetUserRoleList`` 提供，
+  见 ``app/routes/meta_api.py``。
+- 原本地 JWT 签发/解析、本地 ``User`` 表校验、本地 RBAC mock 用户查询
+  等实现全部注释保留，便于后续需要独立登录能力时重新启用。
+"""
 import os
 from datetime import datetime, timedelta
 from functools import wraps
@@ -72,42 +87,43 @@ def validate_auth_runtime_settings(
         )
 
 
-def create_access_token(user_id, token_version=0, expires_hours=2):
-    """签发包含用户与令牌版本信息的短期访问令牌。"""
-    payload = {
-        'user_id': user_id,
-        'token_version': int(token_version or 0),
-        'type': 'access',
-        'exp': datetime.utcnow() + timedelta(hours=expires_hours),
-        'iat': datetime.utcnow(),
-    }
-    return jwt.encode(payload, _get_secret(), algorithm='HS256')
-
-
-def create_refresh_token(user_id, token_version=0, expires_days=7):
-    """签发用于换取访问令牌的长期刷新令牌。"""
-    payload = {
-        'user_id': user_id,
-        'token_version': int(token_version or 0),
-        'type': 'refresh',
-        'exp': datetime.utcnow() + timedelta(days=expires_days),
-        'iat': datetime.utcnow(),
-    }
-    return jwt.encode(payload, _get_secret(), algorithm='HS256')
-
-
-def decode_token(token):
-    """使用当前 JWT 密钥校验并解码令牌。"""
-    return jwt.decode(token, _get_secret(), algorithms=['HS256'])
-
-
-def extract_token_version(payload):
-    """从令牌载荷读取版本号，不合法的值视为无效令牌。"""
-    version = payload.get('token_version', 0)
-    try:
-        return int(version)
-    except (TypeError, ValueError):
-        raise jwt.InvalidTokenError('invalid token version')
+# ---------- 本地 JWT 签发/解析（单 Token 子服务模式下停用，保留以便恢复） ----------
+# def create_access_token(user_id, token_version=0, expires_hours=2):
+#     """签发包含用户与令牌版本信息的短期访问令牌。"""
+#     payload = {
+#         'user_id': user_id,
+#         'token_version': int(token_version or 0),
+#         'type': 'access',
+#         'exp': datetime.utcnow() + timedelta(hours=expires_hours),
+#         'iat': datetime.utcnow(),
+#     }
+#     return jwt.encode(payload, _get_secret(), algorithm='HS256')
+#
+#
+# def create_refresh_token(user_id, token_version=0, expires_days=7):
+#     """签发用于换取访问令牌的长期刷新令牌。"""
+#     payload = {
+#         'user_id': user_id,
+#         'token_version': int(token_version or 0),
+#         'type': 'refresh',
+#         'exp': datetime.utcnow() + timedelta(days=expires_days),
+#         'iat': datetime.utcnow(),
+#     }
+#     return jwt.encode(payload, _get_secret(), algorithm='HS256')
+#
+#
+# def decode_token(token):
+#     """使用当前 JWT 密钥校验并解码令牌。"""
+#     return jwt.decode(token, _get_secret(), algorithms=['HS256'])
+#
+#
+# def extract_token_version(payload):
+#     """从令牌载荷读取版本号，不合法的值视为无效令牌。"""
+#     version = payload.get('token_version', 0)
+#     try:
+#         return int(version)
+#     except (TypeError, ValueError):
+#         raise jwt.InvalidTokenError('invalid token version')
 
 
 def is_retired_local_identity_path(path: str) -> bool:
@@ -116,23 +132,22 @@ def is_retired_local_identity_path(path: str) -> bool:
 
 
 def _inject_mock_user():
-    """AUTH_ENABLED=false 时注入一个拥有全部权限的 mock 用户，避免下游 g.current_user 报错"""
+    """AUTH_ENABLED=false 时注入一个免鉴权 mock 用户，避免下游 g.current_user 报错"""
     if hasattr(g, 'current_user'):
         return
-    from app.models import Permission
 
+    # 原实现读取本地 Permission 表取全量权限码；单 Token 子服务模式下
+    # 本地 RBAC 已停用，mock 用户持有空权限集即可（接口权限校验本就放行）。
+    # from app.models import Permission
     class _MockUser:
         id = 0
         username = 'anonymous'
         is_active = True
         roles = []
-        _perms = None
 
         def get_permissions(self):
-            """为关闭认证时的模拟用户返回全部本地权限。"""
-            if self._perms is None:
-                self._perms = {permission.code for permission in Permission.query.all()}
-            return self._perms
+            """为关闭认证时的模拟用户返回空权限集（接口鉴权已停用）。"""
+            return set()
 
         def to_dict(self, include_permissions=False):
             """将关闭认证时的模拟用户转换为兼容响应字典。"""
@@ -151,60 +166,106 @@ def _inject_mock_user():
     g.current_user = _MockUser()
 
 
+def get_request_token():
+    """从请求头 ``Token`` 字段读取主 Web 颁发的单一 Token。"""
+    return str(request.headers.get('Token', '') or '').strip()
+
+
 def authenticate_current_request():
-    """校验当前 JWT；默认解析本地 User，网关开关开启时解析 sys_user。"""
+    """校验请求头 Token（单 Token 子服务模式）。
+
+    当前流程: 读取 ``Token`` 请求头 -> 调用远程 GetUserInfo 校验 ->
+    构造 ``RemoteTokenUser`` 写入 ``g.current_user``，Token 保留在
+    ``g.current_token`` 供路由表等接口复用。
+
+    旧实现（本地 JWT 解析 + 本地 User 表校验 + REMOTE_IDENTITY_GATEWAY
+    分支）整体注释保留在下方，恢复独立登录能力时取消注释即可。
+    """
     if hasattr(g, 'current_user'):
         return None
     if not is_auth_enabled():
         _inject_mock_user()
         return None
 
-    auth_header = request.headers.get('Authorization', '')
-    if not auth_header.startswith('Bearer '):
+    token = get_request_token()
+    if not token:
         return jsonify({'code': 401, 'data': None, 'message': '未提供认证令牌'}), 401
 
-    try:
-        payload = decode_token(auth_header[7:])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'code': 401, 'data': None, 'message': '令牌已过期'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
-
-    if payload.get('type') not in (None, 'access'):
-        return jsonify({'code': 401, 'data': None, 'message': '令牌类型错误'}), 401
-    if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
-        # 主 Web 网关逻辑保留在此；切换开关后无需重新改动路由装饰器。
-        user_id = payload.get('user_id', payload.get('userid'))
-        if user_id is None:
-            return jsonify({'code': 401, 'data': None, 'message': '令牌缺少用户标识'}), 401
-        try:
-            from app.services.remote_identity_service import RemoteIdentityService
-            user = RemoteIdentityService().get_user(user_id, payload.get('username'))
-        except Exception:
-            return jsonify({'code': 401, 'data': None, 'message': '远程用户校验失败'}), 401
-        if not user:
-            return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
-        g.current_user = user
-        from app.services.model_access_service import set_current_model_codes
-        claim_name = current_app.config.get('REMOTE_MODEL_CODES_CLAIM', 'model_codes')
-        claimed_codes = payload.get(claim_name)
-        if isinstance(claimed_codes, (list, tuple, set)):
-            set_current_model_codes(claimed_codes)
-        return None
+    from app.services.token_identity_service import (
+        RemoteTokenUser,
+        TokenIdentityError,
+        TokenInvalidError,
+        get_token_identity_service,
+    )
 
     try:
-        token_version = extract_token_version(payload)
-        user_id = payload['user_id']
-    except (KeyError, jwt.InvalidTokenError):
-        return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
-    from app.models import User
-    user = db.session.get(User, user_id)
-    if not user or not user.is_active:
-        return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
-    if int(user.token_version or 0) != token_version:
-        return jsonify({'code': 401, 'data': None, 'message': '登录状态已失效，请重新登录'}), 401
-    g.current_user = user
+        info = get_token_identity_service().get_user_info(token)
+    except TokenInvalidError:
+        return jsonify({'code': 401, 'data': None, 'message': '登录已失效，请重新登录'}), 401
+    except TokenIdentityError as exc:
+        current_app.logger.error(f'Token 身份校验服务不可用: {exc}')
+        return jsonify({'code': 503, 'data': None, 'message': '身份校验服务暂不可用，请稍后重试'}), 503
+
+    g.current_user = RemoteTokenUser(info)
+    g.current_token = token
     return None
+
+
+# ---------- 旧认证实现（本地 JWT + 本地用户表 + 主 Web 网关分支），注释保留 ----------
+# def authenticate_current_request():
+#     """校验当前 JWT；默认解析本地 User，网关开关开启时解析 sys_user。"""
+#     if hasattr(g, 'current_user'):
+#         return None
+#     if not is_auth_enabled():
+#         _inject_mock_user()
+#         return None
+#
+#     auth_header = request.headers.get('Authorization', '')
+#     if not auth_header.startswith('Bearer '):
+#         return jsonify({'code': 401, 'data': None, 'message': '未提供认证令牌'}), 401
+#
+#     try:
+#         payload = decode_token(auth_header[7:])
+#     except jwt.ExpiredSignatureError:
+#         return jsonify({'code': 401, 'data': None, 'message': '令牌已过期'}), 401
+#     except jwt.InvalidTokenError:
+#         return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
+#
+#     if payload.get('type') not in (None, 'access'):
+#         return jsonify({'code': 401, 'data': None, 'message': '令牌类型错误'}), 401
+#     if current_app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
+#         # 主 Web 网关逻辑保留在此；切换开关后无需重新改动路由装饰器。
+#         user_id = payload.get('user_id', payload.get('userid'))
+#         if user_id is None:
+#             return jsonify({'code': 401, 'data': None, 'message': '令牌缺少用户标识'}), 401
+#         try:
+#             from app.services.remote_identity_service import RemoteIdentityService
+#             user = RemoteIdentityService().get_user(user_id, payload.get('username'))
+#         except Exception:
+#             return jsonify({'code': 401, 'data': None, 'message': '远程用户校验失败'}), 401
+#         if not user:
+#             return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
+#         g.current_user = user
+#         from app.services.model_access_service import set_current_model_codes
+#         claim_name = current_app.config.get('REMOTE_MODEL_CODES_CLAIM', 'model_codes')
+#         claimed_codes = payload.get(claim_name)
+#         if isinstance(claimed_codes, (list, tuple, set)):
+#             set_current_model_codes(claimed_codes)
+#         return None
+#
+#     try:
+#         token_version = extract_token_version(payload)
+#         user_id = payload['user_id']
+#     except (KeyError, jwt.InvalidTokenError):
+#         return jsonify({'code': 401, 'data': None, 'message': '无效令牌'}), 401
+#     from app.models import User
+#     user = db.session.get(User, user_id)
+#     if not user or not user.is_active:
+#         return jsonify({'code': 401, 'data': None, 'message': '用户不存在或已禁用'}), 401
+#     if int(user.token_version or 0) != token_version:
+#         return jsonify({'code': 401, 'data': None, 'message': '登录状态已失效，请重新登录'}), 401
+#     g.current_user = user
+#     return None
 
 
 def login_required(f):

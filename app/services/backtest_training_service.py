@@ -1,3 +1,10 @@
+"""backtest_training 回测训练任务执行服务。
+
+数据库直连迁移状态: 任务结果与收益序列写入已通过 TaskResultRepository /
+TaskResultReturnRepository 走 stock_sdk HTTP 接口完成；
+``from app.models import Task`` 仅保留类型标注用途，本模块无本地 ORM 查询。
+"""
+
 import json
 import time
 from datetime import datetime, timedelta

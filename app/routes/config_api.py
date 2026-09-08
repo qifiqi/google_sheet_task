@@ -1,15 +1,27 @@
+"""系统配置管理 API。
+
+数据库直连迁移状态（stock_sdk / HTTP 数据访问改造）:
+
+- 系统配置读写已通过 SystemConfigRepository（param_system_configs HTTP）完成。
+- 本地导航菜单管理（NavigationMenuItem 增删改查）已随本地用户/角色/路由表
+  一并注释停用：本服务不再维护本地路由表，菜单仅由 ``/api/meta/nav``
+  拉取远程 GetUserRoleList 提供（见 ``app/routes/meta_api.py``），
+  原实现注释保留在文件中部。
+"""
 from flask import Blueprint, request, jsonify
 from app.services.config_manager import get_config_manager
-from app.models import NavigationMenuItem, db
+# 本地导航菜单停用后不再引用本地 ORM 与权限同步逻辑。
+# from app.models import NavigationMenuItem, db
 from app.repositories.config_repository import SystemConfigRepository
-from app.navigation import sync_navigation_permissions
+# from app.navigation import sync_navigation_permissions
 from app.utils.logger import get_logger
 from app.utils.auth import login_required, permission_required
 
 logger = get_logger(__name__)
 
 config_api_bp = Blueprint('config_api', __name__)
-legacy_navigation_bp = Blueprint('legacy_navigation', __name__)
+# 本地路由表管理已移除，旧蓝图空置保留命名占位。
+# legacy_navigation_bp = Blueprint('legacy_navigation', __name__)
 
 
 def _system_config_repository():
@@ -136,178 +148,181 @@ def update_system_config(key):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-def _navigation_menu_payload(item):
-    """将导航菜单模型转换为配置接口响应载荷。"""
-    return {
-        "id": item.id,
-        "key": item.key,
-        "label": item.label,
-        "path": item.path or "",
-        "permission": item.permission or "",
-        "parent_key": item.parent_key or "",
-        "sort_order": item.sort_order or 0,
-        "is_visible": bool(item.is_visible),
-        "created_at": item.created_at.isoformat() if item.created_at else None,
-        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-    }
-
-
-def _coerce_bool(value, default=False):
-    """将请求值兼容转换为布尔值。"""
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
-
-
-def _coerce_sort_order(value):
-    """将排序字段转换为非负整数。"""
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _normalize_blank(value):
-    """将空白文本规范为 ``None``。"""
-    text = str(value or "").strip()
-    return text or None
-
-
-def _validate_navigation_payload(data, item_id=None):
-    """校验导航菜单请求载荷及其父子关系约束。"""
-    key = str(data.get("key") or "").strip()
-    label = str(data.get("label") or "").strip()
-    path = _normalize_blank(data.get("path"))
-    permission = _normalize_blank(data.get("permission"))
-    parent_key = _normalize_blank(data.get("parent_key"))
-
-    if not key:
-        return None, "缺少路由 key"
-    if not label:
-        return None, "缺少菜单名称"
-    if parent_key == key:
-        return None, "父级菜单不能选择自己"
-
-    duplicate = NavigationMenuItem.query.filter_by(key=key).first()
-    if duplicate and duplicate.id != item_id:
-        return None, "路由 key 已存在"
-
-    if parent_key:
-        parent = NavigationMenuItem.query.filter_by(key=parent_key).first()
-        if not parent:
-            return None, "父级菜单不存在"
-        if parent.path:
-            return None, "父级菜单不能是可跳转路由"
-
-    is_visible = _coerce_bool(data.get("is_visible"), default=False)
-    if is_visible and path and not permission:
-        return None, "开启显示的页面路由必须填写权限码"
-
-    return {
-        "key": key,
-        "label": label,
-        "path": path,
-        "permission": permission,
-        "parent_key": parent_key,
-        "sort_order": _coerce_sort_order(data.get("sort_order")),
-        "is_visible": is_visible,
-    }, None
-
-
-@config_api_bp.route('/navigation-menu-items', methods=['GET'])
-@login_required
-@permission_required('navigation:view')
-def list_navigation_menu_items():
-    """获取侧边栏路由表"""
-    items = NavigationMenuItem.query.order_by(NavigationMenuItem.sort_order, NavigationMenuItem.id).all()
-    return jsonify({"status": "success", "items": [_navigation_menu_payload(item) for item in items]})
-
-
-@config_api_bp.route('/navigation-menu-items', methods=['POST'])
-@login_required
-@permission_required('navigation:manage')
-def create_navigation_menu_item():
-    """新增侧边栏路由表记录，默认不可见，避免新页面直接暴露"""
-    return jsonify({"status": "error", "message": "本地路由表已停用"}), 404
-    try:
-        data = request.get_json() or {}
-        payload, error_message = _validate_navigation_payload(data)
-        if error_message:
-            return jsonify({"status": "error", "message": error_message}), 400
-
-        item = NavigationMenuItem(**payload)
-        db.session.add(item)
-        db.session.flush()
-        sync_navigation_permissions([item])
-        db.session.commit()
-        return jsonify({
-            "status": "success",
-            "message": "路由已新增，默认按可见开关和权限控制侧边栏展示",
-            "item": _navigation_menu_payload(item),
-        })
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"新增导航菜单失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['PUT'])
-@login_required
-@permission_required('navigation:manage')
-def update_navigation_menu_item(item_id):
-    """更新侧边栏路由表记录"""
-    return jsonify({"status": "error", "message": "本地路由表已停用"}), 404
-    try:
-        item = db.session.get(NavigationMenuItem, item_id)
-        if not item:
-            return jsonify({"status": "error", "message": "路由记录不存在"}), 404
-
-        data = request.get_json() or {}
-        payload, error_message = _validate_navigation_payload(data, item_id=item_id)
-        if error_message:
-            return jsonify({"status": "error", "message": error_message}), 400
-
-        for key, value in payload.items():
-            setattr(item, key, value)
-        sync_navigation_permissions([item])
-        db.session.commit()
-        return jsonify({
-            "status": "success",
-            "message": "路由已更新",
-            "item": _navigation_menu_payload(item),
-        })
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"更新导航菜单失败: item_id={item_id}, err={str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['DELETE'])
-@login_required
-@permission_required('navigation:manage')
-def delete_navigation_menu_item(item_id):
-    """删除侧边栏路由表记录"""
-    return jsonify({"status": "error", "message": "本地路由表已停用"}), 404
-    try:
-        item = db.session.get(NavigationMenuItem, item_id)
-        if not item:
-            return jsonify({"status": "error", "message": "路由记录不存在"}), 404
-
-        child_count = NavigationMenuItem.query.filter_by(parent_key=item.key).count()
-        if child_count:
-            return jsonify({"status": "error", "message": "请先删除或移动子菜单"}), 400
-
-        db.session.delete(item)
-        db.session.commit()
-        return jsonify({"status": "success", "message": "路由已删除"})
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"删除导航菜单失败: item_id={item_id}, err={str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+# ---------- 本地导航菜单管理（用户/角色/路由表随本地 RBAC 一并停用，注释保留） ----------
+# 菜单来源已统一为远程 GetUserRoleList（见 /api/meta/nav），本服务不再
+# 维护本地 NavigationMenuItem 表；恢复本地路由表管理时取消下方注释。
+# def _navigation_menu_payload(item):
+#     """将导航菜单模型转换为配置接口响应载荷。"""
+#     return {
+#         "id": item.id,
+#         "key": item.key,
+#         "label": item.label,
+#         "path": item.path or "",
+#         "permission": item.permission or "",
+#         "parent_key": item.parent_key or "",
+#         "sort_order": item.sort_order or 0,
+#         "is_visible": bool(item.is_visible),
+#         "created_at": item.created_at.isoformat() if item.created_at else None,
+#         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+#     }
+#
+#
+# def _coerce_bool(value, default=False):
+#     """将请求值兼容转换为布尔值。"""
+#     if value is None:
+#         return default
+#     if isinstance(value, bool):
+#         return value
+#     if isinstance(value, str):
+#         return value.strip().lower() in {"1", "true", "yes", "on"}
+#     return bool(value)
+#
+#
+# def _coerce_sort_order(value):
+#     """将排序字段转换为非负整数。"""
+#     try:
+#         return int(value)
+#     except (TypeError, ValueError):
+#         return 0
+#
+#
+# def _normalize_blank(value):
+#     """将空白文本规范为 ``None``。"""
+#     text = str(value or "").strip()
+#     return text or None
+#
+#
+# def _validate_navigation_payload(data, item_id=None):
+#     """校验导航菜单请求载荷及其父子关系约束。"""
+#     key = str(data.get("key") or "").strip()
+#     label = str(data.get("label") or "").strip()
+#     path = _normalize_blank(data.get("path"))
+#     permission = _normalize_blank(data.get("permission"))
+#     parent_key = _normalize_blank(data.get("parent_key"))
+#
+#     if not key:
+#         return None, "缺少路由 key"
+#     if not label:
+#         return None, "缺少菜单名称"
+#     if parent_key == key:
+#         return None, "父级菜单不能选择自己"
+#
+#     duplicate = NavigationMenuItem.query.filter_by(key=key).first()
+#     if duplicate and duplicate.id != item_id:
+#         return None, "路由 key 已存在"
+#
+#     if parent_key:
+#         parent = NavigationMenuItem.query.filter_by(key=parent_key).first()
+#         if not parent:
+#             return None, "父级菜单不存在"
+#         if parent.path:
+#             return None, "父级菜单不能是可跳转路由"
+#
+#     is_visible = _coerce_bool(data.get("is_visible"), default=False)
+#     if is_visible and path and not permission:
+#         return None, "开启显示的页面路由必须填写权限码"
+#
+#     return {
+#         "key": key,
+#         "label": label,
+#         "path": path,
+#         "permission": permission,
+#         "parent_key": parent_key,
+#         "sort_order": _coerce_sort_order(data.get("sort_order")),
+#         "is_visible": is_visible,
+#     }, None
+#
+#
+# @config_api_bp.route('/navigation-menu-items', methods=['GET'])
+# @login_required
+# @permission_required('navigation:view')
+# def list_navigation_menu_items():
+#     """获取侧边栏路由表"""
+#     items = NavigationMenuItem.query.order_by(NavigationMenuItem.sort_order, NavigationMenuItem.id).all()
+#     return jsonify({"status": "success", "items": [_navigation_menu_payload(item) for item in items]})
+#
+#
+# @config_api_bp.route('/navigation-menu-items', methods=['POST'])
+# @login_required
+# @permission_required('navigation:manage')
+# def create_navigation_menu_item():
+#     """新增侧边栏路由表记录，默认不可见，避免新页面直接暴露"""
+#     return jsonify({"status": "error", "message": "本地路由表已停用"}), 404
+#     try:
+#         data = request.get_json() or {}
+#         payload, error_message = _validate_navigation_payload(data)
+#         if error_message:
+#             return jsonify({"status": "error", "message": error_message}), 400
+#
+#         item = NavigationMenuItem(**payload)
+#         db.session.add(item)
+#         db.session.flush()
+#         sync_navigation_permissions([item])
+#         db.session.commit()
+#         return jsonify({
+#             "status": "success",
+#             "message": "路由已新增，默认按可见开关和权限控制侧边栏展示",
+#             "item": _navigation_menu_payload(item),
+#         })
+#     except Exception as e:
+#         db.session.rollback()
+#         logger.error(f"新增导航菜单失败: {str(e)}")
+#         return jsonify({"status": "error", "message": str(e)}), 500
+#
+#
+# @config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['PUT'])
+# @login_required
+# @permission_required('navigation:manage')
+# def update_navigation_menu_item(item_id):
+#     """更新侧边栏路由表记录"""
+#     return jsonify({"status": "error", "message": "本地路由表已停用"}), 404
+#     try:
+#         item = db.session.get(NavigationMenuItem, item_id)
+#         if not item:
+#             return jsonify({"status": "error", "message": "路由记录不存在"}), 404
+#
+#         data = request.get_json() or {}
+#         payload, error_message = _validate_navigation_payload(data, item_id=item_id)
+#         if error_message:
+#             return jsonify({"status": "error", "message": error_message}), 400
+#
+#         for key, value in payload.items():
+#             setattr(item, key, value)
+#         sync_navigation_permissions([item])
+#         db.session.commit()
+#         return jsonify({
+#             "status": "success",
+#             "message": "路由已更新",
+#             "item": _navigation_menu_payload(item),
+#         })
+#     except Exception as e:
+#         db.session.rollback()
+#         logger.error(f"更新导航菜单失败: item_id={item_id}, err={str(e)}")
+#         return jsonify({"status": "error", "message": str(e)}), 500
+#
+#
+# @config_api_bp.route('/navigation-menu-items/<int:item_id>', methods=['DELETE'])
+# @login_required
+# @permission_required('navigation:manage')
+# def delete_navigation_menu_item(item_id):
+#     """删除侧边栏路由表记录"""
+#     return jsonify({"status": "error", "message": "本地路由表已停用"}), 404
+#     try:
+#         item = db.session.get(NavigationMenuItem, item_id)
+#         if not item:
+#             return jsonify({"status": "error", "message": "路由记录不存在"}), 404
+#
+#         child_count = NavigationMenuItem.query.filter_by(parent_key=item.key).count()
+#         if child_count:
+#             return jsonify({"status": "error", "message": "请先删除或移动子菜单"}), 400
+#
+#         db.session.delete(item)
+#         db.session.commit()
+#         return jsonify({"status": "success", "message": "路由已删除"})
+#     except Exception as e:
+#         db.session.rollback()
+#         logger.error(f"删除导航菜单失败: item_id={item_id}, err={str(e)}")
+#         return jsonify({"status": "error", "message": str(e)}), 500
 
 @config_api_bp.route('/logs', methods=['GET'])
 @login_required

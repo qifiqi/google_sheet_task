@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+"""Flask 应用运行入口。
+
+数据库直连迁移状态（stock_sdk / HTTP 数据访问改造）:
+
+- ``bootstrap_app(app)`` 已注释停用：本地建表 / schema 修补 / RBAC 初始化
+  / token 与 Sheet 占用复位 / 调度器与看门狗线程均不随进程启动；
+  任务业务数据读写已切换到 stock_sdk HTTP 接口。
+- 如需恢复完整启动流程（例如切回本地身份兜底调试），取消下方
+  ``bootstrap_app(app)`` 注释即可；各子步骤的停用状态详见
+  ``app/startup.py`` 模块顶部说明。
+"""
 import os
 
 from app import create_app

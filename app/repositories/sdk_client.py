@@ -72,8 +72,13 @@ class StockSdkAdapter:
         return os.environ.get(name, default)
 
     @classmethod
-    def _build_client(cls) -> StockClient:
-        """根据集中配置构造 SDK 客户端，避免业务代码自行读取环境变量。"""
+    def _build_client(cls, token: str | None = None) -> StockClient:
+        """根据集中配置构造 SDK 客户端，避免业务代码自行读取环境变量。
+
+        ``token`` 用于身份校验等按用户上下文调用的场景：远程接口从
+        ``Token`` 请求头读取凭据，因此用户 Token 必须写入客户端实例，
+        而不是放进请求体。
+        """
         base_url = str(cls._get_setting("STOCK_BASE_URL", "") or "").strip()
         if not base_url:
             raise SdkConfigurationError(
@@ -85,9 +90,12 @@ class StockSdkAdapter:
             raise SdkConfigurationError("STOCK_API_TIMEOUT 必须是正数") from exc
         if timeout <= 0:
             raise SdkConfigurationError("STOCK_API_TIMEOUT 必须大于 0")
+        resolved_token = str(
+            token or cls._get_setting("STOCK_API_TOKEN", "") or ""
+        ).strip()
         return StockClient(
             base_url=base_url,
-            token=str(cls._get_setting("STOCK_API_TOKEN", "") or "") or None,
+            token=resolved_token or None,
             timeout=timeout,
         )
 

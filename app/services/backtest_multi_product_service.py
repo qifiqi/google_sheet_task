@@ -1,4 +1,15 @@
-"""Multi-product backtest task service and preview helpers."""
+"""Multi-product backtest task service and preview helpers.
+
+数据库直连迁移状态（stock_sdk / HTTP 数据访问改造）:
+
+- 任务、结果、收益序列与产品结果缓存读写均通过 TaskRepository /
+  TaskResultRepository / TaskResultReturnRepository /
+  BacktestProductResultCacheRepository 走 stock_sdk HTTP 接口完成。
+- ``from app.models import Task, TaskResult`` 仅保留类型标注用途；
+  运行时对象是各 repository 返回的远程记录 DTO（RemoteRecord），
+  ``safe_db_operation`` / ``db_retry_manager`` 仅用于同步其兼容的
+  会话兜底，不再执行本地业务表查询。
+"""
 
 from __future__ import annotations
 

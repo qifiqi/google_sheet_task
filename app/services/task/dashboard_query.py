@@ -1,7 +1,17 @@
 """任务仪表盘聚合查询服务（已停用数据库聚合，返回假数据）。
 
-原基于本地 ``Task`` ORM 的聚合查询已全部注释保留；当前 SDK 无对应聚合接口，
-按要求仪表盘后端直接返回假数据，不再直连数据库。
+数据库直连迁移状态（stock_sdk / HTTP 数据访问改造）:
+
+- 本服务原先基于本地 ``Task`` ORM 完成管理后台仪表盘的全部聚合查询，
+  包括任务类型权限过滤、状态分布、任务类型分布、每日创建/完成趋势、
+  最近任务与运行中任务列表。
+- 当前 stock_sdk 的 ParamTasks 接口仅支持分页 / 单字段排序，不提供
+  ``GROUP BY`` 聚合、日期分桶与权限内过滤能力，因此整服务按要求停用
+  本地数据库读取，所有查询方法返回结构完整的假数据。
+- 原数据库实现全部以注释形式保留在对应方法内，待 SDK 补齐聚合接口后
+  可按方法逐一恢复。
+- 上层消费方: ``app/services/task/runtime_view.py::build_dashboard_overview``
+  与管理后台路由 ``app/routes/admin.py::dashboard_overview``。
 """
 
 from __future__ import annotations

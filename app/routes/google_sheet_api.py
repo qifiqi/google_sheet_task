@@ -1,9 +1,15 @@
+"""Google Sheet 任务 / Token / 注册表 HTTP API。
+
+数据库直连迁移状态: Google Sheet、Token 读写均已通过
+GoogleSheetRepository / GoogleSheetTokenRepository 走 stock_sdk HTTP
+接口完成，本地 ``db`` 残留导入已移除。
+"""
+
 import time
 
 from flask import Blueprint, redirect, request, jsonify, url_for
 
 from app.domain_constants import GoogleSheetTableType
-from app.models import db
 from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepository
 from app.repositories.sdk_client import SdkFilterUnavailableError
 from app.services.google_sheet_registry_service import get_google_sheet_registry_service

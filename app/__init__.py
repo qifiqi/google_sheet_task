@@ -13,7 +13,7 @@ except ImportError:
 
 from app.extensions import db, migrate
 from app.routes import register_blueprints
-from app.utils.auth import authenticate_current_request, is_retired_local_identity_path, validate_auth_runtime_settings
+from app.utils.auth import authenticate_current_request, is_retired_local_identity_path
 from app.utils.ding_talk_notifier import DingTalkNotifier
 
 
@@ -34,7 +34,9 @@ def load_app_environment():
 def create_app():
     """创建并配置 Flask 应用、扩展、认证网关和全部业务蓝图。"""
     load_app_environment()
-    validate_auth_runtime_settings()
+    # 本地 JWT 密钥/认证开关校验已随本地登录一并停用（单 Token 子服务
+    # 模式不使用本地 JWT_SECRET_KEY）；恢复本地登录时一并取消注释。
+    # validate_auth_runtime_settings()
 
     from app.config import get_config_class
 
@@ -70,45 +72,52 @@ def create_app():
 
     @app.before_request
     def require_gateway_jwt():
-        """按开关启用保留的主 Web JWT 网关；默认使用本地登录与 RBAC。"""
-        if not app.config.get('REMOTE_IDENTITY_GATEWAY_ENABLED', False):
-            return None
+        """全局鉴权网关（单 Token 子服务模式，默认启用）。
+
+        当前流程: 静态资源与 /login 页面放行；其余请求读取 ``Token``
+        请求头并经远程 GetUserInfo 校验（``authenticate_current_request``），
+        通过后 ``g.current_user`` / ``g.current_token`` 对全部业务路由可见。
+        """
         if request.path.startswith('/static/') or request.path == '/login':
             return None
         if is_retired_local_identity_path(request.path):
             abort(404)
         if request.path in {'/api/auth/login', '/api/auth/refresh'}:
+            # 旧本地登录接口已注释停用（404）；豁免仅为避免网关报错格式歧义。
             return None
         auth_error = authenticate_current_request()
         if auth_error:
             return auth_error
-        if (
-            app.config.get('REMOTE_MODEL_ACCESS_ENFORCED')
-            and request.method == 'GET'
-            and not request.path.startswith('/api/')
-        ):
-            model_codes = getattr(g, 'current_model_codes', None)
-            if model_codes is None:
-                return jsonify({'code': 503, 'data': None, 'message': 'JWT 未携带主 Web 模型权限'}), 503
-            from app.repositories.sys_model_repository import SysModelRepository
-            from app.services.menu_service import MenuService
-            from app.services.model_access_service import is_path_allowed
-            from werkzeug.exceptions import NotFound
-
-            def is_local_route(link):
-                """验证远程菜单链接是否对应本应用已注册的 GET 路由。"""
-                try:
-                    app.url_map.bind('').match(link.split('?', 1)[0], method='GET')
-                    return True
-                except NotFound:
-                    return False
-
-            menu = MenuService(SysModelRepository()).get_menu(
-                cache_key=str(g.current_user.id), is_available=is_local_route,
-            )
-            current_path = request.full_path.rstrip('?')
-            if not is_path_allowed(menu, model_codes, current_path):
-                return jsonify({'code': 403, 'data': None, 'message': '无该模型访问权限'}), 403
+        # 原 REMOTE_MODEL_ACCESS_ENFORCED 分支（按主 Web JWT claim 中的
+        # model_codes 过滤页面）已注释保留；单 Token 模式下的模型权限
+        # 由 GetUserRoleList 路由表在 /api/meta/nav 侧控制。
+        # if (
+        #     app.config.get('REMOTE_MODEL_ACCESS_ENFORCED')
+        #     and request.method == 'GET'
+        #     and not request.path.startswith('/api/')
+        # ):
+        #     model_codes = getattr(g, 'current_model_codes', None)
+        #     if model_codes is None:
+        #         return jsonify({'code': 503, 'data': None, 'message': 'JWT 未携带主 Web 模型权限'}), 503
+        #     from app.repositories.sys_model_repository import SysModelRepository
+        #     from app.services.menu_service import MenuService
+        #     from app.services.model_access_service import is_path_allowed
+        #     from werkzeug.exceptions import NotFound
+        #
+        #     def is_local_route(link):
+        #         """验证远程菜单链接是否对应本应用已注册的 GET 路由。"""
+        #         try:
+        #             app.url_map.bind('').match(link.split('?', 1)[0], method='GET')
+        #             return True
+        #         except NotFound:
+        #             return False
+        #
+        #     menu = MenuService(SysModelRepository()).get_menu(
+        #         cache_key=str(g.current_user.id), is_available=is_local_route,
+        #     )
+        #     current_path = request.full_path.rstrip('?')
+        #     if not is_path_allowed(menu, model_codes, current_path):
+        #         return jsonify({'code': 403, 'data': None, 'message': '无该模型访问权限'}), 403
         return None
 
     @app.context_processor
