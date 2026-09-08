@@ -1,0 +1,57 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [
+        {
+          "matcher": "startup|resume|clear|compact",
+          "hooks": [
+            {
+              "type": "process",
+              "command": "node",
+              "enabled": true,
+              "statusMessage": "Loading ponytail mode...",
+              "args": [
+                "${ZCODE_PROJECT_DIR}/.agents/hooks/ponytail/ponytail-activate.js"
+              ],
+              "timeoutMs": 10000
+            }
+          ]
+        }
+      ],
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "process",
+              "command": "node",
+              "enabled": true,
+              "statusMessage": "Tracking ponytail mode...",
+              "args": [
+                "${ZCODE_PROJECT_DIR}/.agents/hooks/ponytail/ponytail-mode-tracker.js"
+              ],
+              "timeoutMs": 10000
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": "Agent|Task",
+          "hooks": [
+            {
+              "type": "process",
+              "command": "node",
+              "enabled": true,
+              "statusMessage": "Injecting ponytail rules into subagent...",
+              "args": [
+                "${ZCODE_PROJECT_DIR}/.agents/hooks/ponytail/ponytail-subagent.js"
+              ],
+              "timeoutMs": 10000
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
