@@ -2,13 +2,18 @@
 
 鉴权模式（单 Token 子服务模式，2026-09 启用）:
 
-- 本服务是主 Web（stock.stplan.cn）的子服务，不签发任何 Token;
-  调用方在请求头 ``Token`` 字段携带主 Web 登录后颁发的单一 Token，
-  由 ``app/utils/auth.py::authenticate_current_request`` 通过远程
-  ``POST /api/SysUser/GetUserInfo`` 校验。
-- 仍然在线的接口:
+- 静态模板前端的登录走本服务后端: ``POST /api/auth/login`` 接收
+  账号密码，后端经 stock_sdk 代理远程 ``POST /api/SysUser/Login``
+  完成校验（见 ``app/services/token_identity_service.py``），成功后
+  返回远程颁发的 Token 并写入 ``access_token`` Cookie，供后续页面
+  导航在网关侧完成认证。
+- 其余在线接口:
     - ``GET  /api/auth/me``      返回当前 Token 对应的远程用户身份;
-    - ``POST /api/auth/logout``  兼容旧前端（Token 由客户端丢弃即失效）。
+    - ``POST /api/auth/logout``  清除登录 Cookie（远程 Token 不吊销）。
+- Token 的传递: API 调用走 ``Token`` 请求头; 浏览器页面导航走
+  ``access_token`` Cookie（亦兼容 ``?token=`` 查询参数），由
+  ``app/utils/auth.py::authenticate_current_request`` 统一经远程
+  ``POST /api/SysUser/GetUserInfo`` 校验。
 - 原本地登录 / 刷新令牌 / 改密 / 用户管理 / 角色管理 / 权限管理接口
   （本地 ``User`` / ``Role`` / ``Permission`` ORM 实现）全部注释保留，
   恢复独立登录与本地 RBAC 能力时取消注释即可；对应 blueprint
@@ -17,8 +22,8 @@
   见 ``app/routes/meta_api.py``。
 """
 
-from flask import Blueprint, g
-from app.utils.auth import login_required
+from flask import Blueprint, g, jsonify, request
+from app.utils.auth import AUTH_COOKIE_NAME, login_required
 from app.utils.api_response import success
 
 auth_api_bp = Blueprint('auth_api', __name__)
@@ -58,6 +63,59 @@ legacy_identity_bp = Blueprint('legacy_identity', __name__)
 
 # ==================== Auth（单 Token 子服务模式在线接口） ====================
 
+@auth_api_bp.route('/auth/login', methods=['POST'])
+def login():
+    """账号密码登录: 后端经 stock_sdk 代理远程 ``SysUser/Login``。
+
+    成功返回远程颁发的 Token（``data.access_token``，兼容 ``data.token``）
+    和用户信息，并写入 ``access_token`` Cookie 供页面导航使用；
+    账号密码错误返回 401，远程服务不可用返回 503。
+    """
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username') or '').strip()
+    password = str(data.get('password') or '')
+    if not username or not password:
+        return jsonify({'code': 400, 'data': None, 'message': '请输入用户名和密码'}), 400
+
+    from app.services.token_identity_service import (
+        SdkDataAccessError,
+        TokenIdentityError,
+        TokenInvalidError,
+        get_token_identity_service,
+    )
+
+    try:
+        result = get_token_identity_service().login(username, password)
+    except TokenInvalidError as exc:
+        return jsonify({'code': 401, 'data': None, 'message': str(exc) or '用户名或密码错误'}), 401
+    except (TokenIdentityError, SdkDataAccessError) as exc:
+        return jsonify({'code': 503, 'data': None, 'message': f'登录服务暂不可用: {exc}'}), 503
+
+    token = result['token']
+    info = result.get('info') or {}
+    user = {
+        'id': info.get('userid'),
+        'userid': info.get('userid'),
+        'username': info.get('username') or username,
+    }
+    response = jsonify({
+        'code': 0,
+        'data': {'access_token': token, 'token': token, 'user': user},
+        'message': '登录成功',
+    })
+    # Cookie 供静态模板前端的页面导航在网关侧完成认证；API 调用仍可
+    # 自行携带 ``Token`` 请求头。
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        token,
+        max_age=7 * 24 * 3600,
+        httponly=True,
+        samesite='Lax',
+        path='/',
+    )
+    return response
+
+
 @auth_api_bp.route('/auth/me', methods=['GET'])
 @login_required
 def get_me():
@@ -73,12 +131,14 @@ def get_me():
 @auth_api_bp.route('/auth/logout', methods=['POST'])
 @login_required
 def logout():
-    """退出登录（兼容旧前端）。
+    """退出登录: 清除登录 Cookie 并提示客户端丢弃本地 Token。
 
-    单 Token 模式下 Token 由主 Web 颁发，本服务无法吊销；客户端丢弃
-    本地存储的 Token 即完成登出，此接口仅返回成功以兼容旧调用方。
+    远程颁发的 Token 本服务无法吊销，退出后 Token 在主 Web 侧仍有效；
+    页面跳转由前端（template-auth.js）完成。
     """
-    return success(message='退出登录成功')
+    response = success(message='退出登录成功')
+    response.delete_cookie(AUTH_COOKIE_NAME, path='/')
+    return response
 
 
 # ==================== 旧本地认证 / RBAC 实现（全部注释保留，便于恢复） ====================

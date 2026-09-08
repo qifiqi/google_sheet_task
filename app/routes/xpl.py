@@ -1,5 +1,4 @@
-# 页面渲染停用后 render_template 不再使用。
-from flask import Blueprint, request, jsonify, current_app, send_file
+from flask import Blueprint, render_template, request, jsonify, url_for, redirect, flash, current_app, send_file
 from app.utils.logger import get_logger
 from app.services.xpl_service import xpl_analyzer
 
@@ -7,23 +6,22 @@ logger = get_logger(__name__)
 
 xpl_bp = Blueprint('xpl', __name__)
 
-# ---------- 旧版 Jinja 页面路由（单 Token 子服务模式下停用，页面由 Vue 前端提供；/analyze 等接口保留） ----------
-# @xpl_bp.route('/')
-# def index():
-#     """Excel数据分析工具首页"""
-#     return render_template('xpl/index.html')
+@xpl_bp.route('/')
+def index():
+    """Excel数据分析工具首页"""
+    return render_template('xpl/index.html')
 
 
-# @xpl_bp.route('/v1', methods=['GET'])
-# def index_v1():
-#     """V1：Google Sheet 分析页面"""
-#     return render_template('xpl/v1.html')
+@xpl_bp.route('/v1', methods=['GET'])
+def index_v1():
+    """V1：Google Sheet 分析页面"""
+    return render_template('xpl/v1.html')
 
 
-# @xpl_bp.route('/v2', methods=['GET'])
-# def index_v2():
-#     """V2：支持多数据源的回测分析页面。"""
-#     return render_template('xpl/v2.html')
+@xpl_bp.route('/v2', methods=['GET'])
+def index_v2():
+    """V2：支持多数据源的回测分析页面。"""
+    return render_template('xpl/v2.html')
 
 
 @xpl_bp.route('/analyze', methods=['POST'])

@@ -32,6 +32,22 @@ from app.repositories.sdk_client import SdkDataAccessError, StockSdkAdapter
 _TOKEN_INVALID_CODE = 401
 _ROLE_LIST_CACHE_TTL_SECONDS = 60
 _MAX_CACHED_TOKENS = 64
+# 远程登录接口返回 Token 的候选字段名（不同版本字段名不统一，逐一兼容）。
+_LOGIN_TOKEN_KEYS = ("token", "Token", "access_token", "jwt")
+
+
+def _extract_login_token(ret_obj: Any) -> str:
+    """从远程 ``SysUser/Login`` 响应对象中提取登录 Token。"""
+    if isinstance(ret_obj, str):
+        candidate = ret_obj.strip()
+        if candidate:
+            return candidate
+    elif isinstance(ret_obj, Mapping):
+        for key in _LOGIN_TOKEN_KEYS:
+            value = ret_obj.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    raise TokenIdentityError("远程登录接口未返回有效 Token")
 
 
 class TokenIdentityError(SdkDataAccessError):
@@ -98,6 +114,7 @@ class TokenIdentityService:
         )
         self._clients: dict[str, StockClient] = {}
         self._clients_lock = threading.Lock()
+        self._service_client: StockClient | None = None
         self._role_list_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
         self._role_list_lock = threading.Lock()
 
@@ -116,6 +133,40 @@ class TokenIdentityService:
             client = self._client_factory(token)
             self._clients[token] = client
             return client
+
+    def _service_client_for_login(self) -> StockClient:
+        """登录用的服务级客户端（不绑定用户 Token，仅一次性创建）。"""
+        if self._service_client is None:
+            self._service_client = self._client_factory(None)
+        return self._service_client
+
+    def login(self, username: str, password: str) -> dict[str, Any]:
+        """账号密码登录：代理远程 ``POST /api/SysUser/Login``。
+
+        成功返回 ``{"token": str, "info": dict}``；账号密码被远程拒绝时抛
+        :class:`TokenInvalidError`，远程服务不可用时抛
+        :class:`SdkDataAccessError`。
+        """
+        if not str(username or "").strip() or not str(password or ""):
+            raise TokenInvalidError("请输入用户名和密码")
+
+        client = self._service_client_for_login()
+        try:
+            response = client.sys_user.login({
+                "user_name": str(username).strip(),
+                "user_password": str(password),
+            })
+        except StockSdkError as exc:
+            raise SdkDataAccessError(f"远程登录服务暂不可用: {exc}") from exc
+
+        if not response.is_success:
+            # 远程以业务码表示账号密码错误等登录失败；消息原样透出。
+            raise TokenInvalidError(str(response.ret_msg or "用户名或密码错误"))
+
+        ret_obj = response.ret_obj
+        token = _extract_login_token(ret_obj)
+        info = dict(ret_obj) if isinstance(ret_obj, dict) else {}
+        return {"token": token, "info": info}
 
     def _call_identity(self, token: str, operation: str):
         """用指定 Token 调用 sys_user 身份端点并统一翻译响应与异常。

@@ -10,8 +10,7 @@ from time import perf_counter
 from urllib.parse import quote
 from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
-# 页面渲染停用后 render_template 不再使用。
-from flask import Blueprint, Response, current_app, g, jsonify, request, send_file, stream_with_context
+from flask import Blueprint, Response, current_app, g, jsonify, render_template, request, send_file, stream_with_context
 
 from app.repositories.task_repository import TaskRepository
 from app.services.backtest_training_api_service import (
@@ -71,12 +70,11 @@ def _preview_status(task):
     return {"supported": False, "message": "当前任务类型暂不支持全局预览"}
 
 
-# ---------- 旧版 Jinja 页面路由（单 Token 子服务模式下停用，页面由 Vue 前端提供；/api/* 接口保留） ----------
-# @bp.route("")
-# @bp.route("/single_product")
-# def page():
-#     """渲染统一的回测全局预览页面。"""
-#     return render_template("global_preview/index.html")
+@bp.route("")
+@bp.route("/single_product")
+def page():
+    """渲染统一的回测全局预览页面。"""
+    return render_template("global_preview/index.html")
 
 
 @bp.route("/api/tasks/<task_id>", methods=["GET"])

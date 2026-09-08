@@ -1,15 +1,17 @@
 (function () {
+    // 单 Token 子服务模式（2026-09 起）:
+    // - 登录经 POST /api/auth/login 由后端代理远程 SysUser/Login，
+    //   成功后返回远程颁发的 Token，存于 localStorage.access_token;
+    // - 所有同源 fetch 自动附加 `Token` 请求头（旧 Bearer/refresh_token
+    //   双令牌流程已移除）; 401 表示 Token 失效，清空登录态并回 /login。
     const TOKEN_KEY = "access_token";
-    const REFRESH_KEY = "refresh_token";
     const THEME_KEY = "templateTheme";
     const originalFetch = window.fetch.bind(window);
-    const authExemptPaths = new Set(["/api/auth/login", "/api/auth/refresh"]);
+    const authExemptPaths = new Set(["/api/auth/login"]);
     const hiddenClassName = "template-auth-hidden";
 
     let currentUser = null;
     let currentPermissions = [];
-    let isRefreshing = false;
-    let refreshPromise = null;
     let navItems = [];
     let pagePermissions = [];
 
@@ -57,22 +59,15 @@
         return localStorage.getItem(TOKEN_KEY) || "";
     }
 
-    function getRefreshToken() {
-        return localStorage.getItem(REFRESH_KEY) || "";
-    }
-
-    function setTokens(accessToken, refreshToken) {
+    function setTokens(accessToken) {
         if (accessToken) {
             localStorage.setItem(TOKEN_KEY, accessToken);
-        }
-        if (refreshToken) {
-            localStorage.setItem(REFRESH_KEY, refreshToken);
         }
     }
 
     function clearAuthState() {
         localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(REFRESH_KEY);
+        localStorage.removeItem("refresh_token");
         currentUser = null;
         currentPermissions = [];
         navItems = [];
@@ -245,48 +240,6 @@
         }
     }
 
-    async function performRefresh() {
-        const refreshToken = getRefreshToken();
-        if (!refreshToken) {
-            throw new Error("missing refresh token");
-        }
-
-        const response = await originalFetch("/api/auth/refresh", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ refresh_token: refreshToken }),
-        });
-
-        const payload = parseJsonSafely(await response.text());
-        if (!response.ok || !payload || payload.code !== 0) {
-            throw new Error((payload && payload.message) || "refresh failed");
-        }
-
-        const data = payload.data || {};
-        setTokens(data.access_token, refreshToken);
-        currentUser = data.user || currentUser;
-        currentPermissions = Array.isArray(data.user?.permissions) ? data.user.permissions : currentPermissions;
-        updateUserPanels();
-        applyPermissionNodes();
-        return data.access_token;
-    }
-
-    async function refreshAccessToken() {
-        if (isRefreshing && refreshPromise) {
-            return refreshPromise;
-        }
-
-        isRefreshing = true;
-        refreshPromise = performRefresh()
-            .finally(() => {
-                isRefreshing = false;
-                refreshPromise = null;
-            });
-        return refreshPromise;
-    }
-
     async function authFetch(resource, init) {
         const request = init ? { ...init } : {};
         const resourceUrl = resource instanceof Request ? resource.url : resource;
@@ -296,7 +249,7 @@
         const headers = new Headers(request.headers || (resource instanceof Request ? resource.headers : undefined) || undefined);
 
         if (attachAuth && getToken() && !authExemptPaths.has(path)) {
-            headers.set("Authorization", `Bearer ${getToken()}`);
+            headers.set("Token", getToken());
         }
         request.headers = headers;
 
@@ -304,26 +257,15 @@
         if (
             response.status !== 401 ||
             !attachAuth ||
-            authExemptPaths.has(path) ||
-            request._retry
+            authExemptPaths.has(path)
         ) {
             return response;
         }
 
-        try {
-            const newToken = await refreshAccessToken();
-            const retryHeaders = new Headers(headers);
-            retryHeaders.set("Authorization", `Bearer ${newToken}`);
-            return originalFetch(resource, {
-                ...request,
-                _retry: true,
-                headers: retryHeaders,
-            });
-        } catch (_error) {
-            clearAuthState();
-            redirectToLogin();
-            return response;
-        }
+        // 单 Token 模式: 无 refresh 流程, Token 失效即清空登录态并回登录页。
+        clearAuthState();
+        redirectToLogin();
+        return response;
     }
 
     window.fetch = authFetch;

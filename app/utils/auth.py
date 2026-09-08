@@ -2,13 +2,17 @@
 
 鉴权模式（单 Token 子服务模式，2026-09 启用）:
 
-- 本服务作为主 Web（stock.stplan.cn）的子服务，不再签发/存储本地账号，
-  也不再解析本地 JWT；调用方在请求头 ``Token`` 字段携带主 Web 登录后
-  颁发的单一 Token。
-- ``authenticate_current_request`` 把该 Token 转发给远程
-  ``POST /api/SysUser/GetUserInfo`` 校验（app/services/token_identity_service.py），
-  校验通过后构造 ``RemoteTokenUser`` 写入 ``g.current_user``，
-  Token 本身保留在 ``g.current_token`` 供路由表等接口复用。
+- 登录: 静态模板前端将账号密码提交到 ``POST /api/auth/login``，后端经
+  stock_sdk 代理远程 ``POST /api/SysUser/Login``（见
+  ``app/services/token_identity_service.py``），成功后返回远程颁发的
+  Token 并写入 ``access_token`` Cookie。
+- ``authenticate_current_request`` 按 ``Token`` 请求头 -> ``access_token``
+  Cookie -> ``?token=`` 查询参数的顺序取 Token，转发给远程
+  ``POST /api/SysUser/GetUserInfo`` 校验，通过后构造 ``RemoteTokenUser``
+  写入 ``g.current_user``，Token 保留在 ``g.current_token`` 供路由表等
+  接口复用。
+- 页面导航（静态模板前端，GET + Accept: text/html）缺失或 Token 失效时
+  重定向到 ``/login?next=...``；API 调用返回 401 JSON，由前端跳转。
 - 路由表/菜单权限由 ``POST /api/SysUser/GetUserRoleList`` 提供，
   见 ``app/routes/meta_api.py``。
 - 原本地 JWT 签发/解析、本地 ``User`` 表校验、本地 RBAC mock 用户查询
@@ -17,9 +21,10 @@
 import os
 from datetime import datetime, timedelta
 from functools import wraps
+from urllib.parse import quote
 
 import jwt
-from flask import current_app, request, g, jsonify
+from flask import current_app, redirect, request, g, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.services.config_manager import get_config_manager
@@ -28,6 +33,8 @@ from app.extensions import db
 # 开发环境默认 secret 也保持 32+ 字节，避免 JWT 库抛出弱密钥长度告警。
 DEFAULT_JWT_SECRET = 'change-me-in-production-secure-key'
 SAFE_AUTH_DISABLED_ENVS = {'development'}
+# 浏览器页面导航使用的登录 Cookie 名（与 localStorage 的 access_token 同义）。
+AUTH_COOKIE_NAME = 'access_token'
 RETIRED_LOCAL_IDENTITY_PREFIXES = (
     '/admin/users',
     '/admin/roles',
@@ -167,16 +174,41 @@ def _inject_mock_user():
 
 
 def get_request_token():
-    """从请求头 ``Token`` 字段读取主 Web 颁发的单一 Token。"""
-    return str(request.headers.get('Token', '') or '').strip()
+    """按 请求头 ``Token`` -> Cookie ``access_token`` -> ``?token=`` 取登录 Token。
+
+    API 调用方（含静态模板前端的 fetch 拦截层）使用请求头；浏览器页面
+    导航无法携带自定义请求头，使用登录后写入的 Cookie；主站跳转场景
+    兼容 ``?token=`` 查询参数。
+    """
+    token = str(request.headers.get('Token', '') or '').strip()
+    if not token:
+        token = str(request.cookies.get(AUTH_COOKIE_NAME, '') or '').strip()
+    if not token:
+        token = str(request.args.get('token', '') or '').strip()
+    return token
+
+
+def is_page_navigation() -> bool:
+    """判断当前请求是否为浏览器页面导航（静态模板前端的 GET 页面请求）。"""
+    if request.method != 'GET':
+        return False
+    return 'text/html' in str(request.headers.get('Accept', '') or '')
+
+
+def login_redirect_response():
+    """构造跳转登录页的 302 响应，携带当前地址作为回跳目标。"""
+    target = f"{request.path}?{request.query_string.decode('utf-8')}" if request.query_string else request.path
+    return redirect(f"/login?next={quote(target, safe='')}")
 
 
 def authenticate_current_request():
-    """校验请求头 Token（单 Token 子服务模式）。
+    """校验登录 Token（单 Token 子服务模式）。
 
-    当前流程: 读取 ``Token`` 请求头 -> 调用远程 GetUserInfo 校验 ->
-    构造 ``RemoteTokenUser`` 写入 ``g.current_user``，Token 保留在
+    当前流程: 读取 Token（请求头/Cookie/查询参数）-> 调用远程 GetUserInfo
+    校验 -> 构造 ``RemoteTokenUser`` 写入 ``g.current_user``，Token 保留在
     ``g.current_token`` 供路由表等接口复用。
+
+    页面导航缺失/失效时返回 302 到 /login；API 调用返回 401/503 JSON。
 
     旧实现（本地 JWT 解析 + 本地 User 表校验 + REMOTE_IDENTITY_GATEWAY
     分支）整体注释保留在下方，恢复独立登录能力时取消注释即可。
@@ -189,6 +221,8 @@ def authenticate_current_request():
 
     token = get_request_token()
     if not token:
+        if is_page_navigation():
+            return login_redirect_response()
         return jsonify({'code': 401, 'data': None, 'message': '未提供认证令牌'}), 401
 
     from app.services.token_identity_service import (
@@ -201,9 +235,13 @@ def authenticate_current_request():
     try:
         info = get_token_identity_service().get_user_info(token)
     except TokenInvalidError:
+        if is_page_navigation():
+            return login_redirect_response()
         return jsonify({'code': 401, 'data': None, 'message': '登录已失效，请重新登录'}), 401
     except TokenIdentityError as exc:
         current_app.logger.error(f'Token 身份校验服务不可用: {exc}')
+        if is_page_navigation():
+            return login_redirect_response()
         return jsonify({'code': 503, 'data': None, 'message': '身份校验服务暂不可用，请稍后重试'}), 503
 
     g.current_user = RemoteTokenUser(info)
