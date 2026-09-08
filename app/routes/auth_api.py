@@ -25,6 +25,13 @@
 from flask import Blueprint, g, jsonify, request
 from app.utils.auth import AUTH_COOKIE_NAME, login_required
 from app.utils.api_response import success
+from app.services.token_identity_service import (
+    SdkDataAccessError,
+    TokenIdentityError,
+    TokenInvalidError,
+    get_token_identity_service,
+)
+
 
 auth_api_bp = Blueprint('auth_api', __name__)
 legacy_identity_bp = Blueprint('legacy_identity', __name__)
@@ -77,12 +84,6 @@ def login():
     if not username or not password:
         return jsonify({'code': 400, 'data': None, 'message': '请输入用户名和密码'}), 400
 
-    from app.services.token_identity_service import (
-        SdkDataAccessError,
-        TokenIdentityError,
-        TokenInvalidError,
-        get_token_identity_service,
-    )
 
     try:
         result = get_token_identity_service().login(username, password)

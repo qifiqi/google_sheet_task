@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+from typing import Any, Mapping
 
 from stock_sdk import StockClient
 from stock_sdk.exceptions import StockSdkError

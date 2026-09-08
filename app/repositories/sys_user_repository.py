@@ -25,3 +25,11 @@ class SysUserRepository:
             "sys_user", "login", {"user_name": username, "user_password": password}
         )
         return dict(raw) if isinstance(raw, dict) else None
+
+    def get_user_role_list(self,sys_type=1) -> dict[str, Any] | None:
+        """调用远程登录接口；凭据仅透传，不在本层记录日志。"""
+        raw = self.client.call(
+            "sys_user", "GetUserRoleList", {"sys_type": sys_type}
+        )
+        return dict(raw) if isinstance(raw, dict) else None
+

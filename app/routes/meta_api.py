@@ -27,6 +27,7 @@ from app.repositories.sdk_client import SdkDataAccessError, SdkOperationError
 from app.services.menu_service import MenuService
 from app.utils.api_response import success
 from app.utils.auth import login_required
+from app.utils.auth import get_request_token
 
 meta_api_bp = Blueprint('meta_api', __name__)
 
@@ -91,7 +92,6 @@ def get_navigation_menu():
 
 def _remote_role_menu_response():
     """用请求头 Token 拉取 GetUserRoleList 并组装本站菜单树。"""
-    from app.utils.auth import get_request_token
 
     token = get_request_token()
     if not token:
