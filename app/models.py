@@ -190,6 +190,7 @@ class StockMarketType(str, Enum):
     SG = "sg"
     AU = "au"
     MY = "my"
+    FUND = "fund"
 
     @classmethod
     def choices(cls):

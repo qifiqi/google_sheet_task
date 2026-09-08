@@ -354,7 +354,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 include_full_year_range=include_full_year_range,
                 end_date=end_date,
                 include_ohlc=is_c7_0_3,
-                data_source=config_data.get("kline_data_source", "dfcf"),
+                data_source=config_data.get("kline_data_source", "akshare"),
             )
             precomputed_params.append((combinations, column_A_length,KLINE_DATA_MAP))
             total_combinations += len(combinations)
@@ -772,7 +772,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
         include_full_year_range=False,
         end_date=None,
         include_ohlc=False,
-        data_source="dfcf",
+        data_source="akshare",
 
     ):
         market_type = self._normalize_market_type(market_type)

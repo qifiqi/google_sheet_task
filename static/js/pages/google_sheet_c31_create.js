@@ -764,7 +764,7 @@
                 sourceCol.innerHTML = `
                     <label class="form-label" for="kline_data_source">K线数据源</label>
                     <select class="form-select" id="kline_data_source">
-                        <option value="dfcf" selected>东方财富（默认）</option>
+                        <option value="akshare" selected>AKShare（默认）</option><option value="dfcf">东方财富</option>
                         <option value="qq">腾讯</option>
                         <option value="yahoo">Yahoo</option>
                         <option value="tdx">通达信（仅A股）</option>
@@ -1506,7 +1506,7 @@
             market_type: marketType,
             price_mode: priceMode,
             kline_adjustment: klineAdjustment,
-            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'akshare',
             // token_type: tokenType,
             // token_id: tokenType === 'file' ? tokenId : null,
             // token_file: tokenFile,
@@ -1602,7 +1602,7 @@
             market_type: normalizeMarketTypeValue(document.getElementById('market_type')?.value),
             price_mode: document.getElementById('price_mode')?.value || 'vwap_price',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
-            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'akshare',
             sheets: sheets,
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
@@ -1773,7 +1773,7 @@
                 market_type: marketType,
                 price_mode: priceMode,
             kline_adjustment: klineAdjustment,
-            kline_data_source: document.getElementById('kline_data_source')?.value || 'dfcf',
+            kline_data_source: document.getElementById('kline_data_source')?.value || 'akshare',
                 // “更多配置”目前不参与模板保存；注释保留供后续恢复。
                 // token_type: tokenType,
                 // token_id: tokenType === 'file' ? tokenId : null,
@@ -1871,7 +1871,7 @@
             end_date: raw.end_date || null,
             market_type: normalizeMarketTypeValue(raw.market_type),
             kline_adjustment: raw.kline_adjustment || 'forward',
-            kline_data_source: raw.kline_data_source || 'dfcf',
+            kline_data_source: raw.kline_data_source || 'akshare',
             token_type: raw.token_type || 'file',
             token_id: raw.token_id || '',
             token_file: raw.token_file || 'data/token.json',

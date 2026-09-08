@@ -1125,7 +1125,7 @@ async function createTask() {
             stock_code: stockCode,
             market_type: getSelectedMarketType(),
             kline_adjustment: document.getElementById('klineAdjustmentInput')?.value || 'forward',
-            kline_data_source: document.getElementById('klineDataSourceInput')?.value || 'dfcf',
+            kline_data_source: document.getElementById('klineDataSourceInput')?.value || 'akshare',
             price_mode: document.getElementById('priceModeInput')?.value || 'vwap_price',
             token_type: 'file',
             token_id: Number(tokenId),

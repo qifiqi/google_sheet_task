@@ -51,6 +51,8 @@ def _c3_config(end_date):
         "price_mode": "sp_price",
         "end_date": end_date,
         "market_type": "cn",
+        # 默认数据源已切换为 akshare；这些用例 mock 的是 dfcf 取数层，须显式钉回。
+        "kline_data_source": "dfcf",
         "C3_commission_cell": "B5",
         "c3_input_column_d": "D",
         "c3_input_column_e": "E",

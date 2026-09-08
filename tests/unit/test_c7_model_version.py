@@ -270,6 +270,7 @@ def test_c7_random_price_builds_requested_high_low_groups(monkeypatch):
         [["600000"], [1], [2]],
         random_price_range="high_low",
         random_group_count=2,
+        data_source="dfcf",
     )
 
     assert len(combinations) == 2

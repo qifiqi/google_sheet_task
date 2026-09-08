@@ -612,7 +612,7 @@ class C3Service(BaseGoogleSheetService):
             stock_code,
             market_type,
             limit,
-            data_source=config_data.get("kline_data_source", "dfcf"),
+            data_source=config_data.get("kline_data_source", "akshare"),
             start_date=start_date,
             end_date=end_date,
             adjust_type=adjust_type,

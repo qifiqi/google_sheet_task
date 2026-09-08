@@ -395,7 +395,7 @@ class BaseGoogleSheetService:
             "start_date": config_data.get('start_date'),
             "market_type": config_data.get('market_type'),
             "adjust_type": config_data.get('kline_adjustment'),
-            "data_source": config_data.get("kline_data_source", "dfcf"),
+            "data_source": config_data.get("kline_data_source", "akshare"),
             "custom_kline_map": custom_kline_map,
         }
 

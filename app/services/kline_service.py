@@ -58,12 +58,14 @@ DATA_SOURCE_QQ = "qq"
 DATA_SOURCE_YAHOO = "yahoo"
 DATA_SOURCE_TDX = "tdx"
 DATA_SOURCE_DATABASE = "database"
+DATA_SOURCE_AKSHARE = "akshare"
 VALID_DATA_SOURCES = {
     DATA_SOURCE_DFCF,
     DATA_SOURCE_QQ,
     DATA_SOURCE_YAHOO,
     DATA_SOURCE_TDX,
     DATA_SOURCE_DATABASE,
+    DATA_SOURCE_AKSHARE,
 }
 
 
@@ -94,11 +96,13 @@ class KlineService:
             self.stock_client = StockClient()
         self._qq_api = qq_api
         self.yahoo_api = yahoo_api
+        self._akshare_api = None
         self.sources: dict[str, Callable[[dict[str, Any]], Iterable[dict[str, Any]]]] = {
             DATA_SOURCE_DFCF: self._fetch_dfcf,
             DATA_SOURCE_QQ: self._fetch_qq,
             DATA_SOURCE_YAHOO: self._fetch_yahoo,
             DATA_SOURCE_TDX: self._fetch_tdx,
+            DATA_SOURCE_AKSHARE: self._fetch_akshare,
         }
 
     def register_source(
@@ -299,7 +303,7 @@ class KlineService:
         market_type: str = "cn",
         limit: int = 100,
         *,
-        data_source: str = DATA_SOURCE_DFCF,
+        data_source: str = DATA_SOURCE_AKSHARE,
         start_date: str | None = None,
         end_date: str | None = None,
         adjust_type: str | None = None,
@@ -309,6 +313,9 @@ class KlineService:
         source = self.normalize_data_source(data_source, self.sources)
         raw_code = str(stock_code or "").strip().upper()
         market_type = infer_market_type(raw_code, market_type or "cn")
+        # AKShare 目前仅提供 A股/港股/场外基金接口，其余市场整体回退 DFCF。
+        if source == DATA_SOURCE_AKSHARE and market_type not in {"cn", "hk", "fund"}:
+            source = DATA_SOURCE_DFCF
         code = normalize_stock_code(raw_code, market_type, exchange_market)
         source_code = strip_stock_code_suffix(code)
         exchange_market = exchange_market or exchange_market_from_stock_code(code)
@@ -367,12 +374,12 @@ class KlineService:
 
     @staticmethod
     def normalize_data_source(value: Any, available_sources: dict[str, Any] | None = None) -> str:
-        source = str(value or DATA_SOURCE_DFCF).strip().lower()
+        source = str(value or DATA_SOURCE_AKSHARE).strip().lower()
         aliases = {"eastmoney": DATA_SOURCE_DFCF, "internal": DATA_SOURCE_DATABASE, "db": DATA_SOURCE_DATABASE}
         source = aliases.get(source, source)
         valid_sources = VALID_DATA_SOURCES | set(available_sources or {})
         if source not in valid_sources:
-            raise ValueError("kline_data_source 仅支持 dfcf、qq、yahoo、tdx、database")
+            raise ValueError("kline_data_source 仅支持 akshare、dfcf、qq、yahoo、tdx、database")
         return source
 
     def _fetch_external(
@@ -442,6 +449,24 @@ class KlineService:
             adjust_type=request.get("adjust_type"),
             market_type=request.get("market_type"),
         )
+
+    def _fetch_akshare(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+        return self._get_akshare_api().get_stock_kline_data(
+            request["stock_code"],
+            request["exchange_market"],
+            limit=request["limit"],
+            adjust_type=request.get("adjust_type"),
+            market_type=request.get("market_type"),
+            start_date=request.get("start_date"),
+            end_date=request.get("end_date"),
+        )
+
+    def _get_akshare_api(self) -> Any:
+        if self._akshare_api is None:
+            from app.utils.akshare_api import AkshareApi
+
+            self._akshare_api = AkshareApi()
+        return self._akshare_api
 
     def _fetch_yahoo(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
         return self._get_yahoo_api().get_kline_data(

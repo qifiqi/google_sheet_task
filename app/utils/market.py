@@ -20,6 +20,7 @@ MARKET_LABELS = {
     "au": "澳大利亚",
     "my": "马来西亚",
     "futures": "期货",
+    "fund": "场外基金",
 }
 
 MARKET_DEFAULT_COMMISSIONS = {
@@ -36,6 +37,7 @@ MARKET_DEFAULT_COMMISSIONS = {
     "au": "0.002%",
     "my": "0.002%",
     "futures": "0.002%",
+    "fund": "0.0%",
 }
 
 MARKET_TYPE_ALIASES = {
@@ -52,6 +54,7 @@ MARKET_TYPE_ALIASES = {
     "au": "au", "australia": "au", "澳洲": "au",
     "my": "my", "malaysia": "my", "马来西亚": "my",
     "futures": "futures", "期货": "futures",
+    "fund": "fund", "基金": "fund", "场外基金": "fund",
 }
 
 # 东方财富搜索与 K 线接口使用的 market / secid 前缀。

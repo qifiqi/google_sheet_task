@@ -105,6 +105,8 @@ def test_c4_parameter_generation_persists_stock_name_from_search(app_factory, mo
             "2024-01-01",
             "cn",
             [],
+            adjust_type=None,
+            data_source="dfcf",
         )
 
         assert combinations[0]["stock_name"] == "贵州茅台"

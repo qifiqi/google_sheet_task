@@ -89,7 +89,7 @@ class C7Service(BaseGoogleSheetService):
             "start_date": config_data.get('start_date'),
             "market_type": config_data.get('market_type'),
             "adjust_type": config_data.get('kline_adjustment'),
-            "data_source": config_data.get("kline_data_source", "dfcf"),
+            "data_source": config_data.get("kline_data_source", "akshare"),
             "custom_kline_map": custom_kline_map,
             "random_price_range": random_price_range,
             "random_group_count": random_group_count,
@@ -663,7 +663,7 @@ class C7Service(BaseGoogleSheetService):
 
         return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="dfcf"):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, random_price_range="high_low", random_group_count=1, data_source="akshare"):
 
         # random_price 分组展开前先按收盘价占位取价；分组随机取价在 _expand_random_price_groups 里做
         projection_mode = 'sp_price' if price_mode == 'random_price' else price_mode

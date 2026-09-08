@@ -214,7 +214,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
             "market_type": market_type,
             "price_mode": normalize_price_mode(product.get("price_mode") or config.get("price_mode")),
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
-            "kline_data_source": product.get("kline_data_source") or config.get("kline_data_source") or "dfcf",
+            "kline_data_source": product.get("kline_data_source") or config.get("kline_data_source") or "akshare",
             "ratio": normalize_ratio_display(product.get("ratio")),
             "is_fixed": bool(product.get("is_fixed")),
             "sheet": _normalize_sheet(product),
@@ -1011,7 +1011,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             config_data["end_date"],
             price_mode=product.get("price_mode") or config_data.get("price_mode", "vwap_price"),
             adjust_type=product.get("kline_adjustment", "forward"),
-            data_source=product.get("kline_data_source") or config_data.get("kline_data_source", "dfcf"),
+            data_source=product.get("kline_data_source") or config_data.get("kline_data_source", "akshare"),
             exchange_market=product.get("exchange_market"),
         )
         kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
@@ -1058,7 +1058,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         *,
         price_mode: str = "vwap_price",
         adjust_type: str | None = None,
-        data_source: str = "dfcf",
+        data_source: str = "akshare",
         exchange_market: str | None = None,
     ) -> list[dict[str, Any]]:
         market_type = normalize_market_type(market_type)

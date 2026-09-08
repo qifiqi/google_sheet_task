@@ -327,7 +327,7 @@ class C5Service(BaseGoogleSheetService):
         data = self._deduplicate_parameter_combinations(data, custom_kline_map)
         return data, len(custom_kline_map["custom"]) + 20, custom_kline_map
 
-    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="dfcf"):
+    def _get_all_parameters(self,parameter, count_mode, price_mode, end_date, start_date, market_type,date_range_mode,exclude_recent_years,parameters, adjust_type=None, data_source="akshare"):
 
         _end_year_1 = int(end_date[:4])
         now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))

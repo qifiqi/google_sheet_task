@@ -25,3 +25,4 @@ PyJWT
 dingtalk-stream
 Flask-Limiter
 pydantic
+akshare

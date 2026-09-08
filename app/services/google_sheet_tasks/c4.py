@@ -156,7 +156,7 @@ class C4Service(BaseGoogleSheetService):
             for outer_param in parameters[0]:
                 combinations, column_A_length = self._get_all_parameters(
                     outer_param, count_mode, end_date, start_date, market_type,date_range_mode, adjust_type,
-                    config_data.get("kline_data_source", "dfcf")
+                    config_data.get("kline_data_source")
                 )
                 precomputed_params.append((combinations, column_A_length))
                 total_combinations += len(combinations)
@@ -469,7 +469,7 @@ class C4Service(BaseGoogleSheetService):
         _end_year = int(now_time[:4])
         _start_date = int(start_date[:4])
         limit = (_end_year - _start_date + 1) * 250
-        selected_data_source = data_source or ("yahoo" if str(market_type).lower() in {"us", "en"} else "dfcf")
+        selected_data_source = data_source or ("yahoo" if str(market_type).lower() in {"us", "en"} else "akshare")
         klines = KlineService(
             dfcf_api=DFCJStockApi(),
             yahoo_api=YFApi(),
