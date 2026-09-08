@@ -19,42 +19,8 @@ from .param_task_result_summary_index import ParamtaskresultsummaryindexApi
 from .param_tasks import ParamtasksApi
 from .param_task_templates import ParamtasktemplatesApi
 from .param_xpl_analysis_jobs import ParamxplanalysisjobsApi
-from .stock_atarget import StockatargetApi
-from .stock_atarget_cond import StockatargetcondApi
-from .stock_atarget_log import StockatargetlogApi
-from .stock_cn_order import StockcnorderApi
 from .stock_data import StockdataApi
-from .stock_data_area import StockdataareaApi
-from .stock_data_concept import StockdataconceptApi
-from .stock_data_index import StockdataindexApi
-from .stock_data_industry import StockdataindustryApi
 from .stock_data_us import StockdatausApi
-from .stock_data_volume import StockdatavolumeApi
-from .stock_date import StockdateApi
-from .stock_dic import StockdicApi
-from .stock_financial_data import StockfinancialdataApi
-from .stock_industry import StockindustryApi
-from .stock_minute_tick import StockminutetickApi
-from .stock_param_data import StockparamdataApi
-from .stock_param_result import StockparamresultApi
-from .stock_param_template import StockparamtemplateApi
-from .stock_param_tuning import StockparamtuningApi
-from .stock_sms_msg import StocksmsmsgApi
-from .stock_top10_circulating import Stocktop10circulatingApi
-from .stock_trs_account import StocktrsaccountApi
-from .stock_trs_child_order import StocktrschildorderApi
-from .stock_trs_deal_records import StocktrsdealrecordsApi
-from .stock_trs_events_log import StocktrseventslogApi
-from .stock_trs_order import StocktrsorderApi
-from .stock_trs_pool import StocktrspoolApi
-from .stock_trs_position_snapshot import StocktrspositionsnapshotApi
-from .stock_ws import StockwsApi
-from .stock_xt_credit_detail import StockxtcreditdetailApi
-from .stock_xt_data import StockxtdataApi
-from .stock_xt_data_trading import StockxtdatatradingApi
-from .stock_xt_order import StockxtorderApi
-from .stock_xt_position import StockxtpositionApi
-from .stock_xt_trade import StockxttradeApi
 from .sys_log import SyslogApi
 from .sys_model import SysmodelApi
 from .sys_role import SysroleApi
@@ -77,42 +43,8 @@ def bind_api_groups(client: Any) -> None:
     client.param_tasks = ParamtasksApi(client)
     client.param_task_templates = ParamtasktemplatesApi(client)
     client.param_xpl_analysis_jobs = ParamxplanalysisjobsApi(client)
-    client.stock_atarget = StockatargetApi(client)
-    client.stock_atarget_cond = StockatargetcondApi(client)
-    client.stock_atarget_log = StockatargetlogApi(client)
-    client.stock_cn_order = StockcnorderApi(client)
     client.stock_data = StockdataApi(client)
-    client.stock_data_area = StockdataareaApi(client)
-    client.stock_data_concept = StockdataconceptApi(client)
-    client.stock_data_index = StockdataindexApi(client)
-    client.stock_data_industry = StockdataindustryApi(client)
     client.stock_data_us = StockdatausApi(client)
-    client.stock_data_volume = StockdatavolumeApi(client)
-    client.stock_date = StockdateApi(client)
-    client.stock_dic = StockdicApi(client)
-    client.stock_financial_data = StockfinancialdataApi(client)
-    client.stock_industry = StockindustryApi(client)
-    client.stock_minute_tick = StockminutetickApi(client)
-    client.stock_param_data = StockparamdataApi(client)
-    client.stock_param_result = StockparamresultApi(client)
-    client.stock_param_template = StockparamtemplateApi(client)
-    client.stock_param_tuning = StockparamtuningApi(client)
-    client.stock_sms_msg = StocksmsmsgApi(client)
-    client.stock_top10_circulating = Stocktop10circulatingApi(client)
-    client.stock_trs_account = StocktrsaccountApi(client)
-    client.stock_trs_child_order = StocktrschildorderApi(client)
-    client.stock_trs_deal_records = StocktrsdealrecordsApi(client)
-    client.stock_trs_events_log = StocktrseventslogApi(client)
-    client.stock_trs_order = StocktrsorderApi(client)
-    client.stock_trs_pool = StocktrspoolApi(client)
-    client.stock_trs_position_snapshot = StocktrspositionsnapshotApi(client)
-    client.stock_ws = StockwsApi(client)
-    client.stock_xt_credit_detail = StockxtcreditdetailApi(client)
-    client.stock_xt_data = StockxtdataApi(client)
-    client.stock_xt_data_trading = StockxtdatatradingApi(client)
-    client.stock_xt_order = StockxtorderApi(client)
-    client.stock_xt_position = StockxtpositionApi(client)
-    client.stock_xt_trade = StockxttradeApi(client)
     client.sys_log = SyslogApi(client)
     client.sys_model = SysmodelApi(client)
     client.sys_role = SysroleApi(client)
