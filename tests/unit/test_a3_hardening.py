@@ -173,12 +173,14 @@ def test_page_redirects_anonymous_to_login(app_factory):
 
 
 def test_page_accessible_with_cookie_token(app_factory):
-    """页面守卫接受 cookie 回退（登录后前端写入 access_token cookie）。"""
+    """页面守卫接受 cookie 回退（登录后前端写入 gsc_access_token cookie）。"""
+    from app.utils.auth import ACCESS_TOKEN_COOKIE
+
     app = app_factory
     with app.app_context():
         user_id = _create_user(app, "page-user")
         client = app.test_client()
-        client.set_cookie("access_token", create_access_token(user_id))
+        client.set_cookie(ACCESS_TOKEN_COOKIE, create_access_token(user_id))
         resp = client.get("/xpl/")
         assert resp.status_code == 200
 

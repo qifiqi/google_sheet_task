@@ -64,9 +64,11 @@
             localStorage.setItem(TOKEN_KEY, accessToken);
             // 同步写入 cookie：页面导航请求无法携带 Authorization 头，
             // 服务端页面鉴权（page_login_required / admin_required）据此回退读取。
+            // 名字须与后端 ACCESS_TOKEN_COOKIE(gsc_access_token) 一致：cookie 不按
+            // 端口隔离，通用名会被本机其他服务的同名（HttpOnly）cookie 顶死。
             const securePart = window.location.protocol === "https:" ? "; Secure" : "";
             document.cookie =
-                "access_token=" + encodeURIComponent(accessToken) +
+                "gsc_access_token=" + encodeURIComponent(accessToken) +
                 "; path=/; SameSite=Lax" + securePart;
         }
         if (refreshToken) {
@@ -76,7 +78,7 @@
 
     function clearAccessTokenCookie() {
         // 置空并立即过期，清除页面鉴权用的访问令牌 cookie。
-        document.cookie = "access_token=; path=/; SameSite=Lax; Max-Age=0";
+        document.cookie = "gsc_access_token=; path=/; SameSite=Lax; Max-Age=0";
     }
 
     function clearAuthState() {

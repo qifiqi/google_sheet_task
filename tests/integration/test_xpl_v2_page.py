@@ -288,7 +288,7 @@ def _page_cookie_client(app, username="xpl-cookie-user"):
 
     from app.extensions import db as _db
     from app.models import User as _User
-    from app.utils.auth import create_access_token
+    from app.utils.auth import ACCESS_TOKEN_COOKIE, create_access_token
 
     with app.app_context():
         user = _User(username=username, password_hash=generate_password_hash("pw"), is_active=True)
@@ -296,7 +296,7 @@ def _page_cookie_client(app, username="xpl-cookie-user"):
         _db.session.commit()
         token = create_access_token(user.id)
     client = app.test_client()
-    client.set_cookie("access_token", token)
+    client.set_cookie(ACCESS_TOKEN_COOKIE, token)
     return client
 
 

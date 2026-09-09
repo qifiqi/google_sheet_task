@@ -54,7 +54,9 @@ def _exportable_metrics():
 
 def test_export_preview_page_redirects_anonymous_and_serves_cookie_session(app_factory):
     """BUG-17 后页面由服务端守卫：匿名 302 登录页；cookie 会话可访问。"""
-    from app.utils.auth import create_access_token
+    from app.extensions import db as _db
+    from app.models import User as _User
+    from app.utils.auth import ACCESS_TOKEN_COOKIE, create_access_token
 
     client = app_factory.test_client()
     response = client.get("/backtest-training/result/123/export-preview")
@@ -62,8 +64,6 @@ def test_export_preview_page_redirects_anonymous_and_serves_cookie_session(app_f
     assert "/login" in response.headers["Location"]
 
     with app_factory.app_context():
-        from app.extensions import db as _db
-        from app.models import User as _User
         from werkzeug.security import generate_password_hash as _gph
 
         user = _User(username="preview-page-user", password_hash=_gph("pw"), is_active=True)
@@ -71,7 +71,7 @@ def test_export_preview_page_redirects_anonymous_and_serves_cookie_session(app_f
         _db.session.commit()
         token = create_access_token(user.id)
 
-    client.set_cookie("access_token", token)
+    client.set_cookie(ACCESS_TOKEN_COOKIE, token)
     served = client.get("/backtest-training/result/123/export-preview")
     assert served.status_code == 200
     assert b"template-auth.js" in served.data

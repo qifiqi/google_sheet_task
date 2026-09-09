@@ -17,7 +17,9 @@ SAFE_AUTH_DISABLED_ENVS = {'development'}
 
 # 页面导航请求无法携带 Authorization 头，登录后由前端把访问令牌同步写入该 cookie，
 # 服务端页面鉴权（page_login_required / admin_required）据此回退读取。
-ACCESS_TOKEN_COOKIE = 'access_token'
+# cookie 不按端口隔离，名字必须带项目前缀：本机其他服务签发的同名（尤其 HttpOnly）
+# cookie 无法被前端 JS 覆盖，会把页面登录锁死在 302 循环（2026-09 实测踩坑）。
+ACCESS_TOKEN_COOKIE = 'gsc_access_token'
 
 
 def _get_secret():
