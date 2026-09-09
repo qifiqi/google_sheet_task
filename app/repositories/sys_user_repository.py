@@ -75,7 +75,7 @@ class SysUserRepository:
         raw = self.client.call(
             "sys_user",
             "get_user_role_list",
-            {},
+            { "sys_type": 1},
             token=token,
         )
         if raw is None:

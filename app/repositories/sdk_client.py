@@ -290,6 +290,22 @@ class StockSdkAdapter:
             return client
 
     @staticmethod
+    def _encode_remote_body(value: Any) -> Any:
+        """递归将载荷中的布尔值编码为远端 DTO 约定的 0/1 整型。
+
+        远端数据服务的布尔字段一律以 0/1 整型承载，JSON ``true``/``false``
+        在远端模型绑定阶段会直接解析失败（HTTP 400），因此统一在发送前编码。
+        注意 ``bool`` 是 ``int`` 的子类，必须先于整型判断。
+        """
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, Mapping):
+            return {key: StockSdkAdapter._encode_remote_body(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [StockSdkAdapter._encode_remote_body(item) for item in value]
+        return value
+
+    @staticmethod
     def _safe_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         """脱敏后返回请求载荷，供详细日志使用。"""
         sensitive_names = (
@@ -330,7 +346,8 @@ class StockSdkAdapter:
         if endpoint is None:
             raise SdkProtocolError(f"未注册的远程接口: {group_name}.{operation}")
         method, path = endpoint
-        body = dict(payload or {})
+        # 远端布尔字段只接受 0/1 整型，所有出站载荷在此统一编码。
+        body = self._encode_remote_body(dict(payload or {}))
         client = self._client_for(token)
 
         # 所有 Repository 的远程 HTTP 请求都汇集到这里；仅记录字段名，
