@@ -38,6 +38,53 @@ def test_weight_allocation_adds_percent_suffix():
     assert allocation["rows"] == [["600519", "贵州茅台", "100%"]]
 
 
+def test_weight_allocation_drops_zero_ratio_products():
+    service = StrategyBacktestReportService()
+    request = type("Request", (), {
+        "products": [
+            {"stock_code": "600519", "product_name": "贵州茅台", "ratio": "50"},
+            {"stock_code": "SOXX", "product_name": "半导体ETF", "ratio": "0"},
+        ],
+        "weight_allocation": None,
+    })()
+
+    allocation = service._weight_allocation(request, "RPT-M")
+
+    assert allocation["rows"] == [["600519", "贵州茅台", "50%"]]
+
+
+def _filename_request(report_type, products):
+    return type("Request", (), {"products": products, "report_type": report_type})()
+
+
+def test_default_filename_downgrades_to_rpt_s_when_single_active_product():
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-M", [
+        {"stock_code": "600519", "ratio": "0"},
+        {"stock_code": "soxx.us", "ratio": "100"},
+        {"stock_code": "SCHD.US", "ratio": "0%"},
+    ])
+
+    filename = service._default_filename(request)
+
+    assert filename.startswith("RPT-S-SOXX.US-")
+    assert "600519" not in filename and "SCHD.US" not in filename
+
+
+def test_default_filename_keeps_rpt_m_with_multiple_active_products():
+    service = StrategyBacktestReportService()
+    request = _filename_request("RPT-M", [
+        {"stock_code": "600519", "ratio": "50"},
+        {"stock_code": "SOXX.US", "ratio": "0"},
+        {"stock_code": "SCHD.US", "ratio": "50"},
+    ])
+
+    filename = service._default_filename(request)
+
+    assert filename.startswith("RPT-M-600519-SCHD.US-")
+    assert "SOXX.US" not in filename
+
+
 def test_return_section_marks_rolling_returns_unavailable_before_five_years():
     dates = pd.to_datetime(["2023-01-31", "2023-02-28"])
     result = SimpleNamespace(

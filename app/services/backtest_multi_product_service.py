@@ -62,7 +62,7 @@ def normalize_market_type(value: Any) -> str:
 
 def normalize_price_mode(value: Any) -> str:
     normalized = str(value or "").strip().lower()
-    if normalized in {"kp_price", "sp_price", "vwap_price"}:
+    if normalized in {"kp_price", "sp_price", "vwap_price", "ohlc_price"}:
         return normalized
     return "vwap_price"
 
@@ -341,7 +341,10 @@ def _canonical_drawdown(value: Any) -> float | None:
 def _fmt_value(value: Any, value_type: str) -> str:
     number = _safe_number(value)
     if number is None:
-        return "" if value in (None, "") else str(value)
+        # dict/list 是年份序列等未展开数据，不转成字符串文本，前端以 "-" 展示。
+        if value in (None, "") or isinstance(value, (dict, list)):
+            return ""
+        return str(value)
     if value_type == "percent":
         return f"{number:.2%}"
     return f"{number:.2f}".rstrip("0").rstrip(".")
@@ -420,6 +423,16 @@ def _set_weighted_metrics_on_result_payload(
     return result_payload
 
 
+def _is_zero_ratio_product(product: Any) -> bool:
+    """比例明确为 0 的产品不进入组合；比例缺失/非法时视为参与（保持旧行为）。"""
+    if not isinstance(product, dict):
+        return False
+    try:
+        return parse_ratio(product.get("ratio")) == 0
+    except ValidationError:
+        return False
+
+
 def _build_portfolio_return_date(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
@@ -433,6 +446,7 @@ def _build_portfolio_return_date(
             "ratio": product.get("ratio"),
         }
         for product in products
+        if not _is_zero_ratio_product(product)
     ]
     return _canonical_combine_product_returns(inputs, weighting_mode=mode)
 
@@ -818,16 +832,23 @@ class BacktestMultiProductService(BacktestTrainingService):
                 if not kline_info:
                     kline_info = self._build_product_kline(product, config_data)
                     kline_cache[product_index] = kline_info
+                # set_googl_val 的清空范围按 column_A_length+2 计算；在执行前就抬到当前产品
+                # K线长度（含历史最大值），否则首步初始为 0 时清空范围只到第 2 行，
+                # 残留旧行不会被清掉。
+                column_A_length = max(column_A_length, len(kline_info["kline"]))
                 sheet_cache = sheet_kline_cache.setdefault(sheet_cache_key, {"combination": {}})
                 cached_combination = sheet_cache.get("combination") or {}
-                if cached_combination.get("product_index") != product_index:
+                rewrite_kline = cached_combination.get("product_index") != product_index
+                if rewrite_kline:
                     sheet_cache["combination"] = {}
 
                 input_column_d, input_column_v, output_range_1, output_range_2, output_column_index, output_column_start, parameter_positions, check_positions, last_row = self._c3_to_c5_get_config(
                     product_config)
-                if hasattr(self, "google_sheet"):
-                    A_num = self.google_sheet.get_last_row('A')
-                    self._log_info(f'{self.google_sheet.title} 当前A列行数: {A_num}, 准备滞空 A列 B列')
+                if hasattr(self, "google_sheet") and rewrite_kline:
+                    # 仅在即将重写行情时按输入列真实末行清空（C7.0.3 行情在 CC:CG，A 列行数
+                    # 不代表数据长度）；同源复用参数组合的步骤不清空，避免误删已写入的K线。
+                    A_num = self.google_sheet.get_last_row(last_row)
+                    self._log_info(f'{self.google_sheet.title} 当前{last_row}列行数: {A_num}, 准备滞空 {input_column_d}列 {input_column_v}列')
                     self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
 
                 combination = {
@@ -863,7 +884,6 @@ class BacktestMultiProductService(BacktestTrainingService):
                         return "error"
 
                     kline = kline_info["kline"]
-                    column_A_length = len(kline)
 
                     # 每一步先保存明细结果，再写入固定产品缓存，保证任务结果始终可恢复。
                     self._save_task_result(current_step - 1, {
@@ -946,15 +966,22 @@ class BacktestMultiProductService(BacktestTrainingService):
         return product_config
 
     def _build_product_kline(self, product: dict[str, Any], config_data: dict[str, Any]) -> dict[str, Any]:
+        # C7.0.3 模板执行时写回 OHLC 四价列并校验四价字段（_execute_parameter_combination），
+        # K线投影必须带 OHLC；价格模式强制与单品回测 get_bdl 的行为保持一致。
+        is_c7_0_3 = self._is_c7_0_3({"sheet": product.get("sheet") or {}})
         kline = self._get_kline_by_date_range(
             product["stock_code"],
             product["market_type"],
             config_data["start_date"],
             config_data["end_date"],
-            price_mode=product.get("price_mode") or config_data.get("price_mode", "vwap_price"),
+            price_mode=(
+                "ohlc_price" if is_c7_0_3
+                else (product.get("price_mode") or config_data.get("price_mode", "vwap_price"))
+            ),
             adjust_type=product.get("kline_adjustment", "forward"),
             data_source=product.get("kline_data_source") or config_data.get("kline_data_source", "akshare"),
             exchange_market=product.get("exchange_market"),
+            include_ohlc=is_c7_0_3,
         )
         kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
         return {
@@ -1002,6 +1029,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         adjust_type: str | None = None,
         data_source: str = "akshare",
         exchange_market: str | None = None,
+        include_ohlc: bool = False,
     ) -> list[dict[str, Any]]:
         market_type = normalize_market_type(market_type)
         current_date = datetime.now().date()
@@ -1038,7 +1066,9 @@ class BacktestMultiProductService(BacktestTrainingService):
                 f"股票{stock_code} 设定区间 [{start_date}, {end_date}] "
                 f"不在K线数据范围 [{data_start_date}, {data_end_date}] 内"
             )
-        kline = self.kline_service.build_price_rows(klines, price_mode, start_date=start_date, end_date=end_date)
+        kline = self.kline_service.build_price_rows(
+            klines, price_mode, start_date=start_date, end_date=end_date, include_ohlc=include_ohlc,
+        )
         if len(kline) < 100:
             raise ValueError(f"股票{stock_code} 数据量不足，K线数据量小于100条")
         return kline

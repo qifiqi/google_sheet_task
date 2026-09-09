@@ -451,7 +451,7 @@ async function loadSheets() {
 
 async function loadTokens() {
   try {
-    const res = await getTokens()
+    const res = await getTokens({ task_type: 'google_sheet' })
     tokens.value = res.tokens || []
   } catch {}
 }

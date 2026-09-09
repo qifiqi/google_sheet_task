@@ -1,7 +1,9 @@
 """任务类型归一化与通用数值解析工具测试。"""
 
+import math
 from datetime import date, datetime
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -89,3 +91,28 @@ def test_convert_pandas_to_native_converts_series_to_a_json_safe_list():
     result = _convert_pandas_to_native(pd.Series([pd.Timestamp("2026-09-01"), pd.NA, 0.01, pd.Series([1]).iloc[0]]))
 
     assert result == ["2026-09-01T00:00:00", None, 0.01, 1]
+
+
+def test_convert_pandas_to_native_rounds_floats_and_maps_non_finite_to_none():
+    """round_digits 统一浮点精度；non_finite_to_none 将 NaN/inf 转为 None（语义为无法计算）。"""
+    raw = {
+        "precise": np.float64(0.123456789),
+        "kept": 0.5,
+        "nan": np.float64("nan"),
+        "inf": float("inf"),
+    }
+
+    # 默认行为不变：非有限值按既有逻辑原样保留
+    default = _convert_pandas_to_native(raw)
+    assert default["precise"] == 0.123456789
+    assert default["kept"] == 0.5
+    assert math.isnan(default["nan"])
+    assert default["inf"] == float("inf")
+
+    rounded = _convert_pandas_to_native(raw, round_digits=6)
+    assert rounded["precise"] == 0.123457
+    assert rounded["kept"] == 0.5
+    assert math.isnan(rounded["nan"])
+
+    safe = _convert_pandas_to_native(raw, round_digits=6, non_finite_to_none=True)
+    assert safe == {"precise": 0.123457, "kept": 0.5, "nan": None, "inf": None}

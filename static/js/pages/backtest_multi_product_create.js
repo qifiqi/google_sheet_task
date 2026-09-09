@@ -55,6 +55,16 @@ function inferModelVersion(title) {
     return normalized.includes('C5') || normalized.includes('C4') ? 'c5' : 'c3';
 }
 
+// Sheet 标题含 C7.0.3 时价格模式默认切换为 OHLC（开高低收），其余回默认收盘价；
+// 用户手动改过价格模式后不再自动切换。
+function applyPriceModeDefault(card, title) {
+    if (card.dataset.priceModeTouched === '1') {
+        return;
+    }
+    const isC703 = String(title || '').toUpperCase().includes('C7.0.3');
+    card.querySelector('.price-mode').value = isC703 ? 'ohlc_price' : 'sp_price';
+}
+
 function marketOptionsHtml(selectedMarket) {
     return stockMarkets.map((market) => `
         <option value="${escapeHtml(market.value)}" ${market.value === selectedMarket ? 'selected' : ''}>${escapeHtml(market.label)}</option>
@@ -268,6 +278,7 @@ function addProduct(defaults = {}) {
                         <option value="vwap_price">加权平均价</option>
                         <option value="kp_price">开盘价</option>
                         <option value="sp_price" selected>收盘价</option>
+                        <option value="ohlc_price">OHLC（开高低收）</option>
                     </select>
                 </div>
                 <div class="col-xl-2">
@@ -394,6 +405,7 @@ async function analyzeSheet(card, options = {}) {
         if (card.dataset.modelVersion !== nextVersion) {
             resetParameterTable(card, nextVersion);
         }
+        applyPriceModeDefault(card, title);
         setSheetInfo(card, `${title || spreadsheetId} / ${sheetName}`, 'small text-success sheet-info');
     } catch (error) {
         if (error.name === 'AbortError') {
@@ -821,6 +833,14 @@ productsContainer.addEventListener('input', (event) => {
     card.dataset.exchangeMarket = '';
     window.clearTimeout(stockTimers[card.dataset.productId]);
     stockTimers[card.dataset.productId] = window.setTimeout(() => fetchStockSuggestions(card, stockInput.value), 600);
+});
+
+productsContainer.addEventListener('change', (event) => {
+    if (!event.target.closest('.price-mode')) return;
+    const card = event.target.closest('.product-card');
+    if (card) {
+        card.dataset.priceModeTouched = '1';
+    }
 });
 
 productsContainer.addEventListener('paste', (event) => {

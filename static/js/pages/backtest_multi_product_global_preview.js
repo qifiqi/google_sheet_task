@@ -75,7 +75,7 @@ function renderRatios() {
                     <span class="input-group-text">%</span>
                 </div>
             </td>
-            <td><span class="ratio-status-text">参与计算</span></td>
+            <td><span class="ratio-status-text">${Number(product.ratio || 0) > 0 ? '参与计算' : '比例为 0，不参与组合与展示'}</span></td>
         </tr>
     `).join('');
     updateRatioStatus();
@@ -160,23 +160,34 @@ function renderActiveGroup() {
         container.innerHTML = '<div class="empty-state">该参数方案下没有成功结果</div>';
         return;
     }
-    const productHeads = products.map((product) => {
+    // 比例为 0 的产品不参与组合，展示全 0 列没有意义，直接不渲染其列组。
+    const visibleProducts = products
+        .map((product, index) => ({ product, index }))
+        .filter((item) => Number(item.product.ratio || 0) > 0);
+    if (!visibleProducts.length) {
+        container.innerHTML = '<div class="empty-state">所有产品比例均为 0，没有可展示的产品</div>';
+        return;
+    }
+    const productHeads = visibleProducts.map(({ product }) => {
         const name = product.product_name || product.stock_code || '产品';
         return `
             <td colspan="3">${escapeHtml(name)}</td>
         `;
     }).join('');
-    const columnHeads = products.map((product) => `
+    const columnHeads = visibleProducts.map(({ product }) => `
         <th>指数</th>
         <th>模型结果</th>
         <th>模型结果（${escapeHtml(formatRatioHeader(product.ratio || 0))}）</th>
     `).join('');
     const body = group.rows.map((row) => {
-        const values = (row.product_values || []).map((item) => `
+        const values = visibleProducts.map(({ index }) => {
+            const item = (row.product_values || [])[index] || {};
+            return `
             <td>${escapeHtml(item.index_value || '-')}</td>
             <td>${escapeHtml(item.result_value || '-')}</td>
             <td>${escapeHtml(item.weighted_result_value || '-')}</td>
-        `).join('');
+        `;
+        }).join('');
         return `
             <tr>
                 <td class="sticky-col sticky-col-1 fw-semibold">${escapeHtml(row.category || '-')}</td>

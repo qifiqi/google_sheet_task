@@ -229,7 +229,7 @@ let searchTimer = null
 
 async function loadTokens() {
   try {
-    const res = await getTokens()
+    const res = await getTokens({ task_type: 'backtest_training' })
     tokens.value = res.tokens || []
   } catch {}
 }

@@ -20,7 +20,7 @@ from app.services.word_export_template import generate_word_document
 from app.utils.backtest_report_metadata import get_backtest_model_version
 from app.utils.return_series import parse_return_series_fields
 from app.utils.value_parser import parse_date, parse_float, parse_int
-from app.services.performance_analysis.portfolio_combiner import combine_product_returns
+from app.services.performance_analysis.portfolio_combiner import combine_product_returns, normalize_weight
 
 
 class StrategyBacktestReportService:
@@ -69,15 +69,48 @@ class StrategyBacktestReportService:
             filename = f"{filename}.docx"
         return filename, BytesIO(raw)
 
+    @staticmethod
+    def _is_zero_weight_product(product: dict[str, Any]) -> bool:
+        """比例明确为 0 的产品不参与命名、组合与权重分配；缺失/非法比例视为参与。"""
+        raw = product.get("ratio", product.get("weight"))
+        text = str(raw if raw is not None else "").strip()
+        if not text:
+            return False
+        try:
+            return normalize_weight(text) == 0
+        except ValueError:
+            return False
+
+    @classmethod
+    def _active_report_products(cls, products: Any) -> list[dict[str, Any]]:
+        """过滤掉比例为 0 的产品；全部为 0 时返回原列表，避免报告内容为空。"""
+        if not isinstance(products, list):
+            return []
+        active = [
+            product for product in products
+            if isinstance(product, dict) and not cls._is_zero_weight_product(product)
+        ]
+        return active or [
+            product for product in products if isinstance(product, dict)
+        ]
+
     def _default_filename(self, request: StrategyBacktestReportSchema) -> str:
-        """按报告类型、产品代码和生成时间构造默认下载文件名。"""
+        """按报告类型、产品代码和生成时间构造默认下载文件名。
+
+        比例为 0 的产品不参与代码拼接；有效产品只剩 1 个时前缀按 RPT-S 输出。
+        """
+        products = self._active_report_products(request.products)
+        report_type = (
+            "RPT-S" if request.report_type == "RPT-M" and len(products) == 1
+            else request.report_type
+        )
         stock_codes = [
             str(product.get("stock_code") or "").strip().upper()
-            for product in request.products
-            if isinstance(product, dict) and str(product.get("stock_code") or "").strip()
+            for product in products
+            if str(product.get("stock_code") or "").strip()
         ]
         suffix = "-".join([*stock_codes, datetime.now().strftime("%Y%m%d%H%M%S")])
-        return f"{request.report_type}-{suffix}" if suffix else f"{request.report_type}-{datetime.now():%Y%m%d%H%M%S}"
+        return f"{report_type}-{suffix}" if suffix else f"{report_type}-{datetime.now():%Y%m%d%H%M%S}"
 
     def _resolve_returns(self, request: StrategyBacktestReportSchema) -> list[dict[str, Any]]:
         """将单品、V2 或多品输入统一为 result_mapper 所需的累计收益序列。"""
@@ -147,13 +180,13 @@ class StrategyBacktestReportService:
         products: list[dict[str, Any]],
         weighting_mode: str = "daily_compound",
     ) -> list[dict[str, Any]]:
-        """将多产品组合委托给统一组合器。"""
+        """将多产品组合委托给统一组合器；比例为 0 的产品不参与组合。"""
         inputs = [
             {
                 "returns": self._resolve_source_returns(product),
                 "ratio": product.get("ratio", product.get("weight")),
             }
-            for product in products
+            for product in self._active_report_products(products)
         ]
         return combine_product_returns(inputs, weighting_mode=weighting_mode)
 
@@ -238,11 +271,11 @@ class StrategyBacktestReportService:
 
     @staticmethod
     def _weight_allocation(payload: StrategyBacktestReportSchema, report_type: str) -> dict[str, Any]:
-        """构造报告中的股票权重表格。"""
+        """构造报告中的股票权重表格；比例为 0 的产品不进入权重分配。"""
         raw = payload.weight_allocation
         if isinstance(raw, dict) and raw.get("columns") and isinstance(raw.get("rows"), list):
             return raw
-        products = payload.products
+        products = StrategyBacktestReportService._active_report_products(payload.products)
         rows = []
         if isinstance(products, list):
             for product in products:

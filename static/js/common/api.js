@@ -135,7 +135,7 @@
         googleSheet: {
             sheets: function (query) { return get('/api/google-sheets' + (query ? '?' + query : '')); },
             worksheets: function (payload) { return post('/api/google-sheet/worksheets', payload); },
-            tokens: function () { return get('/api/google-sheet-tokens'); },
+            tokens: function (query) { return get('/api/google-sheet-tokens' + (query ? '?' + query : '')); },
             importToken: function (payload) { return post('/api/google-sheet-tokens/import', payload); },
             // admin Token 管理页（admin/config）的新增入口：成功 toast 读服务端 message，
             // 返回完整信封（行为零变化），与上方去信封的 importToken（建单页表单用）并存。

@@ -1,10 +1,25 @@
 // ------------------------------
 // c4/c5/c7 创建页三胞胎共享：表单状态/Token 选择/产品 chips/URL 回填（02 §3.6，F3 收敛 pass）。
-// 来源：static/js/pages/google_sheet_c{4,5,7}_create.js（三版规范化后逐字相同，正本取自 c4）。
-// 页面差异逻辑仍留在 pages 层；页面调用点经 Biz.formState.* 访问。
+// 来源：static/js/pages/google_sheet_c{4,5,7}_create.js（正本以 c5/c7 同源脚本为准）。
+// 表单状态（token 列表/待回填 token 选择/产品代码）由本模块持有；
+// 页面差异逻辑（模板回填 fillFormWithTemplate / 重启回填 loadRestartConfig /
+// 本地草稿 loadSavedFormData）留在 pages 层，页面在 initFromUrlParams() 之前
+// 经 Biz.formState.hooks = {...} 注册；调用点经 Biz.formState.* 访问。
 // ------------------------------
 (function () {
     window.Biz = window.Biz || {};
+
+    let pendingTokenSelection = null;
+    let googleSheetTokens = [];
+    let googleSheetRandomValue = '__random__';
+    let productCodes = [];
+
+    function callPageHook(name, ...args) {
+        const hook = (window.Biz.formState && window.Biz.formState.hooks)
+            ? window.Biz.formState.hooks[name]
+            : null;
+        return typeof hook === 'function' ? hook(...args) : undefined;
+    }
 
     function showError(message) {
         if (typeof showNotification === 'function') {
@@ -96,7 +111,7 @@
             pendingTokenSelection = { token_id: preferredValue };
         }
     
-        Api.endpoints.googleSheet.tokens()
+        Api.endpoints.googleSheet.tokens('?task_type=google_sheet')
             .then(data => {
                 googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
                 googleSheetRandomValue = data.random_value || '__random__';
@@ -181,7 +196,7 @@
         }
         productCodes = arr;
         renderProductCodeChips();
-        syncProductCodesToParam1();
+        callPageHook('syncProductCodesToParam1');
     }
 
     function renderProductCodeChips() {
@@ -201,7 +216,7 @@
             container.appendChild(span);
         });
     
-        syncProductCodesToParam1();
+        callPageHook('syncProductCodesToParam1');
     }
 
     function initFromUrlParams() {
@@ -210,16 +225,16 @@
         const restartTaskId = params.get('restart_task_id');
     
         if (templateId) {
-            fillFormWithTemplate(templateId);
+            callPageHook('fillFormWithTemplate', templateId);
             return;
         }
-    
+
         if (restartTaskId) {
             fillFormWithRestartTask(restartTaskId);
             return;
         }
-    
-        loadSavedFormData();
+
+        callPageHook('loadSavedFormData');
     }
 
     function fillFormWithRestartTask(taskId) {
@@ -231,7 +246,7 @@
                     showNotification('加载原任务配置失败：config为空', 'error');
                     return;
                 }
-                loadRestartConfig(configRaw, taskId);
+                callPageHook('loadRestartConfig', configRaw, taskId);
             })
             .catch(err => {
                 console.error('加载原任务失败:', err);
@@ -248,10 +263,23 @@
         select.value = selectedValue;
     }
 
+    function setPendingTokenSelection(selection) {
+        pendingTokenSelection = selection || null;
+    }
+
+    function getProductCodes() {
+        return productCodes;
+    }
+
+    function setProductCodes(codes) {
+        productCodes = Array.isArray(codes) ? codes : [];
+    }
+
     Biz.formState = {
         showError: showError,
         syncSelectedTokenMeta: syncSelectedTokenMeta,
         applyPendingTokenSelection: applyPendingTokenSelection,
+        setPendingTokenSelection: setPendingTokenSelection,
         renderGoogleSheetTokenOptions: renderGoogleSheetTokenOptions,
         loadGoogleSheetTokens: loadGoogleSheetTokens,
         importGoogleSheetToken: importGoogleSheetToken,
@@ -259,6 +287,8 @@
         initDefaultDatesIfEmpty: initDefaultDatesIfEmpty,
         initProductCodeChipsFromParam1: initProductCodeChipsFromParam1,
         renderProductCodeChips: renderProductCodeChips,
+        getProductCodes: getProductCodes,
+        setProductCodes: setProductCodes,
         initFromUrlParams: initFromUrlParams,
         fillFormWithRestartTask: fillFormWithRestartTask,
         loadStockMarkets: loadStockMarkets

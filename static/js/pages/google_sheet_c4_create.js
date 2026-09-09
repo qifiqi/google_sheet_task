@@ -11,13 +11,9 @@ if (versionParam && versionParam !== 'c4') {
         backLink.href = '/google-sheet/?version=' + encodeURIComponent(versionParam);
     }
 }
-    let googleSheetTokens = [];
-    let googleSheetRandomValue = '__random__';
-    let pendingTokenSelection = null;
-
+    // 表单共享状态（token 列表/待回填选择/产品代码）由 Biz.formState 持有，本页经其 API 访问
     let currentTaskId = null;
     let eventSource = null;
-    let productCodes = [];
 
     // 本页专用错误提示封装
     // 从模板加载数据
@@ -300,6 +296,14 @@ if (versionParam && versionParam !== 'c4') {
         Biz.formState.loadGoogleSheetTokens();
         loadTemplates(); // 加载模板列表
 
+        // 注册页面差异钩子：模板回填/重启回填/本地草稿恢复由本页实现
+        Biz.formState.hooks = {
+            loadSavedFormData: loadSavedFormData,
+            fillFormWithTemplate: fillFormWithTemplate,
+            loadRestartConfig: loadRestartConfig,
+            syncProductCodesToParam1: syncProductCodesToParam1,
+        };
+
         // URL 参数驱动的数据加载：
         // - ?template_id=xxx -> /api/templates/xxx
         // - ?restart_task_id=xxx -> /api/tasks/xxx
@@ -435,11 +439,11 @@ if (versionParam && versionParam !== 'c4') {
                     document.getElementById('token_type').value = config.token_type;
                     document.getElementById('token_type').dispatchEvent(new Event('change'));
                 }
-                pendingTokenSelection = {
+                Biz.formState.setPendingTokenSelection({
                     token_id: config.token_id || '',
                     token_file: config.token_file || '',
                     token_selection_mode: config.token_selection_mode || ''
-                };
+                });
                 Biz.formState.applyPendingTokenSelection();
                 if (config.token_file) {
                     document.getElementById('token_file').value = config.token_file;
@@ -790,7 +794,7 @@ if (versionParam && versionParam !== 'c4') {
         const param1El = document.getElementById('param1');
         if (!param1El) return;
         try {
-            param1El.value = JSON.stringify(productCodes);
+            param1El.value = JSON.stringify(Biz.formState.getProductCodes());
         } catch (e) {
             console.warn('同步产品代码到 param1 失败:', e);
         }
@@ -815,9 +819,9 @@ if (versionParam && versionParam !== 'c4') {
         }
 
         // 合并并去重
-        const set = new Set(productCodes);
+        const set = new Set(Biz.formState.getProductCodes());
         parts.forEach(code => set.add(code));
-        productCodes = Array.from(set);
+        Biz.formState.setProductCodes(Array.from(set));
 
         inputEl.value = '';
         Biz.formState.renderProductCodeChips();
@@ -827,7 +831,8 @@ if (versionParam && versionParam !== 'c4') {
     // 删除单个产品代码
     function removeProductCode(code) {
         if (!code) return;
-        productCodes = productCodes.filter(c => c !== code);
+        const remaining = Biz.formState.getProductCodes().filter(c => c !== code);
+        Biz.formState.setProductCodes(remaining);
         Biz.formState.renderProductCodeChips();
         showNotification(`已移除产品代码 ${code}`, 'info');
     }
@@ -1124,7 +1129,7 @@ if (versionParam && versionParam !== 'c4') {
                 if (formData.custom_sheet_name) document.getElementById('custom_sheet_name').value = formData.custom_sheet_name;
                 if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
                 if (formData.token_id) {
-                    pendingTokenSelection = { token_id: formData.token_id, token_file: formData.token_file || '' };
+                    Biz.formState.setPendingTokenSelection({ token_id: formData.token_id, token_file: formData.token_file || '' });
                 }
                 if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
                 if (formData.token_json) document.getElementById('token_json').value = formData.token_json;
@@ -1400,11 +1405,11 @@ if (versionParam && versionParam !== 'c4') {
                 // 触发change事件来显示对应的输入框
                 document.getElementById('token_type').dispatchEvent(new Event('change'));
             }
-            pendingTokenSelection = {
+            Biz.formState.setPendingTokenSelection({
                 token_id: restartConfig.token_id || '',
                 token_file: restartConfig.token_file || '',
                 token_selection_mode: restartConfig.token_selection_mode || ''
-            };
+            });
             Biz.formState.applyPendingTokenSelection();
             if (restartConfig.token_file) {
                 document.getElementById('token_file').value = restartConfig.token_file;

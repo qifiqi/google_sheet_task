@@ -1023,7 +1023,7 @@ class PerformanceMetricsMixin:
 
             # 超额夏普= 月超额收益（均值） * 12 / (月超额收益率标准差 * 根号12)
             # TODO: 月超额收益全部>=0（或为常数）时 std=0 → 除零得 inf/NaN，
-            #  全局预览/结果预览会把非有限数过滤成 "-"（如截图所示）；口径待确认（返回 None/0？）。
+            #  口径已定：返回出口统一转 None（"无法计算"，前端显示 "-"），不在 0/None 间摇摆。
             monthly_excess_return_diff_mean = monthly_excess_returns['monthly_excess_return_diff'].mean()
             monthly_excess_return_standard_deviation = monthly_excess_returns['monthly_excess_return_diff'].std()
             excess_sharp = (monthly_excess_return_diff_mean * 12) / (
@@ -1031,7 +1031,7 @@ class PerformanceMetricsMixin:
 
             # 超额索提诺 = 月超额收益（均值） * 12 / (下行月超额收益率标准差 * 根号12) (老版本移除)
             # 超额索提诺 = 月超额收益（均值） * 12 / (月超额收益率标准差 * 根号12)(大于0的设置0)
-            # TODO: 同超额夏普，正收益掩码后 std=0 时除零 → inf → 预览显示 "-"。
+            # 同超额夏普：正收益掩码后 std=0 时除零 → inf，返回出口统一转 None。
             monthly_excess_returns_diff = monthly_excess_returns['monthly_excess_return_diff'].mask(
                 monthly_excess_returns['monthly_excess_return_diff'] > 0, 0
             )
@@ -1590,6 +1590,9 @@ class PerformanceMetricsMixin:
             logger.debug("月超额收益百分比: %s", json.dumps(monthly_excess_return_percentage, indent=4, default=str))
             logger.debug("月超额波动率: %s", json.dumps(monthly_excess_volatility, indent=4, default=str))
             logger.debug("超额回撤胜率: %s", json.dumps(excess_drawdown_winning_rate, indent=4, default=str))
+            # 统一出口：递归剥离 pandas/numpy 类型为 Python 原生类型，
+            # 浮点值保留 6 位小数，NaN/inf（std=0 等无法计算的口径）转为 None
+            result = _convert_pandas_to_native(result, round_digits=6, non_finite_to_none=True)
             if return_dataframes:
                 return result, index_df, start_df, excess_df
             return result

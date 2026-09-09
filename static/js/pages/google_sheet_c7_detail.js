@@ -1261,11 +1261,16 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         // 取消任务
         function cancelTask() {
             if (confirm('确定要取消这个任务吗？')) {
+                // 立即禁用按钮，防止确认期间任务已终态化后的重复取消
+                const cancelBtn = document.getElementById('cancel-task-btn');
+                if (cancelBtn) { cancelBtn.disabled = true; }
                 Api.endpoints.task.cancel(currentTaskId).then(function (data) {
                     showNotification('任务已取消', 'success');
                     loadTaskDetail(); // 刷新任务详情
                 }).catch(function (err) {
                     showNotification('取消任务失败: ' + (err && err.message ? err.message : '未知错误'), 'error');
+                }).finally(function () {
+                    if (cancelBtn) { cancelBtn.disabled = false; }
                 });
             }
         }

@@ -10,7 +10,7 @@ import json
 
 from flask import Blueprint, g, jsonify, request
 
-from app.exceptions import BadRequestError, NotFoundError
+from app.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.schemas.task import TaskCreateSchema, TasksBatchCreateSchema, TaskRestartSchema, TaskListQuery, \
     TaskConfigUpdateSchema
 from app.services.task import TaskRuntimeViewService, task_manager
@@ -133,13 +133,17 @@ def update_task_config(task_id):
 @login_required
 def cancel_task(task_id):
     """取消任务"""
-    task_manager.get_required_task(task_id)
+    task = task_manager.get_required_task(task_id)
     logger.info("请求取消任务: task_id=%s", task_id)
 
-    cancelled = task_manager.cancel_task(task_id)
-    if cancelled:
+    # 终态任务不可取消（详情页按钮与任务结束存在竞态），给出明确原因而非裸 400
+    status_labels = {"completed": "已完成", "cancelled": "已取消", "error": "已失败"}
+    if task.get("status") in status_labels:
+        raise ConflictError(f"任务{status_labels[task.get('status')]}，无需取消")
+
+    if task_manager.cancel_task(task_id):
         return success(message="任务已取消")
-    raise BadRequestError("取消任务失败")
+    raise ConflictError("任务状态已变化，请刷新页面后重试")
 
 
 @task_api_bp.route('/tasks/<task_id>/logs', methods=['GET'])

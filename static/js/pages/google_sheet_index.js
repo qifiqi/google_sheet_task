@@ -448,6 +448,7 @@ document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : ve
                 loadTasks();
             }).catch(function(err) {
                 showNotification('停止任务失败: ' + (err && err.message ? err.message : '未知错误'), 'error');
+                loadTasks(); // 任务可能已被结束（竞态），刷新列表消除过期的取消入口
             });
         }
     }

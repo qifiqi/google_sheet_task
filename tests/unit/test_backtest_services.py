@@ -11,6 +11,7 @@ from app.models import BacktestProductResultCache, TaskResult, TaskResultReturn
 from app.services.backtest_report_query_service import _get_summary_derived_value
 from app.services.backtest_multi_product_service import (
     BacktestMultiProductService,
+    _build_portfolio_return_date,
     normalize_multi_product_config,
 )
 from app.services.backtest_training_service import BacktestTrainingService
@@ -468,3 +469,24 @@ def test_multi_product_fixed_cache_exists_and_gets_cached_payload(app_factory):
         cached = service._get_fixed_product_cache(config, product, ["p1", "p2"])
         assert json.loads(cached["result_json"]) == {"metric": 1}
         assert cached["source_task_id"] == "source"
+
+
+def test_multi_product_portfolio_combination_skips_zero_ratio_products():
+    """比例 0 的产品不进入组合：空收益序列的零比例产品不应拖垮组合结果。"""
+    products = [_product(1), _product(2)]
+    products[0]["product_index"] = 0
+    products[1]["product_index"] = 1
+    products[0]["ratio"] = "100"
+    products[1]["ratio"] = "0"
+    product_results = {
+        0: {"return_date": [
+            {"date": "2024-01-01", "index_return": 0.01, "start_return": 0.02},
+            {"date": "2024-01-02", "index_return": 0.01, "start_return": 0.02},
+        ]},
+        1: {"return_date": []},
+    }
+
+    returns = _build_portfolio_return_date(product_results, products)
+
+    assert len(returns) == 2
+    assert returns[0]["start_return"] == pytest.approx(0.02)

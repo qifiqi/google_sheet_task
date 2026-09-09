@@ -20,13 +20,10 @@ function init(V) {
         }
     }
     const GOOGLE_SHEET_TABLE_TYPE = 'c7';
-    let googleSheetTokens = [];
-    let googleSheetRandomValue = '__random__';
-    let pendingTokenSelection = null;
 
+    // 表单共享状态（token 列表/待回填选择/产品代码）由 Biz.formState 持有，本页经其 API 访问
     let currentTaskId = null;
     let eventSource = null;
-    let productCodes = [];
 
     // 本页专用错误提示封装
     // 从模板加载数据
@@ -57,11 +54,11 @@ function init(V) {
                     document.getElementById('token_type').dispatchEvent(new Event('change'));
                 }
 
-                pendingTokenSelection = {
+                Biz.formState.setPendingTokenSelection({
                     token_id: config.token_id || '',
                     token_file: config.token_file || '',
                     token_selection_mode: config.token_selection_mode || ''
-                };
+                });
                 Biz.formState.applyPendingTokenSelection();
 
                 if (config.token_file) {
@@ -428,6 +425,14 @@ function init(V) {
         Biz.formState.loadGoogleSheetTokens();
         loadTemplates(); // 加载模板列表
 
+        // 注册页面差异钩子：模板回填/重启回填/本地草稿恢复由本页实现
+        Biz.formState.hooks = {
+            loadSavedFormData: loadSavedFormData,
+            fillFormWithTemplate: fillFormWithTemplate,
+            loadRestartConfig: loadRestartConfig,
+            syncProductCodesToParam1: syncProductCodesToParam1,
+        };
+
         // URL 参数驱动的数据加载：
         // - ?template_id=xxx -> /api/templates/xxx
         // - ?restart_task_id=xxx -> /api/tasks/xxx
@@ -611,11 +616,11 @@ function init(V) {
             document.getElementById('token_type').value = normalized.token_type;
             document.getElementById('token_type').dispatchEvent(new Event('change'));
         }
-        pendingTokenSelection = {
+        Biz.formState.setPendingTokenSelection({
             token_id: normalized.token_id || '',
             token_file: normalized.token_file || '',
             token_selection_mode: normalized.token_selection_mode || ''
-        };
+        });
         Biz.formState.applyPendingTokenSelection();
         if (normalized.token_file) {
             document.getElementById('token_file').value = normalized.token_file;
@@ -1113,7 +1118,7 @@ function init(V) {
         const param1El = document.getElementById('param1');
         if (!param1El) return;
         try {
-            param1El.value = JSON.stringify(productCodes);
+            param1El.value = JSON.stringify(Biz.formState.getProductCodes());
         } catch (e) {
             console.warn('同步产品代码到 param1 失败:', e);
         }
@@ -1149,9 +1154,9 @@ function init(V) {
         }
 
         // 合并并去重
-        const set = new Set(productCodes);
+        const set = new Set(Biz.formState.getProductCodes());
         parts.forEach(code => set.add(code));
-        productCodes = Array.from(set);
+        Biz.formState.setProductCodes(Array.from(set));
 
         inputEl.value = '';
         Biz.formState.renderProductCodeChips();
@@ -1162,9 +1167,10 @@ function init(V) {
     // 删除单个产品代码
     function removeProductCode(code) {
         if (!code) return;
-        productCodes = productCodes.filter(c => c !== code);
+        const remaining = Biz.formState.getProductCodes().filter(c => c !== code);
+        Biz.formState.setProductCodes(remaining);
         Biz.formState.renderProductCodeChips();
-        console.log('[c7] removeProductCode 移除代码:', code, '剩余数量:', productCodes.length);
+        console.log('[c7] removeProductCode 移除代码:', code, '剩余数量:', remaining.length);
         showNotification(`已移除产品代码 ${code}`, 'info');
     }
 
@@ -1491,7 +1497,7 @@ function init(V) {
                 if (formData.sheet_name) document.getElementById('sheet_name').value = formData.sheet_name;
                 if (formData.token_type) document.getElementById('token_type').value = formData.token_type;
                 if (formData.token_id) {
-                    pendingTokenSelection = { token_id: formData.token_id, token_file: formData.token_file || '' };
+                    Biz.formState.setPendingTokenSelection({ token_id: formData.token_id, token_file: formData.token_file || '' });
                 }
                 if (formData.token_file) document.getElementById('token_file').value = formData.token_file;
                 if (formData.token_json) document.getElementById('token_json').value = formData.token_json;

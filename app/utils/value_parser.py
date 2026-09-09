@@ -83,23 +83,36 @@ def parse_date(value: Any, *, default: date | None = None) -> date | None:
 
 
 
-def _convert_pandas_to_native(obj):
-    """递归转换 Pandas 类型为 Python 原生类型"""
+def _convert_pandas_to_native(obj, *, round_digits: int | None = None, non_finite_to_none: bool = False):
+    """递归转换 Pandas 类型为 Python 原生类型。
+
+    round_digits 非空时对浮点值统一保留小数位；non_finite_to_none 时将
+    NaN/inf 等非有限浮点转换为 None（合法 JSON，语义为"无法计算"而非 0）。
+    """
+
+    def _normalize(value):
+        if isinstance(value, float):
+            if non_finite_to_none and not math.isfinite(value):
+                return None
+            if round_digits is not None:
+                return round(value, round_digits)
+        return value
+
     if isinstance(obj, pd.DataFrame):
-        return [_convert_pandas_to_native(row) for row in obj.to_dict(orient='records')]
+        return [_convert_pandas_to_native(row, round_digits=round_digits, non_finite_to_none=non_finite_to_none) for row in obj.to_dict(orient='records')]
     elif isinstance(obj, pd.Series):
-        return [_convert_pandas_to_native(item) for item in obj.tolist()]
+        return [_convert_pandas_to_native(item, round_digits=round_digits, non_finite_to_none=non_finite_to_none) for item in obj.tolist()]
     elif isinstance(obj, dict):
-        return {k: _convert_pandas_to_native(v) for k, v in obj.items()}
+        return {k: _convert_pandas_to_native(v, round_digits=round_digits, non_finite_to_none=non_finite_to_none) for k, v in obj.items()}
     elif isinstance(obj, list):
-        return [_convert_pandas_to_native(item) for item in obj]
+        return [_convert_pandas_to_native(item, round_digits=round_digits, non_finite_to_none=non_finite_to_none) for item in obj]
     elif isinstance(obj, pd.Timestamp):
         return obj.isoformat() if pd.notna(obj) else None
     elif isinstance(obj, pd.Timedelta):
         return str(obj) if pd.notna(obj) else None
     elif isinstance(obj, np.generic):
-        return obj.item()
+        return _normalize(obj.item())
     elif pd.isna(obj):
         return None
     else:
-        return obj
+        return _normalize(obj)
