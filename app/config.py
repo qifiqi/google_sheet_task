@@ -4,18 +4,21 @@ from pathlib import Path
 
 
 def _get_bool(name, default=False):
+    """读取布尔环境变量；支持 true/1/yes/on（不区分大小写）。"""
     return os.environ.get(name, str(default)).lower() in ('true', '1', 'yes', 'on')
 
 
 def _get_int(name, default):
+    """读取整数环境变量；变量存在但不是整数时会在启动阶段报错。"""
     return int(os.environ.get(name, default))
 
 
+# 项目根目录及运行时数据目录。路径配置不是从 .env 读取的，统一相对于项目根目录。
 BASE_DIR = Path(__file__).parent.parent
-INSTANCE_DIR = BASE_DIR / 'instance'
-DATA_DIR = BASE_DIR / 'data'
-LOGS_DIR = BASE_DIR / 'logs'
-CONFIG_DIR = BASE_DIR / 'config'
+INSTANCE_DIR = BASE_DIR / 'instance'  # SQLite 数据库目录。
+DATA_DIR = BASE_DIR / 'data'          # token、导入文件等运行时数据。
+LOGS_DIR = BASE_DIR / 'logs'          # 应用日志目录。
+CONFIG_DIR = BASE_DIR / 'config'      # 预留的配置文件目录。
 
 
 def _resolve_database_url(default_url):
@@ -51,34 +54,49 @@ def _build_engine_options(_database_url):
 
 
 class BaseConfig:
+    # Flask 从该配置类读取最终配置；环境文件已在 app.create_app() 中先加载。
     BASE_DIR = BASE_DIR
     INSTANCE_DIR = INSTANCE_DIR
     DATA_DIR = DATA_DIR
     LOGS_DIR = LOGS_DIR
     CONFIG_DIR = CONFIG_DIR
+    # 未设置 DATABASE_URL 时使用 instance/app.db，适合最小本地运行。
     DEFAULT_DATABASE_URL = f'sqlite:///{INSTANCE_DIR / "app.db"}'
     DEBUG = False
     TESTING = False
 
+    # Flask session 等签名密钥；init_app() 会从 SECRET_KEY 环境变量读取，
+    # 未配置时生成随机值（重启后会变化，不适合生产环境）。
     SECRET_KEY = ''
+    # 当前项目固定关闭 SQLAlchemy 修改追踪；不要通过 .env 中同名变量修改。
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # 是否输出 SQL 语句；必须同时打开 SQLALCHEMY_ENGINE_LOG_ENABLED 才会生效。
     SQLALCHEMY_ECHO = False
+    # 是否启用 sqlalchemy.engine 日志，默认关闭以避免日志刷屏。
     SQLALCHEMY_ENGINE_LOG_ENABLED = False
     # 请求体/上传上限：import-excel 上传 Excel 的合理上限（超限 Flask 抛 413
     # → errors.py HTTPException 链自动转信封）。见 api-model-query-audit/07 §2.2。
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024
 
+    # 钉钉通知凭据和详情链接；为空时不发送对应通知或使用默认行为。
     DING_TALK_ACCESS_TOKEN = ''
     DING_TALK_SECRET = ''
     DING_TALK_DETAIL_BASE_URL = ''
+    # 对外展示的应用地址，例如反向代理后的 https://example.com。
     PUBLIC_BASE_URL = ''
 
+    # Flask/前端使用的应用基础地址。
     BASE_URL = 'http://localhost:5000'
+    # 股票 SDK / K 线服务地址；为空时由 SDK 使用默认地址。
     STOCK_BASE_URL = ''
+    # 单个任务最长执行时间，单位：秒。
     TASK_TIMEOUT = 3600
+    # 应用日志级别；LOG_FILE 固定写入 logs/app.log。
     LOG_LEVEL = 'INFO'
     LOG_FILE = LOGS_DIR / 'app.log'
+    # 最终数据库地址由 init_app() 根据 DATABASE_URL 解析。
     SQLALCHEMY_DATABASE_URI = DEFAULT_DATABASE_URL
+    # 数据库连接池参数，SQLite 不使用 pool_size/max_overflow 等参数。
     SQLALCHEMY_ENGINE_OPTIONS = _build_engine_options(SQLALCHEMY_DATABASE_URI)
 
     @classmethod
