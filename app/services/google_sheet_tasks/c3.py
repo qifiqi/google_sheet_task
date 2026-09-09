@@ -20,10 +20,14 @@ from app.utils.dfcf_api import DFCJStockApi
 from app.utils.logger import get_logger
 from app.utils.result_validator import validate_result_dict, validate_google_sheet_result, is_valid_result_value
 from app.utils.yf_api import YFApi
-from app.services.task.error_handling import format_task_error_message, record_task_exception
-from app.utils.task_error_utils import unwrap_exception
+from app.services.task.error_handling import (
+    format_task_error_message,
+    record_task_exception,
+    summarize_task_exception,
+)
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService, get_kline_price_field
+from app.services.google_sheet_tasks.result_payload import build_analyze_fields
 
 logger = get_logger(__name__)
 
@@ -421,45 +425,7 @@ class C3Service(BaseGoogleSheetService):
             "max_actual_leverage": result.get("max_actual_leverage", 0),
             "avg_actual_leverage": result.get("avg_actual_leverage", 0),
             "unit_actual_leverage_return": result.get("unit_actual_leverage_return", 0),
-            "start_monthly_std_dev": return_analysis.get("start_monthly_std_dev", 0),
-            "index_monthly_std_dev": return_analysis.get("index_monthly_std_dev", 0),
-            "index_annualized_return": return_analysis.get("index_annualized_return", 0),
-            "start_annualized_return": return_analysis.get("start_annualized_return", 0),
-            "index_profit_annual": return_analysis.get("index_profit_annual", 0),
-            "start_profit_annual": return_analysis.get("start_profit_annual", 0),
-            "index_profit_monthly_percentage": return_analysis.get("index_profit_monthly_percentage", 0),
-            "start_profit_monthly_percentage": return_analysis.get("start_profit_monthly_percentage", 0),
-            "index_avg_monthly_return_common": return_analysis.get("index_avg_monthly_return_common", 0),
-            "start_avg_monthly_return_common": return_analysis.get("start_avg_monthly_return_common", 0),
-            "index_monthly_return_volatility": return_analysis.get("index_monthly_return_volatility", 0),
-            "start_monthly_return_volatility": return_analysis.get("start_monthly_return_volatility", 0),
-            "annualized_return_diff": return_analysis.get("annualized_return_diff", 0),
-            "outperform_year": return_analysis.get("outperform_year", 0),
-            "monthly_excess_return_percentage_last_return": return_analysis.get(
-                "monthly_excess_return_percentage_last_return",
-                0,
-            ),
-            "avg_monthly_excess_returns": return_analysis.get("avg_monthly_excess_returns", 0),
-            "monthly_excess_volatility": return_analysis.get("monthly_excess_volatility", 0),
-            "max_drawdown": return_analysis.get("max_drawdown", 0),
-            "excess_drawdown_winning_rate": return_analysis.get("excess_drawdown_winning_rate", 0),
-            "start_drawdown": return_analysis.get("start_drawdown", 0),
-            "start_maximum_number_of_backtest_repair_days": return_analysis.get(
-                "start_maximum_number_of_backtest_repair_days",
-                0,
-            ),
-            "excess_maximum_number_of_backtest_repair_days": return_analysis.get(
-                "excess_maximum_number_of_backtest_repair_days",
-                0,
-            ),
-            "index_sharpe_ratio": return_analysis.get("index_sharpe_ratio", 0),
-            "start_sharpe_ratio": return_analysis.get("start_sharpe_ratio", 0),
-            "index_kama_ratio": return_analysis.get("index_kama_ratio", 0),
-            "start_kama_ratio": return_analysis.get("start_kama_ratio", 0),
-            "index_sortino_ratio": return_analysis.get("index_sortino_ratio", 0),
-            "start_sortino_ratio": return_analysis.get("start_sortino_ratio", 0),
-            "excess_sharpe": return_analysis.get("excess_sharpe", 0),
-            "excess_sortino": return_analysis.get("excess_sortino", 0),
+            **build_analyze_fields(return_analysis),
         })
         return payload
 
@@ -564,13 +530,10 @@ class C3Service(BaseGoogleSheetService):
                 pass
 
             # 其他异常情况
-            root = unwrap_exception(e) or e
-            try:
-                record = record_task_exception(self.task_id, e, "execute_task", self.app)
-                error_summary = format_task_error_message(record)
-            except Exception as record_error:
-                logger.warning("记录任务异常失败: %s", record_error)
-                error_summary = f"{root.__class__.__name__}: {root}"
+            root, error_summary = summarize_task_exception(
+                self.task_id, e, "execute_task", self.app,
+                log_warning=logger.warning,
+            )
             error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
             self._log_error(f"任务异常摘要: {error_summary}")

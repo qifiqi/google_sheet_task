@@ -22,6 +22,7 @@ from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import unwrap_exception
 from app.utils.kline_validation import require_kline_rows
 from app.services.kline_service import KlineService, get_kline_price_field
+from app.services.google_sheet_tasks.result_payload import build_analyze_fields
 
 
 logger = get_logger(__name__)
@@ -93,45 +94,7 @@ class C4Service(BaseGoogleSheetService):
             "max_actual_leverage": model_result.get("D18", 0),
             "avg_actual_leverage": model_result.get("D19", 0),
             "unit_actual_leverage_return": model_result.get("D20", 0),
-            "start_monthly_std_dev": analyze_result.get("start_monthly_std_dev", 0),
-            "index_monthly_std_dev": analyze_result.get("index_monthly_std_dev", 0),
-            "index_annualized_return": analyze_result.get("index_annualized_return", 0),
-            "start_annualized_return": analyze_result.get("start_annualized_return", 0),
-            "index_profit_annual": analyze_result.get("index_profit_annual", 0),
-            "start_profit_annual": analyze_result.get("start_profit_annual", 0),
-            "index_profit_monthly_percentage": analyze_result.get("index_profit_monthly_percentage", 0),
-            "start_profit_monthly_percentage": analyze_result.get("start_profit_monthly_percentage", 0),
-            "index_avg_monthly_return_common": analyze_result.get("index_avg_monthly_return_common", 0),
-            "start_avg_monthly_return_common": analyze_result.get("start_avg_monthly_return_common", 0),
-            "index_monthly_return_volatility": analyze_result.get("index_monthly_return_volatility", 0),
-            "start_monthly_return_volatility": analyze_result.get("start_monthly_return_volatility", 0),
-            "annualized_return_diff": analyze_result.get("annualized_return_diff", 0),
-            "outperform_year": analyze_result.get("outperform_year", 0),
-            "monthly_excess_return_percentage_last_return": analyze_result.get(
-                "monthly_excess_return_percentage_last_return",
-                0,
-            ),
-            "avg_monthly_excess_returns": analyze_result.get("avg_monthly_excess_returns", 0),
-            "monthly_excess_volatility": analyze_result.get("monthly_excess_volatility", 0),
-            "max_drawdown": analyze_result.get("max_drawdown", 0),
-            "excess_drawdown_winning_rate": analyze_result.get("excess_drawdown_winning_rate", 0),
-            "start_drawdown": analyze_result.get("start_drawdown", 0),
-            "start_maximum_number_of_backtest_repair_days": analyze_result.get(
-                "start_maximum_number_of_backtest_repair_days",
-                0,
-            ),
-            "excess_maximum_number_of_backtest_repair_days": analyze_result.get(
-                "excess_maximum_number_of_backtest_repair_days",
-                0,
-            ),
-            "index_sharpe_ratio": analyze_result.get("index_sharpe_ratio", 0),
-            "start_sharpe_ratio": analyze_result.get("start_sharpe_ratio", 0),
-            "index_kama_ratio": analyze_result.get("index_kama_ratio", 0),
-            "start_kama_ratio": analyze_result.get("start_kama_ratio", 0),
-            "index_sortino_ratio": analyze_result.get("index_sortino_ratio", 0),
-            "start_sortino_ratio": analyze_result.get("start_sortino_ratio", 0),
-            "excess_sharpe": analyze_result.get("excess_sharpe", 0),
-            "excess_sortino": analyze_result.get("excess_sortino", 0),
+            **build_analyze_fields(analyze_result),
         })
         return payload
 
@@ -389,13 +352,18 @@ class C4Service(BaseGoogleSheetService):
 
                 return True
 
-            # 定时检查是否完成（最多检查60次，20-30秒）
-            delay_min, delay_max = self._get_execution_poll_delay_bounds()
-            for attempt in range(60):
-                _ = self._get_execution_poll_delay(attempt, delay_min, delay_max)
-                self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
-                if not self._interruptible_sleep(_):
+            def _post_attempt_refresh(_attempt):
+                for google_sheet in self.google_sheets:
+                    self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
+                    google_sheet.update_jumped_cells(cell_updates)
+
+                if not self._interruptible_sleep(30):
                     raise RuntimeError("task cancelled")
+                for google_sheet in self.google_sheets:
+                    self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
+                    initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c4_output_range_1)
+
+            def _attempt(_attempt):
                 all_num = 0
                 for google_sheet in self.google_sheets:
                     self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
@@ -428,27 +396,17 @@ class C4Service(BaseGoogleSheetService):
                         results[f"{google_sheet.spreadsheet_id}__{google_sheet.title}"] = _result
                         all_num += 1
                     else:
-                        self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
-                        self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
+                        self._log_warning(f"第 {_attempt + 1} 次检查执行状态... 未完成")
+                        self._log_warning(f"第 {_attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[google_sheet.spreadsheet_id]}")
                         break
 
                 if all_num == len(self.google_sheets):
                     self._log_info(f"所有任务已完成")
                     return True, results
+                return False, None
 
-                if attempt in [5,15,25,35]:
-                    for google_sheet in self.google_sheets:
-                        self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                        google_sheet.update_jumped_cells(cell_updates)
-
-                    if not self._interruptible_sleep(30):
-                        raise RuntimeError("task cancelled")
-                    for google_sheet in self.google_sheets:
-                        self._log_info(f"向Google Sheet写入参数: {google_sheet.title}")
-                        initial_results[google_sheet.spreadsheet_id] = google_sheet.get_range(c4_output_range_1)
-
-            self._log_warning("执行超时，未在规定时间内完成")
-            return False, {}
+            # 定时检查是否完成（最多检查60次，20-30秒）；延时/取消/超时统一走 base 轮询骨架
+            return self._poll_google_sheet_completion(_attempt, post_attempt_fn=_post_attempt_refresh)
 
         except Exception as e:
             record = record_task_exception(

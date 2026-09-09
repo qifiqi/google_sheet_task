@@ -4,16 +4,6 @@
 供回测、模型汇总、全局预览等业务链路使用。
 """
 
-KNOWN_TASK_TYPES = {
-    "google_sheet",
-    "google_sheet_c4",
-    "google_sheet_c5",
-    "google_sheet_c7",
-    "backtest_training",
-    "backtest_multi_product",
-    "model_summary_rebuild",
-}
-
 
 def normalize_task_type(task_type: str | None) -> str:
     raw = str(task_type or "").strip().lower()

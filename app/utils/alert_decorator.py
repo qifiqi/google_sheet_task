@@ -51,18 +51,6 @@ def _resolve_task_url(target: Any) -> str:
     return f"{base_url}/google-sheet/detail?task_id={task_id}"
 
 
-def _default_message_builder(
-    target: Any,
-    func_name: str,
-    phase: str,
-    exc: Optional[BaseException],
-    result: Any,
-) -> str:
-    if exc is not None:
-        return f"{func_name} 执行异常: {type(exc).__name__}: {exc}"
-    return f"{func_name} 执行结果触发告警，phase={phase}, result={result!r}"
-
-
 def send_failure_alert(
     target: Any,
     message: str,
@@ -96,18 +84,15 @@ def send_failure_alert(
 
 def alert_on_failure(
     *,
+    message_builder: AlertMessageBuilder,
     result_predicate: Optional[AlertResultPredicate] = None,
-    message_builder: Optional[AlertMessageBuilder] = None,
     source_name: Optional[str] = None,
 ) -> Callable:
     """
-    通用失败告警装饰器。
+    通用失败告警装饰器。message_builder 必填：全部既有调用点均显式传入
+    base.build_execute_task_alert（ponytail 审计 C4：零使用的默认构造器已移除）。
 
     用法:
-        @alert_on_failure()
-        def execute_task(...):
-            ...
-
         @alert_on_failure(
             result_predicate=lambda result: result == "error",
             message_builder=lambda self, func, phase, exc, result: f"{func} 返回失败状态: {result}"
@@ -121,17 +106,16 @@ def alert_on_failure(
         def wrapper(*args, **kwargs):
             target = args[0] if args else None
             alert_source = source_name or func.__name__
-            build_message = message_builder or _default_message_builder
 
             try:
                 result = func(*args, **kwargs)
             except Exception as exc:
-                message = build_message(target, func.__name__, "exception", exc, None)
+                message = message_builder(target, func.__name__, "exception", exc, None)
                 send_failure_alert(target, message, source=alert_source)
                 raise
 
             if result_predicate and result_predicate(result):
-                message = build_message(target, func.__name__, "result", None, result)
+                message = message_builder(target, func.__name__, "result", None, result)
                 send_failure_alert(target, message, source=alert_source)
 
             return result

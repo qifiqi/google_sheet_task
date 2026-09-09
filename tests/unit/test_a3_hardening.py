@@ -179,7 +179,7 @@ def test_page_accessible_with_cookie_token(app_factory):
         user_id = _create_user(app, "page-user")
         client = app.test_client()
         client.set_cookie("access_token", create_access_token(user_id))
-        resp = client.get("/yule/")
+        resp = client.get("/xpl/")
         assert resp.status_code == 200
 
 

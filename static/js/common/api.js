@@ -169,7 +169,7 @@
             rebuildStatus: function (query, options) { return get('/admin/api/model-summary/rebuild/status' + (query ? '?' + query : ''), options); },
         },
         xpl: {
-            // xpl 页面蓝图自有 API（/xpl/index、/xpl/v1、/xpl/v2 页共用），信封与 /api/* 同一格式；
+            // xpl 页面蓝图自有 API（/xpl/index、/xpl/v2 页共用；analyzeV1 为历史命名的分析 API，v2 页在用），信封与 /api/* 同一格式；
             // 原调用点显式携带 X-CSRFToken，wire 格式保持不变。调用方需要完整信封时传 { envelope: true }。
             analyze: function (payload, options) { return post('/xpl/analyze', payload, withCsrfToken(options)); },
             analyzeV1: function (payload, options) { return post('/xpl/v1/analyze', payload, withCsrfToken(options)); },

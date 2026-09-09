@@ -37,7 +37,9 @@ from app.services.model_summary_service import model_summary_service
 from app.services.task import task_manager
 from app.services.xpl_service import xpl_analyzer
 from app.services.strategy_backtest_report_service import strategy_backtest_report_service
+from app.utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 EXCEL_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 DOCX_MIMETYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

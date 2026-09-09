@@ -42,15 +42,6 @@ const tokenIdSelect = document.getElementById('tokenId');
 const ratioTotal = document.getElementById('ratioTotal');
 const createStatus = document.getElementById('createStatus');
 
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
 function extractSpreadsheetId(rawUrl) {
     const match = String(rawUrl || '').trim().match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
     return match ? match[1] : '';

@@ -67,52 +67,7 @@ def _parse_json(raw, default):
         return default
 
 
-# ==================== bt：Excel 导入 / 结果查询 ====================
-
-
-@bt_api_bp.route("/api/import-excel", methods=["POST"])
-@login_required
-@limiter.limit(
-    lambda: f"{rate_limit_config('rate_limit_heavy', 6) or 6}/minute",
-    key_func=rate_limit_user_key,
-)
-def import_excel():
-    excel_file = request.files.get("file")
-    if not excel_file or not excel_file.filename:
-        raise BadRequestError("请先上传 Excel 文件")
-
-    data = BacktestExcelService().import_uploaded_excel(excel_file)
-    return success(data=_sanitize_json_value(data))
-
-
-@bt_api_bp.route("/api/task-results/<task_id>", methods=["GET"])
-@login_required
-def get_task_results_by_task_id(task_id):
-    """Return paginated task result summaries for the detail page."""
-    load_backtest_task(task_id)
-
-    page = request.args.get("page", default=1, type=int) or 1
-    per_page = request.args.get("per_page", default=10, type=int) or 10
-    page = max(page, 1)
-    per_page = max(min(per_page, 100), 1)
-
-    page_data = task_manager.get_task_results_page_raw(task_id, page, per_page)
-    results = [
-        {
-            **item,
-            "parameters": json.loads(item["parameters"]) if item["parameters"] else {},
-        }
-        for item in page_data["items"]
-    ]
-
-    return success(data={
-        "task_id": task_id,
-        "items": results,
-        "total": page_data["total"],
-        "pages": page_data["pages"],
-        "current_page": page_data["current_page"],
-        "per_page": page_data["per_page"],
-    })
+# ==================== bt：任务结果详情 / 导出 / 全局预览构建 ====================
 
 
 @bt_api_bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
@@ -204,18 +159,6 @@ def get_task_summary(task_id):
     })
 
 
-@bt_api_bp.route("/api/global-preview/<task_id>", methods=["GET"])
-@login_required
-def get_global_preview(task_id):
-    load_backtest_task(task_id)
-
-    payload = build_global_preview_payload(task_id)
-    if payload is None:
-        raise NotFoundError("任务不存在")
-
-    return success(data=_sanitize_json_value(payload))
-
-
 # ==================== bmp：批量导出构建块（P3 行为级合并的复用件，测试覆盖） ====================
 
 
@@ -279,42 +222,6 @@ def _build_word_report_payload(task: dict, task_result) -> dict | None:
     }
 
 
-@bmp_api_bp.route("/api/import-excel", methods=["POST"])
-@login_required
-@limiter.limit(
-    lambda: f"{rate_limit_config('rate_limit_heavy', 6) or 6}/minute",
-    key_func=rate_limit_user_key,
-)
-def bmp_import_excel():
-    excel_file = request.files.get("file")
-    if not excel_file or not excel_file.filename:
-        raise BadRequestError("请先上传 Excel 文件")
-    data = BacktestExcelService().import_uploaded_excel(excel_file)
-    return success(data=_sanitize_json_value(data))
-
-
-@bmp_api_bp.route("/api/task-results/<task_id>", methods=["GET"])
-@login_required
-def bmp_get_task_results_by_task_id(task_id):
-    _load_multi_product_task_or_raise(task_id)
-
-    page = max(request.args.get("page", default=1, type=int) or 1, 1)
-    per_page = max(min(request.args.get("per_page", default=10, type=int) or 10, 100), 1)
-    page_data = task_manager.get_task_results_page_raw(task_id, page, per_page)
-    results = [
-        {**item, "parameters": _parse_json(item["parameters"], {})}
-        for item in page_data["items"]
-    ]
-    return success(data={
-        "task_id": task_id,
-        "items": results,
-        "total": page_data["total"],
-        "pages": page_data["pages"],
-        "current_page": page_data["current_page"],
-        "per_page": page_data["per_page"],
-    })
-
-
 @bmp_api_bp.route("/api/task-result/<int:task_result_id>", methods=["GET"])
 @login_required
 def bmp_get_task_result_detail(task_result_id):
@@ -372,16 +279,6 @@ def bmp_get_task_result_detail(task_result_id):
     })
 
 
-@bmp_api_bp.route("/api/global-preview/<task_id>", methods=["GET"])
-@login_required
-def bmp_get_global_preview(task_id):
-    _load_multi_product_task_or_raise(task_id)
-    payload = build_multi_product_global_preview_payload(task_id)
-    if payload is None:
-        raise NotFoundError("任务不存在")
-    return success(data=_sanitize_json_value(payload))
-
-
 @bmp_api_bp.route("/api/global-preview/<task_id>/calculate-ratios", methods=["POST"])
 @login_required
 @limiter.limit(
@@ -420,3 +317,85 @@ def _load_multi_product_task_or_raise(task_id: str):
     if normalize_task_type(task["task_type"]) != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
         raise ValidationError("当前接口仅支持多品数据回测任务")
     return task
+
+
+# ==================== bt/bmp 共用视图（ponytail 审计 D2：一视图注册双蓝图） ====================
+
+
+def _import_excel_view():
+    excel_file = request.files.get("file")
+    if not excel_file or not excel_file.filename:
+        raise BadRequestError("请先上传 Excel 文件")
+
+    data = BacktestExcelService().import_uploaded_excel(excel_file)
+    return success(data=_sanitize_json_value(data))
+
+
+_import_excel_view = login_required(
+    limiter.limit(
+        lambda: f"{rate_limit_config('rate_limit_heavy', 6) or 6}/minute",
+        key_func=rate_limit_user_key,
+    )(_import_excel_view)
+)
+
+
+def _make_task_results_by_task_id_view(task_guard):
+    """分页结果摘要视图；task_guard 区分 bt/bmp 的任务类型校验。"""
+
+    @login_required
+    def _view(task_id):
+        """Return paginated task result summaries for the detail page."""
+        task_guard(task_id)
+
+        page = max(request.args.get("page", default=1, type=int) or 1, 1)
+        per_page = max(min(request.args.get("per_page", default=10, type=int) or 10, 100), 1)
+        page_data = task_manager.get_task_results_page_raw(task_id, page, per_page)
+        results = [
+            {**item, "parameters": _parse_json(item["parameters"], {})}
+            for item in page_data["items"]
+        ]
+
+        return success(data={
+            "task_id": task_id,
+            "items": results,
+            "total": page_data["total"],
+            "pages": page_data["pages"],
+            "current_page": page_data["current_page"],
+            "per_page": page_data["per_page"],
+        })
+
+    return _view
+
+
+def _make_global_preview_view(task_guard, payload_builder):
+    @login_required
+    def _view(task_id):
+        task_guard(task_id)
+
+        payload = payload_builder(task_id)
+        if payload is None:
+            raise NotFoundError("任务不存在")
+
+        return success(data=_sanitize_json_value(payload))
+
+    return _view
+
+
+for _target_bp in (bt_api_bp, bmp_api_bp):
+    _target_bp.add_url_rule(
+        "/api/import-excel", endpoint="import_excel",
+        view_func=_import_excel_view, methods=["POST"],
+    )
+    _target_bp.add_url_rule(
+        "/api/task-results/<task_id>", endpoint="task_results_by_task_id",
+        view_func=_make_task_results_by_task_id_view(
+            _load_multi_product_task_or_raise if _target_bp is bmp_api_bp else load_backtest_task
+        ),
+    )
+    _target_bp.add_url_rule(
+        "/api/global-preview/<task_id>", endpoint="global_preview",
+        view_func=_make_global_preview_view(
+            _load_multi_product_task_or_raise if _target_bp is bmp_api_bp else load_backtest_task,
+            build_multi_product_global_preview_payload if _target_bp is bmp_api_bp else build_global_preview_payload,
+        ),
+    )

@@ -17,15 +17,6 @@ let hasUnsavedRatioPreview = false;
 let ratioInputsDirty = false;
 let appliedRatioSignature = '';
 
-function escapeHtml(value) {
-    return String(value == null ? '' : value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
 function buildExcelDownloadName() {
     const taskName = String(previewPayload?.task?.name || TASK_ID).trim();
     const safeName = taskName.replace(/[\\/:*?"<>|]/g, '_').replace(/[ .]+$/g, '');

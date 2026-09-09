@@ -17,7 +17,6 @@ from app.services.task import TaskRuntimeViewService, task_manager
 from app.utils.api_response import error, success
 from app.utils.request_parsing import parse_body, parse_query
 from app.utils.auth import login_required
-from app.services.log_query_service import query_task_system_logs
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -215,22 +214,3 @@ def create_restart_task_api(task_id):
         http_status=400,
         data={"new_task_id": new_task_id, "start_error": start_error},
     )
-
-
-@task_api_bp.route('/tasks/<task_id>/system-logs', methods=['GET'])
-@login_required
-def get_task_system_logs(task_id):
-    """获取任务相关的系统日志"""
-    task_manager.get_required_task(task_id)
-
-    task_logs = query_task_system_logs(
-        task_id,
-        limit=request.args.get('limit', 200, type=int),
-        level_filter=request.args.get('level', ''),
-    )
-
-    return success(data={
-        "logs": task_logs,
-        "task_id": task_id,
-        "total_found": len(task_logs),
-    })

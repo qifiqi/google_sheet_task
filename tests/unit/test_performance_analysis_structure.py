@@ -1,10 +1,8 @@
-from app.services.performance_analysis_service import XPLAnalyzer as PerformanceAnalyzer
-from app.services.xpl_service import XPLAnalyzer as LegacyXPLAnalyzer, xpl_analyzer
+from app.services.xpl_service import XPLAnalyzer, xpl_analyzer
 
 
-def test_legacy_xpl_import_uses_the_performance_analyzer():
-    assert LegacyXPLAnalyzer is PerformanceAnalyzer
-    assert isinstance(xpl_analyzer, PerformanceAnalyzer)
+def test_xpl_service_exposes_the_composed_analyzer():
+    assert isinstance(xpl_analyzer, XPLAnalyzer)
 
 
 def test_composed_analyzer_keeps_text_analysis_behavior():

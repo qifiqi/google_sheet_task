@@ -180,15 +180,6 @@
         return `/backtest-multi-product/global-preview/${encodeURIComponent(currentTaskId)}?${params.toString()}`;
     }
 
-    function escapeHtml(value) {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
     function formatStatus(status) {
         const statusClassMap = {
             pending: 'bg-secondary',

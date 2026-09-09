@@ -2,7 +2,7 @@ import pytest
 
 from app.services.kline_service import KlineService
 from app.utils.dfcf_api import DFCJStockApi
-from app.utils.market import market_type_from_eastmoney, normalize_stock_code, to_yahoo_ticker
+from app.utils.market import normalize_stock_code, resolve_market_type, to_yahoo_ticker
 from app.utils.return_series import build_return_series_fields
 
 
@@ -14,7 +14,7 @@ from app.utils.return_series import build_return_series_fields
     ],
 )
 def test_eastmoney_market_codes_have_business_market_types(market, expected):
-    assert market_type_from_eastmoney(market) == expected
+    assert resolve_market_type(market) == expected
 
 
 @pytest.mark.parametrize(

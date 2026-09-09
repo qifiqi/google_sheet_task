@@ -11,7 +11,11 @@ from app.exceptions.sheet_check_error import SheetCheckError
 from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_execute_task_alert, should_alert_execute_task_result
 from app.services.config_manager import get_config_manager
 from app.services.backtest_parameter_utils import normalize_backtest_training_config
-from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.services.task.error_handling import (
+    format_task_error_message,
+    record_task_exception,
+    summarize_task_exception,
+)
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
@@ -231,13 +235,10 @@ class BacktestTrainingService(BaseGoogleSheetService):
                 pass
 
             # 其他异常情况：保留原始异常链，并记录结构化摘要供任务详情和看门狗使用。
-            root = unwrap_exception(e) or e
-            try:
-                record = record_task_exception(self.task_id, e, "execute_task", self.app)
-                error_summary = format_task_error_message(record)
-            except Exception as record_error:
-                self._log_warning(f"记录任务异常失败: {record_error}")
-                error_summary = f"{root.__class__.__name__}: {root}"
+            root, error_summary = summarize_task_exception(
+                self.task_id, e, "execute_task", self.app,
+                log_warning=self._log_warning,
+            )
             error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
             self._log_error(f"任务异常摘要: {error_summary}")
@@ -665,81 +666,76 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
                 return True
 
-            # 定时检查是否完成（最多检查60次，20-30秒）
-            delay_min, delay_max = self._get_execution_poll_delay_bounds()
-            for attempt in range(60):
-                # 定期刷新参数，防止模型卡顿
-                if attempt != 0 and (attempt % 10 == 0 or attempt in [5,15,25,35]):
-                    self._log_info(f"刷新参数")
-                    set_googl_val(20)
-
-                _ = self._get_execution_poll_delay(attempt, delay_min, delay_max)
-                self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
-                if not self._interruptible_sleep(_):
-                    raise RuntimeError("task cancelled")
-                all_num = 0
+            def _attempt(_attempt_index):
                 _result = self.google_sheet.get_range(
                     output_range_1,
                     value_render_option=result_value_render_option,
                 )
-                if _validate_check_values(_result, self.google_sheet.spreadsheet_id):
-                    batch_range_values = self.google_sheet.get_ranges(output_cell_list)
-                    _result_yearly = batch_range_values.get(output_range_2, {})
-                    _result.update(_result_yearly)
+                if not _validate_check_values(_result, self.google_sheet.spreadsheet_id):
+                    self._log_warning(f"第 {_attempt_index + 1} 次检查执行状态... 未完成")
+                    self._log_warning(f"第 {_attempt_index + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
+                    return False, None
 
-                    try:
-                        merged_return_range = batch_range_values.get(merged_return_range_a1, {})
-                        if is_c7_0_3:
-                            _index_return = self._calculate_c7_0_3_index_returns(kline)
-                            first_return_position = f"{output_column_start}2"
-                            if str(merged_return_range.get(first_return_position, '')).strip() == '#DIV/0!':
-                                merged_return_range[first_return_position] = 0
-                            _start_return = check_result(merged_return_range)
-                        else:
-                            _index_return = check_result({
-                                position: value
-                                for position, value in merged_return_range.items()
-                                if position.startswith(output_column_index)
-                            })
-                            _start_return = check_result({
-                                position: value
-                                for position, value in merged_return_range.items()
-                                if position.startswith(output_column_start)
-                            })
-                    except Exception as e:
-                        self._log_info(
-                            f"获取结果位置 {merged_return_range_a1} 时出错：{str(e)}"
-                        )
-                        self._log_info(f"_result：{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
-                        continue
+                batch_range_values = self.google_sheet.get_ranges(output_cell_list)
+                _result_yearly = batch_range_values.get(output_range_2, {})
+                _result.update(_result_yearly)
 
-                    _return_date = []
-                    for i in range(len(kline)):
-                        _return_date.append({
-                            'date': kline[i].get('stock_date'),
-                            'index_return': round(
-                                _index_return[i] if is_c7_0_3 else _index_return[f"{output_column_index}{i + 2}"],
-                                6,
-                            ),
-                            'start_return': round(
-                                _start_return[f"L{i + 2}"] if is_c7_0_3 else _start_return[f"{output_column_start}{i + 2}"],
-                                6,
-                            )
-
+                try:
+                    merged_return_range = batch_range_values.get(merged_return_range_a1, {})
+                    if is_c7_0_3:
+                        _index_return = self._calculate_c7_0_3_index_returns(kline)
+                        first_return_position = f"{output_column_start}2"
+                        if str(merged_return_range.get(first_return_position, '')).strip() == '#DIV/0!':
+                            merged_return_range[first_return_position] = 0
+                        _start_return = check_result(merged_return_range)
+                    else:
+                        _index_return = check_result({
+                            position: value
+                            for position, value in merged_return_range.items()
+                            if position.startswith(output_column_index)
                         })
-                    from app.services.performance_analysis.facade import calculate_v1_metrics
+                        _start_return = check_result({
+                            position: value
+                            for position, value in merged_return_range.items()
+                            if position.startswith(output_column_start)
+                        })
+                except Exception as e:
+                    self._log_info(
+                        f"获取结果位置 {merged_return_range_a1} 时出错：{str(e)}"
+                    )
+                    self._log_info(f"_result：{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
+                    return False, None
 
-                    metrics_result = calculate_v1_metrics(_return_date, analyzer=self.xpl)
-                    # 统一存储契约：metrics_payload = {schema_version, metrics, canonical_metrics}；
-                    # 完整收益序列由 TaskResultReturn 单独存储，不在 result 中重复。
-                    _result['metrics_payload'] = metrics_result.to_json_dict(include_series=False)
-                    results[f"{self.google_sheet.spreadsheet_id}__{self.google_sheet.title}"] = _result
-                    return True, results, _return_date
-                else:
-                    self._log_warning(f"第 {attempt + 1} 次检查执行状态... 未完成")
-                    self._log_warning(f"第 {attempt + 1} 次检查执行状态... 结果:{_result} 起始参数:{initial_results[self.google_sheet.spreadsheet_id]}")
-                    
-            self._log_warning("执行超时，未在规定时间内完成")
+                _return_date = []
+                for i in range(len(kline)):
+                    _return_date.append({
+                        'date': kline[i].get('stock_date'),
+                        'index_return': round(
+                            _index_return[i] if is_c7_0_3 else _index_return[f"{output_column_index}{i + 2}"],
+                            6,
+                        ),
+                        'start_return': round(
+                            _start_return[f"L{i + 2}"] if is_c7_0_3 else _start_return[f"{output_column_start}{i + 2}"],
+                            6,
+                        )
+
+                    })
+                from app.services.performance_analysis.facade import calculate_v1_metrics
+
+                metrics_result = calculate_v1_metrics(_return_date, analyzer=self.xpl)
+                # 统一存储契约：metrics_payload = {schema_version, metrics, canonical_metrics}；
+                # 完整收益序列由 TaskResultReturn 单独存储，不在 result 中重复。
+                _result['metrics_payload'] = metrics_result.to_json_dict()
+                results[f"{self.google_sheet.spreadsheet_id}__{self.google_sheet.title}"] = _result
+                return True, (results, _return_date)
+
+            # 定时检查是否完成（最多检查60次，20-30秒）；刷新/延时/取消/超时统一走 base 轮询骨架
+            done, payload = self._poll_google_sheet_completion(
+                _attempt, refresh_fn=set_googl_val, timeout_payload=(False, ())
+            )
+            if done:
+                results, _return_date = payload
+                return True, results, _return_date
             return False, {}, []
 
         except Exception as e:

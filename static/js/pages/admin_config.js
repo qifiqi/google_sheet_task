@@ -18,18 +18,6 @@
         loadGoogleSheetTokens();
     }
 
-    function escapeHtml(text) {
-        if (text === null || text === undefined) {
-            return '';
-        }
-        return String(text)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-    }
-
     function formatLimit(value) {
         const num = Number(value || 0);
         return num > 0 ? String(num) : '\u65e0\u9650';

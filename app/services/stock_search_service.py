@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
 
 from app.exceptions import ValidationError
 from app.repositories import stock_metadata_repository
+from app.services.stock_metadata_service import normalize_stock_payload
 from app.utils.dfcf_api import DFCJStockApi
+from app.utils.formatting import strip_html_tags
 from app.utils.logger import get_logger
 from app.utils.market import (
     MARKET_LABELS,
     STOCK_CODE_SUFFIXES,
-    market_type_from_eastmoney,
     normalize_market_type,
     normalize_stock_code,
+    resolve_market_type,
     strip_stock_code_suffix,
 )
 
@@ -149,20 +149,22 @@ class StockSearchService:
 
     @staticmethod
     def save_metadata(results: list[dict[str, Any]]) -> None:
-        """持久化 API 查询结果；任务解析不在这里开启额外事务。"""
-        stock_metadata_repository.bulk_upsert([
-            {
-                "stock_code": item["code"],
-                "stock_name": item["name"],
-                "market_type": item["market_type"],
-                "exchange_market": item["exchange_market"],
-                "security_type_name": item["security_type_name"],
-                "source": item["source"],
-                "raw_json": json.dumps(item, ensure_ascii=False, default=str),
-            }
-            for item in results
-            if item["market_type"]
-        ])
+        """持久化 API 查询结果；任务解析不在这里开启额外事务。
+
+        载荷构造统一走 stock_metadata_service.normalize_stock_payload
+        （ponytail 审计 B18：消除 stock_meta 第二套写入路径；股票代码由此
+        归一为标准格式，与 C 系任务写入路径一致），保留原有
+        "无 market_type 不写入" 过滤。
+        """
+        payloads = []
+        for item in results:
+            if not item.get("market_type"):
+                continue
+            payload = normalize_stock_payload(item)
+            if payload:
+                payloads.append(payload)
+        if payloads:
+            stock_metadata_repository.bulk_upsert(payloads)
 
     @staticmethod
     def _normalize_requested_market(value: str | None) -> str | None:
@@ -175,7 +177,7 @@ class StockSearchService:
 
     @staticmethod
     def _strip_html_tags(value: Any) -> str:
-        return re.sub(r"<[^>]+>", "", str(value or "")).strip()
+        return strip_html_tags(value)
 
     @staticmethod
     def _codes_match(left: str, right: str, market_type: str) -> bool:
@@ -198,7 +200,7 @@ class StockSearchService:
             return None
         exchange_market = self._strip_html_tags(raw.get("market"))
         security_type_name = self._strip_html_tags(raw.get("securityTypeName"))
-        market_type = normalize_market_type(raw.get("marketType")) or market_type_from_eastmoney(
+        market_type = normalize_market_type(raw.get("marketType")) or resolve_market_type(
             exchange_market,
             security_type_name,
         )

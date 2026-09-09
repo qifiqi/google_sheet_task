@@ -7,7 +7,6 @@
 from flask import Blueprint, current_app, g, jsonify, request
 
 from app.services.model_summary_service import model_summary_service
-from app.services.scheduler_service import scheduler_service
 from app.services.task import TaskRuntimeViewService, task_manager
 from app.extensions import limiter, rate_limit_config
 from app.schemas.admin import RebuildSchema
@@ -19,16 +18,6 @@ from app.utils.logger import get_logger
 admin_api_bp = Blueprint('admin_api', __name__, url_prefix='/admin')
 logger = get_logger(__name__)
 runtime_view_service = TaskRuntimeViewService(task_manager)
-@admin_api_bp.route('/api/scheduler/status')
-@login_required
-def scheduler_status():
-    """获取异步任务执行状态API（汇总逻辑在 scheduler_service）"""
-    summary = scheduler_service.get_async_runtime_summary()
-
-    return success(data={
-        'scheduler': summary,
-        'async_tasks': summary['tasks'],
-    })
 
 @admin_api_bp.route('/api/dashboard/overview')
 @login_required
@@ -85,15 +74,3 @@ def task_runtime_detail(task_id):
     return success(data={
         'task': runtime_view_service.get_runtime_detail(task_id),
     })
-
-@admin_api_bp.route('/api/scheduler/cleanup', methods=['POST'])
-@login_required
-def cleanup_completed_tasks():
-    """清理已完成的异步任务记录"""
-    max_age_hours = request.json.get('max_age_hours', 24) if request.is_json else 24
-    logger.info("请求清理已完成异步任务记录: max_age_hours=%s", max_age_hours)
-
-    # 清理已完成的任务
-    scheduler_service.cleanup_completed_tasks(max_age_hours)
-
-    return success(message=f'已清理超过 {max_age_hours} 小时的已完成任务记录')

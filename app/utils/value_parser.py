@@ -45,9 +45,25 @@ def parse_percent_like(value: Any, *, default: float | None = None) -> float | N
     return parse_float(text, default=default)
 
 
-def parse_ratio(value: Any, *, default: float | None = None) -> float | None:
-    """解析比例，带百分号时转换为小数比例。"""
-    return parse_percent_like(value, default=default)
+def coerce_bool(value: Any, default: bool = False) -> bool:
+    """统一的布尔解析入口（utils 层单一实现，config_manager 附加哨兵语义）。
+
+    兼容历史字符串与宽松写法（1/true/yes/on/t/y 等）；空串按既有约定视为
+    False；无法识别的非空字符串返回 default。
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ('1', 'true', 'yes', 'on', 't', 'y'):
+            return True
+        if normalized in ('', '0', 'false', 'no', 'off', 'n'):
+            return False
+    return default
 
 
 def parse_date(value: Any, *, default: date | None = None) -> date | None:

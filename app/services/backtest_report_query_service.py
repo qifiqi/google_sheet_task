@@ -1,10 +1,8 @@
 
 import json
 import math
-import re
 from collections import OrderedDict
 from copy import deepcopy
-from decimal import Decimal, InvalidOperation
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -13,9 +11,15 @@ from openpyxl.utils import get_column_letter
 from app.exceptions import NotFoundError, ValidationError
 from app.models import Task, TaskResult
 from app.repositories import task_repository, task_result_repository
-from app.services.performance_analysis.historical_metrics import resolve_preview_metrics
+from app.services.performance_analysis.historical_metrics import (
+    collect_summary_all_entries,
+    derive_year_max_excess_drawdown,
+    find_all_entry as _safe_all_entry,
+    resolve_preview_metrics,
+)
 from app.services.summary_contract import SUMMARY_ROW_LABELS as CONTRACT_SUMMARY_ROW_LABELS
 from app.services.xpl_service import xpl_analyzer
+from app.utils.formatting import max_yearly_repair_days, normalize_scientific_text
 from app.utils.return_series import parse_return_series_fields
 from app.utils.c7_result_normalizer import (
     C7_RAW_PERCENT_CELLS,
@@ -39,7 +43,6 @@ C3_PARAMETER_FIELDS = [
 ]
 
 
-SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
 SUMMARY_METRIC_CELL_MAP = {
     "C3": {
         "index_return": "I18",
@@ -70,27 +73,6 @@ SUMMARY_ROW_LABELS = [
     ("max_drawdown", "模型回撤"),
     ("excess_drawdown", "超额回撤"),
 ]
-
-def _normalize_scientific_text(text: str) -> str:
-    if not SCIENTIFIC_NOTATION_RE.fullmatch(text):
-        return text
-
-    try:
-        number = Decimal(text)
-    except InvalidOperation:
-        return text
-
-    if not number.is_finite():
-        return text
-
-    normalized = format(number.normalize(), "f")
-    if "." in normalized:
-        normalized = normalized.rstrip("0").rstrip(".")
-    if normalized in {"-0", "+0"}:
-        return "0"
-    return normalized
-
-
 
 
 def _load_backtest_task(task_id: str):
@@ -132,10 +114,6 @@ def _sanitize_json_value(value):
     if isinstance(value, list):
         return [_sanitize_json_value(item) for item in value]
     return value
-
-
-def _strip_html_tags(value):
-    return re.sub(r"<[^>]+>", "", str(value or "")).strip()
 
 
 def _infer_backtest_model_version(config):
@@ -318,15 +296,6 @@ def _build_backtest_result_export_rows(export_data: dict) -> list[list[str]]:
         ["" if value is None else str(value) for value in row]
         for row in dataframe.fillna("").values.tolist()
     ]
-
-
-def _safe_all_entry(items, key_name="year"):
-    if not isinstance(items, list):
-        return {}
-    for item in items:
-        if isinstance(item, dict) and str(item.get(key_name)) == "all":
-            return item
-    return {}
 
 
 def _extract_display_year(source_window):
@@ -621,7 +590,7 @@ def _format_summary_value(value):
         return f"{parsed:.2%}"
     if parsed is None:
         return ""
-    return _normalize_scientific_text(str(parsed).strip())
+    return normalize_scientific_text(str(parsed).strip())
 
 
 def _get_summary_raw_metric(column, metric_key):
@@ -713,17 +682,6 @@ def _percent_display(value):
     return f"{0 if parsed == 0 else parsed:.2%}"
 
 
-def _max_yearly_repair_days(yearly_repair_days):
-    if not isinstance(yearly_repair_days, dict):
-        return None
-    values = [
-        value for value in yearly_repair_days.values()
-        if isinstance(value, (int, float)) and not isinstance(value, bool)
-        and math.isfinite(value)
-    ]
-    return max(values) if values else None
-
-
 def _metric_year_key(value):
     text = str(value if value is not None else "").strip()
     if not text or text.lower() == "all":
@@ -736,57 +694,10 @@ def _metric_year_key(value):
 
 
 def _derive_year_max_excess_drawdown(calculate_metrics):
-    excess_returns = [
-        (_metric_year_key(item.get("year")), _parse_percent_like_value(item.get("annualized_return_diff")))
-        for item in calculate_metrics.get("excess_returns") or []
-        if isinstance(item, dict)
-    ]
-    annual_excess_returns = [
-        (year, diff)
-        for year, diff in excess_returns
-        if year
-    ]
-    if not annual_excess_returns:
-        return None
-
-    excess_years = {
-        year
-        for year, annualized_return_diff in annual_excess_returns
-        if isinstance(annualized_return_diff, (int, float))
-        and math.isfinite(annualized_return_diff)
-        and annualized_return_diff > 0
-    }
-    if not excess_years:
-        return 0.0
-
-    index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
-    start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
-    index_year_map = {
-        year: item
-        for item in index_max_dd.get("year_maximum_drawdown", [])
-        if isinstance(item, dict)
-        for year in [_metric_year_key(item.get("year"))]
-        if year in excess_years
-    }
-    start_year_map = {
-        year: item
-        for item in start_max_dd.get("year_maximum_drawdown", [])
-        if isinstance(item, dict)
-        for year in [_metric_year_key(item.get("year"))]
-        if year in excess_years
-    }
-
-    diffs = []
-    for year, index_item in index_year_map.items():
-        start_item = start_year_map.get(year) or {}
-        index_drawdown = _parse_percent_like_value(index_item.get("drawdown"))
-        start_drawdown = _parse_percent_like_value(start_item.get("drawdown"))
-        if not isinstance(index_drawdown, (int, float)) or not isinstance(start_drawdown, (int, float)):
-            continue
-        if not math.isfinite(index_drawdown) or not math.isfinite(start_drawdown):
-            continue
-        diffs.append(start_drawdown - index_drawdown)
-    return max(diffs) if diffs else None
+    """报告展示契约：start−index 符号（共享实现见 historical_metrics）。"""
+    return derive_year_max_excess_drawdown(
+        calculate_metrics, _parse_percent_like_value, _metric_year_key, direction=-1,
+    )
 
 
 def _format_excel_data_cell(cell):
@@ -851,7 +762,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
             return ""
         while text.startswith("--"):
             text = text[1:]
-        return _normalize_scientific_text(text)
+        return normalize_scientific_text(text)
 
     def _fmt_percent(value):
         if value is None or not math.isfinite(value):
@@ -864,18 +775,17 @@ def _extract_summary_rows(calculate_metrics, model_name):
         return f"{value:.2f}".rstrip("0").rstrip(".")
 
     def _build_fallback_rows():
-        excess_all = _safe_all_entry(calculate_metrics.get("excess_returns"), "year")
-        index_profit_monthly_all = _safe_all_entry(calculate_metrics.get("index_profit_monthly"), "year")
-        start_profit_monthly_all = _safe_all_entry(calculate_metrics.get("start_profit_monthly"), "year")
-        index_kama_all = _safe_all_entry(calculate_metrics.get("index_kama_ratio"), "year")
-        start_kama_all = _safe_all_entry(calculate_metrics.get("start_kama_ratio"), "year")
-        index_sortino_all = _safe_all_entry(calculate_metrics.get("index_sortino_ratio"), "year")
-        start_sortino_all = _safe_all_entry(calculate_metrics.get("start_sortino_ratio"), "year")
-        monthly_excess_percentage_all = _safe_all_entry(
-            calculate_metrics.get("monthly_excess_return_percentage"), "year"
-        )
-        index_sharpe_all = (calculate_metrics.get("index_sharpe_ratios") or {}).get("all") or {}
-        start_sharpe_all = (calculate_metrics.get("start_sharpe_ratios") or {}).get("all") or {}
+        entries = collect_summary_all_entries(calculate_metrics)
+        excess_all = entries["excess_all"]
+        index_profit_monthly_all = entries["index_profit_monthly_all"]
+        start_profit_monthly_all = entries["start_profit_monthly_all"]
+        index_kama_all = entries["index_kama_all"]
+        start_kama_all = entries["start_kama_all"]
+        index_sortino_all = entries["index_sortino_all"]
+        start_sortino_all = entries["start_sortino_all"]
+        monthly_excess_percentage_all = entries["monthly_excess_percentage_all"]
+        index_sharpe_all = entries["index_sharpe_all"]
+        start_sharpe_all = entries["start_sharpe_all"]
 
         monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
         valid_excess_months = [
@@ -890,10 +800,10 @@ def _extract_summary_rows(calculate_metrics, model_name):
         max_drawdown = _derive_year_max_excess_drawdown(calculate_metrics)
 
         total_max_drawdown = ((calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {})
-        year_index_max_repair_days = _max_yearly_repair_days(
+        year_index_max_repair_days = max_yearly_repair_days(
             calculate_metrics.get("year_index_yearly_max_repair_days")
         )
-        year_start_max_repair_days = _max_yearly_repair_days(
+        year_start_max_repair_days = max_yearly_repair_days(
             calculate_metrics.get("year_start_yearly_max_repair_days")
         )
 

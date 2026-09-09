@@ -19,9 +19,13 @@ from app.repositories import backtest_repository, task_repository, task_result_r
 from app.models import Task, TaskResult
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
-from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.services.task.error_handling import (
+    format_task_error_message,
+    record_task_exception,
+    summarize_task_exception,
+)
 from app.services.xpl_service import xpl_analyzer
-from app.utils.task_error_utils import unwrap_exception
+from app.utils.formatting import parse_lenient_json
 from app.utils.return_series import parse_return_series_fields
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.market import (
@@ -37,6 +41,8 @@ from app.services.performance_analysis.portfolio_combiner import (
 )
 from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DEFS
 from app.services.performance_analysis.historical_metrics import (
+    collect_summary_all_entries,
+    derive_year_max_excess_drawdown,
     extract_core_metrics,
     extract_core_weighted_metrics,
     upgrade_historical_metrics,
@@ -231,21 +237,7 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_json(raw: Any, default: Any) -> Any:
-    if isinstance(raw, (dict, list)):
-        return raw
-    try:
-        return json.loads(raw) if raw else default
-    except (TypeError, json.JSONDecodeError):
-        return default
-
-
-def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
-    if not isinstance(items, list):
-        return {}
-    for item in items:
-        if isinstance(item, dict) and str(item.get(key_name)) == "all":
-            return item
-    return {}
+    return parse_lenient_json(raw, default)
 
 
 def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
@@ -332,52 +324,10 @@ def _year_key(value: Any) -> str:
 
 
 def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float | None:
-    annual_excess_returns = [
-        (year, _safe_number(item.get("annualized_return_diff")))
-        for item in calculate_metrics.get("excess_returns") or []
-        if isinstance(item, dict)
-        for year in [_year_key(item.get("year"))]
-        if year
-    ]
-    if not annual_excess_returns:
-        return None
-
-    excess_years = {
-        year
-        for year, annualized_return_diff in annual_excess_returns
-        if annualized_return_diff is not None and annualized_return_diff > 0
-    }
-    if not excess_years:
-        return 0.0
-
-    index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
-    start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
-    index_year_map = {
-        year: item
-        for item in index_max_dd.get("year_maximum_drawdown", [])
-        if isinstance(item, dict)
-        for year in [_year_key(item.get("year"))]
-        if year in excess_years
-    }
-    start_year_map = {
-        year: item
-        for item in start_max_dd.get("year_maximum_drawdown", [])
-        if isinstance(item, dict)
-        for year in [_year_key(item.get("year"))]
-        if year in excess_years
-    }
-
-    diffs = []
-    for year, index_item in index_year_map.items():
-        start_item = start_year_map.get(year) or {}
-        index_drawdown = _safe_number(index_item.get("drawdown"))
-        start_drawdown = _safe_number(start_item.get("drawdown"))
-        if index_drawdown is None or start_drawdown is None:
-            continue
-        # 该字段属于旧预览摘要，保留正值“跌幅优势”契约；统一的
-        # drawdown_advantage 仍由统一门面以负值回撤相减得到。
-        diffs.append(index_drawdown - start_drawdown)
-    return max(diffs) if diffs else None
+    """旧预览摘要契约：正值"跌幅优势"（index−start），共享实现见 historical_metrics。"""
+    return derive_year_max_excess_drawdown(
+        calculate_metrics, _safe_number, _year_key, direction=1,
+    )
 
 
 def _canonical_drawdown(value: Any) -> float | None:
@@ -537,22 +487,17 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
                 return value
         return None
 
-    excess_all = _all_entry(calculate_metrics.get("excess_returns"))
-    index_profit_monthly_all = _all_entry(calculate_metrics.get("index_profit_monthly"))
-    start_profit_monthly_all = _all_entry(calculate_metrics.get("start_profit_monthly"))
-    monthly_excess_percentage_all = _all_entry(
-        calculate_metrics.get("monthly_excess_return_percentage")
-    )
-    index_kama_all = _all_entry(calculate_metrics.get("index_kama_ratio"))
-    start_kama_all = _all_entry(calculate_metrics.get("start_kama_ratio"))
-    index_sortino_all = _all_entry(
-        calculate_metrics.get("index_sortino_ratio") or calculate_metrics.get("index_sortino_ratio")
-    )
-    start_sortino_all = _all_entry(
-        calculate_metrics.get("start_sortino_ratio") or calculate_metrics.get("start_sortino_ratio")
-    )
-    index_sharpe_all = (calculate_metrics.get("index_sharpe_ratios") or {}).get("all") or {}
-    start_sharpe_all = (calculate_metrics.get("start_sharpe_ratios") or {}).get("all") or {}
+    entries = collect_summary_all_entries(calculate_metrics)
+    excess_all = entries["excess_all"]
+    index_profit_monthly_all = entries["index_profit_monthly_all"]
+    start_profit_monthly_all = entries["start_profit_monthly_all"]
+    monthly_excess_percentage_all = entries["monthly_excess_percentage_all"]
+    index_kama_all = entries["index_kama_all"]
+    start_kama_all = entries["start_kama_all"]
+    index_sortino_all = entries["index_sortino_all"]
+    start_sortino_all = entries["start_sortino_all"]
+    index_sharpe_all = entries["index_sharpe_all"]
+    start_sharpe_all = entries["start_sharpe_all"]
     monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
     monthly_excess_values = [
         item.get("monthly_excess_return_diff")
@@ -805,13 +750,10 @@ class BacktestMultiProductService(BacktestTrainingService):
                     self.task_ok_to_dd("多品数据回测任务执行完成")
                 return result
         except Exception as exc:
-            root = unwrap_exception(exc) or exc
-            try:
-                record = record_task_exception(self.task_id, exc, "execute_task", self.app)
-                error_summary = format_task_error_message(record)
-            except Exception as record_error:
-                self._log_warning(f"记录任务异常失败: {record_error}")
-                error_summary = f"{root.__class__.__name__}: {root}"
+            root, error_summary = summarize_task_exception(
+                self.task_id, exc, "execute_task", self.app,
+                log_warning=self._log_warning,
+            )
             self._log_error(f"执行多品数据回测任务失败: {self.task_id}, 错误: {root}")
             self._log_error(f"任务异常摘要: {error_summary}")
             return "error"

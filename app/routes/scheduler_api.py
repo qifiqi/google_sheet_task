@@ -84,13 +84,5 @@ def run_scheduled_task_now(task_id):
     scheduler_service.run_task_now(task_id)
     return success(data={'task_id': task_id}, message='任务已提交到后台异步执行')
 
-
-@scheduler_api_bp.route('/admin/scheduler/tasks/<int:task_id>/status', methods=['GET'])
-@login_required
-def get_task_execution_status(task_id):
-    """获取任务执行状态"""
-    return success(data=scheduler_service.get_task_execution_status(task_id))
-
-# 说明：/api/admin/scheduler/status 端点已删除——与 /admin/api/scheduler/status
-# 同语义且形状不同（B3 合并，见 docs/design/code-audit-2026-09/02 §11）；
-# 调度器运行态统一经 scheduler_service.get_async_runtime_summary()。
+# 说明：/api/admin/scheduler/status、/api/admin/scheduler/tasks/<id>/status、
+# /admin/api/scheduler(/status|/cleanup) 等端点已删除——前端零调用（2026-09 ponytail 审计 A5）。

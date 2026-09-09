@@ -14,22 +14,13 @@ akshare 首次 import 需数秒且接口列名随版本漂移，因此懒加载�
 import time
 from typing import Any, Dict, List, Optional
 
+from app.utils.kline_adjustment import sina_adjust
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 # 新浪频控安全间隔（秒）；批量任务逐参数调用本模块，宁慢勿封。
 MIN_REQUEST_INTERVAL = 0.5
-
-# 统一 adjust_type → akshare 的 adjust 参数（"" 即不复权）
-ADJUST_TYPE_MAP = {
-    "1": "qfq",
-    "2": "hfq",
-    "0": "",
-    "forward": "qfq",
-    "back": "hfq",
-    "none": "",
-}
 
 _last_request_time = 0.0
 
@@ -110,7 +101,7 @@ class AkshareApi:
             prefix = "sh" if code.startswith(("6", "9")) else "sz"
             rows = self._fetch_sina_daily(
                 lambda symbol: self._get_ak().stock_zh_a_daily(
-                    symbol=symbol, adjust=ADJUST_TYPE_MAP.get(str(adjust_type or "").strip().lower(), "")
+                    symbol=symbol, adjust=sina_adjust(adjust_type)
                 ),
                 f"{prefix}{code}",
             )
@@ -147,26 +138,13 @@ class AkshareApi:
         return rows
 
     def _fetch_hk(self, symbol: str, adjust_type: str | None) -> List[Dict]:
-        ak = self._get_ak()
-        adjust = ADJUST_TYPE_MAP.get(str(adjust_type or "").strip().lower(), "")
-        df = _call_with_retry(ak.stock_hk_daily, symbol=symbol, adjust=adjust)
-        rows: List[Dict] = []
-        for rec in (df.to_dict("records") if df is not None else []):
-            stock_date = str(rec.get("date"))[:10]
-            close = rec.get("close")
-            if not stock_date or close in (None, ""):
-                continue
-            rows.append({
-                "stock_code": symbol,
-                "stock_date": stock_date,
-                "open": _to_float(rec.get("open")),
-                "high": _to_float(rec.get("high")),
-                "low": _to_float(rec.get("low")),
-                "close": _to_float(close),
-                "volume": _to_float(rec.get("volume")),
-                "amount": _to_float(rec.get("amount")),
-            })
-        return rows
+        """港股日 K 与新浪 A股同一套行映射，仅 fetcher 与 adjust 传参不同。"""
+        return self._fetch_sina_daily(
+            lambda sym: self._get_ak().stock_hk_daily(
+                symbol=sym, adjust=sina_adjust(adjust_type)
+            ),
+            symbol,
+        )
 
     def _fetch_fund_nav(self, code: str) -> List[Dict]:
         """场外基金净值序列映射为标准行：开高低=单位净值，收=累计净值（缺失回退单位净值）。"""

@@ -186,7 +186,6 @@ class SummaryQueryMixin:
 
         total = len(rows)
         start = (page - 1) * per_page
-        paged_rows = rows[start:start + per_page]
         pages = math.ceil(total / per_page) if total else 0
         records = [self._record_to_dict(row) for row in rows]
         summary = self._summary_from_items(records)
@@ -195,7 +194,7 @@ class SummaryQueryMixin:
             "summary_type": str(filters.get("summary_type") or "task"),
             "columns": columns,
             "summary": summary,
-            "items": [self._record_to_dict(row) for row in paged_rows],
+            "items": records[start:start + per_page],
             "pagination": {
                 "page": page,
                 "per_page": per_page,

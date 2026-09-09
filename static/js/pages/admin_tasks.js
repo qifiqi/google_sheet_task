@@ -120,15 +120,6 @@ Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
         return buildGoogleSheetUrl('/google-sheet/create', taskId, taskType);
     }
 
-    function escapeHtml(value) {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
     document.addEventListener('DOMContentLoaded', function() {
         loadTasks();
         document.getElementById('search-input').addEventListener('input', function() {

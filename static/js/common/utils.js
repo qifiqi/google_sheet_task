@@ -3,12 +3,13 @@
 // 引入顺序：template-auth.js → navbar.js → api.js → utils.js → 页面 JS。
 'use strict';
 
-function sanitizeJSONString(jsonString) {
-    return String(jsonString || '')
-        .replace(/:\s*NaN\b/g, ': null')
-        .replace(/:\s*Infinity\b/g, ': "Infinity"')
-        .replace(/:\s*-Infinity\b/g, ': "-Infinity"')
-        .replace(/:\s*undefined\b/g, ': null');
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function parseJsonArray(text) {

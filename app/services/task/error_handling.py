@@ -94,6 +94,29 @@ def format_task_error_log(record: TaskErrorRecord) -> str:
     )
 
 
+def summarize_task_exception(
+    task_id: str,
+    exc: BaseException,
+    phase: str,
+    app=None,
+    log_warning=None,
+) -> tuple[BaseException, str]:
+    """记录任务异常并返回 ``(root 异常, 错误摘要)``。
+
+    记录路径自身失败时回退为 ``"类型: 消息"`` 简单摘要，保证调用方
+    （execute_task 兜底 except）始终能拿到可展示的错误信息。
+    """
+    root = unwrap_exception(exc) or exc
+    try:
+        record = record_task_exception(task_id, exc, phase, app)
+        error_summary = format_task_error_message(record)
+    except Exception as record_error:
+        if log_warning is not None:
+            log_warning(f"记录任务异常失败: {record_error}")
+        error_summary = f"{root.__class__.__name__}: {root}"
+    return root, error_summary
+
+
 def record_task_exception(
     task_id: str,
     exc: BaseException,

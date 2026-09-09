@@ -1,7 +1,7 @@
 """日志文件查询服务（表现层读取：解析 Config.LOG_FILE 文本，非 ORM）。
 
-2026-09 审计 B3：logs_api（/logs、/logs/latest）与 task_api（/tasks/<id>/system-logs）
-的三份同构解析逻辑收敛于此，路由只做参数编排。
+2026-09 审计 B3：logs_api（/logs、/logs/latest）等处的同构解析逻辑收敛于此，
+路由只做参数编排。（/tasks/<id>/system-logs 端点已于 2026-09 ponytail 审计 A5 删除。）
 """
 
 from __future__ import annotations
@@ -102,22 +102,3 @@ def query_latest_logs(since: str = "", limit: int = 50) -> list[dict]:
 
     latest.sort(key=lambda item: item["timestamp"])
     return latest[-limit:]
-
-
-def query_task_system_logs(task_id: str, limit: int = 200, level_filter: str = "") -> list[dict]:
-    """提取与指定任务相关的系统日志（全文件扫描，按时间升序取尾部 limit 条）。"""
-    task_patterns = [f"[Task-{task_id[:8]}]", f"任务 {task_id}", task_id]
-    task_logs: list[dict] = []
-    for line in _read_recent_lines(limit, multiplier=None):
-        if not any(pattern in line for pattern in task_patterns):
-            continue
-        entry = _parse_log_line(line)
-        if entry is None:
-            continue
-        entry["task_id"] = task_id
-        if level_filter and entry["level"] != level_filter.lower():
-            continue
-        task_logs.append(entry)
-
-    task_logs.sort(key=lambda item: item["timestamp"])
-    return task_logs[-limit:]

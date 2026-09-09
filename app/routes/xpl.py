@@ -1,6 +1,6 @@
 from flask import Blueprint, request
 
-from app.routes.page_files import send_page
+from app.routes.page_files import register_page_routes, send_page
 
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
 from app.schemas.xpl import AnalyzePayloadSchema
@@ -15,27 +15,28 @@ logger = get_logger(__name__)
 xpl_bp = Blueprint('xpl', __name__)
 
 
+# 页面路由表驱动化（ponytail 审计 D1）；/xpl/v1 页面已删除（审计 A2），分析 API 保留
+register_page_routes(
+    xpl_bp,
+    [
+        ('/', 'xpl/index.html'),
+        ('/v2', 'xpl/v2.html'),
+    ],
+    guard=page_login_required,
+)
 
 
-@xpl_bp.route('/')
-@page_login_required
-def index():
-    """Excel数据分析工具首页"""
-    return send_page('xpl/index.html')
+def _run_analyze(analyze_fn):
+    """analyze 端点共享体：parse → service → ok?success:error（审计 D6）。
 
-
-@xpl_bp.route('/v1', methods=['GET'])
-@page_login_required
-def index_v1():
-    """V1：Google Sheet 分析页面"""
-    return send_page('xpl/v1.html')
-
-
-@xpl_bp.route('/v2', methods=['GET'])
-@page_login_required
-def index_v2():
-    """V2：支持多数据源的回测分析页面。"""
-    return send_page('xpl/v2.html')
+    数据级失败（输入数据不满足分析前提）按 400 下发；前端按信封 message 展示。
+    路由内不 try/except：ValidationError → 全局 400，其余异常 → 全局 500。
+    """
+    payload = parse_body(AnalyzePayloadSchema).root
+    result = analyze_fn(payload)
+    if result["ok"]:
+        return success(data=result["data"], message=result["message"])
+    return error(result["message"], http_status=400, data=result["data"])
 
 
 @xpl_bp.route('/analyze', methods=['POST'])
@@ -57,15 +58,7 @@ def analyze_data():
     返回 (JSON, 统一信封):
     data = {"results": [...], "metrics": {...}}
     """
-    payload = parse_body(AnalyzePayloadSchema).root
-
-    # 不在路由内 try/except：ValidationError → 全局 400，其余异常 → 全局 500。
-    result = xpl_analysis_service.analyze_text(payload)
-
-    if result["ok"]:
-        return success(data=result["data"], message=result["message"])
-    # 数据级失败（输入数据不满足分析前提）按 400 下发；前端按信封 message 展示。
-    return error(result["message"], http_status=400, data=result["data"])
+    return _run_analyze(xpl_analysis_service.analyze_text)
 
 
 @xpl_bp.route('/v1/analyze', methods=['POST'])
@@ -76,7 +69,7 @@ def analyze_data():
 )
 def analyze_data_v1():
     """
-    API接口：分析 Google Sheet 数据
+    API接口：分析 Google Sheet 数据（历史命名；xpl/v2 页面在用）
 
     请求体 (JSON):
     {
@@ -88,12 +81,4 @@ def analyze_data_v1():
     返回 (JSON, 统一信封):
     data = {"results": [...], "metrics": {...}}
     """
-    payload = parse_body(AnalyzePayloadSchema).root
-
-    # 不在路由内 try/except：ValidationError → 全局 400，其余异常 → 全局 500。
-    result = xpl_analysis_service.analyze_sheet(payload)
-
-    if result["ok"]:
-        return success(data=result["data"], message=result["message"])
-    # 数据级失败（输入数据不满足分析前提）按 400 下发；前端按信封 message 展示。
-    return error(result["message"], http_status=400, data=result["data"])
+    return _run_analyze(xpl_analysis_service.analyze_sheet)

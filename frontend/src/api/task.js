@@ -14,4 +14,3 @@ export const getTaskResults = (id, params) => api.get(`/tasks/${id}/results`, { 
 export const checkTaskStatus = (id) => api.get(`/tasks/${id}/status-check`)
 export const restartTask = (id, data = {}) => api.post(`/tasks/${id}/restart`, data)
 export const createRestartTask = (id) => api.post(`/tasks/${id}/create-restart`)
-export const getTaskSystemLogs = (id) => api.get(`/tasks/${id}/system-logs`)

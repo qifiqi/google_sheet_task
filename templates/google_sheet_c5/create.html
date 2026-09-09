@@ -272,7 +272,19 @@
                                                             <option value="vwap_price">加权平均价</option>
                                                             <option value="kp_price">开盘价</option>
                                                             <option value="sp_price" selected>收盘价</option>
+                                                            <option value="random_price">随机价</option>
                                                         </select>
+                                                    </div>
+                                                    <div class="col-md-3 d-none random-price-option">
+                                                        <label class="form-label" for="random_price_range">随机价格范围</label>
+                                                        <select class="form-select" id="random_price_range">
+                                                            <option value="high_low" selected>最高价 - 最低价</option>
+                                                            <option value="open_close">开盘价 - 收盘价</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3 d-none random-price-option">
+                                                        <label class="form-label" for="random_group_count">随机组数</label>
+                                                        <input class="form-control" id="random_group_count" type="number" min="1" step="1" value="1">
                                                     </div>
                                                     <div class="col-md-3">
                                                         <label class="form-label d-block">市场类型</label>
@@ -311,6 +323,10 @@
                                                     <div class="col-md-9 d-none" id="recent_years_container">
                                                         <label class="form-label d-block text-danger fw-bold">选择要<u>移除</u>的近年区间</label>
                                                         <div class="btn-group d-flex" role="group">
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_half" value="0.5">
+                                                                <label class="form-check-label" for="exclude_year_half">近半年</label>
+                                                            </div>
                                                             <div class="form-check form-check-inline mb-0 me-2">
                                                                 <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_1" value="1">
                                                                 <label class="form-check-label" for="exclude_year_1">近1年</label>
@@ -570,6 +586,18 @@
     <script src="/static/js/common/utils.js"></script>
         <script src="/static/js/common/business/form-state.js"></script>
     <script src="/static/js/common/business/task-submit.js"></script>
-<script src="/static/js/pages/google_sheet_c5_create.js"></script>
+    <script>
+        // 共享创建页控制器（Biz.ctaskCreate，实现位于 pages/google_sheet_c7_create.js）
+        // 的 C5 版本配置；差异语义见 docs/design/ponytail-audit-2026-09/02 §4 P05b/P11
+        window.__CTASK_CONFIG = {
+            versionQuery: 'c5',
+            taskType: 'google_sheet_C5',
+            templateTaskType: 'google_sheet_c5',
+            klineDataSourceDefault: 'dfcf',
+            countRandomGroupsMultiplier: false,
+            modelVersion: { enabled: false, default: 'c7_0_2' }
+        };
+    </script>
+<script src="/static/js/pages/google_sheet_c7_create.js"></script>
 </body>
 </html>

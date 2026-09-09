@@ -598,6 +598,17 @@
     <script src="/static/js/common/utils.js"></script>
         <script src="/static/js/common/business/form-state.js"></script>
     <script src="/static/js/common/business/task-submit.js"></script>
+    <script>
+        // 共享创建页控制器（Biz.ctaskCreate）的 C7 版本配置
+        window.__CTASK_CONFIG = {
+            versionQuery: 'c7',
+            taskType: 'google_sheet_C7',
+            templateTaskType: 'google_sheet_c7',
+            klineDataSourceDefault: 'akshare',
+            countRandomGroupsMultiplier: true,
+            modelVersion: { enabled: true, default: 'c7_0_2' }
+        };
+    </script>
 <script src="/static/js/pages/google_sheet_c7_create.js"></script>
 </body>
 </html>

@@ -455,28 +455,6 @@ class SchedulerService:
             else:
                 # 获取所有任务状态
                 return dict(self.running_tasks)
-    
-    def cleanup_completed_tasks(self, max_age_hours=24):
-        """清理已完成的任务记录"""
-        current_time = datetime.now()
-        to_remove = []
-        
-        with self._tasks_lock:
-            for task_id, task_info in self.running_tasks.items():
-                if task_info['status'] in ['completed', 'failed']:
-                    end_time = task_info.get('end_time', current_time)
-                    age = current_time - end_time
-                    
-                    if age.total_seconds() > max_age_hours * 3600:
-                        to_remove.append(task_id)
-        
-        with self._tasks_lock:
-            for task_id in to_remove:
-                if task_id in self.running_tasks:
-                    del self.running_tasks[task_id]
-            
-        if to_remove:
-            logger.info(f"清理了 {len(to_remove)} 个已完成的任务记录")
 
     # ── 定时任务 CRUD 编排（/admin/scheduler* 端点，R4 自路由下沉） ──
 
@@ -506,31 +484,6 @@ class SchedulerService:
     def get_required_task(self, task_id):
         """定时任务 dict 访问；不存在抛 NotFoundError（路由 404 前置检查用）。"""
         return scheduled_task_repository.get_required(task_id)
-
-    def get_async_runtime_summary(self) -> dict:
-        """异步任务运行态摘要（admin scheduler/status 端点消费；自路由层下沉）。"""
-        async_tasks = self.get_async_task_status()
-        formatted_tasks = {}
-        for task_id, task_info in async_tasks.items():
-            formatted_tasks[task_id] = {
-                'status': task_info['status'],
-                'start_time': task_info['start_time'].isoformat() if task_info['start_time'] else None,
-                'end_time': task_info.get('end_time').isoformat() if task_info.get('end_time') else None,
-                'error': task_info.get('error'),
-                'duration': None,
-            }
-            if task_info.get('end_time') and task_info['start_time']:
-                duration = task_info['end_time'] - task_info['start_time']
-                formatted_tasks[task_id]['duration'] = duration.total_seconds()
-
-        return {
-            'is_running': self.is_running,
-            'total_async_tasks': len(async_tasks),
-            'running_tasks': len([t for t in async_tasks.values() if t['status'] == 'running']),
-            'completed_tasks': len([t for t in async_tasks.values() if t['status'] == 'completed']),
-            'failed_tasks': len([t for t in async_tasks.values() if t['status'] == 'failed']),
-            'tasks': formatted_tasks,
-        }
 
     def get_scheduler_stats(self) -> dict:
         """调度器统计（/admin/scheduler/stats）。"""
@@ -632,22 +585,6 @@ class SchedulerService:
             raise ServiceError('任务提交执行失败')
 
         logger.info(f"立即执行定时任务: {task['name']}")
-
-    def get_task_execution_status(self, task_id: int) -> dict:
-        """任务执行状态（任务摘要 + 异步状态 + 调度状态）。"""
-        task = scheduled_task_repository.get_required(task_id)
-        return {
-            'task': {
-                'id': task["id"],
-                'name': task["name"],
-                'is_active': task["is_active"],
-                'last_run_time': task["last_run_time"],
-                'next_run_time': task["next_run_time"],
-                'run_count': task["run_count"],
-            },
-            'async_status': self.get_async_task_status(task_id),
-            'job_status': self.get_job_status(task_id),
-        }
 
     def create_default_tasks(self):
         """创建默认定时任务"""

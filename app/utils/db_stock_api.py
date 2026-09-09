@@ -57,10 +57,6 @@ class StockAPIClient:
             response = self.session.get(url, params=params, timeout=self.timeout)
         elif method.upper() == 'POST':
             response = self.session.post(url, json=data, params=params, timeout=self.timeout)
-        elif method.upper() == 'PUT':
-            response = self.session.put(url, json=data, params=params, timeout=self.timeout)
-        elif method.upper() == 'DELETE':
-            response = self.session.delete(url, params=params, timeout=self.timeout)
         else:
             raise ValueError(f"不支持的HTTP方法: {method}")
 
@@ -74,55 +70,6 @@ class StockAPIClient:
                 logger.warning(f"响应不是有效的JSON格式: {response.text}")
                 return {"raw_response": response.text}
         raise requests.HTTPError(f"请求失败，状态码: {response.status_code}, 响应: {response.text}")
-
-    def get_single_stock_template_param(self, stock_no: str) -> Optional[Dict]:
-        """
-        获取单个股票模板参数
-
-        Args:
-            stock_no: 股票编号
-
-        Returns:
-            股票参数字典或None
-        """
-        endpoint = "api/Stock/GetSingleStockTemplateParam"
-        data = {"stock_no": stock_no}
-
-        response = self._make_request('POST', endpoint, data=data)
-
-        if response:
-            ret_obj = response.get('ret_obj')
-            if ret_obj:
-                logger.info(f"获取股票参数成功: {ret_obj}")
-                return ret_obj
-            else:
-                logger.warning(f"响应中没有ret_obj字段: {response}")
-                return None
-        else:
-            logger.error("获取股票参数失败")
-            return None
-
-    def insert_stock_template_param(self, param_data: Dict) -> int:
-        """
-        插入股票模板参数
-
-        Args:
-            param_data: 参数数据字典
-
-        Returns:
-            返回的ID或0
-        """
-        endpoint = "api/Stock/InsertStockTemplateParam"
-
-        response = self._make_request('POST', endpoint, data=param_data)
-
-        if response:
-            ret_count = response.get('ret_count', 0)
-            logger.info(f"插入参数成功，返回ID: {ret_count}")
-            return ret_count
-        else:
-            logger.error("插入参数失败")
-            return 0
 
     def add_or_modify_stock_param_result(self, result_data: Dict) -> Optional[Dict]:
         """
@@ -157,9 +104,4 @@ class StockAPIClient:
             return result
 
         raise requests.HTTPError(f"请求失败，状态码: {response.status_code}, 响应: {response.text}")
-
-    def close(self):
-        """关闭会话"""
-        self.session.close()
-        logger.info("API客户端会话已关闭")
 

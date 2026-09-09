@@ -5,16 +5,6 @@ import pandas as pd
 from app.services.strategy_backtest_report_service import StrategyBacktestReportService
 
 
-def test_normalized_weights_allows_percentage_total_other_than_100():
-    weights = StrategyBacktestReportService._normalized_weights([
-        {"ratio": "70"},
-        {"ratio": "30"},
-        {"ratio": "3"},
-    ])
-
-    assert weights == [0.7, 0.3, 0.03]
-
-
 def test_single_product_report_defaults_weight_to_100_percent():
     service = StrategyBacktestReportService()
     request = type("Request", (), {"products": [], "weight_allocation": None})()

@@ -21,26 +21,6 @@
         }
     }
 
-    function manualRefresh() {
-        const btn = document.getElementById('manual-refresh-btn');
-        const icon = btn.querySelector('i');
-        
-        // 添加旋转动画
-        icon.style.animation = 'spin 1s linear infinite';
-        btn.disabled = true;
-        
-        console.log('执行手动刷新...');
-        loadTaskDetail();
-        
-        // 1秒后恢复按钮
-        setTimeout(() => {
-            icon.style.animation = '';
-            btn.disabled = false;
-        }, 1000);
-        
-        showNotification('手动刷新完成', 'success');
-    }
-
     function loadTaskLogs() {
         console.log('开始加载任务日志...');
         Api.endpoints.task.logs(currentTaskId).then(function(data) {
@@ -227,7 +207,6 @@
     Biz.taskPolling = {
         getTaskIdFromUrl: getTaskIdFromUrl,
         getFrequencyText: getFrequencyText,
-        manualRefresh: manualRefresh,
         loadTaskLogs: loadTaskLogs,
         loadTaskResults: loadTaskResults,
         changeResultsPage: changeResultsPage,

@@ -23,8 +23,9 @@ STATIC_PAGES = [
     ("/google-sheet/create?restart_task_id=static-fixture", "/static/js/pages/google_sheet_create_dispatcher.js"),
     ("/google-sheet/detail?task_id=static-fixture", "/static/js/pages/google_sheet_detail_dispatcher.js"),
     # F3: google_sheet_c4/c5/c7 六大页（create + detail）
+    # P11 子批1：c5 create 页与 c7 共用 Biz.ctaskCreate 控制器（pages/google_sheet_c7_create.js）
     ("/google-sheet/create?version=c4", "/static/js/pages/google_sheet_c4_create.js"),
-    ("/google-sheet/create?version=c5", "/static/js/pages/google_sheet_c5_create.js"),
+    ("/google-sheet/create?version=c5", "/static/js/pages/google_sheet_c7_create.js"),
     ("/google-sheet/create?version=c7", "/static/js/pages/google_sheet_c7_create.js"),
     ("/google-sheet/detail?version=c4", "/static/js/pages/google_sheet_c4_detail.js"),
     ("/google-sheet/detail?version=c5", "/static/js/pages/google_sheet_c5_detail.js"),
@@ -59,13 +60,9 @@ STATIC_PAGES = [
     ("/admin/users", "/static/js/pages/admin_users.js"),
     # /admin/eastmoney-kline 为纯 iframe 壳页，无页面 JS，仅断言 pages css 与零 Jinja
     ("/admin/eastmoney-kline", "/static/css/pages/admin_eastmoney_kline.css", False),
-    # F5: xpl 三页（基座内联展开；CDN jquery/datatables/chart.js 保留外链）
+    # F5: xpl 两页（基座内联展开；CDN jquery/datatables/chart.js 保留外链；v1 页面链已删除）
     ("/xpl/", "/static/js/pages/xpl_index.js"),
-    ("/xpl/v1", "/static/js/pages/xpl_v1.js"),
     ("/xpl/v2", "/static/js/pages/xpl_v2.js"),
-    # F5: yule 两页（sjxz 独立页保留 floating-nav 属性；index 为跳转壳）
-    ("/yule/", "/static/js/pages/yule_index.js", False),
-    ("/yule/sjxz", "/static/js/pages/yule_sjxz.js", False),
     # F5: eastmoney_kline 独立页（已模块化，自带 layui/utils 脚本）
     ("/eastmoney-kline", "/static/js/pages/eastmoney_kline_index.js", False),
     # F5: 登录页（独立页，loginNextUrl 由 login.js 从 ?next= 填充）

@@ -22,6 +22,96 @@ _LEGACY_KEYS = {
     "excess_net": "excess_nav",
 }
 
+
+def find_all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
+    """从年度明细列表中取 ``year == 'all'`` 的汇总条目；无则返回空 dict。"""
+    if not isinstance(items, list):
+        return {}
+    for item in items:
+        if isinstance(item, dict) and str(item.get(key_name)) == "all":
+            return item
+    return {}
+
+
+def collect_summary_all_entries(metrics: Any) -> dict[str, Any]:
+    """一次收集汇总投影所需的全部 ``year=='all'`` 条目与 sharpe 'all' 表
+    （ponytail 审计 B2：multi/report_query/extractor 三处查找管道收敛）。
+
+    数值容差、键回退与格式化仍由各投影点自行决定——本函数只负责取条目。
+    """
+    if not isinstance(metrics, dict):
+        metrics = {}
+    return {
+        "excess_all": find_all_entry(metrics.get("excess_returns")),
+        "index_profit_monthly_all": find_all_entry(metrics.get("index_profit_monthly")),
+        "start_profit_monthly_all": find_all_entry(metrics.get("start_profit_monthly")),
+        "index_kama_all": find_all_entry(metrics.get("index_kama_ratio")),
+        "start_kama_all": find_all_entry(metrics.get("start_kama_ratio")),
+        "index_sortino_all": find_all_entry(metrics.get("index_sortino_ratio")),
+        "start_sortino_all": find_all_entry(metrics.get("start_sortino_ratio")),
+        "monthly_excess_percentage_all": find_all_entry(
+            metrics.get("monthly_excess_return_percentage")
+        ),
+        "index_sharpe_all": (metrics.get("index_sharpe_ratios") or {}).get("all") or {},
+        "start_sharpe_all": (metrics.get("start_sharpe_ratios") or {}).get("all") or {},
+    }
+
+
+def derive_year_max_excess_drawdown(calculate_metrics, parse_number, year_key, *, direction: int = 1):
+    """年度"超额回撤优势"最大值（ponytail 审计 B6 合并 multi/report_query 两份拷贝）。
+
+    仅统计年超额收益为正的年份。direction=1 返回 ``指数年回撤 − 策略年回撤``
+    （正值"跌幅优势"，多品预览契约）；direction=-1 返回 ``策略 − 指数``
+    （报告展示契约）。
+    """
+    annual_excess_returns = [
+        (year_key(item.get("year")), parse_number(item.get("annualized_return_diff")))
+        for item in calculate_metrics.get("excess_returns") or []
+        if isinstance(item, dict)
+    ]
+    annual_excess_returns = [(year, diff) for year, diff in annual_excess_returns if year]
+    if not annual_excess_returns:
+        return None
+
+    excess_years = {
+        year
+        for year, annualized_return_diff in annual_excess_returns
+        if isinstance(annualized_return_diff, (int, float))
+        and math.isfinite(annualized_return_diff)
+        and annualized_return_diff > 0
+    }
+    if not excess_years:
+        return 0.0
+
+    index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
+    start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
+    index_year_map = {
+        year: item
+        for item in index_max_dd.get("year_maximum_drawdown", [])
+        if isinstance(item, dict)
+        for year in [year_key(item.get("year"))]
+        if year in excess_years
+    }
+    start_year_map = {
+        year: item
+        for item in start_max_dd.get("year_maximum_drawdown", [])
+        if isinstance(item, dict)
+        for year in [year_key(item.get("year"))]
+        if year in excess_years
+    }
+
+    diffs = []
+    for year, index_item in index_year_map.items():
+        start_item = start_year_map.get(year) or {}
+        index_drawdown = parse_number(index_item.get("drawdown"))
+        start_drawdown = parse_number(start_item.get("drawdown"))
+        if not isinstance(index_drawdown, (int, float)) or not isinstance(start_drawdown, (int, float)):
+            continue
+        if not math.isfinite(index_drawdown) or not math.isfinite(start_drawdown):
+            continue
+        diffs.append(direction * (index_drawdown - start_drawdown))
+    return max(diffs) if diffs else None
+
 # 固定 20 项全局预览、单结果预览中不能由旧别名恢复的关键指标。
 _PREVIEW_REQUIRED_KEYS = (
     "excess_sharpe",

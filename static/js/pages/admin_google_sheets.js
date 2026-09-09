@@ -31,12 +31,6 @@ Api.endpoints.meta.enums().then(function (data) {
 });
 
 
-function escapeHtml(value) {
-    return String(value || '').replace(/[&<>"']/g, function(char) {
-        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char];
-    });
-}
-
 function buildGoogleSheetUrl(spreadsheetId) {
     const id = String(spreadsheetId || '').trim();
     return id ? `https://docs.google.com/spreadsheets/d/${encodeURIComponent(id)}/edit` : '';

@@ -447,15 +447,6 @@
         pollRebuildStatus();
     }
 
-    function escapeHtml(value) {
-        return String(value ?? "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-    }
-
     function renderRebuildTaskLink(job) {
         const taskId = job?.task_id || job?.job_id || "";
         const target = document.getElementById("rebuildTaskLink");

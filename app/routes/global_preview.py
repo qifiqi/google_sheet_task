@@ -8,15 +8,17 @@ from __future__ import annotations
 
 from flask import Blueprint
 
-from app.routes.page_files import send_page
+from app.routes.page_files import register_page_routes
 from app.utils.auth import page_login_required
 
 
 bp = Blueprint("global_preview", __name__, url_prefix="/global-preview")
 
-
-@bp.route("")
-@bp.route("/single_product")
-@page_login_required
-def page():
-    return send_page("global_preview/index.html")
+register_page_routes(
+    bp,
+    [
+        ("", "global_preview/index.html"),
+        ("/single_product", "global_preview/index.html"),
+    ],
+    guard=page_login_required,
+)

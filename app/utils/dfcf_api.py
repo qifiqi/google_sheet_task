@@ -13,9 +13,10 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from app.services.config_manager import get_config_manager
 from app.utils.kline_adjustment import eastmoney_fqt
 from app.utils.logger import get_logger
-from app.utils.market import market_type_from_eastmoney
+from app.utils.market import resolve_market_type
 from app.utils.proxy_manager import SmartProxyManager, get_smart_proxy_manager
 from app.utils.task_error_utils import is_retryable_network_error
+from app.utils.value_parser import coerce_bool
 
 os.environ["REQUESTS_CA_BUNDLE"] = requests.utils.DEFAULT_CA_BUNDLE_PATH
 
@@ -72,9 +73,7 @@ class DFCJStockApi:
 
     def _should_use_proxy_for_kline(self):
         raw_value = get_config_manager().get_config("dfcf_kline_proxy_enabled", "false")
-        if isinstance(raw_value, bool):
-            return raw_value
-        return str(raw_value).strip().lower() in ("1", "true", "yes", "on")
+        return coerce_bool(raw_value)
 
     @retry(
         stop=stop_after_attempt(5),
@@ -271,7 +270,7 @@ class DFCJStockApi:
                     "shortName": str(item.get("shortName") or "").strip(),
                     "securityTypeName": str(item.get("securityTypeName") or "").strip(),
                     "market": market,
-                    "marketType": market_type_from_eastmoney(market, item.get("securityTypeName")),
+                    "marketType": resolve_market_type(market, item.get("securityTypeName")),
                     "status": item.get("status", 10),
                     "isExactMatch": code == keyword_upper,
                     "innerCode": str(item.get("innerCode") or "").strip(),
@@ -337,7 +336,7 @@ class DFCJStockApi:
                     "flag": None,
                     "extSmallType": None,
                     "quoteId": quote_id,
-                    "marketType": market_type_from_eastmoney(
+                    "marketType": resolve_market_type(
                         market,
                         item.get("SecurityTypeName"),
                     ) or item.get("MarketType"),

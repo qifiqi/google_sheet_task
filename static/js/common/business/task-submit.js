@@ -15,19 +15,6 @@
         return combinations;
     }
 
-    function clearAllParameters() {
-        if (confirm('确定要清空所有配置吗？')) {
-            const param1El = document.getElementById('param1');
-            if (param1El) {
-                param1El.value = '';
-            }
-            productCodes = [];
-            Biz.formState.renderProductCodeChips();
-            calculateCombinations();
-            showNotification('已清空所有配置', 'warning');
-        }
-    }
-
     function saveAsTemplate() {
         // 获取当前配置
         const config = getCurrentConfig();
@@ -84,22 +71,9 @@
         });
     }
 
-    function handleTaskEvent(event) {
-        if (event.type === 'log_update') {
-            // 处理实时日志更新
-            console.log('收到日志更新:', event.data);
-        } else if (event.type === 'heartbeat') {
-            // 心跳包，无需处理
-        } else if (event.type === 'error') {
-            showNotification('任务执行出错: ' + event.data, 'error');
-        }
-    }
-
     Biz.taskSubmit = {
         generateCombinations: generateCombinations,
-        clearAllParameters: clearAllParameters,
         saveAsTemplate: saveAsTemplate,
-        submitTemplate: submitTemplate,
-        handleTaskEvent: handleTaskEvent
+        submitTemplate: submitTemplate
     };
 })();

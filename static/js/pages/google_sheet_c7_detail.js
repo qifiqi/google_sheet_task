@@ -1102,15 +1102,6 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         }
 
         // HTML 转义
-        function escapeHtml(str) {
-            return str
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#39;');
-        }
-
         // C7 汇总指标位于 D8-D26。
         const metricDisplayNameMap = {
             D8: 'Return%',

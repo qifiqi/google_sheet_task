@@ -1,18 +1,17 @@
 """任务类型归一化与通用数值解析工具测试。"""
 
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import pytest
 
-from app.utils.task_types import KNOWN_TASK_TYPES, normalize_task_type
+from app.utils.task_types import normalize_task_type
 from app.utils.value_parser import (
     _convert_pandas_to_native,
     parse_date,
     parse_float,
     parse_int,
     parse_percent_like,
-    parse_ratio,
 )
 
 
@@ -38,7 +37,6 @@ def test_normalize_task_type_keeps_unknown_and_is_case_insensitive():
     assert normalize_task_type("custom_type") == "custom_type"
     assert normalize_task_type(None) == ""
     assert normalize_task_type("  GOOGLE_SHEET  ") == "google_sheet"
-    assert set(KNOWN_TASK_TYPES) >= {"google_sheet", "backtest_training"}
 
 
 def test_parse_int_handles_defaults():
@@ -57,18 +55,16 @@ def test_parse_float_strips_thousands_and_rejects_non_finite():
     assert parse_float("", default=2.0) == 2.0
 
 
-def test_parse_percent_like_and_ratio():
+def test_parse_percent_like():
     assert parse_percent_like("5%") == 0.05
     assert parse_percent_like("0.07") == 0.07
     assert parse_percent_like("abc", default=0.0) == 0.0
-    assert parse_ratio("50%") == 0.5
-    assert parse_ratio("50") == 50.0
-    assert parse_ratio("abc", default=1.0) == 1.0
 
 
 def test_parse_date_supports_iso_shapes():
     assert parse_date("2026-08-29") == date(2026, 8, 29)
     assert parse_date("2026-08-29T10:00:00") == date(2026, 8, 29)
+    assert parse_date(datetime(2026, 8, 29, 10, 0)) == date(2026, 8, 29)
     assert parse_date("2026/08/29") is None
     assert parse_date("not-a-date") is None
     assert parse_date("", default=date(1970, 1, 1)) == date(1970, 1, 1)

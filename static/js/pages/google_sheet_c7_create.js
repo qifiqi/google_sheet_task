@@ -1,16 +1,24 @@
-// Google Sheet 创建任务页（C7）（templates/google_sheet_c7/create.html 的页面逻辑）。
-// 批内收敛：同名函数已提升至 static/js/common/business/（Biz.*），见 F3 收敛 pass。
-// 自 templates/google_sheet_c7/create.html 内联脚本原样抽离；接口调用经 common/api.js。
+// Google Sheet 创建任务页（C7/C5 共享控制器）（templates/google_sheet_c7/create.html、
+// templates/google_sheet_c5/create.html 的页面逻辑）。
+// ponytail 审计 P11 子批1：c5 与本文件 ~97% 相同的控制器收敛为 Biz.ctaskCreate.init(config)，
+// 版本差异经 config 表达（modelVersion / countRandomGroupsMultiplier / klineDataSourceDefault / versionQuery）。
+// 页面模板在加载本文件前设置 window.__CTASK_CONFIG，文件头部按配置自举。
+// 接口调用经 common/api.js。
 
-// ── 原 Jinja 服务端渲染点的前端等价实现（静态化，docs/design/frontend-refactor/03 §5）──
-// 原 `url_for('google_sheet.index', version=request.args.get('version', 'c7'))`
-const versionParam = new URLSearchParams(location.search).get('version');
-if (versionParam && versionParam !== 'c7') {
-    const backLink = document.querySelector('a[href="/google-sheet/?version=c7"]');
-    if (backLink) {
-        backLink.href = '/google-sheet/?version=' + encodeURIComponent(versionParam);
+Biz.ctaskCreate = {
+    init: init
+};
+
+function init(V) {
+    // ── 原 Jinja 服务端渲染点的前端等价实现（静态化，docs/design/frontend-refactor/03 §5）──
+    // 原 `url_for('google_sheet.index', version=request.args.get('version', 'c7'))`
+    const versionParam = new URLSearchParams(location.search).get('version');
+    if (versionParam && versionParam !== V.versionQuery) {
+        const backLink = document.querySelector('a[href="/google-sheet/?version=' + V.versionQuery + '"]');
+        if (backLink) {
+            backLink.href = '/google-sheet/?version=' + encodeURIComponent(versionParam);
+        }
     }
-}
     const GOOGLE_SHEET_TABLE_TYPE = 'c7';
     let googleSheetTokens = [];
     let googleSheetRandomValue = '__random__';
@@ -135,7 +143,9 @@ if (versionParam && versionParam !== 'c7') {
             spreadsheetSelect: item.querySelector('.google-sheet-select') || item.querySelector('#spreadsheet'),
             googleSheetIdInput: item.querySelector('#google_sheet_id'),
             spreadsheetHelp: item.querySelector('#spreadsheet-help'),
-            modelVersionSelect: item.querySelector('.c7-model-version-select') || item.querySelector('#c7_model_version'),
+            modelVersionSelect: V.modelVersion.enabled
+                ? (item.querySelector('.c7-model-version-select') || item.querySelector('#c7_model_version'))
+                : null,
             titleInput: item.querySelector('.spreadsheet-title-input') || item.querySelector('#spreadsheet_title'),
             worksheetInput: item.querySelector('.worksheet-name-input') || item.querySelector('#sheet_name'),
             refreshWorksheetsBtn: item.querySelector('.refresh-worksheets-btn') || item.querySelector('#refresh-sheets'),
@@ -984,7 +994,7 @@ if (versionParam && versionParam !== 'c7') {
 
         document.getElementById('market_type')?.addEventListener('change', debouncedSaveFormData);
         const priceModeSelect = document.getElementById('price_mode');
-        if (priceModeSelect) {
+        if (priceModeSelect && V.modelVersion.enabled) {
             priceModeSelect.addEventListener('change', function() {
                 enforceC7PriceMode();
                 debouncedCalculateCombinations();
@@ -1177,7 +1187,7 @@ if (versionParam && versionParam !== 'c7') {
             const randomGroups = document.getElementById('price_mode')?.value === 'random_price'
                 ? Math.max(1, parseInt(document.getElementById('random_group_count')?.value || '1', 10))
                 : 1;
-            count = len1 * len2 * len3 * randomGroups;
+            count = len1 * len2 * len3 * (V.countRandomGroupsMultiplier ? randomGroups : 1);
         }
 
         const infoDiv = document.getElementById('combination-info');
@@ -1316,7 +1326,7 @@ if (versionParam && versionParam !== 'c7') {
                     const sheetConfig = {
                         spreadsheet_id: sid,
                         title: stitle,
-                        c7_model_version: modelVersionSelect ? (modelVersionSelect.value || 'c7_0_2') : 'c7_0_2'
+                        ...(V.modelVersion.enabled ? { c7_model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
                     };
                     if (worksheetInput && worksheetInput.value.trim()) {
                         sheetConfig.sheet_name = worksheetInput.value.trim();
@@ -1327,10 +1337,10 @@ if (versionParam && versionParam !== 'c7') {
             });
         }
 
-        if (!validateC7ModelVersionSet(sheets)) {
+        if (V.modelVersion.enabled && !validateC7ModelVersionSet(sheets)) {
             return;
         }
-        if (!isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
+        if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
             priceMode = 'ohlc_price';
         }
 
@@ -1348,7 +1358,7 @@ if (versionParam && versionParam !== 'c7') {
             random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
             market_type: marketType,
             kline_adjustment: klineAdjustment,
-            kline_data_source: document.getElementById('kline_data_source')?.value || 'akshare',
+            kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
             date_range_mode: dateRangeModes,
             exclude_recent_years: isCustomKline ? [] : getExcludedRecentYears(),
             start_date: startDate,
@@ -1373,7 +1383,7 @@ if (versionParam && versionParam !== 'c7') {
         const taskData = {
             name: finalTaskName,
             description: taskDescription || `批量执行 ${combinationCount} 个参数组合`,
-            task_type: 'google_sheet_C7',
+            task_type: V.taskType,
             config: taskConfig
         };
 
@@ -1434,22 +1444,24 @@ if (versionParam && versionParam !== 'c7') {
             random_group_count: parseInt(document.getElementById('random_group_count')?.value || '1', 10),
             market_type: document.getElementById('market_type')?.value || 'cn',
             kline_adjustment: document.getElementById('kline_adjustment')?.value || 'forward',
-            kline_data_source: document.getElementById('kline_data_source')?.value || 'akshare',
+            kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
             date_range_mode: getSelectedDateRangeModes(),
             exclude_recent_years: getExcludedRecentYears(),
             param1: document.getElementById('param1').value,
             param2: document.getElementById('param2').value,
             param3: document.getElementById('param3').value
         };
-        formData.sheet_configs = Array.from(document.querySelectorAll('#sheet-config-list .sheet-config-item')).map(item => {
-            const { spreadsheetSelect, titleInput, worksheetInput, modelVersionSelect } = getSheetConfigElements(item);
-            return {
-                spreadsheet_id: extractSpreadsheetId(spreadsheetSelect?.value || ''),
-                title: titleInput?.value || '',
-                sheet_name: worksheetInput?.value || '',
-                c7_model_version: modelVersionSelect?.value || 'c7_0_2'
-            };
-        }).filter(item => item.spreadsheet_id);
+        if (V.modelVersion.enabled) {
+            formData.sheet_configs = Array.from(document.querySelectorAll('#sheet-config-list .sheet-config-item')).map(item => {
+                const { spreadsheetSelect, titleInput, worksheetInput, modelVersionSelect } = getSheetConfigElements(item);
+                return {
+                    spreadsheet_id: extractSpreadsheetId(spreadsheetSelect?.value || ''),
+                    title: titleInput?.value || '',
+                    sheet_name: worksheetInput?.value || '',
+                    c7_model_version: modelVersionSelect?.value || 'c7_0_2'
+                };
+            }).filter(item => item.spreadsheet_id);
+        }
 
         try {
             // localStorage.setItem('google_sheet_c7_form_data', JSON.stringify(formData));
@@ -1641,7 +1653,7 @@ if (versionParam && versionParam !== 'c7') {
                         const sheetConfig = {
                             spreadsheet_id: sid,
                             title: stitle,
-                            c7_model_version: modelVersionSelect ? (modelVersionSelect.value || 'c7_0_2') : 'c7_0_2'
+                            ...(V.modelVersion.enabled ? { c7_model_version: modelVersionSelect ? (modelVersionSelect.value || V.modelVersion.default) : V.modelVersion.default } : {})
                         };
                         if (sheetNameValue) {
                             sheetConfig.sheet_name = sheetNameValue;
@@ -1652,10 +1664,10 @@ if (versionParam && versionParam !== 'c7') {
                 });
             }
 
-            if (!validateC7ModelVersionSet(sheets)) {
+            if (V.modelVersion.enabled && !validateC7ModelVersionSet(sheets)) {
                 return null;
             }
-            if (!isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
+            if (V.modelVersion.enabled && !isCustomKline && sheets.some(sheet => sheet.c7_model_version === 'c7_0_3')) {
                 priceMode = 'ohlc_price';
             }
 
@@ -1665,9 +1677,9 @@ if (versionParam && versionParam !== 'c7') {
             if (Array.isArray(param2) && param2.length) parameters.push(param2);
             if (Array.isArray(param3) && param3.length) parameters.push(param3);
 
-            // 构造配置对象（c7 结构，包含 task_type，供模板过滤）
+            // 构造配置对象（含 task_type，供模板过滤）
             return {
-                task_type: 'google_sheet_c7',
+                task_type: V.templateTaskType,
                 token_type: tokenType,
                 token_id: tokenType === 'file' ? tokenId : null,
                 token_file: tokenFile,
@@ -1680,7 +1692,7 @@ if (versionParam && versionParam !== 'c7') {
                 random_group_count: priceMode === 'random_price' ? randomGroupCount : 1,
                 market_type: marketType,
                 kline_adjustment: klineAdjustment,
-                kline_data_source: document.getElementById('kline_data_source')?.value || 'akshare',
+                kline_data_source: document.getElementById('kline_data_source')?.value || V.klineDataSourceDefault,
                 date_range_mode: dateRangeModes,
                 exclude_recent_years: isCustomKline ? [] : getExcludedRecentYears(),
                 start_date: startDate,
@@ -1722,7 +1734,7 @@ if (versionParam && versionParam !== 'c7') {
 
         return {
             kline_source: raw.kline_source || 'auto',
-            kline_data_source: raw.kline_data_source || 'akshare',
+            kline_data_source: raw.kline_data_source || V.klineDataSourceDefault,
             count_mode: raw.count_mode || 'total',
             price_mode: raw.price_mode || 'vwap_price',
             random_price_range: raw.random_price_range || 'high_low',
@@ -1751,4 +1763,10 @@ if (versionParam && versionParam !== 'c7') {
         } catch (e) {
             console.warn('加载重启配置失败:', e);
         }
+    }
+    }
+
+    // 自举：页面模板以 window.__CTASK_CONFIG 提供版本配置后加载本文件
+    if (window.__CTASK_CONFIG) {
+        init(window.__CTASK_CONFIG);
     }

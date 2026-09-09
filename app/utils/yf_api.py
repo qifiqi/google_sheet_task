@@ -1,12 +1,7 @@
 import pandas as pd
 import yfinance as yf
-import hashlib
-import time
 from datetime import datetime
 from app.utils.logger import get_logger
-
-import requests
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from app.utils.kline_adjustment import normalize_kline_adjustment
 
@@ -20,7 +15,7 @@ class YFApi:
         self.kline_data = []
         self.logger = get_logger(self.__class__.__name__)
 
-    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', proxy=None, adjust_type=None):
+    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', adjust_type=None):
         # 先获取原始 OHLC + Adj Close，再在本地按统一口径处理前/后复权。
         data = yf.download(
             stock_code,
@@ -78,9 +73,6 @@ class YFApi:
         return adjusted
 
     def _normalize_ticker_hint(self, ticker_hint):
-        if isinstance(ticker_hint, (list, tuple, set)):
-            values = [str(item) for item in ticker_hint if item is not None]
-            return values[0] if len(values) == 1 else None
         return str(ticker_hint) if ticker_hint is not None else None
 
     def parse_multiple_tickers(self,df, adjust_type=None, ticker_hint=None):

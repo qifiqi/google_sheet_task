@@ -12,13 +12,11 @@ def register_blueprints(app):
     from app.routes.template_api import template_api_bp
     from app.routes.result_api import result_api_bp
     from app.routes.google_sheet_api import google_sheet_api_bp
-    from app.routes.database_api import database_api_bp
     from app.routes.eastmoney_kline import eastmoney_kline_bp
     from app.routes.stock_api import stock_api_bp
     from app.routes.google_sheet import google_sheet_bp
     from app.routes.scheduler_api import scheduler_api_bp
     from app.routes.xpl import xpl_bp
-    from app.routes.yule import yule_bp
     from app.routes.backtest_api import bt_api_bp, bmp_api_bp
     from app.routes.backtest_training import bp as backtest_training_bp
     from app.routes.backtest_training import legacy_bp as backtest_training_legacy_bp
@@ -32,7 +30,6 @@ def register_blueprints(app):
 
     app.register_blueprint(auth_pages_bp)
     app.register_blueprint(xpl_bp, url_prefix='/xpl')
-    app.register_blueprint(yule_bp, url_prefix='/yule')
     app.register_blueprint(admin_bp, url_prefix='/admin')
     app.register_blueprint(admin_api_bp, url_prefix='/admin')
 
@@ -44,7 +41,6 @@ def register_blueprints(app):
     app.register_blueprint(template_api_bp, url_prefix='/api')
     app.register_blueprint(result_api_bp, url_prefix='/api')
     app.register_blueprint(google_sheet_api_bp, url_prefix='/api')
-    app.register_blueprint(database_api_bp, url_prefix='/api')
     app.register_blueprint(eastmoney_kline_bp)
     app.register_blueprint(stock_api_bp, url_prefix='/api')
 

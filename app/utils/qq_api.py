@@ -13,17 +13,10 @@ import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from app.utils.logger import get_logger
+from app.utils.kline_adjustment import sina_adjust
 
 import requests
 from requests.adapters import HTTPAdapter
-
-# 腾讯源默认直连；如需接入代理，替换这两个适配函数即可。
-def configure_session_proxy(session):
-    return session
-
-
-def get_proxy_for_request():
-    return None
 
 # ── User-Agent 池 ─────────────────────────────────────────
 _USER_AGENTS: List[str] = [
@@ -68,16 +61,6 @@ class QQStockApi:
         '60': 'min60',
     }
 
-    # 复权类型映射（统一 K 线 adjust_type → 腾讯 qfq/hfq/空）
-    ADJUST_TYPE_MAP = {
-        '1': 'qfq',   # 前复权
-        '2': 'hfq',   # 后复权
-        '0': '',       # 不复权
-        'forward': 'qfq',
-        'back': 'hfq',
-        'none': '',
-    }
-
     def __init__(self):
         self.logger = get_logger(self.__class__.__name__)
         self._last_request_time = 0.0
@@ -92,7 +75,6 @@ class QQStockApi:
         session.mount("https://", adapter)
         session.mount("http://", adapter)
         session.headers.update(self._build_headers())
-        session = configure_session_proxy(session)
         return session
 
     def _build_headers(self) -> Dict[str, str]:
@@ -150,12 +132,9 @@ class QQStockApi:
         for attempt in range(self.MAX_RETRIES + 1):
             self._throttle()
 
-            proxies = get_proxy_for_request()
             kwargs: Dict = {"timeout": timeout}
             if params:
                 kwargs["params"] = params
-            if proxies:
-                kwargs["proxies"] = proxies
 
             try:
                 response = self.session.get(url, **kwargs)
@@ -223,7 +202,7 @@ class QQStockApi:
         qq_symbol = f"{market_prefix}{normalized_code}"
 
         qq_kline_type = self.KLINE_TYPE_MAP.get(kline_type, 'day')
-        qq_adjust = self.ADJUST_TYPE_MAP.get(adjust_type, 'qfq')
+        qq_adjust = sina_adjust(adjust_type, default='qfq')
 
         # 确定响应中的 key：qfqday / qfqweek / qfqmonth / qfqmin5 ...
         # 不复权时 key 为 day / week / month ...

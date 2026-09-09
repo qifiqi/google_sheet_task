@@ -8,15 +8,6 @@ function canManageUsers() {
     return Boolean(window.TemplateApp?.isAdmin())
 }
 
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
-}
-
 function getSelectedRoleIds() {
     const value = document.getElementById('roleIds').value
     return value ? [Number(value)] : []

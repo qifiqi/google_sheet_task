@@ -6,15 +6,19 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from flask import has_app_context
 
 from app.models import Task, TaskResult
 from app.services.performance_analysis.historical_metrics import upgrade_historical_metrics
+from app.services.performance_analysis.historical_metrics import (
+    collect_summary_all_entries,
+    find_all_entry as _all_entry,
+)
 from app.services.stock_metadata_service import lookup_stock_metadata
 from app.services.xpl_service import xpl_analyzer
+from app.utils.formatting import normalize_scientific_text, parse_lenient_json
 from app.utils.market import infer_market_type, normalize_stock_code, strip_stock_code_suffix
 from app.utils.task_types import normalize_task_type
 from app.utils.value_parser import parse_int, parse_percent_like
@@ -24,7 +28,6 @@ SUPPORTED_TASK_TYPES = ("google_sheet", "google_sheet_C4", "google_sheet_C5", "b
 MODEL_SUMMARY_REBUILD_TASK_TYPE = "model_summary_rebuild"
 FINISHED_TASK_STATUSES = ("completed", "cancelled", "error")
 ACTIVE_REBUILD_TASK_STATUSES = ("pending", "running")
-SCIENTIFIC_NOTATION_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[eE][+-]?\d+$")
 
 SUMMARY_COLUMNS = [
     {"key": "return_rate", "label": "Return%", "format": "percent"},
@@ -166,13 +169,7 @@ class SummaryRecord:
 
 
 def _parse_json(raw: Any, default: Any) -> Any:
-    """处理_parse_json相关逻辑。"""
-    if isinstance(raw, (dict, list)):
-        return raw
-    try:
-        return json.loads(raw) if raw else default
-    except (TypeError, json.JSONDecodeError):
-        return default
+    return parse_lenient_json(raw, default)
 
 
 _safe_number = parse_percent_like
@@ -181,22 +178,6 @@ _safe_number = parse_percent_like
 def _fmt_percent_like(value: Any) -> float | None:
     """处理_fmt_percent_like相关逻辑。"""
     return _safe_number(value)
-
-
-def _normalize_scientific_text(text: str) -> str:
-    """处理_normalize_scientific_text相关逻辑。"""
-    if not SCIENTIFIC_NOTATION_RE.fullmatch(text):
-        return text
-    try:
-        number = Decimal(text)
-    except InvalidOperation:
-        return text
-    if not number.is_finite():
-        return text
-    normalized = format(number.normalize(), "f")
-    if "." in normalized:
-        normalized = normalized.rstrip("0").rstrip(".")
-    return "0" if normalized in {"-0", "+0"} else normalized
 
 
 def _summary_key_from_label(label: str) -> str:
@@ -214,16 +195,6 @@ def _first_dict_value(payload: Any) -> dict[str, Any]:
         return {}
     value = next(iter(payload.values()))
     return value if isinstance(value, dict) else {}
-
-
-def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
-    """处理_all_entry相关逻辑。"""
-    if not isinstance(items, list):
-        return {}
-    for item in items:
-        if isinstance(item, dict) and str(item.get(key_name)) == "all":
-            return item
-    return {}
 
 
 def _kline_range(parameters: Any) -> str:
@@ -721,7 +692,7 @@ def _normalize_backtest_display_value(value: Any) -> str:
         return ""
     while text.startswith("--"):
         text = text[1:]
-    return _normalize_scientific_text(text)
+    return normalize_scientific_text(text)
 
 
 def _max_yearly_repair_days(yearly_repair_days: Any) -> float | None:
@@ -840,22 +811,18 @@ def _extract_backtest_metric_values(calculate_metrics: dict[str, Any]) -> dict[s
 
 def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name: str) -> tuple[str, list[dict[str, str]]]:
     """处理_extract_backtest_summary_rows相关逻辑。"""
-    def _safe_all_entry(items: Any) -> dict[str, Any]:
-        """处理_safe_all_entry相关逻辑。"""
-        return _all_entry(items, "year")
+    entries = collect_summary_all_entries(calculate_metrics)
+    excess_all = entries["excess_all"]
+    index_profit_monthly_all = entries["index_profit_monthly_all"]
+    start_profit_monthly_all = entries["start_profit_monthly_all"]
+    index_kama_all = entries["index_kama_all"]
+    start_kama_all = entries["start_kama_all"]
+    index_sortino_all = entries["index_sortino_all"]
+    start_sortino_all = entries["start_sortino_all"]
+    monthly_excess_percentage_all = entries["monthly_excess_percentage_all"]
+    start_sharpe_all = entries["start_sharpe_all"]
 
     def _fallback_rows() -> tuple[str, list[dict[str, str]]]:
-        """处理_fallback_rows相关逻辑。"""
-        excess_all = _safe_all_entry(calculate_metrics.get("excess_returns"))
-        index_profit_monthly_all = _safe_all_entry(calculate_metrics.get("index_profit_monthly"))
-        start_profit_monthly_all = _safe_all_entry(calculate_metrics.get("start_profit_monthly"))
-        index_kama_all = _safe_all_entry(calculate_metrics.get("index_kama_ratio"))
-        start_kama_all = _safe_all_entry(calculate_metrics.get("start_kama_ratio"))
-        index_sortino_all = _safe_all_entry(calculate_metrics.get("index_sortino_ratio"))
-        start_sortino_all = _safe_all_entry(calculate_metrics.get("start_sortino_ratio"))
-        monthly_excess_percentage_all = _safe_all_entry(calculate_metrics.get("monthly_excess_return_percentage"))
-        start_sharpe_all = (calculate_metrics.get("start_sharpe_ratios") or {}).get("all") or {}
-
         monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
         valid_excess_months = [
             item.get("monthly_excess_return_diff")

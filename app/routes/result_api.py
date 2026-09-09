@@ -20,7 +20,12 @@ result_api_bp = Blueprint('result_api', __name__)
 @result_api_bp.route('/tasks/<task_id>/results', methods=['GET'])
 @login_required
 def get_task_results(task_id):
-    """获取任务结果（自 task_api 归位，URL 不变）"""
+    """获取任务结果（自 task_api 归位，URL 不变）。
+
+    响应统一为分页形状信封 {items,total,pages,current_page,per_page}
+    （ponytail 审计 D3）；带 page/per_page 时按页返回，不带时单页承载
+    全部结果（CSV 全量导出依赖此模式）。
+    """
     task_manager.get_required_task(task_id)
 
     page = request.args.get('page', type=int)
@@ -39,7 +44,13 @@ def get_task_results(task_id):
         })
 
     results = task_manager.get_task_results(task_id)
-    return success(data={"items": results})
+    return success(data={
+        "items": results,
+        "total": len(results),
+        "pages": 1,
+        "current_page": 1,
+        "per_page": len(results),
+    })
 
 
 @result_api_bp.route('/results', methods=['GET'])

@@ -64,7 +64,7 @@ Get-Content .\run.py -Encoding UTF8
 
 `run.py` 只创建应用并调用 `bootstrap_app(app)`，启动编排全部在 `app/startup.py`：目录准备/日志 → 重置 token/Sheet 占用与回测锁 → 幂等播种 SystemConfig/RBAC/导航 → 清理死任务 → 启动调度器 + 看门狗。
 
-注意：表结构不在启动期创建，新环境需先 `flask init_db` 或 `flask db upgrade`；`run.py`/`startup.py` 里还有运行时 ALTER TABLE 补列的 schema 修补逻辑，线上脏库问题先看这里。任何影响任务状态、token 占用、RBAC、看门狗的修改，都要同时评估 `run.py` 与 `app/startup.py`。
+注意：表结构不在启动期创建，新环境需先 `flask init_db` 或 `flask db upgrade`；运行时 ALTER TABLE 补列的 schema 修补逻辑只在 `app/startup.py`（`run.py` 仅是 27 行的干净入口，只 create_app + bootstrap），线上脏库问题直接看 `app/startup.py`。任何影响任务状态、token 占用、RBAC、看门狗的修改，都要评估 `app/startup.py`。
 
 ## 任务系统核心
 

@@ -35,22 +35,6 @@ def normalize_weight(value: Any) -> Decimal:
     return number
 
 
-def _coerce_bool(value: Any) -> bool:
-    """Parse legacy boolean values without treating the string ``false`` as true."""
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    if isinstance(value, (int, float)):
-        return bool(value)
-    normalized = str(value).strip().lower()
-    if normalized in {"true", "1", "yes", "y", "on"}:
-        return True
-    if normalized in {"false", "0", "no", "n", "off", ""}:
-        return False
-    raise ValueError(f"无法解析组合 legacy 布尔值: {value}")
-
-
 def normalize_weighting_mode(mode: Any = None, *, legacy: Any = False) -> str:
     """统一组合算法入口。
 

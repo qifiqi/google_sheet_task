@@ -987,15 +987,6 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
         }
 
         // HTML 转义
-        function escapeHtml(str) {
-            return str
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#39;');
-        }
-
         // D2-D20 显示名称映射
         const metricDisplayNameMap = {
             D2: 'Return%',

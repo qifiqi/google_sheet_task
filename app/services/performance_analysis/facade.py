@@ -11,20 +11,12 @@ from typing import Any, Iterable
 
 import pandas as pd
 
+from app.services.performance_analysis.historical_metrics import find_all_entry as _all_entry
 from app.services.performance_analysis.response_dto import MetricsV1Result
 from app.utils.value_parser import _convert_pandas_to_native
 
 
 SCHEMA_VERSION = "metrics.v1"
-
-
-def _all_entry(value: Any) -> dict[str, Any]:
-    if not isinstance(value, list):
-        return {}
-    return next(
-        (item for item in value if isinstance(item, dict) and str(item.get("year")) == "all"),
-        {},
-    )
 
 
 def _first_value(*values: Any) -> Any:

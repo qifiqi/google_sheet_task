@@ -1,6 +1,6 @@
 from flask import Blueprint, request
 
-from app.routes.page_files import send_page
+from app.routes.page_files import register_page_routes, send_page
 from app.utils.auth import page_login_required
 from app.utils.logger import get_logger
 
@@ -9,11 +9,15 @@ logger = get_logger(__name__)
 google_sheet_bp = Blueprint('google_sheet', __name__)
 
 
-@google_sheet_bp.route('/')
-@page_login_required
-def index():
-    """Google Sheet参数批量校验首页（静态文档，version 仅由前端消费）"""
-    return send_page('google_sheet/index.html')
+# 无参数的纯静态页走表驱动（ponytail 审计 D1）；create/detail 为版本 dispatcher，保留手写
+register_page_routes(
+    google_sheet_bp,
+    [
+        ('/', 'google_sheet/index.html'),
+        ('/merge-export', 'google_sheet/merge_export.html'),
+    ],
+    guard=page_login_required,
+)
 
 @google_sheet_bp.route('/create')
 @page_login_required
@@ -31,13 +35,6 @@ def create():
     if version == 'c4':
         return send_page('google_sheet_c4/create.html')
     return send_page('google_sheet/create.html')
-
-@google_sheet_bp.route('/merge-export')
-@page_login_required
-def merge_export():
-    """C3 合并导出独立页面"""
-    return send_page('google_sheet/merge_export.html')
-
 
 @google_sheet_bp.route('/detail')
 @page_login_required

@@ -9,15 +9,6 @@ document.addEventListener('DOMContentLoaded', function() {
     loadNavigationItems();
 });
 
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
 function getParentOptions() {
     return navigationItems.filter(function(item) {
         return !item.path;

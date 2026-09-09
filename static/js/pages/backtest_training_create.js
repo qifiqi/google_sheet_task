@@ -120,15 +120,6 @@ async function loadStockMarkets() {
     }
 }
 
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
 function inferModelVersion(title) {
     const normalized = String(title || '').toUpperCase();
     if (normalized.includes('C7')) {

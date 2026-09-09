@@ -1,5 +1,8 @@
+import calendar
 import json
 import math
+import random
+import time
 from datetime import date, datetime
 from typing import Any, Dict, Optional
 
@@ -10,12 +13,20 @@ from app.repositories import task_log_repository, task_repository, task_result_r
 from app.models import TaskLog
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
+from app.services.google_sheet_tasks.kline_prep import project_and_validate_write_ready
+from app.services.kline_service import KlineService, get_kline_price_field
+from app.services.stock_metadata_service import upsert_stock_metadata_in_session
 from app.utils.db_retry import safe_db_operation
 from app.utils.db_stock_api import StockAPIClient
+from app.utils.kline_validation import require_kline_rows
 from app.utils.market import infer_market_type, normalize_stock_code
 from app.utils.return_series import build_return_series_fields, extract_return_rows
 from app.utils.logger import get_logger
-from app.services.task.error_handling import format_task_error_message, record_task_exception
+from app.services.task.error_handling import (
+    format_task_error_message,
+    record_task_exception,
+    summarize_task_exception,
+)
 from app.utils.task_error_utils import RetryableNetworkTaskError, is_retryable_network_error, unwrap_exception
 from app.exceptions import ValidationError
 from app.exceptions.sheet_check_error import SheetCheckError
@@ -29,6 +40,16 @@ DEFAULT_EXECUTION_DELAY_MAX = 30
 
 def should_alert_execute_task_result(result):
     return result == 'error'
+
+
+def _shift_date_months(date_str, months):
+    """ISO 日期字符串按月平移（months 可为负），日超过目标月天数时钳制到月末。"""
+    year = int(date_str[:4])
+    month = int(date_str[5:7])
+    total = year * 12 + (month - 1) + months
+    last_day = calendar.monthrange(total // 12, total % 12 + 1)[1]
+    day = min(int(date_str[8:10]), last_day)
+    return f"{total // 12:04d}-{total % 12 + 1:02d}-{day:02d}"
 
 
 def build_execute_task_alert(target, func_name, phase, exc, result):
@@ -183,6 +204,37 @@ class BaseGoogleSheetService:
     @staticmethod
     def _get_execution_poll_delay(attempt: int, delay_min: int, delay_max: int) -> int:
         return int(min(delay_min + max(attempt, 0) * 5, delay_max))
+
+    def _poll_google_sheet_completion(self, attempt_fn, refresh_fn=None, post_attempt_fn=None, timeout_payload=(False, {})):
+        """C 系参数组合轮询骨架（ponytail 审计 B3 上提，c3/c4/c5/c7/training 共用）。
+
+        - refresh_fn(20)：可选的防卡顿参数刷新，在 attempt%10==0 或
+          attempt∈[5,15,25,35]（且非首轮）的检查**之前**触发；c5/c7/training 使用；
+        - post_attempt_fn(attempt)：检查之后触发的钩子（c4 用于 [5,15,25,35]
+          轮的重写参数+重快照，其内部自带 30s 等待）；
+        - attempt_fn(attempt) → (是否全部完成, 结果载荷)；完成与未完成的
+          业务日志由 attempt_fn 自行输出；
+        - 超过 60 次未完成返回 timeout_payload（c5/c7/c4 为 (False, {})，
+          training 为 (False, {}, [])）。
+        """
+        delay_min, delay_max = self._get_execution_poll_delay_bounds()
+        for attempt in range(60):
+            # 定期刷新参数，防止模型卡顿
+            if refresh_fn is not None and attempt != 0 and (attempt % 10 == 0 or attempt in [5, 15, 25, 35]):
+                self._log_info(f"刷新参数")
+                refresh_fn(20)
+
+            _ = self._get_execution_poll_delay(attempt, delay_min, delay_max)
+            self._log_info(f"第 {attempt + 1} 次检查执行状态... delay {_} 秒")
+            if not self._interruptible_sleep(_):
+                raise RuntimeError("task cancelled")
+            done, payload = attempt_fn(attempt)
+            if done:
+                return True, payload
+            if post_attempt_fn is not None and attempt in [5, 15, 25, 35]:
+                post_attempt_fn(attempt)
+        self._log_warning("执行超时，未在规定时间内完成")
+        return timeout_payload
 
     def _task_detail_url(self) -> str:
         return f"{current_app.config.get('BASE_URL')}/google-sheet/detail?task_id={self.task_id}"
@@ -397,6 +449,8 @@ class BaseGoogleSheetService:
             "adjust_type": config_data.get('kline_adjustment'),
             "data_source": config_data.get("kline_data_source", "akshare"),
             "custom_kline_map": custom_kline_map,
+            "random_price_range": config_data.get('random_price_range', 'high_low'),
+            "random_group_count": int(config_data.get('random_group_count') or 1),
         }
 
     def _expand_parameters(self, outer_param, parameters, batch):
@@ -413,7 +467,236 @@ class BaseGoogleSheetService:
             parameters,
             batch["adjust_type"],
             data_source=batch["data_source"],
+            random_price_range=batch["random_price_range"],
+            random_group_count=batch["random_group_count"],
         )
+
+    def _expand_random_price_groups(self, combinations, kline_data_map, price_mode, random_price_range, random_group_count):
+        """random_price 模式下按组数展开组合；每组用 task_id 播种的确定性随机序列重取价格。"""
+        if price_mode != "random_price":
+            return combinations, kline_data_map
+        grouped_data = []
+        grouped_map = {}
+        for combination in combinations:
+            source_key = combination["Kline_key"]
+            source_kline = kline_data_map[source_key]
+            for random_group in range(1, int(random_group_count or 1) + 1):
+                group_key = f"{source_key}:random-{random_group}"
+                if group_key not in grouped_map:
+                    random_generator = random.Random(
+                        f"{self.task_id}:{combination.get('stock_code', '')}:"
+                        f"{source_key}:{random_price_range}:{random_group}"
+                    )
+                    grouped_map[group_key] = KlineService.build_price_rows(
+                        source_kline,
+                        price_mode,
+                        include_ohlc=True,
+                        random_price_range=random_price_range,
+                        random_generator=random_generator,
+                    )
+                item = dict(combination)
+                item["Kline_key"] = group_key
+                item["year"] = group_key
+                item["random_group"] = random_group
+                grouped_data.append(item)
+        return grouped_data, grouped_map
+
+    def _expand_auto_year_parameters(
+        self,
+        parameter,
+        count_mode,
+        price_mode,
+        end_date,
+        start_date,
+        market_type,
+        date_range_mode,
+        exclude_recent_years,
+        parameters,
+        adjust_type=None,
+        data_source="akshare",
+        source_label="google_sheet",
+        include_ohlc=False,
+        random_price_range="high_low",
+        random_group_count=1,
+    ):
+        """C5/C7 共享的 auto-K线年度参数展开骨架（ponytail 审计 B1 合并）。
+
+        此前 c5.py / c7.py 各持有一份 ~155 行拷贝；差异经参数表达：
+        - include_ohlc：C7 写回需要 OHLC 列；random_price 展开强制开启；
+        - random_price_range / random_group_count：随机价格分组（C5 已同步该能力）；
+        - recent 模式统一包含近半年（0.5）区间。
+        custom K线分支仍留在各自 service（_get_custom_parameters），不进本骨架。
+        """
+        # random_price 分组展开前先按收盘价占位取价；分组随机取价在 _expand_random_price_groups 里做
+        projection_mode = 'sp_price' if price_mode == 'random_price' else price_mode
+        if price_mode == 'random_price':
+            # 随机价格展开依赖 high/low 列重建价格序列
+            include_ohlc = True
+
+        _end_year_1 = int(end_date[:4])
+        now_time = time.strftime("%Y-%m-%d", time.localtime(time.time()))
+        _end_year = int(now_time[:4])
+        _start_date = int(start_date[:4])
+        limit = (_end_year - _start_date + 1) * 300
+
+        klines = self.kline_service.get_kline_data(
+            parameter,
+            market_type,
+            limit,
+            data_source=data_source,
+            start_date=start_date,
+            end_date=end_date,
+            adjust_type=adjust_type,
+        )
+        stock_name = str(klines[0].get("stock_name") or "") if klines else ""
+        parameter = str(klines[0].get("stock_code") or parameter) if klines else parameter
+        if stock_name:
+            upsert_stock_metadata_in_session({
+                "stock_code": parameter,
+                "stock_name": stock_name,
+                "market_type": market_type,
+                "source": source_label,
+            })
+
+        price_field = get_kline_price_field(price_mode)
+        if price_mode == 'random_price':
+            # 随机价格模式的取值字段随 random_price_range 变化
+            price_field = 'high' if random_price_range == 'high_low' else 'close'
+        klines = require_kline_rows(
+            parameter,
+            market_type,
+            klines,
+            context="原始K线",
+            min_rows=30,
+            price_field=price_field,
+        )
+
+        # 获取K线数据的时间范围
+        data_start_date = klines[0]['stock_date']
+        data_end_date = klines[-1]['stock_date']
+        if start_date < data_start_date:
+            self._log_info(
+                f"股票{parameter} 请求起始日期 {start_date} 早于可用K线首日 {data_start_date}，"
+                f"将从 {data_start_date} 开始回测"
+            )
+            start_date = data_start_date
+            _start_date = int(start_date[:4])
+
+        # 构建 full_years 列表（用于全年回测模式的边界检查）
+        full_years = None
+        if 'full' in date_range_mode:
+            full_years = list(range(_start_date, _end_year_1 + 1))
+
+        # 结束日期超出数据范围时仍保持原有校验，避免使用不完整的最新区间。
+        if end_date > data_end_date:
+            if full_years and int(data_start_date[:4]) in full_years:
+                pass
+            elif full_years and int(full_years[0]) > int(data_start_date[:4]):
+                pass
+            else:
+                raise Exception(
+                    f"股票{parameter} 设定区间 [{start_date}, {end_date}] 不在K线数据范围 [{data_start_date}, {data_end_date}] 内")
+
+        # 外部数据源可能返回配置区间外的历史K线；从这里开始，所有后续
+        # 区间拆分、写入 Sheet 和收益计算都只使用用户指定时间范围内的数据。
+        all_kline = project_and_validate_write_ready(
+            self.kline_service,
+            parameter=parameter,
+            market_type=market_type,
+            klines=klines,
+            price_mode=projection_mode,
+            start_date=start_date,
+            end_date=end_date,
+            data_end_date=data_end_date,
+            include_ohlc=include_ohlc,
+        )
+        data = []
+
+        KLINE_DATA_MAP = {}
+        if count_mode != 'n_plus_1' or 'recent' not in date_range_mode:
+            for i, v1 in enumerate(parameters[1]):
+                for j, v2 in enumerate(parameters[2]):
+                    Kline_key = f'{_end_year_1}-{_start_date}'
+                    d = {'stock_code': parameter, "A1": v1, "B1": v2, 'year': Kline_key,'Kline_key':Kline_key}
+                    if stock_name:
+                        d['stock_name'] = stock_name
+                    if Kline_key not in KLINE_DATA_MAP:
+                        KLINE_DATA_MAP[Kline_key] = all_kline
+
+                    data.append(d)
+
+        if count_mode != 'n_plus_1':
+            data, KLINE_DATA_MAP = self._expand_random_price_groups(
+                data, KLINE_DATA_MAP, price_mode, random_price_range, random_group_count
+            )
+            data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
+            return data, len(all_kline) + 20,KLINE_DATA_MAP
+
+        if 'recent' in date_range_mode:
+            # 起止年份差就是可生成的近年区间数量；首尾年份相差 5 年时，
+            # 应生成近 1 年到近 5 年，不能额外生成近 6 年的区间。
+            total_years = max(0, _end_year_1 - _start_date)
+            # 近半年（0.5）排在最前，开始日期 = 结束日期往前推 6 个月
+            recent_spans = [(0.5, _shift_date_months(end_date, -6))]
+            recent_spans.extend(
+                (year, f"{_end_year_1 - year}{end_date[4:]}")
+                for year in range(1, total_years + 1)
+            )
+            for year, span_start in recent_spans:
+                # 如果当前年份在排除列表中，跳过
+                if year in exclude_recent_years:
+                    continue
+
+                _end_data = end_date
+                _start_data = max(start_date, span_start)
+                if _start_data > _end_data:
+                    continue
+                kline = self.kline_service.build_price_rows(
+                    klines, projection_mode, start_date=_start_data, end_date=_end_data, include_ohlc=include_ohlc
+                )
+                if not kline:
+                    continue
+                Kline_key = f"{kline[-1]['stock_date'][:4]}-{kline[0]['stock_date'][:4]}"
+                for i, v1 in enumerate(parameters[1]):
+                    for j, v2 in enumerate(parameters[2]):
+                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': Kline_key,'Kline_key':Kline_key}
+                        if stock_name:
+                            d['stock_name'] = stock_name
+                        if Kline_key not in KLINE_DATA_MAP:
+                            KLINE_DATA_MAP[Kline_key] = kline
+
+                        data.append(d)
+
+        if 'full' in date_range_mode:
+            _all_kline = [k for k in klines if start_date <= k['stock_date'] <= end_date]
+            for year in range(_start_date, _end_year_1 + 1):
+                kline = self.kline_service.build_price_rows(_all_kline, projection_mode, year=year, include_ohlc=include_ohlc)
+                Kline_key = year
+                if not kline:
+                    continue
+
+                for i, v1 in enumerate(parameters[1]):
+                    for j, v2 in enumerate(parameters[2]):
+                        d = {"A1": v1, "B1": v2, 'stock_code': parameter, 'year': year,'Kline_key':Kline_key}
+                        if stock_name:
+                            d['stock_name'] = stock_name
+                        if Kline_key not in KLINE_DATA_MAP:
+                            KLINE_DATA_MAP[Kline_key] = kline
+
+                        data.append(d)
+
+        data, KLINE_DATA_MAP = self._expand_random_price_groups(
+            data, KLINE_DATA_MAP, price_mode, random_price_range, random_group_count
+        )
+
+        if not data:
+            raise ValueError(
+                f"股票{parameter}({market_type}) 在配置区间内没有可执行K线组合，"
+                f"请检查 start_date={start_date}, end_date={end_date}, date_range_mode={date_range_mode}"
+            )
+
+        data = self._deduplicate_parameter_combinations(data, KLINE_DATA_MAP)
+        return data, len(all_kline) + 20,KLINE_DATA_MAP
 
     def _clear_input_columns(self, google_sheet, batch) -> None:
         """执行前清空输入列（C5 默认：A列行数<10 跳过；滞空 A~B 列）。"""
@@ -683,13 +966,10 @@ class BaseGoogleSheetService:
                 pass
 
             # 其他异常情况
-            root = unwrap_exception(e) or e
-            try:
-                record = record_task_exception(self.task_id, e, "execute_task", self.app)
-                error_summary = format_task_error_message(record)
-            except Exception as record_error:
-                self._log_warning(f"记录任务异常失败: {record_error}")
-                error_summary = f"{root.__class__.__name__}: {root}"
+            root, error_summary = summarize_task_exception(
+                self.task_id, e, "execute_task", self.app,
+                log_warning=self._log_warning,
+            )
             error_msg = f"执行Google Sheet任务失败: {self.task_id}, 错误: {str(root)}"
             self._log_error(error_msg)
             self._log_error(f"任务异常摘要: {error_summary}")
@@ -875,20 +1155,6 @@ class BaseGoogleSheetService:
             "excess_sharpe": 0,
             "excess_sortino": 0,
         }
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        reraise=True,
-    )
-    def get_single_stock_template_param(self, stock_no: str) -> Optional[Dict[str, Any]]:
-        """获取单个股票模板参数。"""
-        try:
-            result = self.api_client.get_single_stock_template_param(stock_no)
-            return result
-        except Exception as err:
-            self._log_api_error("获取股票模板参数", str(err))
-            raise
 
     def _init_google_sheet(self, config_data: Dict[str, Any]):
         """初始化 Google Sheet 连接，兼容单表、多表和嵌套 sheet 配置。"""

@@ -24,8 +24,6 @@
         ["/xpl", "/xpl/"],
     ]);
 
-    const templateUnsupportedPaths = new Set([]);
-
     function parseJsonSafely(text) {
         if (!text) {
             return null;
@@ -91,11 +89,9 @@
         pagePermissions = [];
     }
 
-    function isAuthEnabled() {
-        // D3（docs/design/frontend-refactor/03 §6）：页面已不再注入 data-auth-enabled，
-        // 鉴权恒为开启（AUTH_ENABLED=false 仅 development 且前端不再感知）。
-        return true;
-    }
+    // 鉴权恒为开启（D3，docs/design/frontend-refactor/03 §6）：页面不再注入
+    // data-auth-enabled，AUTH_ENABLED=false 仅 development 且前端不感知，
+    // 原 isAuthEnabled() 恒真分支已随 2026-09 ponytail 审计 E6 移除。
 
     function isLoginPage() {
         return document.body?.dataset?.pageType === "login";
@@ -212,10 +208,7 @@
 
     function isAdmin() {
         // 与后端 admin_required/_is_admin_user 同一语义：仅判断是否持有 admin 角色
-        // （细粒度权限随主服务接入统一解决）。鉴权关闭时后端 mock 用户视为管理员。
-        if (!isAuthEnabled()) {
-            return true;
-        }
+        // （细粒度权限随主服务接入统一解决）。
         return Array.isArray(currentUser?.roles)
             && currentUser.roles.some((role) => role?.code === "admin");
     }
@@ -418,7 +411,7 @@
             const cloned = { ...item };
             if (cloned.path) {
                 const legacyPath = resolveLegacyPath(cloned.path);
-                if (!legacyPath || templateUnsupportedPaths.has(cloned.path)) {
+                if (!legacyPath) {
                     return result;
                 }
                 cloned.path = legacyPath;
@@ -699,11 +692,6 @@
             return;
         }
 
-        if (!isAuthEnabled()) {
-            window.location.replace(getLoginNextUrl());
-            return;
-        }
-
         if (getToken()) {
             fetchCurrentUser()
                 .then(() => {
@@ -751,13 +739,6 @@
         ensureFloatingEntry();
         applyTheme(localStorage.getItem(THEME_KEY) || "light");
         bindThemeToggles();
-
-        if (!isAuthEnabled()) {
-            updateBodyReadyState();
-            bindLogoutButtons();
-            emitAuthReady({ authEnabled: false, user: currentUser, permissions: currentPermissions.slice() });
-            return;
-        }
 
         if (!getToken()) {
             redirectToLogin();

@@ -21,11 +21,11 @@ EMPTY_RESULT_DATA = _EMPTY_RESULT_DATA
 def _parse_runtime_params(payload):
     """解析并校验 runtime_params（市场阶段阈值），非法输入抛 ValidationError。"""
     if payload is None:
-        return MetricsRuntimeParamsDTO(), None
+        return MetricsRuntimeParamsDTO()
     if not isinstance(payload, dict):
         raise ValidationError("runtime_params 必须是对象")
     try:
-        return MetricsRuntimeParamsDTO.from_raw(payload), None
+        return MetricsRuntimeParamsDTO.from_raw(payload)
     except ValueError as exc:
         raise ValidationError(str(exc))
 
@@ -49,7 +49,7 @@ class XplAnalysisService:
     def analyze_text(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         input_data = payload.get("data", "")
         time_format = payload.get("time_format", "auto")
-        runtime_params, _ = _parse_runtime_params(payload.get("runtime_params"))
+        runtime_params = _parse_runtime_params(payload.get("runtime_params"))
 
         result = xpl_analyzer.analyze(
             data=input_data,
@@ -62,7 +62,7 @@ class XplAnalysisService:
         spreadsheet_id = payload.get("spreadsheet_id", "")
         google_sheet_url = payload.get("google_sheet_url", "")
         google_sheet_name = payload.get("google_sheet_name", "auto")
-        runtime_params, _ = _parse_runtime_params(payload.get("runtime_params"))
+        runtime_params = _parse_runtime_params(payload.get("runtime_params"))
 
         result = xpl_analyzer.analyze_v1(
             spreadsheet_id=spreadsheet_id,

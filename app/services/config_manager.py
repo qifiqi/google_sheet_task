@@ -3,6 +3,7 @@ import threading
 from typing import Any, Dict, Optional
 from app.repositories import system_config_repository
 from app.utils.logger import get_logger
+from app.utils.value_parser import coerce_bool as _coerce_bool_value
 
 logger = get_logger(__name__)
 
@@ -97,26 +98,13 @@ def _deserialize_config_value(value: Any) -> Any:
 
 
 def coerce_bool(value: Any, default: bool = False) -> bool:
-    """统一的布尔配置解析入口。
+    """统一的布尔配置解析入口（实现见 app/utils/value_parser.coerce_bool）。
 
-    新配置经 _deserialize_config_value 后已是 bool，直接返回；
-    兼容处理历史字符串与宽松写法（1/yes/on/t/y 等）。
-    无法识别的非空字符串返回 default。
+    本包装仅附加配置存储的 ``_MISSING`` 哨兵语义：缺失键返回 default。
     """
-    if value is None or value is _MISSING:
+    if value is _MISSING:
         return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in ('1', 'true', 'yes', 'on', 't', 'y'):
-            return True
-        # 空串按既有约定（_get_bool / _coerce_bool）视为 False
-        if normalized in ('', '0', 'false', 'no', 'off', 'n'):
-            return False
-    return default
+    return _coerce_bool_value(value, default)
 
 
 class ConfigManager:

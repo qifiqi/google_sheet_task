@@ -122,11 +122,6 @@ def normalize_market_type(value: Any, default: str | None = None) -> str | None:
     return MARKET_TYPE_ALIASES.get(text, default)
 
 
-def market_type_from_eastmoney(market: Any, security_type_name: Any = None) -> str | None:
-    """兼容入口：统一走 resolve_market_type 判定。"""
-    return resolve_market_type(market, security_type_name)
-
-
 def split_stock_code(stock_code: Any) -> tuple[str, str | None]:
     """拆分项目标准代码，返回无后缀代码与标准后缀。"""
     code = str(stock_code or "").strip().upper()

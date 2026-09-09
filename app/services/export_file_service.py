@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import cmp_to_key
 from io import BytesIO
-from typing import Any, Protocol
+from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
@@ -230,18 +230,6 @@ class WorksheetData:
     rows: list[list[Any]]
 
 
-class TaskResultExporter(Protocol):
-    """任务结果导出器协议；新增导出类型时实现这个协议并注册到 EXPORTERS。"""
-
-    key: str
-
-    def supports(self, task: Any) -> bool:
-        ...
-
-    def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
-        ...
-
-
 @dataclass(frozen=True)
 class C5ResultGroup:
     """C5 原始 TaskResult 的中间结构，先归一化再展开模型行。"""
@@ -264,87 +252,59 @@ class C5ExportRecord:
     row: list[Any]
 
 
-class C7TaskResultExporter:
-    """C7 专用导出：展开每个模型为一行，并按 K 线范围拆分 worksheet。"""
-
-    key = "google_sheet_C7"
-
-    def supports(self, task: Any) -> bool:
-        return _task_type(task) == "google_sheet_c7"
-
-    def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
-        worksheets = build_c5_worksheets(normalize_c7_export_results(results))
-        return GeneratedExport(
-            filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
-            mimetype=EXCEL_MIMETYPE,
-            workbook=build_workbook(worksheets),
-        )
+def _excel_export(task: Any, worksheets: list[WorksheetData]) -> GeneratedExport:
+    """C7/C5/C3 共用的 Excel 组装：文件名取任务名，worksheet 由各类型给定。"""
+    return GeneratedExport(
+        filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
+        mimetype=EXCEL_MIMETYPE,
+        workbook=build_workbook(worksheets),
+    )
 
 
-class C5TaskResultExporter:
-    """C5 专用导出：展开每个模型为一行，并按 K 线范围拆分 worksheet。"""
-
-    key = "google_sheet_C5"
-
-    def supports(self, task: Any) -> bool:
-        return _task_type(task) == "google_sheet_c5"
-
-    def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
-        worksheets = build_c5_worksheets(results)
-        return GeneratedExport(
-            filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
-            mimetype=EXCEL_MIMETYPE,
-            workbook=build_workbook(worksheets),
-        )
-
-
-class GenericTaskResultExporter:
+def _generic_export(task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
     """通用兜底导出：未定制的任务类型也能下载原始结果。"""
-
-    key = "generic"
-
-    def supports(self, task: Any) -> bool:
-        return True
-
-    def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
-        header = [
-            "id",
-            "task_id",
-            "step_index",
-            "success",
-            "timestamp",
-            "parameters",
-            "result",
-            "error_message",
+    header = [
+        "id",
+        "task_id",
+        "step_index",
+        "success",
+        "timestamp",
+        "parameters",
+        "result",
+        "error_message",
+    ]
+    rows = [
+        [
+            item.get("id", ""),
+            item.get("task_id", ""),
+            item.get("step_index", ""),
+            "success" if item.get("success") else "failed",
+            format_time(item.get("timestamp")),
+            json_cell(item.get("parameters")),
+            json_cell(item.get("result")),
+            item.get("error_message") or "",
         ]
-        rows = [
-            [
-                item.get("id", ""),
-                item.get("task_id", ""),
-                item.get("step_index", ""),
-                "success" if item.get("success") else "failed",
-                format_time(item.get("timestamp")),
-                json_cell(item.get("parameters")),
-                json_cell(item.get("result")),
-                item.get("error_message") or "",
-            ]
-            for item in results
-        ]
-        return GeneratedExport(
-            filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
-            mimetype=EXCEL_MIMETYPE,
-            workbook=build_workbook([WorksheetData(name="任务结果", header=header, rows=rows)]),
-        )
-
-
-EXPORTERS: tuple[TaskResultExporter, ...]  # 在文件末尾初始化，确保所有导出器类已定义
+        for item in results
+    ]
+    return _excel_export(task, [WorksheetData(name="任务结果", header=header, rows=rows)])
 
 
 def build_task_export(task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
-    """导出统一入口；路由层负责查任务和结果，本服务只做格式转换。"""
+    """导出统一入口；路由层负责查任务和结果，本服务只做格式转换。
 
-    exporter = get_task_result_exporter(task)
-    return exporter.build(task, results)
+    - C7：展开每个模型为一行（先归一化），按 K 线范围拆分 worksheet；
+    - C5：展开每个模型为一行，按 K 线范围拆分 worksheet；
+    - C3（google_sheet/google_sheet_c3）：每个参数组合一行，按 K 线范围拆分 worksheet；
+    - 其余任务类型走通用兜底。
+    """
+    task_type = _task_type(task)
+    if task_type == "google_sheet_c7":
+        return _excel_export(task, build_c5_worksheets(normalize_c7_export_results(results)))
+    if task_type == "google_sheet_c5":
+        return _excel_export(task, build_c5_worksheets(results))
+    if task_type in ("google_sheet", "google_sheet_c3"):
+        return _excel_export(task, build_c3_worksheets(results))
+    return _generic_export(task, results)
 
 
 def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]]) -> GeneratedArchive:
@@ -387,14 +347,6 @@ def build_c7_stock_code_export_archive(task: Any, results: list[dict[str, Any]])
         mimetype=ZIP_MIMETYPE,
         buffer=archive_buffer,
     )
-
-
-def get_task_result_exporter(task: Any) -> TaskResultExporter:
-    for exporter in EXPORTERS:
-        if exporter.supports(task):
-            return exporter
-    task_type = getattr(task, "task_type", None) or "unknown"
-    raise ValidationError(f"暂不支持导出任务类型: {task_type}")
 
 
 def build_c5_records(results: list[dict[str, Any]]) -> list[C5ExportRecord]:
@@ -914,24 +866,6 @@ class C3ExportRecord:
     row: list[Any]
 
 
-class C3TaskResultExporter:
-    """C3 专用导出：每个参数组合一行，按 K 线范围拆分 worksheet。"""
-
-    key = "google_sheet"
-
-    def supports(self, task: Any) -> bool:
-        tt = _task_type(task)
-        return tt in ("google_sheet", "google_sheet_c3")
-
-    def build(self, task: Any, results: list[dict[str, Any]]) -> GeneratedExport:
-        worksheets = build_c3_worksheets(results)
-        return GeneratedExport(
-            filename=f"{sanitize_export_filename(_task_name(task))}.xlsx",
-            mimetype=EXCEL_MIMETYPE,
-            workbook=build_workbook(worksheets),
-        )
-
-
 def build_c3_groups(results: list[dict[str, Any]]) -> list[C3ResultGroup]:
     groups = []
     for item in results:
@@ -1149,10 +1083,3 @@ def _task_name(task: Any) -> str:
     return str(getattr(task, "name", None) or getattr(task, "id", None) or "task_export")
 
 
-# 注册顺序很重要：专用导出器必须放在通用兜底导出器前面。
-EXPORTERS = (
-    C7TaskResultExporter(),
-    C5TaskResultExporter(),
-    C3TaskResultExporter(),
-    GenericTaskResultExporter(),
-)

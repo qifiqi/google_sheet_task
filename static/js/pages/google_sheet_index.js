@@ -214,15 +214,6 @@ document.title = '首页 - Google Sheet ' + (versionParam === null ? 'None' : ve
         return task.config.token_name || '';
     }
 
-    function escapeHtml(value) {
-        return String(value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
     function bindTaskEvents() {
         document.querySelectorAll('.cancel-task').forEach(function(btn) {
             btn.addEventListener('click', function() {

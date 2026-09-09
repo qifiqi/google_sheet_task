@@ -13,19 +13,14 @@ from typing import Any
 from app.repositories import task_repository, task_result_repository
 from app.models import TaskResult, TaskResultReturn
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
-from app.services.performance_analysis_service import xpl_analyzer
+from app.services.xpl_service import xpl_analyzer
 from app.services.strategy_backtest_report_charts import generate_report_charts
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.word_export_template import generate_word_document
 from app.utils.backtest_report_metadata import get_backtest_model_version
 from app.utils.return_series import parse_return_series_fields
-from app.utils.value_parser import parse_date, parse_float, parse_int, parse_ratio
-from app.services.performance_analysis.portfolio_combiner import (
-    combine_product_returns,
-    cumulative_to_daily,
-    daily_to_cumulative,
-    normalize_weight,
-)
+from app.utils.value_parser import parse_date, parse_float, parse_int
+from app.services.performance_analysis.portfolio_combiner import combine_product_returns
 
 
 class StrategyBacktestReportService:
@@ -163,14 +158,6 @@ class StrategyBacktestReportService:
         return combine_product_returns(inputs, weighting_mode=weighting_mode)
 
     @staticmethod
-    def _normalized_weights(products: list[dict[str, Any]]) -> list[float]:
-        """统一比例解析器的兼容包装。"""
-        return [
-            float(normalize_weight(product.get("weight", product.get("ratio"))))
-            for product in products
-        ]
-
-    @staticmethod
     def _normalize_returns(rows: Any) -> list[dict[str, Any]]:
         """处理_normalize_returns相关逻辑。"""
         if not isinstance(rows, list):
@@ -203,16 +190,6 @@ class StrategyBacktestReportService:
         if len(normalized) < 2:
             raise ValueError("收益序列至少需要 2 个交易日")
         return [normalized[current_date] for current_date in sorted(normalized)]
-
-    @staticmethod
-    def _cumulative_to_daily(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """统一收益转换器的兼容包装。"""
-        return cumulative_to_daily(rows)
-
-    @staticmethod
-    def _daily_to_cumulative(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """统一复利转换器的兼容包装。"""
-        return daily_to_cumulative(rows)
 
     @staticmethod
     def _runtime_params(raw: Any) -> MetricsRuntimeParamsDTO:

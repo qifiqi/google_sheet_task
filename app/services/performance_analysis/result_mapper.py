@@ -9,8 +9,9 @@ from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
+from app.services.performance_analysis.historical_metrics import find_all_entry
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
-from app.services.performance_analysis.response_dto import MetricsV1ResponseDTO
+from app.services.performance_analysis.response_dto import MetricsV1Result
 from app.utils.value_parser import _convert_pandas_to_native
 
 
@@ -20,7 +21,7 @@ class PerformanceResultMapperMixin:
         基于与 get_calculate_metrics_v1 相同的 return 列表结构，
         返回 (扁平化旧字段投影, 统一存储载荷)。
 
-        第二个返回值是 ``MetricsV1Result.to_json_dict(include_series=False)``：
+        第二个返回值是 ``MetricsV1Result.to_json_dict()``：
         {"schema_version", "metrics", "canonical_metrics"}，供 TaskResult
         统一持久化；完整收益序列仍由 TaskResultReturn 单独存储。
 
@@ -40,7 +41,7 @@ class PerformanceResultMapperMixin:
 
         canonical_result = calculate_v1_metrics(data, analyzer=self)
         analyze_result = canonical_result.metrics
-        metrics_payload = canonical_result.to_json_dict(include_series=False)
+        metrics_payload = canonical_result.to_json_dict()
         if not analyze_result:
             return {}, {}
 
@@ -82,13 +83,8 @@ class PerformanceResultMapperMixin:
         }
 
         def pick_all(items, key="year", value="all"):
-            """从筛选项中选取指定年份或 all 对应的全部值。"""
-            if not isinstance(items, list):
-                return {}
-            for item in items:
-                if isinstance(item, dict) and item.get(key) == value:
-                    return item
-            return {}
+            """从筛选项中选取指定年份或 all 对应的全部值（共享实现见 find_all_entry）。"""
+            return find_all_entry(items)
 
         def safe_value(value):
             """将空值和非有限浮点数转换为可 JSON 序列化的空值。"""
@@ -224,22 +220,15 @@ class PerformanceResultMapperMixin:
         self,
         returns: List[Dict[str, Any]],
         runtime_params: MetricsRuntimeParamsDTO | None = None,
-    ) -> MetricsV1ResponseDTO:
+    ) -> MetricsV1Result:
         """返回 V1 指标，以及指数、策略和超额收益序列。
 
         ``runtime_params`` 控制市场下跌、上涨阶段的判定阈值（7.1/7.2）。
         """
         from app.services.performance_analysis.facade import calculate_v1_metrics
 
-        result = calculate_v1_metrics(
+        return calculate_v1_metrics(
             returns,
             runtime_params=runtime_params,
             analyzer=self,
-        )
-        return MetricsV1ResponseDTO(
-            metrics=result.metrics,
-            canonical_metrics=result.canonical_metrics,
-            index_df=result.index_df,
-            start_df=result.start_df,
-            excess_df=result.excess_df,
         )
