@@ -1,4 +1,4 @@
-// 页面脚本（templates/xpl/v2.html 内联脚本原样抽离，F5 de-jinja）。
+// 页面脚本（templates/performance_analysis/v2.html 内联脚本原样抽离，F5 de-jinja）。
     let abortController = null;
     const state = {
         worksheets: [],
@@ -230,7 +230,7 @@
 
         try {
             // envelope 模式返回完整信封，页面沿用 normalizeApiResponse/getWorksheetsPayload 判定
-            const data = await Api.endpoints.xpl.worksheets({spreadsheet_id: spreadsheetId}, {
+            const data = await Api.endpoints.performanceAnalysis.worksheets({spreadsheet_id: spreadsheetId}, {
                 envelope: true,
                 signal: abortController.signal
             });
@@ -360,7 +360,7 @@
             const sourceFilename = `${filenameSafeTitle}_${filenameSafeSheet}_details.csv`;
 
             // 文件流下载，走原始 Response 端点（CSRF 头在端点内保持不变）
-            const resp = await Api.endpoints.export.backtestResultXpl({
+            const resp = await Api.endpoints.export.backtestResultPerformanceAnalysis({
                 filename: sourceFilename,
                 filename_title: filenameSafeTitle,
                 analyze_result: state.lastResults
@@ -608,7 +608,7 @@
         }
 
         const runtimeParams = collectV2RuntimeParams();
-        await requestV2Analysis('/xpl/v1/analyze', {
+        await requestV2Analysis('/performance_analysis/v1/analyze', {
             google_sheet_url: url,
             spreadsheet_id: spreadsheetId,
             google_sheet_name: sheetName,
@@ -635,7 +635,7 @@
         document.getElementById('v2-paste-data').value = prepared.text;
         updateV2PasteStatus();
         const runtimeParams = collectV2RuntimeParams();
-        await requestV2Analysis('/xpl/analyze', {
+        await requestV2Analysis('/performance_analysis/analyze', {
             data: prepared.text,
             time_format: 'auto',
             runtime_params: runtimeParams
@@ -661,9 +661,9 @@
 
         try {
             // envelope 模式返回完整信封，页面沿用 normalizeApiResponse/getAnalyzeResults 判定
-            const analyzeEndpoint = endpoint === '/xpl/v1/analyze'
-                ? Api.endpoints.xpl.analyzeV1
-                : Api.endpoints.xpl.analyze;
+            const analyzeEndpoint = endpoint === '/performance_analysis/v1/analyze'
+                ? Api.endpoints.performanceAnalysis.analyzeV1
+                : Api.endpoints.performanceAnalysis.analyze;
             const data = await analyzeEndpoint(body, {
                 envelope: true,
                 signal: abortController.signal

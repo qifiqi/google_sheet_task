@@ -505,7 +505,7 @@ def test_extract_backtest_fills_metrics_from_calculate_metrics_when_export_forma
         },
     )
     monkeypatch.setattr(
-        "app.services.model_summary.extractor.xpl_analyzer.format_export_file_data",
+        "app.services.model_summary.extractor.performance_analyzer.format_export_file_data",
         lambda _payload: (_ for _ in ()).throw(RuntimeError("format failed")),
     )
 

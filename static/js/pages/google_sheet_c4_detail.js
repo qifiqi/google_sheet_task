@@ -566,16 +566,16 @@ if (versionParam && versionParam !== 'c4') {
                     const d5Text = formatMetricText(model.d5, 6);
                     const d6Text = formatMetricText(model.d6, 6);
                     const d7Text = formatMetricText(model.d7, 6);
-                    let iXplText = '-';
+                    let indexSharpeText = '-';
                     if (model.indexSharpe != null) {
                         const v = Number(model.indexSharpe);
-                        iXplText = Number.isFinite(v) ? v.toFixed(6) : String(model.indexSharpe);
+                        indexSharpeText = Number.isFinite(v) ? v.toFixed(6) : String(model.indexSharpe);
                     }
 
-                    let sXplText = '-';
+                    let strategySharpeText = '-';
                     if (model.startSharpe != null) {
                         const v2 = Number(model.startSharpe);
-                        sXplText = Number.isFinite(v2) ? v2.toFixed(6) : String(model.startSharpe);
+                        strategySharpeText = Number.isFinite(v2) ? v2.toFixed(6) : String(model.startSharpe);
                     }
 
                     const titleText = model.modelTitle && model.modelTitle.length > 0
@@ -591,8 +591,8 @@ if (versionParam && versionParam !== 'c4') {
                             <td class="small text-center">${d5Text}</td>
                             <td class="small text-center">${d6Text}</td>
                             <td class="small text-center">${d7Text}</td>
-                            <td class="small text-center">${iXplText}</td>
-                            <td class="small text-center">${sXplText}</td>
+                            <td class="small text-center">${indexSharpeText}</td>
+                            <td class="small text-center">${strategySharpeText}</td>
                             <td class="small text-end">
                                 <button type="button" class="btn btn-link btn-sm p-0" onclick="showResultDetail(${groupIndex}, ${mIndex})">更多</button>
                             </td>
@@ -632,8 +632,8 @@ if (versionParam && versionParam !== 'c4') {
                                             <th style="width: 10%;">Index Return</th>
                                             <th style="width: 10%;">Annualized</th>
                                             <th style="width: 10%;">Index max dd</th>
-                                            <th style="width: 10%;">i xpl</th>
-                                            <th style="width: 10%;">s xpl</th>
+                                            <th style="width: 10%;">指数夏普</th>
+                                            <th style="width: 10%;">模型夏普</th>
                                             <th style="width: 5%;">操作</th>
                                         </tr>
                                     </thead>
@@ -695,7 +695,7 @@ if (versionParam && versionParam !== 'c4') {
                 header.push(getMetricDisplayLabel(key));
             });
 
-            // 追加 xpl 相关统计字段
+            // 追加 绩效分析相关统计字段
             header.push(
                 'start_avg_monthly_return',
                 'start_monthly_std_dev',
@@ -741,16 +741,16 @@ if (versionParam && versionParam !== 'c4') {
 
                 models.forEach(model => {
                     const metrics = model.rawMetrics || {};
-                    const startXpl = metrics.start_return_xpl || {};
-                    const indexXpl = metrics.index_return_xpl || {};
+                    const startPerformanceAnalysis = metrics.start_return_xpl || {};
+                    const indexPerformanceAnalysis = metrics.index_return_xpl || {};
 
-                    const startAvgRet   = startXpl.avg_monthly_return  != null ? startXpl.avg_monthly_return  : '';
-                    const startStd      = startXpl.monthly_std_dev      != null ? startXpl.monthly_std_dev      : '';
-                    const startAnnualStd= startXpl.annual_std_dev       != null ? startXpl.annual_std_dev       : '';
+                    const startAvgRet   = startPerformanceAnalysis.avg_monthly_return  != null ? startPerformanceAnalysis.avg_monthly_return  : '';
+                    const startStd      = startPerformanceAnalysis.monthly_std_dev      != null ? startPerformanceAnalysis.monthly_std_dev      : '';
+                    const startAnnualStd= startPerformanceAnalysis.annual_std_dev       != null ? startPerformanceAnalysis.annual_std_dev       : '';
 
-                    const indexAvgRet   = indexXpl.avg_monthly_return  != null ? indexXpl.avg_monthly_return  : '';
-                    const indexStd      = indexXpl.monthly_std_dev      != null ? indexXpl.monthly_std_dev      : '';
-                    const indexAnnualStd= indexXpl.annual_std_dev       != null ? indexXpl.annual_std_dev       : '';
+                    const indexAvgRet   = indexPerformanceAnalysis.avg_monthly_return  != null ? indexPerformanceAnalysis.avg_monthly_return  : '';
+                    const indexStd      = indexPerformanceAnalysis.monthly_std_dev      != null ? indexPerformanceAnalysis.monthly_std_dev      : '';
+                    const indexAnnualStd= indexPerformanceAnalysis.annual_std_dev       != null ? indexPerformanceAnalysis.annual_std_dev       : '';
 
                     const title = model.modelTitle && model.modelTitle.length > 0
                         ? model.modelTitle

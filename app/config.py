@@ -201,7 +201,7 @@ def init_config():
         },
         'rate_limit_analyze': {
             'value': 10,
-            'description': 'xpl 分析接口限流：每分钟每用户次数（0=不限）。',
+            'description': '绩效分析接口限流：每分钟每用户次数（0=不限）。',
         },
         'rate_limit_heavy': {
             'value': 6,

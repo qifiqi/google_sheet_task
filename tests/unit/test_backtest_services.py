@@ -15,7 +15,7 @@ from app.services.backtest_multi_product_service import (
     normalize_multi_product_config,
 )
 from app.services.backtest_training_service import BacktestTrainingService
-from app.services.xpl_service import XPLAnalyzer
+from app.services.performance_analysis.analyzer import PerformanceAnalyzer
 
 
 def _kline_rows(start_date, end_date):
@@ -330,7 +330,7 @@ def test_backtest_c7_0_3_execution_writes_ohlc_and_handles_first_div_zero(monkey
     service = BacktestTrainingService({}, "task-id")
     sheet = C7V03Sheet()
     service.google_sheet = sheet
-    service.xpl = type(
+    service.performance_analyzer = type(
         "XPL",
         (), {
             "get_calculate_metrics_v1": lambda _self, rows: {"rows": rows},
@@ -381,7 +381,7 @@ def test_xpl_reads_c7_0_3_ohlc_layout(monkeypatch):
             }
             return values[range_a1]
 
-    analyzer = XPLAnalyzer()
+    analyzer = PerformanceAnalyzer()
     monkeypatch.setattr(analyzer, "_init_google_sheet", lambda *_args: C7V03Sheet())
 
     data, result, sheet_df = analyzer.get_google_sheet_data("sheet-id", "control")

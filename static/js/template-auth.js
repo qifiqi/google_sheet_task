@@ -21,7 +21,7 @@
         ["/task/create", "/google-sheet/create"],
         ["/backtest/list", "/backtest-training/list"],
         ["/backtest/create", "/backtest-training/create"],
-        ["/xpl", "/xpl/"],
+        ["/performance_analysis", "/performance_analysis/"],
     ]);
 
     function parseJsonSafely(text) {

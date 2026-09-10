@@ -1,12 +1,12 @@
 <template>
-  <div class="app-page xpl-v1-page">
+  <div class="app-page performance-analyzer-v1-page">
     <div class="page-toolbar">
       <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">XPL</div>
+        <div class="page-toolbar__eyebrow">绩效分析</div>
         <h2 class="page-title">V1：Google Sheet 分析</h2>
       </div>
       <div class="page-toolbar__actions">
-      <el-button @click="$router.push('/xpl')">返回</el-button>
+      <el-button @click="$router.push('/performance_analysis')">返回</el-button>
       </div>
     </div>
 
@@ -16,7 +16,7 @@
         <el-col :xs="24" :lg="14">
           <el-form-item label="Google Sheet URL">
             <el-input v-model="gsUrl" placeholder="https://docs.google.com/spreadsheets/d/..." @input="onUrlInput" clearable />
-            <div class="helper-text xpl-v1-page__meta">{{ gsMeta }}</div>
+            <div class="helper-text performance-analyzer-v1-page__meta">{{ gsMeta }}</div>
           </el-form-item>
         </el-col>
         <el-col :xs="24" :lg="6">
@@ -36,76 +36,76 @@
     </el-card>
 
     <!-- 汇总卡片 -->
-    <el-row :gutter="12" class="xpl-v1-summary-grid" id="summary-cards">
-      <el-col :xs="12" :sm="6" class="xpl-v1-summary-grid__col">
-        <el-card shadow="never" class="xpl-v1-summary-card xpl-v1-summary-card--primary">
-          <div class="xpl-v1-summary-card__body">
-            <div class="xpl-v1-summary-card__label">跑赢年份</div>
-            <div class="xpl-v1-summary-card__value">{{ result ? fmtPct(result.outperform_year) : '-' }}</div>
-            <div class="xpl-v1-summary-card__key">outperform_year</div>
+    <el-row :gutter="12" class="performance-analyzer-v1-summary-grid" id="summary-cards">
+      <el-col :xs="12" :sm="6" class="performance-analyzer-v1-summary-grid__col">
+        <el-card shadow="never" class="performance-analyzer-v1-summary-card performance-analyzer-v1-summary-card--primary">
+          <div class="performance-analyzer-v1-summary-card__body">
+            <div class="performance-analyzer-v1-summary-card__label">跑赢年份</div>
+            <div class="performance-analyzer-v1-summary-card__value">{{ result ? fmtPct(result.outperform_year) : '-' }}</div>
+            <div class="performance-analyzer-v1-summary-card__key">outperform_year</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="12" :sm="6" class="xpl-v1-summary-grid__col">
-        <el-card shadow="never" class="xpl-v1-summary-card xpl-v1-summary-card--success">
-          <div class="xpl-v1-summary-card__body">
-            <div class="xpl-v1-summary-card__label">月超额波动率</div>
-            <div class="xpl-v1-summary-card__value">{{ result ? fmtNum(result.monthly_excess_volatility, 4) : '-' }}</div>
-            <div class="xpl-v1-summary-card__key">monthly_excess_volatility</div>
+      <el-col :xs="12" :sm="6" class="performance-analyzer-v1-summary-grid__col">
+        <el-card shadow="never" class="performance-analyzer-v1-summary-card performance-analyzer-v1-summary-card--success">
+          <div class="performance-analyzer-v1-summary-card__body">
+            <div class="performance-analyzer-v1-summary-card__label">月超额波动率</div>
+            <div class="performance-analyzer-v1-summary-card__value">{{ result ? fmtNum(result.monthly_excess_volatility, 4) : '-' }}</div>
+            <div class="performance-analyzer-v1-summary-card__key">monthly_excess_volatility</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="12" :sm="6" class="xpl-v1-summary-grid__col">
-        <el-card shadow="never" class="xpl-v1-summary-card xpl-v1-summary-card--warning">
-          <div class="xpl-v1-summary-card__body">
-            <div class="xpl-v1-summary-card__label">超额回撤胜率</div>
-            <div class="xpl-v1-summary-card__value">{{ result ? fmtPct(result.excess_drawdown_winning_rate) : '-' }}</div>
-            <div class="xpl-v1-summary-card__key">excess_drawdown_winning_rate</div>
+      <el-col :xs="12" :sm="6" class="performance-analyzer-v1-summary-grid__col">
+        <el-card shadow="never" class="performance-analyzer-v1-summary-card performance-analyzer-v1-summary-card--warning">
+          <div class="performance-analyzer-v1-summary-card__body">
+            <div class="performance-analyzer-v1-summary-card__label">超额回撤胜率</div>
+            <div class="performance-analyzer-v1-summary-card__value">{{ result ? fmtPct(result.excess_drawdown_winning_rate) : '-' }}</div>
+            <div class="performance-analyzer-v1-summary-card__key">excess_drawdown_winning_rate</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="12" :sm="6" class="xpl-v1-summary-grid__col">
-        <el-card shadow="never" class="xpl-v1-summary-card xpl-v1-summary-card--danger">
-          <div class="xpl-v1-summary-card__body">
-            <div class="xpl-v1-summary-card__label">年超额收益(整体)</div>
-            <div class="xpl-v1-summary-card__value">{{ excessReturnsAll }}</div>
-            <div class="xpl-v1-summary-card__key">excess_returns[all]</div>
+      <el-col :xs="12" :sm="6" class="performance-analyzer-v1-summary-grid__col">
+        <el-card shadow="never" class="performance-analyzer-v1-summary-card performance-analyzer-v1-summary-card--danger">
+          <div class="performance-analyzer-v1-summary-card__body">
+            <div class="performance-analyzer-v1-summary-card__label">年超额收益(整体)</div>
+            <div class="performance-analyzer-v1-summary-card__value">{{ excessReturnsAll }}</div>
+            <div class="performance-analyzer-v1-summary-card__key">excess_returns[all]</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="12" :sm="6" class="xpl-v1-summary-grid__col">
-        <el-card shadow="never" class="xpl-v1-summary-card xpl-v1-summary-card--neutral">
-          <div class="xpl-v1-summary-card__body">
-            <div class="xpl-v1-summary-card__label">指数盈利年%</div>
-            <div class="xpl-v1-summary-card__value">{{ result ? fmtPct(result.index_profit_annual) : '-' }}</div>
-            <div class="xpl-v1-summary-card__key">index_profit_annual</div>
+      <el-col :xs="12" :sm="6" class="performance-analyzer-v1-summary-grid__col">
+        <el-card shadow="never" class="performance-analyzer-v1-summary-card performance-analyzer-v1-summary-card--neutral">
+          <div class="performance-analyzer-v1-summary-card__body">
+            <div class="performance-analyzer-v1-summary-card__label">指数盈利年%</div>
+            <div class="performance-analyzer-v1-summary-card__value">{{ result ? fmtPct(result.index_profit_annual) : '-' }}</div>
+            <div class="performance-analyzer-v1-summary-card__key">index_profit_annual</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="12" :sm="6" class="xpl-v1-summary-grid__col">
-        <el-card shadow="never" class="xpl-v1-summary-card xpl-v1-summary-card--neutral">
-          <div class="xpl-v1-summary-card__body">
-            <div class="xpl-v1-summary-card__label">模型盈利年%</div>
-            <div class="xpl-v1-summary-card__value">{{ result ? fmtPct(result.start_profit_annual) : '-' }}</div>
-            <div class="xpl-v1-summary-card__key">start_profit_annual</div>
+      <el-col :xs="12" :sm="6" class="performance-analyzer-v1-summary-grid__col">
+        <el-card shadow="never" class="performance-analyzer-v1-summary-card performance-analyzer-v1-summary-card--neutral">
+          <div class="performance-analyzer-v1-summary-card__body">
+            <div class="performance-analyzer-v1-summary-card__label">模型盈利年%</div>
+            <div class="performance-analyzer-v1-summary-card__value">{{ result ? fmtPct(result.start_profit_annual) : '-' }}</div>
+            <div class="performance-analyzer-v1-summary-card__key">start_profit_annual</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="12" :sm="6" class="xpl-v1-summary-grid__col">
-        <el-card shadow="never" class="xpl-v1-summary-card xpl-v1-summary-card--neutral">
-          <div class="xpl-v1-summary-card__body">
-            <div class="xpl-v1-summary-card__label">指数月波动率</div>
-            <div class="xpl-v1-summary-card__value">{{ result ? fmtNum(result.index_monthly_return_volatility, 6) : '-' }}</div>
-            <div class="xpl-v1-summary-card__key">index_monthly_return_volatility</div>
+      <el-col :xs="12" :sm="6" class="performance-analyzer-v1-summary-grid__col">
+        <el-card shadow="never" class="performance-analyzer-v1-summary-card performance-analyzer-v1-summary-card--neutral">
+          <div class="performance-analyzer-v1-summary-card__body">
+            <div class="performance-analyzer-v1-summary-card__label">指数月波动率</div>
+            <div class="performance-analyzer-v1-summary-card__value">{{ result ? fmtNum(result.index_monthly_return_volatility, 6) : '-' }}</div>
+            <div class="performance-analyzer-v1-summary-card__key">index_monthly_return_volatility</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="12" :sm="6" class="xpl-v1-summary-grid__col">
-        <el-card shadow="never" class="xpl-v1-summary-card xpl-v1-summary-card--neutral">
-          <div class="xpl-v1-summary-card__body">
-            <div class="xpl-v1-summary-card__label">模型月波动率</div>
-            <div class="xpl-v1-summary-card__value">{{ result ? fmtNum(result.start_monthly_return_volatility, 6) : '-' }}</div>
-            <div class="xpl-v1-summary-card__key">start_monthly_return_volatility</div>
+      <el-col :xs="12" :sm="6" class="performance-analyzer-v1-summary-grid__col">
+        <el-card shadow="never" class="performance-analyzer-v1-summary-card performance-analyzer-v1-summary-card--neutral">
+          <div class="performance-analyzer-v1-summary-card__body">
+            <div class="performance-analyzer-v1-summary-card__label">模型月波动率</div>
+            <div class="performance-analyzer-v1-summary-card__value">{{ result ? fmtNum(result.start_monthly_return_volatility, 6) : '-' }}</div>
+            <div class="performance-analyzer-v1-summary-card__key">start_monthly_return_volatility</div>
           </div>
         </el-card>
       </el-col>
@@ -113,7 +113,7 @@
 
     <!-- 详情折叠 -->
     <el-card v-if="result" shadow="never" class="section-card" id="details-card">
-      <div class="xpl-v1-detail-toolbar">
+      <div class="performance-analyzer-v1-detail-toolbar">
         <el-button size="small" @click="detailOpen = !detailOpen">
           {{ detailOpen ? '收起' : '展开' }} V1 数据明细
         </el-button>
@@ -123,8 +123,8 @@
         <el-tabs v-model="activeTab" tab-position="left">
           <el-tab-pane label="年度收益/回撤" name="annual">
             <el-row :gutter="12">
-              <el-col :xs="24" :lg="12" class="xpl-v1-block-col">
-                <div class="xpl-v1-block-title">年度收益率对比</div>
+              <el-col :xs="24" :lg="12" class="performance-analyzer-v1-block-col">
+                <div class="performance-analyzer-v1-block-title">年度收益率对比</div>
                 <el-table :data="annualCompareRows" stripe size="small" border>
                   <el-table-column prop="year" label="Year" width="80" />
                   <el-table-column label="指数收益"><template #default="{row}"><span :class="colorClass(row.index_return)">{{ fmtPct(row.index_return) }}</span></template></el-table-column>
@@ -132,8 +132,8 @@
                   <el-table-column label="差值"><template #default="{row}"><span :class="colorClass(row.diff)">{{ fmtPct(row.diff) }}</span></template></el-table-column>
                 </el-table>
               </el-col>
-              <el-col :xs="24" :lg="12" class="xpl-v1-block-col">
-                <div class="xpl-v1-block-title">年度最大回撤对比</div>
+              <el-col :xs="24" :lg="12" class="performance-analyzer-v1-block-col">
+                <div class="performance-analyzer-v1-block-title">年度最大回撤对比</div>
                 <el-table :data="drawdownCompareRows" stripe size="small" border>
                   <el-table-column prop="year" label="Year" width="80" />
                   <el-table-column label="指数回撤"><template #default="{row}"><span class="text-danger">-{{ fmtPct(row.index_dd) }}</span></template></el-table-column>
@@ -142,7 +142,7 @@
                 </el-table>
               </el-col>
               <el-col :xs="24">
-                <div class="xpl-v1-block-title">月超额收益百分比</div>
+                <div class="performance-analyzer-v1-block-title">月超额收益百分比</div>
                 <el-table :data="result.monthly_excess_return_percentage || []" stripe size="small" border>
                   <el-table-column prop="year" label="Year" width="80" />
                   <el-table-column label="月超额收益占比"><template #default="{row}">{{ fmtPct(row.excess_return) }}</template></el-table-column>
@@ -226,8 +226,8 @@
 
           <el-tab-pane label="盈利统计" name="profit">
             <el-row :gutter="12">
-              <el-col :xs="24" :lg="12" class="xpl-v1-block-col">
-                <div class="xpl-v1-block-title">盈利年百分比</div>
+              <el-col :xs="24" :lg="12" class="performance-analyzer-v1-block-col">
+                <div class="performance-analyzer-v1-block-title">盈利年百分比</div>
                 <el-table :data="profitAnnualRow" stripe size="small" border>
                   <el-table-column label="指数"><template #default="{row}">{{ fmtPct(row.index) }}</template></el-table-column>
                   <el-table-column label="模型"><template #default="{row}">{{ fmtPct(row.model) }}</template></el-table-column>
@@ -235,15 +235,15 @@
               </el-col>
               <el-col :xs="24" :lg="12">
                 <el-row :gutter="12">
-                  <el-col :xs="24" class="xpl-v1-block-col">
-                    <div class="xpl-v1-block-title">指数盈利月占比</div>
+                  <el-col :xs="24" class="performance-analyzer-v1-block-col">
+                    <div class="performance-analyzer-v1-block-title">指数盈利月占比</div>
                     <el-table :data="result.index_profit_monthly || []" stripe size="small" border max-height="200">
                       <el-table-column prop="year" label="Year" width="80" />
                       <el-table-column label="占比"><template #default="{row}">{{ fmtPct(row.profit_monthly_percentage) }}</template></el-table-column>
                     </el-table>
                   </el-col>
                   <el-col :xs="24">
-                    <div class="xpl-v1-block-title">模型盈利月占比</div>
+                    <div class="performance-analyzer-v1-block-title">模型盈利月占比</div>
                     <el-table :data="result.start_profit_monthly || []" stripe size="small" border max-height="200">
                       <el-table-column prop="year" label="Year" width="80" />
                       <el-table-column label="占比"><template #default="{row}">{{ fmtPct(row.profit_monthly_percentage) }}</template></el-table-column>
@@ -270,10 +270,10 @@
           </el-tab-pane>
 
           <el-tab-pane label="全量 JSON" name="raw">
-            <div class="xpl-v1-raw-toolbar">
+            <div class="performance-analyzer-v1-raw-toolbar">
               <el-button size="small" @click="copyRawJson">复制</el-button>
             </div>
-            <pre class="mono-pre xpl-v1-raw-json">{{ JSON.stringify(result, null, 2) }}</pre>
+            <pre class="mono-pre performance-analyzer-v1-raw-json">{{ JSON.stringify(result, null, 2) }}</pre>
           </el-tab-pane>
         </el-tabs>
       </div>
@@ -281,40 +281,40 @@
 
     <!-- 图表区 -->
     <el-card v-if="result" shadow="never" class="section-card">
-      <div class="xpl-v1-chart-title">V1 图表</div>
+      <div class="performance-analyzer-v1-chart-title">V1 图表</div>
       <el-row :gutter="12">
-        <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">年度收益率（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartAnnualReturns"></canvas></div></el-card>
+        <el-col :xs="24" :lg="12" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">年度收益率（指数 vs 模型）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--320"><canvas ref="chartAnnualReturns"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">年超额收益（模型 - 指数）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartExcessAnnual"></canvas></div></el-card>
+        <el-col :xs="24" :lg="12" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">年超额收益（模型 - 指数）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--320"><canvas ref="chartExcessAnnual"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">年度最大回撤（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartAnnualDrawdown"></canvas></div></el-card>
+        <el-col :xs="24" :lg="12" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">年度最大回撤（指数 vs 模型）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--320"><canvas ref="chartAnnualDrawdown"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">卡玛比率（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartKama"></canvas></div></el-card>
+        <el-col :xs="24" :lg="12" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">卡玛比率（指数 vs 模型）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--320"><canvas ref="chartKama"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">索提诺比例（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartSotino"></canvas></div></el-card>
+        <el-col :xs="24" :lg="12" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">索提诺比例（指数 vs 模型）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--320"><canvas ref="chartSotino"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">月收益率波动率（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartMonthlyVol"></canvas></div></el-card>
+        <el-col :xs="24" :lg="12" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">月收益率波动率（指数 vs 模型）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--320"><canvas ref="chartMonthlyVol"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">月超额收益（模型 - 指数）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--340"><canvas ref="chartMonthlyExcess"></canvas></div></el-card>
+        <el-col :xs="24" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">月超额收益（模型 - 指数）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--340"><canvas ref="chartMonthlyExcess"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">夏普比率对比（all / year_* / past_*）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--340"><canvas ref="chartSharpeCompare"></canvas></div></el-card>
+        <el-col :xs="24" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">夏普比率对比（all / year_* / past_*）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--340"><canvas ref="chartSharpeCompare"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">超额指标（夏普 / 索提诺）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartExcessMetrics"></canvas></div></el-card>
+        <el-col :xs="24" :lg="12" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">超额指标（夏普 / 索提诺）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--320"><canvas ref="chartExcessMetrics"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" :lg="12" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">最大回测修复天数（index / start / excess）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartRepairDays"></canvas></div></el-card>
+        <el-col :xs="24" :lg="12" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">最大回测修复天数（index / start / excess）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--320"><canvas ref="chartRepairDays"></canvas></div></el-card>
         </el-col>
-        <el-col :xs="24" class="xpl-v1-chart-col">
-          <el-card shadow="never"><div class="xpl-v1-block-title">盈利月百分比（指数 vs 模型）</div><div class="xpl-v1-chart-box xpl-v1-chart-box--320"><canvas ref="chartProfitMonthly"></canvas></div></el-card>
+        <el-col :xs="24" class="performance-analyzer-v1-chart-col">
+          <el-card shadow="never"><div class="performance-analyzer-v1-block-title">盈利月百分比（指数 vs 模型）</div><div class="performance-analyzer-v1-chart-box performance-analyzer-v1-chart-box--320"><canvas ref="chartProfitMonthly"></canvas></div></el-card>
         </el-col>
       </el-row>
     </el-card>
@@ -327,7 +327,7 @@
 import { ref, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
-import { analyzeXplV1, exportXplResult } from '@/api/xpl'
+import { analyzePerformanceAnalysisV1, exportPerformanceAnalysisResult } from '@/api/performance_analysis'
 
 // ── state ────────────────────────────────────────────────────
 const gsUrl = ref('')
@@ -394,7 +394,7 @@ async function analyzeV1() {
   analyzing.value = true
   result.value = null
   try {
-    const payload = await analyzeXplV1({
+    const payload = await analyzePerformanceAnalysisV1({
       google_sheet_url: url,
       spreadsheet_id: spreadsheetId,
       google_sheet_name: sheetName.value
@@ -511,7 +511,7 @@ async function exportResult() {
   if (!result.value) return
   const exportBaseName = `v1_${sheetName.value || 'result'}`
   try {
-    const blob = await exportXplResult({ filename: `${exportBaseName}.csv`, filename_title: exportBaseName, analyze_result: result.value })
+    const blob = await exportPerformanceAnalysisResult({ filename: `${exportBaseName}.csv`, filename_title: exportBaseName, analyze_result: result.value })
     const filename = prompt('请输入文件名:', `${exportBaseName}.csv`) || `${exportBaseName}.csv`
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
@@ -657,96 +657,96 @@ async function renderCharts(r) {
 </script>
 
 <style scoped>
-.xpl-v1-page__meta {
+.performance-analyzer-v1-page__meta {
   min-height: 1.2em;
 }
 
-.xpl-v1-summary-grid {
+.performance-analyzer-v1-summary-grid {
   margin-bottom: 16px;
 }
 
-.xpl-v1-summary-grid__col,
-.xpl-v1-chart-col,
-.xpl-v1-block-col {
+.performance-analyzer-v1-summary-grid__col,
+.performance-analyzer-v1-chart-col,
+.performance-analyzer-v1-block-col {
   margin-bottom: 12px;
 }
 
-.xpl-v1-summary-card {
+.performance-analyzer-v1-summary-card {
   text-align: center;
 }
 
-.xpl-v1-summary-card--primary {
+.performance-analyzer-v1-summary-card--primary {
   border-color: #409eff;
 }
 
-.xpl-v1-summary-card--success {
+.performance-analyzer-v1-summary-card--success {
   border-color: #67c23a;
 }
 
-.xpl-v1-summary-card--warning {
+.performance-analyzer-v1-summary-card--warning {
   border-color: #e6a23c;
 }
 
-.xpl-v1-summary-card--danger {
+.performance-analyzer-v1-summary-card--danger {
   border-color: #f56c6c;
 }
 
-.xpl-v1-summary-card--neutral {
+.performance-analyzer-v1-summary-card--neutral {
   border-color: #909399;
 }
 
-.xpl-v1-summary-card__label {
+.performance-analyzer-v1-summary-card__label {
   color: var(--app-text-muted);
   font-size: var(--app-font-xs);
   margin-bottom: 4px;
 }
 
-.xpl-v1-summary-card__value {
+.performance-analyzer-v1-summary-card__value {
   font-size: 22px;
   font-weight: 700;
   margin-bottom: 4px;
 }
 
-.xpl-v1-summary-card__key {
+.performance-analyzer-v1-summary-card__key {
   color: #c0c4cc;
   font-size: 11px;
   font-family: 'Fira Code', monospace;
 }
 
-.xpl-v1-detail-toolbar,
-.xpl-v1-raw-toolbar {
+.performance-analyzer-v1-detail-toolbar,
+.performance-analyzer-v1-raw-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
 }
 
-.xpl-v1-raw-toolbar {
+.performance-analyzer-v1-raw-toolbar {
   justify-content: flex-end;
   margin-bottom: 8px;
 }
 
-.xpl-v1-block-title,
-.xpl-v1-chart-title {
+.performance-analyzer-v1-block-title,
+.performance-analyzer-v1-chart-title {
   margin-bottom: 8px;
   font-size: var(--app-font-sm);
   font-weight: 700;
 }
 
-.xpl-v1-chart-title {
+.performance-analyzer-v1-chart-title {
   margin-bottom: 16px;
   font-size: var(--app-font-md);
 }
 
-.xpl-v1-chart-box--320 {
+.performance-analyzer-v1-chart-box--320 {
   height: 320px;
 }
 
-.xpl-v1-chart-box--340 {
+.performance-analyzer-v1-chart-box--340 {
   height: 340px;
 }
 
-.xpl-v1-raw-json {
+.performance-analyzer-v1-raw-json {
   max-height: 500px;
 }
 

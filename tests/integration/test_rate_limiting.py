@@ -24,13 +24,13 @@ def test_rate_limit_exceeded_returns_429_chinese_envelope(app_factory):
     # 键用本次运行唯一值：limiter 的 memory 存储进程内共享，防止套件内键污染。
     probe_key = f"probe-{uuid.uuid4().hex}"
     limited = limiter.limit("2/minute", key_func=lambda: probe_key)(_probe)
-    app.add_url_rule("/xpl/_limit_probe", view_func=limited)
+    app.add_url_rule("/performance_analysis/_limit_probe", view_func=limited)
 
     client = app.test_client()
-    assert client.get("/xpl/_limit_probe").status_code == 200
-    assert client.get("/xpl/_limit_probe").status_code == 200
+    assert client.get("/performance_analysis/_limit_probe").status_code == 200
+    assert client.get("/performance_analysis/_limit_probe").status_code == 200
 
-    resp = client.get("/xpl/_limit_probe")
+    resp = client.get("/performance_analysis/_limit_probe")
     assert resp.status_code == 429
     body = resp.get_json()
     assert body == {

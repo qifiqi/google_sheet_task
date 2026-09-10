@@ -4,7 +4,7 @@ from app.services.performance_analysis.result_mapper import PerformanceResultMap
 from app.services.performance_analysis.sheet_reader import GoogleSheetAnalysisMixin
 from app.services.performance_analysis.text_analysis import TextReturnAnalysisMixin
 
-class XPLAnalyzer(
+class PerformanceAnalyzer(
     PerformanceReportExporterMixin,
     PerformanceResultMapperMixin,
     GoogleSheetAnalysisMixin,
@@ -22,6 +22,6 @@ class XPLAnalyzer(
         self.metrics = {}
 
 # 创建全局实例
-xpl_analyzer = XPLAnalyzer()
+performance_analyzer = PerformanceAnalyzer()
 
-__all__ = ["XPLAnalyzer", "xpl_analyzer"]
+__all__ = ["PerformanceAnalyzer", "performance_analyzer"]

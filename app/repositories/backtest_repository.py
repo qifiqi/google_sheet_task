@@ -27,7 +27,7 @@ class BacktestRepository(BaseRepository):
 
     # ---- TaskResultSummaryIndex ----
 
-    def delete_xpl_analysis_jobs(
+    def delete_legacy_performance_analysis_jobs(
         self,
         *,
         task_id=None,
@@ -35,7 +35,7 @@ class BacktestRepository(BaseRepository):
         return_series_ids=None,
         commit: bool = True,
     ):
-        """遗留 xpl_analysis_jobs 表清理（目标库存在该表时）。
+        """遗留绩效分析任务表 表清理（目标库存在该表时）。
 
         commit=False 时写入留在会话内，供调用方与其它清理步骤凑批提交。
         """

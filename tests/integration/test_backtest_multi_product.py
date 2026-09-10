@@ -728,7 +728,7 @@ def test_fixed_product_cache_hit_writes_current_task_result_without_execute(app_
         monkeypatch.setattr(service, "_resolve_resume_start_index", lambda _task: 0)
         monkeypatch.setattr(service, "_init_google_sheet", lambda _config: None)
         monkeypatch.setattr(
-            "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+            "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
             lambda _return_date: {"weighted_metric": 1},
         )
         monkeypatch.setattr(service, "_build_product_kline", lambda product, _config: {
@@ -820,7 +820,7 @@ def test_fixed_product_cache_hit_advances_progress_when_all_steps_cached(app_fac
             lambda *_args, **_kwargs: pytest.fail("cached fixed products should not execute combinations"),
         )
         monkeypatch.setattr(
-            "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+            "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
             lambda _return_date: {"weighted_metric": 1},
         )
 
@@ -975,7 +975,7 @@ def test_build_multi_product_global_preview_payload_combines_returns_before_metr
         }
 
     monkeypatch.setattr(
-        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
         fake_metrics,
     )
 
@@ -1182,7 +1182,7 @@ def test_ratio_preview_recalculates_only_changed_product_weighted_metrics(app_fa
         }
 
     monkeypatch.setattr(
-        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
         fake_metrics,
     )
 
@@ -1389,7 +1389,7 @@ def test_global_preview_reuses_in_memory_cache_for_same_ratios(app_factory, monk
         }
 
     monkeypatch.setattr(
-        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
         fake_metrics,
     )
 
@@ -1526,7 +1526,7 @@ def test_build_multi_product_global_preview_uses_common_dates_for_portfolio_retu
         }
 
     monkeypatch.setattr(
-        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
         fake_metrics,
     )
 
@@ -1633,7 +1633,7 @@ def test_build_multi_product_global_preview_default_mode_compounds_daily_weighti
         }
 
     monkeypatch.setattr(
-        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
         fake_metrics,
     )
 
@@ -1716,7 +1716,7 @@ def test_build_multi_product_global_preview_returns_dash_without_common_return_d
     captured_returns = []
 
     monkeypatch.setattr(
-        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
         lambda return_date: captured_returns.append(return_date) or {},
     )
 

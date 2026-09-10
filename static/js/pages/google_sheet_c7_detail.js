@@ -651,16 +651,16 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                     const d5Text = formatMetricText(rawMetrics.D11, 6, 'D11');
                     const d6Text = formatMetricText(rawMetrics.D12, 6, 'D12');
                     const d7Text = formatMetricText(rawMetrics.D13, 6, 'D13');
-                    let iXplText = '-';
+                    let indexSharpeText = '-';
                     if (model.indexSharpe != null) {
                         const v = Number(model.indexSharpe);
-                        iXplText = Number.isFinite(v) ? v.toFixed(6) : String(model.indexSharpe);
+                        indexSharpeText = Number.isFinite(v) ? v.toFixed(6) : String(model.indexSharpe);
                     }
 
-                    let sXplText = '-';
+                    let strategySharpeText = '-';
                     if (model.startSharpe != null) {
                         const v2 = Number(model.startSharpe);
-                        sXplText = Number.isFinite(v2) ? v2.toFixed(6) : String(model.startSharpe);
+                        strategySharpeText = Number.isFinite(v2) ? v2.toFixed(6) : String(model.startSharpe);
                     }
 
                     const titleText = model.modelTitle && model.modelTitle.length > 0
@@ -676,8 +676,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                             <td class="small text-center">${d5Text}</td>
                             <td class="small text-center">${d6Text}</td>
                             <td class="small text-center">${d7Text}</td>
-                            <td class="small text-center">${iXplText}</td>
-                            <td class="small text-center">${sXplText}</td>
+                            <td class="small text-center">${indexSharpeText}</td>
+                            <td class="small text-center">${strategySharpeText}</td>
                             <td class="small text-end">
                                 <button type="button" class="btn btn-link btn-sm p-0" onclick="showResultDetail(${groupIndex}, ${mIndex})">更多</button>
                             </td>
@@ -719,8 +719,8 @@ const CURRENT_VERSION = new URLSearchParams(location.search).get('version');
                                             <th style="width: 10%;">Index Return</th>
                                             <th style="width: 10%;">Annualized</th>
                                             <th style="width: 10%;">Index max dd</th>
-                                            <th style="width: 10%;">i xpl</th>
-                                            <th style="width: 10%;">s xpl</th>
+                                            <th style="width: 10%;">指数夏普</th>
+                                            <th style="width: 10%;">模型夏普</th>
                                             <th style="width: 5%;">操作</th>
                                         </tr>
                                     </thead>

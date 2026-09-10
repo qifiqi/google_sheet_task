@@ -35,10 +35,10 @@ DEFAULT_NAVIGATION_MENU = [
         {"key": "c7", "label": "Google Sheet C7", "path": "/google-sheet/?version=c7", "permission": "page:google_sheet:c7"},
         {"key": "backtest", "label": "单品数据回测", "path": "/backtest-training/list", "permission": "page:backtest:list"},
         {"key": "backtest_multi_product", "label": "多品数据回测", "path": "/backtest-multi-product/list", "permission": "page:backtest_multi_product:list"},
-        {"key": "xpl", "label": "夏普率计算", "path": "/xpl"},
+        {"key": "xpl", "label": "夏普率计算", "path": "/performance_analysis"},
         # key 保留历史值 xpl_v1：startup 导航同步只增改不删，改 key 会在存量库残留死链；
-        # v2 已是唯一分析页（v1 页面链已删除），分析 API 仍为 /xpl/v1/analyze 历史命名。
-        {"key": "xpl_v1", "label": "回测数据分析", "path": "/xpl/v2"},
+        # v2 已是唯一分析页（v1 页面链已删除）。
+        {"key": "xpl_v1", "label": "回测数据分析", "path": "/performance_analysis/v2"},
     ]},
 ]
 

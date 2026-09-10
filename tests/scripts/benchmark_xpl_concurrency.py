@@ -63,7 +63,6 @@ def build_return_rows(row_count: int, seed: int) -> ReturnRows:
 
 
 def run_xpl_once(rows: ReturnRows) -> float:
-    from app.services.xpl_service import XPLAnalyzer
 
     logging.getLogger("app.services.xpl_service").setLevel(logging.WARNING)
     analyzer = XPLAnalyzer()

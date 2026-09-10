@@ -128,7 +128,7 @@
         { prefixes: ['/google-sheet'], build: googleSheetMenu },
         // admin 基座族：挂载点本身就是 <nav class="sidebar ...">，渲染时保留原 class（02 §3.7 渲染等价红线）
         {
-            prefixes: ['/admin', '/xpl', '/backtest-training', '/backtest-multi-product', '/global-preview'],
+            prefixes: ['/admin', '/performance_analysis', '/backtest-training', '/backtest-multi-product', '/global-preview'],
             build: adminSidebar,
             classes: 'col-md-3 col-lg-2 d-md-block sidebar collapse',
         },

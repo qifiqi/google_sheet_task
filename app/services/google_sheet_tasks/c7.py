@@ -14,7 +14,7 @@ from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.task.error_handling import format_task_error_message, record_task_exception
 from app.utils.logger import get_logger
 from app.utils.yf_api import YFApi
@@ -135,7 +135,7 @@ class C7Service(BaseGoogleSheetService):
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
         self.google_sheets: list[GoogleSheet] = []
-        self.xpl = xpl_analyzer
+        self.performance_analyzer = performance_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
         self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
@@ -502,7 +502,7 @@ class C7Service(BaseGoogleSheetService):
                                 'start_return': _start_return[f"{output_column_l}{i + 2}"]
                             })
 
-                        flat_result, metrics_payload = self.xpl.get_return_analysis_v1(_return_data)
+                        flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(_return_data)
                         _result['metrics_payload'] = metrics_payload
                         _result[f"flat_result"] = flat_result
                         _result['_return_date'] = _return_data

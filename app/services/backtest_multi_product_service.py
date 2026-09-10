@@ -24,7 +24,7 @@ from app.services.task.error_handling import (
     record_task_exception,
     summarize_task_exception,
 )
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.formatting import parse_lenient_json
 from app.utils.return_series import parse_return_series_fields
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
@@ -463,7 +463,7 @@ def _build_portfolio_metrics(
     )
     if not return_date:
         return {}
-    calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(return_date)
+    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(return_date)
     return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 
@@ -479,7 +479,7 @@ def _build_weighted_product_metrics(
     )
     if not weighted_return_date:
         return {}
-    calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(weighted_return_date)
+    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(weighted_return_date)
     return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 

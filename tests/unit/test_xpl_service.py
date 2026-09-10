@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
-from app.services.xpl_service import XPLAnalyzer
+from app.services.performance_analysis.analyzer import PerformanceAnalyzer
 from app.routes.backtest_api import _infer_product_export_model_name
 from app.services.backtest_report_query_service import _infer_backtest_export_model_name
 
@@ -17,14 +17,14 @@ from app.services.backtest_report_query_service import _infer_backtest_export_mo
     ],
 )
 def test_export_model_name_uses_v1_sheet_result_title(analyze_result, expected):
-    assert XPLAnalyzer._resolve_export_model_name(
+    assert PerformanceAnalyzer._resolve_export_model_name(
         {"filename_title": "backtest_result_1"},
         analyze_result,
     ) == expected
 
 
 def test_export_model_name_prefers_explicit_model_name():
-    assert XPLAnalyzer._resolve_export_model_name(
+    assert PerformanceAnalyzer._resolve_export_model_name(
         {"model_name": "c4", "filename_title": "backtest_result_1"},
         {},
     ) == "C4"
@@ -52,7 +52,7 @@ def test_analyze_uses_second_column_for_two_column_input():
         ]
     )
 
-    result = XPLAnalyzer().analyze(data=data, time_format="auto")
+    result = PerformanceAnalyzer().analyze(data=data, time_format="auto")
 
     assert result["status"] == "success"
     assert result["results"]["analysis_mode"] == "single"
@@ -72,7 +72,7 @@ def test_analyze_auto_calculates_index_and_model_for_three_columns():
         ]
     )
 
-    result = XPLAnalyzer().analyze(data=data, time_format="auto")
+    result = PerformanceAnalyzer().analyze(data=data, time_format="auto")
 
     assert result["status"] == "success"
     metrics = result["results"]
@@ -94,7 +94,7 @@ def test_analyze_replaces_non_finite_numbers_with_none():
         ]
     )
 
-    result = XPLAnalyzer().analyze(data=data, time_format="auto")
+    result = PerformanceAnalyzer().analyze(data=data, time_format="auto")
 
     assert result["status"] == "success"
     assert not _contains_non_finite_number(result)
@@ -109,7 +109,7 @@ def test_v1_metrics_exports_monthly_skewness_and_kurtosis():
         }
         for index, date in enumerate(pd.date_range("2021-01-01", periods=60, freq="MS"))
     ]
-    metrics = XPLAnalyzer().get_calculate_metrics_v1(rows)
+    metrics = PerformanceAnalyzer().get_calculate_metrics_v1(rows)
 
     assert set((
         "index_monthly_return_skewness",
@@ -120,7 +120,7 @@ def test_v1_metrics_exports_monthly_skewness_and_kurtosis():
 
 
 def test_rolling_return_requires_five_years_without_breaking_metrics():
-    rolling = XPLAnalyzer().calculate_rolling_return(pd.DataFrame({"monthly_return": [0.01] * 37}), months=3)
+    rolling = PerformanceAnalyzer().calculate_rolling_return(pd.DataFrame({"monthly_return": [0.01] * 37}), months=3)
     assert rolling == {
         "status": "failed",
         "reason": "数据不足5年，当前仅3.1年",
@@ -143,7 +143,7 @@ def test_v1_metrics_handles_missing_extreme_loss_days_without_division_by_zero()
             "start_return": start_net_value - 1,
         })
 
-    metrics = XPLAnalyzer().get_calculate_metrics_v1(rows)
+    metrics = PerformanceAnalyzer().get_calculate_metrics_v1(rows)
 
     assert metrics["index_daily_gain_loss_ratio"] == 0.0
     assert metrics["start_daily_gain_loss_ratio"] == 0.0
@@ -195,7 +195,7 @@ def _monthly_loss_rows(months: int = 12) -> list[dict]:
 
 
 def test_v1_metrics_applies_runtime_market_thresholds():
-    analyzer = XPLAnalyzer()
+    analyzer = PerformanceAnalyzer()
     rows = _monthly_loss_rows()
 
     default_metrics = analyzer.get_calculate_metrics_v1(rows)
@@ -222,7 +222,7 @@ def test_analyze_passes_runtime_params_to_dual_metrics():
         ]
     )
 
-    result = XPLAnalyzer().analyze(
+    result = PerformanceAnalyzer().analyze(
         data=data,
         time_format="auto",
         runtime_params={"market_downturn_threshold": -0.005, "market_upturn_threshold": 0.005},
@@ -238,7 +238,7 @@ def test_analyze_passes_runtime_params_to_dual_metrics():
 
 def test_v1_metrics_applies_daily_thresholds():
     """7.3 涨跌幅天数与单日回撤统计阈值均可配。"""
-    analyzer = XPLAnalyzer()
+    analyzer = PerformanceAnalyzer()
     rows = []
     index_net_value = start_net_value = 1.0
     for index, current_date in enumerate(pd.bdate_range("2024-01-01", periods=40)):
@@ -283,15 +283,15 @@ def test_export_file_handles_unavailable_sortino_ratios():
         ]
     )
 
-    result = XPLAnalyzer().analyze(data=data, time_format="auto")
+    result = PerformanceAnalyzer().analyze(data=data, time_format="auto")
 
-    exported_file, _ = XPLAnalyzer().export_file({"analyze_result": result["results"]})
+    exported_file, _ = PerformanceAnalyzer().export_file({"analyze_result": result["results"]})
 
     assert "索提诺比率,--,--" in exported_file.getvalue().decode("utf-8")
 
 
 def test_sanitize_for_json_replaces_numpy_and_python_non_finite_numbers():
-    sanitized = XPLAnalyzer._sanitize_for_json(
+    sanitized = PerformanceAnalyzer._sanitize_for_json(
         {
             "infinity": float("inf"),
             "nan": float("nan"),
@@ -310,7 +310,7 @@ def test_parse_input_data_uses_third_column_as_model_return_for_three_columns():
         ]
     )
 
-    parsed = XPLAnalyzer()._parse_input_data(data)
+    parsed = PerformanceAnalyzer()._parse_input_data(data)
 
     assert [row["daily_return"] for row in parsed] == [0.012, 0.015]
     assert [row["index_return"] for row in parsed] == [0.001, 0.002]
@@ -328,7 +328,7 @@ def test_calculate_monthly_return_uses_first_month_start_value_as_baseline():
         }
     )
 
-    monthly_returns = XPLAnalyzer().calculate_monthly_return_data(df)
+    monthly_returns = PerformanceAnalyzer().calculate_monthly_return_data(df)
 
     assert [item["monthly_return"] for item in monthly_returns] == [0.1, 0.1]
 

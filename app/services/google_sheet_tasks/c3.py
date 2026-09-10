@@ -13,7 +13,7 @@ from app.services.google_sheet_tasks.base import BaseGoogleSheetService, build_e
 from app.services.config_manager import get_config_manager
 from app.services.google_sheet_client import GoogleSheet
 from app.services.stock_metadata_service import upsert_stock_metadata_in_session
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
@@ -44,7 +44,7 @@ class C3Service(BaseGoogleSheetService):
         self.dfcf_api = DFCJStockApi()
         self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
         self.google_sheet:Optional[GoogleSheet] = None
-        self.xpl = xpl_analyzer
+        self.performance_analyzer = performance_analyzer
         self._return_date_cache: Dict[Tuple[str, int], Dict[str, Any]] = {}
 
     @staticmethod
@@ -96,12 +96,12 @@ class C3Service(BaseGoogleSheetService):
         analyze_result: Dict[str, Any],
         row_count: int,
         read_elapsed: float,
-        xpl_elapsed: float,
+        performance_analysis_elapsed: float,
     ) -> str:
         summary = {
             "rows": row_count,
             "read": self._format_elapsed(read_elapsed),
-            "xpl": self._format_elapsed(xpl_elapsed),
+            "performance_analysis": self._format_elapsed(performance_analysis_elapsed),
             "analyze_result_keys": len(analyze_result) if isinstance(analyze_result, dict) else 0,
         }
         if isinstance(flat_result, dict):
@@ -361,18 +361,18 @@ class C3Service(BaseGoogleSheetService):
             read_started = time.perf_counter()
             return_data = self._build_return_analysis_input(config_data)
             read_elapsed = time.perf_counter() - read_started
-            if not return_data or not self.xpl:
+            if not return_data or not self.performance_analyzer:
                 return {}
 
-            xpl_started = time.perf_counter()
-            flat_result, metrics_payload = self.xpl.get_return_analysis_v1(return_data)
-            xpl_elapsed = time.perf_counter() - xpl_started
+            performance_analysis_started = time.perf_counter()
+            flat_result, metrics_payload = self.performance_analyzer.get_return_analysis_v1(return_data)
+            performance_analysis_elapsed = time.perf_counter() - performance_analysis_started
             analysis_summary = self._summarize_return_analysis_for_log(
                 flat_result,
                 metrics_payload,
                 len(return_data),
                 read_elapsed,
-                xpl_elapsed,
+                performance_analysis_elapsed,
             )
             self._log_info(
                 "收益率分析执行完成，摘要: "

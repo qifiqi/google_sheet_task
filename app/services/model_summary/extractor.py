@@ -17,7 +17,7 @@ from app.services.performance_analysis.historical_metrics import (
     find_all_entry as _all_entry,
 )
 from app.services.stock_metadata_service import lookup_stock_metadata
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.formatting import normalize_scientific_text, parse_lenient_json
 from app.utils.market import infer_market_type, normalize_stock_code, strip_stock_code_suffix
 from app.utils.task_types import normalize_task_type
@@ -612,8 +612,8 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
             left = _safe_number(raw_metrics.get("D2"))
             right = _safe_number(raw_metrics.get("D5"))
             return_beats = left - right if left is not None and right is not None else None
-        start_xpl = raw_metrics.get("start_return_xpl") if isinstance(raw_metrics.get("start_return_xpl"), dict) else {}
-        index_xpl = raw_metrics.get("index_return_xpl") if isinstance(raw_metrics.get("index_return_xpl"), dict) else {}
+        start_legacy_metrics = raw_metrics.get("start_return_xpl") if isinstance(raw_metrics.get("start_return_xpl"), dict) else {}
+        index_legacy_metrics = raw_metrics.get("index_return_xpl") if isinstance(raw_metrics.get("index_return_xpl"), dict) else {}
         key_parts = str(model_key).split("__")
         model_name = "__".join(key_parts[1:]) if len(key_parts) > 1 else str(model_key)
         model_name = _display_model_name(model_name, task.task_type)
@@ -625,11 +625,11 @@ def _extract_c4_c5(task: Task, result: TaskResult) -> list[SummaryRecord]:
         metrics.update(_extract_return_analysis_metrics(raw_metrics))
         metrics.update({
             "start_sharpe_ratio": _first_safe_number(
-                start_xpl.get("sharpe_ratio"),
+                start_legacy_metrics.get("sharpe_ratio"),
                 metrics.get("start_sharpe_ratio"),
             ),
             "index_sharpe_ratio": _first_safe_number(
-                index_xpl.get("sharpe_ratio"),
+                index_legacy_metrics.get("sharpe_ratio"),
                 metrics.get("index_sharpe_ratio"),
             ),
         })
@@ -906,7 +906,7 @@ def _extract_backtest_summary_rows(calculate_metrics: dict[str, Any], model_name
         return period_text, [{"metric": metric, "model_value": value} for metric, value in rows]
 
     try:
-        summary_df = xpl_analyzer.format_export_file_data({
+        summary_df = performance_analyzer.format_export_file_data({
             "analyze_result": calculate_metrics,
             "filename_title": model_name,
         })

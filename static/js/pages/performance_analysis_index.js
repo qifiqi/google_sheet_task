@@ -1,4 +1,4 @@
-// 页面脚本（templates/xpl/index.html 内联脚本原样抽离，F5 de-jinja）。
+// 页面脚本（templates/performance_analysis/index.html 内联脚本原样抽离，F5 de-jinja）。
     // 全局变量
     let chart = null;
     let drawdownChart = null;
@@ -197,7 +197,7 @@
         }, 30000); // 30秒超时
 
         // 发送数据到后端API（envelope 模式返回完整信封，页面沿用 normalizeApiResponse 判定）
-        Api.endpoints.xpl.analyze(requestData, {
+        Api.endpoints.performanceAnalysis.analyze(requestData, {
             envelope: true,
             signal: signal
         })

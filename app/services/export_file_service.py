@@ -38,8 +38,8 @@ C5_EXPORT_COLUMNS = [
     "单位实际杠杆率收益",
     "模型年化标准差",
     "指数年化标准差",
-    "指数XPL",
-    "模型XPL",
+    "指数夏普",
+    "模型夏普",
 ]
 
 C5_EXPORT_METRIC_KEYS = ["D11", "D12", "D2", "D3", "D4", "D5", "D6", "D7", "D17", "D20"]
@@ -63,8 +63,8 @@ PERCENT_COLUMN_NAMES = {
 FOUR_DECIMAL_COLUMN_NAMES = {
     "模型年化标准差",
     "指数年化标准差",
-    "指数XPL",
-    "模型XPL",
+    "指数夏普",
+    "模型夏普",
 }
 
 # C3 参数列名 → Google Sheet 单元格引用映射（与 _build_stock_param_result_payload 对应）
@@ -108,8 +108,8 @@ C3_EXPORT_COLUMNS = [
     "年换手率",
     "模型年化标准差",
     "指数年化标准差",
-    "指数XPL",
-    "模型XPL",
+    "指数夏普",
+    "模型夏普",
 ]
 
 # 导出时 "beats_dd" 在表头显示为 "beats"（与 return beats 列同名，业务约定）
@@ -137,8 +137,8 @@ C3_COLUMN_WIDTHS = {
     "年换手率": 12,
     "模型年化标准差": 16,
     "指数年化标准差": 16,
-    "指数XPL": 11,
-    "模型XPL": 11,
+    "指数夏普": 11,
+    "模型夏普": 11,
 }
 
 # C3 导出字段格式说明：
@@ -161,8 +161,8 @@ C3_NUMBER_COLUMN_NAMES = {
 C3_FOUR_DECIMAL_COLUMN_NAMES = {
     "模型年化标准差",
     "指数年化标准差",
-    "指数XPL",
-    "模型XPL",
+    "指数夏普",
+    "模型夏普",
 }
 
 C5_COLUMN_WIDTHS = {
@@ -182,8 +182,8 @@ C5_COLUMN_WIDTHS = {
     "单位实际杠杆率收益": 18,
     "模型年化标准差": 16,
     "指数年化标准差": 16,
-    "指数XPL": 11,
-    "模型XPL": 11,
+    "指数夏普": 11,
+    "模型夏普": 11,
 }
 
 METRIC_DISPLAY_NAME_MAP = {
@@ -394,18 +394,18 @@ def build_c5_model(model_key: Any, metrics: Any) -> dict[str, Any]:
     key_parts = key_text.split("__")
 
     # 优先从旧键读取（向后兼容），回退到 flat_result 中读取
-    start_xpl = raw_metrics.get("start_return_xpl") if isinstance(raw_metrics.get("start_return_xpl"), dict) else {}
-    index_xpl = raw_metrics.get("index_return_xpl") if isinstance(raw_metrics.get("index_return_xpl"), dict) else {}
+    start_legacy_metrics = raw_metrics.get("start_return_xpl") if isinstance(raw_metrics.get("start_return_xpl"), dict) else {}
+    index_legacy_metrics = raw_metrics.get("index_return_xpl") if isinstance(raw_metrics.get("index_return_xpl"), dict) else {}
 
-    if not start_xpl or not index_xpl:
+    if not start_legacy_metrics or not index_legacy_metrics:
         flat_result = raw_metrics.get("flat_result") if isinstance(raw_metrics.get("flat_result"), dict) else {}
-        if not start_xpl:
-            start_xpl = {
+        if not start_legacy_metrics:
+            start_legacy_metrics = {
                 "annual_std_dev": flat_result.get("start_annual_std_dev", flat_result.get("start_monthly_std_dev", "")),
                 "sharpe_ratio": flat_result.get("start_sharpe_ratio", ""),
             }
-        if not index_xpl:
-            index_xpl = {
+        if not index_legacy_metrics:
+            index_legacy_metrics = {
                 "annual_std_dev": flat_result.get("index_annual_std_dev", flat_result.get("index_monthly_std_dev", "")),
                 "sharpe_ratio": flat_result.get("index_sharpe_ratio", ""),
             }
@@ -414,10 +414,10 @@ def build_c5_model(model_key: Any, metrics: Any) -> dict[str, Any]:
         "model_key": key_text,
         "model_title": "__".join(key_parts[1:]) if len(key_parts) > 1 else key_text,
         "metrics": raw_metrics,
-        "start_xpl": start_xpl,
-        "index_xpl": index_xpl,
-        "start_sharpe": start_xpl.get("sharpe_ratio", ""),
-        "index_sharpe": index_xpl.get("sharpe_ratio", ""),
+        "start_legacy_metrics": start_legacy_metrics,
+        "index_legacy_metrics": index_legacy_metrics,
+        "start_sharpe": start_legacy_metrics.get("sharpe_ratio", ""),
+        "index_sharpe": index_legacy_metrics.get("sharpe_ratio", ""),
     }
 
 
@@ -431,8 +431,8 @@ def c5_empty_model_row(group: C5ResultGroup) -> list[Any]:
 
 def c5_model_row(group: C5ResultGroup, model: dict[str, Any]) -> list[Any]:
     metrics = model["metrics"]
-    start_xpl = model["start_xpl"]
-    index_xpl = model["index_xpl"]
+    start_legacy_metrics = model["start_legacy_metrics"]
+    index_legacy_metrics = model["index_legacy_metrics"]
     return_beats_0 = c5_percent_difference(metrics.get("D2"), metrics.get("D5"))
     dd_beats_0 = c5_percent_difference(metrics.get("D4"), metrics.get("D7"))
     annualized_beats_0 = c5_percent_difference(metrics.get("D3"), metrics.get("D6"))
@@ -446,8 +446,8 @@ def c5_model_row(group: C5ResultGroup, model: dict[str, Any]) -> list[Any]:
         c5_metric_value(metrics, "D11"),
         c5_metric_value(metrics, "D12"),
         *[c5_metric_value(metrics, key) for key in C5_EXPORT_METRIC_KEYS[2:]],
-        start_xpl.get("annual_std_dev", ""),
-        index_xpl.get("annual_std_dev", ""),
+        start_legacy_metrics.get("annual_std_dev", ""),
+        index_legacy_metrics.get("annual_std_dev", ""),
         model.get("index_sharpe", ""),
         model.get("start_sharpe", ""),
     ]
@@ -973,7 +973,7 @@ def c3_result_row(group: C3ResultGroup) -> list[Any]:
     # 年换手率：优先读取命名键，回退到 year_rate（I23）
     turnover_rate = r.get("turnover_rate") or year_rate
 
-    # ── XPL 分析字段（从 flat_result 子字典读取）──
+    # ── 绩效分析字段（从 flat_result 子字典读取）──
     flat = r.get("flat_result") if isinstance(r.get("flat_result"), dict) else {}
     start_monthly_std_dev = flat.get("start_monthly_std_dev", "")
     index_monthly_std_dev = flat.get("index_monthly_std_dev", "")
@@ -997,8 +997,8 @@ def c3_result_row(group: C3ResultGroup) -> list[Any]:
         turnover_rate,                    # 年换手率
         start_monthly_std_dev,            # 模型年化标准差
         index_monthly_std_dev,            # 指数年化标准差
-        index_sharpe_ratio,               # 指数XPL
-        start_sharpe_ratio,               # 模型XPL
+        index_sharpe_ratio,               # 指数夏普
+        start_sharpe_ratio,               # 模型夏普
     ]
 
 

@@ -1,6 +1,6 @@
 """文本或内存收益序列的绩效分析适配组件。
 
-负责将调用方传入的日期与收益率记录转换为 DataFrame，并组织 XPL 等
+负责将调用方传入的日期与收益率记录转换为 DataFrame，并组织 绩效分析 等
 分析入口所需的数据；具体绩效指标仍复用本包的计算组件。
 """
 
@@ -19,8 +19,8 @@ logger = get_logger(__name__)
 
 
 class TextReturnAnalysisMixin:
-    def get_xpl(self, data: List[Dict[str, Any]], date='date', val='daily_return'):
-        """根据日期和日收益数据计算 XPL 指标。"""
+    def get_performance_analysis(self, data: List[Dict[str, Any]], date='date', val='daily_return'):
+        """根据日期和日收益数据计算 绩效分析 指标。"""
         if not data:
             return {}
 

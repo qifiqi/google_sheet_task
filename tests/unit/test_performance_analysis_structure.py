@@ -1,12 +1,12 @@
-from app.services.xpl_service import XPLAnalyzer, xpl_analyzer
+from app.services.performance_analysis.analyzer import PerformanceAnalyzer, performance_analyzer
 
 
 def test_xpl_service_exposes_the_composed_analyzer():
-    assert isinstance(xpl_analyzer, XPLAnalyzer)
+    assert isinstance(performance_analyzer, PerformanceAnalyzer)
 
 
 def test_composed_analyzer_keeps_text_analysis_behavior():
-    result = xpl_analyzer.analyze(
+    result = performance_analyzer.analyze(
         "\n".join(
             [
                 "2025/10/5\t0.00%",

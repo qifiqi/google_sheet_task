@@ -299,14 +299,14 @@ def test_task_result_create_commit_param_wiring(app_factory, monkeypatch):
         assert TaskResult.query.filter_by(task_id="t-x").count() == 2
 
 
-def test_delete_xpl_analysis_jobs_missing_table_does_not_commit(app_factory, monkeypatch):
+def test_delete_legacy_performance_analysis_jobs_missing_table_does_not_commit(app_factory, monkeypatch):
     app = app_factory
     with app.app_context():
         commits = []
         monkeypatch.setattr(backtest_repository, "_commit", lambda: commits.append(True))
 
         # 测试库不存在 xpl_analysis_jobs 表 → 早退路径不得提交。
-        backtest_repository.delete_xpl_analysis_jobs(task_id="t-none")
+        backtest_repository.delete_legacy_performance_analysis_jobs(task_id="t-none")
         assert commits == []
 
 

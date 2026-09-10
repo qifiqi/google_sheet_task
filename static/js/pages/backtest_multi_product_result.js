@@ -216,7 +216,7 @@
         try {
             const defaultFilename = `${state.exportBaseName || 'backtest_result'}_details.csv`;
 
-            const resp = await Api.endpoints.export.backtestResultXpl({
+            const resp = await Api.endpoints.export.backtestResultPerformanceAnalysis({
                 filename: defaultFilename,
                 filename_title: state.exportBaseName || 'backtest_result',
                 model_name: state.lastResults.model_name || 'C3',

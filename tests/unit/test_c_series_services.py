@@ -367,7 +367,7 @@ def _run_same_kline_source_case(monkeypatch):
 
     sheet = Sheet()
     service.google_sheets = [sheet]
-    service.xpl = type("XPL", (), {"get_return_analysis_v1": lambda self, rows: ({}, {})})()
+    service.performance_analyzer = type("XPL", (), {"get_return_analysis_v1": lambda self, rows: ({}, {})})()
     monkeypatch.setattr(service, "_interruptible_sleep", lambda _seconds: True)
 
     config = {

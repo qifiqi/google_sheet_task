@@ -8,7 +8,7 @@ from app.extensions import db
 from app.models import Task, TaskResult
 from app.services.backtest_report_query_service import _build_backtest_result_export_data
 from app.services.backtest_report_query_service import _extract_summary_rows
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 
 
 def _add_result(task_type="backtest_training", calculate_metrics=None):
@@ -38,7 +38,7 @@ def _allow_backtest_view(monkeypatch):
 
 
 def _exportable_metrics():
-    result = xpl_analyzer.analyze(
+    result = performance_analyzer.analyze(
         data="\n".join([
             "2025-10-31 1.00% 2.00%",
             "2025-11-30 2.00% 3.00%",
@@ -86,7 +86,7 @@ def test_export_preview_matches_export_formatter(app_factory, monkeypatch):
         expected_export_data = _build_backtest_result_export_data(task_result, task)
         expected_rows = [
             ["" if value is None else str(value) for value in row]
-            for row in xpl_analyzer.format_export_file_data(expected_export_data).fillna("").values.tolist()
+            for row in performance_analyzer.format_export_file_data(expected_export_data).fillna("").values.tolist()
         ]
 
         response = app.test_client().get(
@@ -145,7 +145,7 @@ def test_export_preview_download_uses_same_export_data(app_factory, monkeypatch)
             return BytesIO(b"csv-content"), "text/csv"
 
         monkeypatch.setattr(
-            "app.routes.backtest_training.xpl_analyzer.export_file",
+            "app.routes.backtest_training.performance_analyzer.export_file",
             fake_export_file,
         )
         response = app.test_client().get(
@@ -167,7 +167,7 @@ def test_export_preview_uses_task_name_as_download_name(app_factory, monkeypatch
         db.session.commit()
         _allow_backtest_view(monkeypatch)
         monkeypatch.setattr(
-            "app.routes.backtest_training.xpl_analyzer.export_file",
+            "app.routes.backtest_training.performance_analyzer.export_file",
             lambda _data: (BytesIO(b"csv-content"), "text/csv"),
         )
 

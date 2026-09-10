@@ -24,7 +24,7 @@ import pytest
 from app.services.backtest_multi_product_service import _derive_metrics
 from app.services.backtest_report_query_service import _extract_summary_rows
 from app.services.model_summary.extractor import _extract_backtest_summary_rows
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 
 CALCULATE_METRICS = {
     "excess_returns": [
@@ -209,7 +209,7 @@ def test_golden_extractor_backtest_summary_rows():
 
 def test_golden_pa_exporter_blocks():
     data = {"analyze_result": json.loads(json.dumps(CALCULATE_METRICS)), "model_version": "vTest"}
-    df = xpl_analyzer.format_export_file_data(data)
+    df = performance_analyzer.format_export_file_data(data)
     actual = {
         "block1": df.iloc[0:22, 0:4].values.tolist(),
         "block2": df.iloc[24:29, 0:5].values.tolist(),
@@ -221,7 +221,7 @@ def test_golden_pa_exporter_blocks():
 
 def test_golden_result_mapper_flat_projection():
     analyze_result = json.loads(json.dumps(CALCULATE_METRICS))
-    flat, payload = xpl_analyzer.get_return_analysis_v1(
+    flat, payload = performance_analyzer.get_return_analysis_v1(
         json.loads(json.dumps(RETURN_ROWS)))
     assert flat == MAPPER_FLAT_EXPECTED
     assert payload["schema_version"] == "metrics.v1"

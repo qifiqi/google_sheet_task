@@ -46,7 +46,7 @@ class PerformanceReportExporterMixin:
         return max(values) if values else None
 
     def format_export_file_data(self, data):
-        """将分析结果整理为 XPL 导出文件需要的二维数据。"""
+        """将分析结果整理为 绩效分析 导出文件需要的二维数据。"""
         from app.services.performance_analysis.historical_metrics import upgrade_historical_metrics
 
         analyze_result = data.get('analyze_result')
@@ -261,7 +261,7 @@ class PerformanceReportExporterMixin:
         return target_df
 
     def export_file(self, data):
-        """根据分析结果生成可下载的 XPL Excel 文件。"""
+        """根据分析结果生成可下载的 绩效分析 Excel 文件。"""
         if not data:
             raise ValueError("data不能为空")
 

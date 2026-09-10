@@ -13,7 +13,7 @@ from typing import Any
 from app.repositories import task_repository, task_result_repository
 from app.models import TaskResult, TaskResultReturn
 from app.services.performance_analysis.request_dto import MetricsRuntimeParamsDTO
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.strategy_backtest_report_charts import generate_report_charts
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.services.word_export_template import generate_word_document
@@ -32,7 +32,7 @@ class StrategyBacktestReportService:
         # 三类来源在此统一为累计收益序列，后续指标、图表与 Word 渲染完全复用。
         returns = self._resolve_returns(request)
         runtime = self._runtime_params(request.runtime_params)
-        result = xpl_analyzer.get_calculate_metrics_v1_with_dataframes(returns, runtime)
+        result = performance_analyzer.get_calculate_metrics_v1_with_dataframes(returns, runtime)
         if not result.metrics or result.index_df.empty:
             raise ValueError("收益数据无法生成回测报告")
 
@@ -135,7 +135,7 @@ class StrategyBacktestReportService:
                 source.get("return_series_id"),
             )
         spreadsheet_id = self._spreadsheet_id(source)
-        rows, _sheet_result, _sheet_df = xpl_analyzer.get_google_sheet_data(
+        rows, _sheet_result, _sheet_df = performance_analyzer.get_google_sheet_data(
             spreadsheet_id,
             str(source["google_sheet_name"]),
         )

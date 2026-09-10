@@ -269,7 +269,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getTaskResult } from '@/api/backtest'
-import { exportXplResult } from '@/api/xpl'
+import { exportPerformanceAnalysisResult } from '@/api/performance_analysis'
 
 const route = useRoute()
 const taskId = route.params.id
@@ -527,7 +527,7 @@ async function loadResult() {
 async function exportResult() {
   if (!result.value) return
   try {
-    const blob = await exportXplResult({
+    const blob = await exportPerformanceAnalysisResult({
       filename: `result_${taskId}.csv`,
       filename_title: `result_${taskId}`,
       analyze_result: result.value

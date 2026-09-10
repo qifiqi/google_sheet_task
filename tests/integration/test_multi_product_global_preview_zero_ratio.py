@@ -123,7 +123,7 @@ def test_zero_ratio_product_keeps_placeholder_and_zero_weighted(app_factory, mon
     app = app_factory
     captured = []
     monkeypatch.setattr(
-        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
         _fake_metrics_factory(captured),
     )
 
@@ -158,7 +158,7 @@ def test_calculate_ratios_endpoint_returns_enveloped_payload(app_factory, monkey
     app = app_factory
     captured = []
     monkeypatch.setattr(
-        "app.services.backtest_multi_product_service.xpl_analyzer.get_calculate_metrics_v1",
+        "app.services.backtest_multi_product_service.performance_analyzer.get_calculate_metrics_v1",
         _fake_metrics_factory(captured),
     )
 

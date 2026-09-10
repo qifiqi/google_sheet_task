@@ -1603,6 +1603,56 @@ class PerformanceMetricsMixin:
                 return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
             return {}
 
+    def _weight_combination_v1(self,data):
+        df = pd.DataFrame(data)
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.sort_values('date')
+
+        # 提取年份信息
+        # Extract year and month information
+        df['year'] = df['date'].dt.year
+        df['month'] = df['date'].dt.month
+        df['year_month'] = df['date'].dt.strftime('%Y-%m')
+
+        # 先复制一份基础数据
+        base_df = df.copy()
+        base_df['excess_return'] = base_df['start_return'] - base_df['index_return']
+
+        # 批量计算所有净值
+        base_df['index_net'] = 1 * (1 + base_df['index_return'])
+        base_df['start_net'] = 1 * (1 + base_df['start_return'])
+        base_df['excess_nav'] = 1 * (1 + base_df['excess_return'])
+
+        # 如果需要分别提取（但建议直接用 base_df）
+        index_df = base_df[
+            ['date', 'year', 'month', 'year_month', 'index_return', 'index_net']
+        ].rename(columns={'index_net': 'net_value'})
+        start_df = base_df[
+            ['date', 'year', 'month', 'year_month', 'start_return', 'start_net']
+        ].rename(columns={'start_net': 'net_value'})
+        excess_df = base_df[
+            ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_nav']
+        ].rename(columns={'excess_nav': 'net_value'})
+
+        # 当天收益率
+        # 当天收益率 = (当天净值 / 前一天净值) - 1
+        index_df['daily_return'] = (index_df['net_value'] / index_df['net_value'].shift(1)) - 1
+        start_df['daily_return'] = (start_df['net_value'] / start_df['net_value'].shift(1)) - 1
+
+        # 年化收益率
+        index_annualized_rates = self.annualized_rate_return(index_df)
+        start_annualized_rates = self.annualized_rate_return(start_df)
+        index_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(index_df)
+        start_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(start_df)
+
+
+        return {
+            "index_annualized_rates": index_annualized_rates,
+            "start_annualized_rates": start_annualized_rates,
+            "index_maximum_drawdown": index_maximum_drawdown,
+            "start_maximum_drawdown": start_maximum_drawdown,
+        }
+
     @staticmethod
     def rolling_pair_summary(index_frame, start_frame, column):
         """聚合指数/策略两条滚动序列：各自均值 + 逐位配对的策略胜率。

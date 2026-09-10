@@ -18,7 +18,7 @@ from app.services.performance_analysis.historical_metrics import (
     resolve_preview_metrics,
 )
 from app.services.summary_contract import SUMMARY_ROW_LABELS as CONTRACT_SUMMARY_ROW_LABELS
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.formatting import max_yearly_repair_days, normalize_scientific_text
 from app.utils.return_series import parse_return_series_fields
 from app.utils.c7_result_normalizer import (
@@ -291,7 +291,7 @@ def _build_backtest_result_export_data(task_result: TaskResult, task: Task) -> d
 
 
 def _build_backtest_result_export_rows(export_data: dict) -> list[list[str]]:
-    dataframe = xpl_analyzer.format_export_file_data(export_data)
+    dataframe = performance_analyzer.format_export_file_data(export_data)
     return [
         ["" if value is None else str(value) for value in row]
         for row in dataframe.fillna("").values.tolist()
@@ -754,7 +754,7 @@ def _with_excess_return_preview_row(summary_rows, column, calculate_metrics=None
 def _extract_summary_rows(calculate_metrics, model_name):
     if not isinstance(calculate_metrics, dict) or not calculate_metrics:
         return "", []
-    calculate_metrics = _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics)
+    calculate_metrics = _normalize_calculate_metrics_years_for_performance_analysis_export(calculate_metrics)
 
     def _normalize_display_value(value):
         text = str(value or "").strip()
@@ -850,7 +850,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
     return _build_fallback_rows()
 
 
-def _normalize_calculate_metrics_years_for_xpl_export(calculate_metrics):
+def _normalize_calculate_metrics_years_for_performance_analysis_export(calculate_metrics):
     normalized = deepcopy(calculate_metrics)
 
     def normalize_year(value):
@@ -885,7 +885,7 @@ def _build_global_preview_payload_from_results(task, task_results):
     """将单产品 TaskResult 转换为全局预览使用的表格数据格式。
 
     单产品页面以“股票 + 年份区间”分组、以每条成功结果作为动态列；
-    行指标来自 XPL 摘要格式化逻辑，缺失结果仍保留列以便用户识别失败步骤。
+    行指标来自 绩效分析 摘要格式化逻辑，缺失结果仍保留列以便用户识别失败步骤。
     """
     task_config = task.to_dict().get("config") or {}
     return_series_by_id = {

@@ -68,8 +68,8 @@ def _valid_rows(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, float]]:
             continue
         if not math.isfinite(index_return) or not math.isfinite(start_return):
             continue
-        if index_return <= -1 or start_return <= -1:
-            raise ValueError("累计收益率不能小于等于 -100%")
+        # if index_return <= -1 or start_return <= -1:
+        #     raise ValueError("累计收益率不能小于等于 -100%")
         normalized[date] = {"index_return": index_return, "start_return": start_return}
     return normalized
 

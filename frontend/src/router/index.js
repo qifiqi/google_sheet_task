@@ -41,9 +41,9 @@ const routes = [
       { path: 'backtest-multi/:id',               name: 'BacktestMultiDetail',        component: () => import('@/views/backtest-multi/Detail.vue'),        meta: { title: '多产品回测详情',   permission: 'backtest:view' } },
       { path: 'backtest-multi/:id/result',        name: 'BacktestMultiResult',        component: () => import('@/views/backtest-multi/Result.vue'),        meta: { title: '多产品回测结果',   permission: 'backtest:view' } },
       { path: 'backtest-multi/:id/global-preview',name: 'BacktestMultiGlobalPreview', component: () => import('@/views/backtest-multi/GlobalPreview.vue'), meta: { title: '多产品全局预览',   permission: 'backtest:view' } },
-      // XPL — 无权限限制，登录即可访问
-      { path: 'xpl',    name: 'XplIndex', component: () => import('@/views/xpl/Index.vue'), meta: { title: '数据分析' } },
-      { path: 'xpl/v1', name: 'XplV1',   component: () => import('@/views/xpl/V1.vue'),    meta: { title: 'V1 分析' } },
+      // 绩效分析 - 登录即可访问
+      { path: 'performance_analysis',    name: 'PerformanceAnalysisIndex', component: () => import('@/views/performance_analysis/Index.vue'), meta: { title: '数据分析' } },
+      { path: 'performance_analysis/v1', name: 'PerformanceAnalysisV1',   component: () => import('@/views/performance_analysis/V1.vue'),    meta: { title: 'V1 分析' } },
       // Admin
       { path: 'admin',                name: 'Dashboard',       component: () => import('@/views/admin/Dashboard.vue'),    meta: { title: '仪表盘' } },
       { path: 'admin/tasks',          name: 'AdminTasks',      component: () => import('@/views/admin/Tasks.vue'),        meta: { title: '任务管理',          permission: 'task:view' } },

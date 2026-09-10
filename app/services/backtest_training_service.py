@@ -20,7 +20,7 @@ from app.utils.alert_decorator import alert_on_failure
 from app.utils.db_retry import safe_db_operation
 from app.utils.dfcf_api import DFCJStockApi
 from app.utils.result_validator import is_valid_result_value
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 from app.utils.yf_api import YFApi
 from app.utils.task_error_utils import (
     RetryableNetworkTaskError,
@@ -41,7 +41,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
 
     def __init__(self, config: Dict[str, Any], task_id: str, app=None, stop_event=None):
         super().__init__(config, task_id, app=app, stop_event=stop_event)
-        self.xpl = xpl_analyzer
+        self.performance_analyzer = performance_analyzer
         self.YF_api = YFApi()
         self.dfcf_api = DFCJStockApi()
         self.kline_service = KlineService(dfcf_api=self.dfcf_api, yahoo_api=self.YF_api)
@@ -722,7 +722,7 @@ class BacktestTrainingService(BaseGoogleSheetService):
                     })
                 from app.services.performance_analysis.facade import calculate_v1_metrics
 
-                metrics_result = calculate_v1_metrics(_return_date, analyzer=self.xpl)
+                metrics_result = calculate_v1_metrics(_return_date, analyzer=self.performance_analyzer)
                 # 统一存储契约：metrics_payload = {schema_version, metrics, canonical_metrics}；
                 # 完整收益序列由 TaskResultReturn 单独存储，不在 result 中重复。
                 _result['metrics_payload'] = metrics_result.to_json_dict()
@@ -910,3 +910,9 @@ class BacktestTrainingService(BaseGoogleSheetService):
         return data, len(all_kline) + 20,KLINE_DATA_MAP
 
 
+# soxx,qqq,spy
+# 权重不超过50，
+# 7.02-收盘价
+# return 22-25
+# 回撤 10% 以内
+# 20-25

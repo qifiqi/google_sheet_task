@@ -1,8 +1,8 @@
 <template>
-  <div class="app-page xpl-index-page">
+  <div class="app-page performance-analyzer-index-page">
     <div class="page-toolbar">
       <div class="page-toolbar__meta">
-        <div class="page-toolbar__eyebrow">XPL</div>
+        <div class="page-toolbar__eyebrow">绩效分析</div>
         <h2 class="page-title">数据分析工具</h2>
       </div>
       <div class="page-toolbar__actions page-toolbar__actions--tight">
@@ -15,9 +15,9 @@
       <div class="section-label">数据输入</div>
       <el-row :gutter="16">
         <el-col :xs="24" :lg="10">
-          <div class="xpl-input-panel">
-            <div class="xpl-input-panel__head">
-              <span class="section-label xpl-input-panel__title">粘贴数据</span>
+          <div class="performance-analyzer-input-panel">
+            <div class="performance-analyzer-input-panel__head">
+              <span class="section-label performance-analyzer-input-panel__title">粘贴数据</span>
               <div class="page-toolbar__actions page-toolbar__actions--tight">
                 <el-button size="small" @click="pasteFromClipboard">粘贴</el-button>
                 <el-button size="small" @click="loadSampleData">示例</el-button>
@@ -29,15 +29,15 @@
               type="textarea"
               :rows="10"
               placeholder="请将 Excel 中的时间列和收益率列数据粘贴到此处，格式为：时间 收益率&#10;例如：&#10;2025-01-01 0.0234&#10;2025-01-02 -0.0156"
-              class="xpl-input-panel__textarea"
+              class="performance-analyzer-input-panel__textarea"
               @input="onDataInput"
             />
-            <div class="xpl-input-panel__count">{{ lineCount }} 行数据</div>
+            <div class="performance-analyzer-input-panel__count">{{ lineCount }} 行数据</div>
           </div>
         </el-col>
 
         <el-col :xs="24" :lg="7">
-          <el-card shadow="never" class="xpl-fill-card">
+          <el-card shadow="never" class="performance-analyzer-fill-card">
             <div class="section-label">分析设置</div>
             <el-form label-width="80px" size="small">
               <el-form-item label="时间格式">
@@ -68,7 +68,7 @@
         </el-col>
 
         <el-col :xs="24" :lg="7">
-          <el-card shadow="never" class="xpl-fill-card">
+          <el-card shadow="never" class="performance-analyzer-fill-card">
             <div class="section-label">快速统计</div>
             <div v-if="quickStats">
               <el-descriptions :column="1" size="small">
@@ -86,11 +86,11 @@
 
     <el-card v-if="analysisResult" shadow="never" class="section-card">
       <div class="section-label">分析结果</div>
-      <el-row :gutter="12" class="xpl-metric-grid">
-        <el-col v-for="m in metrics" :key="m.key" :xs="12" :sm="6" class="xpl-metric-grid__col">
+      <el-row :gutter="12" class="performance-analyzer-metric-grid">
+        <el-col v-for="m in metrics" :key="m.key" :xs="12" :sm="6" class="performance-analyzer-metric-grid__col">
           <el-card shadow="never" class="metric-card--center">
             <div class="card-grid-note">{{ m.label }}</div>
-            <div class="xpl-metric-grid__value" :class="m.toneClass">{{ analysisResult[m.key] ?? '-' }}</div>
+            <div class="performance-analyzer-metric-grid__value" :class="m.toneClass">{{ analysisResult[m.key] ?? '-' }}</div>
           </el-card>
         </el-col>
       </el-row>
@@ -104,7 +104,7 @@
 
     <el-card shadow="never">
       <div class="section-label">其他工具</div>
-      <el-button @click="$router.push('/xpl/v1')">V1: Google Sheet 分析</el-button>
+      <el-button @click="$router.push('/performance_analysis/v1')">V1: Google Sheet 分析</el-button>
     </el-card>
   </div>
 </template>
@@ -121,14 +121,14 @@ const quickStats = ref(null)
 const settings = reactive({ timeFormat: 'auto', delimiter: 'auto', benchmark: '', riskFreeRate: '0.03' })
 
 const metrics = [
-  { key: 'totalReturn', label: '累计收益', toneClass: 'xpl-metric-grid__value--primary' },
-  { key: 'annualReturn', label: '年化收益', toneClass: 'xpl-metric-grid__value--success' },
-  { key: 'maxDrawdown', label: '最大回撤', toneClass: 'xpl-metric-grid__value--danger' },
-  { key: 'sharpe', label: 'Sharpe', toneClass: 'xpl-metric-grid__value--warning' },
-  { key: 'calmar', label: 'Calmar', toneClass: 'xpl-metric-grid__value--muted' },
-  { key: 'winRate', label: '胜率', toneClass: 'xpl-metric-grid__value--info' },
-  { key: 'volatility', label: '波动率', toneClass: 'xpl-metric-grid__value--muted' },
-  { key: 'tradingDays', label: '交易天数', toneClass: 'xpl-metric-grid__value--soft' },
+  { key: 'totalReturn', label: '累计收益', toneClass: 'performance-analyzer-metric-grid__value--primary' },
+  { key: 'annualReturn', label: '年化收益', toneClass: 'performance-analyzer-metric-grid__value--success' },
+  { key: 'maxDrawdown', label: '最大回撤', toneClass: 'performance-analyzer-metric-grid__value--danger' },
+  { key: 'sharpe', label: 'Sharpe', toneClass: 'performance-analyzer-metric-grid__value--warning' },
+  { key: 'calmar', label: 'Calmar', toneClass: 'performance-analyzer-metric-grid__value--muted' },
+  { key: 'winRate', label: '胜率', toneClass: 'performance-analyzer-metric-grid__value--info' },
+  { key: 'volatility', label: '波动率', toneClass: 'performance-analyzer-metric-grid__value--muted' },
+  { key: 'tradingDays', label: '交易天数', toneClass: 'performance-analyzer-metric-grid__value--soft' },
 ]
 
 const lineCount = computed(() => {
@@ -245,14 +245,14 @@ function exportResults() {
 </script>
 
 <style scoped>
-.xpl-input-panel {
+.performance-analyzer-input-panel {
   padding: 12px;
   border: 1px solid var(--app-border);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.74);
 }
 
-.xpl-input-panel__head {
+.performance-analyzer-input-panel__head {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -260,69 +260,69 @@ function exportResults() {
   margin-bottom: 8px;
 }
 
-.xpl-input-panel__title {
+.performance-analyzer-input-panel__title {
   margin: 0;
 }
 
-.xpl-input-panel__textarea :deep(textarea) {
+.performance-analyzer-input-panel__textarea :deep(textarea) {
   font-family: 'Fira Code', monospace;
 }
 
-.xpl-input-panel__count {
+.performance-analyzer-input-panel__count {
   margin-top: 4px;
   text-align: right;
   color: var(--app-text-muted);
   font-size: var(--app-font-xs);
 }
 
-.xpl-fill-card {
+.performance-analyzer-fill-card {
   height: 100%;
 }
 
-.xpl-metric-grid {
+.performance-analyzer-metric-grid {
   margin-bottom: 16px;
 }
 
-.xpl-metric-grid__col {
+.performance-analyzer-metric-grid__col {
   margin-bottom: 12px;
 }
 
-.xpl-metric-grid__value {
+.performance-analyzer-metric-grid__value {
   margin-top: 4px;
   font-size: 22px;
   font-weight: 700;
 }
 
-.xpl-metric-grid__value--primary {
+.performance-analyzer-metric-grid__value--primary {
   color: #409eff;
 }
 
-.xpl-metric-grid__value--success {
+.performance-analyzer-metric-grid__value--success {
   color: #67c23a;
 }
 
-.xpl-metric-grid__value--danger {
+.performance-analyzer-metric-grid__value--danger {
   color: #f56c6c;
 }
 
-.xpl-metric-grid__value--warning {
+.performance-analyzer-metric-grid__value--warning {
   color: #e6a23c;
 }
 
-.xpl-metric-grid__value--muted {
+.performance-analyzer-metric-grid__value--muted {
   color: #909399;
 }
 
-.xpl-metric-grid__value--info {
+.performance-analyzer-metric-grid__value--info {
   color: #17a2b8;
 }
 
-.xpl-metric-grid__value--soft {
+.performance-analyzer-metric-grid__value--soft {
   color: #606266;
 }
 
 @media (max-width: 767px) {
-  .xpl-input-panel__head {
+  .performance-analyzer-input-panel__head {
     flex-direction: column;
     align-items: stretch;
   }

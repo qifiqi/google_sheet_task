@@ -61,8 +61,8 @@ STATIC_PAGES = [
     # /admin/eastmoney-kline 为纯 iframe 壳页，无页面 JS，仅断言 pages css 与零 Jinja
     ("/admin/eastmoney-kline", "/static/css/pages/admin_eastmoney_kline.css", False),
     # F5: xpl 两页（基座内联展开；CDN jquery/datatables/chart.js 保留外链；v1 页面链已删除）
-    ("/xpl/", "/static/js/pages/xpl_index.js"),
-    ("/xpl/v2", "/static/js/pages/xpl_v2.js"),
+    ("/performance_analysis/", "/static/js/pages/performance_analysis_index.js"),
+    ("/performance_analysis/v2", "/static/js/pages/performance_analysis_v2.js"),
     # F5: eastmoney_kline 独立页（已模块化，自带 layui/utils 脚本）
     ("/eastmoney-kline", "/static/js/pages/eastmoney_kline_index.js", False),
     # F5: 登录页（独立页，loginNextUrl 由 login.js 从 ?next= 填充）

@@ -190,10 +190,10 @@
             return getFirstMetricValue(flatResult, ['start_sharpe_ratio', 'start_sharp', 'sxpl', 's_xpl', 'start_xpl']);
         }
     
-        const legacyXpl = type === 'index'
+        const legacyPerformanceAnalysis = type === 'index'
             ? (metrics.index_return_xpl || {})
             : (metrics.start_return_xpl || {});
-        return legacyXpl.sharpe_ratio != null ? legacyXpl.sharpe_ratio : null;
+        return legacyPerformanceAnalysis.sharpe_ratio != null ? legacyPerformanceAnalysis.sharpe_ratio : null;
     }
 
     function getDetailMetricSource(metrics) {

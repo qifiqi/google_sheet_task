@@ -425,10 +425,10 @@
             return getFirstMetricValue(flatResult, ['start_sharpe_ratio', 'start_sharp', 'sxpl', 's_xpl', 'start_xpl']);
         }
 
-        const legacyXpl = type === 'index'
+        const legacyPerformanceAnalysis = type === 'index'
                 ? (metrics.index_return_xpl || {})
                 : (metrics.start_return_xpl || {});
-        return legacyXpl.sharpe_ratio != null ? legacyXpl.sharpe_ratio : null;
+        return legacyPerformanceAnalysis.sharpe_ratio != null ? legacyPerformanceAnalysis.sharpe_ratio : null;
     }
 
     function getDetailMetricSource(metrics) {
@@ -543,8 +543,8 @@
         ['I21', 'Fee total'],
         ['I22', 'Fee annualized'],
         ['I23', '年换手率'],
-        ['index_sharpe_ratio', 'i xpl'],
-        ['start_sharpe_ratio', 's xpl']
+        ['index_sharpe_ratio', '指数夏普'],
+        ['start_sharpe_ratio', '模型夏普']
     ];
 
     function getMetricDisplayLabel(key) {

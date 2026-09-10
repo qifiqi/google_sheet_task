@@ -62,7 +62,7 @@
         return request('DELETE', path, undefined, options);
     }
 
-    // 部分 xpl 页面调用点原本显式携带 X-CSRFToken（template-auth.js 不注入该头），
+    // 部分 绩效分析页面调用点原本显式携带 X-CSRFToken（template-auth.js 不注入该头），
     // 迁入端点时合并进 options.headers，保持 wire 格式零变化。
     function withCsrfToken(options) {
         const merged = {};
@@ -168,12 +168,12 @@
             rebuild: function (payload, options) { return post('/admin/api/model-summary/rebuild', payload, options); },
             rebuildStatus: function (query, options) { return get('/admin/api/model-summary/rebuild/status' + (query ? '?' + query : ''), options); },
         },
-        xpl: {
-            // xpl 页面蓝图自有 API（/xpl/index、/xpl/v2 页共用；analyzeV1 为历史命名的分析 API，v2 页在用），信封与 /api/* 同一格式；
+        performanceAnalysis: {
+            // 绩效分析页面自有 API（首页、V2 页共用），信封与 /api/* 同一格式；
             // 原调用点显式携带 X-CSRFToken，wire 格式保持不变。调用方需要完整信封时传 { envelope: true }。
-            analyze: function (payload, options) { return post('/xpl/analyze', payload, withCsrfToken(options)); },
-            analyzeV1: function (payload, options) { return post('/xpl/v1/analyze', payload, withCsrfToken(options)); },
-            // 与 googleSheet.worksheets 同一 URL，但 xpl 页原调用点带 X-CSRFToken，分开定义各自 wire 格式零变化。
+            analyze: function (payload, options) { return post('/performance_analysis/analyze', payload, withCsrfToken(options)); },
+            analyzeV1: function (payload, options) { return post('/performance_analysis/v1/analyze', payload, withCsrfToken(options)); },
+            // 与 googleSheet.worksheets 同一 URL，但 绩效分析页原调用点带 X-CSRFToken，分开定义各自 wire 格式零变化。
             worksheets: function (payload, options) { return post('/api/google-sheet/worksheets', payload, withCsrfToken(options)); },
         },
         export: {
@@ -212,8 +212,8 @@
                 return fetch('/api/exports/backtest-results/' + resultId);
             },
             // 多品回测结果 CSV 导出（multi 结果页），文件流下载，返回原始 Response。
-            backtestResultXpl: function (payload) {
-                return fetch('/api/exports/xpl', {
+            backtestResultPerformanceAnalysis: function (payload) {
+                return fetch('/api/exports/performance_analysis', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

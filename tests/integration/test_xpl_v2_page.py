@@ -125,7 +125,7 @@ def test_v2_json_returns_are_normalized_without_a_product():
 
 def test_v2_google_sheet_returns_are_normalized(monkeypatch):
     monkeypatch.setattr(
-        "app.services.strategy_backtest_report_service.xpl_analyzer.get_google_sheet_data",
+        "app.services.strategy_backtest_report_service.performance_analyzer.get_google_sheet_data",
         lambda spreadsheet_id, sheet_name: (
             _report_payload()["returns"],
             {},
@@ -301,10 +301,10 @@ def _page_cookie_client(app, username="xpl-cookie-user"):
 
 
 def test_xpl_v2_page_exposes_all_data_sources(app_factory):
-    """F5 静态化后页面 JS 抽离至 static/js/pages/xpl_v2.js：
+    """F5 静态化后页面 JS 抽离至 static/js/pages/performance_analysis_v2.js：
     DOM 断言仍打 HTML，脚本内容断言改读 pages JS 文件（同一交付物）。"""
     client = _page_cookie_client(app_factory)
-    response = client.get('/xpl/v2')
+    response = client.get('/performance_analysis/v2')
 
     assert response.status_code == 200
     body = response.get_data(as_text=True)
@@ -317,9 +317,9 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
     assert 'id="word-export-options-modal"' in body
     assert 'date / index_return / start_return' in body
     assert 'xlsx-js-style' in body
-    assert '/static/js/pages/xpl_v2.js' in body
+    assert '/static/js/pages/performance_analysis_v2.js' in body
 
-    with open('static/js/pages/xpl_v2.js', encoding='utf-8') as f:
+    with open('static/js/pages/performance_analysis_v2.js', encoding='utf-8') as f:
         page_js = f.read()
     # F6 D9 收口后 URL 在 common/api.js，页面 JS 经 Api.endpoints.stock.search 调用
     assert 'Api.endpoints.stock.search' in page_js
@@ -332,7 +332,7 @@ def test_xpl_v2_page_exposes_all_data_sources(app_factory):
 
 def test_xpl_v2_accepts_portfolio_return_rows(app_factory):
     client = app_factory.test_client()
-    response = client.post('/xpl/analyze', headers=_page_user_headers(app_factory), json={
+    response = client.post('/performance_analysis/analyze', headers=_page_user_headers(app_factory), json={
         "data": "\n".join([
             "2024-01-01\t0.01\t0.02",
             "2024-01-02\t0.02\t0.03",

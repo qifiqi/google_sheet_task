@@ -99,9 +99,9 @@ def calculate_v1_metrics(
 ) -> MetricsV1Result:
     """根据累计收益行计算统一的 V1 结果。"""
     if analyzer is None:
-        from app.services.xpl_service import xpl_analyzer
+        from app.services.performance_analysis.analyzer import performance_analyzer
 
-        analyzer = xpl_analyzer
+        analyzer = performance_analyzer
     calculated = analyzer._calculate_metrics_v1(
         list(returns or []),
         return_dataframes=True,

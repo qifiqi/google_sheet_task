@@ -17,7 +17,7 @@ from app.exceptions import BadRequestError, NotFoundError
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
 from app.schemas.backtest import StrategyBacktestReportSchema
 from app.schemas.task import TaskIdsBatchSchema
-from app.schemas.xpl import AnalyzePayloadSchema
+from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema
 from app.services.export_service import export_service
 from app.services.export_file_service import sanitize_export_filename
 from app.services.task import task_manager
@@ -162,11 +162,11 @@ def export_backtest_result(result_id):
     return _file_response(export_service.export_backtest_result(result_id))
 
 
-@export_api_bp.route("/xpl", methods=["POST"])
+@export_api_bp.route("/performance_analysis", methods=["POST"])
 @login_required
 @_export_limit
-def export_xpl():
-    return _file_response(export_service.export_xpl(parse_body(AnalyzePayloadSchema).root))
+def export_performance_analysis():
+    return _file_response(export_service.export_performance_analysis(parse_body(PerformanceAnalysisPayloadSchema).root))
 
 
 @export_api_bp.route("/backtest-reports/word", methods=["POST"])

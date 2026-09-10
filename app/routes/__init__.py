@@ -16,7 +16,7 @@ def register_blueprints(app):
     from app.routes.stock_api import stock_api_bp
     from app.routes.google_sheet import google_sheet_bp
     from app.routes.scheduler_api import scheduler_api_bp
-    from app.routes.xpl import xpl_bp
+    from app.routes.performance_analysis import performance_analysis_bp
     from app.routes.backtest_api import bt_api_bp, bmp_api_bp
     from app.routes.backtest_training import bp as backtest_training_bp
     from app.routes.backtest_training import legacy_bp as backtest_training_legacy_bp
@@ -29,7 +29,7 @@ def register_blueprints(app):
     from app.routes.export_api import export_api_bp
 
     app.register_blueprint(auth_pages_bp)
-    app.register_blueprint(xpl_bp, url_prefix='/xpl')
+    app.register_blueprint(performance_analysis_bp, url_prefix='/performance_analysis')
     app.register_blueprint(admin_bp, url_prefix='/admin')
     app.register_blueprint(admin_api_bp, url_prefix='/admin')
 

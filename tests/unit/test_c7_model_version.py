@@ -64,7 +64,7 @@ def test_c7_v03_uses_ohlc_layout_and_c5_result_range(monkeypatch):
     service = C7Service({}, "task-id")
     sheet = _C7V03Sheet()
     service.google_sheets = [sheet]
-    service.xpl = type(
+    service.performance_analyzer = type(
         "XPL",
         (), {"get_return_analysis_v1": lambda _self, rows: (sheet.analysis_rows.extend(rows) or {}, {})},
     )()
@@ -146,7 +146,7 @@ def test_c7_v03_rewrites_kline_when_stock_changes(monkeypatch):
     service = C7Service({}, "task-id")
     sheet = _C7V03Sheet()
     service.google_sheets = [sheet]
-    service.xpl = type(
+    service.performance_analyzer = type(
         "XPL",
         (), {"get_return_analysis_v1": lambda _self, rows: ({}, {})},
     )()

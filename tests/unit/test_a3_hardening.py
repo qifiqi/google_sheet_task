@@ -181,14 +181,14 @@ def test_page_accessible_with_cookie_token(app_factory):
         user_id = _create_user(app, "page-user")
         client = app.test_client()
         client.set_cookie(ACCESS_TOKEN_COOKIE, create_access_token(user_id))
-        resp = client.get("/xpl/")
+        resp = client.get("/performance_analysis/")
         assert resp.status_code == 200
 
 
 def test_xpl_analyze_requires_login(app_factory):
     app = app_factory
     client = app.test_client()
-    resp = client.post("/xpl/analyze", json={"data": "2024-01-01 0.01"})
+    resp = client.post("/performance_analysis/analyze", json={"data": "2024-01-01 0.01"})
     assert resp.status_code == 401
 
 
@@ -199,7 +199,7 @@ def test_xpl_analyze_data_failure_returns_400(app_factory):
         user_id = _create_user(app, "xpl-user")
         client = app.test_client()
         resp = client.post(
-            "/xpl/analyze",
+            "/performance_analysis/analyze",
             headers=_auth_headers(user_id),
             json={"data": "not-a-date bogus"},
         )

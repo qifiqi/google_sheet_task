@@ -35,7 +35,7 @@ from app.services.export_file_service import (
 )
 from app.services.model_summary_service import model_summary_service
 from app.services.task import task_manager
-from app.services.xpl_service import xpl_analyzer
+from app.services.performance_analysis.analyzer import performance_analyzer
 from app.services.strategy_backtest_report_service import strategy_backtest_report_service
 from app.utils.logger import get_logger
 
@@ -246,15 +246,15 @@ class ExportService:
             raise NotFoundError("任务结果不存在")
         task = self._get_task(task_result.task_id)
         export_data = build_backtest_result_export_data(task_result, task)
-        buffer, mimetype = xpl_analyzer.export_file(export_data)
+        buffer, mimetype = performance_analyzer.export_file(export_data)
         return GeneratedFile(export_data["filename"], mimetype, buffer, buffer.getbuffer().nbytes)
 
-    def export_xpl(self, payload: dict[str, Any]) -> GeneratedFile:
-        """处理export_xpl相关逻辑。"""
+    def export_performance_analysis(self, payload: dict[str, Any]) -> GeneratedFile:
+        """导出绩效分析结果。"""
         if not isinstance(payload, dict) or not payload:
             raise ValidationError("请求数据不能为空")
-        buffer, mimetype = xpl_analyzer.export_file(payload)
-        filename = payload.get("filename") or "xpl_export.csv"
+        buffer, mimetype = performance_analyzer.export_file(payload)
+        filename = payload.get("filename") or "performance_analysis_export.csv"
         if not str(filename).lower().endswith(".csv"):
             filename = f"{filename}.csv"
         return GeneratedFile(sanitize_export_filename(filename), mimetype, buffer, buffer.getbuffer().nbytes)

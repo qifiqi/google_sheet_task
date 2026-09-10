@@ -9,9 +9,9 @@ from app.repositories import (
 )
 
 
-def _delete_xpl_analysis_jobs(*, task_id: str | None = None, result_ids: list[int] | None = None, return_series_ids: list[int] | None = None) -> None:
+def _delete_legacy_performance_analysis_jobs(*, task_id: str | None = None, result_ids: list[int] | None = None, return_series_ids: list[int] | None = None) -> None:
     # commit=False：清理链路多表凑批，由调用方统一提交。
-    backtest_repository.delete_xpl_analysis_jobs(
+    backtest_repository.delete_legacy_performance_analysis_jobs(
         task_id=task_id,
         result_ids=result_ids,
         return_series_ids=return_series_ids,
@@ -23,7 +23,7 @@ def delete_task_result_dependencies(result_ids: list[int]) -> None:
     """Remove records that previously depended on task_results via foreign keys."""
     if not result_ids:
         return
-    _delete_xpl_analysis_jobs(result_ids=result_ids)
+    _delete_legacy_performance_analysis_jobs(result_ids=result_ids)
     backtest_repository.delete_summary_index_by_result_ids(result_ids, commit=False)
 
 
@@ -32,7 +32,7 @@ def clear_task_execution_data(task_id: str, *, include_logs: bool = False) -> No
     result_ids = task_result_repository.list_ids_by_task(task_id)
     return_series_ids = task_result_repository.list_return_ids_by_task(task_id)
 
-    _delete_xpl_analysis_jobs(
+    _delete_legacy_performance_analysis_jobs(
         task_id=task_id,
         result_ids=result_ids,
         return_series_ids=return_series_ids,
