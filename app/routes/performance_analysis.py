@@ -17,6 +17,7 @@ register_page_routes(
     [
         ("/", "performance_analysis/index.html"),
         ("/v2", "performance_analysis/v2.html"),
+        ("/weight_combination", "performance_analysis/weight_combination.html"),
     ],
     guard=page_login_required,
 )
@@ -57,7 +58,37 @@ def analyze_data_v1():
     key_func=rate_limit_user_key,
 )
 def weight_combination():
+    """权重组合分析接口，返回流式 NDJSON（换行分隔的 JSON）。
+
+    每个组合结果作为一行 JSON 对象返回，前端可以流式处理和渐进式渲染。
+    """
+    from flask import Response
+    import json
+
     payload = parse_body(WeightCombinationSchema).root
-    return performance_analysis_service.weight_combination(payload)
+
+    def generate():
+        """生成器函数，逐个产出组合结果的 JSON 行。"""
+        try:
+            for combination in performance_analysis_service.weight_combination(payload):
+                # 每个组合输出为一行 JSON
+                yield json.dumps(combination, ensure_ascii=False) + '\n'
+        except Exception as e:
+            # 错误也以 JSON 格式返回
+            error_obj = {
+                'error': True,
+                'message': str(e)
+            }
+            yield json.dumps(error_obj, ensure_ascii=False) + '\n'
+
+    return Response(
+        generate(),
+        mimetype='application/x-ndjson',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'  # 禁用 nginx 缓冲，确保流式传输
+        }
+    )
+
 
 
