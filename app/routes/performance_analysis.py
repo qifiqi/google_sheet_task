@@ -3,7 +3,7 @@ from flask import Blueprint
 from app.routes.page_files import register_page_routes
 
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
-from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema
+from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema, WeightCombinationSchema
 from app.services.performance_analysis.service import performance_analysis_service
 from app.utils.api_response import error, success
 from app.utils.auth import login_required, page_login_required
@@ -57,6 +57,7 @@ def analyze_data_v1():
     key_func=rate_limit_user_key,
 )
 def weight_combination():
-    return _run_analyze(performance_analysis_service.weight_combination)
+    payload = parse_body(WeightCombinationSchema).root
+    return performance_analysis_service.weight_combination(payload)
 
 
