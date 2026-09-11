@@ -357,7 +357,7 @@
                 {
                     title: '股票组合',
                     field: 'stocks_display',
-                    minWidth: 300,
+                    minWidth: 240,
                     headerSort: false,
                     formatter: 'textarea',
                     tooltip: true,
@@ -365,13 +365,23 @@
                 },
                 rangeColumn('年化收益率(指数)', 'index_rate_disp', { width: 185, digits: 2, suffix: '%' }),
                 rangeColumn('年化收益率(策略)', 'start_rate_disp', { width: 185, digits: 2, suffix: '%' }),
-                rangeColumn('最大回撤(指数)', 'index_dd_disp', { width: 180, digits: 2, suffix: '%' }),
-                rangeColumn('最大回撤(策略)', 'start_dd_disp', { width: 180, digits: 2, suffix: '%' }),
-                rangeColumn('权重和(%)', 'weight_sum', { width: 150, digits: 0, suffix: '%' })
+                rangeColumn('最大回撤(指数)', 'index_dd_disp', { width: 175, digits: 2, suffix: '%' }),
+                rangeColumn('最大回撤(策略)', 'start_dd_disp', { width: 175, digits: 2, suffix: '%' }),
+                rangeColumn('权重和(%)', 'weight_sum', { width: 140, digits: 0, suffix: '%' }),
+                {
+                    title: '查看',
+                    field: 'view_action',
+                    width: 80,
+                    hozAlign: 'center',
+                    headerSort: false,
+                    cssClass: 'view-action-col',
+                    formatter: viewActionFormatter
+                }
             ],
 
             initialSort: [],
-            responsiveLayout: 'collapse',
+            // 列较多，窄屏时横向滚动；不用 collapse（会把末列折叠进行内展开区，反而难读）
+            responsiveLayout: false,
 
             renderComplete: function() {
                 updateStats();
@@ -600,6 +610,37 @@
             .join(', ');
 
         return item;
+    }
+
+    // ============ 查看列：携带组合比例跳转全局预览 ============
+    function viewActionFormatter(cell) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-outline-primary';
+        btn.title = '携带该组合比例打开全局预览';
+        btn.innerHTML = '<i class="bi bi-eye me-1"></i>查看';
+        btn.addEventListener('click', function() {
+            openGlobalPreviewWithRatios(cell.getRow().getData());
+        });
+        return btn;
+    }
+
+    function openGlobalPreviewWithRatios(rowData) {
+        const taskId = taskIdInput.value.trim();
+        if (!taskId) {
+            alert('缺少任务 ID，无法跳转全局预览');
+            return;
+        }
+        const ratios = (rowData.stocks || [])
+            .filter(function(stock) { return stock && stock.stock_code && Number(stock.ratio) > 0; })
+            .map(function(stock) { return { stock_code: stock.stock_code, ratio: Number(stock.ratio) }; });
+        if (!ratios.length) {
+            alert('该组合没有可用的股票比例');
+            return;
+        }
+        // 新标签打开，保留当前页分析结果
+        const params = new URLSearchParams({ ratios: JSON.stringify(ratios) });
+        window.open('/backtest-multi-product/global-preview/' + encodeURIComponent(taskId) + '?' + params.toString(), '_blank');
     }
 
     function handleCancel() {

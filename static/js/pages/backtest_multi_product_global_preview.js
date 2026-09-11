@@ -285,13 +285,87 @@ async function loadGlobalPreview() {
       previewPayload.groups && previewPayload.groups.length
         ? previewPayload.groups[0].group_key
         : "";
+    // 在首次渲染前应用跳转携带的比例，避免先展示原比例再跳变
+    const ratiosApplied = takeRatiosFromUrlQuery();
     renderSummary();
     renderGroupOptions();
     renderRatios();
-    renderActiveGroup();
+    if (ratiosApplied) {
+      ratioInputsDirty = currentRatioSignature() !== appliedRatioSignature;
+      updateRatioStatus();
+      // 展开比例设置面板，让用户直接看到填充结果
+      const ratioPanel = document.getElementById("ratioPanel");
+      if (ratioPanel) {
+        ratioPanel.open = true;
+      }
+      if (ratioInputsDirty) {
+        // 携带的比例与已保存不同：先算完再渲染指标表，期间不展示按原比例算出的数据
+        container.innerHTML =
+          '<div class="empty-state">正在按携带的比例计算预览...</div>';
+        await applyRatioPreview();
+        if (!container.querySelector(".preview-table")) {
+          // 计算失败时给出明确提示（applyRatioPreview 内部已 alert），避免停留在加载文案
+          container.innerHTML =
+            '<div class="empty-state">比例预览计算失败，请点击“计算预览”重试</div>';
+        }
+      } else {
+        // 携带的比例与已保存一致，无需重新计算
+        renderActiveGroup();
+      }
+    } else {
+      renderActiveGroup();
+    }
   } catch (error) {
     container.innerHTML = `<div class="empty-state text-danger">${escapeHtml(error.message || "加载失败")}</div>`;
   }
+}
+
+// 支持从权重组合分析页“查看”跳转：URL 携带 ratios=[{stock_code, ratio}]，
+// 按 stock_code 匹配产品改写 payload 比例（组合外产品归 0）。
+// 必须在首次渲染前调用，返回是否应用了参数。
+function takeRatiosFromUrlQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("ratios");
+  if (!raw) {
+    return false;
+  }
+  let entries = [];
+  try {
+    entries = JSON.parse(raw);
+  } catch (error) {
+    console.warn("ratios 参数解析失败", error);
+    return false;
+  }
+  if (!Array.isArray(entries) || !entries.length) {
+    return false;
+  }
+  const ratioByCode = new Map(
+    entries
+      .filter((item) => item && item.stock_code != null)
+      .map((item) => [String(item.stock_code), Number(item.ratio) || 0]),
+  );
+  if (!ratioByCode.size) {
+    return false;
+  }
+  const products = Array.isArray(previewPayload.products)
+    ? previewPayload.products
+    : [];
+  const matched = products.some((product) =>
+    ratioByCode.has(String(product.stock_code || "")),
+  );
+  if (!matched) {
+    console.warn("ratios 参数未匹配到任何产品，忽略");
+    return false;
+  }
+  products.forEach((product) => {
+    const ratio = ratioByCode.get(String(product.stock_code || ""));
+    product.ratio = ratio === undefined ? 0 : ratio;
+  });
+  // 用完即清，避免刷新后再次覆盖用户手动输入
+  const url = new URL(window.location.href);
+  url.searchParams.delete("ratios");
+  window.history.replaceState({}, "", url);
+  return true;
 }
 
 async function saveRatios() {
