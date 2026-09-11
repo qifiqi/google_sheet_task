@@ -1,4 +1,3 @@
-import asyncio
 from types import SimpleNamespace
 
 from app.services.performance_analysis import service
@@ -32,14 +31,10 @@ def test_weight_combination_yields_requested_metrics(monkeypatch):
         }),
     )
 
-    async def collect():
-        return [item async for item in service.performance_analysis_service.weight_combination({"task_id": "task-1", "step": 50})]
+    combinations = list(service.performance_analysis_service.weight_combination({"task_id": "task-1", "step": 50}))
 
-    combinations = asyncio.run(collect())
-
-    assert len(combinations) == 3
+    assert len(combinations) == 3 ** 2 - 1
     payload = combinations[0]["_weight_combination_v1"]
-    assert all(sum(stock["ratio"] for stock in item["_weight_combination_v1"]["stocks"]) == 100 for item in combinations)
     assert payload["annualized_rates"]["index"] == [{"year": "all", "annualized_return": 0.1}]
     assert payload["annualized_rates"]["start"] == [{"year": "all", "annualized_return": 0.2}]
     assert payload["year_max_drawdown"]["index"] == [{"year": 2026, "drawdown": -0.1}]

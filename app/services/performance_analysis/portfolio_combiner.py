@@ -7,9 +7,10 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
 import math
+import pandas as pd
 from typing import Any, Iterable
+from decimal import Decimal, InvalidOperation
 
 
 RATIO_BASE = Decimal("100")
@@ -152,6 +153,8 @@ def combine_product_returns(
         dates = set(row_map)
         common_dates = dates if common_dates is None else common_dates & dates
         product_maps.append(row_map)
+        # pd.DataFrame(row_map).to_csv(f"产品收益-{product.get('stock_code', '')}.csv",index=False)
+
     if not common_dates:
         return []
 
@@ -189,6 +192,5 @@ def combine_product_returns(
         })
     # return weighted_rows if mode == LEGACY_WEIGHTING_MODE else daily_to_cumulative(weighted_rows)
     data = daily_to_cumulative(weighted_rows)
-    # import pandas as pd
     # pd.DataFrame(data).to_csv("组合收益.csv",index=False)
     return data

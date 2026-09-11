@@ -1,4 +1,7 @@
-from flask import Blueprint
+import json
+from itertools import chain
+
+from flask import Blueprint, Response, stream_with_context
 
 from app.routes.page_files import register_page_routes
 
@@ -57,15 +60,13 @@ def analyze_data_v1():
     lambda: f"{rate_limit_config('rate_limit_analyze', 10) or 10}/minute",
     key_func=rate_limit_user_key,
 )
-def weight_combination():
+def v1_weight_combination():
     """权重组合分析接口，返回流式 NDJSON（换行分隔的 JSON）。
 
     每个组合结果作为一行 JSON 对象返回，前端可以流式处理和渐进式渲染。
     """
-    from flask import Response
-    import json
 
-    payload = parse_body(WeightCombinationSchema).root
+    payload = parse_body(WeightCombinationSchema)
 
     def generate():
         """生成器函数，逐个产出组合结果的 JSON 行。"""

@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 class PerformanceMetricsMixin:
     # Metric methods are kept in their original order to preserve implementation behavior.
     @staticmethod
-    def calculate_max_drawdown_by_year_and_total(df):
+    def calculate_max_drawdown_by_year_and_total(df,is_year=True):
         """
         计算按年份和总计的最大回撤
         Calculate maximum drawdown by year and total
@@ -40,28 +40,28 @@ class PerformanceMetricsMixin:
         """
         all_years = df['year'].unique()
         result = {"year_maximum_drawdown": [], 'total_maximum_drawdown': {}}
+        if is_year:
+            # 计算每年的最大回撤
+            # Calculate maximum drawdown for each year
+            df_yearly = df.copy()
 
-        # 计算每年的最大回撤
-        # Calculate maximum drawdown for each year
-        df_yearly = df.copy()
+            for year in all_years:
+                yearly_data = df_yearly[df_yearly['year'] == year]
 
-        for year in all_years:
-            yearly_data = df_yearly[df_yearly['year'] == year]
+                # 按时间排序，确保计算正确
+                # Sort by date to ensure correct calculation
+                yearly_data = yearly_data.sort_values('date').reset_index(drop=True)
 
-            # 按时间排序，确保计算正确
-            # Sort by date to ensure correct calculation
-            yearly_data = yearly_data.sort_values('date').reset_index(drop=True)
+                # 计算每个时间点的回撤：(历史最高净值 - 当前净值) / 历史最高净值
+                # Calculate drawdown for each time point
+                running_max = yearly_data['net_value'].cummax()
+                yearly_data['drawdown'] = ((running_max - yearly_data['net_value']) / running_max).where(running_max > 0, 0)
 
-            # 计算每个时间点的回撤：(历史最高净值 - 当前净值) / 历史最高净值
-            # Calculate drawdown for each time point
-            running_max = yearly_data['net_value'].cummax()
-            yearly_data['drawdown'] = ((running_max - yearly_data['net_value']) / running_max).where(running_max > 0, 0)
-
-            # 找到该年度的最大回撤
-            max_drawdown_row = yearly_data.loc[yearly_data['drawdown'].idxmax()]
-            _ = max_drawdown_row.to_dict()
-            _['date'] = _['date'].strftime('%Y-%m-%d')
-            result['year_maximum_drawdown'].append(_)
+                # 找到该年度的最大回撤
+                max_drawdown_row = yearly_data.loc[yearly_data['drawdown'].idxmax()]
+                _ = max_drawdown_row.to_dict()
+                _['date'] = _['date'].strftime('%Y-%m-%d')
+                result['year_maximum_drawdown'].append(_)
 
         # 计算总计最大回撤
         # Calculate total maximum drawdown
@@ -371,7 +371,7 @@ class PerformanceMetricsMixin:
 
         return results
 
-    def annualized_rate_return(self, df):
+    def annualized_rate_return(self, df,is_year=True):
         """
         计算年化收益率
         计算公式：
@@ -388,36 +388,36 @@ class PerformanceMetricsMixin:
         """
 
         annualized_rate_returns = []
+        if is_year:
+            # 按年份分组处理
+            yearly_groups = df.groupby('year')
 
-        # 按年份分组处理
-        yearly_groups = df.groupby('year')
+            for year, year_df in yearly_groups:
+                if len(year_df) == 0:
+                    continue
 
-        for year, year_df in yearly_groups:
-            if len(year_df) == 0:
-                continue
+                # 获取期初和期末净值
+                start_value = year_df.iloc[0]['net_value']
+                end_value = year_df.iloc[-1]['net_value']
 
-            # 获取期初和期末净值
-            start_value = year_df.iloc[0]['net_value']
-            end_value = year_df.iloc[-1]['net_value']
+                # 计算持有天数
+                start_date = year_df.iloc[0]['date']
+                end_date = year_df.iloc[-1]['date']
+                holding_days = (end_date - start_date).days
 
-            # 计算持有天数
-            start_date = year_df.iloc[0]['date']
-            end_date = year_df.iloc[-1]['date']
-            holding_days = (end_date - start_date).days
+                if holding_days == 0:
+                    continue
 
-            if holding_days == 0:
-                continue
+                # 计算年化收益率
+                # 注意：期末净值 / 期初净值
+                total_return = end_value / start_value
+                annualized_return = total_return ** (365 / holding_days) - 1
 
-            # 计算年化收益率
-            # 注意：期末净值 / 期初净值
-            total_return = end_value / start_value
-            annualized_return = total_return ** (365 / holding_days) - 1
-
-            annualized_rate_returns.append({
-                'year': str(year),
-                'annualized_return': annualized_return,  # 收益率 Monthly return
-                'date': f"{start_date}/{end_date}"
-            })
+                annualized_rate_returns.append({
+                    'year': str(year),
+                    'annualized_return': annualized_return,  # 收益率 Monthly return
+                    'date': f"{start_date}/{end_date}"
+                })
 
         # 计算整体年化收益率
         if len(df) >= 2:
@@ -1616,12 +1616,10 @@ class PerformanceMetricsMixin:
 
         # 先复制一份基础数据
         base_df = df.copy()
-        base_df['excess_return'] = base_df['start_return'] - base_df['index_return']
 
         # 批量计算所有净值
         base_df['index_net'] = 1 * (1 + base_df['index_return'])
         base_df['start_net'] = 1 * (1 + base_df['start_return'])
-        base_df['excess_nav'] = 1 * (1 + base_df['excess_return'])
 
         # 如果需要分别提取（但建议直接用 base_df）
         index_df = base_df[
@@ -1630,20 +1628,12 @@ class PerformanceMetricsMixin:
         start_df = base_df[
             ['date', 'year', 'month', 'year_month', 'start_return', 'start_net']
         ].rename(columns={'start_net': 'net_value'})
-        excess_df = base_df[
-            ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_nav']
-        ].rename(columns={'excess_nav': 'net_value'})
-
-        # 当天收益率
-        # 当天收益率 = (当天净值 / 前一天净值) - 1
-        index_df['daily_return'] = (index_df['net_value'] / index_df['net_value'].shift(1)) - 1
-        start_df['daily_return'] = (start_df['net_value'] / start_df['net_value'].shift(1)) - 1
 
         # 年化收益率
-        index_annualized_rates = self.annualized_rate_return(index_df)
-        start_annualized_rates = self.annualized_rate_return(start_df)
-        index_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(index_df)
-        start_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(start_df)
+        index_annualized_rates = self.annualized_rate_return(index_df,False)
+        start_annualized_rates = self.annualized_rate_return(start_df,False)
+        index_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(index_df,False)
+        start_maximum_drawdown = self.calculate_max_drawdown_by_year_and_total(start_df,False)
 
 
         return {

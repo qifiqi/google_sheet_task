@@ -6,12 +6,12 @@ body 边界仅约束为 JSON 对象。
 
 from typing import Any
 
-from pydantic import Field, RootModel, model_validator
+from pydantic import Field, RootModel, model_validator,BaseModel
 
 class PerformanceAnalysisPayloadSchema(RootModel[dict[str, Any]]):
     """POST /performance_analysis/analyze 与 /performance_analysis/v1/analyze 请求体。"""
 
-class WeightCombinationSchema(RootModel):
+class WeightCombinationSchema(BaseModel):
     """POST /performance_analysis/v1/weight_combination 请求体。
 
     用于描述"按权重组合多只股票的收益序列"这一请求的参数约束。

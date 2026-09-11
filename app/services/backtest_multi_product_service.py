@@ -444,6 +444,7 @@ def _build_portfolio_return_date(
         {
             "returns": (product_results.get(int(product["product_index"])) or {}).get("return_date") or [],
             "ratio": product.get("ratio"),
+            "stock_code": product.get("stock_code"),
         }
         for product in products
         if not _is_zero_ratio_product(product)
