@@ -154,7 +154,7 @@ def combine_product_returns(
         dates = set(row_map)
         common_dates = dates if common_dates is None else common_dates & dates
         product_maps.append(row_map)
-        # pd.DataFrame(row_map).to_csv(f"产品收益-{product.get('stock_code', '')}.csv",index=False)
+        # pd.DataFrame(rows).to_csv(f"产品收益-{product.get('stock_code', '')}.csv",index=False)
 
     if not common_dates:
         return []

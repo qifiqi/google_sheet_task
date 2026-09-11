@@ -2,7 +2,8 @@ from datetime import date, datetime
 from enum import Enum
 import json
 
-from sqlalchemy import event
+from sqlalchemy import event, Text
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import foreign
 
 from app.extensions import db
@@ -428,7 +429,7 @@ class TaskResult(db.Model):
     )
     step_index = db.Column(db.Integer, nullable=False, comment="步骤序号")
     parameters = db.Column(db.Text, comment="参数JSON")
-    result = db.Column(db.Text, comment="结果JSON")
+    result = db.Column(Text().with_variant(LONGTEXT, "mysql"), comment="结果JSON")
     return_series_id = db.Column(
         db.Integer,
         nullable=True,
@@ -465,8 +466,8 @@ class TaskResultReturn(db.Model):
         index=True,
         comment="关联任务ID",
     )
-    stock_code = db.Column(db.String(20), nullable=False, default="UNKNOWN")
-    stock_name = db.Column(db.String(20), nullable=False, default="未知股票")
+    stock_code = db.Column(db.String(32), nullable=False, default="UNKNOWN")
+    stock_name = db.Column(db.String(100), nullable=False, default="未知股票")
     start_return_date = db.Column(
         db.Date,
         nullable=False,
@@ -594,7 +595,7 @@ class TaskResultSummaryIndex(db.Model):
     parameter_summary = db.Column(db.Text, comment="参数摘要")
     best_metric_name = db.Column(db.String(100), comment="最优指标名称")
     best_metric_value = db.Column(db.Float, comment="最优指标值")
-    metrics_json = db.Column(db.Text, comment="汇总指标JSON")
+    metrics_json = db.Column(Text().with_variant(LONGTEXT, "mysql"), comment="汇总指标JSON")
     is_best = db.Column(db.Boolean, default=False, nullable=False, comment="是否当前分组最优")
     result_timestamp = db.Column(db.DateTime, index=True, comment="原始结果时间")
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False, comment="创建时间")
