@@ -16,7 +16,6 @@ COPY static ./static
 COPY templates ./templates
 COPY stock_sdk ./stock_sdk
 COPY run.py .
-COPY .env .env.example .env.development .env.production .env.testing ./
 COPY run.sh .
 
 COPY dockers/gunicorn.conf.py /app/docker-gunicorn.conf.py
@@ -32,6 +31,6 @@ EXPOSE 5000
 USER appuser
 
 
-CMD ["/bin/bash", "./run.sh"]
+#CMD ["/bin/bash", "./run.sh"]
 
-#CMD ["gunicorn", "-c", "/app/docker-gunicorn.conf.py", "run:app"]
+CMD ["gunicorn", "-c", "/app/docker-gunicorn.conf.py", "run:app"]
