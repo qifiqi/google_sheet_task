@@ -9,7 +9,7 @@ from app.repositories.base import BaseRepository
 from app.repositories.google_sheet_repository import GoogleSheetRepository
 from app.repositories.google_sheet_token_repository import GoogleSheetTokenRepository
 from app.repositories.navigation_repository import NavigationRepository
-from app.repositories.rbac_repository import RbacRepository
+from app.repositories.auth_repository import AuthRepository
 from app.repositories.scheduled_task_repository import ScheduledTaskRepository
 from app.repositories.stock_metadata_repository import StockMetadataRepository
 from app.repositories.system_config_repository import SystemConfigRepository
@@ -24,7 +24,7 @@ __all__ = [
     "google_sheet_repository",
     "google_sheet_token_repository",
     "navigation_repository",
-    "rbac_repository",
+    "auth_repository",
     "scheduled_task_repository",
     "stock_metadata_repository",
     "system_config_repository",
@@ -38,7 +38,7 @@ backtest_repository = BacktestRepository()
 google_sheet_repository = GoogleSheetRepository()
 google_sheet_token_repository = GoogleSheetTokenRepository()
 navigation_repository = NavigationRepository()
-rbac_repository = RbacRepository()
+auth_repository = AuthRepository()
 scheduled_task_repository = ScheduledTaskRepository()
 stock_metadata_repository = StockMetadataRepository()
 system_config_repository = SystemConfigRepository()

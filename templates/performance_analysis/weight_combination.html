@@ -10,44 +10,12 @@
     <link href="/static/css/template-auth.css" rel="stylesheet">
     <link href="/static/css/common/theme.css" rel="stylesheet">
     <link href="/static/css/components/sidebar.css" rel="stylesheet">
+    <link href="/static/css/pages/weight_combination.css" rel="stylesheet">
 
     <!-- Tabulator CSS -->
     <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.2.5/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
 
     <script src="/static/js/bootstrap.bundle.min.js"></script>
-
-    <style>
-        /* Tabulator 深色模式适配 */
-        html[data-bs-theme="dark"] .tabulator {
-            background-color: #182132;
-            color: #e5e7eb;
-            border-color: #2a3648;
-        }
-        html[data-bs-theme="dark"] .tabulator .tabulator-header {
-            background-color: #1f2937;
-            border-bottom-color: #334155;
-            color: #e5e7eb;
-        }
-        html[data-bs-theme="dark"] .tabulator .tabulator-header .tabulator-col {
-            background-color: #1f2937;
-            border-right-color: #334155;
-        }
-        html[data-bs-theme="dark"] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row {
-            background-color: #182132;
-            border-bottom-color: #334155;
-            color: #e5e7eb;
-        }
-        html[data-bs-theme="dark"] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:hover {
-            background-color: rgba(59, 130, 246, 0.1);
-        }
-        html[data-bs-theme="dark"] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.tabulator-row-even {
-            background-color: #111827;
-        }
-
-        #results-table {
-            min-height: 400px;
-        }
-    </style>
 </head>
 <body class="template-auth-pending">
     <div class="template-auth-loading" id="templateAuthLoading">

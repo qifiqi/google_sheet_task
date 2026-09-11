@@ -19,8 +19,8 @@ from app.models import (
 from app.repositories.base import BaseRepository
 
 
-class RbacRepository(BaseRepository):
-    # rbac 聚合仓储不绑定单一 model；实体访问走下方显式方法。
+class AuthRepository(BaseRepository):
+    # auth 聚合仓储（用户/角色/权限）不绑定单一 model；实体访问走下方显式方法。
     model = None
 
     # ---- User 读 ----

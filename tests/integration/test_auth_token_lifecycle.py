@@ -87,7 +87,7 @@ def test_change_password_revokes_all_sessions(app_factory):
     resp = client.put(
         "/api/auth/password",
         headers={"Authorization": f"Bearer {data['access_token']}"},
-        json={"old_password": "secret123", "new_password": "newpass456"},
+        json={"old_password": "secret123", "new_password": "NewPass456!"},
     )
     assert resp.status_code == 200
 
@@ -101,8 +101,33 @@ def test_change_password_revokes_all_sessions(app_factory):
     # 新密码可重新登录
     assert client.post(
         "/api/auth/login",
-        json={"username": "changer", "password": "newpass456"},
+        json={"username": "changer", "password": "NewPass456!"},
     ).status_code == 200
+
+
+def test_change_password_rejects_weak_password(app_factory):
+    """强密码策略：不满足复杂度的新密码返回 400，会话与旧密码不受影响。"""
+    app = app_factory
+    _create_user(app, "weakpwd")
+    client = app.test_client()
+    data = _login(client, "weakpwd", "secret123")
+
+    resp = client.put(
+        "/api/auth/password",
+        headers={"Authorization": f"Bearer {data['access_token']}"},
+        json={"old_password": "secret123", "new_password": "newpass456"},
+    )
+    assert resp.status_code == 400
+    assert "密码" in resp.get_json()["message"]
+
+    # 改密失败不吊销会话，旧密码仍可继续改密
+    assert _me(client, data["access_token"]).status_code == 200
+    retry = client.put(
+        "/api/auth/password",
+        headers={"Authorization": f"Bearer {data['access_token']}"},
+        json={"old_password": "secret123", "new_password": "NewPass456!"},
+    )
+    assert retry.status_code == 200
 
 
 def test_admin_password_reset_revokes_sessions(app_factory):

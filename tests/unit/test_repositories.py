@@ -19,7 +19,7 @@ from app.repositories import (
     backtest_repository,
     google_sheet_repository,
     navigation_repository,
-    rbac_repository,
+    auth_repository,
     scheduled_task_repository,
     stock_metadata_repository,
     system_config_repository,
@@ -228,29 +228,29 @@ class TestNavigationRepository:
         assert keys == ["vis"]
 
 
-# ==================== rbac_repository ====================
+# ==================== auth_repository ====================
 
 
-class TestRbacRepository:
+class TestAuthRepository:
     def test_user_crud_with_roles(self, app_factory):
-        role = rbac_repository.create_role(code="dev", name="开发者")
-        user = rbac_repository.create_user(
+        role = auth_repository.create_role(code="dev", name="开发者")
+        user = auth_repository.create_user(
             "alice", "hash", role_ids=[role["id"]], is_active=True
         )
         assert [r["code"] for r in user["roles"]] == ["dev"]
-        assert rbac_repository.username_exists("alice") is True
+        assert auth_repository.username_exists("alice") is True
 
-        updated = rbac_repository.update_user(user["id"], {"mobile": "123"}, role_ids=[])
+        updated = auth_repository.update_user(user["id"], {"mobile": "123"}, role_ids=[])
         assert updated["mobile"] == "123" and updated["roles"] == []
-        assert rbac_repository.delete_user(user["id"]) is True
-        assert rbac_repository.get_user(user["id"]) is None
+        assert auth_repository.delete_user(user["id"]) is True
+        assert auth_repository.get_user(user["id"]) is None
 
     def test_get_user_credentials(self, app_factory):
-        rbac_repository.create_user("bob", "hash123", is_active=False)
-        creds = rbac_repository.get_user_credentials("bob")
+        auth_repository.create_user("bob", "hash123", is_active=False)
+        creds = auth_repository.get_user_credentials("bob")
         assert creds["password_hash"] == "hash123"
         assert "mobile" not in creds
-        assert rbac_repository.get_user_credentials("nobody") is None
+        assert auth_repository.get_user_credentials("nobody") is None
 
     def test_delete_role_clears_join_tables(self, app_factory):
         from app.models import Permission
@@ -258,10 +258,10 @@ class TestRbacRepository:
         perm = Permission(name="p", code="page:x", group="page")
         db.session.add(perm)
         db.session.commit()
-        role = rbac_repository.create_role(code="r1", name="R", permission_ids=[perm.id])
-        user = rbac_repository.create_user("carl", "hash", role_ids=[role["id"]])
+        role = auth_repository.create_role(code="r1", name="R", permission_ids=[perm.id])
+        user = auth_repository.create_user("carl", "hash", role_ids=[role["id"]])
 
-        assert rbac_repository.delete_role(role["id"]) is True
+        assert auth_repository.delete_role(role["id"]) is True
         db.session.expire_all()
         assert db.session.get(User, user["id"]) is not None  # 用户仍在
         assert db.session.get(Role, role["id"]) is None
@@ -272,10 +272,10 @@ class TestRbacRepository:
         db.session.add(Permission(name="b", code="z", group="page"))
         db.session.add(Permission(name="a", code="a", group="admin"))
         db.session.commit()
-        assert rbac_repository.role_code_exists("r-nope") is False
-        codes = rbac_repository.list_permission_codes()
+        assert auth_repository.role_code_exists("r-nope") is False
+        codes = auth_repository.list_permission_codes()
         assert set(codes) == {"z", "a"}
-        grouped_first = rbac_repository.list_permissions()[0]
+        grouped_first = auth_repository.list_permissions()[0]
         assert grouped_first["group"] == "admin"
 
 

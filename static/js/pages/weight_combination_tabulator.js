@@ -8,71 +8,244 @@
     let abortController = null;
 
     // 当前筛选值缓存：field -> { min, max }
-    // 用于编辑器初始化时回填用户输入的值
+    // 弹窗打开时回填用户输入的值；按钮激活态也由此判断
     const headerFilterValues = {};
 
-    // ============ 自定义范围筛选编辑器 ============
-    function minMaxFilterEditor(cell, onRendered, success, cancel, editorParams) {
-        const container = document.createElement("span");
-        container.style.display = "flex";
-        container.style.gap = "2px";
-        container.style.fontSize = "12px";
+    // 表头筛选控件：field -> { btn: 漏斗按钮, success: Tabulator 应用筛选回调 }
+    // 编辑器在 clearHeaderFilter 后会被 Tabulator 重建，此表随编辑器初始化刷新
+    const filterControls = {};
 
-        const minInput = document.createElement("input");
-        minInput.setAttribute("type", "number");
-        minInput.setAttribute("placeholder", "最小");
-        minInput.style.padding = "2px 4px";
-        minInput.style.width = "50px";
-        minInput.style.fontSize = "11px";
+    // 筛选弹窗（懒创建，挂在 body 下 fixed 定位）
+    let filterPopup = null;
+    let filterPopupCtx = null; // { field, title, btn }
 
-        const maxInput = document.createElement("input");
-        maxInput.setAttribute("type", "number");
-        maxInput.setAttribute("placeholder", "最大");
-        maxInput.style.padding = "2px 4px";
-        maxInput.style.width = "50px";
-        maxInput.style.fontSize = "11px";
+    function hasActiveRangeFilter(field) {
+        const v = headerFilterValues[field];
+        return !!(v && ((v.min !== null && v.min !== undefined) || (v.max !== null && v.max !== undefined)));
+    }
 
-        container.appendChild(minInput);
-        container.appendChild(maxInput);
+    function setFilterButtonIcon(btn, active) {
+        btn.classList.toggle('is-active', active);
+        btn.innerHTML = `<i class="bi bi-funnel${active ? '-fill' : ''}"></i>`;
+    }
 
-        // 只从缓存读当前筛选值，避免调 getHeaderFilterValue 触发 Tabulator 内部报错
-        const field = cell.getField ? cell.getField() : null;
-        const currentValue = field ? headerFilterValues[field] : null;
+    function refreshFilterButton(field) {
+        const ctrl = filterControls[field];
+        if (ctrl && ctrl.btn) setFilterButtonIcon(ctrl.btn, hasActiveRangeFilter(field));
+    }
 
-        if (currentValue && typeof currentValue === 'object') {
-            if (currentValue.min !== null && currentValue.min !== undefined && currentValue.min !== '') {
-                minInput.value = currentValue.min;
-            }
-            if (currentValue.max !== null && currentValue.max !== undefined && currentValue.max !== '') {
-                maxInput.value = currentValue.max;
-            }
+    // ============ 范围筛选：漏斗按钮编辑器（点击弹出筛选弹窗） ============
+    function filterButtonEditor(column, onRendered, success, cancel, editorParams) {
+        // 注意：Tabulator 表头筛选编辑器的第一个参数不是完整 Cell/Column 组件，
+        // 只有 getField/getColumn/getElement 等方法，列标题须经 getColumn().getDefinition() 获取
+        const field = column.getField();
+        const colComp = column.getColumn ? column.getColumn() : null;
+        const title = (colComp && colComp.getDefinition ? colComp.getDefinition().title : null) || field;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wc-filter-btn';
+        btn.title = '范围筛选';
+        btn.setAttribute('aria-label', `范围筛选：${title}`);
+        setFilterButtonIcon(btn, hasActiveRangeFilter(field));
+
+        btn.addEventListener('click', function(e) {
+            // 阻止冒泡到列头，避免误触发排序；stopImmediatePropagation 连同
+            // Tabulator 在同一元素上附加的 focus 抢占监听一并拦下
+            e.stopPropagation();
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            toggleFilterPopup(field, title, btn);
+        });
+
+        filterControls[field] = { btn: btn, success: success };
+        return btn;
+    }
+
+    // ============ 范围筛选弹窗 ============
+    function getPopupInputs() {
+        return {
+            min: filterPopup.querySelector('[data-role="min"]'),
+            max: filterPopup.querySelector('[data-role="max"]')
+        };
+    }
+
+    function ensureFilterPopup() {
+        if (filterPopup) return filterPopup;
+
+        filterPopup = document.createElement('div');
+        filterPopup.className = 'wc-filter-popup';
+        filterPopup.setAttribute('role', 'dialog');
+        filterPopup.setAttribute('aria-label', '范围筛选');
+        filterPopup.innerHTML = `
+            <div class="wc-filter-popup__header">
+                <span class="wc-filter-popup__title"></span>
+                <button type="button" class="wc-filter-popup__close" aria-label="关闭"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="wc-filter-popup__body">
+                <div class="wc-filter-popup__field">
+                    <label for="wc-filter-min">最小值</label>
+                    <input type="number" id="wc-filter-min" class="form-control form-control-sm wc-filter-popup__input" data-role="min" placeholder="不限">
+                </div>
+                <div class="wc-filter-popup__field">
+                    <label for="wc-filter-max">最大值</label>
+                    <input type="number" id="wc-filter-max" class="form-control form-control-sm wc-filter-popup__input" data-role="max" placeholder="不限">
+                </div>
+                <p class="wc-filter-popup__hint">最小值不能大于最大值</p>
+            </div>
+            <div class="wc-filter-popup__footer">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-role="clear">
+                    <i class="bi bi-x-circle me-1"></i>清除
+                </button>
+                <button type="button" class="btn btn-sm btn-primary" data-role="apply">
+                    <i class="bi bi-check-lg me-1"></i>应用
+                </button>
+            </div>`;
+        document.body.appendChild(filterPopup);
+
+        filterPopup.querySelector('.wc-filter-popup__close').addEventListener('click', closeFilterPopup);
+        filterPopup.querySelector('[data-role="clear"]').addEventListener('click', clearRangeFilter);
+        filterPopup.querySelector('[data-role="apply"]').addEventListener('click', applyRangeFilter);
+
+        const inputs = getPopupInputs();
+        [inputs.min, inputs.max].forEach(function(input) {
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') applyRangeFilter();
+                if (e.key === 'Escape') closeFilterPopup();
+            });
+        });
+
+        // 点击弹窗与漏斗按钮之外的区域关闭
+        document.addEventListener('mousedown', function(e) {
+            if (!filterPopup.classList.contains('show')) return;
+            if (filterPopup.contains(e.target)) return;
+            if (filterPopupCtx && filterPopupCtx.btn.contains(e.target)) return;
+            closeFilterPopup();
+        });
+        // 页面/表格滚动、窗口缩放时关闭，避免弹窗飘离锚点
+        window.addEventListener('resize', closeFilterPopup);
+        window.addEventListener('scroll', closeFilterPopup, true);
+
+        return filterPopup;
+    }
+
+    function toggleFilterPopup(field, title, btn) {
+        if (filterPopupCtx && filterPopupCtx.field === field && filterPopup.classList.contains('show')) {
+            closeFilterPopup();
+            return;
+        }
+        openFilterPopup(field, title, btn);
+    }
+
+    function openFilterPopup(field, title, btn) {
+        ensureFilterPopup();
+        filterPopupCtx = { field: field, title: title, btn: btn };
+
+        filterPopup.querySelector('.wc-filter-popup__title').textContent = title;
+        filterPopup.querySelector('.wc-filter-popup__hint').classList.remove('is-visible');
+
+        const inputs = getPopupInputs();
+        const v = headerFilterValues[field] || {};
+        inputs.min.value = v.min !== null && v.min !== undefined ? v.min : '';
+        inputs.max.value = v.max !== null && v.max !== undefined ? v.max : '';
+        inputs.min.classList.remove('is-invalid');
+        inputs.max.classList.remove('is-invalid');
+
+        filterPopup.classList.add('show');
+        positionFilterPopup(btn);
+        // Tabulator 会在同一点击事件里把焦点抢回按钮，延迟聚焦保证输入框拿到焦点
+        setTimeout(function() { inputs.min.focus(); }, 0);
+    }
+
+    function positionFilterPopup(btn) {
+        const rect = btn.getBoundingClientRect();
+        const pw = filterPopup.offsetWidth;
+        const ph = filterPopup.offsetHeight;
+
+        let left = rect.right - pw; // 默认右对齐到按钮
+        left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+
+        let top = rect.bottom + 6;
+        if (top + ph > window.innerHeight - 8) {
+            top = rect.top - ph - 6; // 下方空间不足时弹到按钮上方
         }
 
-        function buildValues() {
-            const value = {
-                min: minInput.value !== "" ? parseFloat(minInput.value) : null,
-                max: maxInput.value !== "" ? parseFloat(maxInput.value) : null
-            };
-            if (field) {
-                headerFilterValues[field] = value;
+        filterPopup.style.left = left + 'px';
+        filterPopup.style.top = Math.max(8, top) + 'px';
+    }
+
+    function closeFilterPopup() {
+        if (!filterPopup) return;
+        filterPopup.classList.remove('show');
+        filterPopupCtx = null;
+    }
+
+    function updateStats() {
+        setStats(table.getDataCount('active'), allData.length);
+    }
+
+    function setStats(filteredCount, totalCount) {
+        const filteredEl = document.getElementById('filtered-count');
+        const totalEl = document.getElementById('total-count');
+        if (filteredEl) filteredEl.textContent = `${filteredCount} 条显示`;
+        if (totalEl) totalEl.textContent = `${totalCount} 条总计`;
+    }
+
+    // Tabulator 的 refreshData 管线分帧异步提交 activeRows，事件派发瞬间计数可能还是旧值；
+    // 从下一帧起持续刷新统计，直到计数稳定
+    function refreshStatsDeferred() {
+        let last = null;
+        let ticks = 0;
+        const tick = function() {
+            const active = table.getDataCount('active');
+            if (active !== last) {
+                last = active;
+                setStats(active, allData.length);
             }
-            success(value);
+            if (++ticks < 15) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+    }
+
+    function applyRangeFilter() {
+        if (!filterPopupCtx) return;
+        const field = filterPopupCtx.field;
+        const inputs = getPopupInputs();
+        const minRaw = inputs.min.value.trim();
+        const maxRaw = inputs.max.value.trim();
+        const min = minRaw === '' ? null : parseFloat(minRaw);
+        const max = maxRaw === '' ? null : parseFloat(maxRaw);
+
+        if (min !== null && max !== null && min > max) {
+            inputs.min.classList.add('is-invalid');
+            inputs.max.classList.add('is-invalid');
+            filterPopup.querySelector('.wc-filter-popup__hint').classList.add('is-visible');
+            return;
         }
 
-        minInput.addEventListener("change", buildValues);
-        minInput.addEventListener("blur", buildValues);
-        maxInput.addEventListener("change", buildValues);
-        maxInput.addEventListener("blur", buildValues);
+        headerFilterValues[field] = { min: min, max: max };
+        const ctrl = filterControls[field];
+        if (ctrl) ctrl.success(headerFilterValues[field]);
+        refreshFilterButton(field);
+        refreshStatsDeferred();
+        closeFilterPopup();
+    }
 
-        function handleEnter(e) {
-            if (e.key === "Enter") {
-                buildValues();
-            }
-        }
-        minInput.addEventListener("keydown", handleEnter);
-        maxInput.addEventListener("keydown", handleEnter);
+    function clearRangeFilter() {
+        if (!filterPopupCtx) return;
+        const field = filterPopupCtx.field;
+        const inputs = getPopupInputs();
+        inputs.min.value = '';
+        inputs.max.value = '';
+        inputs.min.classList.remove('is-invalid');
+        inputs.max.classList.remove('is-invalid');
 
-        return container;
+        headerFilterValues[field] = { min: null, max: null };
+        const ctrl = filterControls[field];
+        if (ctrl) ctrl.success({ min: null, max: null });
+        refreshFilterButton(field);
+        refreshStatsDeferred();
+        closeFilterPopup();
     }
 
     // ============ 自定义范围筛选函数 ============
@@ -113,16 +286,16 @@
     function rangeColumn(title, field, opts = {}) {
         const digits = opts.digits ?? 2;
         const suffix = opts.suffix || '';
-        const width = opts.width || 150;
+        const width = opts.width || 160;
 
         return {
             title: title,
             field: field,
             width: width,
             sorter: 'number',
-            headerFilter: minMaxFilterEditor,
+            headerFilter: filterButtonEditor,
             headerFilterFunc: minMaxFilterFunction,
-            headerFilterLiveFilter: false,
+            headerTooltip: true,
             formatter: numberFormatter(digits, suffix)
         };
     }
@@ -190,11 +363,11 @@
                     tooltip: true,
                     variableHeight: false
                 },
-                rangeColumn('年化收益率(指数)', 'index_rate_disp', { width: 160, digits: 2, suffix: '%' }),
-                rangeColumn('年化收益率(策略)', 'start_rate_disp', { width: 160, digits: 2, suffix: '%' }),
-                rangeColumn('最大回撤(指数)', 'index_dd_disp', { width: 150, digits: 2, suffix: '%' }),
-                rangeColumn('最大回撤(策略)', 'start_dd_disp', { width: 150, digits: 2, suffix: '%' }),
-                rangeColumn('权重和(%)', 'weight_sum', { width: 120, digits: 0, suffix: '%' })
+                rangeColumn('年化收益率(指数)', 'index_rate_disp', { width: 185, digits: 2, suffix: '%' }),
+                rangeColumn('年化收益率(策略)', 'start_rate_disp', { width: 185, digits: 2, suffix: '%' }),
+                rangeColumn('最大回撤(指数)', 'index_dd_disp', { width: 180, digits: 2, suffix: '%' }),
+                rangeColumn('最大回撤(策略)', 'start_dd_disp', { width: 180, digits: 2, suffix: '%' }),
+                rangeColumn('权重和(%)', 'weight_sum', { width: 150, digits: 0, suffix: '%' })
             ],
 
             initialSort: [],
@@ -213,9 +386,12 @@
 
         document.getElementById('export-csv-btn').onclick = exportCSV;
         document.getElementById('clear-filter-btn').onclick = function() {
+            closeFilterPopup();
             Object.keys(headerFilterValues).forEach(k => delete headerFilterValues[k]);
             table.clearHeaderFilter();
-            updateStats();
+            // clearHeaderFilter 会重建编辑器，这里兜底刷新一遍按钮激活态
+            Object.keys(filterControls).forEach(refreshFilterButton);
+            refreshStatsDeferred();
         };
     }
 
@@ -271,6 +447,7 @@
         resultsCard.style.display = 'none';
 
         // 清空数据 + 筛选缓存
+        closeFilterPopup();
         Object.keys(headerFilterValues).forEach(k => delete headerFilterValues[k]);
         table.clearData();
         table.clearHeaderFilter();
@@ -436,17 +613,6 @@
             progressBar.textContent = percentage + '%';
         }
         if (message) progressInfo.textContent = message;
-    }
-
-    function updateStats() {
-        const filteredCount = table.getDataCount('active');
-        const totalCount = allData.length;
-
-        const filteredEl = document.getElementById('filtered-count');
-        const totalEl = document.getElementById('total-count');
-
-        if (filteredEl) filteredEl.textContent = `${filteredCount} 条显示`;
-        if (totalEl) totalEl.textContent = `${totalCount} 条总计`;
     }
 
     function exportCSV() {

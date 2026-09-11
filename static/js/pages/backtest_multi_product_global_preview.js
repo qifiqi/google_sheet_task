@@ -461,13 +461,13 @@ function openExportWordModal() {
         return;
     }
 
-    // ✅ 比例 > 0 的股票少于 2 个时，不弹窗，直接导出全部
-    const products = Array.isArray(previewPayload?.products) ? previewPayload.products : [];
-    const activeCount = products.filter(p => Number(p.ratio || 0) > 0).length;
-    if (activeCount < 2) {
-        exportWordDirectly('');
-        return;
-    }
+    // // ✅ 比例 > 0 的股票少于 2 个时，不弹窗，直接导出全部
+    // const products = Array.isArray(previewPayload?.products) ? previewPayload.products : [];
+    // const activeCount = products.filter(p => Number(p.ratio || 0) > 0).length;
+    // if (activeCount < 2) {
+    //     exportWordDirectly('');
+    //     return;
+    // }
 
     selectedStockCode = '';
     document.getElementById('stockSearchInput').value = '';

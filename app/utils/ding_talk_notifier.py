@@ -8,7 +8,7 @@ import urllib.parse
 import requests
 from flask import current_app, has_app_context
 
-from app.repositories import rbac_repository, task_repository
+from app.repositories import auth_repository, task_repository
 from app.models import Task, User
 from app.utils.logger import get_logger
 
@@ -117,7 +117,7 @@ class DingTalkNotifier:
 
     def _collect_oncall_developer_mobiles(self):
         mobiles = set()
-        users = rbac_repository.list_alert_oncall_active_entities()
+        users = auth_repository.list_alert_oncall_active_entities()
         for user in users:
             role_codes = {str(role.code or '').strip().lower() for role in user.roles}
             if role_codes & self.DEV_ROLE_CODES:

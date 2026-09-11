@@ -1,14 +1,13 @@
-"""JWT 认证与权限装饰器"""
+"""JWT 认证、权限装饰器与密码策略"""
 import os
 from datetime import datetime, timedelta
 from functools import wraps
 
 import jwt
 from flask import request, g, redirect
-from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.exceptions import ForbiddenError, UnauthorizedError
-from app.repositories import rbac_repository
+from app.repositories import auth_repository
 from app.services.config_manager import get_config_manager
 
 # 开发环境默认 secret 也保持 32+ 字节，避免 JWT 库抛出弱密钥长度告警。
@@ -111,6 +110,38 @@ def extract_token_version(payload):
         raise jwt.InvalidTokenError('invalid token version')
 
 
+# ==================== 密码策略 ====================
+# 强密码策略：8-64 位，且须同时包含大写字母、小写字母、数字、特殊字符。
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 64
+
+
+def validate_password_strength(password: str) -> str | None:
+    """强密码校验：合格返回 None，不合格返回用户可读的错误文案。
+
+    纯函数（不抛异常），由服务层决定如何包装成 ValidationError。
+    """
+    if not password:
+        return "密码不能为空"
+    if len(password) < PASSWORD_MIN_LENGTH:
+        return f"密码长度不能少于{PASSWORD_MIN_LENGTH}位"
+    if len(password) > PASSWORD_MAX_LENGTH:
+        return f"密码长度不能超过{PASSWORD_MAX_LENGTH}位"
+
+    missing = []
+    if not any(c.isupper() for c in password):
+        missing.append("大写字母")
+    if not any(c.islower() for c in password):
+        missing.append("小写字母")
+    if not any(c.isdigit() for c in password):
+        missing.append("数字")
+    if not any(not c.isalnum() for c in password):
+        missing.append("特殊字符")
+    if missing:
+        return "密码须包含" + "、".join(missing)
+    return None
+
+
 def _inject_mock_user():
     """AUTH_ENABLED=false 时注入一个拥有全部权限的 mock 用户，避免下游 g.current_user 报错"""
     if hasattr(g, 'current_user'):
@@ -126,7 +157,7 @@ def _inject_mock_user():
         def get_permissions(self):
             if self._perms is None:
                 # 权限缓存仍留在 auth 层，编码列表来自 repository。
-                self._perms = set(rbac_repository.list_permission_codes())
+                self._perms = set(auth_repository.list_permission_codes())
             return self._perms
 
         def to_dict(self, include_permissions=False):
@@ -176,7 +207,7 @@ def _resolve_request_user():
     except jwt.InvalidTokenError:
         return None, '无效令牌'
 
-    user = rbac_repository.get_user_entity(payload['user_id'])
+    user = auth_repository.get_user_entity(payload['user_id'])
     if not user or not user.is_active:
         return None, '用户不存在或已禁用'
     if int(user.token_version or 0) != token_version:
