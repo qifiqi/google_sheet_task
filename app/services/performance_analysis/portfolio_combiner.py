@@ -12,6 +12,7 @@ import pandas as pd
 from typing import Any, Iterable
 from decimal import Decimal, InvalidOperation
 
+from app.schemas.backtest import StrategyBacktestReportSchema
 
 RATIO_BASE = Decimal("100")
 DEFAULT_WEIGHTING_MODE = "daily_compound"

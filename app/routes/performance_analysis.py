@@ -1,7 +1,7 @@
 import json
 from itertools import chain
 
-from flask import Blueprint, Response, stream_with_context
+from flask import Blueprint, Response, stream_with_context, current_app
 
 from app.routes.page_files import register_page_routes
 
@@ -66,24 +66,25 @@ def v1_weight_combination():
     每个组合结果作为一行 JSON 对象返回，前端可以流式处理和渐进式渲染。
     """
 
-    payload = parse_body(WeightCombinationSchema)
+    payload = parse_body(WeightCombinationSchema).model_dump()
 
     def generate():
         """生成器函数，逐个产出组合结果的 JSON 行。"""
-        try:
-            for combination in performance_analysis_service.weight_combination(payload):
-                # 每个组合输出为一行 JSON
-                yield json.dumps(combination, ensure_ascii=False) + '\n'
-        except Exception as e:
-            # 错误也以 JSON 格式返回
-            error_obj = {
-                'error': True,
-                'message': str(e)
-            }
-            yield json.dumps(error_obj, ensure_ascii=False) + '\n'
+        with current_app.app_context():
+            try:
+                for combination in performance_analysis_service.weight_combination(payload):
+                    # 每个组合输出为一行 JSON
+                    yield json.dumps(combination, ensure_ascii=False) + '\n'
+            except Exception as e:
+                # 错误也以 JSON 格式返回
+                error_obj = {
+                    'error': True,
+                    'message': str(e)
+                }
+                yield json.dumps(error_obj, ensure_ascii=False) + '\n'
 
     return Response(
-        generate(),
+        stream_with_context(generate()),
         mimetype='application/x-ndjson',
         headers={
             'Cache-Control': 'no-cache',

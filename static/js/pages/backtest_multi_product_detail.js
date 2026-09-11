@@ -1189,6 +1189,21 @@
         if (globalPreviewLink) {
             globalPreviewLink.href = buildGlobalPreviewHref();
         }
+
+
+        // ✅ 新增 weightAnalysisLink 处理
+        const weightAnalysisLink = document.getElementById('weightAnalysisLink');
+        if (weightAnalysisLink) {
+            weightAnalysisLink.addEventListener('click', function(event) {
+                event.preventDefault();
+                const baseHref = weightAnalysisLink.getAttribute('href') || weightAnalysisLink.href;
+                const url = new URL(baseHref, window.location.origin);
+                url.searchParams.set('task_id', currentTaskId);
+                window.location.href = url.toString();
+            });
+        }
+
+
         ensureC3MetricSelection();
         syncC3MetricSelector();
         renderC3SummaryHead();

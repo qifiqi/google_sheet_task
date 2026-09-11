@@ -1,121 +1,237 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>多品全局预览</title>
 
-    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="/static/css/template-auth.css" rel="stylesheet">
-    <link href="/static/css/common/theme.css" rel="stylesheet">
-    <link href="/static/css/components/sidebar.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet" />
+    <link href="/static/css/template-auth.css" rel="stylesheet" />
+    <link href="/static/css/common/theme.css" rel="stylesheet" />
+    <link href="/static/css/components/sidebar.css" rel="stylesheet" />
     <script src="/static/js/bootstrap.bundle.min.js"></script>
-    <link href="/static/css/pages/backtest_multi_product_global_preview.css" rel="stylesheet">
-</head>
-<body class="template-auth-pending">
+    <link
+      href="/static/css/pages/backtest_multi_product_global_preview.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="template-auth-pending">
     <div class="template-auth-loading" id="templateAuthLoading">
-        <div class="template-auth-loading__card">
-            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
-            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+      <div class="template-auth-loading__card">
+        <div
+          class="spinner-border text-primary"
+          role="status"
+          aria-hidden="true"
+        ></div>
+        <div class="template-auth-loading__label" id="templateAuthLoadingLabel">
+          正在恢复登录状态...
         </div>
+      </div>
     </div>
 
     <div class="container-fluid">
-        <div class="row">
-            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+      <div class="row">
+        <nav
+          class="col-md-3 col-lg-2 d-md-block sidebar collapse"
+          data-navbar
+        ></nav>
 
-            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
-<div class="container-fluid py-4 preview-layout">
-    <div class="header-toolbar shadow-sm">
-        <div class="header-toolbar-left">
-            <div class="text-body-secondary small">多品数据回测</div>
-            <div class="fw-bold" id="taskTitleText">加载中...</div>
-        </div>
-        <div class="d-flex gap-2 flex-wrap">
-            <button class="btn btn-outline-primary rounded-pill px-3 btn-sm" id="saveRatiosBtn" type="button">
-                <i class="bi bi-save me-1"></i>保存比例
-            </button>
-            <button class="btn btn-outline-success rounded-pill px-3 btn-sm" id="exportBtn" type="button">
-                <i class="bi bi-file-earmark-excel me-1"></i>导出 XLSX
-            </button>
-            <button class="btn btn-outline-info rounded-pill px-3 btn-sm" id="exportWordBtn" type="button">
-                <i class="bi bi-file-earmark-word me-1"></i>导出 Word
-            </button>
-            <a href="/backtest-multi-product/detail/" class="btn btn-outline-secondary rounded-pill px-3 btn-sm" id="backToDetailLink">
-                <i class="bi bi-arrow-left me-1"></i>返回详情
-            </a>
-        </div>
-    </div>
-
-    <details class="summary-panel shadow-sm">
-        <summary class="summary-toggle">
-            <span class="fw-semibold">任务概要</span>
-            <span class="text-body-secondary small">点击展开 4 项信息 <i class="bi bi-chevron-down ms-1 summary-toggle-icon"></i></span>
-        </summary>
-        <div class="summary-grid">
-            <div class="summary-card">
-                <div class="summary-card-label">任务 ID</div>
-                <div class="summary-card-value" id="summaryTaskId"></div>
-            </div>
-            <div class="summary-card">
-                <div class="summary-card-label">产品数</div>
-                <div class="summary-card-value" id="summaryProducts">-</div>
-            </div>
-            <div class="summary-card">
-                <div class="summary-card-label">参数方案</div>
-                <div class="summary-card-value" id="summaryGroups">-</div>
-            </div>
-            <div class="summary-card">
-                <div class="summary-card-label">成功结果</div>
-                <div class="summary-card-value text-success" id="summarySuccess">-</div>
-            </div>
-        </div>
-    </details>
-
-    <details class="summary-panel shadow-sm" id="ratioPanel">
-        <summary class="summary-toggle">
-            <span class="fw-semibold">比例设置</span>
-            <span class="text-body-secondary small">
-                <span id="ratioTotalBadge" class="ratio-total-badge">合计 -</span>
-                <i class="bi bi-chevron-down ms-1 summary-toggle-icon"></i>
-            </span>
-        </summary>
-        <div class="px-3 pb-3">
-            <div class="ratio-toolbar mb-2">
-                <div>
-                    <select class="form-select" id="groupSelect" style="min-width: 220px;"></select>
-                </div>
-                <div class="ratio-formula-hint">
-                    <span class="hint-title">比例计算：</span>
-                    <span class="hint-desc">先将累计收益率转换为当天收益率，按比例合成后复利还原为组合累计收益率，再重新计算组合指标。</span>
-                    <br><span class="hint-note">比例计算-指数来自组合 index_return，比例计算-结果来自组合 start_return；导出也使用同一套后端计算。</span>
-                </div>
-                <button class="btn btn-primary rounded-pill px-4" id="calculateRatiosBtn" type="button">
-                    <i class="bi bi-calculator me-1"></i>计算预览
+        <main
+          class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content"
+          data-template-main-content
+        >
+          <div class="container-fluid py-4 preview-layout">
+            <div class="header-toolbar shadow-sm">
+              <div class="header-toolbar-left">
+                <div class="text-body-secondary small">多品数据回测</div>
+                <div class="fw-bold" id="taskTitleText">加载中...</div>
+              </div>
+              <div class="d-flex gap-2 flex-wrap">
+                <button
+                  class="btn btn-outline-primary rounded-pill px-3 btn-sm"
+                  id="saveRatiosBtn"
+                  type="button"
+                >
+                  <i class="bi bi-save me-1"></i>保存比例
                 </button>
+                <button
+                  class="btn btn-outline-success rounded-pill px-3 btn-sm"
+                  id="exportBtn"
+                  type="button"
+                >
+                  <i class="bi bi-file-earmark-excel me-1"></i>导出 XLSX
+                </button>
+                <button
+                  class="btn btn-outline-info rounded-pill px-3 btn-sm"
+                  id="exportWordBtn"
+                  type="button"
+                >
+                  <i class="bi bi-file-earmark-word me-1"></i>导出 Word
+                </button>
+
+                <a
+                  href="/backtest-multi-product/detail/"
+                  class="btn btn-outline-secondary rounded-pill px-3 btn-sm"
+                  id="backToDetailLink"
+                >
+                  <i class="bi bi-arrow-left me-1"></i>返回详情
+                </a>
+              </div>
             </div>
-            <div class="ratio-list-wrap" id="ratioListWrap">
-                <table class="ratio-list-table">
+
+            <details class="summary-panel shadow-sm">
+              <summary class="summary-toggle">
+                <span class="fw-semibold">任务概要</span>
+                <span class="text-body-secondary small"
+                  >点击展开 4 项信息
+                  <i class="bi bi-chevron-down ms-1 summary-toggle-icon"></i
+                ></span>
+              </summary>
+              <div class="summary-grid">
+                <div class="summary-card">
+                  <div class="summary-card-label">任务 ID</div>
+                  <div class="summary-card-value" id="summaryTaskId"></div>
+                </div>
+                <div class="summary-card">
+                  <div class="summary-card-label">产品数</div>
+                  <div class="summary-card-value" id="summaryProducts">-</div>
+                </div>
+                <div class="summary-card">
+                  <div class="summary-card-label">参数方案</div>
+                  <div class="summary-card-value" id="summaryGroups">-</div>
+                </div>
+                <div class="summary-card">
+                  <div class="summary-card-label">成功结果</div>
+                  <div
+                    class="summary-card-value text-success"
+                    id="summarySuccess"
+                  >
+                    -
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <details class="summary-panel shadow-sm" id="ratioPanel">
+              <summary class="summary-toggle">
+                <span class="fw-semibold">比例设置</span>
+                <span class="text-body-secondary small">
+                  <span id="ratioTotalBadge" class="ratio-total-badge"
+                    >合计 -</span
+                  >
+                  <i class="bi bi-chevron-down ms-1 summary-toggle-icon"></i>
+                </span>
+              </summary>
+              <div class="px-3 pb-3">
+                <div class="ratio-toolbar mb-2">
+                  <div>
+                    <select
+                      class="form-select"
+                      id="groupSelect"
+                      style="min-width: 220px"
+                    ></select>
+                  </div>
+                  <div class="ratio-formula-hint">
+                    <span class="hint-title">比例计算：</span>
+                    <span class="hint-desc"
+                      >先将累计收益率转换为当天收益率，按比例合成后复利还原为组合累计收益率，再重新计算组合指标。</span
+                    >
+                    <br /><span class="hint-note"
+                      >比例计算-指数来自组合 index_return，比例计算-结果来自组合
+                      start_return；导出也使用同一套后端计算。</span
+                    >
+                  </div>
+                  <button
+                    class="btn btn-primary rounded-pill px-4"
+                    id="calculateRatiosBtn"
+                    type="button"
+                  >
+                    <i class="bi bi-calculator me-1"></i>计算预览
+                  </button>
+                </div>
+                <div class="ratio-list-wrap" id="ratioListWrap">
+                  <table class="ratio-list-table">
                     <thead>
-                        <tr>
-                            <th>产品</th>
-                            <th>比例</th>
-                            <th>状态</th>
-                        </tr>
+                      <tr>
+                        <th>产品</th>
+                        <th>比例</th>
+                        <th>状态</th>
+                      </tr>
                     </thead>
                     <tbody id="ratioListBody"></tbody>
-                </table>
-            </div>
-        </div>
-    </details>
+                  </table>
+                </div>
+              </div>
+            </details>
 
-    <div class="preview-table-wrap" id="previewContainer">
-        <div class="empty-state">正在加载多品全局预览数据...</div>
-    </div>
-</div>
-            </main>
-        </div>
+            <div class="preview-table-wrap" id="previewContainer">
+              <div class="empty-state">正在加载多品全局预览数据...</div>
+            </div>
+          </div>
+
+          <!-- 导出 Word 选股票弹窗 -->
+          <div
+            class="modal fade"
+            id="exportWordModal"
+            tabindex="-1"
+            aria-hidden="true"
+          >
+            <div
+              class="modal-dialog modal-dialog-centered modal-dialog-scrollable"
+            >
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">导出 Word · 选择股票</h5>
+                  <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
+                  ></button>
+                </div>
+                <div class="modal-body">
+                  <p class="text-body-secondary small mb-2">
+                    请选择要导出的股票
+                  </p>
+                  <div class="mb-2">
+                    <input
+                      type="text"
+                      class="form-control form-control-sm"
+                      id="stockSearchInput"
+                      placeholder="搜索股票代码或名称..."
+                    />
+                  </div>
+                  <div
+                    class="stock-list-wrap"
+                    id="stockListContainer"
+                    style="max-height: 300px; overflow-y: auto"
+                  >
+                    <div class="text-center text-body-secondary py-3">
+                      加载中...
+                    </div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary rounded-pill px-4"
+                    data-bs-dismiss="modal"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-info rounded-pill px-4"
+                    id="confirmExportWordBtn"
+                  >
+                    <i class="bi bi-download me-1"></i>确认导出
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
 
     <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
@@ -125,5 +241,5 @@
     <script src="/static/js/common/api.js"></script>
     <script src="/static/js/common/utils.js"></script>
     <script src="/static/js/pages/backtest_multi_product_global_preview.js"></script>
-</body>
+  </body>
 </html>

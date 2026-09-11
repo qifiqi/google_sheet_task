@@ -34,6 +34,7 @@ class StrategyBacktestReportSchema(APIModel):
     returns: list[dict[str, Any]] = []
     # 单品任务来源；return_series_id 在一个 task 有多条结果时用于精确指定。
     task_id: str | None = None
+    index_stock_code: str | None = None
     return_series_id: int | None = Field(default=None, gt=0)
     # V2 Google Sheet 来源；spreadsheet_id 可以由 google_sheet_url 解析得到。
     google_sheet_url: str | None = None
@@ -104,6 +105,7 @@ class StrategyBacktestReportSchema(APIModel):
         self._validate_source({
             "task_id": self.task_id,
             "return_series_id": self.return_series_id,
+            "index_return_id": self.index_return_id,
             "spreadsheet_id": self.spreadsheet_id,
             "google_sheet_url": self.google_sheet_url,
             "google_sheet_name": self.google_sheet_name,

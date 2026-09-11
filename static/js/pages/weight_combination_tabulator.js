@@ -7,6 +7,126 @@
     let isAnalyzing = false;
     let abortController = null;
 
+    // 当前筛选值缓存：field -> { min, max }
+    // 用于编辑器初始化时回填用户输入的值
+    const headerFilterValues = {};
+
+    // ============ 自定义范围筛选编辑器 ============
+    function minMaxFilterEditor(cell, onRendered, success, cancel, editorParams) {
+        const container = document.createElement("span");
+        container.style.display = "flex";
+        container.style.gap = "2px";
+        container.style.fontSize = "12px";
+
+        const minInput = document.createElement("input");
+        minInput.setAttribute("type", "number");
+        minInput.setAttribute("placeholder", "最小");
+        minInput.style.padding = "2px 4px";
+        minInput.style.width = "50px";
+        minInput.style.fontSize = "11px";
+
+        const maxInput = document.createElement("input");
+        maxInput.setAttribute("type", "number");
+        maxInput.setAttribute("placeholder", "最大");
+        maxInput.style.padding = "2px 4px";
+        maxInput.style.width = "50px";
+        maxInput.style.fontSize = "11px";
+
+        container.appendChild(minInput);
+        container.appendChild(maxInput);
+
+        // 只从缓存读当前筛选值，避免调 getHeaderFilterValue 触发 Tabulator 内部报错
+        const field = cell.getField ? cell.getField() : null;
+        const currentValue = field ? headerFilterValues[field] : null;
+
+        if (currentValue && typeof currentValue === 'object') {
+            if (currentValue.min !== null && currentValue.min !== undefined && currentValue.min !== '') {
+                minInput.value = currentValue.min;
+            }
+            if (currentValue.max !== null && currentValue.max !== undefined && currentValue.max !== '') {
+                maxInput.value = currentValue.max;
+            }
+        }
+
+        function buildValues() {
+            const value = {
+                min: minInput.value !== "" ? parseFloat(minInput.value) : null,
+                max: maxInput.value !== "" ? parseFloat(maxInput.value) : null
+            };
+            if (field) {
+                headerFilterValues[field] = value;
+            }
+            success(value);
+        }
+
+        minInput.addEventListener("change", buildValues);
+        minInput.addEventListener("blur", buildValues);
+        maxInput.addEventListener("change", buildValues);
+        maxInput.addEventListener("blur", buildValues);
+
+        function handleEnter(e) {
+            if (e.key === "Enter") {
+                buildValues();
+            }
+        }
+        minInput.addEventListener("keydown", handleEnter);
+        maxInput.addEventListener("keydown", handleEnter);
+
+        return container;
+    }
+
+    // ============ 自定义范围筛选函数 ============
+    function minMaxFilterFunction(headerValue, rowValue, rowData, filterParams) {
+        if (!headerValue || (headerValue.min === null && headerValue.max === null)) {
+            return true;
+        }
+
+        // 空值放行
+        if (rowValue === null || rowValue === undefined || rowValue === '') {
+            return true;
+        }
+
+        const value = parseFloat(rowValue);
+        if (isNaN(value)) {
+            return true;
+        }
+
+        if (headerValue.min !== null && headerValue.min !== undefined && value < headerValue.min) {
+            return false;
+        }
+
+        if (headerValue.max !== null && headerValue.max !== undefined && value > headerValue.max) {
+            return false;
+        }
+
+        return true;
+    }
+
+    // ============ 列工厂 ============
+    function numberFormatter(digits, suffix = '') {
+        return function(cell) {
+            const val = cell.getValue();
+            return val != null && val !== '' ? Number(val).toFixed(digits) + suffix : '-';
+        };
+    }
+
+    function rangeColumn(title, field, opts = {}) {
+        const digits = opts.digits ?? 2;
+        const suffix = opts.suffix || '';
+        const width = opts.width || 150;
+
+        return {
+            title: title,
+            field: field,
+            width: width,
+            sorter: 'number',
+            headerFilter: minMaxFilterEditor,
+            headerFilterFunc: minMaxFilterFunction,
+            headerFilterLiveFilter: false,
+            formatter: numberFormatter(digits, suffix)
+        };
+    }
+
     // DOM elements
     const form = document.getElementById('weight-combination-form');
     const taskIdInput = document.getElementById('task-id');
@@ -25,11 +145,20 @@
     document.addEventListener('DOMContentLoaded', function() {
         setupEventListeners();
         initializeTable();
+        prefillTaskIdFromUrl();
     });
 
     function setupEventListeners() {
         form.addEventListener('submit', handleAnalyze);
         btnCancel.addEventListener('click', handleCancel);
+    }
+
+    function prefillTaskIdFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const taskId = params.get('task_id');
+        if (taskId) {
+            taskIdInput.value = taskId;
+        }
     }
 
     /**
@@ -40,86 +169,17 @@
             height: '600px',
             layout: 'fitColumns',
             placeholder: '暂无数据，请先进行分析',
-            pagination: false,  // 使用虚拟滚动而非分页
-            virtualDom: true,   // 启用虚拟滚动
-            virtualDomBuffer: 300,  // 缓冲区大小
+            pagination: false,
+            virtualDom: true,
+            virtualDomBuffer: 300,
 
-            // 列定义
             columns: [
                 {
                     title: '#',
-                    field: 'rowNum',
+                    formatter: 'rownum',
                     width: 60,
                     hozAlign: 'center',
-                    headerSort: false,
-                    formatter: function(cell) {
-                        return cell.getRow().getPosition();
-                    }
-                },
-                {
-                    title: '年化收益率(指数)',
-                    field: 'index_rate',
-                    width: 150,
-                    sorter: 'number',
-                    headerFilter: 'number',
-                    headerFilterPlaceholder: '筛选...',
-                    headerFilterFunc: 'range',
-                    formatter: function(cell) {
-                        const val = cell.getValue();
-                        return val != null ? val.toFixed(4) : '-';
-                    }
-                },
-                {
-                    title: '年化收益率(起始)',
-                    field: 'start_rate',
-                    width: 150,
-                    sorter: 'number',
-                    headerFilter: 'number',
-                    headerFilterPlaceholder: '筛选...',
-                    headerFilterFunc: 'range',
-                    formatter: function(cell) {
-                        const val = cell.getValue();
-                        return val != null ? val.toFixed(4) : '-';
-                    }
-                },
-                {
-                    title: '最大回撤(指数)',
-                    field: 'index_dd',
-                    width: 140,
-                    sorter: 'number',
-                    headerFilter: 'number',
-                    headerFilterPlaceholder: '筛选...',
-                    headerFilterFunc: 'range',
-                    formatter: function(cell) {
-                        const val = cell.getValue();
-                        return val != null ? val.toFixed(4) : '-';
-                    }
-                },
-                {
-                    title: '最大回撤(起始)',
-                    field: 'start_dd',
-                    width: 140,
-                    sorter: 'number',
-                    headerFilter: 'number',
-                    headerFilterPlaceholder: '筛选...',
-                    headerFilterFunc: 'range',
-                    formatter: function(cell) {
-                        const val = cell.getValue();
-                        return val != null ? val.toFixed(4) : '-';
-                    }
-                },
-                {
-                    title: '权重和(%)',
-                    field: 'weight_sum',
-                    width: 110,
-                    sorter: 'number',
-                    headerFilter: 'number',
-                    headerFilterPlaceholder: '筛选...',
-                    headerFilterFunc: 'range',
-                    formatter: function(cell) {
-                        const val = cell.getValue();
-                        return val != null ? val.toFixed(0) + '%' : '-';
-                    }
+                    headerSort: false
                 },
                 {
                     title: '股票组合',
@@ -127,42 +187,36 @@
                     minWidth: 300,
                     headerSort: false,
                     formatter: 'textarea',
-                    tooltip: true
-                }
+                    tooltip: true,
+                    variableHeight: false
+                },
+                rangeColumn('年化收益率(指数)', 'index_rate_disp', { width: 160, digits: 2, suffix: '%' }),
+                rangeColumn('年化收益率(策略)', 'start_rate_disp', { width: 160, digits: 2, suffix: '%' }),
+                rangeColumn('最大回撤(指数)', 'index_dd_disp', { width: 150, digits: 2, suffix: '%' }),
+                rangeColumn('最大回撤(策略)', 'start_dd_disp', { width: 150, digits: 2, suffix: '%' }),
+                rangeColumn('权重和(%)', 'weight_sum', { width: 120, digits: 0, suffix: '%' })
             ],
 
-            // 初始排序
             initialSort: [],
-
-            // 响应式列
             responsiveLayout: 'collapse',
 
-            // 深色模式适配
             renderComplete: function() {
                 updateStats();
             }
         });
 
-        // 导出按钮
-        const exportBtn = document.createElement('button');
-        exportBtn.className = 'btn btn-sm btn-success mt-2 ms-2';
-        exportBtn.innerHTML = '<i class="bi bi-filetype-csv me-1"></i>导出 CSV';
-        exportBtn.onclick = exportCSV;
-        document.querySelector('#results-card .card-header').appendChild(exportBtn);
+        // ✅ 不再设置默认筛选，加载后显示全部数据
 
-        // 清除筛选按钮
-        const clearBtn = document.createElement('button');
-        clearBtn.className = 'btn btn-sm btn-outline-secondary mt-2 ms-2';
-        clearBtn.innerHTML = '<i class="bi bi-x-circle me-1"></i>清除筛选';
-        clearBtn.onclick = () => table.clearHeaderFilter();
-        document.querySelector('#results-card .card-header').appendChild(clearBtn);
+        table.on('dataFiltered', function() {
+            updateStats();
+        });
 
-        // 统计信息容器
-        const statsDiv = document.createElement('div');
-        statsDiv.id = 'table-stats';
-        statsDiv.className = 'mt-2 small text-muted';
-        statsDiv.innerHTML = '<span class="badge bg-success me-2" id="filtered-count">0 条显示</span><span class="badge bg-primary" id="total-count">0 条总计</span>';
-        document.querySelector('#results-card .card-header').appendChild(statsDiv);
+        document.getElementById('export-csv-btn').onclick = exportCSV;
+        document.getElementById('clear-filter-btn').onclick = function() {
+            Object.keys(headerFilterValues).forEach(k => delete headerFilterValues[k]);
+            table.clearHeaderFilter();
+            updateStats();
+        };
     }
 
     /**
@@ -170,12 +224,8 @@
      */
     async function handleAnalyze(e) {
         e.preventDefault();
+        if (isAnalyzing) return;
 
-        if (isAnalyzing) {
-            return;
-        }
-
-        // 参数验证
         const taskId = taskIdInput.value.trim();
         if (!taskId) {
             alert('请输入任务 ID');
@@ -187,48 +237,18 @@
         const minWeight = parseInt(minWeightInput.value);
         const singleCap = parseInt(singleCapInput.value);
 
-        // 基础验证
-        if (step < 1 || step > 100) {
-            alert('权重步长必须在 1-100 之间');
-            return;
-        }
-
-        if (100 % step !== 0) {
-            alert('权重步长必须能整除 100');
-            return;
-        }
-
-        if (maxWeight < 1 || maxWeight > 100) {
-            alert('组合总权重上限必须在 1-100 之间');
-            return;
-        }
-
-        if (minWeight < 0 || minWeight > 100) {
-            alert('组合总权重下限必须在 0-100 之间');
-            return;
-        }
-
-        if (minWeight > maxWeight) {
-            alert('组合总权重下限不能大于上限');
-            return;
-        }
-
-        if (singleCap < 1 || singleCap > 100) {
-            alert('单只股票权重上限必须在 1-100 之间');
-            return;
-        }
-
+        if (step < 1 || step > 100) { alert('权重步长必须在 1-100 之间'); return; }
+        if (100 % step !== 0) { alert('权重步长必须能整除 100'); return; }
+        if (maxWeight < 1 || maxWeight > 100) { alert('组合总权重上限必须在 1-100 之间'); return; }
+        if (minWeight < 0 || minWeight > 100) { alert('组合总权重下限必须在 0-100 之间'); return; }
+        if (minWeight > maxWeight) { alert('组合总权重下限不能大于上限'); return; }
+        if (singleCap < 1 || singleCap > 100) { alert('单只股票权重上限必须在 1-100 之间'); return; }
         if (maxWeight % step !== 0 || minWeight % step !== 0 || singleCap % step !== 0) {
             alert('所有权重参数必须是步长的整数倍');
             return;
         }
+        if (singleCap < step) { alert('单只股票权重上限不能小于步长'); return; }
 
-        if (singleCap < step) {
-            alert('单只股票权重上限不能小于步长');
-            return;
-        }
-
-        // 开始分析
         startAnalysis({
             task_id: taskId,
             step: step,
@@ -245,14 +265,15 @@
         isAnalyzing = true;
         allData = [];
 
-        // UI 更新
         btnAnalyze.disabled = true;
         btnCancel.style.display = 'inline-block';
         progressCard.style.display = 'block';
         resultsCard.style.display = 'none';
 
-        // 清空表格
+        // 清空数据 + 筛选缓存
+        Object.keys(headerFilterValues).forEach(k => delete headerFilterValues[k]);
         table.clearData();
+        table.clearHeaderFilter();
 
         updateProgress(0, '正在发送请求...');
 
@@ -261,9 +282,7 @@
 
             const response = await fetch('/performance_analysis/v1/weight_combination', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
                 signal: abortController.signal
             });
@@ -273,22 +292,20 @@
                 throw new Error(errorData.message || `请求失败: ${response.status}`);
             }
 
-            // 流式处理
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
             let processedCount = 0;
+            let renderedCount = 0;
 
             updateProgress(0, '正在接收数据...');
 
             while (true) {
                 const { done, value } = await reader.read();
-
                 if (done) break;
 
                 buffer += decoder.decode(value, { stream: true });
 
-                // 处理完整的 JSON 对象
                 const lines = buffer.split('\n');
                 buffer = lines.pop();
 
@@ -296,66 +313,76 @@
                     if (line.trim()) {
                         try {
                             const data = JSON.parse(line);
+                            if (data.error) throw new Error(data.message || '服务端返回错误');
 
-                            // 检查错误
-                            if (data.error) {
-                                throw new Error(data.message || '服务端返回错误');
-                            }
-
-                            // 数据转换和扁平化
                             const transformed = transformData(data);
                             allData.push(transformed);
                             processedCount++;
 
-                            // 批量更新表格（每 100 条）
-                            if (processedCount % 100 === 0) {
+                            if (processedCount % 20 === 0) {
                                 updateProgress(null, `已接收 ${processedCount} 条组合...`);
 
-                                // 实时更新表格
-                                if (processedCount === 100) {
+                                const newRows = allData.slice(renderedCount);
+                                if (renderedCount === 0) {
                                     table.setData(allData);
                                     resultsCard.style.display = 'block';
-                                } else {
-                                    table.addData(allData.slice(-100));
+                                } else if (newRows.length) {
+                                    table.addData(newRows);
                                 }
+                                renderedCount = allData.length;
                             }
                         } catch (err) {
                             console.error('解析 JSON 失败:', line, err);
-                            if (err.message.includes('服务端返回错误')) {
-                                throw err;
-                            }
+                            if (err.message.includes('服务端返回错误')) throw err;
                         }
                     }
                 }
             }
 
-            // 处理剩余数据
             if (buffer.trim()) {
                 try {
                     const data = JSON.parse(buffer);
-                    if (data.error) {
-                        throw new Error(data.message || '服务端返回错误');
-                    }
+                    if (data.error) throw new Error(data.message || '服务端返回错误');
                     const transformed = transformData(data);
                     allData.push(transformed);
                     processedCount++;
                 } catch (err) {
                     console.error('解析最后的 JSON 失败:', buffer, err);
-                    if (err.message.includes('服务端返回错误')) {
-                        throw err;
-                    }
+                    if (err.message.includes('服务端返回错误')) throw err;
                 }
             }
 
-            // 最终更新表格
-            table.setData(allData);
-            updateProgress(100, `分析完成！共生成 ${allData.length} 个组合`);
+            // 最终补差量
+            const finalNewRows = allData.slice(renderedCount);
+            if (finalNewRows.length) {
+                if (renderedCount === 0) {
+                    table.setData(allData);
+                } else {
+                    table.addData(finalNewRows);
+                }
+                renderedCount = allData.length;
+            } else {
+                table.setData(allData);
+            }
 
+            updateProgress(100, `分析完成！共生成 ${allData.length} 个组合`);
             resultsCard.style.display = 'block';
+
+            // ✅ 只更新统计，不再应用默认筛选
+            setTimeout(function() {
+                updateStats();
+            }, 0);
+
+            setTimeout(() => {
+                progressCard.style.display = 'none';
+            }, 2000);
 
         } catch (error) {
             if (error.name === 'AbortError') {
                 updateProgress(0, '分析已取消');
+                setTimeout(() => {
+                    progressCard.style.display = 'none';
+                }, 1500);
             } else {
                 console.error('分析失败:', error);
                 alert('分析失败: ' + error.message);
@@ -370,19 +397,26 @@
     }
 
     /**
-     * 数据转换和扁平化
+     * 数据转换：生成 *_disp 字段（原始值 × 100）
      */
     function transformData(item) {
-        // 计算权重和
         item.weight_sum = item.stocks.reduce((sum, stock) => sum + stock.ratio, 0);
 
-        // 扁平化嵌套字段（加速筛选和排序）
-        item.index_rate = item.annualized_rates?.index;
-        item.start_rate = item.annualized_rates?.start;
-        item.index_dd = item.year_max_drawdown?.index;
-        item.start_dd = item.year_max_drawdown?.start;
+        const indexRate = item.annualized_rates?.index;
+        const startRate = item.annualized_rates?.start;
+        const indexDd = item.year_max_drawdown?.index;
+        const startDd = item.year_max_drawdown?.start;
 
-        // 生成股票组合显示文本
+        item.index_rate = indexRate;
+        item.start_rate = startRate;
+        item.index_dd = indexDd;
+        item.start_dd = startDd;
+
+        item.index_rate_disp = indexRate != null ? Number(indexRate) * 100 : null;
+        item.start_rate_disp = startRate != null ? Number(startRate) * 100 : null;
+        item.index_dd_disp = indexDd != null ? Number(indexDd) * 100 : null;
+        item.start_dd_disp = startDd != null ? Number(startDd) * 100 : null;
+
         item.stocks_display = item.stocks
             .filter(s => s.ratio > 0)
             .map(s => `${s.stock_name || s.stock_code || 'N/A'} (${s.ratio}%)`)
@@ -391,32 +425,19 @@
         return item;
     }
 
-    /**
-     * 取消分析
-     */
     function handleCancel() {
-        if (abortController) {
-            abortController.abort();
-        }
+        if (abortController) abortController.abort();
     }
 
-    /**
-     * 更新进度
-     */
     function updateProgress(percentage, message) {
         if (percentage !== null) {
             progressBar.style.width = percentage + '%';
             progressBar.setAttribute('aria-valuenow', percentage);
             progressBar.textContent = percentage + '%';
         }
-        if (message) {
-            progressInfo.textContent = message;
-        }
+        if (message) progressInfo.textContent = message;
     }
 
-    /**
-     * 更新统计信息
-     */
     function updateStats() {
         const filteredCount = table.getDataCount('active');
         const totalCount = allData.length;
@@ -428,20 +449,10 @@
         if (totalEl) totalEl.textContent = `${totalCount} 条总计`;
     }
 
-    /**
-     * 导出 CSV
-     */
     function exportCSV() {
         table.download('csv', `weight_combination_${Date.now()}.csv`, {
-            bom: true,  // UTF-8 BOM for Excel
+            bom: true,
             delimiter: ','
-        });
-    }
-
-    // 监听表格筛选事件
-    if (table) {
-        table.on('dataFiltered', function(filters, rows) {
-            updateStats();
         });
     }
 

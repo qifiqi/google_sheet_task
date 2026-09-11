@@ -115,7 +115,17 @@ class StrategyBacktestReportService:
     def _resolve_returns(self, request: StrategyBacktestReportSchema) -> list[dict[str, Any]]:
         """将单品、V2 或多品输入统一为 result_mapper 所需的累计收益序列。"""
         if request.report_type == "RPT-M":
-            return self._combine_product_returns(request.products, request.weighting_mode)
+            data = self._combine_product_returns(request)
+            # 指定指数列
+            if request and request.index_stock_code:
+                product_list = [product for product in request.products if product.get("stock_code","").strip() == request.index_stock_code.strip()]
+                returns = product_list[0].get("returns", [])
+                for i in range(len(data)):
+                    data[i]["index_return"] = returns[i].get("index_return", 0)
+
+            return data
+
+
         return self._resolve_source_returns({
             "returns": request.returns,
             "task_id": request.task_id,
@@ -177,10 +187,12 @@ class StrategyBacktestReportService:
 
     def _combine_product_returns(
         self,
-        products: list[dict[str, Any]],
-        weighting_mode: str = "daily_compound",
+        request: StrategyBacktestReportSchema,
+
     ) -> list[dict[str, Any]]:
         """将多产品组合委托给统一组合器；比例为 0 的产品不参与组合。"""
+        products = request.products
+        weighting_mode = request.weighting_mode or "daily_compound"
         inputs = [
             {
                 "returns": self._resolve_source_returns(product),
@@ -283,8 +295,11 @@ class StrategyBacktestReportService:
                     weight = str(product.get("ratio") or product.get("weight") or "").strip()
                     if report_type == "RPT-S" and not weight:
                         weight = "100.00%"
+                    stock_code = str(product.get("stock_code") or product.get("product_name") or "未命名")
+                    if payload.index_stock_code and payload.index_stock_code == stock_code:
+                        stock_code = f"{stock_code} (指数)"
                     rows.append([
-                        str(product.get("stock_code") or product.get("product_name") or "未命名"),
+                        stock_code,
                         str(product.get("product_name") or ""),
                         weight if not weight or weight.endswith("%") else f"{weight}%",
                     ])

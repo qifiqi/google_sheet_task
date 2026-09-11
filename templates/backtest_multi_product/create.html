@@ -1,66 +1,97 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>创建多品数据回测</title>
 
-    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="/static/css/template-auth.css" rel="stylesheet">
-    <link href="/static/css/common/theme.css" rel="stylesheet">
-    <link href="/static/css/components/sidebar.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet" />
+    <link href="/static/css/template-auth.css" rel="stylesheet" />
+    <link href="/static/css/common/theme.css" rel="stylesheet" />
+    <link href="/static/css/components/sidebar.css" rel="stylesheet" />
     <script src="/static/js/bootstrap.bundle.min.js"></script>
-    <link href="/static/css/pages/backtest_multi_product_create.css" rel="stylesheet">
-</head>
-<body class="template-auth-pending">
+    <link
+      href="/static/css/pages/backtest_multi_product_create.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="template-auth-pending">
     <div class="template-auth-loading" id="templateAuthLoading">
-        <div class="template-auth-loading__card">
-            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
-            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+      <div class="template-auth-loading__card">
+        <div
+          class="spinner-border text-primary"
+          role="status"
+          aria-hidden="true"
+        ></div>
+        <div class="template-auth-loading__label" id="templateAuthLoadingLabel">
+          正在恢复登录状态...
         </div>
+      </div>
     </div>
 
     <div class="container-fluid">
-        <div class="row">
-            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+      <div class="row">
+        <nav
+          class="col-md-3 col-lg-2 d-md-block sidebar collapse"
+          data-navbar
+        ></nav>
 
-            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
-<div class="container-fluid py-4 multi-create-shell">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-        <div>
-            <h1 class="h3 mb-1">创建多品数据回测</h1>
-            <div class="text-body-secondary">每个产品独立 Sheet，参数按行号对齐，比例按百分数参与加权计算。</div>
-        </div>
-        <a href="/backtest-multi-product/list" class="btn btn-outline-secondary rounded-pill px-4">返回列表</a>
-    </div>
+        <main
+          class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content"
+          data-template-main-content
+        >
+          <div class="container-fluid py-4 multi-create-shell">
+            <div
+              class="d-flex flex-wrap justify-content-between align-items-center gap-3"
+            >
+              <div>
+                <h1 class="h3 mb-1">创建多品数据回测</h1>
+                <div class="text-body-secondary">
+                  每个产品独立 Sheet，参数按行号对齐，比例按百分数参与加权计算。
+                </div>
+              </div>
+              <a
+                href="/backtest-multi-product/list"
+                class="btn btn-outline-secondary rounded-pill px-4"
+                >返回列表</a
+              >
+            </div>
 
-    <div class="card tool-card">
-        <div class="card-body p-4">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-3">
+            <div class="card tool-card">
+              <div class="card-body p-4">
+                <div class="row g-3 align-items-end">
+                  <div class="col-md-3">
                     <label class="form-label">任务名称</label>
-                    <div class="form-control bg-body-tertiary text-body-secondary">按组合产品名自动拼接</div>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label" for="startDate">K线开始日期</label>
-                    <input class="form-control" id="startDate" type="date">
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label" for="endDate">K线结束日期</label>
-                    <input class="form-control" id="endDate" type="date">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label" for="tokenId">回测 Token</label>
-                    <select class="form-select" id="tokenId"><option value="">加载中...</option></select>
-                </div>
-                <div class="col-md-2">
-                    <div class="ratio-pill w-100 justify-content-center">
-                        <span class="text-body-secondary">比例合计</span>
-                        <strong id="ratioTotal">0%</strong>
+                    <div
+                      class="form-control bg-body-tertiary text-body-secondary"
+                    >
+                      按组合产品名自动拼接
                     </div>
-                </div>
-                <div class="col-12">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="startDate"
+                      >K线开始日期</label
+                    >
+                    <input class="form-control" id="startDate" type="date" />
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label" for="endDate">K线结束日期</label>
+                    <input class="form-control" id="endDate" type="date" />
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label" for="tokenId">回测 Token</label>
+                    <select class="form-select" id="tokenId">
+                      <option value="">加载中...</option>
+                    </select>
+                  </div>
+                  <div class="col-md-2">
+                    <div class="ratio-pill w-100 justify-content-center">
+                      <span class="text-body-secondary">比例合计</span>
+                      <strong id="ratioTotal">0%</strong>
+                    </div>
+                  </div>
+                  <div class="col-12">
                     <!-- 旧版累计收益直接加权算法已停用，仅保留日收益加权后复利一种算法。
                     <div class="form-check form-switch">
                         <input class="form-check-input" id="weightingModeLegacy" type="checkbox">
@@ -70,25 +101,32 @@
                         <div class="form-text">默认按当天收益率加权后复利计算；勾选后使用累计收益率直接乘比例的旧算法。</div>
                     </div>
                     -->
+                  </div>
                 </div>
+              </div>
             </div>
-        </div>
-    </div>
 
-    <div id="productsContainer" class="d-grid gap-3"></div>
+            <div id="productsContainer" class="d-grid gap-3"></div>
 
-    <div class="floating-action-bar" aria-label="多品任务操作">
-        <button class="btn btn-outline-primary" id="addProductBtn" type="button">
-            <i class="bi bi-plus-lg me-1"></i>添加产品
-        </button>
-        <button class="btn btn-primary" id="createBtn" type="button">
-            <i class="bi bi-play-circle me-1"></i>创建任务
-        </button>
-        <span class="small align-self-center text-body-secondary" id="createStatus"></span>
-    </div>
-</div>
-            </main>
-        </div>
+            <div class="floating-action-bar" aria-label="多品任务操作">
+              <button
+                class="btn btn-outline-primary"
+                id="addProductBtn"
+                type="button"
+              >
+                <i class="bi bi-plus-lg me-1"></i>添加产品
+              </button>
+              <button class="btn btn-primary" id="createBtn" type="button">
+                <i class="bi bi-play-circle me-1"></i>创建任务
+              </button>
+              <span
+                class="small align-self-center text-body-secondary"
+                id="createStatus"
+              ></span>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
 
     <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
@@ -98,5 +136,5 @@
     <script src="/static/js/common/api.js"></script>
     <script src="/static/js/common/utils.js"></script>
     <script src="/static/js/pages/backtest_multi_product_create.js"></script>
-</body>
+  </body>
 </html>

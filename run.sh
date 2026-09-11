@@ -15,7 +15,7 @@ if [ -f ".venv/bin/python" ]; then
 elif [ -f "venv/bin/python" ]; then
     PYTHON_CMD="venv/bin/python"
 elif [ -f "env/bin/python" ]; then
-    PYTHON_CMD="env/bin/python"
+    PYTHON_CMD="env/bin/python" 
 elif command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
 elif command -v python &> /dev/null; then

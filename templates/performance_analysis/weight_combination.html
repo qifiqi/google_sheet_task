@@ -77,43 +77,41 @@
                     <div class="card-body p-3">
                         <h5 class="card-title mb-3">参数配置</h5>
                         <form id="weight-combination-form">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label for="task-id" class="form-label">任务 ID <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="task-id" required placeholder="输入任务 ID">
-                                    <div class="form-text">必填项，用于获取任务中的股票收益序列</div>
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-3">
+                                    <label for="task-id" class="form-label small">任务 ID <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control form-control-sm" id="task-id" required placeholder="输入任务 ID">
                                 </div>
 
-                                <div class="col-md-6">
-                                    <label for="step" class="form-label">权重步长 (%)</label>
-                                    <input type="number" class="form-control" id="step" value="5" min="1" max="100">
-                                    <div class="form-text">所有权重值必须是它的整数倍，默认 5%</div>
+                                <div class="col-md">
+                                    <label for="step" class="form-label small">步长(%)</label>
+                                    <input type="number" class="form-control form-control-sm" id="step" value="5" min="1" max="100">
                                 </div>
 
-                                <div class="col-md-6">
-                                    <label for="max-weight" class="form-label">组合总权重上限 (%)</label>
-                                    <input type="number" class="form-control" id="max-weight" value="100" min="1" max="100">
-                                    <div class="form-text">所有股票权重之和不得超过此值，默认 100%</div>
+                                <div class="col-md">
+                                    <label for="max-weight" class="form-label small">上限(%)</label>
+                                    <input type="number" class="form-control form-control-sm" id="max-weight" value="100" min="1" max="100">
                                 </div>
 
-                                <div class="col-md-6">
-                                    <label for="min-weight" class="form-label">组合总权重下限 (%)</label>
-                                    <input type="number" class="form-control" id="min-weight" value="50" min="0" max="100">
-                                    <div class="form-text">避免生成大量接近空仓的组合，默认 50%</div>
+                                <div class="col-md">
+                                    <label for="min-weight" class="form-label small">下限(%)</label>
+                                    <input type="number" class="form-control form-control-sm" id="min-weight" value="50" min="0" max="100">
                                 </div>
 
-                                <div class="col-md-6">
-                                    <label for="single-cap" class="form-label">单只股票权重上限 (%)</label>
-                                    <input type="number" class="form-control" id="single-cap" value="30" min="1" max="100">
-                                    <div class="form-text">防止组合过度集中在某一只，默认 30%</div>
+                                <div class="col-md">
+                                    <label for="single-cap" class="form-label small">单股上限(%)</label>
+                                    <input type="number" class="form-control form-control-sm" id="single-cap" value="30" min="1" max="100">
                                 </div>
 
-                                <div class="col-12">
-                                    <button type="submit" class="btn btn-primary" id="btn-analyze">
+                                <div class="col-auto">
+                                    <button type="submit" class="btn btn-primary btn-sm" id="btn-analyze">
                                         <i class="bi bi-lightning-charge-fill me-1"></i>开始分析
                                     </button>
-                                    <button type="button" class="btn btn-danger" id="btn-cancel" style="display: none;">
-                                        <i class="bi bi-x-circle me-1"></i>取消分析
+                                </div>
+
+                                <div class="col-auto">
+                                    <button type="button" class="btn btn-danger btn-sm" id="btn-cancel" style="display: none;">
+                                        <i class="bi bi-x-circle me-1"></i>取消
                                     </button>
                                 </div>
                             </div>
@@ -133,10 +131,26 @@
                 </div>
 
                 <div class="card border-0 shadow-sm mb-4" id="results-card" style="display: none;">
-                    <div class="card-header bg-body-tertiary border-0 py-2">
-                        <h5 class="card-title mb-0">
-                            <i class="bi bi-table"></i> 组合分析结果
-                        </h5>
+                    <div class="card-header bg-body-tertiary border-0 py-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-table"></i> 组合分析结果
+                                </h5>
+                                <div id="table-stats" class="mt-1 small text-muted">
+                                    <span class="badge bg-success me-2" id="filtered-count">0 条显示</span>
+                                    <span class="badge bg-primary" id="total-count">0 条总计</span>
+                                </div>
+                            </div>
+                            <div>
+                                <button class="btn btn-sm btn-success me-2" id="export-csv-btn">
+                                    <i class="bi bi-filetype-csv me-1"></i>导出 CSV
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" id="clear-filter-btn">
+                                    <i class="bi bi-x-circle me-1"></i>清除筛选
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body p-0">
                         <div id="results-table"></div>
