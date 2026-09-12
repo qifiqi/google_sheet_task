@@ -10,7 +10,7 @@ import os
 from sqlalchemy import Boolean, String, Text, cast, case, func, inspect, text, update
 from werkzeug.security import generate_password_hash
 
-from app.config import PERMISSIONS, init_config
+from app.config import PERMISSIONS, SSO_DEFAULT_PERMISSION_CODES, SSO_ROLE, init_config
 from app.extensions import db
 from app.models import (
     BacktestProductResultCache,
@@ -417,6 +417,13 @@ def register_cli(app):
         init_config()
         print('默认配置初始化完成')
 
+    @app.cli.command('init-rbac')
+    def init_rbac_command():
+        """主动写入 RBAC 与导航菜单种子：内置权限路由、内置角色、admin 账号、默认导航。"""
+        init_rbac()
+        init_navigation_menu()
+        print('RBAC 与导航菜单初始化完成（含默认账号 admin / admin123）')
+
 
 def init_rbac():
     """幂等同步内置权限、角色及首次安装的管理员账号。"""
@@ -458,6 +465,34 @@ def init_rbac():
             is_system=True,
         ))
         db.session.commit()
+
+    # 主服务 SSO 默认角色（docs/design/sso-integration-2026-09/）：
+    # 幂等播种角色；权限按并集补齐，不覆盖管理员后台的手工调整。
+    sso_role = Role.query.filter_by(code=SSO_ROLE['code']).first()
+    if not sso_role:
+        sso_role = Role(
+            name=SSO_ROLE['name'],
+            code=SSO_ROLE['code'],
+            description=SSO_ROLE['description'],
+            is_system=True,
+        )
+        db.session.add(sso_role)
+        db.session.commit()
+
+    existing_codes = {perm.code for perm in sso_role.permissions}
+    wanted_permissions = (
+        Permission.query.filter(Permission.code.in_(SSO_DEFAULT_PERMISSION_CODES)).all()
+    )
+    missing_permissions = [perm for perm in wanted_permissions if perm.code not in existing_codes]
+    known_codes = {perm.code for perm in wanted_permissions}
+    unknown_codes = [code for code in SSO_DEFAULT_PERMISSION_CODES if code not in known_codes]
+    if unknown_codes:
+        # 权限码尚未落库（如首次启动早于导航同步）：记日志，下次启动补齐。
+        logger.warning('SSO 默认权限码尚未在权限表，跳过: %s', unknown_codes)
+    if missing_permissions:
+        sso_role.permissions = list(sso_role.permissions) + missing_permissions
+        db.session.commit()
+        logger.info('已为主服务 SSO 默认角色补齐 %d 项权限', len(missing_permissions))
 
     if not User.query.filter_by(username='admin').first():
         admin_user = User(
@@ -738,13 +773,6 @@ def _recover_runtime_resources():
     cleanup_stale_backtest_sheet_run_locks()
 
 
-def _initialize_system_metadata():
-    """幂等初始化运行必需的配置、RBAC 和导航元数据。"""
-    init_config()
-    init_rbac()
-    init_navigation_menu()
-
-
 def _start_background_components(app):
     """启动依赖当前 Flask 进程的后台组件。"""
     init_scheduler(app)
@@ -756,6 +784,8 @@ def bootstrap_app(app):
 
     此函数会启动调度器和看门狗等进程内线程，因此只能在一个 Gunicorn worker
     （且一个部署副本）中调用一次。数据库 migration 应在容器启动前单独完成。
+    启动期不写入 RBAC/导航种子数据：内置权限路由、内置角色与 admin 账号由
+    ``flask init-rbac`` 手动执行，避免每次重启重写权限/导航数据。
     """
     _prepare_runtime_directories()
     initialize_logging()
@@ -763,7 +793,9 @@ def bootstrap_app(app):
     with app.app_context():
         # _initialize_database_schema()
         _recover_runtime_resources()
-        _initialize_system_metadata()
+        # 启动期只补运行必需的 SystemConfig 默认值；admin/角色/权限路由等
+        # 种子数据经 `flask init-rbac` 主动写入，重启不触碰这些表。
+        init_config()
 
     check_and_cleanup_dead_tasks(app)
     _start_background_components(app)

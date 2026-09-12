@@ -57,6 +57,10 @@ class AuthRepository(BaseRepository):
         """登录态装饰器使用的实体访问（utils/auth.py 热路径，长期保留）。"""
         return db.session.get(User, user_id)
 
+    def get_user_entity_by_username(self, username):
+        """SSO 同名合并用实体访问（username 唯一键，精确匹配）。"""
+        return User.query.filter_by(username=username).first()
+
     def get_user_state(self, user_id):
         """refresh 令牌等鉴权场景用：{id, is_active, token_version} 或 None。"""
         row = (
@@ -76,6 +80,18 @@ class AuthRepository(BaseRepository):
     def update_last_login(self, user_id, value, commit=True):
         """登录成功更新最后登录时间。"""
         return self.update_user(user_id, {"last_login": value}, commit=commit)
+
+    def append_user_role(self, user_id, role_id, commit=True):
+        """向用户追加角色（SSO 同名合并：并集语义，不清空既有角色；已持有则幂等）。"""
+        user = db.session.get(User, user_id)
+        role = db.session.get(Role, role_id)
+        if user is None or role is None:
+            return False
+        if role not in user.roles:
+            user.roles.append(role)
+            if commit:
+                self._commit()
+        return True
 
     def username_exists(self, username):
         return db.session.query(User.id).filter_by(username=username).first() is not None
@@ -127,6 +143,11 @@ class AuthRepository(BaseRepository):
 
     def role_code_exists(self, code):
         return db.session.query(Role.id).filter_by(code=code).first() is not None
+
+    def get_role_id_by_code(self, code):
+        """按角色编码取 id；不存在返回 None（SSO 换票取默认角色）。"""
+        row = db.session.query(Role.id).filter_by(code=code).first()
+        return row[0] if row else None
 
     def get_role(self, role_id, include_permissions=False):
         role = db.session.get(Role, role_id)

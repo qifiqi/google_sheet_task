@@ -3,7 +3,7 @@
     const REFRESH_KEY = "refresh_token";
     const THEME_KEY = "templateTheme";
     const originalFetch = window.fetch.bind(window);
-    const authExemptPaths = new Set(["/api/auth/login", "/api/auth/refresh"]);
+    const authExemptPaths = new Set(["/api/auth/login", "/api/auth/refresh", "/api/auth/sso/exchange"]);
     const hiddenClassName = "template-auth-hidden";
 
     let currentUser = null;
@@ -675,11 +675,59 @@
 
     function getLoginNextUrl() {
         const nextFromInput = document.getElementById("loginNextUrl");
-        if (nextFromInput?.value) {
-            return nextFromInput.value;
+        const rawNext = nextFromInput?.value
+            || new URLSearchParams(window.location.search).get("next")
+            || "/admin/";
+        return sanitizeNextUrl(rawNext) || "/admin/";
+    }
+
+    // next 仅允许同源相对路径（防开放重定向：/login?next= 是外部可达参数）。
+    function sanitizeNextUrl(value) {
+        if (typeof value !== "string") {
+            return null;
         }
-        const params = new URLSearchParams(window.location.search);
-        return params.get("next") || "/admin/";
+        const trimmed = value.trim();
+        if (!trimmed.startsWith("/") || trimmed.startsWith("//") || /[\r\n]/.test(trimmed)) {
+            return null;
+        }
+        return trimmed;
+    }
+
+    // 主服务 SSO 换票（docs/design/sso-integration-2026-09/）：
+    // /login#sso_token=<主服务Token> → POST /api/auth/sso/exchange（Token 走 header，
+    // 不进 URL/访问日志）→ 复用 setTokens 管线。fragment 不发给服务端、不进
+    // Referer，读到后立即 replaceState 清掉。换票失败保留账号密码登录兜底。
+    function consumeSsoTokenFromHash() {
+        const match = window.location.hash.match(/(?:^|#|&)sso_token=([^&]+)/);
+        if (!match) {
+            return null;
+        }
+        let token = match[1];
+        try {
+            token = decodeURIComponent(token);
+        } catch (_error) {
+            // 保留原值：主服务侧未编码时仍可透传
+        }
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        return token;
+    }
+
+    async function performSsoExchange(ssoToken) {
+        const response = await originalFetch("/api/auth/sso/exchange", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Token": ssoToken,
+            },
+            body: "{}",
+        });
+        const payload = parseJsonSafely(await response.text());
+        if (!response.ok || !payload || payload.code !== 0) {
+            throw new Error((payload && payload.message) || "主服务登录失败");
+        }
+        const data = payload.data || {};
+        setTokens(data.access_token, data.refresh_token);
+        return data;
     }
 
     function bindLoginPage() {
@@ -694,7 +742,18 @@
             return;
         }
 
-        if (getToken()) {
+        // SSO 分支优先于本地 token 恢复：携带 sso_token 进入即视为以主服务身份换票。
+        const ssoToken = consumeSsoTokenFromHash();
+        if (ssoToken) {
+            performSsoExchange(ssoToken)
+                .then(() => {
+                    window.location.replace(getLoginNextUrl());
+                })
+                .catch((error) => {
+                    errorBox.textContent = error.message || "主服务登录失败，请使用账号密码登录";
+                    errorBox.classList.remove("d-none");
+                });
+        } else if (getToken()) {
             fetchCurrentUser()
                 .then(() => {
                     window.location.replace(getLoginNextUrl());

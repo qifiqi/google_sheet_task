@@ -89,6 +89,12 @@ class BaseConfig:
     BASE_URL = 'http://localhost:5000'
     # 股票 SDK / K 线服务地址；为空时由 SDK 使用默认地址。
     STOCK_BASE_URL = ''
+    # 主服务 SSO（docs/design/sso-integration-2026-09/）：主服务侧边栏携带 Token
+    # 跳入 /login#sso_token=...，子服务回调主服务校验接口换发本地 JWT。
+    SSO_ENABLED = True
+    SSO_MAIN_VERIFY_URL = 'https://stockapi.stplan.cn/api/SysUser/GetUserInfo'
+    # 校验接口超时（秒）；换票是低频入口操作，短超时快速失败。
+    SSO_MAIN_VERIFY_TIMEOUT = 5
     # 单个任务最长执行时间，单位：秒。
     TASK_TIMEOUT = 3600
     # 应用日志级别；LOG_FILE 固定写入 logs/app.log。
@@ -125,6 +131,13 @@ class BaseConfig:
         # 股票 SDK(StockClient/KlineService) 的服务地址，单一来源：环境变量 STOCK_BASE_URL。
         # 未配置时保持空串，由 stock_sdk 使用其默认地址。
         cls.STOCK_BASE_URL = os.environ.get('STOCK_BASE_URL', '')
+        # 主服务 SSO 配置：环境变量可覆盖默认值（多环境部署指向不同主服务）。
+        cls.SSO_ENABLED = _get_bool('SSO_ENABLED', True)
+        cls.SSO_MAIN_VERIFY_URL = os.environ.get(
+            'SSO_MAIN_VERIFY_URL',
+            'https://stockapi.stplan.cn/api/SysUser/GetUserInfo',
+        )
+        cls.SSO_MAIN_VERIFY_TIMEOUT = _get_int('SSO_MAIN_VERIFY_TIMEOUT', 5)
         cls.TASK_TIMEOUT = _get_int('TASK_TIMEOUT', 3600)
         cls.LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
         cls.LOG_FILE = cls.LOGS_DIR / 'app.log'
@@ -515,5 +528,27 @@ PERMISSIONS = [
     ('page',         'page:backtest:create',    '访问回测创建页面',       '/backtest-training/create'),
     ('page',         'page:backtest_multi_product:list',   '访问多品数据回测列表页面',   '/backtest-multi-product/list'),
     ('page',         'page:backtest_multi_product:create', '访问多品数据回测创建页面',   '/backtest-multi-product/create'),
+    ('page',         'page:global_preview:single_product', '访问单品全局预览页面', '/global-preview/single_product'),
 ]
+
+# 主服务 SSO 默认角色（docs/design/sso-integration-2026-09/）。
+# init_rbac 幂等播种角色；权限按并集补齐，不覆盖管理员后台的手工调整。
+SSO_ROLE = {
+    'code': 'main_service_user',
+    'name': '主服务用户',
+    'description': '主服务 SSO 登录默认角色：仪表盘 + 数据/业务模块初始路由',
+}
+# 默认权限 = 仪表盘（登录落地页）+ DEFAULT_NAVIGATION_MENU 数据/业务模块初始路由；
+# 东方财富 K 线、夏普率、回测数据分析的导航项无 page:* 权限码，天然对全部登录用户可见。
+SSO_DEFAULT_PERMISSION_CODES = (
+    'page:admin:dashboard',
+    'page:admin:model_summary',
+    'page:global_preview:single_product',
+    'page:google_sheet:c3',
+    'page:google_sheet:c4',
+    'page:google_sheet:c5',
+    'page:google_sheet:c7',
+    'page:backtest:list',
+    'page:backtest_multi_product:list',
+)
 
