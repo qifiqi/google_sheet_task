@@ -1,6 +1,7 @@
 
 import json
 import math
+import re
 from collections import OrderedDict
 from copy import deepcopy
 
@@ -11,6 +12,12 @@ from openpyxl.utils import get_column_letter
 from app.exceptions import NotFoundError, ValidationError
 from app.models import Task, TaskResult
 from app.repositories import task_repository, task_result_repository
+from app.constants.c_template_layout import (
+    C3_METRIC_CELLS,
+    C3_PARAMETER_FIELDS,
+    SINGLE_PRODUCT_SUMMARY_ROW_LABELS,
+    SUMMARY_METRIC_CELL_MAP,
+)
 from app.services.performance_analysis.historical_metrics import (
     collect_summary_all_entries,
     derive_year_max_excess_drawdown,
@@ -27,52 +34,6 @@ from app.utils.c7_result_normalizer import (
 )
 from app.utils.task_types import normalize_task_type
 from app.utils.value_parser import parse_percent_like
-
-
-
-
-C3_PARAMETER_FIELDS = [
-    ("commission", "Commission"),
-    ("xm", "X Multiplier"),
-    ("dbbh1", "单边保护1"),
-    ("dbbh2", "单边保护2"),
-    ("zlxc", "中立限仓"),
-    ("zsgz", "指数跟踪"),
-    ("ywf1", "一窝蜂 smoothing"),
-    ("ywf2", "一窝蜂 bordering"),
-]
-
-
-SUMMARY_METRIC_CELL_MAP = {
-    "C3": {
-        "index_return": "I18",
-        "return": "I15",
-        "index_max_drawdown": "I20",
-        "max_drawdown": "I17",
-    },
-    "C5": {
-        "index_return": "D5",
-        "return": "D2",
-        "index_max_drawdown": "D7",
-        "max_drawdown": "D4",
-    },
-    "C7": {
-        "index_return": "D11",
-        "return": "D8",
-        "index_max_drawdown": "D13",
-        "max_drawdown": "D10",
-    },
-}
-SUMMARY_METRIC_CELL_MAP["C4"] = SUMMARY_METRIC_CELL_MAP["C5"]
-
-SUMMARY_ROW_LABELS = [
-    ("index_return", "指数回报"),
-    ("return", "模型回报"),
-    ("excess_return", "超额回报"),
-    ("index_max_drawdown", "指数回撤"),
-    ("max_drawdown", "模型回撤"),
-    ("excess_drawdown", "超额回撤"),
-]
 
 
 def _load_backtest_task(task_id: str):
@@ -389,16 +350,16 @@ def _build_c3_summary_rows(task_id):
         year_label = _extract_display_year(source_window)
         parameter_signature = json.dumps(parameter_values, ensure_ascii=False)
 
-        strategy_return = _parse_percent_like_value(sheet_result.get("I15"))
-        index_return = _parse_percent_like_value(sheet_result.get("I18"))
+        strategy_return = _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["return_rate"]))
+        index_return = _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["index_return"]))
         beats_index = None
         if isinstance(strategy_return, (int, float)) and isinstance(index_return, (int, float)):
             beats_index = strategy_return - index_return
         else:
             beats_index = _parse_percent_like_value(all_excess.get("annualized_return_diff"))
 
-        strategy_max_drawdown = _parse_percent_like_value(sheet_result.get("I17"))
-        index_max_drawdown = _parse_percent_like_value(sheet_result.get("I20"))
+        strategy_max_drawdown = _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["max_drawdown"]))
+        index_max_drawdown = _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["index_max_drawdown"]))
         drawdown_beats = None
         if isinstance(strategy_max_drawdown, (int, float)) and isinstance(index_max_drawdown, (int, float)):
             drawdown_beats = strategy_max_drawdown - index_max_drawdown
@@ -407,16 +368,16 @@ def _build_c3_summary_rows(task_id):
             **parameter_map,
             "year": year_label,
             "strategy_return": strategy_return,
-            "strategy_annualized": _parse_percent_like_value(sheet_result.get("I16")),
+            "strategy_annualized": _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["annualized_rate"])),
             "index_return": index_return,
-            "index_annualized": _parse_percent_like_value(sheet_result.get("I19")),
+            "index_annualized": _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["index_annualized_rate"])),
             "beats_index": beats_index,
             "strategy_max_drawdown": strategy_max_drawdown,
             "index_max_drawdown": index_max_drawdown,
             "drawdown_beats": drawdown_beats,
-            "fee_total": _parse_percent_like_value(sheet_result.get("I21")),
-            "fee_annualized": _parse_percent_like_value(sheet_result.get("I22")),
-            "year_rate": _parse_percent_like_value(sheet_result.get("I23")),
+            "fee_total": _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["fee_total"])),
+            "fee_annualized": _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["fee_annualized"])),
+            "year_rate": _parse_percent_like_value(sheet_result.get(C3_METRIC_CELLS["turnover_rate"])),
             "index_monthly_sharpe": _parse_percent_like_value(index_sharpe_all.get("sharpe_ratio")),
             "strategy_monthly_sharpe": _parse_percent_like_value(start_sharpe_all.get("sharpe_ratio")),
             "index_avg_monthly_return": _parse_percent_like_value(
@@ -1154,7 +1115,7 @@ def _append_global_summary_sheet(workbook, payload, styles):
     for group in groups:
         start_row = sheet.max_row + 1
         columns = group.get("columns") or []
-        for metric_key, label in SUMMARY_ROW_LABELS:
+        for metric_key, label in SINGLE_PRODUCT_SUMMARY_ROW_LABELS:
             values = [group.get("year") or group.get("group_label") or "", label]
             for column in columns:
                 values.append(_get_summary_derived_value(column, metric_key))

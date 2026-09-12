@@ -1,8 +1,9 @@
 from typing import Any
 
-
-C7_RAW_PERCENT_CELLS = frozenset({"D10", "D15", "D18", "D19"})
-C7_PERCENT_LEVERAGE_CELLS = frozenset({"D22", "D24", "D25"})
+from app.constants.c_template_layout import (
+    C7_PERCENT_LEVERAGE_CELLS,
+    C7_RAW_PERCENT_CELLS,
+)
 
 
 def normalize_c7_result_metrics(metrics: dict[str, Any]) -> dict[str, Any]:

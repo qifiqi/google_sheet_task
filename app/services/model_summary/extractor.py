@@ -10,6 +10,7 @@ from typing import Any
 
 from flask import has_app_context
 
+from app.constants.c_template_layout import C3_METRIC_CELLS, C4_C5_METRIC_CELLS
 from app.models import Task, TaskResult
 from app.services.performance_analysis.historical_metrics import upgrade_historical_metrics
 from app.services.performance_analysis.historical_metrics import (
@@ -104,40 +105,6 @@ BACKTEST_SUMMARY_COLUMNS = [
 BACKTEST_SUMMARY_KEY_BY_LABEL = {
     label: key
     for key, label in BACKTEST_SUMMARY_METRICS
-}
-
-C3_METRIC_CELLS = {
-    "return_rate": "I15",
-    "annualized_rate": "I16",
-    "max_drawdown": "I17",
-    "index_return": "I18",
-    "index_annualized_rate": "I19",
-    "index_max_drawdown": "I20",
-    "fee_total": "I21",
-    "fee_annualized": "I22",
-    "turnover_rate": "I23",
-}
-
-C4_C5_METRIC_CELLS = {
-    "return_rate": "D2",
-    "annualized_rate": "D3",
-    "max_drawdown": "D4",
-    "index_return": "D5",
-    "index_annualized_rate": "D6",
-    "index_max_drawdown": "D7",
-    "fee_total": "D8",
-    "fee_annualized": "D9",
-    "turnover_rate": "D10",
-    "return_beats": "D11",
-    "dd_beats": "D12",
-    "max_one_year_beats": "D13",
-    "min_one_year_beats": "D14",
-    "max_theoretical_leverage": "D15",
-    "avg_theoretical_leverage": "D16",
-    "unit_theoretical_leverage_return": "D17",
-    "max_actual_leverage": "D18",
-    "avg_actual_leverage": "D19",
-    "unit_actual_leverage_return": "D20",
 }
 
 TASK_TYPE_LABELS = {

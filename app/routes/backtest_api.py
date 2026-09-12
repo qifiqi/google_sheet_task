@@ -12,6 +12,7 @@ import json
 from flask import Blueprint, current_app, request
 
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
+from app.constants.c_template_layout import C3_PARAMETER_FIELDS
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
 from app.schemas.backtest import CalculateRatiosSchema, UpdateRatiosSchema
 from app.services.backtest_excel_service import BacktestExcelService
@@ -22,7 +23,6 @@ from app.services.backtest_multi_product_service import (
     update_task_ratios,
 )
 from app.services.backtest_report_query_service import (
-    C3_PARAMETER_FIELDS,
     build_backtest_result_export_data,
     build_backtest_result_export_rows,
     build_c3_summary_rows,

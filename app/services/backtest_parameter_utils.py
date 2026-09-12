@@ -5,9 +5,10 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from app.constants.c_template_layout import C3_PARAMETER_KEYS
+
 
 DEFAULT_C3_COMMISSION = "0.0350%"
-C3_PARAMETER_KEYS = ("xm", "dbbh1", "dbbh2", "zlxc", "zsgz", "ywf1", "ywf2")
 
 
 def derive_dbbh2(dbbh1: Any) -> str:
