@@ -1,4 +1,3 @@
-import os
 import time
 import traceback
 from typing import Optional
@@ -6,9 +5,6 @@ from typing import Optional
 import gspread
 from google.oauth2.credentials import Credentials
 from gspread.utils import a1_to_rowcol, rowcol_to_a1
-from requests.exceptions import ConnectionError, RequestException
-from urllib3.exceptions import ProtocolError
-from http.client import RemoteDisconnected
 import functools
 
 from gspread import Cell
@@ -17,13 +13,6 @@ from app.utils.task_error_utils import RetryableNetworkTaskError, is_retryable_n
 
 logger = get_logger(__name__)
 
-# 网络连接异常类型
-NETWORK_EXCEPTIONS = (
-    ConnectionError,
-    RequestException,
-    ProtocolError,
-    RemoteDisconnected
-)
 
 class GoogleSheet:
     """Google Sheet客户端类"""
@@ -176,7 +165,12 @@ class GoogleSheet:
         return None
 
     def _apply_proxy_settings(self):
-        """设置代理，兼容 gspread 6.x 等不同 client 结构"""
+        """设置代理，兼容 gspread 6.x 等不同 client 结构。
+
+        只写入当前 client 的 session，不改写进程级 os.environ：
+        环境变量代理是全局副作用，并发任务会互相覆盖，还会波及
+        东方财富等其他与本连接无关的 HTTP 请求。
+        """
         if not self.client or not self._proxy_url:
             return
 
@@ -185,24 +179,16 @@ class GoogleSheet:
             return
 
         logger.info(f"{self._log_ctx()}使用代理：{proxy_url}")
-        os.environ['HTTP_PROXY'] = proxy_url
-        os.environ['HTTPS_PROXY'] = proxy_url
 
         session = self._get_client_session()
         if session is None:
-            logger.warning(f"{self._log_ctx()}当前 gspread client 不支持直接访问 session，将仅使用环境变量代理")
+            logger.warning(f"{self._log_ctx()}当前 gspread client 不支持直接访问 session，本次连接不使用代理")
             return
 
         try:
             session.proxies.update({"http": proxy_url, "https": proxy_url})
         except Exception:
             logger.warning(f"{self._log_ctx()}写入 session 代理失败，将仅使用环境变量代理", exc_info=True)
-
-    @staticmethod
-    def _clear_proxy_settings():
-        for proxy_key in ('HTTP_PROXY', 'HTTPS_PROXY'):
-            if proxy_key in os.environ:
-                del os.environ[proxy_key]
 
     def get(self, name):
         """获取属性"""
@@ -215,8 +201,9 @@ class GoogleSheet:
     def get_last_row(self, col_letter):
         """获取指定列的最后非空行"""
         try:
+            _, column_number = a1_to_rowcol(f"{str(col_letter).strip().upper()}1")
             col_data = self.worksheet.col_values(
-                ord(col_letter) - ord('A') + 1)  # 字母转数字列号
+                column_number)
             return len(col_data) if col_data else 0
         except Exception as e:
             logger.error(f'获取最后非空行错误。错误内容：{str(e)}')
@@ -235,84 +222,40 @@ class GoogleSheet:
 
         self._retry_network_operation(_clear_operation, f"clear_range({range_a1})")
 
-    @staticmethod
-    def col_letter_to_num(col_letter):
-        """将Excel列字母转换为数字"""
-        num = 0
-        for c in col_letter:
-            num = num * 26 + (ord(c) - ord('A') + 1)
-        return num
+    def clear_jumped_cells(self, cell_refs):
+        """清空非连续 A1 单元格列表（带网络重试）"""
+        self._ensure_worksheet()
 
-    @staticmethod
-    def num_to_col_letter(num):
-        """将数字转换为Excel列字母"""
-        if num <= 0:
-            return ""
-        result = ""
-        while num > 0:
-            num -= 1  # Adjust for 1-based indexing
-            result = chr(num % 26 + ord('A')) + result
-            num //= 26
-        return result
+        if not cell_refs:
+            logger.warning(f"{self._log_ctx()}cell_refs为空，跳过清空操作")
+            return None
 
-    def calculate_stock_column(self, start_cell, stock_index, is_number=False):
-        """
-        动态计算股票在表格中的列位置
+        valid_refs = []
+        for cell_ref in cell_refs:
+            if not cell_ref or not isinstance(cell_ref, str):
+                logger.warning(f"{self._log_ctx()}无效的单元格地址: {cell_ref}")
+                continue
 
-        Args:
-            start_cell: 起始单元格，例如'I1'
-            stock_index: 股票序号（从1开始）
-            is_number: 是否返回数字格式
+            try:
+                a1_to_rowcol(cell_ref)
+            except Exception:
+                logger.warning(f"{self._log_ctx()}无效的单元格地址: {cell_ref}")
+                continue
 
-        Returns:
-            (当前股票列, 后一列) 例如 ('M1', 'N1')
-        """
-        # 解析起始单元格
-        start_col_letter = ''.join(filter(str.isalpha, start_cell))
-        start_row = ''.join(filter(str.isdigit, start_cell))
+            valid_refs.append(cell_ref)
 
-        # 起始列号（I=9）
-        start_col_num = self.col_letter_to_num(start_col_letter)
+        if not valid_refs:
+            logger.warning(f"{self._log_ctx()}没有有效的单元格需要清空")
+            return None
 
-        # 第一支股票从M列开始（M=13）
-        # 计算M列相对于起始列的偏移量
-        base_col_offset = 13 - start_col_num
+        logger.info(f"{self._log_ctx()}清空非连续单元格: {valid_refs}")
 
-        # 计算当前股票应该在的列号
-        # 第一支股票在M列，第二支在V列，第三支在AE列，间隔9列
-        current_col_num = start_col_num + base_col_offset + (stock_index - 1) * 9
-        current_col_letter = self.num_to_col_letter(current_col_num)
+        def _clear_operation():
+            self.worksheet.batch_clear(valid_refs)
 
-        # 计算后一列
-        next_col_num = current_col_num + 1
-        next_col_letter = self.num_to_col_letter(next_col_num)
+        return self._retry_network_operation(_clear_operation, "clear_jumped_cells")
 
-        if is_number:
-            return current_col_num, next_col_num
-        return f"{current_col_letter}{start_row}", f"{next_col_letter}{start_row}"
 
-    def update_row(self, sheet_row, sheet_value):
-        """更新单行数据"""
-        try:
-            logger.info(f"{self._log_ctx()}写入：sheet_rows：{sheet_row}, sheet_values：{sheet_value}")
-            self.worksheet.update(sheet_row, [[sheet_value]], value_input_option="USER_ENTERED")
-        except Exception as e:
-            logger.error(f'设置表格{sheet_row},值:{sheet_value}错误。错误内容：{str(e)}')
-            return f'设置表格{sheet_row},值:{sheet_value}错误。错误内容：{str(e)}'
-
-    def clear_row(self, sheet_rows):
-        """清除指定行"""
-        self.worksheet.range(sheet_rows).clear()
-
-    def update_rows(self, sheet_rows, sheet_values):
-        """批量更新行数据"""
-        try:
-            logger.info(f"{self._log_ctx()}批量写入：sheet_rows：{sheet_rows}, sheet_values：{sheet_values}")
-            self.worksheet.update(sheet_rows, sheet_values, value_input_option="USER_ENTERED")
-        except Exception as e:
-            logger.error(f'设置表格{sheet_rows},值:{sheet_values}错误。错误内容：{str(e)}')
-            return f'设置表格{sheet_rows},值:{sheet_values}错误。错误内容：{str(e)}'
-        
     def update_cell(self, cell_address, cell_value):
         """更新单个单元格"""
         try:
@@ -537,31 +480,6 @@ class GoogleSheet:
                     results[cell_ref] = ""
             return results
 
-    def get_trade_count_with_retry(self, cell_ref, max_retries=None, delay=None):
-        """带重试机制获取交易数量"""
-        # 从配置获取重试参数
-        from app.services.config_manager import get_config_manager
-        config_manager = get_config_manager()
-        if max_retries is None:
-            max_retries = config_manager.get_config('api_retry_max_attempts', 10)
-        if delay is None:
-            delay = config_manager.get_config('api_retry_delay', 30)
-            
-        retry_count = 0
-        while retry_count < max_retries:
-            try:
-                trade_count = self.get_cell(cell_ref)
-                if trade_count != '#DIV/0!' and trade_count.find("target") == -1:
-                    return trade_count
-            except Exception as e:
-                logger.error(f'{self._log_ctx()}获取交易数量出错: {str(e)}')
-            logger.info(f'{self._log_ctx()}重试中，已尝试{retry_count}次')
-            retry_count += 1
-            if retry_count < max_retries:
-                time.sleep(delay)
-        logger.warning(f'{self._log_ctx()}多次尝试后，仍无法获取有效的交易数量，返回0')
-        return '0'
-
     def get_all_worksheets(self):
         """获取电子表格中的所有工作表名称"""
         try:
@@ -696,19 +614,10 @@ class GoogleSheet:
                     raise RetryableNetworkTaskError(
                         f"{self._log_ctx()}{operation_name} 网络错误，已重试 {max_retries} 次仍失败: {str(e)}"
                     ) from e
-        
-        # 如果所有重试都失败了
-        if last_exception:
-            raise RetryableNetworkTaskError(
-                f"{self._log_ctx()}{operation_name} 网络错误: {str(last_exception)}"
-            ) from last_exception
 
     def close(self):
         """关闭连接并清理资源"""
         try:
-            # 清理代理设置
-            self._clear_proxy_settings()
-            
             # 清理对象引用
             self.worksheet = None
             self.sheet = None
@@ -731,8 +640,3 @@ class GoogleSheet:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """上下文管理器出口"""
         self.close()
-
-
-if __name__ == '__main__':
-    with GoogleSheet('17pocRAANadKiJs-Z4lujPxj0em_1Gkdt8CW6l04tvrc','control',token_file=r'D:\Users\Administrator\Desktop\谷歌参数批量校验\data\token.json') as sheet:
-        print(sheet.get_range("L2:L100"))

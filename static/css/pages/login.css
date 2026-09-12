@@ -1,0 +1,178 @@
+        body {
+            min-height: 100vh;
+            padding: 24px;
+            background:
+                radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 22%),
+                radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.14), transparent 22%),
+                #f3f6fb;
+        }
+
+        html[data-bs-theme="dark"] body {
+            background:
+                radial-gradient(circle at top left, rgba(37, 99, 235, 0.22), transparent 24%),
+                radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.18), transparent 24%),
+                #020617;
+        }
+
+        .login-page {
+            width: min(980px, 100%);
+            margin: 0 auto;
+        }
+
+        .login-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 36px;
+        }
+
+        .login-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .login-brand__dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2563eb 0%, #f59e0b 100%);
+            box-shadow: 0 0 0 8px rgba(37, 99, 235, 0.12);
+        }
+
+        .login-brand__title {
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: #0f172a;
+        }
+
+        .login-brand__subtitle {
+            font-size: 13px;
+            color: #64748b;
+        }
+
+        html[data-bs-theme="dark"] .login-brand__title {
+            color: #f8fafc;
+        }
+
+        html[data-bs-theme="dark"] .login-brand__subtitle {
+            color: #94a3b8;
+        }
+
+        .login-main {
+            display: flex;
+            justify-content: center;
+        }
+
+        .login-panel {
+            width: min(460px, 100%);
+            padding: 32px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 28px;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 24px 70px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(14px);
+        }
+
+        html[data-bs-theme="dark"] .login-panel {
+            border-color: rgba(148, 163, 184, 0.14);
+            background: rgba(15, 23, 42, 0.88);
+            box-shadow: 0 24px 70px rgba(2, 6, 23, 0.46);
+        }
+
+        .login-eyebrow {
+            margin: 0 0 8px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .login-title {
+            margin: 0;
+            font-size: 38px;
+            line-height: 1.04;
+            color: #0f172a;
+        }
+
+        .login-desc {
+            margin: 12px 0 24px;
+            line-height: 1.7;
+            color: #64748b;
+        }
+
+        html[data-bs-theme="dark"] .login-title {
+            color: #f8fafc;
+        }
+
+        html[data-bs-theme="dark"] .login-desc,
+        html[data-bs-theme="dark"] .login-eyebrow {
+            color: #94a3b8;
+        }
+
+        .login-form .form-label {
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        html[data-bs-theme="dark"] .login-form .form-label {
+            color: #f8fafc;
+        }
+
+        .login-form .form-control {
+            min-height: 48px;
+            border-radius: 14px;
+        }
+
+        .login-submit {
+            width: 100%;
+            min-height: 48px;
+            margin-top: 6px;
+            border-radius: 14px;
+            font-weight: 600;
+        }
+
+        .login-footer {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .login-hint {
+            padding: 7px 12px;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 999px;
+            font-size: 12px;
+            color: #64748b;
+            background: rgba(255, 255, 255, 0.55);
+        }
+
+        html[data-bs-theme="dark"] .login-hint {
+            color: #94a3b8;
+            border-color: rgba(148, 163, 184, 0.14);
+            background: rgba(30, 41, 59, 0.62);
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 14px;
+            }
+
+            .login-topbar {
+                margin-bottom: 18px;
+            }
+
+            .login-panel {
+                padding: 22px;
+                border-radius: 22px;
+            }
+
+            .login-title {
+                font-size: 32px;
+            }
+        }
+    

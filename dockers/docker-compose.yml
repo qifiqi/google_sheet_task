@@ -1,0 +1,25 @@
+name: google-sheet-validator
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: google_task:1.0.5
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8081:5000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      APP_ENV: production
+      FLASK_DEBUG: "false"
+      MPLCONFIGDIR: /tmp/matplotlib
+      HOME: /tmp
+    env_file:
+      - .env.production
+      - .env
+    stop_grace_period: 45s
+  

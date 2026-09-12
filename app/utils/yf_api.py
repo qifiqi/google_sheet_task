@@ -1,12 +1,7 @@
 import pandas as pd
 import yfinance as yf
-import hashlib
-import logging
-import time
 from datetime import datetime
-
-import requests
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from app.utils.logger import get_logger
 
 from app.utils.kline_adjustment import normalize_kline_adjustment
 
@@ -18,9 +13,9 @@ class YFApi:
 
     def __init__(self):
         self.kline_data = []
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = get_logger(self.__class__.__name__)
 
-    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', proxy=None, adjust_type=None):
+    def get_kline_data(self, stock_code='BTC', period='max', interval='1d', adjust_type=None):
         # 先获取原始 OHLC + Adj Close，再在本地按统一口径处理前/后复权。
         data = yf.download(
             stock_code,
@@ -78,9 +73,6 @@ class YFApi:
         return adjusted
 
     def _normalize_ticker_hint(self, ticker_hint):
-        if isinstance(ticker_hint, (list, tuple, set)):
-            values = [str(item) for item in ticker_hint if item is not None]
-            return values[0] if len(values) == 1 else None
         return str(ticker_hint) if ticker_hint is not None else None
 
     def parse_multiple_tickers(self,df, adjust_type=None, ticker_hint=None):
@@ -137,40 +129,42 @@ class YFApi:
                             volume = int(row.get('Volume', 0))
 
                             # 计算衍生指标（避免除零）
-                            stock_zde = close_price - open_price  # 涨跌额
+                            change = close_price - open_price  # 涨跌额
 
                             # 涨跌幅%
                             if open_price != 0:
-                                stock_zdf = (stock_zde / open_price) * 100
+                                pct_change = (change / open_price) * 100
                             else:
-                                stock_zdf = 0.0
+                                pct_change = 0.0
 
                             # 振幅%
                             if low_price != 0:
-                                stock_zf = ((high_price - low_price) / low_price) * 100
+                                amplitude = ((high_price - low_price) / low_price) * 100
                             else:
-                                stock_zf = 0.0
+                                amplitude = 0.0
 
                             # Yahoo 没有直接成交额，这里使用当前选定复权口径的收盘价估算。
-                            stock_cje = close_price * volume if volume > 0 else 0
+                            amount = close_price * volume if volume > 0 else 0
+                            vwap = amount / volume if volume > 0 else 0
 
                             # 换手率%（雅虎数据通常没有，设为0）
-                            stock_hsl = 0.0
+                            turnover_rate = 0.0
 
                             # 构建标准格式的记录
                             record = {
                                 'stock_code': str(ticker),  # 股票代码
                                 'stock_date': date_idx.strftime('%Y-%m-%d'),  # 日期
-                                'stock_kp': round(open_price,2),  # 开盘价
-                                'stock_sp': round(close_price,2),  # 收盘价
-                                'stock_zg': round(high_price,2),  # 最高价
-                                'stock_zd': round(low_price,2),  # 最低价
-                                'stock_cjl': volume,  # 成交量
-                                'stock_cje': round(stock_cje, 2),  # 成交额
-                                'stock_zf': round(stock_zf, 2),  # 振幅%
-                                'stock_zdf': round(stock_zdf, 2),  # 涨跌幅%
-                                'stock_zde': round(stock_zde, 2),  # 涨跌额
-                                'stock_hsl': stock_hsl,  # 换手率%
+                                'open': round(open_price,3),  # 开盘价
+                                'close': round(close_price,3),  # 收盘价
+                                'high': round(high_price,3),  # 最高价
+                                'low': round(low_price,3),  # 最低价
+                                'volume': volume,  # 成交量
+                                'amount': round(amount, 3),  # 成交额
+                                'vwap': round(vwap, 3),  # 加权平均价
+                                'amplitude': round(amplitude, 3),  # 振幅%
+                                'pct_change': round(pct_change, 3),  # 涨跌幅%
+                                'change': round(change, 3),  # 涨跌额
+                                'turnover_rate': turnover_rate,  # 换手率%
                                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             }
 
@@ -194,11 +188,3 @@ class YFApi:
             self.logger.exception(f"解析多股票数据失败: {str(e)}")
             return []
 
-if __name__ == '__main__':
-    api = YFApi()
-    df = api.get_kline_data(stock_code=["MCHP"],period='10y')
-    print(df)
-    # tickers = df.columns.get_level_values('Ticker').unique()
-    # print(tickers)
-    # ticker_data = df.xs('AAPL', level='Ticker', axis=1)
-    # print(api.parse_multiple_tickers(df))

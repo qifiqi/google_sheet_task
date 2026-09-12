@@ -1,0 +1,892 @@
+// 任务管理页面脚本（templates/admin/tasks.html 内联脚本原样抽离，F5 de-jinja）。
+// F5 de-jinja（03 §3 #9）：原服务端注入的 4 组 <option> 循环改为 /api/meta/enums 客户端渲染
+//（字段名核对自 app/routes/meta_api.py：task_statuses / task_types / task_status_editable）。
+function renderEnumOptions(select, options) {
+    if (!select) {
+        return;
+    }
+    (options || []).forEach(function (option) {
+        const optionEl = document.createElement('option');
+        optionEl.value = option.value;
+        optionEl.textContent = option.label;
+        select.appendChild(optionEl);
+    });
+}
+
+function applyAdminTaskEnums(data) {
+    renderEnumOptions(document.getElementById('status-filter'), data.task_statuses);
+    renderEnumOptions(document.getElementById('type-filter'), data.task_types);
+    renderEnumOptions(document.getElementById('task-type'), data.task_types);
+    renderEnumOptions(document.getElementById('edit-task-status'), data.task_status_editable);
+}
+
+Api.endpoints.meta.enums().then(applyAdminTaskEnums).catch(function (error) {
+    console.error('加载任务枚举失败', error);
+});
+
+
+    let currentTasks = [];
+    let paginationState = { page: 1, per_page: 20, total: 0, pages: 0, has_prev: false, has_next: false };
+    let currentPage = 1;
+    let itemsPerPage = 20;
+    let currentTaskId = null;
+    let currentTaskType = null;
+    let searchDebounceTimer = null;
+    let batchRestartTasks = [];
+    let batchRestartPaginationState = { page: 1, per_page: 10, total: 0, pages: 0, has_prev: false, has_next: false };
+    let batchRestartPage = 1;
+    let batchRestartItemsPerPage = 10;
+    let selectedBatchRestartTaskIds = new Set();
+    let batchRestartTaskCache = new Map();
+    let batchRestartResults = new Map();
+    let isBatchRestarting = false;
+
+    function getTaskVersionFromType(taskType) {
+        const normalizedType = String(taskType || '').toLowerCase();
+        if (normalizedType === 'google_sheet_c5') {
+            return 'c5';
+        }
+        if (normalizedType === 'google_sheet_c4') {
+            return 'c4';
+        }
+        if (normalizedType === 'google_sheet') {
+            return 'c3';
+        }
+        return '';
+    }
+
+    function normalizeTaskType(taskType) {
+        const normalizedType = String(taskType || '').trim().toLowerCase();
+        if (['google_sheet', 'google_sheet_c3', 'google_sheet_c31'].includes(normalizedType)) {
+            return 'google_sheet';
+        }
+        if (normalizedType === 'google_sheet_c4') {
+            return 'google_sheet_c4';
+        }
+        if (normalizedType === 'google_sheet_c5') {
+            return 'google_sheet_c5';
+        }
+        if (['backtest_training', 'backtest'].includes(normalizedType)) {
+            return 'backtest_training';
+        }
+        if (['backtest_multi_product', 'multi_product_backtest', 'backtest_multi'].includes(normalizedType)) {
+            return 'backtest_multi_product';
+        }
+        return normalizedType;
+    }
+
+    function isGoogleSheetTask(taskType) {
+        return ['google_sheet', 'google_sheet_c4', 'google_sheet_c5'].includes(normalizeTaskType(taskType));
+    }
+
+    function buildGoogleSheetUrl(path, taskId, taskType) {
+        const params = new URLSearchParams();
+        const taskVersion = getTaskVersionFromType(taskType || currentTaskType);
+
+        if (path === '/google-sheet/detail') {
+            params.set('task_id', taskId || currentTaskId);
+        } else if (path === '/google-sheet/create') {
+            params.set('restart_task_id', taskId || currentTaskId);
+        }
+
+        if (taskVersion) {
+            params.set('version', taskVersion);
+        }
+
+        return `${path}?${params.toString()}`;
+    }
+
+    function buildTaskDetailUrl(taskId, taskType) {
+        const normalizedType = normalizeTaskType(taskType || currentTaskType);
+
+        if (normalizedType === 'backtest_training') {
+            return `/backtest-training/detail/${encodeURIComponent(taskId || currentTaskId)}`;
+        }
+        if (normalizedType === 'backtest_multi_product') {
+            return `/backtest-multi-product/detail/${encodeURIComponent(taskId || currentTaskId)}`;
+        }
+        return buildGoogleSheetUrl('/google-sheet/detail', taskId, taskType);
+    }
+
+    function buildTaskCreateUrl(taskId, taskType) {
+        const normalizedType = normalizeTaskType(taskType || currentTaskType);
+
+        if (normalizedType === 'backtest_training') {
+            return '/backtest-training/create';
+        }
+        if (normalizedType === 'backtest_multi_product') {
+            return '/backtest-multi-product/create';
+        }
+        return buildGoogleSheetUrl('/google-sheet/create', taskId, taskType);
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        loadTasks();
+        document.getElementById('search-input').addEventListener('input', function() {
+            window.clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = window.setTimeout(() => filterTasks(), 250);
+        });
+        ajaxRequest('/api/config', 'GET', null, function(err, data) {
+            const interval = (data && data.data.config && data.data.config.tasks_admin_refresh_interval)
+                ? data.data.config.tasks_admin_refresh_interval : 30000;
+            setInterval(loadTasks, interval);
+        });
+
+        document.getElementById('batchRestartModal').addEventListener('hidden.bs.modal', function() {
+            if (!isBatchRestarting) {
+                resetBatchRestartState();
+            }
+        });
+    });
+
+    function loadTasks(page = currentPage) {
+        const status = document.getElementById('status-filter').value;
+        const taskType = document.getElementById('type-filter').value;
+        const keyword = document.getElementById('search-input').value.trim();
+        const params = new URLSearchParams();
+
+        params.set('page', page);
+        params.set('per_page', itemsPerPage);
+        if (status) params.set('status', status);
+        if (taskType) params.set('task_type', taskType);
+        if (keyword) params.set('keyword', keyword);
+
+        ajaxRequest(`/api/tasks?${params.toString()}`, 'GET', null, function(err, data) {
+            if (!err && data && data.data && data.data.items) {
+                currentTasks = data.data.items || [];
+                const pg = data.data;
+                paginationState = {
+                    page: pg.current_page, per_page: pg.per_page, total: pg.total,
+                    pages: pg.pages, has_prev: pg.current_page > 1, has_next: pg.current_page < pg.pages,
+                };
+                currentPage = paginationState.page || page;
+                renderTasks();
+                renderPagination();
+            } else {
+                showNotification('获取任务列表失败', 'error');
+            }
+        });
+    }
+
+    function filterTasks() {
+        currentPage = 1;
+        loadTasks(1);
+    }
+
+    function clearFilters() {
+        document.getElementById('status-filter').value = '';
+        document.getElementById('type-filter').value = '';
+        document.getElementById('search-input').value = '';
+        filterTasks();
+    }
+
+    function getStopBadge(task) {
+        if (task.status === 'running') {
+            return '<span class="badge bg-warning text-dark">运行中</span>';
+        }
+        if (task.status === 'cancelled' || task.status === 'completed' || task.status === 'error' || task.status === 'pending') {
+            return '<span class="badge bg-success">线程已结束</span>';
+        }
+        return '<span class="badge bg-secondary">未知</span>';
+    }
+
+    function renderTasks() {
+        const tbody = document.getElementById('tasks-table-body');
+        const pageTasks = currentTasks;
+
+        tbody.innerHTML = pageTasks.map(task => `
+            <tr>
+                <td>
+                    <div class="fw-semibold">${task.name}</div>
+                    <div class="small text-muted">${task.id.slice(0, 8)}...</div>
+                </td>
+                <td><span class="badge bg-info">${task.task_type}</span></td>
+                <td><span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span></td>
+                <td>${getStopBadge(task)}</td>
+                <td>${extractParameterGroupCount(task.config)}</td>
+                <td style="min-width:160px;">
+                    ${task.total_steps > 0 ? `
+                        <div class="progress" style="height:18px;">
+                            <div class="progress-bar" style="width:${Math.min(100, ((task.current_step || 0) / task.total_steps) * 100)}%">
+                                ${task.current_step}/${task.total_steps}
+                            </div>
+                        </div>` : '<span class="text-muted">-</span>'}
+                </td>
+                <td>${formatTime(task.created_at)}</td>
+                <td>${formatTime(task.start_time)}</td>
+                <td>${formatTime(task.end_time)}</td>
+                <td>
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-sm btn-outline-primary" onclick="showTaskDetail('${task.id}')" title="查看详情"><i class="bi bi-eye"></i></button>
+                        <button class="btn btn-sm btn-outline-info" onclick="showEditTaskModal('${task.id}')" title="编辑任务"><i class="bi bi-pencil-square"></i></button>
+                        ${task.status === 'running' ? `<button class="btn btn-sm btn-outline-warning" onclick="cancelTask('${task.id}')"><i class="bi bi-stop-circle"></i></button>` : ''}
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteTask('${task.id}')"><i class="bi bi-trash"></i></button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+
+        if (!pageTasks.length) {
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">暂无任务数据</td></tr>';
+        }
+    }
+
+    function renderPagination() {
+        const pagination = document.getElementById('pagination');
+        const paginationInfo = document.getElementById('pagination-info');
+        pagination.innerHTML = '';
+        const totalPages = paginationState.pages || 0;
+        const totalItems = paginationState.total || 0;
+
+        if (paginationInfo) {
+            if (!totalItems) {
+                paginationInfo.textContent = '暂无数据';
+            } else {
+                const startIndex = (currentPage - 1) * itemsPerPage + 1;
+                const endIndex = Math.min(currentPage * itemsPerPage, totalItems);
+                paginationInfo.textContent = `显示第 ${startIndex}-${endIndex} 条，共 ${totalItems} 条`;
+            }
+        }
+
+        if (totalPages <= 1) return;
+
+        const prevDisabled = !paginationState.has_prev ? 'disabled' : '';
+        pagination.insertAdjacentHTML('beforeend', `<li class="page-item ${prevDisabled}"><a class="page-link" href="#" onclick="changePage(${currentPage - 1})">上一页</a></li>`);
+        const maxVisiblePages = 7;
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+        if (endPage - startPage + 1 < maxVisiblePages) {
+            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
+            const active = i === currentPage ? 'active' : '';
+            pagination.insertAdjacentHTML('beforeend', `<li class="page-item ${active}"><a class="page-link" href="#" onclick="changePage(${i})">${i}</a></li>`);
+        }
+        const nextDisabled = !paginationState.has_next ? 'disabled' : '';
+        pagination.insertAdjacentHTML('beforeend', `<li class="page-item ${nextDisabled}"><a class="page-link" href="#" onclick="changePage(${currentPage + 1})">下一页</a></li>`);
+    }
+
+    function changePage(page) {
+        const totalPages = paginationState.pages || 0;
+        if (page < 1 || page > totalPages) return;
+        currentPage = page;
+        loadTasks(page);
+    }
+
+    function changePageSize() {
+        itemsPerPage = parseInt(document.getElementById('page-size-select').value, 10);
+        currentPage = 1;
+        loadTasks(1);
+    }
+
+    function resetBatchRestartState() {
+        batchRestartTasks = [];
+        batchRestartPaginationState = { page: 1, per_page: batchRestartItemsPerPage, total: 0, pages: 0, has_prev: false, has_next: false };
+        batchRestartPage = 1;
+        selectedBatchRestartTaskIds.clear();
+        batchRestartTaskCache.clear();
+        batchRestartResults.clear();
+        isBatchRestarting = false;
+        const progress = document.getElementById('batchRestartProgress');
+        if (progress) progress.textContent = '尚未开始重启';
+        const confirmButton = document.getElementById('confirmBatchRestartBtn');
+        if (confirmButton) confirmButton.innerHTML = '<i class="bi bi-arrow-repeat"></i> 批量重启';
+        setBatchRestartControlsDisabled(false);
+        renderBatchRestartTaskList();
+        renderBatchRestartPagination();
+        updateBatchRestartSummary();
+    }
+
+    function showBatchRestartModal() {
+        batchRestartPage = 1;
+        batchRestartItemsPerPage = parseInt(document.getElementById('batch-restart-page-size-select').value, 10) || 10;
+        selectedBatchRestartTaskIds.clear();
+        batchRestartTaskCache.clear();
+        batchRestartResults.clear();
+        isBatchRestarting = false;
+        setBatchRestartControlsDisabled(false);
+        loadBatchRestartTasks(1);
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('batchRestartModal')).show();
+    }
+
+    function setBatchRestartControlsDisabled(disabled) {
+        ['selectAllRestartableBtn', 'clearBatchRestartSelectionBtn', 'batch-restart-page-size-select'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.disabled = disabled;
+        });
+        document.querySelectorAll('input[name="batch-restart-mode"]').forEach(input => {
+            input.disabled = disabled;
+        });
+        updateBatchRestartSummary();
+    }
+
+    function isBatchRestartableTask(task) {
+        return task && task.status !== 'running';
+    }
+
+    function getBatchRestartMode() {
+        const selected = document.querySelector('input[name="batch-restart-mode"]:checked');
+        return selected && selected.value === 'fresh' ? 'fresh' : 'resume';
+    }
+
+    function loadBatchRestartTasks(page = batchRestartPage) {
+        const params = new URLSearchParams();
+        params.set('page', page);
+        params.set('per_page', batchRestartItemsPerPage);
+
+        const list = document.getElementById('batchRestartTaskList');
+        if (list) {
+            list.innerHTML = '<div class="batch-restart-empty">正在加载任务...</div>';
+        }
+
+        ajaxRequest(`/api/tasks?${params.toString()}`, 'GET', null, function(err, data) {
+            if (!err && data && data.data && data.data.items) {
+                batchRestartTasks = data.data.items || [];
+                batchRestartTasks.forEach(task => batchRestartTaskCache.set(String(task.id), task));
+                const bpg = data.data;
+                batchRestartPaginationState = {
+                    page: bpg.current_page, per_page: bpg.per_page, total: bpg.total,
+                    pages: bpg.pages, has_prev: bpg.current_page > 1, has_next: bpg.current_page < bpg.pages,
+                };
+                batchRestartPage = batchRestartPaginationState.page || page;
+                renderBatchRestartTaskList();
+                renderBatchRestartPagination();
+                updateBatchRestartSummary();
+                return;
+            }
+            batchRestartTasks = [];
+            renderBatchRestartTaskList();
+            renderBatchRestartPagination();
+            updateBatchRestartSummary();
+            showNotification('获取批量重启任务列表失败', 'error');
+        });
+    }
+
+    function updateBatchRestartSummary() {
+        const summary = document.getElementById('batchRestartSummary');
+        const confirmButton = document.getElementById('confirmBatchRestartBtn');
+        const restartableCount = batchRestartTasks.filter(isBatchRestartableTask).length;
+        const selectedCount = selectedBatchRestartTaskIds.size;
+        const successes = [...batchRestartResults.values()].filter(result => result.status === 'success').length;
+        const failures = [...batchRestartResults.values()].filter(result => result.status === 'error').length;
+
+        if (summary) {
+            summary.textContent = `当前页 ${batchRestartTasks.length} 个任务，可重启 ${restartableCount} 个，已选 ${selectedCount} 个，成功 ${successes} 个，失败 ${failures} 个`;
+        }
+        if (confirmButton) {
+            confirmButton.disabled = selectedCount < 1 || isBatchRestarting;
+        }
+    }
+
+    function renderBatchRestartTaskList() {
+        const container = document.getElementById('batchRestartTaskList');
+        if (!container) return;
+
+        if (!batchRestartTasks.length) {
+            container.innerHTML = '<div class="batch-restart-empty">当前页暂无任务</div>';
+            updateBatchRestartSummary();
+            return;
+        }
+
+        container.innerHTML = batchRestartTasks.map(task => {
+            const taskId = String(task.id || '');
+            const restartable = isBatchRestartableTask(task);
+            const selected = selectedBatchRestartTaskIds.has(taskId);
+            const result = batchRestartResults.get(taskId);
+            const cardClass = [
+                'batch-restart-task-card',
+                selected ? 'is-selected' : '',
+                restartable ? '' : 'is-disabled',
+                result && result.status === 'success' ? 'is-success' : '',
+                result && result.status === 'error' ? 'is-error' : ''
+            ].filter(Boolean).join(' ');
+            const resultHtml = result
+                ? `<div class="small batch-restart-result ${result.status === 'success' ? 'text-success' : 'text-danger'}">${escapeHtml(result.message)}</div>`
+                : (restartable ? '<div class="small text-body-secondary">可重启</div>' : '<div class="small text-body-secondary">运行中，不可批量重启</div>');
+
+            return `
+                <div class="${cardClass}" data-task-id="${escapeHtml(taskId)}" data-disabled="${restartable ? 'false' : 'true'}" tabindex="${restartable ? '0' : '-1'}">
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="checkbox" ${selected ? 'checked' : ''} ${restartable && !isBatchRestarting ? '' : 'disabled'} aria-label="选择任务">
+                    </div>
+                    <div class="min-w-0">
+                        <div class="fw-semibold batch-restart-task-title">${escapeHtml(task.name || '未命名任务')}</div>
+                        <div class="small text-body-secondary text-break">${escapeHtml(taskId)}</div>
+                        <div class="small text-body-secondary mt-1">
+                            ${escapeHtml(task.task_type || '-')} · ${escapeHtml(formatTime(task.created_at))}
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span>
+                        ${resultHtml}
+                    </div>
+                </div>
+            `;
+        }).join('');
+        updateBatchRestartSummary();
+    }
+
+    function renderBatchRestartPagination() {
+        const pagination = document.getElementById('batchRestartPagination');
+        const paginationInfo = document.getElementById('batchRestartPaginationInfo');
+        if (!pagination || !paginationInfo) return;
+
+        pagination.innerHTML = '';
+        const p = batchRestartPaginationState;
+        const totalPages = p.pages || 0;
+        const totalItems = p.total || 0;
+
+        if (!totalItems) {
+            paginationInfo.textContent = '暂无数据';
+            return;
+        }
+
+        const startIndex = (batchRestartPage - 1) * batchRestartItemsPerPage + 1;
+        const endIndex = Math.min(batchRestartPage * batchRestartItemsPerPage, totalItems);
+        paginationInfo.textContent = `显示第 ${startIndex}-${endIndex} 条，共 ${totalItems} 条`;
+
+        if (totalPages <= 1) return;
+
+        const prevDisabled = !p.has_prev || isBatchRestarting ? 'disabled' : '';
+        pagination.insertAdjacentHTML('beforeend', `<li class="page-item ${prevDisabled}"><button class="page-link" type="button" onclick="changeBatchRestartPage(${batchRestartPage - 1})" ${prevDisabled ? 'disabled' : ''}>上一页</button></li>`);
+        const maxVisiblePages = 7;
+        let startPage = Math.max(1, batchRestartPage - Math.floor(maxVisiblePages / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+        if (endPage - startPage + 1 < maxVisiblePages) {
+            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
+            const active = i === batchRestartPage ? 'active' : '';
+            const disabled = isBatchRestarting ? 'disabled' : '';
+            pagination.insertAdjacentHTML('beforeend', `<li class="page-item ${active} ${disabled}"><button class="page-link" type="button" onclick="changeBatchRestartPage(${i})" ${disabled ? 'disabled' : ''}>${i}</button></li>`);
+        }
+
+        const nextDisabled = !p.has_next || isBatchRestarting ? 'disabled' : '';
+        pagination.insertAdjacentHTML('beforeend', `<li class="page-item ${nextDisabled}"><button class="page-link" type="button" onclick="changeBatchRestartPage(${batchRestartPage + 1})" ${nextDisabled ? 'disabled' : ''}>下一页</button></li>`);
+    }
+
+    function changeBatchRestartPage(page) {
+        const totalPages = batchRestartPaginationState.pages || 0;
+        if (isBatchRestarting || page < 1 || page > totalPages) return;
+        batchRestartPage = page;
+        loadBatchRestartTasks(page);
+    }
+
+    function changeBatchRestartPageSize() {
+        if (isBatchRestarting) return;
+        batchRestartItemsPerPage = parseInt(document.getElementById('batch-restart-page-size-select').value, 10) || 10;
+        batchRestartPage = 1;
+        loadBatchRestartTasks(1);
+    }
+
+    function selectAllRestartableTasks() {
+        if (isBatchRestarting) return;
+        batchRestartTasks.filter(isBatchRestartableTask).forEach(task => {
+            selectedBatchRestartTaskIds.add(String(task.id));
+            batchRestartTaskCache.set(String(task.id), task);
+        });
+        renderBatchRestartTaskList();
+    }
+
+    function clearBatchRestartSelection() {
+        if (isBatchRestarting) return;
+        selectedBatchRestartTaskIds.clear();
+        batchRestartResults.clear();
+        const progress = document.getElementById('batchRestartProgress');
+        if (progress) progress.textContent = '尚未开始重启';
+        renderBatchRestartTaskList();
+    }
+
+    function toggleBatchRestartTask(taskId) {
+        if (isBatchRestarting) return;
+        const task = batchRestartTaskCache.get(String(taskId));
+        if (!isBatchRestartableTask(task)) return;
+
+        if (selectedBatchRestartTaskIds.has(taskId)) {
+            selectedBatchRestartTaskIds.delete(taskId);
+        } else {
+            selectedBatchRestartTaskIds.add(taskId);
+        }
+        renderBatchRestartTaskList();
+    }
+
+    function ajaxRequestPromise(url, method, data) {
+        return new Promise((resolve, reject) => {
+            ajaxRequest(url, method, data, function(err, response) {
+                if (err) {
+                    reject({ error: err, response });
+                    return;
+                }
+                resolve(response);
+            });
+        });
+    }
+
+    async function restartSelectedBatchTasks() {
+        if (isBatchRestarting || selectedBatchRestartTaskIds.size < 1) return;
+
+        const taskIds = [...selectedBatchRestartTaskIds];
+        const resumeFromCheckpoint = getBatchRestartMode() === 'resume';
+        const confirmMessage = resumeFromCheckpoint
+            ? `确定要从断点批量重启 ${taskIds.length} 个任务吗？`
+            : `确定要从头批量重启 ${taskIds.length} 个任务吗？从头重启会清空对应任务的历史结果。`;
+        if (!confirm(confirmMessage)) return;
+
+        const confirmButton = document.getElementById('confirmBatchRestartBtn');
+        const progress = document.getElementById('batchRestartProgress');
+        const originalHtml = confirmButton.innerHTML;
+        let successCount = 0;
+        let failureCount = 0;
+
+        isBatchRestarting = true;
+        setBatchRestartControlsDisabled(true);
+        confirmButton.disabled = true;
+        confirmButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>重启中';
+        batchRestartResults.clear();
+
+        for (let index = 0; index < taskIds.length; index++) {
+            const taskId = taskIds[index];
+            if (progress) {
+                progress.textContent = `正在重启第 ${index + 1}/${taskIds.length} 个任务`;
+            }
+            try {
+                const data = await ajaxRequestPromise(
+                    `/api/tasks/${encodeURIComponent(taskId)}/restart`,
+                    'POST',
+                    { resume_from_checkpoint: resumeFromCheckpoint }
+                );
+                if (data && data.status === 'success') {
+                    successCount += 1;
+                    batchRestartResults.set(taskId, { status: 'success', message: data.message || '重启成功' });
+                } else {
+                    failureCount += 1;
+                    batchRestartResults.set(taskId, { status: 'error', message: data && data.message ? data.message : '重启失败' });
+                }
+            } catch (failure) {
+                failureCount += 1;
+                const message = failure.response && failure.response.message
+                    ? failure.response.message
+                    : (failure.error ? failure.error.message : '重启失败');
+                batchRestartResults.set(taskId, { status: 'error', message });
+            }
+            renderBatchRestartTaskList();
+        }
+
+        isBatchRestarting = false;
+        setBatchRestartControlsDisabled(false);
+        confirmButton.innerHTML = originalHtml;
+        selectedBatchRestartTaskIds.clear();
+        if (progress) {
+            progress.textContent = `批量重启完成：成功 ${successCount} 个，失败 ${failureCount} 个`;
+        }
+        renderBatchRestartTaskList();
+        renderBatchRestartPagination();
+        loadTasks(currentPage);
+        showNotification(`批量重启完成：成功 ${successCount} 个，失败 ${failureCount} 个`, failureCount ? 'warning' : 'success');
+    }
+
+    document.addEventListener('click', function(event) {
+        const card = event.target.closest('.batch-restart-task-card');
+        if (!card || card.dataset.disabled === 'true') return;
+        event.preventDefault();
+        toggleBatchRestartTask(card.dataset.taskId);
+    });
+
+    document.addEventListener('keydown', function(event) {
+        const card = event.target.closest('.batch-restart-task-card');
+        if (!card || card.dataset.disabled === 'true') return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        toggleBatchRestartTask(card.dataset.taskId);
+    });
+
+    function showCreateTaskModal() {
+        new bootstrap.Modal(document.getElementById('createTaskModal')).show();
+    }
+
+    function createTask() {
+        const name = document.getElementById('task-name').value;
+        const taskType = document.getElementById('task-type').value;
+        const description = document.getElementById('task-description').value;
+        const configText = document.getElementById('task-config').value;
+
+        if (!name || !configText) {
+            showNotification('请填写必要字段', 'error');
+            return;
+        }
+
+        try {
+            const payload = {
+                name: name,
+                task_type: taskType,
+                description: description,
+                config: JSON.parse(configText)
+            };
+
+            ajaxRequest('/api/tasks', 'POST', payload, function(err, data) {
+                if (!err && data && data.status === 'success') {
+                    showNotification('任务创建成功', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('createTaskModal')).hide();
+                    document.getElementById('create-task-form').reset();
+                    loadTasks();
+                } else {
+                    showNotification('任务创建失败: ' + (data ? data.message : '未知错误'), 'error');
+                }
+            });
+        } catch (e) {
+            showNotification('配置格式错误: ' + e.message, 'error');
+        }
+    }
+
+    function extractParameterGroupCount(config) {
+        if (!config || !Array.isArray(config.parameters)) return 0;
+        return config.parameters.length;
+    }
+
+    function renderParameterSummary(summary) {
+        if (!summary) return '<span class="text-muted">暂无</span>';
+        const lines = [];
+        lines.push(`参数组数: ${summary.parameter_groups || 0}`);
+        lines.push(`参数规模: ${(summary.parameter_sizes || []).join(', ') || '-'}`);
+        if (summary.sheet_name) lines.push(`Sheet: ${summary.sheet_name}`);
+        if (summary.token_id) lines.push(`Token ID: ${summary.token_id}`);
+        if (summary.parameter_preview && summary.parameter_preview.length) {
+            summary.parameter_preview.forEach(item => {
+                lines.push(`组 ${item.group}: ${JSON.stringify(item.sample)}`);
+            });
+        }
+        return lines.map(line => `<div>${line}</div>`).join('');
+    }
+
+    function renderResultSummary(summary) {
+        if (!summary) return '<span class="text-muted">暂无结果</span>';
+        return `
+            <div>结果总数: <strong>${summary.total_results || 0}</strong></div>
+            <div>成功数: <strong class="text-success">${summary.success_count || 0}</strong></div>
+            <div>失败数: <strong class="text-danger">${summary.failed_count || 0}</strong></div>
+            <div>成功率: <strong>${summary.success_rate || 0}%</strong></div>
+        `;
+    }
+
+    function renderTaskLogs(logs) {
+        if (!Array.isArray(logs) || !logs.length) {
+            return '<span class="text-muted">暂无日志</span>';
+        }
+        return logs.map(log => `[${formatTime(log.timestamp)}] ${log.message}`).join('<br>');
+    }
+
+    function showTaskDetail(taskId) {
+        currentTaskId = taskId;
+        currentTaskType = findCurrentTask(taskId)?.task_type || null;
+        ajaxRequest(`/admin/api/tasks/${taskId}/runtime-detail`, 'GET', null, function(err, data) {
+            if (err || !data || data.status !== 'success') {
+                showNotification('获取任务详情失败', 'error');
+                return;
+            }
+
+            const task = data.data.task;
+            currentTaskType = task.task_type || null;
+            document.getElementById('detail-task-id').textContent = task.id;
+            document.getElementById('detail-task-name').textContent = task.name;
+            document.getElementById('detail-task-type').textContent = task.task_type;
+            document.getElementById('detail-task-status').innerHTML = `<span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span>`;
+            document.getElementById('detail-task-progress').textContent = `${task.current_step || 0}/${task.total_steps || 0} (${task.progress_percentage || 0}%)`;
+            document.getElementById('detail-task-duration').textContent = task.duration_seconds != null ? `${task.duration_seconds}s` : '-';
+            document.getElementById('detail-task-created').textContent = formatTime(task.created_at);
+            document.getElementById('detail-task-started').textContent = formatTime(task.start_time);
+            document.getElementById('detail-task-ended').textContent = formatTime(task.end_time);
+            document.getElementById('detail-task-config').textContent = JSON.stringify(task.config || {}, null, 2);
+            document.getElementById('detail-task-parameter-summary').innerHTML = renderParameterSummary(task.config_summary);
+            document.getElementById('detail-task-result-summary').innerHTML = renderResultSummary(task.result_summary);
+            document.getElementById('detail-task-logs').innerHTML = renderTaskLogs(task.recent_logs);
+
+            updateTaskActionButtons(task.status);
+
+            new bootstrap.Modal(document.getElementById('taskDetailModal')).show();
+        });
+    }
+
+    function findCurrentTask(taskId) {
+        return currentTasks.find(task => task.id === taskId) || null;
+    }
+
+    function showEditTaskModal(taskId) {
+        const task = findCurrentTask(taskId);
+        if (task && task.status === 'running') {
+            showNotification('正在运行的任务不允许修改，请先停止任务', 'warning');
+            return;
+        }
+
+        ajaxRequest(`/api/tasks/${taskId}`, 'GET', null, function(err, data) {
+            if (err || !data || data.status !== 'success' || !data.data.task) {
+                showNotification('获取任务信息失败', 'error');
+                return;
+            }
+
+            const targetTask = data.data.task;
+            if (targetTask.status === 'running') {
+                showNotification('正在运行的任务不允许修改，请先停止任务', 'warning');
+                return;
+            }
+
+            currentTaskId = taskId;
+            document.getElementById('edit-task-id').value = targetTask.id;
+            document.getElementById('edit-task-name').value = targetTask.name || '';
+            document.getElementById('edit-task-type').value = targetTask.task_type || '';
+            document.getElementById('edit-task-status').value = ['pending', 'completed', 'cancelled', 'error'].includes(targetTask.status)
+                ? targetTask.status
+                : 'pending';
+            document.getElementById('edit-task-description').value = targetTask.description || '';
+            document.getElementById('edit-task-config').value = JSON.stringify(targetTask.config || {}, null, 2);
+            new bootstrap.Modal(document.getElementById('editTaskModal')).show();
+        });
+    }
+
+    function saveTaskEdit() {
+        const taskId = document.getElementById('edit-task-id').value;
+        const name = document.getElementById('edit-task-name').value.trim();
+        const status = document.getElementById('edit-task-status').value;
+        const description = document.getElementById('edit-task-description').value.trim();
+        const configText = document.getElementById('edit-task-config').value.trim();
+        const task = findCurrentTask(taskId);
+
+        if (task && task.status === 'running') {
+            showNotification('正在运行的任务不允许修改，请先停止任务', 'warning');
+            return;
+        }
+        if (!name || !configText) {
+            showNotification('请填写任务名称和配置 JSON', 'error');
+            return;
+        }
+
+        let config;
+        try {
+            config = JSON.parse(configText);
+        } catch (error) {
+            showNotification('配置 JSON 格式错误: ' + error.message, 'error');
+            return;
+        }
+
+        ajaxRequest(`/api/tasks/${taskId}/config`, 'PUT', { name, description, status, config }, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                showNotification('任务已更新', 'success');
+                const shouldRefreshDetail = document.getElementById('taskDetailModal').classList.contains('show');
+                const modal = bootstrap.Modal.getInstance(document.getElementById('editTaskModal'));
+                if (modal) modal.hide();
+                loadTasks(currentPage);
+                if (shouldRefreshDetail) {
+                    showTaskDetail(taskId);
+                }
+            } else {
+                showNotification('更新任务失败: ' + (data ? data.message : '未知错误'), 'error');
+            }
+        });
+    }
+
+    function cancelTask(taskId) {
+        if (!taskId) taskId = currentTaskId;
+        if (!confirm('确定要停止这个任务吗？')) return;
+
+        ajaxRequest(`/api/tasks/${taskId}/cancel`, 'POST', null, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                confirmTaskStopped(taskId);
+            } else {
+                showNotification('停止任务失败: ' + (data ? data.message : '未知错误'), 'error');
+            }
+        });
+    }
+
+    function confirmTaskStopped(taskId, retry = 0) {
+        ajaxRequest(`/api/tasks/${taskId}/stop-confirmation`, 'GET', null, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                if (data.data && data.data.stop_confirmed) {
+                    showNotification('任务已完全停止', 'success');
+                    loadTasks();
+                    if (currentTaskId === taskId) showTaskDetail(taskId);
+                    return;
+                }
+                if (retry < 8) {
+                    setTimeout(() => confirmTaskStopped(taskId, retry + 1), 800);
+                    return;
+                }
+                showNotification('已发送停止请求，任务仍在退出中', 'warning');
+                loadTasks();
+                if (currentTaskId === taskId) showTaskDetail(taskId);
+            } else {
+                showNotification('停止确认检查失败', 'error');
+            }
+        });
+    }
+
+    function deleteTask(taskId) {
+        if (!taskId) taskId = currentTaskId;
+        if (!confirm('确定要删除这个任务吗？删除后不可恢复。')) return;
+
+        ajaxRequest(`/api/tasks/${taskId}`, 'DELETE', null, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                showNotification('任务已删除', 'success');
+                loadTasks();
+                const modal = bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'));
+                if (modal) modal.hide();
+            } else {
+                showNotification('删除任务失败: ' + (data ? data.message : '未知错误'), 'error');
+            }
+        });
+    }
+
+    function restartTask(taskId, resumeFromCheckpoint) {
+        if (!taskId) taskId = currentTaskId;
+        ajaxRequest(`/api/tasks/${taskId}/restart`, 'POST', { resume_from_checkpoint: resumeFromCheckpoint }, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                showNotification('任务重启成功', 'success');
+                loadTasks();
+            } else {
+                showNotification('任务重启失败: ' + (data ? data.message : '未知错误'), 'error');
+            }
+        });
+    }
+
+    function refreshTasks() {
+        loadTasks();
+        showNotification('任务列表已刷新', 'success');
+    }
+
+    function updateTaskActionButtons(status) {
+        document.getElementById('execution-detail-btn').style.display = 'inline-block';
+        document.getElementById('edit-task-btn').style.display = status === 'running' ? 'none' : 'inline-block';
+        document.getElementById('cancel-task-btn').style.display = status === 'running' ? 'inline-block' : 'none';
+        document.getElementById('restart-task-group').style.display = status === 'running' ? 'none' : 'inline-block';
+        document.getElementById('delete-task-btn').style.display = 'inline-block';
+    }
+
+    function viewTaskDetail() {
+        if (currentTaskId) {
+            window.location.href = buildTaskDetailUrl(currentTaskId, currentTaskType);
+        }
+    }
+
+    function createRestartTask() {
+        if (!currentTaskId) {
+            return;
+        }
+
+        if (isGoogleSheetTask(currentTaskType)) {
+            window.location.href = buildTaskCreateUrl(currentTaskId, currentTaskType);
+            return;
+        }
+
+        ajaxRequest(`/api/tasks/${currentTaskId}/create-restart`, 'POST', {}, function(err, data) {
+            if (!err && data && data.status === 'success') {
+                showNotification(data.message || '新重启任务创建成功', 'success');
+                const nextTaskType = data.task_type || currentTaskType;
+                const nextTaskId = (data.data && data.data.new_task_id) || currentTaskId;
+                window.location.href = buildTaskDetailUrl(nextTaskId, nextTaskType);
+                return;
+            }
+
+            const errorMessage = (data && data.message) ? data.message : (err ? err.message : '未知错误');
+            showNotification(`创建重启任务失败: ${errorMessage}`, 'error');
+        });
+    }

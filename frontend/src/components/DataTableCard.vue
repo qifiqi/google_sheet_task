@@ -1,11 +1,13 @@
 <template>
   <el-card shadow="never" class="data-table-card">
-    <div v-if="title || $slots['header-extra']" class="data-table-card__head">
-      <div class="data-table-card__title">{{ title }}</div>
-      <div class="data-table-card__extra">
-        <slot name="header-extra" />
+    <template v-if="title || $slots['header-extra']" #header>
+      <div class="data-table-card__head">
+        <div class="data-table-card__title">{{ title }}</div>
+        <div class="data-table-card__extra">
+          <slot name="header-extra" />
+        </div>
       </div>
-    </div>
+    </template>
 
     <el-table
       :data="data"
@@ -80,12 +82,12 @@ function handleSizeChange(val) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 12px;
+    gap: 12px;
   }
 
   &__title {
     font-size: var(--app-font-sm);
-    font-weight: 600;
+    font-weight: 700;
     color: var(--app-text);
   }
 

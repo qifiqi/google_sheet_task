@@ -1,15 +1,120 @@
 import json
-from typing import Dict, Any, Optional
-from app.models import SystemConfig, db
+import threading
+from typing import Any, Dict, Optional
+from app.repositories import system_config_repository
 from app.utils.logger import get_logger
+from app.utils.value_parser import coerce_bool as _coerce_bool_value
 
 logger = get_logger(__name__)
 
+# 负缓存哨兵：标记"数据库中确认不存在"的 key，避免每次 get 都重复查库。
+# 哨兵只存在于进程内缓存，永远不会写入数据库或对外返回。
+_MISSING = object()
+
+# 值里包含这些关键字的配置项，日志中打码，防止敏感信息进入日志文件。
+_SENSITIVE_KEY_HINTS = ('token', 'secret', 'password', 'credential', 'apikey')
+
+
+def _mask_config_value(key: str, value: Any) -> Any:
+    lowered = str(key).lower()
+    if any(hint in lowered for hint in _SENSITIVE_KEY_HINTS):
+        return '***'
+    return value
+
+
+def mask_config_value(key: str, value: Any) -> Any:
+    """公开脱敏出口：key 含 token/secret/password/credential/apikey 时值打码。
+
+    所有把配置值下发到响应（管理端诊断/列表端点）的路径必须经过本函数。
+    """
+    return _mask_config_value(key, value)
+
+
+def _serialize_config_value(value: Any) -> str:
+    """配置值入库序列化。
+
+    字符串原样入库（与历史数据保持一致）；bool/None/数字/容器统一走 JSON，
+    保证读回时能恢复原始类型。JSON 无法表达的类型退回 str() 兼容。
+    """
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _reject_json_constant(name: str):
+    """json.loads 的 parse_constant 钩子：拒绝 NaN/Infinity 等非法常量。"""
+    raise ValueError(f"非法 JSON 常量: {name}")
+
+
+def _deserialize_config_value(value: Any) -> Any:
+    """配置值读回反序列化，与 _serialize_config_value 对称（收窄版）。
+
+    - 布尔/None：精确匹配 json.dumps 产物（true/false/null）与历史 str() 产物
+      （True/False/None），不再对任意 t/f/n 开头的词做解析尝试；
+    - 容器/JSON 字符串：以 { [ " 开头才尝试解析；
+    - 数字：仅当整串是合法 JSON 数字才还原为 int/float（json.dumps(数字) 的产物），
+      解析结果为 NaN/Infinity 直接按原字符串返回；
+    - 其余一律原样返回字符串。历史纯数字字符串 key 若被静默转成数字，由调用方
+      （set_config 的写入方）负责用 json.dumps 显式表达字符串意图。
+    """
+    if not isinstance(value, str):
+        return value
+
+    # 旧数据兼容层：str(True)/str(False)/str(None) 的历史产物
+    if value == 'True':
+        return True
+    if value == 'False':
+        return False
+    if value == 'None':
+        return None
+    # json.dumps 的布尔/None 产物（精确匹配）
+    if value == 'true':
+        return True
+    if value == 'false':
+        return False
+    if value == 'null':
+        return None
+
+    stripped = value.strip()
+    # 容器与 JSON 字符串：仅对可能构成 JSON 的开头字符做解析尝试
+    if stripped[:1] in ('{', '[', '"'):
+        try:
+            return json.loads(stripped, parse_constant=_reject_json_constant)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return value
+
+    # 数字：整串必须是合法 JSON 数字（json.dumps(数字) 的入库形态）才还原
+    if stripped[:1].isdigit() or stripped[:1] in ('-', '.'):
+        try:
+            parsed = json.loads(stripped, parse_constant=_reject_json_constant)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return value
+        if isinstance(parsed, (int, float)):
+            return parsed
+    return value
+
+
+def coerce_bool(value: Any, default: bool = False) -> bool:
+    """统一的布尔配置解析入口（实现见 app/utils/value_parser.coerce_bool）。
+
+    本包装仅附加配置存储的 ``_MISSING`` 哨兵语义：缺失键返回 default。
+    """
+    if value is _MISSING:
+        return default
+    return _coerce_bool_value(value, default)
+
+
 class ConfigManager:
     """配置管理器"""
-    
+
     def __init__(self):
-        self._cache = {}
+        self._cache: Dict[str, Any] = {}
+        # _loaded 区分"库里确实没有配置"和"还没加载过"，避免空库时每次 get 都全表查询
+        self._loaded = False
+        self._lock = threading.RLock()
         self._app = None
         # 延迟加载配置，避免在应用上下文外初始化
         # self._load_configs()
@@ -29,9 +134,9 @@ class ConfigManager:
             return self._app.app_context()
 
         return None
-    
+
     def _load_configs(self):
-        """加载所有配置到缓存"""
+        """加载所有配置到缓存。调用方必须已持有 self._lock。"""
         try:
             ctx = self._get_app_context()
             if ctx is None:
@@ -39,28 +144,27 @@ class ConfigManager:
                 return
 
             with ctx:
-                configs = SystemConfig.query.all()
-                for config in configs:
-                    # 尝试反序列化JSON字符串
-                    value = config.value
-                    if isinstance(value, str) and value.startswith(('{', '[')):
-                        try:
-                            value = json.loads(value)
-                        except (json.JSONDecodeError, TypeError):
-                            pass  # 保持原始字符串
-                    self._cache[config.key] = value
-                logger.debug(f"加载了 {len(configs)} 个配置项")
+                rows = system_config_repository.list_rows()
+                cache: Dict[str, Any] = {}
+                for row in rows:
+                    cache[row["key"]] = _deserialize_config_value(row["value"])
+                self._cache = cache
+                self._loaded = True
+                logger.debug(f"加载了 {len(rows)} 个配置项")
         except Exception as e:
             logger.error(f"加载配置失败: {str(e)}")
-    
+
     def get_config(self, key: str, default: Any = None) -> Any:
         """获取配置值"""
-        # 如果缓存为空，尝试加载配置
-        if not self._cache:
-            self._load_configs()
-        
-        # 如果缓存中没有该配置，尝试从数据库重新加载
-        if key not in self._cache:
+        with self._lock:
+            if not self._loaded:
+                self._load_configs()
+
+            if key in self._cache:
+                value = self._cache[key]
+                return default if value is _MISSING else value
+
+            # 缓存已加载但没有该 key：单查数据库确认（首次），之后走负缓存
             try:
                 ctx = self._get_app_context()
                 if ctx is None:
@@ -68,28 +172,49 @@ class ConfigManager:
                     return default
 
                 with ctx:
-                    config = SystemConfig.query.filter_by(key=key).first()
-                    if config:
-                        # 尝试反序列化JSON字符串
-                        value = config.value
-                        if isinstance(value, str) and value.startswith(('{', '[')):
-                            try:
-                                value = json.loads(value)
-                            except (json.JSONDecodeError, TypeError):
-                                pass  # 保持原始字符串
+                    row = system_config_repository.get_row(key)
+                    if row:
+                        value = _deserialize_config_value(row["value"])
                         self._cache[key] = value
                         return value
+
+                    # 数据库确认不存在：记录负缓存，后续调用直接返回 default
+                    self._cache[key] = _MISSING
+                    return default
             except Exception as e:
                 logger.error(f"从数据库加载配置失败: {key}, 错误: {str(e)}")
-        
-        return self._cache.get(key, default)
-    
-    def get_all_configs(self) -> Dict[str, Any]:
-        """获取所有配置"""
-        # 强制重新加载配置，确保获取最新数据
-        self._load_configs()
-        return self._cache.copy()
-    
+                return default
+
+    def get_all_configs(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """获取所有配置；force_refresh=True 时强制从数据库重新加载"""
+        with self._lock:
+            if force_refresh or not self._loaded:
+                self._load_configs()
+            return {k: v for k, v in self._cache.items() if v is not _MISSING}
+
+    def get_cache_snapshot(self) -> Dict[str, Any]:
+        """诊断用：返回缓存原始快照，负缓存哨兵显示为 None。"""
+        with self._lock:
+            return {k: (None if v is _MISSING else v) for k, v in self._cache.items()}
+
+    def get_db_config_rows(self) -> list:
+        """配置行原始列表（管理端列表/诊断端点消费，含 description）。"""
+        return system_config_repository.list_rows()
+
+    def update_config_row(self, key: str, fields: Dict[str, Any]):
+        """单条配置行更新 + 缓存刷新（/system-configs PUT 语义）；不存在返回 None。
+
+        行级写入走 repository，缓存/负缓存刷新留在本层（数据层分层规则）。
+        """
+        updated = system_config_repository.update(key, fields)
+        if updated is None:
+            return None
+        try:
+            self.refresh_cache()
+        except Exception as e:
+            logger.warning(f"更新配置后刷新缓存失败: {e}")
+        return updated
+
     def set_config(self, key: str, value: Any, description: str = None) -> bool:
         """设置配置值"""
         try:
@@ -99,38 +224,22 @@ class ConfigManager:
                 return False
 
             with ctx:
-                # 转换为JSON字符串
-                if isinstance(value, (dict, list)):
-                    value_str = json.dumps(value, ensure_ascii=False)
-                else:
-                    value_str = str(value)
-                
-                # 查找或创建配置项
-                config = SystemConfig.query.filter_by(key=key).first()
-                if config:
-                    config.value = value_str
-                    if description:
-                        config.description = description
-                else:
-                    config = SystemConfig(
-                        key=key,
-                        value=value_str,
-                        description=description
-                    )
-                    db.session.add(config)
-                
-                db.session.commit()
-                
-                # 更新缓存
-                self._cache[key] = value
-                
-                logger.info(f"设置配置: {key} = {value}")
+                value_str = _serialize_config_value(value)
+                system_config_repository.upsert(key, value_str, description=description)
+
+                # 缓存存"读回形态"（反序列化后），与 _load_configs/refresh 一致，
+                # 保证同一 key 在 set 与缓存刷新两个生命周期内 get 返回类型恒定。
+                with self._lock:
+                    self._cache[key] = _deserialize_config_value(value_str)
+
+                logger.info(f"设置配置: {key}")
+                logger.debug(f"设置配置: {key} = {_mask_config_value(key, value)}")
                 return True
-            
+
         except Exception as e:
             logger.error(f"设置配置失败: {key}, 错误: {str(e)}")
             return False
-    
+
     def delete_config(self, key: str) -> bool:
         """删除配置"""
         try:
@@ -140,23 +249,21 @@ class ConfigManager:
                 return False
 
             with ctx:
-                config = SystemConfig.query.filter_by(key=key).first()
-                if config:
-                    db.session.delete(config)
-                    db.session.commit()
-                    
-                    # 从缓存中删除
-                    if key in self._cache:
-                        del self._cache[key]
-                    
-                    logger.info(f"删除配置: {key}")
-                    return True
-                return False
-            
+                deleted = system_config_repository.delete(key)
+                if not deleted:
+                    return False
+
+                # 从缓存中删除
+                with self._lock:
+                    self._cache.pop(key, None)
+
+                logger.info(f"删除配置: {key}")
+                return True
+
         except Exception as e:
             logger.error(f"删除配置失败: {key}, 错误: {str(e)}")
             return False
-    
+
     def update_configs(self, configs: Dict[str, Any]) -> bool:
         """批量更新配置"""
         try:
@@ -165,23 +272,25 @@ class ConfigManager:
                 if not success:
                     logger.error(f"更新配置失败: {key}")
                     return False
-            
+
             # 强制重新加载缓存，确保其他进程/线程能获取到最新配置
-            self._load_configs()
-            
+            with self._lock:
+                self._load_configs()
+
             logger.info(f"批量更新了 {len(configs)} 个配置项")
             return True
         except Exception as e:
             logger.error(f"批量更新配置失败: {str(e)}")
             return False
-    
-    def get_google_sheet_config(self) -> Dict[str, Any]:
-        """获取Google Sheet相关配置"""
-        # 强制刷新缓存，确保获取最新配置
-        self._load_configs()
 
-        # 基于当前缓存构造配置字典（数据库里有什么就返回什么）
-        configs = self._cache.copy()
+    def get_google_sheet_config(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """获取Google Sheet相关配置；force_refresh=True 时强制从数据库重新加载"""
+        with self._lock:
+            if force_refresh or not self._loaded:
+                self._load_configs()
+
+            # 基于当前缓存构造配置字典（数据库里有什么就返回什么）
+            configs = {k: v for k, v in self._cache.items() if v is not _MISSING}
 
         # 兼容性处理：老版本可能把这些字段存成 dict，需要统一转换为 list
         param_positions = configs.get('parameter_positions', [])
@@ -200,33 +309,25 @@ class ConfigManager:
         configs['result_positions'] = result_positions
 
         return configs
-    
-    def set_google_sheet_config(self, config: Dict[str, Any]) -> bool:
-        """设置Google Sheet相关配置"""
-        try:
-            for key, value in config.items():
-                self.set_config(key, value)
-            # 强制刷新缓存
-            self._load_configs()
-            return True
-        except Exception as e:
-            logger.error(f"设置Google Sheet配置失败: {str(e)}")
-            return False
-    
+
     def refresh_cache(self):
         """强制刷新配置缓存"""
         try:
-            self._load_configs()
+            with self._lock:
+                self._load_configs()
             logger.info("配置缓存已刷新")
         except Exception as e:
             logger.error(f"刷新配置缓存失败: {str(e)}")
 
 # 全局配置管理器实例
 config_manager = None
+_config_manager_lock = threading.Lock()
 
 def get_config_manager():
     """获取配置管理器实例"""
     global config_manager
     if config_manager is None:
-        config_manager = ConfigManager()
+        with _config_manager_lock:
+            if config_manager is None:
+                config_manager = ConfigManager()
     return config_manager

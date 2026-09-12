@@ -99,6 +99,7 @@ function handleCommand(command) {
 
 <style scoped>
 .app-layout {
+  --app-header-height: v-bind('`${headerHeight}px`');
   height: 100vh;
   background: transparent;
 }
@@ -113,11 +114,14 @@ function handleCommand(command) {
   box-shadow: var(--app-shadow-soft);
 }
 
+/* 品牌块与顶部栏等高，两侧分隔线连成一条 */
 .brand-shell {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 18px 18px 16px;
+  flex-shrink: 0;
+  height: var(--app-header-height);
+  padding: 0 18px;
   color: #fff;
   cursor: pointer;
   border-bottom: 1px solid var(--app-sidebar-border);
@@ -125,7 +129,8 @@ function handleCommand(command) {
 }
 
 .brand-shell--drawer {
-  padding-inline: 8px 4px;
+  height: auto;
+  padding: 14px 8px;
   margin-bottom: 10px;
   border-bottom: none;
 }
@@ -135,6 +140,7 @@ function handleCommand(command) {
   place-items: center;
   width: 40px;
   height: 40px;
+  flex-shrink: 0;
   border-radius: 14px;
   background: linear-gradient(135deg, #f59e0b 0%, #facc15 100%);
   color: #11203f;
@@ -211,10 +217,6 @@ function handleCommand(command) {
 }
 
 @media (max-width: 767px) {
-  .brand-shell {
-    padding: 12px 0 14px;
-  }
-
   .brand-mark {
     width: 38px;
     height: 38px;

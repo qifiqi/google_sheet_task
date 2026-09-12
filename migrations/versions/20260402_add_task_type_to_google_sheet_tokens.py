@@ -20,9 +20,19 @@ def upgrade():
     with op.batch_alter_table("google_sheet_tokens", schema=None) as batch_op:
         batch_op.add_column(sa.Column("task_type", sa.String(length=50), nullable=True))
 
+    google_sheet_tokens = sa.table(
+        "google_sheet_tokens",
+        sa.column("task_type", sa.String(length=50)),
+    )
     op.execute(
-        "UPDATE google_sheet_tokens SET task_type = 'google_sheet' "
-        "WHERE task_type IS NULL OR task_type = ''"
+        google_sheet_tokens.update()
+        .where(
+            sa.or_(
+                google_sheet_tokens.c.task_type.is_(None),
+                google_sheet_tokens.c.task_type == "",
+            )
+        )
+        .values(task_type="google_sheet")
     )
 
     with op.batch_alter_table("google_sheet_tokens", schema=None) as batch_op:

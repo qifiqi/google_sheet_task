@@ -142,7 +142,7 @@
               </el-table>
             </el-tab-pane>
 
-            <el-tab-pane label="所提诺比率" name="sotino">
+            <el-tab-pane label="索提诺比率" name="sotino">
               <el-table :data="sotinoRows" stripe border max-height="520">
                 <el-table-column prop="year" label="年份" width="80" />
                 <el-table-column label="指数"><template #default="{ row }">{{ fmtNum(row.index_sotino, 6) }}</template></el-table-column>
@@ -269,7 +269,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getTaskResult } from '@/api/backtest'
-import { exportXplResult } from '@/api/xpl'
+import { exportPerformanceAnalysisResult } from '@/api/performance_analysis'
 
 const route = useRoute()
 const taskId = route.params.id
@@ -468,7 +468,7 @@ const SCALAR_NAME_MAP = {
   monthly_excess_volatility: '月超额波动率',
   excess_drawdown_winning_rate: '超额回撤胜率',
   excess_sharp: '超额夏普',
-  excess_of_promissory_note: '超额所提诺',
+  excess_of_promissory_note: '超额索提诺',
   index_profit_annual: '指数盈利年百分比',
   start_profit_annual: '策略盈利年百分比',
   index_monthly_return_volatility: '指数月收益率波动率',
@@ -527,7 +527,7 @@ async function loadResult() {
 async function exportResult() {
   if (!result.value) return
   try {
-    const blob = await exportXplResult({
+    const blob = await exportPerformanceAnalysisResult({
       filename: `result_${taskId}.csv`,
       filename_title: `result_${taskId}`,
       analyze_result: result.value

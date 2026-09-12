@@ -1,4 +1,4 @@
-"""Multi-product backtest task service and preview helpers."""
+"""多产品回测任务服务和预览辅助工具。"""
 
 from __future__ import annotations
 
@@ -7,78 +7,77 @@ import hashlib
 import json
 import math
 import re
-import traceback
 from collections import OrderedDict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from flask import current_app
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 
-from app.extensions import db
-from app.models import BacktestProductResultCache, Task, TaskResult, TaskResultReturn
+from app.exceptions import ValidationError
+from app.repositories import backtest_repository, task_repository, task_result_repository
+from app.models import Task, TaskResult
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.config_manager import get_config_manager
-from app.services.xpl_service import xpl_analyzer
-from app.utils.db_retry import db_retry_manager, safe_db_operation
-from app.utils.task_error_utils import build_task_error_message, unwrap_exception
+from app.services.task.error_handling import (
+    format_task_error_message,
+    record_task_exception,
+    summarize_task_exception,
+)
+from app.services.performance_analysis.analyzer import performance_analyzer
+from app.utils.formatting import max_yearly_repair_days, parse_lenient_json
+from app.utils.return_series import parse_return_series_fields
+from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
+from app.utils.market import (
+    infer_market_type,
+    normalize_market_type as normalize_supported_market_type,
+    normalize_stock_code,
+)
+from app.services.performance_analysis.portfolio_combiner import (
+    cumulative_to_daily as _canonical_cumulative_to_daily,
+    daily_to_cumulative as _canonical_daily_to_cumulative,
+    combine_product_returns as _canonical_combine_product_returns,
+    normalize_weight,
+    normalize_weighting_mode,
+)
+from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DEFS
+from app.services.performance_analysis.historical_metrics import (
+    collect_summary_all_entries,
+    derive_year_max_excess_drawdown,
+    extract_core_metrics,
+    extract_core_weighted_metrics,
+    upgrade_historical_metrics,
+)
 
 
 BACKTEST_MULTI_PRODUCT_TASK_TYPE = "backtest_multi_product"
-RATIO_BASE = Decimal("100")
 GLOBAL_PREVIEW_CACHE_MAX_SIZE = 64
 _GLOBAL_PREVIEW_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 
-SUMMARY_ROW_DEFS = [
-    ("绝对收益", "年化收益", "index_annualized_return", "start_annualized_return", "percent"),
-    ("绝对收益", "盈利年份百分比", "index_profit_annual", "start_profit_annual", "percent"),
-    ("绝对收益", "月盈利百分比", "index_profit_monthly_percentage", "start_profit_monthly_percentage", "percent"),
-    ("绝对收益", "平均月收益率", "index_avg_monthly_return", "start_avg_monthly_return", "percent"),
-    ("绝对收益", "月收益率波动率", "index_monthly_return_volatility", "start_monthly_return_volatility", "percent"),
-    ("相对收益", "年化超额收益", None, "annualized_return_diff", "percent"),
-    ("相对收益", "跑赢年份(百分比)", None, "outperform_year", "percent"),
-    ("相对收益", "月超额收益胜率", None, "monthly_excess_return_percentage", "percent"),
-    ("相对收益", "平均月超额", None, "avg_monthly_excess_return", "percent"),
-    ("相对收益", "月超额波动率", None, "monthly_excess_volatility", "percent"),
-    ("回撤", "年最大超额回撤", None, "year_max_excess_drawdown", "percent"),
-    ("回撤", "超额回撤胜率", None, "excess_drawdown_winning_rate", "percent"),
-    ("回撤", "年最大回撤", None, "start_max_drawdown", "percent"),
-    ("回撤", "最大修复天数", None, "start_maximum_number_of_backtest_repair_days", "number"),
-    ("回撤", "超额最大修复天数", None, "excess_maximum_number_of_backtest_repair_days", "number"),
-    ("比率", "夏普比率", "index_sharpe_ratio", "start_sharpe_ratio", "number"),
-    ("比率", "卡玛比率", "index_kama_ratio", "start_kama_ratio", "number"),
-    ("比率", "所提诺比率", "index_sotino_ratio", "start_sotino_ratio", "number"),
-    ("夏普", "超额夏普", None, "excess_sharp", "number"),
-    ("所提诺", "超额所提诺比率", None, "excess_of_promissory_note", "number"),
-]
+# SUMMARY_ROW_DEFS（前后端共享行契约）单一来源见 app/services/summary_contract.py。
 
 
 def normalize_market_type(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized in {"en", "us", "usa"}:
-        return "en"
-    return "cn"
+    return normalize_supported_market_type(value, "cn")
 
 
 def normalize_price_mode(value: Any) -> str:
     normalized = str(value or "").strip().lower()
-    if normalized in {"kp_price", "sp_price"}:
+    if normalized in {"kp_price", "sp_price", "vwap_price", "ohlc_price"}:
         return normalized
-    return "sp_price"
+    return "vwap_price"
 
 
 def parse_ratio(value: Any) -> Decimal:
     raw = str(value if value is not None else "").strip().replace("%", "")
     if not raw:
-        raise ValueError("产品比例不能为空")
+        raise ValidationError("产品比例不能为空")
     try:
         ratio = Decimal(raw)
     except InvalidOperation as exc:
-        raise ValueError(f"产品比例不是有效数字: {value}") from exc
+        raise ValidationError(f"产品比例不是有效数字: {value}") from exc
     if ratio < 0:
-        raise ValueError("产品比例不能小于 0")
+        raise ValidationError("产品比例不能小于 0")
     return ratio
 
 
@@ -102,8 +101,12 @@ def _global_preview_cache_key(
     task_id: str,
     products: list[dict[str, Any]],
     results: list[TaskResult],
+    weighting_mode: str,
 ) -> tuple[Any, ...]:
-    ratio_signature = tuple(normalize_ratio_display(product.get("ratio")) for product in products)
+    ratio_signature = (
+        *(normalize_ratio_display(product.get("ratio")) for product in products),
+        normalize_weighting_mode(weighting_mode),
+    )
     result_signature = tuple(
         (
             result.id,
@@ -140,7 +143,7 @@ def _normalize_sheet(product: dict[str, Any]) -> dict[str, str]:
     sheet_name = str(sheet.get("sheet_name") or product.get("sheet_name") or "data").strip()
     title = str(sheet.get("title") or product.get("title") or "").strip()
     if not spreadsheet_id:
-        raise ValueError("每个产品都必须配置 Google Sheet 链接")
+        raise ValidationError("每个产品都必须配置 Google Sheet 链接")
     return {
         "spreadsheet_id": spreadsheet_id,
         "sheet_name": sheet_name or "data",
@@ -148,50 +151,77 @@ def _normalize_sheet(product: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def update_task_ratios(task_id: str, task_config, ratios: list) -> dict:
+    """保存多品回测比例：规范化 config、校验数量、写回产品比例并落库。
+
+    任务不存在/类型不符由调用方先行校验；比例数量不一致抛 ValidationError（400）。
+    """
+    config = normalize_multi_product_config(task_config or {})
+    products = config["products"]
+    if len(ratios) != len(products):
+        raise ValidationError("比例数量与产品数量不一致")
+    for product, ratio in zip(products, ratios):
+        product["ratio"] = str(ratio.get("ratio") if isinstance(ratio, dict) else ratio).strip()
+    # normalize_multi_product_config 现直接抛 ValidationError（400 语义一致）
+    config = normalize_multi_product_config({**config, "products": products})
+
+    task_repository.update_fields(task_id, config=json.dumps(config, ensure_ascii=False))
+    return config
+
+
 def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(config, dict):
-        raise ValueError("多品数据回测 config 必须是 JSON 对象")
+        raise ValidationError("多品数据回测 config 必须是 JSON 对象")
 
     start_date = str(config.get("start_date") or "").strip()
     end_date = str(config.get("end_date") or "").strip()
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start_date):
-        raise ValueError("请填写有效的 K 线开始日期")
+        raise ValidationError("请填写有效的 K 线开始日期")
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end_date):
-        raise ValueError("请填写有效的 K 线结束日期")
+        raise ValidationError("请填写有效的 K 线结束日期")
     if start_date > end_date:
-        raise ValueError("K 线开始日期不能晚于结束日期")
+        raise ValidationError("K 线开始日期不能晚于结束日期")
 
     products = config.get("products")
     if not isinstance(products, list) or len(products) < 2:
-        raise ValueError("多品数据回测至少需要 2 个产品")
+        raise ValidationError("多品数据回测至少需要 2 个产品")
 
     normalized_products = []
     expected_parameter_count = None
     for index, product in enumerate(products, start=1):
         if not isinstance(product, dict):
-            raise ValueError(f"产品 {index} 配置格式不正确")
-        stock_code = str(product.get("stock_code") or "").strip().upper()
+            raise ValidationError(f"产品 {index} 配置格式不正确")
+        raw_stock_code = str(product.get("stock_code") or "").strip().upper()
+        market_type = normalize_market_type(
+            product.get("market_type") or config.get("market_type")
+        ) or infer_market_type(raw_stock_code)
+        stock_code = normalize_stock_code(
+            raw_stock_code,
+            market_type,
+            product.get("exchange_market") or config.get("exchange_market"),
+        )
         if not stock_code:
-            raise ValueError(f"产品 {index} 缺少股票代码")
+            raise ValidationError(f"产品 {index} 缺少股票代码")
         parameters = product.get("parameters")
         if not isinstance(parameters, list) or not parameters:
-            raise ValueError(f"产品 {index} 至少需要一行参数")
+            raise ValidationError(f"产品 {index} 至少需要一行参数")
         for row_index, row in enumerate(parameters, start=1):
             if not isinstance(row, list) or not any(str(item).strip() for item in row):
-                raise ValueError(f"产品 {index} 第 {row_index} 行参数为空")
+                raise ValidationError(f"产品 {index} 第 {row_index} 行参数为空")
         if expected_parameter_count is None:
             expected_parameter_count = len(parameters)
         elif len(parameters) != expected_parameter_count:
-            raise ValueError("所有产品的参数行数必须一致，才能按行号对齐")
+            raise ValidationError("所有产品的参数行数必须一致，才能按行号对齐")
 
         normalized_products.append({
             **product,
             "product_index": index - 1,
             "product_name": str(product.get("product_name") or product.get("name") or stock_code).strip(),
             "stock_code": stock_code,
-            "market_type": normalize_market_type(product.get("market_type")),
+            "market_type": market_type,
             "price_mode": normalize_price_mode(product.get("price_mode") or config.get("price_mode")),
             "kline_adjustment": product.get("kline_adjustment") or config.get("kline_adjustment") or "forward",
+            "kline_data_source": product.get("kline_data_source") or config.get("kline_data_source") or "akshare",
             "ratio": normalize_ratio_display(product.get("ratio")),
             "is_fixed": bool(product.get("is_fixed")),
             "sheet": _normalize_sheet(product),
@@ -202,26 +232,13 @@ def normalize_multi_product_config(config: dict[str, Any]) -> dict[str, Any]:
         **config,
         "start_date": start_date,
         "end_date": end_date,
+        "weighting_mode": normalize_weighting_mode(config.get("weighting_mode")),
         "products": normalized_products,
     }
 
 
 def _parse_json(raw: Any, default: Any) -> Any:
-    if isinstance(raw, (dict, list)):
-        return raw
-    try:
-        return json.loads(raw) if raw else default
-    except (TypeError, json.JSONDecodeError):
-        return default
-
-
-def _all_entry(items: Any, key_name: str = "year") -> dict[str, Any]:
-    if not isinstance(items, list):
-        return {}
-    for item in items:
-        if isinstance(item, dict) and str(item.get(key_name)) == "all":
-            return item
-    return {}
+    return parse_lenient_json(raw, default)
 
 
 def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
@@ -229,15 +246,40 @@ def _extract_result_core(task_result: TaskResult) -> dict[str, Any]:
     if not isinstance(payload, dict) or not payload:
         return {}
 
-    prioritized_keys = ("calculate_metrics", "weighted_calculate_metrics")
+    prioritized_keys = (
+        "metrics_payload",
+        "calculate_metrics",
+        "weighted_calculate_metrics",
+        "analyze_result",
+    )
     for value in payload.values():
         if not isinstance(value, dict):
             continue
         if any(key in value for key in prioritized_keys):
+            # TODO: 数据库历史结果仍保存 calculate_metrics/analyze_result 旧键和旧
+            # 字段名（sotino/cumulative_excess 等）；历史数据迁移后可移除兼容升级。
+            for metric_key in ("calculate_metrics", "analyze_result", "weighted_calculate_metrics"):
+                if isinstance(value.get(metric_key), dict):
+                    value[metric_key] = upgrade_historical_metrics(value[metric_key])
+            metrics_payload = value.get("metrics_payload")
+            if isinstance(metrics_payload, dict):
+                legacy_metrics = metrics_payload.get("metrics")
+                if isinstance(legacy_metrics, dict):
+                    metrics_payload["metrics"] = upgrade_historical_metrics(legacy_metrics)
             return value
 
     first_value = next(iter(payload.values()), {})
     return first_value if isinstance(first_value, dict) else {}
+
+
+def _core_metrics(core: dict[str, Any]) -> dict[str, Any]:
+    """从统一存储载荷或历史键中提取完整 V1 指标。"""
+    return extract_core_metrics(core)
+
+
+def _core_weighted_metrics(core: dict[str, Any]) -> dict[str, Any]:
+    """从统一存储载荷或历史兄弟键中提取比例后单品指标。"""
+    return extract_core_weighted_metrics(core)
 
 
 def _extract_return_date_from_result_payload(result_payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -283,88 +325,42 @@ def _year_key(value: Any) -> str:
 
 
 def _derive_year_max_excess_drawdown(calculate_metrics: dict[str, Any]) -> float | None:
-    annual_excess_returns = [
-        (year, _safe_number(item.get("annualized_return_diff")))
-        for item in calculate_metrics.get("excess_returns") or []
-        if isinstance(item, dict)
-        for year in [_year_key(item.get("year"))]
-        if year
-    ]
-    if not annual_excess_returns:
-        return None
-
-    excess_years = {
-        year
-        for year, annualized_return_diff in annual_excess_returns
-        if annualized_return_diff is not None and annualized_return_diff > 0
-    }
-    if not excess_years:
-        return 0.0
-
-    index_max_dd = calculate_metrics.get("index_maximum_drawdown") or {}
-    start_max_dd = calculate_metrics.get("start_maximum_drawdown") or {}
-    index_year_map = {
-        year: item
-        for item in index_max_dd.get("year_maximum_drawdown", [])
-        if isinstance(item, dict)
-        for year in [_year_key(item.get("year"))]
-        if year in excess_years
-    }
-    start_year_map = {
-        year: item
-        for item in start_max_dd.get("year_maximum_drawdown", [])
-        if isinstance(item, dict)
-        for year in [_year_key(item.get("year"))]
-        if year in excess_years
-    }
-
-    diffs = []
-    for year, index_item in index_year_map.items():
-        start_item = start_year_map.get(year) or {}
-        index_drawdown = _safe_number(index_item.get("drawdown"))
-        start_drawdown = _safe_number(start_item.get("drawdown"))
-        if index_drawdown is None or start_drawdown is None:
-            continue
-        diffs.append(start_drawdown - index_drawdown)
-    return max(diffs) if diffs else None
+    """旧预览摘要契约：正值"跌幅优势"（index−start），共享实现见 historical_metrics。"""
+    return derive_year_max_excess_drawdown(
+        calculate_metrics, _safe_number, _year_key, direction=1,
+    )
 
 
-def _negative_number(value: Any) -> float | None:
+def _canonical_drawdown(value: Any) -> float | None:
+    """将历史正值跌幅转换为负值，避免重复转换统一结果。"""
     number = _safe_number(value)
     if number is None:
         return None
-    if number == 0:
-        return 0.0
-    return -abs(number)
+    return -abs(number) if number > 0 else number
 
 
 def _fmt_value(value: Any, value_type: str) -> str:
     number = _safe_number(value)
     if number is None:
-        return "" if value in (None, "") else str(value)
+        # dict/list 是年份序列等未展开数据，不转成字符串文本，前端以 "-" 展示。
+        if value in (None, "") or isinstance(value, (dict, list)):
+            return ""
+        return str(value)
     if value_type == "percent":
         return f"{number:.2%}"
     return f"{number:.2f}".rstrip("0").rstrip(".")
 
-
-def _scale_return_date(
+def _weight_return_date(
     return_date: list[dict[str, Any]],
     ratio: Any,
+    weighting_mode: str,
 ) -> list[dict[str, Any]]:
-    ratio_value = float(parse_ratio(ratio) / RATIO_BASE)
-    scaled = []
-    for item in return_date:
-        date = item.get("date") or item.get("stock_date")
-        index_return = _safe_number(item.get("index_return"))
-        start_return = _safe_number(item.get("start_return"))
-        if not date or index_return is None or start_return is None:
-            continue
-        scaled.append({
-            "date": date,
-            "index_return": index_return * ratio_value,
-            "start_return": start_return * ratio_value,
-        })
-    return scaled
+    """使用统一组合器计算单个产品的比例贡献。"""
+    mode = normalize_weighting_mode(weighting_mode)
+    return _canonical_combine_product_returns(
+        [{"returns": return_date, "ratio": ratio}],
+        weighting_mode=mode,
+    )
 
 
 def _build_returns_json(return_date: list[dict[str, Any]]) -> str:
@@ -403,9 +399,9 @@ def _parse_returns_json(raw: Any) -> list[dict[str, Any]]:
 
 def _get_return_date_for_task_result(task_result: TaskResult) -> list[dict[str, Any]]:
     if task_result.return_series_id:
-        return_series = db.session.get(TaskResultReturn, task_result.return_series_id)
+        return_series = task_result_repository.get_return_entity(task_result.return_series_id)
         if return_series:
-            return _parse_returns_json(return_series.returns_json)
+            return parse_return_series_fields(return_series)
     return _extract_return_date_from_result_payload(_parse_json(task_result.result, {}))
 
 
@@ -413,102 +409,127 @@ def _set_weighted_metrics_on_result_payload(
     result_payload: dict[str, Any],
     weighted_calculate_metrics: dict[str, Any],
 ) -> dict[str, Any]:
+    """将比例后单品指标写入统一存储载荷；旧缓存载荷回退到兄弟键。"""
     if not isinstance(result_payload, dict) or not result_payload:
         return result_payload
     first_key = next(iter(result_payload))
     value = result_payload.get(first_key)
     if isinstance(value, dict):
-        value["weighted_calculate_metrics"] = weighted_calculate_metrics
+        metrics_payload = value.get("metrics_payload")
+        if isinstance(metrics_payload, dict):
+            metrics_payload["weighted_metrics"] = weighted_calculate_metrics
+        else:
+            # 固定产品缓存命中的旧载荷没有 metrics_payload，保留兄弟键写入。
+            value["weighted_calculate_metrics"] = weighted_calculate_metrics
     return result_payload
 
 
-def _return_date_by_date(return_date: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
-    rows: dict[str, dict[str, float]] = {}
-    for item in return_date:
-        if not isinstance(item, dict):
-            continue
-        date = str(item.get("date") or item.get("stock_date") or "").strip()
-        index_return = _safe_number(item.get("index_return"))
-        start_return = _safe_number(item.get("start_return"))
-        if not date or index_return is None or start_return is None:
-            continue
-        rows[date] = {
-            "index_return": index_return,
-            "start_return": start_return,
-        }
-    return rows
+def _is_zero_ratio_product(product: Any) -> bool:
+    """比例明确为 0 的产品不进入组合；比例缺失/非法时视为参与（保持旧行为）。"""
+    if not isinstance(product, dict):
+        return False
+    try:
+        return parse_ratio(product.get("ratio")) == 0
+    except ValidationError:
+        return False
+
+
+def build_product_export_weights(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """导出侧产品权重说明（比例 0 产品不参与组合，权重取统一归一化入口）。"""
+    meta = []
+    for product in products:
+        included = not _is_zero_ratio_product(product)
+        meta.append({
+            "product_index": int(product["product_index"]),
+            "stock_code": product.get("stock_code"),
+            "product_name": product.get("product_name"),
+            "ratio": product.get("ratio"),
+            "weight": float(normalize_weight(product.get("ratio"))) if included else None,
+            "included": included,
+        })
+    return meta
 
 
 def _build_portfolio_return_date(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
+    weighting_mode: str = "daily_compound",
 ) -> list[dict[str, Any]]:
-    product_return_maps: list[tuple[dict[str, dict[str, float]], Decimal]] = []
-    common_dates: set[str] | None = None
-
-    for product in products:
-        product_index = int(product["product_index"])
-        product_result = product_results.get(product_index) or {}
-        return_map = _return_date_by_date(product_result.get("return_date") or [])
-        if not return_map:
-            return []
-        common_dates = set(return_map) if common_dates is None else common_dates & set(return_map)
-        product_return_maps.append((return_map, parse_ratio(product.get("ratio")) / RATIO_BASE))
-
-    if not common_dates:
-        return []
-
-    return_date = []
-    for date in sorted(common_dates):
-        index_total = Decimal("0")
-        start_total = Decimal("0")
-        for return_map, ratio in product_return_maps:
-            row = return_map[date]
-            index_total += Decimal(str(row["index_return"])) * ratio
-            start_total += Decimal(str(row["start_return"])) * ratio
-        return_date.append({
-            "date": date,
-            "index_return": float(index_total),
-            "start_return": float(start_total),
-        })
-    return return_date
+    """多产品统一组合器的兼容包装。"""
+    mode = normalize_weighting_mode(weighting_mode)
+    inputs = [
+        {
+            "returns": (product_results.get(int(product["product_index"])) or {}).get("return_date") or [],
+            "ratio": product.get("ratio"),
+            "stock_code": product.get("stock_code"),
+        }
+        for product in products
+        if not _is_zero_ratio_product(product)
+    ]
+    return _canonical_combine_product_returns(inputs, weighting_mode=mode)
 
 
 def _build_portfolio_metrics(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
+    weighting_mode: str = "daily_compound",
 ) -> dict[str, Any]:
-    return_date = _build_portfolio_return_date(product_results, products)
+    return_date = _build_portfolio_return_date(
+        product_results,
+        products,
+        weighting_mode,
+    )
     if not return_date:
         return {}
-    calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(return_date)
-    return calculate_metrics if isinstance(calculate_metrics, dict) else {}
+    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(return_date)
+    return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 
 def _build_weighted_product_metrics(
     return_date: list[dict[str, Any]],
     ratio: Any,
+    weighting_mode: str = "daily_compound",
 ) -> dict[str, Any]:
-    scaled = _scale_return_date(return_date, ratio)
-    if not scaled:
+    weighted_return_date = _weight_return_date(
+        return_date,
+        ratio,
+        weighting_mode,
+    )
+    if not weighted_return_date:
         return {}
-    calculate_metrics = xpl_analyzer.get_calculate_metrics_v1(scaled)
-    return calculate_metrics if isinstance(calculate_metrics, dict) else {}
+    calculate_metrics = performance_analyzer.get_calculate_metrics_v1(weighted_return_date)
+    return json.loads(calculate_metrics) if isinstance(calculate_metrics, str) else calculate_metrics
 
 
 def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
-    excess_all = _all_entry(calculate_metrics.get("excess_returns"))
-    index_profit_monthly_all = _all_entry(calculate_metrics.get("index_profit_monthly"))
-    start_profit_monthly_all = _all_entry(calculate_metrics.get("start_profit_monthly"))
-    monthly_excess_percentage_all = _all_entry(
-        calculate_metrics.get("monthly_excess_return_percentage")
-    )
-    index_kama_all = _all_entry(calculate_metrics.get("index_kama_ratio"))
-    start_kama_all = _all_entry(calculate_metrics.get("start_kama_ratio"))
-    index_sotino_all = _all_entry(calculate_metrics.get("index_sotino_ratio"))
-    start_sotino_all = _all_entry(calculate_metrics.get("start_sotino_ratio"))
-    index_sharpe_all = (calculate_metrics.get("index_sharpe_ratios") or {}).get("all") or {}
-    start_sharpe_all = (calculate_metrics.get("start_sharpe_ratios") or {}).get("all") or {}
+    def _metric_value(*keys: str) -> Any:
+        for key in keys:
+            value = calculate_metrics.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    def _scalar_metric_value(*keys: str) -> Any:
+        value = _metric_value(*keys)
+        return value if not isinstance(value, (dict, list, tuple)) else None
+
+    def _first_value(*values: Any) -> Any:
+        for value in values:
+            if value not in (None, ""):
+                return value
+        return None
+
+    entries = collect_summary_all_entries(calculate_metrics)
+    excess_all = entries["excess_all"]
+    index_profit_monthly_all = entries["index_profit_monthly_all"]
+    start_profit_monthly_all = entries["start_profit_monthly_all"]
+    monthly_excess_percentage_all = entries["monthly_excess_percentage_all"]
+    index_kama_all = entries["index_kama_all"]
+    start_kama_all = entries["start_kama_all"]
+    index_sortino_all = entries["index_sortino_all"]
+    start_sortino_all = entries["start_sortino_all"]
+    index_sharpe_all = entries["index_sharpe_all"]
+    start_sharpe_all = entries["start_sharpe_all"]
     monthly_excess_returns = calculate_metrics.get("monthly_excess_returns") or []
     monthly_excess_values = [
         item.get("monthly_excess_return_diff")
@@ -524,41 +545,67 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
         (calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown")
         or {}
     )
+    index_total_max_drawdown = (
+        (calculate_metrics.get("index_maximum_drawdown") or {}).get("total_maximum_drawdown")
+        or {}
+    )
     year_max_excess_drawdown = _derive_year_max_excess_drawdown(calculate_metrics)
     return {
-        "index_annualized_return": excess_all.get("index_annualized_return"),
-        "start_annualized_return": excess_all.get("start_annualized_return"),
-        "annualized_return_diff": excess_all.get("annualized_return_diff"),
+        "index_annualized_return": _first_value(excess_all.get("index_annualized_return"), _metric_value("index_annualized_return")),
+        "start_annualized_return": _first_value(excess_all.get("start_annualized_return"), _metric_value("start_annualized_return")),
+        "annualized_return_diff": _first_value(excess_all.get("annualized_return_diff"), _metric_value("annualized_return_diff")),
         "index_profit_annual": calculate_metrics.get("index_profit_annual"),
         "start_profit_annual": calculate_metrics.get("start_profit_annual"),
-        "index_profit_monthly_percentage": index_profit_monthly_all.get("profit_monthly_percentage"),
-        "start_profit_monthly_percentage": start_profit_monthly_all.get("profit_monthly_percentage"),
-        "index_avg_monthly_return": index_sharpe_all.get("avg_monthly_return"),
-        "start_avg_monthly_return": start_sharpe_all.get("avg_monthly_return"),
+        "index_profit_monthly_percentage": _first_value(index_profit_monthly_all.get("profit_monthly_percentage"), _metric_value("index_profit_monthly_percentage")),
+        "start_profit_monthly_percentage": _first_value(start_profit_monthly_all.get("profit_monthly_percentage"), _metric_value("start_profit_monthly_percentage")),
+        "index_avg_monthly_return": _first_value(index_sharpe_all.get("avg_monthly_return"), _metric_value("index_avg_monthly_return_common", "index_avg_monthly_return")),
+        "start_avg_monthly_return": _first_value(start_sharpe_all.get("avg_monthly_return"), _metric_value("start_avg_monthly_return_common", "start_avg_monthly_return")),
         "index_monthly_return_volatility": calculate_metrics.get("index_monthly_return_volatility"),
         "start_monthly_return_volatility": calculate_metrics.get("start_monthly_return_volatility"),
         "outperform_year": calculate_metrics.get("outperform_year"),
-        "monthly_excess_return_percentage": monthly_excess_percentage_all.get("excess_return"),
-        "avg_monthly_excess_return": avg_monthly_excess_return,
+        "monthly_excess_return_percentage": _first_value(monthly_excess_percentage_all.get("excess_return"), _metric_value("monthly_excess_return_percentage", "monthly_excess_return_percentage_last_return")),
+        "avg_monthly_excess_return": _first_value(avg_monthly_excess_return, _metric_value("avg_monthly_excess_returns", "avg_monthly_excess_return")),
         "monthly_excess_volatility": calculate_metrics.get("monthly_excess_volatility"),
-        "year_max_excess_drawdown": year_max_excess_drawdown,
+        "year_max_excess_drawdown": year_max_excess_drawdown if year_max_excess_drawdown is not None else _metric_value("max_drawdown", "year_max_excess_drawdown"),
         "excess_drawdown_winning_rate": _safe_number(calculate_metrics.get("excess_drawdown_winning_rate")),
-        "start_max_drawdown": _negative_number(total_max_drawdown.get("drawdown")),
+        "start_max_drawdown": _canonical_drawdown(_first_value(
+            total_max_drawdown.get("drawdown"), _metric_value("start_drawdown", "start_max_drawdown")
+        )),
+        "index_max_drawdown": _canonical_drawdown(_first_value(
+            index_total_max_drawdown.get("drawdown"), _metric_value("index_drawdown", "index_max_drawdown")
+        )),
         "start_maximum_number_of_backtest_repair_days": calculate_metrics.get("start_maximum_number_of_backtest_repair_days"),
+        "index_maximum_number_of_backtest_repair_days": calculate_metrics.get("index_maximum_number_of_backtest_repair_days"),
         "excess_maximum_number_of_backtest_repair_days": calculate_metrics.get("excess_maximum_number_of_backtest_repair_days"),
-        "index_sharpe_ratio": index_sharpe_all.get("sharpe_ratio"),
-        "start_sharpe_ratio": start_sharpe_all.get("sharpe_ratio"),
-        "index_kama_ratio": index_kama_all.get("kama_ratio"),
-        "start_kama_ratio": start_kama_all.get("kama_ratio"),
-        "index_sotino_ratio": index_sotino_all.get("sotino_ratio"),
-        "start_sotino_ratio": start_sotino_all.get("sotino_ratio"),
-        "excess_sharp": calculate_metrics.get("excess_sharp"),
-        "excess_of_promissory_note": calculate_metrics.get("excess_of_promissory_note"),
+        "start_year_max_repair_days": max_yearly_repair_days(
+            calculate_metrics.get("year_start_yearly_max_repair_days")
+        ),
+        "index_year_max_repair_days": max_yearly_repair_days(
+            calculate_metrics.get("year_index_yearly_max_repair_days")
+        ),
+        "index_sharpe_ratio": _first_value(index_sharpe_all.get("sharpe_ratio"), _metric_value("index_sharpe_ratio")),
+        "start_sharpe_ratio": _first_value(start_sharpe_all.get("sharpe_ratio"), _metric_value("start_sharpe_ratio")),
+        "index_kama_ratio": _first_value(index_kama_all.get("kama_ratio"), _metric_value("index_kama_ratio")),
+        "start_kama_ratio": _first_value(start_kama_all.get("kama_ratio"), _metric_value("start_kama_ratio")),
+        "index_sortino_ratio": _first_value(
+            index_sortino_all.get("sortino_ratio"),
+            _scalar_metric_value("index_sortino_ratio"),
+        ),
+        "start_sortino_ratio": _first_value(
+            start_sortino_all.get("sortino_ratio"),
+            _scalar_metric_value("start_sortino_ratio"),
+        ),
+        "excess_sharpe": calculate_metrics.get("excess_sharpe"),
+        "excess_sortino": calculate_metrics.get("excess_sortino"),
     }
 
 
 class BacktestMultiProductService(BacktestTrainingService):
-    """Multi-product backtest service with independent product sheets."""
+    """多品回测执行服务。
+
+    多品任务按“参数方案 × 产品”展开执行；每个产品使用独立 Sheet，
+    最终结果再按产品比例合成为组合收益。固定产品支持同批缓存复用。
+    """
 
     @staticmethod
     def _build_fixed_product_cache_key(
@@ -595,11 +642,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             return False
         for parameter in parameters:
             cache_key = cls._build_fixed_product_cache_key(config_data, product, parameter)
-            exists = BacktestProductResultCache.query.filter_by(
-                batch_id=batch_id,
-                cache_key=cache_key,
-            ).first()
-            if not exists:
+            if not backtest_repository.exists_product_cache(batch_id, cache_key):
                 return False
         return True
 
@@ -613,17 +656,14 @@ class BacktestMultiProductService(BacktestTrainingService):
         if not batch_id or not _is_fixed_product(product):
             return None
         cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
-        cache_entry = BacktestProductResultCache.query.filter_by(
-            batch_id=batch_id,
-            cache_key=cache_key,
-        ).first()
+        cache_entry = backtest_repository.get_product_cache(batch_id, cache_key)
         if not cache_entry:
             return None
         return {
-            "result_json": cache_entry.result_json,
-            "returns_json": cache_entry.returns_json,
-            "source_task_id": cache_entry.source_task_id,
-            "source_step_index": cache_entry.source_step_index,
+            "result_json": cache_entry["result_json"],
+            "returns_json": cache_entry["returns_json"],
+            "source_task_id": cache_entry["source_task_id"],
+            "source_step_index": cache_entry["source_step_index"],
         }
 
     def _save_fixed_product_cache(
@@ -640,21 +680,16 @@ class BacktestMultiProductService(BacktestTrainingService):
             return
 
         cache_key = self._build_fixed_product_cache_key(config_data, product, parameter)
-        if BacktestProductResultCache.query.filter_by(batch_id=batch_id, cache_key=cache_key).first():
-            return
-
-        db.session.add(BacktestProductResultCache(
-            batch_id=batch_id,
-            cache_key=cache_key,
-            result_json=json.dumps(self._sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
-            returns_json=_build_returns_json(return_date or []) if return_date else None,
-            source_task_id=self.task_id,
-            source_step_index=step_index,
-        ))
-        try:
-            db.session.commit()
-        except IntegrityError:
-            db.session.rollback()
+        backtest_repository.insert_product_cache_if_absent(
+            batch_id,
+            cache_key,
+            {
+                "result_json": json.dumps(self._sanitize_json_value(result_payload), ensure_ascii=False, allow_nan=False),
+                "returns_json": _build_returns_json(return_date or []) if return_date else None,
+                "source_task_id": self.task_id,
+                "source_step_index": step_index,
+            },
+        )
 
     def _build_cached_result_parameters(
         self,
@@ -677,6 +712,7 @@ class BacktestMultiProductService(BacktestTrainingService):
             "product_index": int(product["product_index"]),
             "product_name": product["product_name"],
             "ratio": product["ratio"],
+            "weighting_mode": config_data["weighting_mode"],
             "parameter_group_index": group_index,
             "kline": [dates[0], dates[-1]] if dates else [],
             "start_date": config_data["start_date"],
@@ -738,7 +774,7 @@ class BacktestMultiProductService(BacktestTrainingService):
         try:
             context_app = self.app or current_app
             with context_app.app_context():
-                task = db.session.get(Task, self.task_id)
+                task = task_repository.get_entity(self.task_id)
                 self.task = task
                 if not task:
                     self._log_error(f"任务 {self.task_id} 不存在")
@@ -747,32 +783,37 @@ class BacktestMultiProductService(BacktestTrainingService):
                     self._log_info(f"任务 {self.task_id} 已被取消，停止执行")
                     return "cancelled"
 
+                # 多品配置在执行前统一归一化，确保产品级字段和任务级默认值格式一致。
                 raw_config = _parse_json(task.config, {})
                 config_data = {
                     **get_config_manager().get_google_sheet_config(),
                     **normalize_multi_product_config(raw_config),
                 }
                 self.task_name = task.name
+                # _execute_products 负责展开执行矩阵；组合收益由预览阶段按比例聚合。
                 result = self._execute_products(task, config_data)
                 if result == "completed":
                     self.task_ok_to_dd("多品数据回测任务执行完成")
                 return result
         except Exception as exc:
-            root = unwrap_exception(exc) or exc
-            if self.task:
-                self.task.error_message = build_task_error_message(exc)
-                db.session.commit()
+            root, error_summary = summarize_task_exception(
+                self.task_id, exc, "execute_task", self.app,
+                log_warning=self._log_warning,
+            )
             self._log_error(f"执行多品数据回测任务失败: {self.task_id}, 错误: {root}")
+            self._log_error(f"任务异常摘要: {error_summary}")
             return "error"
 
     def _execute_products(self, task: Task, config_data: dict[str, Any]) -> str:
+        """按产品和参数方案执行，并为每个步骤保存可恢复结果。"""
         products = config_data["products"]
         parameter_count = len(products[0]["parameters"])
         total_steps = parameter_count * len(products)
         task.total_steps = total_steps
-        db_retry_manager.commit_with_retry(db.session)
+        task_result_repository.commit_with_retry()
         self._log_info(f"将执行 {parameter_count} 个参数方案、{len(products)} 个产品，共 {total_steps} 步")
 
+        # current_step 与 TaskResult.step_index 都是全局步骤索引，而不是单个产品内索引。
         start_index = self._resolve_resume_start_index(task)
         sheet_kline_cache: dict[str, dict[str, Any]] = {}
         kline_cache: dict[int, dict[str, Any]] = {}
@@ -788,11 +829,8 @@ class BacktestMultiProductService(BacktestTrainingService):
                     processed_index += 1
                     continue
 
-                result = safe_db_operation(lambda: db.session.execute(
-                    text("SELECT status FROM tasks WHERE id = :task_id"),
-                    {"task_id": self.task_id},
-                ).fetchone())
-                if not result or result.status == "cancelled":
+                result = task_repository.get_status_value(self.task_id)
+                if not result or result == "cancelled":
                     self._log_warning("任务已被取消，停止执行")
                     return "cancelled"
 
@@ -801,6 +839,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                 sheet_cache_key = self._build_sheet_cache_key(product)
                 parameter = product["parameters"][group_index]
                 product_config = self._build_product_config(config_data, product)
+                # 固定产品在同批任务中结果不变，命中缓存即可直接落库，避免重复访问外部 Sheet。
                 cached_fixed_result = self._get_fixed_product_cache(config_data, product, parameter)
                 if cached_fixed_result:
                     self._update_task_progress(current_step)
@@ -819,21 +858,30 @@ class BacktestMultiProductService(BacktestTrainingService):
                     processed_index += 1
                     self._log_info(f"第 {current_step} 步执行成功（缓存复用）")
                     continue
+                # 非缓存路径切换到当前产品的 Sheet；行情按 product_index 缓存，参数组合继续复用。
                 self._init_google_sheet(product_config)
                 kline_info = kline_cache.get(product_index)
                 if not kline_info:
                     kline_info = self._build_product_kline(product, config_data)
                     kline_cache[product_index] = kline_info
+                # set_googl_val 的清空范围按 column_A_length+2 计算；在执行前就抬到当前产品
+                # K线长度（含历史最大值），否则首步初始为 0 时清空范围只到第 2 行，
+                # 残留旧行不会被清掉。
+                column_A_length = max(column_A_length, len(kline_info["kline"]))
                 sheet_cache = sheet_kline_cache.setdefault(sheet_cache_key, {"combination": {}})
                 cached_combination = sheet_cache.get("combination") or {}
-                if cached_combination.get("product_index") != product_index:
+                rewrite_kline = cached_combination.get("product_index") != product_index
+                if rewrite_kline:
                     sheet_cache["combination"] = {}
 
                 input_column_d, input_column_v, output_range_1, output_range_2, output_column_index, output_column_start, parameter_positions, check_positions, last_row = self._c3_to_c5_get_config(
                     product_config)
-                A_num = self.google_sheet.get_last_row('A')
-                self._log_info(f'{self.google_sheet.title} 当前A列行数: {A_num}, 准备滞空 A列 B列')
-                self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
+                if hasattr(self, "google_sheet") and rewrite_kline:
+                    # 仅在即将重写行情时按输入列真实末行清空（C7.0.3 行情在 CC:CG，A 列行数
+                    # 不代表数据长度）；同源复用参数组合的步骤不清空，避免误删已写入的K线。
+                    A_num = self.google_sheet.get_last_row(last_row)
+                    self._log_info(f'{self.google_sheet.title} 当前{last_row}列行数: {A_num}, 准备滞空 {input_column_d}列 {input_column_v}列')
+                    self.google_sheet.clear_range(f"{input_column_d}2:{input_column_v}{A_num+2}")
 
                 combination = {
                     "parameter": parameter,
@@ -844,6 +892,7 @@ class BacktestMultiProductService(BacktestTrainingService):
                     "product_index": product_index,
                     "product_name": product["product_name"],
                     "ratio": product["ratio"],
+                    "weighting_mode": config_data["weighting_mode"],
                     "parameter_group_index": group_index,
                 }
                 self._log_step(
@@ -867,8 +916,8 @@ class BacktestMultiProductService(BacktestTrainingService):
                         return "error"
 
                     kline = kline_info["kline"]
-                    column_A_length = len(kline)
 
+                    # 每一步先保存明细结果，再写入固定产品缓存，保证任务结果始终可恢复。
                     self._save_task_result(current_step - 1, {
                         **combination,
                         "kline": [kline[0], kline[-1]],
@@ -892,7 +941,15 @@ class BacktestMultiProductService(BacktestTrainingService):
                 except Exception as exc:
                     self._raise_retryable_network_error(exc, f"第 {current_step} 步网络请求失败")
                     failed_count += 1
-                    self._log_error(f"第 {current_step} 步执行出错: {traceback.format_exc()}")
+                    record = record_task_exception(
+                        self.task_id,
+                        exc,
+                        "execute_product_step",
+                        self.app,
+                    )
+                    self._log_error(
+                        f"第 {current_step} 步执行出错: {format_task_error_message(record)}"
+                    )
                     return "error"
                 processed_index += 1
 
@@ -900,56 +957,32 @@ class BacktestMultiProductService(BacktestTrainingService):
         return "completed" if success_count else "error"
 
     def _update_task_progress(self, current_step: int) -> None:
-        task = db.session.get(Task, self.task_id)
+        task = task_repository.get_entity(self.task_id)
         if not task:
             return
         task.current_step = current_step
-        db_retry_manager.commit_with_retry(db.session)
+        task_result_repository.commit_with_retry()
 
-    def _save_task_result(
-        self,
-        step_index: int,
-        parameters,
-        result: dict[str, Any],
-        success: bool,
-        *,
-        return_date: list[dict[str, Any]] | None = None,
-    ):
-        def save_result_operation():
-            safe_parameters = self._sanitize_json_value(parameters)
-            safe_result_payload = dict(result) if isinstance(result, dict) else {}
-            weighted_calculate_metrics = _build_weighted_product_metrics(return_date or [], safe_parameters.get("ratio"))
-            safe_result_payload = _set_weighted_metrics_on_result_payload(
-                safe_result_payload,
-                weighted_calculate_metrics,
-            )
-            safe_result = self._sanitize_json_value(safe_result_payload)
-            task_result = TaskResult(
-                task_id=self.task_id,
-                step_index=step_index,
-                parameters=json.dumps(safe_parameters, allow_nan=False),
-                result=json.dumps(safe_result, allow_nan=False),
-                success=success,
-            )
-            db.session.add(task_result)
-            db.session.flush()
-            if return_date:
-                return_series = TaskResultReturn(
-                    task_id=self.task_id,
-                    returns_json=_build_returns_json(return_date),
-                )
-                db.session.add(return_series)
-                db.session.flush()
-                task_result.return_series_id = return_series.id
+    def _build_task_result_persistence_payload(self, safe_parameters, result, return_date=None):
+        """多品结果持久化前叠加加权组合指标。"""
+        safe_result_payload = dict(result) if isinstance(result, dict) else {}
+        weighted_calculate_metrics = _build_weighted_product_metrics(
+            return_date or [],
+            safe_parameters.get("ratio"),
+            normalize_weighting_mode(safe_parameters.get("weighting_mode")),
+        )
+        return _set_weighted_metrics_on_result_payload(
+            safe_result_payload,
+            weighted_calculate_metrics,
+        )
 
-            db.session.commit()
-
-        try:
-            context_app = self.app or current_app
-            with context_app.app_context():
-                safe_db_operation(save_result_operation)
-        except Exception as exc:
-            self._log_error(f"保存多品任务结果失败: {exc}")
+    def _get_return_series_stock_name(self, safe_parameters):
+        """多品结果缺 stock_name 时依次回退 product_name、stock_code。"""
+        return (
+            safe_parameters.get("stock_name")
+            or safe_parameters.get("product_name")
+            or safe_parameters.get("stock_code")
+        )
 
     def _build_product_config(self, config_data: dict[str, Any], product: dict[str, Any]) -> dict[str, Any]:
         product_config = dict(config_data)
@@ -965,13 +998,22 @@ class BacktestMultiProductService(BacktestTrainingService):
         return product_config
 
     def _build_product_kline(self, product: dict[str, Any], config_data: dict[str, Any]) -> dict[str, Any]:
+        # C7.0.3 模板执行时写回 OHLC 四价列并校验四价字段（_execute_parameter_combination），
+        # K线投影必须带 OHLC；价格模式强制与单品回测 get_bdl 的行为保持一致。
+        is_c7_0_3 = self._is_c7_0_3({"sheet": product.get("sheet") or {}})
         kline = self._get_kline_by_date_range(
             product["stock_code"],
             product["market_type"],
             config_data["start_date"],
             config_data["end_date"],
-            price_mode=product.get("price_mode") or config_data.get("price_mode", "sp_price"),
+            price_mode=(
+                "ohlc_price" if is_c7_0_3
+                else (product.get("price_mode") or config_data.get("price_mode", "vwap_price"))
+            ),
             adjust_type=product.get("kline_adjustment", "forward"),
+            data_source=product.get("kline_data_source") or config_data.get("kline_data_source", "akshare"),
+            exchange_market=product.get("exchange_market"),
+            include_ohlc=is_c7_0_3,
         )
         kline_key = f"{config_data['start_date']}~{config_data['end_date']}"
         return {
@@ -1015,194 +1057,51 @@ class BacktestMultiProductService(BacktestTrainingService):
         start_date: str,
         end_date: str,
         *,
-        price_mode: str = "sp_price",
+        price_mode: str = "vwap_price",
         adjust_type: str | None = None,
+        data_source: str = "akshare",
+        exchange_market: str | None = None,
+        include_ohlc: bool = False,
     ) -> list[dict[str, Any]]:
-        price_field = "stock_kp" if price_mode == "kp_price" else "stock_sp"
         market_type = normalize_market_type(market_type)
-        start_year = int(start_date[:4])
-        end_year = int(end_date[:4])
-        year_count = max(1, end_year - start_year + 1)
-        limit = max(300, year_count * (250 if market_type == "cn" else 252) + 120)
+        current_date = datetime.now().date()
+        requested_start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+        calendar_days = max(1, (current_date - requested_start_date).days)
+        trading_days_per_year = 250 if market_type == "cn" else 252
+        limit = max(300, math.ceil(calendar_days * trading_days_per_year / 365.25) + 120)
 
-        if market_type == "cn":
-            resolved_code, market = self._resolve_cn_stock_quote(stock_code)
-            klines = self.dfcf_api.get_stock_kline_data(resolved_code, market, limit, adjust_type=adjust_type)
-        else:
-            klines = self.YF_api.get_kline_data(stock_code, "10y", adjust_type=adjust_type)
+        klines = self.kline_service.get_kline_data(
+            stock_code,
+            market_type,
+            limit,
+            data_source=data_source,
+            start_date=start_date,
+            end_date=end_date,
+            adjust_type=adjust_type,
+            exchange_market=exchange_market,
+        )
 
         if not klines:
             raise ValueError(f"股票 {stock_code} 没有 K 线数据")
         data_start_date = klines[0]["stock_date"]
         data_end_date = klines[-1]["stock_date"]
-        if start_date < data_start_date or end_date > data_end_date:
+        # 设定起点早于K线首日（如节假日/休市日）时，从数据首日（往后第一个交易日）开始，
+        # 与 C3/单产品训练的宽松语义一致；build_price_rows 闭区间过滤天然完成截取。
+        if start_date < data_start_date:
+            self._log_info(
+                f"股票{stock_code} 设定区间起点 {start_date} 早于K线首日 {data_start_date}，"
+                f"将从K线首日开始执行"
+            )
+            start_date = data_start_date
+        if end_date > data_end_date:
             raise ValueError(
                 f"股票{stock_code} 设定区间 [{start_date}, {end_date}] "
                 f"不在K线数据范围 [{data_start_date}, {data_end_date}] 内"
             )
-        kline = [
-            {"stock_date": item["stock_date"], "stock_val": item[price_field]}
-            for item in klines
-            if start_date <= item["stock_date"] <= end_date
-        ]
+        kline = self.kline_service.build_price_rows(
+            klines, price_mode, start_date=start_date, end_date=end_date, include_ohlc=include_ohlc,
+        )
         if len(kline) < 100:
             raise ValueError(f"股票{stock_code} 数据量不足，K线数据量小于100条")
         return kline
 
-
-def build_multi_product_global_preview_payload(
-    task_id: str,
-    ratios_override: list[Any] | None = None,
-) -> dict[str, Any] | None:
-    task = db.session.get(Task, task_id)
-    if not task or task.task_type != BACKTEST_MULTI_PRODUCT_TASK_TYPE:
-        return None
-    config = normalize_multi_product_config(task.to_dict().get("config") or {})
-    products = config["products"]
-    if ratios_override is not None:
-        if len(ratios_override) != len(products):
-            raise ValueError("比例数量与产品数量不一致")
-        for product, ratio in zip(products, ratios_override):
-            product["ratio"] = normalize_ratio_display(
-                ratio.get("ratio") if isinstance(ratio, dict) else ratio
-            )
-    results = (
-        TaskResult.query
-        .filter_by(task_id=task_id)
-        .order_by(TaskResult.step_index.asc(), TaskResult.timestamp.asc(), TaskResult.id.asc())
-        .all()
-    )
-    cache_key = _global_preview_cache_key(task_id, products, results)
-    cached_payload = _get_global_preview_cache(cache_key)
-    if cached_payload is not None:
-        return cached_payload
-
-    groups: OrderedDict[str, dict[str, Any]] = OrderedDict()
-    success_count = 0
-    failed_count = 0
-
-    for result in results:
-        parameters = _parse_json(result.parameters, {})
-        group_index = int(parameters.get("parameter_group_index") or 0)
-        group_key = str(group_index)
-        group = groups.setdefault(group_key, {
-            "group_key": group_key,
-            "group_label": f"参数方案 {group_index + 1}",
-            "parameter_group_index": group_index,
-            "products": products,
-            "product_results": {},
-            "failed_results": 0,
-        })
-        product_index = int(parameters.get("product_index") or 0)
-        if not result.success:
-            failed_count += 1
-            group["failed_results"] += 1
-            continue
-        success_count += 1
-        core = _extract_result_core(result)
-        calculate_metrics = core.get("calculate_metrics") if isinstance(core, dict) else {}
-        weighted_calculate_metrics = core.get("weighted_calculate_metrics") if isinstance(core, dict) else {}
-        group["product_results"][product_index] = {
-            "result_id": result.id,
-            "step_index": result.step_index,
-            "timestamp": result.timestamp.isoformat() if result.timestamp else None,
-            "parameters": parameters,
-            "metrics": _derive_metrics(calculate_metrics if isinstance(calculate_metrics, dict) else {}),
-            "return_date": _get_return_date_for_task_result(result),
-            "weighted_metrics": (
-                _derive_metrics(weighted_calculate_metrics)
-                if isinstance(weighted_calculate_metrics, dict) and weighted_calculate_metrics
-                else {}
-            ),
-        }
-
-    serialized_groups = []
-    for group in groups.values():
-        portfolio_metrics = _derive_metrics(_build_portfolio_metrics(group["product_results"], products))
-        weighted_metrics_by_product: dict[int, dict[str, Any]] = {}
-        metrics_by_product: dict[int, dict[str, Any]] = {}
-        for product in products:
-            product_index = int(product["product_index"])
-            product_result = group["product_results"].get(product_index) or {}
-            metrics_by_product[product_index] = product_result.get("metrics") or {}
-            weighted_metrics = product_result.get("weighted_metrics") or {}
-            current_ratio = (products[product_index] if product_index < len(products) else {}).get("ratio")
-            saved_ratio = str((product_result.get("parameters") or {}).get("ratio") or "").strip()
-            if not weighted_metrics or saved_ratio != str(current_ratio or "").strip():
-                weighted_metrics = _derive_metrics(
-                    _build_weighted_product_metrics(
-                        product_result.get("return_date") or [],
-                        current_ratio,
-                    )
-                )
-                product_result["weighted_metrics"] = weighted_metrics
-            weighted_metrics_by_product[product_index] = weighted_metrics
-
-        rows = []
-        for category, metric, index_key, result_key, value_type in SUMMARY_ROW_DEFS:
-            product_values = []
-            for product in products:
-                product_index = int(product["product_index"])
-                metrics = metrics_by_product.get(product_index) or {}
-                weighted_metrics = weighted_metrics_by_product.get(product_index) or {}
-                index_value = metrics.get(index_key) if index_key else None
-                result_value = metrics.get(result_key) if result_key else None
-                product_values.append({
-                    "product_index": product_index,
-                    "index_value": _fmt_value(index_value, value_type) if index_key else "-",
-                    "result_value": _fmt_value(result_value, value_type),
-                    "weighted_result_value": _fmt_value(
-                        weighted_metrics.get(result_key),
-                        value_type,
-                    ),
-                    "raw_index_value": index_value,
-                    "raw_result_value": result_value,
-                    "raw_weighted_index_value": weighted_metrics.get(index_key) if index_key else None,
-                    "raw_weighted_result_value": weighted_metrics.get(result_key),
-                })
-            weighted_index_value = portfolio_metrics.get(index_key) if index_key else None
-            weighted_result_value = portfolio_metrics.get(result_key) if result_key else None
-            rows.append({
-                "category": category,
-                "metric": metric,
-                "value_type": value_type,
-                "product_values": product_values,
-                "weighted_index_value": (
-                    _fmt_value(weighted_index_value, value_type)
-                    if index_key and weighted_index_value is not None
-                    else "-"
-                ),
-                "weighted_result_value": (
-                    _fmt_value(weighted_result_value, value_type)
-                    if weighted_result_value is not None
-                    else "-"
-                ),
-                "raw_weighted_index_value": weighted_index_value,
-                "raw_weighted_result_value": weighted_result_value,
-            })
-        serialized_groups.append({
-            **{key: value for key, value in group.items() if key != "product_results"},
-            "rows": rows,
-            "result_count": len(group["product_results"]),
-        })
-
-    payload = {
-        "task": {
-            "id": task.id,
-            "name": task.name,
-            "status": task.status,
-            "start_date": config["start_date"],
-            "end_date": config["end_date"],
-        },
-        "summary": {
-            "total_results": len(results),
-            "success_results": success_count,
-            "failed_results": failed_count,
-            "group_count": len(serialized_groups),
-            "product_count": len(products),
-        },
-        "products": products,
-        "groups": serialized_groups,
-    }
-    _set_global_preview_cache(cache_key, payload)
-    return payload

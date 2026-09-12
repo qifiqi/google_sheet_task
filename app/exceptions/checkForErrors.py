@@ -1,4 +1,0 @@
-
-
-class checkForErrors(Exception):
-    pass

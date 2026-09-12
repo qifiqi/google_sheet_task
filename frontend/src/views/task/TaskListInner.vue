@@ -1,115 +1,145 @@
 <template>
-  <div class="task-list-inner">
-    <NPageToolbar eyebrow="TASK QUEUE" :title="`${versionLabel} 任务列表`" description="查看任务排队、执行进度和错误状态，支持版本切换、筛选和移动端快速巡检。">
+  <div class="app-page task-list-inner">
+    <PageToolbar
+      :eyebrow="'TASK QUEUE'"
+      :title="`${versionLabel} 任务列表`"
+      description="查看任务排队、执行进度和错误状态，支持版本切换、筛选和移动端快速巡检。"
+    >
       <template #actions>
-        <n-button v-if="version === 'c3'" size="small" @click="$router.push('/task/create/c31')">
+        <el-button v-if="version === 'c3'" @click="$router.push('/task/create/c31')">
           创建批量任务
-        </n-button>
-        <n-button type="primary" size="small" @click="$router.push(`/task/create/${version}`)">
+        </el-button>
+        <el-button type="primary" @click="$router.push(`/task/create/${version}`)">
           创建新任务
-        </n-button>
+        </el-button>
       </template>
-    </NPageToolbar>
+    </PageToolbar>
 
-    <NStatCardGrid :cards="statCards" :data="stats" />
+    <StatCardGrid :cards="statCards" :data="stats" class="page-section" />
 
-    <NFilterToolbar v-model="filters" :filters="filterDefs" @search="doFilter" @clear="clearFilters" />
+    <FilterToolbar v-model="filters" :filters="filterDefs" @search="doFilter" @clear="clearFilters" />
 
-    <!-- Desktop Table -->
-    <div v-if="!isMobile" class="task-list-inner__table-wrap">
-      <n-spin :show="loading">
-        <n-data-table
-          :columns="columns"
-          :data="tasks"
-          :row-key="(row) => row.id"
-          :bordered="false"
-          :single-line="false"
-          size="small"
-          striped
-        />
-      </n-spin>
-      <div class="task-list-inner__pagination">
-        <span class="task-list-inner__page-info">{{ paginationInfo }}</span>
-        <n-pagination
-          v-model:page="page"
-          v-model:page-size="pageSize"
-          :item-count="total"
-          :page-sizes="[10, 20, 50]"
-          show-size-picker
-          @update:page="loadTasks"
-          @update:page-size="handlePageSizeChange"
-        />
-      </div>
-    </div>
+    <!-- 桌面表格 -->
+    <DataTableCard
+      v-if="!isMobile"
+      title="任务列表"
+      :data="tasks"
+      :loading="loading"
+      :total="total"
+      v-model:page="page"
+      v-model:page-size="pageSize"
+      @page-change="loadTasks"
+    >
+      <el-table-column label="任务名称" min-width="260">
+        <template #default="{ row }">
+          <div class="task-cell__title-row">
+            <a class="task-cell__name" @click="router.push(`/task/${row.id}`)">{{ row.name }}</a>
+            <el-tag size="small" type="info" effect="plain">{{ versionLabel }}</el-tag>
+          </div>
+          <div v-if="row.config?.token_name" class="task-cell__meta">Token: {{ row.config.token_name }}</div>
+          <div class="task-cell__id">{{ shortTaskId(row.id) }}</div>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="96" align="center">
+        <template #default="{ row }">
+          <StatusTag :status="row.status" />
+        </template>
+      </el-table-column>
+      <el-table-column label="进度" min-width="180">
+        <template #default="{ row }">
+          <TaskProgressCell :current-step="row.current_step || 0" :total-steps="row.total_steps || 0" />
+        </template>
+      </el-table-column>
+      <el-table-column label="开始时间" width="170">
+        <template #default="{ row }">
+          <span class="task-cell__time">{{ formatDateTime(row.start_time || row.created_at) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="结束时间" width="170">
+        <template #default="{ row }">
+          <span class="task-cell__time">{{ formatDateTime(row.end_time) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="130" fixed="right" align="center">
+        <template #default="{ row }">
+          <el-button link type="primary" size="small" @click="router.push(`/task/${row.id}`)">查看</el-button>
+          <el-button
+            v-if="row.status === 'running'"
+            link
+            type="warning"
+            size="small"
+            @click="handleCancel(row.id)"
+          >
+            停止
+          </el-button>
+        </template>
+      </el-table-column>
+    </DataTableCard>
 
-    <!-- Mobile Cards -->
-    <div v-if="isMobile" class="task-list-inner__mobile">
-      <n-spin :show="loading">
-        <n-empty v-if="!tasks.length && !loading" description="暂无任务" />
-        <div v-else class="task-list-inner__cards">
-          <div v-for="task in tasks" :key="task.id" class="task-card" @click="router.push(`/task/${task.id}`)">
-            <div class="task-card__header">
-              <span class="task-card__name">{{ task.name }}</span>
-              <NStatusTag :status="task.status" />
-            </div>
-            <div v-if="task.config?.token_name" class="task-card__meta">
-              Token: {{ task.config.token_name }}
-            </div>
-            <NProgressCell
-              v-if="task.total_steps"
-              :current-step="task.current_step || 0"
-              :total-steps="task.total_steps || 0"
-              class="task-card__progress"
-            />
-            <div class="task-card__footer">
-              <span class="task-card__time">{{ formatDateTime(task.start_time || task.created_at) }}</span>
-              <n-button
-                v-if="task.status === 'running'"
-                text
-                type="warning"
-                size="tiny"
-                @click.stop="handleCancel(task.id)"
-              >
-                停止
-              </n-button>
-            </div>
+    <!-- 移动端卡片 -->
+    <el-card v-if="isMobile" shadow="never" v-loading="loading">
+      <el-empty v-if="!tasks.length" description="暂无任务" />
+      <div v-else class="task-list-inner__cards">
+        <div v-for="task in tasks" :key="task.id" class="task-card" @click="router.push(`/task/${task.id}`)">
+          <div class="task-card__header">
+            <span class="task-card__name">{{ task.name }}</span>
+            <StatusTag :status="task.status" />
+          </div>
+          <div v-if="task.config?.token_name" class="task-card__meta">
+            Token: {{ task.config.token_name }}
+          </div>
+          <TaskProgressCell
+            v-if="task.total_steps"
+            :current-step="task.current_step || 0"
+            :total-steps="task.total_steps || 0"
+            class="task-card__progress"
+          />
+          <div class="task-card__footer">
+            <span class="task-card__time">{{ formatDateTime(task.start_time || task.created_at) }}</span>
+            <el-button
+              v-if="task.status === 'running'"
+              link
+              type="warning"
+              size="small"
+              @click.stop="handleCancel(task.id)"
+            >
+              停止
+            </el-button>
           </div>
         </div>
-      </n-spin>
+      </div>
       <div class="task-list-inner__pagination">
-        <span class="task-list-inner__page-info">{{ paginationInfo }}</span>
-        <n-pagination
-          v-model:page="page"
+        <el-pagination
+          v-model:current-page="page"
           v-model:page-size="pageSize"
-          :item-count="total"
+          :total="total"
           :page-sizes="[10, 20, 50]"
-          show-size-picker
-          size="small"
-          @update:page="loadTasks"
-          @update:page-size="handlePageSizeChange"
+          layout="prev, pager, next"
+          @current-change="loadTasks"
+          @size-change="handlePageSizeChange"
         />
       </div>
-    </div>
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch, h } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useMessage, useDialog, NButton, NTag } from 'naive-ui'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTasks, cancelTask } from '@/api/task'
-import NPageToolbar from '@/components/naive/NPageToolbar.vue'
-import NStatCardGrid from '@/components/naive/NStatCardGrid.vue'
-import NFilterToolbar from '@/components/naive/NFilterToolbar.vue'
-import NStatusTag from '@/components/naive/NStatusTag.vue'
-import NProgressCell from '@/components/naive/NProgressCell.vue'
+import PageToolbar from '@/components/PageToolbar.vue'
+import StatCardGrid from '@/components/StatCardGrid.vue'
+import FilterToolbar from '@/components/FilterToolbar.vue'
+import DataTableCard from '@/components/DataTableCard.vue'
+import StatusTag from '@/components/StatusTag.vue'
+import TaskProgressCell from '@/components/TaskProgressCell.vue'
+import { formatDateTime } from '@/utils/format'
 import { useResponsive } from '@/composables/useResponsive'
 import { usePolling } from '@/composables/usePolling'
 
 const route = useRoute()
 const router = useRouter()
-const message = useMessage()
-const dialog = useDialog()
 const { isMobile } = useResponsive()
 
 const tasks = ref([])
@@ -122,15 +152,15 @@ const filters = reactive({ status: '', keyword: '' })
 
 const version = computed(() => route.query.version || 'c3')
 const versionLabel = computed(() => {
-  const labelMap = { c3: 'C3', c4: 'C4', c5: 'C5', c31: 'C31' }
+  const labelMap = { c3: 'C3', c4: 'C4', c5: 'C5', c7: 'C7', c31: 'C31' }
   return labelMap[version.value] || version.value.toUpperCase()
 })
 
-const taskTypeMap = { c3: 'google_sheet', c4: 'google_sheet_C4', c5: 'google_sheet_C5', c31: 'google_sheet' }
+const taskTypeMap = { c3: 'google_sheet', c4: 'google_sheet_C4', c5: 'google_sheet_C5', c7: 'google_sheet_C7', c31: 'google_sheet' }
 
 const statCards = [
-  { key: 'total', label: '总任务数', color: '#6366f1' },
-  { key: 'completed', label: '已完成', color: '#10b981' },
+  { key: 'total', label: '总任务数', color: '#2563eb' },
+  { key: 'completed', label: '已完成', color: '#16a34a' },
   { key: 'running', label: '运行中', color: '#f59e0b' },
   { key: 'error', label: '错误', color: '#ef4444' },
 ]
@@ -151,90 +181,6 @@ const filterDefs = [
   { key: 'keyword', type: 'input', placeholder: '任务名称 / ID' },
 ]
 
-const columns = [
-  {
-    title: '任务名称',
-    key: 'name',
-    minWidth: 260,
-    render(row) {
-      return h('div', { class: 'task-cell' }, [
-        h('div', { class: 'task-cell__title-row' }, [
-          h('a', {
-            class: 'task-cell__name',
-            onClick: () => router.push(`/task/${row.id}`),
-          }, row.name),
-          h(NTag, { size: 'tiny', bordered: false, type: 'info' }, () => versionLabel.value),
-        ]),
-        row.config?.token_name
-          ? h('div', { class: 'task-cell__meta' }, `Token: ${row.config.token_name}`)
-          : null,
-        h('div', { class: 'task-cell__id' }, shortTaskId(row.id)),
-      ])
-    },
-  },
-  {
-    title: '状态',
-    key: 'status',
-    width: 90,
-    align: 'center',
-    render(row) {
-      return h(NStatusTag, { status: row.status })
-    },
-  },
-  {
-    title: '进度',
-    key: 'progress',
-    minWidth: 180,
-    render(row) {
-      return h(NProgressCell, {
-        currentStep: row.current_step || 0,
-        totalSteps: row.total_steps || 0,
-      })
-    },
-  },
-  {
-    title: '开始时间',
-    key: 'start_time',
-    width: 170,
-    render(row) {
-      return h('span', { class: 'task-cell__time' }, formatDateTime(row.start_time || row.created_at))
-    },
-  },
-  {
-    title: '结束时间',
-    key: 'end_time',
-    width: 170,
-    render(row) {
-      return h('span', { class: 'task-cell__time' }, formatDateTime(row.end_time))
-    },
-  },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 140,
-    fixed: 'right',
-    align: 'center',
-    render(row) {
-      const buttons = [
-        h(NButton, { text: true, type: 'primary', size: 'small', onClick: () => router.push(`/task/${row.id}`) }, () => '查看'),
-      ]
-      if (row.status === 'running') {
-        buttons.push(
-          h(NButton, { text: true, type: 'warning', size: 'small', onClick: () => handleCancel(row.id) }, () => '停止')
-        )
-      }
-      return h('div', { class: 'task-cell__actions' }, buttons)
-    },
-  },
-]
-
-const paginationInfo = computed(() => {
-  if (!total.value) return '暂无任务'
-  const start = (page.value - 1) * pageSize.value + 1
-  const end = Math.min(page.value * pageSize.value, total.value)
-  return `${start}-${end} / ${total.value}`
-})
-
 async function loadTasks() {
   loading.value = true
   try {
@@ -245,12 +191,12 @@ async function loadTasks() {
     if (filters.keyword) params.keyword = filters.keyword
 
     const res = await getTasks(params)
-    tasks.value = res.tasks || []
-    total.value = res.pagination?.total || 0
+    tasks.value = res.items || []
+    total.value = res.total || 0
 
     const s = res.statistics || {}
     stats.value = {
-      total: s.total_tasks ?? res.pagination?.total ?? 0,
+      total: s.total_tasks ?? res.total ?? 0,
       completed: s.completed_tasks ?? 0,
       running: s.running_tasks ?? 0,
       error: s.error_tasks ?? 0,
@@ -281,24 +227,18 @@ function shortTaskId(id) {
   return id.length > 8 ? `${id.slice(0, 8)}...` : id
 }
 
-function formatDateTime(value) {
-  if (!value) return '-'
-  const normalized = String(value).replace('T', ' ')
-  return normalized.length > 19 ? normalized.slice(0, 19) : normalized
-}
-
 function handleCancel(id) {
-  dialog.warning({
-    title: '确认停止',
-    content: '确定要停止这个任务吗？',
-    positiveText: '停止',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      await cancelTask(id)
-      message.success('已发送停止请求')
-      loadTasks()
-    },
+  ElMessageBox.confirm('确定要停止这个任务吗？', '确认停止', {
+    confirmButtonText: '停止',
+    cancelButtonText: '取消',
+    type: 'warning',
   })
+    .then(async () => {
+      await cancelTask(id)
+      ElMessage.success('已发送停止请求')
+      loadTasks()
+    })
+    .catch(() => {})
 }
 
 usePolling(loadTasks, { interval: 30000 })
@@ -312,32 +252,6 @@ watch(version, () => {
 </script>
 
 <style scoped>
-.task-list-inner__table-wrap {
-  border-radius: 16px;
-  background: #111827;
-  border: 1px solid rgba(148, 163, 184, 0.1);
-  padding: 4px;
-  overflow: hidden;
-}
-
-.task-list-inner__pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-top: 1px solid rgba(148, 163, 184, 0.08);
-}
-
-.task-list-inner__page-info {
-  font-size: 12px;
-  color: #64748b;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.task-cell {
-  padding: 4px 0;
-}
-
 .task-cell__title-row {
   display: flex;
   align-items: center;
@@ -348,45 +262,33 @@ watch(version, () => {
 .task-cell__name {
   font-size: 14px;
   font-weight: 600;
-  color: #c7d2fe;
+  color: var(--app-text);
   cursor: pointer;
   transition: color 0.15s;
 }
 
 .task-cell__name:hover {
-  color: #a5b4fc;
+  color: var(--app-primary);
   text-decoration: underline;
 }
 
 .task-cell__meta {
   margin-top: 3px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-text-muted);
 }
 
 .task-cell__id {
   margin-top: 2px;
   font-size: 11px;
-  color: #475569;
-  font-family: 'JetBrains Mono', monospace;
+  color: var(--app-text-soft);
+  font-family: 'Fira Code', monospace;
 }
 
 .task-cell__time {
   font-size: 13px;
-  color: #94a3b8;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.task-cell__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.task-list-inner__mobile {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  color: var(--app-text-muted);
+  font-family: 'Fira Code', monospace;
 }
 
 .task-list-inner__cards {
@@ -398,8 +300,8 @@ watch(version, () => {
 .task-card {
   padding: 14px 16px;
   border-radius: 12px;
-  background: #111827;
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   cursor: pointer;
   transition: border-color 0.2s;
 }
@@ -418,7 +320,7 @@ watch(version, () => {
 .task-card__name {
   font-size: 14px;
   font-weight: 600;
-  color: #c7d2fe;
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -428,7 +330,7 @@ watch(version, () => {
 .task-card__meta {
   margin-top: 6px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-text-muted);
 }
 
 .task-card__progress {
@@ -444,7 +346,13 @@ watch(version, () => {
 
 .task-card__time {
   font-size: 12px;
-  color: #475569;
-  font-family: 'JetBrains Mono', monospace;
+  color: var(--app-text-soft);
+  font-family: 'Fira Code', monospace;
+}
+
+.task-list-inner__pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 </style>

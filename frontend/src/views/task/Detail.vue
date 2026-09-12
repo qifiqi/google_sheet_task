@@ -320,7 +320,6 @@ async function loadTask() {
   try {
     const res = await getTask(taskId)
     task.value = res.task || res
-    resultSummary.value = res.result_summary || {}
   } catch {
     ElMessage.error('加载任务失败')
   }
@@ -341,7 +340,14 @@ async function loadLogs() {
 async function loadResults() {
   try {
     const res = await getTaskResults(taskId)
-    allResults.value = res.results || []
+    allResults.value = res.items || []
+    const total = res.total || 0
+    const successCount = allResults.value.filter((item) => item.success).length
+    resultSummary.value = {
+      success_count: successCount,
+      failed_count: Math.max(total - successCount, 0),
+      success_rate: total ? Math.round((successCount / total) * 1000) / 10 : 0,
+    }
     if (activeTab.value === 'results') {
       await nextTick()
       await renderResultChart()
@@ -428,7 +434,7 @@ async function renderResultChart() {
 async function checkStatus() {
   try {
     const res = await apiCheckStatus(taskId)
-    ElMessage.info(`状态: ${res.status || '未知'}`)
+    ElMessage.info(`状态: ${res.db_status || '未知'}`)
     loadTask()
   } catch {
     ElMessage.error('检查状态失败')

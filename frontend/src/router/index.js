@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/layout/AppLayout.vue'
 import { useAuth } from '@/composables/useAuth'
+import { useNavigation } from '@/composables/useNavigation'
 
 const routes = [
   {
@@ -25,6 +26,7 @@ const routes = [
       { path: 'task/create/c3',  name: 'TaskCreateC3',  component: () => import('@/views/task/CreateC3.vue'),  meta: { title: '创建C3任务',     permission: 'task:create' } },
       { path: 'task/create/c4',  name: 'TaskCreateC4',  component: () => import('@/views/task/CreateC4.vue'),  meta: { title: '创建C4任务',     permission: 'task:create' } },
       { path: 'task/create/c5',  name: 'TaskCreateC5',  component: () => import('@/views/task/CreateC5.vue'),  meta: { title: '创建C5任务',     permission: 'task:create' } },
+      { path: 'task/create/c7',  name: 'TaskCreateC7',  component: () => import('@/views/task/CreateC7.vue'),  meta: { title: '创建C7任务',     permission: 'task:create' } },
       { path: 'task/create/c31', name: 'TaskCreateC31', component: () => import('@/views/task/CreateC31.vue'), meta: { title: '创建C31批量任务', permission: 'task:create' } },
       { path: 'task/create',     name: 'TaskCreate',    component: () => import('@/views/task/Create.vue'),    meta: { title: '创建任务',       permission: 'task:create' } },
       { path: 'task/:id',        name: 'TaskDetail',    component: () => import('@/views/task/Detail.vue'),    meta: { title: '任务详情',       permission: 'task:view' } },
@@ -40,9 +42,10 @@ const routes = [
       { path: 'backtest-multi/:id',               name: 'BacktestMultiDetail',        component: () => import('@/views/backtest-multi/Detail.vue'),        meta: { title: '多产品回测详情',   permission: 'backtest:view' } },
       { path: 'backtest-multi/:id/result',        name: 'BacktestMultiResult',        component: () => import('@/views/backtest-multi/Result.vue'),        meta: { title: '多产品回测结果',   permission: 'backtest:view' } },
       { path: 'backtest-multi/:id/global-preview',name: 'BacktestMultiGlobalPreview', component: () => import('@/views/backtest-multi/GlobalPreview.vue'), meta: { title: '多产品全局预览',   permission: 'backtest:view' } },
-      // XPL — 无权限限制，登录即可访问
-      { path: 'xpl',    name: 'XplIndex', component: () => import('@/views/xpl/Index.vue'), meta: { title: '数据分析' } },
-      { path: 'xpl/v1', name: 'XplV1',   component: () => import('@/views/xpl/V1.vue'),    meta: { title: 'V1 分析' } },
+      // 绩效分析 - 登录即可访问
+      { path: 'performance_analysis',    name: 'PerformanceAnalysisIndex', component: () => import('@/views/performance_analysis/Index.vue'), meta: { title: '数据分析' } },
+      { path: 'performance_analysis/v1', name: 'PerformanceAnalysisV1',   component: () => import('@/views/performance_analysis/V1.vue'),    meta: { title: 'V1 分析' } },
+      { path: 'performance_analysis/v2', name: 'PerformanceAnalysisV2',   component: () => import('@/views/performance_analysis/V2.vue'),    meta: { title: 'V2 回测数据分析' } },
       // Admin
       { path: 'admin',                name: 'Dashboard',       component: () => import('@/views/admin/Dashboard.vue'),    meta: { title: '仪表盘' } },
       { path: 'admin/tasks',          name: 'AdminTasks',      component: () => import('@/views/admin/Tasks.vue'),        meta: { title: '任务管理',          permission: 'task:view' } },
@@ -55,7 +58,10 @@ const routes = [
       { path: 'admin/users',          name: 'AdminUsers',      component: () => import('@/views/admin/Users.vue'),        meta: { title: '用户管理',          permission: 'user:view' } },
       { path: 'admin/roles',          name: 'AdminRoles',      component: () => import('@/views/admin/Roles.vue'),        meta: { title: '角色管理',          permission: 'user:view' } },
       { path: 'admin/navigation',    name: 'AdminNavigation', component: () => import('@/views/admin/Navigation.vue'),   meta: { title: '导航管理',          permission: 'navigation:view' } },
-      { path: 'admin/model-summary',    name: 'ModelSummary', component: () => import('@/views/admin/Results.vue'),   meta: { title: '单模型汇总',          permission: 'modelsummary:view' } },
+      { path: 'admin/eastmoney-kline', name: 'EastmoneyKline', component: () => import('@/views/admin/EastmoneyKline.vue'), meta: { title: '东方财富 K 线' } },
+      { path: 'admin/model-summary',    name: 'ModelSummary', component: () => import('@/views/admin/ModelSummary.vue'), meta: { title: '单模型汇总',          permission: 'modelsummary:view' } },
+      // 全局预览中心
+      { path: 'global-preview/single_product', name: 'GlobalPreviewSingleProduct', component: () => import('@/views/global_preview/SingleProduct.vue'), meta: { title: '单品全局预览', permission: 'page:global_preview:single_product' } },
     ],
   },
 ]
@@ -76,7 +82,9 @@ router.beforeEach(async (to, _from, next) => {
   const { user, fetchUser, hasPermission } = useAuth()
   if (!user.value) await fetchUser()
 
-  const perm = to.meta.permission
+  const { ensureNavLoaded, getPagePermission } = useNavigation()
+  await ensureNavLoaded()
+  const perm = getPagePermission(to.fullPath)
   if (perm && !hasPermission(perm)) return next('/403')
 
   next()

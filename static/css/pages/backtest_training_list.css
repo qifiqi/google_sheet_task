@@ -1,0 +1,208 @@
+    .backtest-shell { display: grid; gap: 1.5rem; }
+    .task-meta { font-size: 0.875rem; }
+    .time-sub { font-size: 0.75rem; }
+    .metric-card {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-body-bg);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+        min-height: 10.375rem;
+    }
+    .metric-card__body {
+        display: grid;
+        grid-template-columns: 3rem minmax(0, 1fr);
+        gap: 1rem;
+        padding: 1.125rem;
+        height: 100%;
+    }
+    .metric-icon {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 0.5rem;
+        display: grid;
+        place-items: center;
+        font-size: 1.35rem;
+    }
+    .metric-value {
+        font-size: 2.875rem;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: 0;
+    }
+    .metric-progress {
+        grid-column: 1 / -1;
+        height: 0.375rem;
+        border-radius: 999px;
+        overflow: hidden;
+        align-self: end;
+        background: var(--bs-tertiary-bg);
+    }
+    .metric-progress__bar {
+        height: 100%;
+        min-width: 0.75rem;
+        border-radius: inherit;
+    }
+    .metric-card--total {
+        border-color: #e2e8f0;
+    }
+    .metric-card--total .metric-icon {
+        background: #f1f5f9;
+        color: #475569;
+    }
+    .metric-card--total .metric-progress {
+        background: #e2e8f0;
+    }
+    .metric-card--total .metric-progress__bar {
+        width: 100%;
+        background: #64748b;
+    }
+    .metric-card--running {
+        border-color: #dbeafe;
+    }
+    .metric-card--running .metric-icon {
+        background: #eff6ff;
+        color: #2563eb;
+    }
+    .metric-card--running .metric-progress {
+        background: #dbeafe;
+    }
+    .metric-card--running .metric-progress__bar {
+        width: 0%;
+        background: #2563eb;
+    }
+    .metric-card--completed {
+        border-color: #ccf0dc;
+    }
+    .metric-card--completed .metric-icon {
+        background: #ecfdf5;
+        color: #059669;
+    }
+    .metric-card--completed .metric-progress {
+        background: #d1fae5;
+    }
+    .metric-card--completed .metric-progress__bar {
+        width: 0%;
+        background: #059669;
+    }
+    .metric-card--failed {
+        border-color: #ffe4e6;
+    }
+    .metric-card--failed .metric-icon {
+        background: #fff1f2;
+        color: #e11d48;
+    }
+    .metric-card--failed .metric-progress {
+        background: #ffe4e6;
+    }
+    .metric-card--failed .metric-progress__bar {
+        width: 0%;
+        background: #e11d48;
+    }
+    .list-toolbar {
+        border-top: 1px solid var(--bs-border-color);
+        background: var(--bs-body-bg);
+    }
+    .page-size-select {
+        width: auto;
+        min-width: 5.25rem;
+    }
+    .batch-export-modal .modal-content {
+        border: 0;
+        border-radius: 1rem;
+        overflow: hidden;
+    }
+    .batch-export-summary {
+        border: 1px solid #bbf7d0;
+        border-radius: 0.75rem;
+        background: #ecfdf5;
+        color: #166534;
+    }
+    .batch-export-task-list {
+        display: grid;
+        gap: 0.75rem;
+        max-height: 23rem;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+    .batch-export-task-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.875rem;
+        align-items: start;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        padding: 0.875rem;
+        background: var(--bs-body-bg);
+        cursor: pointer;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+    }
+    .batch-export-task-card:hover {
+        border-color: #86efac;
+        box-shadow: 0 8px 20px rgba(22, 163, 74, 0.08);
+    }
+    .batch-export-task-card.is-selected {
+        border-color: #16a34a;
+        box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
+    }
+    .batch-export-task-card.is-disabled {
+        cursor: not-allowed;
+        background: var(--bs-tertiary-bg);
+        opacity: 0.72;
+    }
+    .batch-export-task-card.is-disabled:hover {
+        border-color: var(--bs-border-color);
+        box-shadow: none;
+    }
+    .batch-export-task-title {
+        overflow-wrap: anywhere;
+    }
+    .batch-export-empty {
+        border: 1px dashed var(--bs-border-color);
+        border-radius: 0.75rem;
+        padding: 2rem 1rem;
+        text-align: center;
+        color: var(--bs-secondary-color);
+    }
+    html[data-bs-theme="dark"] .backtest-shell h1,
+    html[data-bs-theme="dark"] .backtest-shell .text-body {
+        color: #e5e7eb !important;
+    }
+    html[data-bs-theme="dark"] .backtest-shell .card {
+        background-color: #182132;
+    }
+    html[data-bs-theme="dark"] .metric-card {
+        background-color: #182132;
+        border-color: rgba(148, 163, 184, 0.28);
+    }
+    html[data-bs-theme="dark"] .metric-card--total .metric-icon { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
+    html[data-bs-theme="dark"] .metric-card--running .metric-icon { background: rgba(37, 99, 235, 0.18); color: #93c5fd; }
+    html[data-bs-theme="dark"] .metric-card--completed .metric-icon { background: rgba(5, 150, 105, 0.18); color: #6ee7b7; }
+    html[data-bs-theme="dark"] .metric-card--failed .metric-icon { background: rgba(225, 29, 72, 0.18); color: #fda4af; }
+    html[data-bs-theme="dark"] .batch-export-summary {
+        background: rgba(22, 163, 74, 0.14);
+        border-color: rgba(134, 239, 172, 0.26);
+        color: #bbf7d0;
+    }
+
+/* 列表横向滚动：单元格不换行，长列以省略号收敛，容器整体出横向滚动条。 */
+.table-responsive .table > thead > tr > th,
+.table-responsive .table > tbody > tr > td {
+    white-space: nowrap;
+}
+
+.task-name-cell {
+    max-width: 360px;
+}
+
+.task-name-cell .fw-semibold,
+.task-name-cell .task-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.param-preview-cell {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

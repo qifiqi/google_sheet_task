@@ -20,7 +20,20 @@ def upgrade():
     with op.batch_alter_table("google_sheet", schema=None) as batch_op:
         batch_op.add_column(sa.Column("table_type", sa.String(length=20), nullable=True))
 
-    op.execute("UPDATE google_sheet SET table_type = 'c3' WHERE table_type IS NULL OR table_type = ''")
+    google_sheet = sa.table(
+        "google_sheet",
+        sa.column("table_type", sa.String(length=20)),
+    )
+    op.execute(
+        google_sheet.update()
+        .where(
+            sa.or_(
+                google_sheet.c.table_type.is_(None),
+                google_sheet.c.table_type == "",
+            )
+        )
+        .values(table_type="c3")
+    )
 
     with op.batch_alter_table("google_sheet", schema=None) as batch_op:
         batch_op.alter_column("table_type", existing_type=sa.String(length=20), nullable=False)

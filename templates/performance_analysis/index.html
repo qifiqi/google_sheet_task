@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel数据分析 - Jaspil 任务管理系统</title>
+
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/template-auth.css" rel="stylesheet">
+    <link href="/static/css/common/theme.css" rel="stylesheet">
+    <link href="/static/css/components/sidebar.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">数据分析工具</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="refreshData()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新
+            </button>
+        </div>
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="exportResults()">
+                <i class="bi bi-download"></i> 导出结果
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 数据输入区域 -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-0 py-3">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-input-cursor-text text-primary me-2"></i>数据输入
+        </h5>
+    </div>
+    <div class="card-body p-4">
+        <div class="row g-4">
+            <!-- 左侧：数据输入区域 -->
+            <div class="col-lg-5">
+                <div class="border rounded p-3 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <label class="form-label text-muted mb-0">粘贴数据</label>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-secondary" type="button" onclick="pasteFromClipboard()" 
+                                data-bs-toggle="tooltip" title="从剪贴板粘贴">
+                                <i class="bi bi-clipboard-plus"></i> 粘贴
+                            </button>
+                            <button class="btn btn-outline-secondary" type="button" onclick="loadSampleData()"
+                                data-bs-toggle="tooltip" title="加载示例数据">
+                                <i class="bi bi-file-earmark-text"></i> 示例
+                            </button>
+                            <button class="btn btn-outline-danger" type="button" onclick="clearAllData()"
+                                data-bs-toggle="tooltip" title="清空输入">
+                                <i class="bi bi-trash"></i> 清空
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex flex-column" style="height: 240px;">
+                        <div class="position-relative flex-grow-1">
+                            <textarea id="data-input" class="form-control font-monospace h-100" 
+                                placeholder="请将Excel中的时间列和收益率列数据粘贴到此处，格式为：时间 收益率
+例如：
+2025-01-01 0.0234
+2025-01-02 -0.0156
+2025-01-03 0.0089
+
+注意：时间列和收益率列之间可以用Tab、空格或逗号分隔"
+                                style="resize: none; overflow-y: auto; min-height: 200px;"></textarea>
+                        </div>
+                        <div class="text-end mt-1">
+                            <small class="text-muted" id="line-count">0 行数据</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中间：配置选项 -->
+            <div class="col-lg-3">
+                <div class="card h-100 border-0 shadow-sm">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-3 text-muted">
+                            <i class="bi bi-gear me-2"></i>分析设置
+                        </h6>
+                        
+                        <div class="mb-3">
+                            <label for="time-format" class="form-label small fw-bold text-uppercase text-muted mb-1">时间格式</label>
+                            <select class="form-select form-select-sm" id="time-format">
+                                <option value="auto">自动检测</option>
+                                <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                                <option value="YYYY/MM/DD">YYYY/MM/DD</option>
+                                <option value="YYYY.MM.DD">YYYY.MM.DD</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-4 small text-muted">
+                            两列数据按“日期 + 收益率”计算；三列数据按“日期 + 指数收益率 + 模型收益率”同时计算。
+                        </div>
+                        
+                        <button class="btn btn-primary w-100 py-2" onclick="parseExcelData()">
+                            <i class="bi bi-lightning-charge-fill me-2"></i>开始分析
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：使用说明 -->
+            <div class="col-lg-4">
+                <div class="card h-100 border-0 bg-light">
+                    <div class="card-body">
+                        <h6 class="card-title d-flex align-items-center mb-3">
+                            <i class="bi bi-info-circle text-primary me-2"></i>使用说明
+                        </h6>
+                        <div class="vstack gap-3">
+                            <div class="d-flex">
+                                <div class="me-3 text-primary">
+                                    <i class="bi bi-1-circle-fill"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-medium">复制数据</div>
+                                    <small class="text-muted">从Excel复制数据（包含表头）</small>
+                                </div>
+                            </div>
+                            <div class="d-flex">
+                                <div class="me-3 text-primary">
+                                    <i class="bi bi-2-circle-fill"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-medium">粘贴数据</div>
+                                    <small class="text-muted">将数据粘贴到左侧文本区域</small>
+                                </div>
+                            </div>
+                            <div class="d-flex">
+                                <div class="me-3 text-primary">
+                                    <i class="bi bi-3-circle-fill"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-medium">调整设置</div>
+                                    <small class="text-muted">选择时间格式；收益率列自动识别</small>
+                                </div>
+                            </div>
+                            <div class="d-flex">
+                                <div class="me-3 text-primary">
+                                    <i class="bi bi-4-circle-fill"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-medium">开始分析</div>
+                                    <small class="text-muted">点击按钮查看分析结果</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 核心指标 -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card border-primary">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">累计收益率</h6>
+                <h2 class="card-title" id="total-return">-</h2>
+                <p class="card-text text-muted small">按最新净值计算</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-success">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">最新年度收益率</h6>
+                <h2 class="card-title" id="annual-return">-</h2>
+                <p class="card-text text-muted small">最新年度区间收益</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-danger">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">最大回撤</h6>
+                <h2 class="card-title" id="max-drawdown">-</h2>
+                <p class="card-text text-muted small">风险指标</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-warning">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-muted">夏普比率</h6>
+                <h2 class="card-title" id="sharpe-ratio">-</h2>
+                <p class="card-text text-muted small">风险调整后收益</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据分析图表 -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-graph-up"></i> 数据分析图表
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <!-- 左1：收益率曲线 -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0">收益率曲线</h6>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="return-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 右1：最大回撤 -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0">最大回撤</h6>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="drawdown-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 左2：夏普率 past -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0">夏普率（过去期间）</h6>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="sharpe-past-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 右2：夏普率 year -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header py-2">
+                        <h6 class="card-title mb-0">夏普率（按年度）</h6>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="sharpe-year-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据预览 -->
+<!-- <div class="card mb-4">
+    <div class="card-header">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-table"></i> 数据预览
+            <span class="badge bg-secondary ms-2" id="data-count">0</span>
+        </h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>序号</th>
+                        <th>日期</th>
+                        <th>收益率</th>
+                        <th>累计收益率</th>
+                    </tr>
+                </thead>
+                <tbody id="data-preview">
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-4">暂无数据</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div> -->
+
+<!-- 详细分析结果 -->
+<!-- <div class="card">
+    <div class="card-header">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-table"></i> 详细分析结果
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered">
+                <thead class="table-light">
+                    <tr>
+                        <th>指标</th>
+                        <th>数值</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>数据点数</td>
+                        <td id="data-points">-</td>
+                        <td>分析的数据总行数</td>
+                    </tr>
+                    <tr>
+                        <td>时间范围</td>
+                        <td id="date-range">-</td>
+                        <td>数据的时间跨度</td>
+                    </tr>
+                    <tr>
+                        <td>年化波动率</td>
+                        <td id="annual-volatility">-</td>
+                        <td>收益率年化波动率</td>
+                    </tr>
+                    <tr>
+                        <td>胜率</td>
+                        <td id="win-rate">-</td>
+                        <td>正收益天数占比</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div> -->
+
+        <!-- 数据预览表格 -->
+        <!-- <div class="mt-4">
+            <h6 class="border-bottom pb-2 mb-3">数据预览</h6>
+            <div class="table-responsive">
+                <table id="results-preview" class="table table-sm table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>日期</th>
+                            <th>年</th>
+                            <th>月</th>
+                            <th>收益率</th>
+                            <th>净值</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-tbody">
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-3">分析后将显示数据预览</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div> -->
+
+<!-- 高级分析结果 -->
+<div class="card mt-4">
+    <div class="card-header">
+        <ul class="nav nav-tabs card-header-tabs" id="analysisTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="drawdown-tab" data-bs-toggle="tab" data-bs-target="#drawdown-tab-pane" type="button" role="tab">
+                    最大回撤
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="returns-tab" data-bs-toggle="tab" data-bs-target="#returns-tab-pane" type="button" role="tab">
+                    收益率分析
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="sharpe-tab" data-bs-toggle="tab" data-bs-target="#sharpe-tab-pane" type="button" role="tab">
+                    夏普比率
+                </button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        <div class="tab-content" id="analysisTabsContent">
+            <!-- 最大回撤 -->
+            <div class="tab-pane fade show active" id="drawdown-tab-pane" role="tabpanel" aria-labelledby="drawdown-tab" tabindex="0">
+                <div class="table-responsive">
+                    <table id="drawdown-table" class="table table-striped table-hover" style="width:100%">
+                        <thead>
+                            <tr>
+                                <th>日期(年度最大回测当日)</th>
+                                <th>年份</th>
+                                <th>年度回撤</th>
+                                <th>累计收益率</th>
+                                <th>净值</th>
+                            </tr>
+                        </thead>
+                        <tbody id="drawdown-tbody">
+                            <!-- Data will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- 收益率分析 -->
+            <div class="tab-pane fade" id="returns-tab-pane" role="tabpanel" aria-labelledby="returns-tab" tabindex="0">
+                <div class="table-responsive">
+                    <table id="returns-table" class="table table-striped table-hover" style="width:100%">
+                        <thead>
+                            <tr>
+                                <th>日期</th>
+                                <th>年份</th>
+                                <th>年度收益率</th>
+                                <th>净值</th>
+                            </tr>
+                        </thead>
+                        <tbody id="returns-tbody">
+                            <!-- Data will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- 夏普比率 -->
+            <div class="tab-pane fade" id="sharpe-tab-pane" role="tabpanel" aria-labelledby="sharpe-tab" tabindex="0">
+                <div class="table-responsive">
+                    <table id="sharpe-table" class="table table-striped table-hover" style="width:100%">
+                        <thead>
+                            <tr>
+                                <th>时间段</th>
+                                <th>夏普比率</th>
+                                <th>平均月收益率</th>
+                                <th>月波动率</th>
+                                <th>年化波动率</th>
+                                <th>开始日期</th>
+                                <th>结束日期</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sharpe-tbody">
+                            <!-- Data will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 导出结果模态框 -->
+<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportModalLabel"><i class="bi bi-download"></i> 导出分析结果</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <textarea id="export-data" class="form-control" rows="15" style="font-family: 'Courier New', monospace;" readonly></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" onclick="copyToClipboard()">
+                    <i class="bi bi-clipboard"></i> 复制到剪贴板
+                </button>
+                <button type="button" class="btn btn-success" onclick="downloadJSON()">
+                    <i class="bi bi-file-earmark-arrow-down"></i> 下载JSON文件
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 加载提示 -->
+<div id="loading-overlay" class="position-fixed top-0 start-0 w-100 h-100 d-none flex-column justify-content-center align-items-center bg-dark bg-opacity-75" style="z-index: 9999;">
+    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+        <span class="visually-hidden">加载中...</span>
+    </div>
+    <div class="mt-3 text-white fs-5">计算中，请稍候...</div>
+    <button id="cancel-loading" class="btn btn-outline-light mt-3">
+        <i class="bi bi-x-circle me-1"></i> 取消
+    </button>
+</div>
+            </main>
+        </div>
+    </div>
+
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/admin-shell.js"></script>
+    <script src="/static/js/trading-date.js"></script>
+        <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
+<!-- Load jQuery first -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<!-- Then load DataTables -->
+<script type="text/javascript" src="https://cdn.datatables.net/1.13.1/js/jquery.dataTables.min.js"></script>
+<script type="text/javascript" src="https://cdn.datatables.net/1.13.1/js/dataTables.bootstrap5.min.js"></script>
+<!-- Then load Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- Your custom scripts --><script src="/static/js/pages/performance_analysis_index.js"></script>
+</body>
+</html>

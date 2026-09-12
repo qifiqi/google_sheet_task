@@ -1,0 +1,401 @@
+// 页面脚本（templates/admin/templates.html 内联脚本原样抽离，F5 de-jinja）。
+let allTemplates = [];
+let activeTemplateFilter = 'all';
+let templateSearchKeyword = '';
+
+function parseTemplateConfig(template) {
+    try {
+        return typeof template.config === 'string' ? JSON.parse(template.config) : (template.config || {});
+    } catch (e) {
+        console.warn('解析模板配置失败:', e);
+        return {};
+    }
+}
+
+function getTemplateMeta(template) {
+    const config = parseTemplateConfig(template);
+    const isC4 = config.task_type === 'google_sheet_C4';
+    const isC5 = config.task_type === 'google_sheet_C5';
+    const type = isC4 ? 'c4' : (isC5 ? 'c5' : 'c3');
+    const typeLabel = type.toUpperCase();
+    const firstSheetName = Array.isArray(config.sheets) && config.sheets.length > 0
+        ? (config.sheets[0].sheet_name || '默认')
+        : (config.sheet_name || '默认');
+
+    let parameterLabel = '参数组数';
+    let parameterValue = '0';
+    if (isC4) {
+        parameterLabel = '产品代码数';
+        parameterValue = String(Array.isArray(config.parameters && config.parameters[0]) ? config.parameters[0].length : 0);
+    } else if (isC5) {
+        const p1Count = Array.isArray(config.parameters && config.parameters[0]) ? config.parameters[0].length : 0;
+        const p2Count = Array.isArray(config.parameters && config.parameters[1]) ? config.parameters[1].length : 0;
+        const p3Count = Array.isArray(config.parameters && config.parameters[2]) ? config.parameters[2].length : 0;
+        parameterLabel = '参数1/2/3';
+        parameterValue = `${p1Count}/${p2Count}/${p3Count}`;
+    } else {
+        parameterValue = String(config.parameters ? config.parameters.filter(p => Array.isArray(p) && p.length > 0).length : 0);
+    }
+
+    return {
+        config,
+        type,
+        typeLabel,
+        mode: type === 'c3' ? '' : type,
+        sheetName: firstSheetName,
+        parameterLabel,
+        parameterValue,
+        accent: type === 'c5' ? '#059669' : (type === 'c4' ? '#0284c7' : '#64748b'),
+        badgeClass: type === 'c5' ? 'bg-success' : (type === 'c4' ? 'bg-info' : 'bg-secondary')
+    };
+}
+
+// 加载模板列表
+function loadTemplates() {
+    Api.endpoints.template.list()
+        .then(data => {
+            allTemplates = (data && Array.isArray(data.templates)) ? data.templates : [];
+            updateTemplateStats();
+            renderTemplateCards();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showError('加载模板列表失败');
+        });
+}
+
+function updateTemplateStats() {
+    const metas = allTemplates.map(getTemplateMeta);
+    const c4Count = metas.filter(meta => meta.type === 'c4').length;
+    const c5Count = metas.filter(meta => meta.type === 'c5').length;
+    const latest = [...allTemplates].sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))[0];
+
+    document.getElementById('templateTotalCount').textContent = allTemplates.length;
+    document.getElementById('templateC4Count').textContent = c4Count;
+    document.getElementById('templateC5Count').textContent = c5Count;
+    document.getElementById('templateLatestDate').textContent = latest ? new Date(latest.updated_at || latest.created_at).toLocaleDateString() : '-';
+    document.getElementById('templateLatestName').textContent = latest ? latest.name : '暂无模板';
+}
+
+function getFilteredTemplates() {
+    const keyword = templateSearchKeyword.trim().toLowerCase();
+    return allTemplates.filter(template => {
+        const meta = getTemplateMeta(template);
+        if (activeTemplateFilter !== 'all' && meta.type !== activeTemplateFilter) {
+            return false;
+        }
+        if (!keyword) {
+            return true;
+        }
+        const haystack = [
+            template.name,
+            template.description,
+            meta.sheetName,
+            meta.parameterValue,
+            meta.typeLabel
+        ].join(' ').toLowerCase();
+        return haystack.includes(keyword);
+    });
+}
+
+function renderTemplateCards() {
+    const templateList = document.getElementById('templateList');
+    const noTemplates = document.getElementById('noTemplates');
+    const placeholders = Array.from(templateList.querySelectorAll('[data-template-placeholder]'));
+    const filteredTemplates = getFilteredTemplates();
+
+    templateList.innerHTML = '';
+    placeholders.forEach(p => templateList.appendChild(p));
+
+    const shouldShowEmpty = filteredTemplates.length === 0;
+    noTemplates.classList.toggle('d-none', !shouldShowEmpty);
+    if (shouldShowEmpty) {
+        document.getElementById('noTemplatesTitle').textContent = allTemplates.length ? '暂无匹配模板' : '暂无模板';
+        document.getElementById('noTemplatesText').textContent = allTemplates.length
+            ? '请调整搜索关键词或类型筛选。'
+            : '点击“新建模板”创建您的第一个模板';
+    }
+    if (!filteredTemplates.length) {
+        return;
+    }
+
+    filteredTemplates.forEach(template => {
+        const meta = getTemplateMeta(template);
+        const card = document.createElement('div');
+        card.className = 'col-md-6 col-xl-4';
+        card.innerHTML = `
+            <div class="template-card h-100" style="--template-accent: ${meta.accent};">
+                <div class="template-card-body">
+                    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                        <div class="template-card-title">
+                            <div class="d-flex align-items-center gap-2">
+                                <h6 class="mb-0 text-truncate">${escapeHtml(template.name)}</h6>
+                                <span class="badge ${meta.badgeClass}">${meta.typeLabel}</span>
+                            </div>
+                            <div class="small text-body-secondary mt-2">${escapeHtml(template.description || '无描述')}</div>
+                        </div>
+                        <div class="dropdown flex-shrink-0">
+                            <button class="btn btn-link text-muted p-0" type="button" data-bs-toggle="dropdown" aria-label="模板操作">
+                                <i class="bi bi-three-dots-vertical"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="#" onclick="editTemplate(${template.id})"><i class="bi bi-pencil-square"></i> 编辑</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="duplicateTemplate(${template.id})"><i class="bi bi-copy"></i> 复制</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteTemplate(${template.id})"><i class="bi bi-trash"></i> 删除</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="template-summary-grid">
+                        <div class="template-summary-item">
+                            <div class="template-summary-label">工作表</div>
+                            <div class="template-summary-value">${escapeHtml(meta.sheetName)}</div>
+                        </div>
+                        <div class="template-summary-item">
+                            <div class="template-summary-label">${escapeHtml(meta.parameterLabel)}</div>
+                            <div class="template-summary-value">${escapeHtml(meta.parameterValue)}</div>
+                        </div>
+                    </div>
+                    <div class="small text-body-secondary mt-3">
+                        <i class="bi bi-clock-history"></i> 创建于: ${template.created_at ? new Date(template.created_at).toLocaleString() : '-'}
+                    </div>
+                </div>
+                <div class="template-card-footer">
+                    <button class="btn btn-primary btn-sm w-100" onclick="useTemplate(${template.id}, '${meta.mode}')">
+                        <i class="bi bi-play-fill"></i> 使用此模板
+                    </button>
+                </div>
+            </div>
+        `;
+        templateList.appendChild(card);
+    });
+}
+
+// 验证JSON格式
+function validateJSON(str) {
+    try {
+        JSON.parse(str);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// 显示错误提示
+function showError(message) {
+    const container = document.querySelector('.container-fluid');
+    if (!container) return;
+
+    const alertDiv = document.createElement('div');
+    alertDiv.className = 'alert alert-danger alert-dismissible fade show mt-3 mb-3';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+
+    // 插入到第一个子元素之后
+    const firstChild = container.firstChild;
+    container.insertBefore(alertDiv, firstChild);
+    
+    // 3秒后自动消失
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 3000);
+}
+
+// 创建模板
+document.getElementById('saveTemplate').addEventListener('click', function() {
+    const name = document.getElementById('templateName').value.trim();
+    const description = document.getElementById('templateDescription').value.trim();
+    const configStr = document.getElementById('templateConfig').value.trim();
+
+    // 验证表单
+    if (!name) {
+        showError('请输入模板名称');
+        return;
+    }
+
+    if (!configStr) {
+        showError('请输入配置信息');
+        return;
+    }
+
+    if (!validateJSON(configStr)) {
+        showError('配置信息不是有效的JSON格式');
+        return;
+    }
+
+    const formData = {
+        name: name,
+        description: description,
+        config: configStr
+    };
+
+    Api.endpoints.template.create(formData)
+        .then(function () {
+            const modal = document.getElementById('createTemplateModal');
+            const modalInstance = bootstrap.Modal.getInstance(modal);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+            document.getElementById('createTemplateForm').reset();
+            loadTemplates();
+            showNotification('模板创建成功', 'success');
+        })
+        .catch(function (error) {
+            console.error('Error:', error);
+            showError(error.message || '创建模板失败');
+        });
+});
+
+// 编辑模板
+async function editTemplate(id) {
+    try {
+        const data = await Api.endpoints.template.detail(id);
+
+        document.getElementById('editTemplateId').value = data.id;
+        document.getElementById('editTemplateName').value = data.name;
+        document.getElementById('editTemplateDescription').value = data.description || '';
+        document.getElementById('editTemplateConfig').value = JSON.stringify(data.config, null, 2);
+        
+        const modal = document.getElementById('editTemplateModal');
+        const modalInstance = bootstrap.Modal.getOrCreateInstance(modal);
+        modalInstance.show();
+    } catch (error) {
+        console.error('Error:', error);
+        showError(error.message || '获取模板详情失败');
+    }
+}
+
+// 更新模板
+document.getElementById('updateTemplate').addEventListener('click', async function() {
+    try {
+        const id = document.getElementById('editTemplateId').value;
+        const name = document.getElementById('editTemplateName').value.trim();
+        const description = document.getElementById('editTemplateDescription').value.trim();
+        const configStr = document.getElementById('editTemplateConfig').value.trim();
+
+        // 验证表单
+        if (!name) {
+            showError('请输入模板名称');
+            return;
+        }
+
+        if (!configStr) {
+            showError('请输入配置信息');
+            return;
+        }
+
+        if (!validateJSON(configStr)) {
+            showError('配置信息不是有效的JSON格式');
+            return;
+        }
+
+        const formData = {
+            name: name,
+            description: description,
+            config: configStr
+        };
+
+        Api.endpoints.template.update(id, formData)
+            .then(function () {
+                const modal = document.getElementById('editTemplateModal');
+                const modalInstance = bootstrap.Modal.getInstance(modal);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+                loadTemplates();
+                showNotification('模板更新成功', 'success');
+            })
+            .catch(function (error) {
+                console.error('Error:', error);
+                showError(error.message || '更新模板失败');
+            });
+    } catch (error) {
+        console.error('Error:', error);
+        showError('更新模板失败');
+    }
+});
+
+// 删除模板
+async function deleteTemplate(id) {
+    if (confirm('确定要删除这个模板吗？')) {
+        try {
+            Api.endpoints.template.remove(id)
+                .then(function () {
+                    loadTemplates();
+                    showNotification('模板已删除', 'success');
+                })
+                .catch(function (error) {
+                    console.error('Error:', error);
+                    showError(error.message || '删除模板失败');
+                });
+        } catch (error) {
+            console.error('Error:', error);
+            showError('删除模板失败');
+        }
+    }
+}
+
+// 复制模板
+async function duplicateTemplate(id) {
+    try {
+        const data = await Api.endpoints.template.detail(id);
+
+        // 创建新模板
+        const newTemplate = {
+            name: data.name + ' (副本)',
+            description: data.description,
+            config: data.config
+        };
+
+        await Api.endpoints.template.create(newTemplate)
+            .then(function () {
+                showNotification('模板复制成功', 'success');
+                loadTemplates();
+            })
+            .catch(function (error) {
+                console.error('复制模板失败:', error);
+                showError('复制模板失败: ' + error.message);
+            });
+    } catch (error) {
+        console.error('复制模板失败:', error);
+        showError('复制模板失败: ' + error.message);
+    }
+}
+
+// 使用模板
+function useTemplate(id, mode) {
+    const baseUrl = "/google-sheet/create";
+    if (mode === 'c4') {
+        window.location.href = `${baseUrl}?template_id=${id}&version=c4`;
+    } else if (mode === 'c5') {
+        window.location.href = `${baseUrl}?template_id=${id}&version=c5`;
+    } else {
+        window.location.href = `${baseUrl}?template_id=${id}`;
+    }
+}
+
+// 页面加载时获取模板列表
+document.addEventListener('DOMContentLoaded', () => {
+    loadTemplates();
+
+    document.getElementById('templateSearchInput').addEventListener('input', (event) => {
+        templateSearchKeyword = event.target.value || '';
+        renderTemplateCards();
+    });
+
+    document.getElementById('templateTypeFilters').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-template-filter]');
+        if (!button) {
+            return;
+        }
+        activeTemplateFilter = button.dataset.templateFilter || 'all';
+        document.querySelectorAll('.template-filter-btn').forEach(item => {
+            item.classList.toggle('active', item === button);
+        });
+        renderTemplateCards();
+    });
+});

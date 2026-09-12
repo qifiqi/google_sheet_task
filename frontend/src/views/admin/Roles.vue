@@ -96,8 +96,8 @@ async function loadData() {
   loading.value = true
   try {
     const [rRes, pRes] = await Promise.all([getRoles(), getPermissions()])
-    roles.value = rRes.data || []
-    groupedPermissions.value = pRes.data || {}
+    roles.value = rRes || []
+    groupedPermissions.value = pRes || {}
   } finally {
     loading.value = false
   }

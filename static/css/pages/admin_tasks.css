@@ -1,0 +1,122 @@
+    .task-detail-hero {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.75rem;
+        background: var(--bs-tertiary-bg);
+        padding: 1rem;
+    }
+    .task-detail-meta {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+    .task-detail-meta-item {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        background: var(--bs-body-bg);
+        min-width: 0;
+    }
+    .task-detail-label {
+        color: var(--bs-secondary-color);
+        font-size: 0.75rem;
+        margin-bottom: 0.25rem;
+    }
+    .task-detail-value {
+        font-weight: 600;
+        word-break: break-word;
+    }
+    .task-detail-json {
+        max-height: 22rem;
+        font-size: 0.875rem;
+    }
+    .task-detail-log {
+        max-height: 14rem;
+        overflow: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        background: var(--bs-tertiary-bg);
+        padding: 0.75rem;
+        font-size: 0.875rem;
+    }
+    .batch-restart-modal .modal-content {
+        border: 0;
+        border-radius: 0.75rem;
+        overflow: hidden;
+    }
+    .batch-restart-summary {
+        border: 1px solid #bfdbfe;
+        border-radius: 0.5rem;
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+    .batch-restart-task-list {
+        display: grid;
+        gap: 0.75rem;
+        max-height: 24rem;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+    .batch-restart-task-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.875rem;
+        align-items: start;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        padding: 0.875rem;
+        background: var(--bs-body-bg);
+        cursor: pointer;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+    }
+    .batch-restart-task-card:hover {
+        border-color: #93c5fd;
+        box-shadow: 0 8px 20px rgba(37, 99, 235, 0.08);
+    }
+    .batch-restart-task-card.is-selected {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+    }
+    .batch-restart-task-card.is-disabled {
+        cursor: not-allowed;
+        background: var(--bs-tertiary-bg);
+        opacity: 0.72;
+    }
+    .batch-restart-task-card.is-disabled:hover {
+        border-color: var(--bs-border-color);
+        box-shadow: none;
+    }
+    .batch-restart-task-card.is-success {
+        border-color: #22c55e;
+    }
+    .batch-restart-task-card.is-error {
+        border-color: #dc3545;
+    }
+    .batch-restart-task-title {
+        overflow-wrap: anywhere;
+    }
+    .batch-restart-empty {
+        border: 1px dashed var(--bs-border-color);
+        border-radius: 0.5rem;
+        padding: 2rem 1rem;
+        text-align: center;
+        color: var(--bs-secondary-color);
+    }
+    .batch-restart-result {
+        max-width: 16rem;
+        overflow-wrap: anywhere;
+    }
+    html[data-bs-theme="dark"] .batch-restart-summary {
+        background: rgba(37, 99, 235, 0.14);
+        border-color: rgba(147, 197, 253, 0.26);
+        color: #bfdbfe;
+    }
+    @media (max-width: 991.98px) {
+        .task-detail-meta {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 575.98px) {
+        .task-detail-meta {
+            grid-template-columns: 1fr;
+        }
+    }

@@ -142,7 +142,7 @@ async function loadSheets() {
     if (!tableTypeOptions.value.length) {
       try {
         const metaRes = await getEnums()
-        tableTypeOptions.value = metaRes.data?.google_sheet_table_type_options || []
+        tableTypeOptions.value = metaRes?.google_sheet_table_types || []
       } catch {
         tableTypeOptions.value = []
       }

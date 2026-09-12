@@ -3,7 +3,7 @@
     const REFRESH_KEY = "refresh_token";
     const THEME_KEY = "templateTheme";
     const originalFetch = window.fetch.bind(window);
-    const authExemptPaths = new Set(["/api/auth/login", "/api/auth/refresh"]);
+    const authExemptPaths = new Set(["/api/auth/login", "/api/auth/refresh", "/api/auth/sso/exchange"]);
     const hiddenClassName = "template-auth-hidden";
 
     let currentUser = null;
@@ -11,6 +11,7 @@
     let isRefreshing = false;
     let refreshPromise = null;
     let navItems = [];
+    let pagePermissions = [];
 
     const legacyPathMap = new Map([
         ["/admin", "/admin/"],
@@ -20,30 +21,8 @@
         ["/task/create", "/google-sheet/create"],
         ["/backtest/list", "/backtest-training/list"],
         ["/backtest/create", "/backtest-training/create"],
-        ["/xpl", "/xpl/"],
+        ["/performance_analysis", "/performance_analysis/"],
     ]);
-
-    const templateUnsupportedPaths = new Set([]);
-
-    const pagePermissionMatchers = [
-        { test: /^\/admin\/?$/, permissions: ["page:admin:dashboard"] },
-        { test: /^\/admin\/tasks\/?$/, permissions: ["page:admin:tasks"] },
-        { test: /^\/admin\/config\/?$/, permissions: ["page:admin:config"] },
-        { test: /^\/admin\/navigation\/?$/, permissions: ["page:admin:navigation"] },
-        { test: /^\/admin\/logs\/?$/, permissions: ["page:admin:logs"] },
-        { test: /^\/admin\/templates\/?$/, permissions: ["page:admin:templates"] },
-        { test: /^\/admin\/results\/?$/, permissions: ["page:admin:results"] },
-        { test: /^\/admin\/model-summary\/?$/, permissions: ["page:admin:model_summary"] },
-        { test: /^\/admin\/google-sheets\/?$/, permissions: ["page:admin:google_sheets"] },
-        { test: /^\/admin\/scheduler\/?$/, permissions: ["page:admin:scheduler"] },
-        { test: /^\/admin\/users\/?$/, permissions: ["page:admin:users"] },
-        { test: /^\/admin\/roles\/?$/, permissions: ["page:admin:roles"] },
-        { test: /^\/backtest-training\/list\/?$/, permissions: ["page:backtest:list"] },
-        { test: /^\/backtest-training\/create\/?$/, permissions: ["page:backtest:create"] },
-        { test: /^\/backtest-training\/detail\/.+$/, permissions: ["page:backtest:list"] },
-        { test: /^\/backtest-training\/global-preview\/.+$/, permissions: ["page:backtest:list"] },
-        { test: /^\/backtest-training\/result\/.+$/, permissions: ["page:backtest:list"] },
-    ];
 
     function parseJsonSafely(text) {
         if (!text) {
@@ -83,24 +62,38 @@
     function setTokens(accessToken, refreshToken) {
         if (accessToken) {
             localStorage.setItem(TOKEN_KEY, accessToken);
+            // 同步写入 cookie：页面导航请求无法携带 Authorization 头，
+            // 服务端页面鉴权（page_login_required / admin_required）据此回退读取。
+            // 名字须与后端 ACCESS_TOKEN_COOKIE(gsc_access_token) 一致：cookie 不按
+            // 端口隔离，通用名会被本机其他服务的同名（HttpOnly）cookie 顶死。
+            const securePart = window.location.protocol === "https:" ? "; Secure" : "";
+            document.cookie =
+                "gsc_access_token=" + encodeURIComponent(accessToken) +
+                "; path=/; SameSite=Lax" + securePart;
         }
         if (refreshToken) {
             localStorage.setItem(REFRESH_KEY, refreshToken);
         }
     }
 
+    function clearAccessTokenCookie() {
+        // 置空并立即过期，清除页面鉴权用的访问令牌 cookie。
+        document.cookie = "gsc_access_token=; path=/; SameSite=Lax; Max-Age=0";
+    }
+
     function clearAuthState() {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(REFRESH_KEY);
+        clearAccessTokenCookie();
         currentUser = null;
         currentPermissions = [];
         navItems = [];
+        pagePermissions = [];
     }
 
-    function isAuthEnabled() {
-        const raw = document.body?.dataset?.authEnabled;
-        return raw !== "false";
-    }
+    // 鉴权恒为开启（D3，docs/design/frontend-refactor/03 §6）：页面不再注入
+    // data-auth-enabled，AUTH_ENABLED=false 仅 development 且前端不感知，
+    // 原 isAuthEnabled() 恒真分支已随 2026-09 ponytail 审计 E6 移除。
 
     function isLoginPage() {
         return document.body?.dataset?.pageType === "login";
@@ -211,10 +204,15 @@
         if (!code) {
             return true;
         }
-        if (code === "task:any") {
-            return currentPermissions.some((permission) => String(permission).startsWith("task:"));
-        }
+        // 系统仅保留页面权限（page:*），全部通过页面权限表控制访问。
         return currentPermissions.includes(code);
+    }
+
+    function isAdmin() {
+        // 与后端 admin_required/_is_admin_user 同一语义：仅判断是否持有 admin 角色
+        // （细粒度权限随主服务接入统一解决）。
+        return Array.isArray(currentUser?.roles)
+            && currentUser.roles.some((role) => role?.code === "admin");
     }
 
     function hasAnyPermission(permissionList) {
@@ -224,27 +222,26 @@
         return permissionList.some((permission) => hasPermission(permission));
     }
 
-    function escapeHtml(text) {
-        return String(text || "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
+    function escapeHtml(str) {
+        return String(str)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
     }
 
-    function getGoogleSheetPermissionByVersion() {
-        const version = (new URLSearchParams(window.location.search).get("version") || "c3").toLowerCase();
-        if (version === "c4") {
-            return "page:google_sheet:c4";
-        }
-        if (version === "c5") {
-            return "page:google_sheet:c5";
-        }
-        if (version === "c31") {
-            return "page:google_sheet:c3";
-        }
-        return "page:google_sheet:c3";
+    // 防抖函数
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
     }
 
     function getPagePermissions() {
@@ -258,10 +255,14 @@
 
         const pathname = window.location.pathname;
         if (/^\/google-sheet(?:\/|$)/.test(pathname)) {
-            return [getGoogleSheetPermissionByVersion()];
+            const googleSheetPath = `/google-sheet/?version=${new URLSearchParams(window.location.search).get("version") || "c3"}`;
+            const googleSheetPermission = pagePermissions.find((item) => item.path === googleSheetPath);
+            return googleSheetPermission ? [googleSheetPermission.permission] : [];
         }
-        const matcher = pagePermissionMatchers.find((item) => item.test.test(pathname));
-        return matcher ? matcher.permissions : [];
+        const currentUrl = getCurrentUrl();
+        const match = pagePermissions.find((item) => item.path === currentUrl)
+            || pagePermissions.find((item) => normalizePath(item.path) === normalizePath(pathname));
+        return match ? [match.permission] : [];
     }
 
     function redirectToLogin() {
@@ -290,7 +291,8 @@
         }
 
         const data = payload.data || {};
-        setTokens(data.access_token, refreshToken);
+        // 后端会轮换 refresh_token（滑动续期），一并更新；兼容旧版仅返回 access_token 的情况。
+        setTokens(data.access_token, data.refresh_token || refreshToken);
         currentUser = data.user || currentUser;
         currentPermissions = Array.isArray(data.user?.permissions) ? data.user.permissions : currentPermissions;
         updateUserPanels();
@@ -411,7 +413,7 @@
             const cloned = { ...item };
             if (cloned.path) {
                 const legacyPath = resolveLegacyPath(cloned.path);
-                if (!legacyPath || templateUnsupportedPaths.has(cloned.path)) {
+                if (!legacyPath) {
                     return result;
                 }
                 cloned.path = legacyPath;
@@ -567,7 +569,13 @@
 
     async function loadNav() {
         const payload = await requestJson("/api/meta/nav", { method: "GET" });
-        navItems = filterTemplateNav(payload?.data || []);
+        const navigationData = payload?.data || {};
+        navItems = filterTemplateNav(
+            Array.isArray(navigationData) ? navigationData : navigationData.items || []
+        );
+        pagePermissions = Array.isArray(navigationData.page_permissions)
+            ? navigationData.page_permissions
+            : [];
         renderSidebarMenu(navItems);
         renderTopMenu(navItems);
     }
@@ -667,11 +675,59 @@
 
     function getLoginNextUrl() {
         const nextFromInput = document.getElementById("loginNextUrl");
-        if (nextFromInput?.value) {
-            return nextFromInput.value;
+        const rawNext = nextFromInput?.value
+            || new URLSearchParams(window.location.search).get("next")
+            || "/admin/";
+        return sanitizeNextUrl(rawNext) || "/admin/";
+    }
+
+    // next 仅允许同源相对路径（防开放重定向：/login?next= 是外部可达参数）。
+    function sanitizeNextUrl(value) {
+        if (typeof value !== "string") {
+            return null;
         }
-        const params = new URLSearchParams(window.location.search);
-        return params.get("next") || "/admin/";
+        const trimmed = value.trim();
+        if (!trimmed.startsWith("/") || trimmed.startsWith("//") || /[\r\n]/.test(trimmed)) {
+            return null;
+        }
+        return trimmed;
+    }
+
+    // 主服务 SSO 换票（docs/design/sso-integration-2026-09/）：
+    // /login#sso_token=<主服务Token> → POST /api/auth/sso/exchange（Token 走 header，
+    // 不进 URL/访问日志）→ 复用 setTokens 管线。fragment 不发给服务端、不进
+    // Referer，读到后立即 replaceState 清掉。换票失败保留账号密码登录兜底。
+    function consumeSsoTokenFromHash() {
+        const match = window.location.hash.match(/(?:^|#|&)sso_token=([^&]+)/);
+        if (!match) {
+            return null;
+        }
+        let token = match[1];
+        try {
+            token = decodeURIComponent(token);
+        } catch (_error) {
+            // 保留原值：主服务侧未编码时仍可透传
+        }
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        return token;
+    }
+
+    async function performSsoExchange(ssoToken) {
+        const response = await originalFetch("/api/auth/sso/exchange", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Token": ssoToken,
+            },
+            body: "{}",
+        });
+        const payload = parseJsonSafely(await response.text());
+        if (!response.ok || !payload || payload.code !== 0) {
+            throw new Error((payload && payload.message) || "主服务登录失败");
+        }
+        const data = payload.data || {};
+        setTokens(data.access_token, data.refresh_token);
+        return data;
     }
 
     function bindLoginPage() {
@@ -686,12 +742,18 @@
             return;
         }
 
-        if (!isAuthEnabled()) {
-            window.location.replace(getLoginNextUrl());
-            return;
-        }
-
-        if (getToken()) {
+        // SSO 分支优先于本地 token 恢复：携带 sso_token 进入即视为以主服务身份换票。
+        const ssoToken = consumeSsoTokenFromHash();
+        if (ssoToken) {
+            performSsoExchange(ssoToken)
+                .then(() => {
+                    window.location.replace(getLoginNextUrl());
+                })
+                .catch((error) => {
+                    errorBox.textContent = error.message || "主服务登录失败，请使用账号密码登录";
+                    errorBox.classList.remove("d-none");
+                });
+        } else if (getToken()) {
             fetchCurrentUser()
                 .then(() => {
                     window.location.replace(getLoginNextUrl());
@@ -738,13 +800,6 @@
         ensureFloatingEntry();
         applyTheme(localStorage.getItem(THEME_KEY) || "light");
         bindThemeToggles();
-
-        if (!isAuthEnabled()) {
-            updateBodyReadyState();
-            bindLogoutButtons();
-            emitAuthReady({ authEnabled: false, user: currentUser, permissions: currentPermissions.slice() });
-            return;
-        }
 
         if (!getToken()) {
             redirectToLogin();
@@ -807,6 +862,7 @@
             return currentPermissions.slice();
         },
         hasPermission,
+        isAdmin,
         requestJson,
     };
 
@@ -817,5 +873,7 @@
         window.formatTime = formatTime;
         window.getStatusText = getStatusText;
         window.getStatusClass = getStatusClass;
+        window.escapeHtml = escapeHtml;
+        window.debounce = debounce;
     }
 })();

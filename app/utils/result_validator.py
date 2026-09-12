@@ -49,8 +49,6 @@ def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ')):
                         empty_keys.append([key,value])
                     elif isinstance(value, str) and value.strip() == '':
                         empty_keys.append([key,value])
-                    # elif isinstance(value, (int, float)) and value == 0:
-                    #     empty_keys.append([key,value])
                 
                 # 如果发现空值，记录日志并返回失败
                 if empty_keys:
@@ -62,7 +60,7 @@ def validate_result_dict(none_values: Tuple[Any, ...] = (None, '', ' ')):
                 
             except Exception as e:
                 logger.error(f"验证函数 {func.__name__} 结果时出错: {str(e)}")
-                return False, {}
+                raise
         
         return wrapper
     return decorator
@@ -99,11 +97,6 @@ def validate_google_sheet_result(result_dict: Dict[str, Any]) -> Tuple[bool, str
             empty_keys.append(key)
         elif isinstance(result_dict[key], str) and result_dict[key].strip() == '':
             empty_keys.append(key)
-        # elif isinstance(result_dict[key], (int, float)) and result_dict[key] == 0:
-        #     # 对于某些键，0 可能是有效值，需要进一步检查
-        #     if key in result_keys:
-        #         # 结果键为0可能表示计算错误
-        #         empty_keys.append(key)
     
     if missing_keys:
         return False, f"缺少必需的键: {missing_keys}"

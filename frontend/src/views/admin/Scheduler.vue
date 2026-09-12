@@ -6,7 +6,7 @@
       </template>
     </PageToolbar>
 
-    <StatCardGrid :cards="statCards" :data="stats" variant="gradient" />
+    <StatCardGrid :cards="statCards" :data="stats" />
 
     <el-card shadow="never">
       <template #header>定时任务列表</template>
@@ -30,8 +30,16 @@
           </template>
         </el-table-column>
         <el-table-column prop="run_count" label="执行次数" width="80" />
-        <el-table-column prop="last_run_time" label="上次执行" width="160" show-overflow-tooltip />
-        <el-table-column prop="next_run_time" label="下次执行" width="160" show-overflow-tooltip />
+        <el-table-column label="上次执行" width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ formatDateTime(row.last_run_time) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="下次执行" width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ formatDateTime(row.next_run_time) }}
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="160">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
@@ -102,6 +110,7 @@
 import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getSchedulerStats, getScheduledTasks, createScheduledTask, updateScheduledTask, deleteScheduledTask, toggleScheduledTask, runScheduledTask } from '@/api/scheduler'
+import { formatDateTime } from '@/utils/format'
 import { useResponsive } from '@/composables/useResponsive'
 import PageToolbar from '@/components/PageToolbar.vue'
 import StatCardGrid from '@/components/StatCardGrid.vue'
@@ -116,10 +125,10 @@ const dialogVisible = ref(false)
 const editingId = ref(null)
 
 const statCards = [
-  { key: 'total_tasks', label: '总任务数', background: '#409eff' },
-  { key: 'active_tasks', label: '活跃任务', background: '#67c23a' },
-  { key: 'inactive_tasks', label: '暂停任务', background: '#e6a23c' },
-  { key: 'scheduler_running', label: '调度器状态', background: '#17a2b8' },
+  { key: 'total_tasks', label: '总任务数', color: '#2563eb' },
+  { key: 'active_tasks', label: '活跃任务', color: '#16a34a' },
+  { key: 'inactive_tasks', label: '暂停任务', color: '#f59e0b' },
+  { key: 'scheduler_running', label: '调度器状态', color: '#14b8a6' },
 ]
 
 const form = reactive({ name: '', description: '', cron_expression: '', task_type: 'cleanup', task_function: 'cleanup_old_logs', task_params: '', is_active: true })
@@ -131,7 +140,7 @@ async function loadAll() {
   loading.value = true
   try {
     const [tRes, sRes] = await Promise.all([getScheduledTasks(), getSchedulerStats()])
-    tasks.value = tRes.tasks || []
+    tasks.value = tRes.items || []
     const s = sRes.stats || {}
     stats.value = { ...s, scheduler_running: s.scheduler_running ? '运行中' : '已停止' }
   } finally {

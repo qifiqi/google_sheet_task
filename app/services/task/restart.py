@@ -6,9 +6,11 @@ from datetime import datetime
 
 from flask import current_app
 
-from app.extensions import db
-from app.models import Task, TaskLog, TaskResult, TaskResultReturn, TaskResultSummaryIndex
-from app.utils.database import safe_update, transaction_required
+from app.exceptions import ConflictError, NotFoundError
+
+from app.services.task.data_cleanup import clear_task_execution_data
+from app.repositories import task_repository
+from app.utils.database import transaction_required
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -23,7 +25,7 @@ class TaskRestartMixin:
     @transaction_required
     def cancel_task(self, task_id: str) -> bool:
         """取消任务。"""
-        task = db.session.get(Task, task_id)
+        task = task_repository.get_entity(task_id)
         if not task:
             return False
 
@@ -35,7 +37,12 @@ class TaskRestartMixin:
         if stop_event:
             stop_event.set()
 
-        safe_update(task, commit=False, status="cancelled", end_time=datetime.now())
+        task_repository.update_fields(
+            task_id,
+            commit=False,
+            status="cancelled",
+            end_time=datetime.now(),
+        )
 
         if was_pending:
             self.release_task_token_occupancy(task_id)
@@ -50,11 +57,11 @@ class TaskRestartMixin:
         task_id: str,
         resume_from_checkpoint: bool = True,
     ) -> dict[str, str | int]:
-        """重启任务。"""
+        """重启任务；成功返回重启信息 dict，失败抛领域异常（NotFoundError/ConflictError）。"""
         try:
-            task = db.session.get(Task, task_id)
+            task = task_repository.get_entity(task_id)
             if not task:
-                return {"status": "error", "message": "任务不存在"}
+                raise NotFoundError("任务不存在")
 
             original_status = task.status
             current_step = task.current_step
@@ -62,31 +69,30 @@ class TaskRestartMixin:
             status_check = self.check_local_task_status(task_id)
             if original_status == "running":
                 if not status_check.get("can_restart", False):
-                    return {"status": "error", "message": "任务正在运行中，无法重启"}
+                    raise ConflictError("任务正在运行中，无法重启")
             elif original_status not in ["pending", "completed", "error", "cancelled"]:
-                return {
-                    "status": "error",
-                    "message": f"任务状态 '{original_status}' 不允许重启",
-                }
+                raise ConflictError(f"任务状态 '{original_status}' 不允许重启")
 
-            if task_id in self.running_tasks:
+            # 持锁取运行态快照，避免与 start_task/watchdog 的注册清理并发竞争。
+            with self._runtime_state_lock:
+                existing_handle = self.running_tasks.get(task_id)
+            if existing_handle is not None:
                 try:
-                    thread = self.running_tasks.get(task_id)
                     self.cancel_task(task_id)
-                    if thread and thread.is_alive():
-                        thread.join(timeout=3.0)
+                    if existing_handle.is_alive():
+                        existing_handle.join(timeout=3.0)
                     logger.info("已停止原有任务线程: %s", task_id)
                 except Exception as exc:
                     logger.warning("停止原有任务线程失败: %s", exc)
 
-            alive_thread = self.running_tasks.get(task_id)
-            if alive_thread and alive_thread.is_alive():
-                return {
-                    "status": "error",
-                    "message": "task is still stopping, please retry shortly",
-                }
+            with self._runtime_state_lock:
+                alive_thread = self.running_tasks.get(task_id)
+                still_alive = bool(alive_thread and alive_thread.is_alive())
+                if not still_alive:
+                    self.task_stop_events.pop(task_id, None)
+            if still_alive:
+                raise ConflictError("任务仍在停止中，请稍后重试")
 
-            self.task_stop_events.pop(task_id, None)
             start_time = None
             if resume_from_checkpoint:
                 restart_step = current_step
@@ -98,22 +104,20 @@ class TaskRestartMixin:
                 start_time = original_start_time
             else:
                 restart_step = 0
-                task.current_step = 0
                 self.release_task_token_occupancy(task_id)
                 self.release_google_sheet_occupancy(task_id)
-                TaskResultSummaryIndex.query.filter_by(task_id=task_id).delete()
-                TaskResult.query.filter_by(task_id=task_id).delete()
-                TaskResultReturn.query.filter_by(task_id=task_id).delete()
-                db.session.commit()
+                task_repository.update_fields(task_id, current_step=0, commit=False)
+                clear_task_execution_data(task_id)
+                task_repository.commit()
                 self.add_task_log(
                     task_id,
                     "info",
                     "重新开始任务，从第 1 步开始（已清空历史结果）",
                 )
 
-            task = db.session.get(Task, task_id)
+            task = task_repository.get_entity(task_id)
             if not task:
-                return {"status": "error", "message": "任务不存在"}
+                raise NotFoundError("任务不存在")
             if task.task_type in ("backtest_training", "backtest_multi_product"):
                 config_data = self._get_task_config_dict(task)
                 spreadsheet_ids = self._extract_backtest_spreadsheet_ids_to_lock(task.task_type, config_data)
@@ -127,35 +131,33 @@ class TaskRestartMixin:
                         f"当前任务保持待执行: {running_backtest.id}"
                     )
                     self.start_errors[task_id] = message
-                    task.status = "pending"
-                    task.error_message = None
-                    task.start_time = start_time
-                    task.end_time = None
-                    db.session.commit()
+                    task_repository.update_fields(
+                        task_id,
+                        status="pending",
+                        error_message=None,
+                        start_time=start_time,
+                        end_time=None,
+                    )
                     self.add_task_log(task_id, "info", message)
                     return {
-                        "status": "success",
                         "message": message,
                         "start_error": message,
                         "task_id": task_id,
                         "queued": True,
                         "restart_from_step": restart_step,
                     }
-            task.status = "pending"
-            task.error_message = None
-            task.start_time = start_time
-            task.end_time = None
-            db.session.commit()
+            task_repository.update_fields(
+                task_id,
+                status="pending",
+                error_message=None,
+                start_time=start_time,
+                end_time=None,
+            )
 
             success = self.start_task(task_id)
             if not success:
                 start_error = self.get_start_error(task_id)
-                return {
-                    "status": "error",
-                    "message": f"任务重启失败: {start_error}",
-                    "start_error": start_error,
-                    "task_id": task_id,
-                }
+                raise ConflictError(f"任务重启失败: {start_error}")
 
             restart_reason = status_check.get("restart_reason")
             if not restart_reason:
@@ -168,36 +170,37 @@ class TaskRestartMixin:
                 restart_reason = manual_reason_map.get(original_status, "用户手动重启")
 
             self.add_task_log(task_id, "info", f"任务重启成功，原因: {restart_reason}")
+            logger.info("任务重启成功: task_id=%s from_step=%s", task_id, restart_step)
             return {
-                "status": "success",
                 "message": "任务重启成功",
                 "restart_from_step": restart_step,
                 "restart_reason": restart_reason,
             }
         except Exception as exc:
             logger.error("重启任务失败: %s, 错误: %s", task_id, exc)
-            return {"status": "error", "message": f"任务重启失败: {exc}"}
+            raise
 
     def delete_task(self, task_id: str) -> bool:
         """删除任务及相关数据。"""
         try:
             with current_app.app_context():
-                task = db.session.get(Task, task_id)
+                task = task_repository.get_entity(task_id)
                 if not task:
                     logger.warning("任务不存在: %s", task_id)
                     return False
 
                 if task.status == "running":
-                    task.status = "cancelled"
-                    task.end_time = datetime.now()
+                    task_repository.update_fields(
+                        task_id,
+                        commit=False,
+                        status="cancelled",
+                        end_time=datetime.now(),
+                    )
                     self.release_task_token_occupancy(task_id)
                 self.release_google_sheet_occupancy(task_id)
 
-                TaskResultSummaryIndex.query.filter_by(task_id=task_id).delete()
-                TaskResult.query.filter_by(task_id=task_id).delete()
-                TaskLog.query.filter_by(task_id=task_id).delete()
-                db.session.delete(task)
-                db.session.commit()
+                clear_task_execution_data(task_id, include_logs=True)
+                task_repository.delete(task_id)
 
                 self.running_tasks.pop(task_id, None)
                 stop_event = self.task_stop_events.pop(task_id, None)
@@ -208,5 +211,5 @@ class TaskRestartMixin:
                 return True
         except Exception as exc:
             logger.error("删除任务失败: %s, 错误: %s", task_id, exc)
-            db.session.rollback()
+            task_repository.rollback()
             return False

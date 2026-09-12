@@ -1,4 +1,4 @@
-# Google Sheet 参数批量校验系统
+    # Google Sheet 参数批量校验系统
 
 一个前后端分离（Flask + Vue 3）的任务平台，支持 Google Sheet 参数批量校验、任务调度、RBAC 权限控制与 JWT 登录鉴权。
 
@@ -23,7 +23,7 @@
 
 ### 🎨 界面特性
 - **响应式设计**: 支持桌面和移动设备
-- **现代化 UI**: 基于 Bootstrap 5 的现代化界面
+- **现代化 UI**: Vue 3 前端基于 Element Plus + Naive UI；Jinja 模板页面配套 static/ 样式
 - **实时更新**: 无需刷新页面的实时数据更新
 - **用户友好**: 直观的操作界面和交互体验
 
@@ -160,11 +160,7 @@ APP_ENV=production
 DATABASE_URL=postgresql://postgres:Hello12345*@172.18.20.17:5432/googlesheet_validator
 ```
 
-本地开发数据库使用 Docker 启动：
-```bash
-docker compose -f dockers/postgres/docker-compose.yml up -d
-python scripts/migrate_db.py
-```
+本地开发数据库默认使用 SQLite（`instance/app.db`），也可通过 `DATABASE_URL` 指向 PostgreSQL/MySQL；数据库建表与初始化见 `docs/本地开发指南.md`。
 
 ## 登录与鉴权（前后端）
 
@@ -214,9 +210,10 @@ JWT_SECRET_KEY=请替换为生产随机密钥
 - `PUT /api/auth/password`：修改密码
 
 更多细节见：
-- `docs/登录与鉴权操作指南.md`
-- `docs/前端维护文档.md`
-- `docs/后端维护文档.md`
+- `docs/登录与鉴权指南.md`
+- `docs/前端Vue工程.md`
+- `docs/架构总览.md`
+- `docs/目录索引.md`（全部文档索引）
 
 ## 使用指南
 

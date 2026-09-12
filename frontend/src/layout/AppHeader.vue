@@ -84,6 +84,21 @@ const currentTitle = computed(() => route.meta.title || '任务平台')
   justify-self: end;
 }
 
+/* 桌面端顶栏只保留面包屑（已含页面名），避免与页面内标题三重重复 */
+@media (min-width: 1025px) {
+  .app-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .app-header__left {
+    display: none;
+  }
+
+  .app-header__breadcrumb {
+    justify-self: start;
+  }
+}
+
 .hamburger {
   display: grid;
   place-items: center;

@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V2 回测数据分析 - Jaspil 任务管理系统</title>
+
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/template-auth.css" rel="stylesheet">
+    <link href="/static/css/common/theme.css" rel="stylesheet">
+    <link href="/static/css/components/sidebar.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <link href="/static/css/pages/performance_analysis_v2.css" rel="stylesheet">
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">V2：回测数据分析</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a class="btn btn-sm btn-outline-secondary" href="/performance_analysis/">
+                <i class="bi bi-arrow-left"></i> 返回
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body p-3">
+<!--?        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">-->
+<!--?            <div>-->
+<!--?                <h2 class="h6 mb-1">数据输入</h2>-->
+<!--?                <div class="small text-body-secondary">不同来源使用相同的指标口径进行分析</div>-->
+<!--?            </div>-->
+<!--?        </div>-->
+        <div class="d-flex flex-wrap align-items-end gap-2">
+            <ul class="nav nav-tabs flex-grow-1" id="v2-source-tabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="google-sheet-tab" data-bs-toggle="tab" data-bs-target="#google-sheet-pane"
+                            type="button" role="tab" aria-controls="google-sheet-pane" aria-selected="true">Google Sheet</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="paste-data-tab" data-bs-toggle="tab" data-bs-target="#paste-data-pane"
+                            type="button" role="tab" aria-controls="paste-data-pane" aria-selected="false">粘贴数据</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="import-excel-tab" data-bs-toggle="tab" data-bs-target="#import-excel-pane"
+                            type="button" role="tab" aria-controls="import-excel-pane" aria-selected="false">导入 Excel</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config-pane"
+                            type="button" role="tab" aria-controls="config-pane" aria-selected="false">参数配置</button>
+                </li>
+            </ul>
+            <button class="btn btn-primary mb-1" id="btn-analyze-v2" type="button" disabled>
+                <i class="bi bi-lightning-charge-fill me-1"></i>分析
+            </button>
+        </div>
+        <div class="tab-content pt-3" id="v2-source-tab-content">
+            <div class="tab-pane fade show active" id="google-sheet-pane" role="tabpanel" aria-labelledby="google-sheet-tab" tabindex="0">
+                <div class="row g-2 align-items-start">
+                    <div class="col-lg-7">
+                        <input type="text" class="form-control" id="gs-url"
+                               placeholder="Google Sheet URL：https://docs.google.com/spreadsheets/d/..." autocomplete="off"/>
+                        <div class="small text-body-secondary mt-1" id="gs-meta" style="min-height: 1.2em;"></div>
+                    </div>
+                    <div class="col-lg-3">
+                        <select id="gs-sheet-name" class="form-select" disabled>
+                            <option value="">工作表：请先输入 URL</option>
+                        </select>
+                    </div>
+                    <div class="col-lg-2">
+                        <button class="btn btn-outline-primary" id="btn-fetch-sheets" type="button">
+                            <i class="bi bi-list-task me-1"></i>获取
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="paste-data-pane" role="tabpanel" aria-labelledby="paste-data-tab" tabindex="0">
+                <div class="row g-3 align-items-stretch">
+                    <div class="col-lg-8">
+                        <textarea class="form-control font-monospace" id="v2-paste-data" rows="8"
+                                  aria-label="回测收益数据"
+                                  placeholder="date&#9;index_return&#9;start_return&#10;2025-01-02&#9;0.0123&#9;0.0156&#10;2025-01-03&#9;-0.0081&#9;-0.0042"></textarea>
+                    </div>
+                    <div class="col-lg-4 d-flex">
+                        <div class="border rounded-1 bg-body-tertiary p-3 h-100 w-100">
+                            <div class="fw-semibold mb-2">输入说明</div>
+                            <div class="small fw-semibold mb-1">回测收益数据</div>
+                            <div class="small text-body-secondary mb-3" id="v2-paste-status">需要三列：日期、指数收益、模型收益。</div>
+                            <div class="small text-body-secondary">支持从 Excel 复制，列可由 Tab、逗号或空格分隔。首行如为列头会自动跳过。</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="import-excel-pane" role="tabpanel" aria-labelledby="import-excel-tab" tabindex="0">
+                <div class="row g-3 align-items-stretch">
+                    <div class="col-lg-7 d-flex">
+                        <input class="d-none" type="file" id="v2-excel-file" accept=".xlsx,.xls">
+                        <div class="border border-secondary-subtle rounded-1 p-4 text-center h-100 w-100 d-flex flex-column justify-content-center">
+                            <i class="bi bi-file-earmark-excel text-success fs-3 d-block mb-2"></i>
+                            <div class="fw-semibold">选择本地 Excel 文件</div>
+                            <div class="small text-body-secondary mt-1 mb-3">文件仅在当前浏览器中读取，不上传到服务器。</div>
+                            <button class="btn btn-outline-primary" id="btn-select-v2-excel" type="button">
+                                <i class="bi bi-upload me-1"></i>选择 Excel 文件
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-lg-5 d-flex">
+                        <div class="border rounded-1 bg-body-tertiary p-3 h-100 w-100">
+                            <div class="fw-semibold mb-2">导入规则</div>
+                            <dl class="row small mb-0">
+                                <dt class="col-4 text-body-secondary fw-normal">工作表</dt><dd class="col-8">默认第 1 个工作表</dd>
+                                <dt class="col-4 text-body-secondary fw-normal">数据范围</dt><dd class="col-8">仅读取前三列（A:C）</dd>
+                                <dt class="col-4 text-body-secondary fw-normal">首行处理</dt><dd class="col-8">识别为列头时自动跳过</dd>
+                                <dt class="col-4 text-body-secondary fw-normal">标准字段</dt><dd class="col-8 font-monospace">date / index_return / start_return</dd>
+                            </dl>
+                            <div class="small text-body-secondary mt-2" id="v2-excel-status">请选择 .xlsx 或 .xls 文件。</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="config-pane" role="tabpanel" aria-labelledby="config-tab" tabindex="0">
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-downturn-threshold">市场下跌阶段阈值（指数月收益 &lt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-downturn-threshold" value="-2" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">七、极端行情表现 7.1 市场下跌阶段判定阈值，默认 -2%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-upturn-threshold">市场上涨阶段阈值（指数月收益 &gt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-upturn-threshold" value="2" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">七、极端行情表现 7.2 市场上涨阶段判定阈值，默认 2%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-daily-extreme-threshold">极端单日涨跌阈值（单日涨/跌 &gt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-daily-extreme-threshold" value="2" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">七、极端行情表现 7.3 涨幅/跌幅天数与涨跌比统计阈值，默认 2%。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label mb-1" for="config-daily-drawdown-threshold">单日回撤统计阈值（单日跌幅 &lt;）</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="config-daily-drawdown-threshold" value="5" step="0.1">
+                            <span class="input-group-text">%</span>
+                        </div>
+                        <div class="form-text">二、风险类指标 回撤发生次数/频率统计阈值，默认 5%。</div>
+                    </div>
+                    <div class="col-12 small text-body-secondary">
+                        修改后回到数据来源页签点击「分析」即可按新阈值重新计算；导出 Word 报告沿用本次分析的阈值。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4" id="summary-cards">
+    <div class="col-md-3">
+        <div class="card border-primary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-body-secondary">跑赢年份</h6>
+                <h2 class="card-title" id="v1-outperform-year">-</h2>
+                <p class="card-text text-body-secondary small">outperform_year</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-success h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-body-secondary">月超额波动率</h6>
+                <h2 class="card-title" id="v1-monthly-excess-vol">-</h2>
+                <p class="card-text text-body-secondary small">monthly_excess_volatility</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-warning h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-body-secondary">超额回撤胜率</h6>
+                <h2 class="card-title" id="v1-excess-dd-win">-</h2>
+                <p class="card-text text-body-secondary small">excess_drawdown_winning_rate</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-danger h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-body-secondary">年超额收益(整体)</h6>
+                <h2 class="card-title" id="v1-excess-annual-all">-</h2>
+                <p class="card-text text-body-secondary small">excess_returns[all]</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card border-secondary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-body-secondary">指数盈利年%</h6>
+                <h2 class="card-title" id="v1-index-profit-annual">-</h2>
+                <p class="card-text text-body-secondary small">index_profit_annual</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-secondary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-body-secondary">模型盈利年%</h6>
+                <h2 class="card-title" id="v1-start-profit-annual">-</h2>
+                <p class="card-text text-body-secondary small">start_profit_annual</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-secondary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-body-secondary">指数月波动率</h6>
+                <h2 class="card-title" id="v1-index-monthly-vol">-</h2>
+                <p class="card-text text-body-secondary small">index_monthly_return_volatility</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-secondary h-100">
+            <div class="card-body text-center">
+                <h6 class="card-subtitle mb-2 text-body-secondary">模型月波动率</h6>
+                <h2 class="card-title" id="v1-start-monthly-vol">-</h2>
+                <p class="card-text text-body-secondary small">start_monthly_return_volatility</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4" id="details-card">
+    <div class="card-header bg-body-tertiary border-0 py-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#v1-details-collapse" aria-expanded="false" aria-controls="v1-details-collapse">
+                <i class="bi bi-layout-text-sidebar-reverse me-1"></i>V2 数据明细（展开/收起）
+            </button>
+            <button class="btn btn-sm btn-outline-primary" type="button" id="btn-export-v1" disabled>
+                <i class="bi bi-download me-1"></i>导出 Excel
+            </button>
+            <button class="btn btn-sm btn-outline-success" type="button" id="btn-export-word" disabled>
+                <i class="bi bi-file-earmark-word me-1"></i>导出 Word
+            </button>
+        </div>
+    </div>
+    <div class="collapse" id="v1-details-collapse">
+        <div class="card-body p-3">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <div class="list-group" id="v1-detail-tabs" role="tablist">
+                        <button class="list-group-item list-group-item-action active" data-bs-toggle="list"
+                                data-bs-target="#tab-annual" type="button" role="tab">年度收益/回撤
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-excess" type="button" role="tab">超额收益
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-monthly-excess" type="button" role="tab">月超额收益
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-kama" type="button" role="tab">卡玛比率
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-sotino" type="button" role="tab">索提诺比例
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-sharpe" type="button" role="tab">夏普比率
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-excess-metrics" type="button" role="tab">超额指标
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-repair-days" type="button" role="tab">回测修复天数
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-profit" type="button" role="tab">盈利统计
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-scalars" type="button" role="tab">关键标量
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-sheet-result" type="button" role="tab">Sheet 结果
+                        </button>
+                        <button class="list-group-item list-group-item-action" data-bs-toggle="list"
+                                data-bs-target="#tab-raw" type="button" role="tab">全量 JSON
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-10">
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="tab-annual" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-lg-6">
+                                    <div class="card h-100">
+                                        <div class="card-header py-2"><h6 class="card-title mb-0">年度收益率对比</h6>
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>指数收益</th>
+                                                        <th>模型收益</th>
+                                                        <th>差值</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-annual-compare"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="card h-100">
+                                        <div class="card-header py-2"><h6 class="card-title mb-0">年度最大回撤对比</h6>
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>指数回撤</th>
+                                                        <th>模型回撤</th>
+                                                        <th>日期(指数/模型)</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-drawdown-compare"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <div class="card">
+                                        <div class="card-header py-2"><h6 class="card-title mb-0">月超额收益百分比</h6>
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>月超额收益占比</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-monthly-excess-pct"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-excess" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Year</th>
+                                        <th>模型年化</th>
+                                        <th>指数年化</th>
+                                        <th>超额</th>
+                                        <th>区间</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-excess-returns"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-monthly-excess" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>年月</th>
+                                        <th>指数月收益</th>
+                                        <th>模型月收益</th>
+                                        <th>超额差值</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-monthly-excess-returns"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-kama" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>年份</th>
+                                        <th>指数卡玛比率</th>
+                                        <th>模型卡玛比率</th>
+                                        <th>指数年化</th>
+                                        <th>模型年化</th>
+                                        <th>指数回撤</th>
+                                        <th>模型回撤</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-kama"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-sotino" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>年份</th>
+                                        <th>指数索提诺</th>
+                                        <th>模型索提诺</th>
+                                        <th>指数月均年化</th>
+                                        <th>模型月均年化</th>
+                                        <th>指数下行标准差</th>
+                                        <th>模型下行标准差</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-sotino"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-sharpe" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>区间</th>
+                                        <th>指数夏普</th>
+                                        <th>模型夏普</th>
+                                        <th>指数平均月收益率</th>
+                                        <th>模型平均月收益率</th>
+                                        <th>指数月标准差</th>
+                                        <th>模型月标准差</th>
+                                        <th>指数年标准差</th>
+                                        <th>模型年标准差</th>
+                                        <th>开始</th>
+                                        <th>结束</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-sharpe"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-excess-metrics" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>Name</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-excess-metrics"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-repair-days" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Metric</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-repair-days"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-profit" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-lg-6">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-striped mb-0">
+                                            <thead>
+                                            <tr>
+                                                <th colspan="2">盈利年百分比</th>
+                                            </tr>
+                                            <tr>
+                                                <th>指数</th>
+                                                <th>模型</th>
+                                            </tr>
+                                            </thead>
+                                            <tbody id="tbl-profit-annual"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="row g-3">
+                                        <div class="col-12">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th colspan="2">指数盈利月占比</th>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>占比</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-index-profit-monthly"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                        <div class="col-12">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped mb-0">
+                                                    <thead>
+                                                    <tr>
+                                                        <th colspan="2">模型盈利月占比</th>
+                                                    </tr>
+                                                    <tr>
+                                                        <th>Year</th>
+                                                        <th>占比</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id="tbl-start-profit-monthly"></tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-scalars" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-scalars"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-sheet-result" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="tbl-sheet-result"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-raw" role="tabpanel">
+                            <div class="d-flex justify-content-end mb-2">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" id="btn-copy-raw-json">复制</button>
+                            </div>
+                            <pre id="pre-raw-json" class="mb-0" style="max-height: 520px; overflow:auto;"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4" id="charts-card">
+    <div class="card-header">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-graph-up"></i> V2 图表（底部）
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">年度收益率（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-annual-returns"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">年超额收益（模型 - 指数）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-excess-annual"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">年度最大回撤（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-annual-drawdown"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">卡玛比率（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-kama"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">索提诺比例（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-sotino"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">月收益率波动率（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-monthly-vol"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-12">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">月超额收益（模型 - 指数）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:340px;">
+                            <canvas id="chart-monthly-excess-returns"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-12">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">夏普比率对比（all / year_* / past_*）</h6>
+                    </div>
+                    <div class="card-body p-2">
+                        <div style="height:340px;">
+                            <canvas id="chart-sharpe-compare"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">超额指标（夏普 / 索提诺）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-excess-metrics"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">最大回测修复天数（含年度最大值）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-repair-days"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-12">
+                <div class="card h-100">
+                    <div class="card-header py-2"><h6 class="card-title mb-0">盈利月百分比（指数 vs 模型）</h6></div>
+                    <div class="card-body p-2">
+                        <div style="height:320px;">
+                            <canvas id="chart-profit-monthly"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="loading-overlay"
+     class="position-fixed top-0 start-0 w-100 h-100 d-none d-flex flex-column justify-content-center align-items-center bg-dark bg-opacity-75"
+     style="z-index: 9999;">
+    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+        <span class="visually-hidden">加载中...</span>
+    </div>
+    <div class="mt-3 text-white fs-5">请求中，请稍候...</div>
+</div>
+
+<div class="modal fade" id="word-export-options-modal" tabindex="-1" aria-labelledby="word-export-options-title" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="word-export-options-title">补充 Word 报告信息</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3 position-relative">
+                    <label for="word-export-stock" class="form-label">股票</label>
+                    <input id="word-export-stock" class="form-control" autocomplete="off" placeholder="输入股票代码或名称搜索">
+                    <div id="word-export-stock-results" class="list-group position-absolute top-100 start-0 w-100 d-none"
+                         style="z-index: 2; max-height: 15rem; overflow-y: auto;"></div>
+                    <div class="form-text">请从内部股票查询结果中选择。</div>
+                </div>
+                <div class="mb-3">
+                    <label for="word-export-price-type" class="form-label">价格类型</label>
+                    <select id="word-export-price-type" class="form-select">
+                        <option value="sp_price" selected>收盘价</option>
+                        <option value="kp_price">开盘价</option>
+                        <option value="vwap_price">加权平均价</option>
+                        <option value="ohlc_price">OHLC（开高低收）</option>
+                        <option value="random_price">随机价</option>
+                    </select>
+                </div>
+                <div class="small text-body-secondary">V2 单产品报告的权重固定为 100.00%。</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" id="btn-confirm-word-export">导出 Word</button>
+            </div>
+        </div>
+    </div>
+</div>
+            </main>
+        </div>
+    </div>
+
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/admin-shell.js"></script>
+    <script src="/static/js/trading-date.js"></script>
+        <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="/static/js/pages/performance_analysis_v2.js"></script>
+</body>
+</html>

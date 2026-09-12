@@ -230,8 +230,9 @@ h3 {
 .page-title {
   margin: 0;
   color: var(--app-text);
-  font-size: clamp(1.9rem, 1.55rem + 0.8vw, 2.25rem);
+  font-size: clamp(1.25rem, 1.15rem + 0.4vw, 1.5rem);
   font-weight: 700;
+  line-height: 1.25;
 }
 
 .page-description {
@@ -496,9 +497,7 @@ h3 {
     linear-gradient(135deg, rgba(15, 29, 63, 0.96) 0%, rgba(22, 49, 95, 0.96) 48%, rgba(30, 64, 175, 0.92) 100%);
   color: #fff;
   box-shadow: 0 24px 48px rgba(15, 29, 63, 0.24);
-}
-
-.hero-panel__eyebrow {
+}.hero-panel__eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -678,5 +677,40 @@ h3 {
   .hero-panel {
     padding: 18px;
     border-radius: 20px;
+  }
+}
+
+// 暗色主题下的组件级覆写：中和亮色硬编码底色。
+[data-theme='dark'] {
+  .mono-pre {
+    background: rgba(15, 23, 42, 0.9);
+  }
+
+  .mono-pre--danger {
+    background: rgba(69, 26, 3, 0.4);
+    border-color: rgba(248, 113, 113, 0.25);
+    color: #fca5a5;
+  }
+
+  .tag-wall {
+    border-color: rgba(148, 163, 184, 0.22);
+    background: rgba(15, 23, 42, 0.6);
+  }
+
+  .info-banner {
+    background: rgba(37, 99, 235, 0.12);
+    border-color: rgba(148, 163, 184, 0.2);
+  }
+
+  .admin-tasks-page__config-pre {
+    background: rgba(15, 23, 42, 0.9);
+  }
+
+  .admin-tasks-page__muted {
+    color: var(--app-text-muted);
+  }
+
+  .el-card__header {
+    border-bottom-color: rgba(148, 163, 184, 0.12);
   }
 }

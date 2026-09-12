@@ -13,6 +13,7 @@
       </div>
     </div>
 
+    <el-form label-position="top" @submit.prevent>
     <el-card shadow="never" class="page-section">
       <div class="section-heading">
         <h3 class="section-title section-title--muted">任务基本信息</h3>
@@ -282,6 +283,8 @@
       </div>
     </el-card>
 
+    </el-form>
+
     <el-card shadow="never">
       <div class="action-bar">
         <el-button @click="clearSaved">清除数据</el-button>
@@ -320,6 +323,7 @@ import { getWorksheets, getTokens, importToken as apiImportToken } from '@/api/g
 import { createTask, getTask } from '@/api/task'
 import { getTemplates, getTemplate, createTemplate } from '@/api/template'
 import { useResponsive } from '@/composables/useResponsive'
+import { defaultDateRange, formatDate } from '@/utils/tradingDate'
 
 const route = useRoute()
 const router = useRouter()
@@ -437,7 +441,7 @@ async function loadWorksheetsForSheet(idx) {
 
 async function loadTokens() {
   try {
-    const res = await getTokens()
+    const res = await getTokens({ task_type: 'google_sheet' })
     tokens.value = res.tokens || []
   } catch {}
 }
@@ -471,14 +475,9 @@ function removeProductCode(code) {
 function initDefaultDates() {
   if (form.start_date || form.end_date) return
 
-  const today = new Date()
-  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
-  const start = new Date(end.getFullYear() - 5, end.getMonth(), end.getDate())
-  const formatDate = (date) =>
-    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-
-  form.end_date = formatDate(end)
-  form.start_date = formatDate(start)
+  const range = defaultDateRange(5)
+  form.end_date = formatDate(range.end)
+  form.start_date = formatDate(range.start)
 }
 
 async function applyTemplate(id) {
@@ -747,7 +746,7 @@ async function doImportToken() {
 
   try {
     const res = await apiImportToken({ token_file: tokenImportPath.value.trim() })
-    ElMessage.success(res.message || 'Token 导入成功')
+    ElMessage.success('Token 导入成功')
     tokenImportPath.value = ''
     await loadTokens()
     if (res.token?.id) form.token_id = String(res.token.id)

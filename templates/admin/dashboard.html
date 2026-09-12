@@ -1,8 +1,30 @@
-{% extends "admin/base.html" %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>仪表盘 - Jaspil 任务管理系统</title>
 
-{% block title %}仪表盘 - Jaspil 任务管理系统{% endblock %}
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/template-auth.css" rel="stylesheet">
+    <link href="/static/css/common/theme.css" rel="stylesheet">
+    <link href="/static/css/components/sidebar.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
 
-{% block content %}
+    <div class="container-fluid">
+        <div class="row">
+            <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" data-navbar></nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 py-4 px-3 px-md-4 main-content" data-template-main-content>
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">仪表盘</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
@@ -84,244 +106,17 @@
         </div>
     </div>
 </div>
-{% endblock %}
+            </main>
+        </div>
+    </div>
 
-{% block scripts %}
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/admin-shell.js"></script>
+    <script src="/static/js/trading-date.js"></script>
+        <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script>
-    let dashboardCharts = {};
-    let dashboardRefreshTimer = null;
-
-    function upsertChart(key, canvasId, config) {
-        if (dashboardCharts[key]) {
-            dashboardCharts[key].destroy();
-        }
-        const ctx = document.getElementById(canvasId).getContext('2d');
-        dashboardCharts[key] = new Chart(ctx, config);
-    }
-
-    function normalizeTaskType(taskType) {
-        const normalizedType = String(taskType || '').trim().toLowerCase();
-        if (['google_sheet', 'google_sheet_c3', 'google_sheet_c31'].includes(normalizedType)) {
-            return 'google_sheet';
-        }
-        if (normalizedType === 'google_sheet_c4') {
-            return 'google_sheet_c4';
-        }
-        if (normalizedType === 'google_sheet_c5') {
-            return 'google_sheet_c5';
-        }
-        if (['backtest_training', 'backtest'].includes(normalizedType)) {
-            return 'backtest_training';
-        }
-        if (['backtest_multi_product', 'multi_product_backtest', 'backtest_multi'].includes(normalizedType)) {
-            return 'backtest_multi_product';
-        }
-        return normalizedType;
-    }
-
-    function getGoogleSheetVersion(taskType) {
-        const normalizedType = normalizeTaskType(taskType);
-        if (normalizedType === 'google_sheet_c5') {
-            return 'c5';
-        }
-        if (normalizedType === 'google_sheet_c4') {
-            return 'c4';
-        }
-        if (normalizedType === 'google_sheet') {
-            return 'c3';
-        }
-        return '';
-    }
-
-    function buildTaskDetailUrl(task) {
-        const taskId = task && task.id ? task.id : '';
-        const normalizedType = normalizeTaskType(task && task.task_type);
-
-        if (normalizedType === 'backtest_training') {
-            return `/backtest-training/detail/${encodeURIComponent(taskId)}`;
-        }
-        if (normalizedType === 'backtest_multi_product') {
-            return `/backtest-multi-product/detail/${encodeURIComponent(taskId)}`;
-        }
-
-        const params = new URLSearchParams({ task_id: taskId });
-        const version = getGoogleSheetVersion(normalizedType);
-        if (version) {
-            params.set('version', version);
-        }
-        return `/google-sheet/detail?${params.toString()}`;
-    }
-
-    function renderSummary(summary) {
-        document.getElementById('summary-total').textContent = summary.total_tasks || 0;
-        document.getElementById('summary-completed').textContent = summary.completed_tasks || 0;
-        document.getElementById('summary-running').textContent = summary.running_tasks || 0;
-        document.getElementById('summary-error').textContent = summary.error_tasks || 0;
-        document.getElementById('summary-cancelled').textContent = summary.cancelled_tasks || 0;
-        document.getElementById('summary-pending').textContent = summary.pending_tasks || 0;
-    }
-
-    function renderTrendChart(items) {
-        upsertChart('trend', 'taskTrendChart', {
-            type: 'line',
-            data: {
-                labels: items.map(item => item.date),
-                datasets: [
-                    {
-                        label: '创建任务',
-                        data: items.map(item => item.created),
-                        borderColor: '#0d6efd',
-                        backgroundColor: 'rgba(13, 110, 253, 0.15)',
-                        fill: true,
-                        tension: 0.3
-                    },
-                    {
-                        label: '完成任务',
-                        data: items.map(item => item.completed),
-                        borderColor: '#198754',
-                        backgroundColor: 'rgba(25, 135, 84, 0.12)',
-                        fill: true,
-                        tension: 0.3
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'top' } }
-            }
-        });
-    }
-
-    function renderDoughnutChart() {
-        const statusData = window.dashboardData.status_distribution || {};
-        upsertChart('status', 'taskStatusChart', {
-            type: 'doughnut',
-            data: {
-                labels: Object.keys(statusData),
-                datasets: [{
-                    data: Object.values(statusData),
-                    backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6c757d', '#20c997']
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom' } }
-            }
-        });
-    }
-
-    function renderTypeChart() {
-        const typeData = window.dashboardData.task_type_distribution || {};
-        upsertChart('type', 'taskTypeChart', {
-            type: 'bar',
-            data: {
-                labels: Object.keys(typeData),
-                datasets: [{
-                    label: '任务数',
-                    data: Object.values(typeData),
-                    backgroundColor: '#6f42c1'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                plugins: { legend: { display: false } }
-            }
-        });
-    }
-
-    function renderActiveTasks(tasks) {
-        const container = document.getElementById('active-task-list');
-        if (!tasks.length) {
-            container.innerHTML = '<div class="col-12 text-muted">当前没有运行中的任务。</div>';
-            return;
-        }
-
-        container.innerHTML = tasks.map(task => `
-            <div class="col-md-6">
-                <div class="border rounded p-3 h-100">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <div>
-                            <div class="fw-semibold">${task.name}</div>
-                            <div class="small text-muted">${task.task_type}</div>
-                        </div>
-                        <span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span>
-                    </div>
-                    <div class="small text-muted mb-2">参数组: ${task.config_summary.parameter_groups || 0}</div>
-                    <div class="progress mb-2" style="height: 18px;">
-                        <div class="progress-bar" style="width:${task.progress_percentage || 0}%">${task.current_step || 0}/${task.total_steps || 0}</div>
-                    </div>
-                    <div class="small mb-1">停止请求: ${task.stop_confirmation.stop_requested ? '<span class="text-warning">已发出</span>' : '<span class="text-muted">未发出</span>'}</div>
-                    <div class="small mb-2">完全停止: ${task.stop_confirmation.stop_confirmed ? '<span class="text-success">是</span>' : '<span class="text-muted">否</span>'}</div>
-                    <a class="btn btn-sm btn-outline-primary" href="${buildTaskDetailUrl(task)}">查看详情</a>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    function renderRecentTasks(tasks) {
-        const tbody = document.getElementById('recent-task-table');
-        tbody.innerHTML = tasks.map(task => `
-            <tr>
-                <td>
-                    <div class="fw-semibold">${task.name}</div>
-                    <div class="small text-muted">${task.task_type}</div>
-                </td>
-                <td><span class="${getStatusClass(task.status)}">${getStatusText(task.status)}</span></td>
-                <td>
-                    ${task.stop_confirmation.stop_confirmed
-                        ? '<span class="badge bg-success">已完全停止</span>'
-                        : (task.stop_confirmation.stop_requested
-                            ? '<span class="badge bg-warning text-dark">停止中</span>'
-                            : '<span class="badge bg-secondary">未停止</span>')}
-                </td>
-                <td>${task.config_summary.parameter_groups || 0}</td>
-                <td style="min-width:160px;">
-                    <div class="progress" style="height: 18px;">
-                        <div class="progress-bar" style="width:${task.progress_percentage || 0}%">${task.current_step || 0}/${task.total_steps || 0}</div>
-                    </div>
-                </td>
-                <td>${task.duration_seconds != null ? task.duration_seconds + 's' : '-'}</td>
-                <td>${formatTime(task.created_at)}</td>
-                <td><a class="btn btn-sm btn-outline-info" href="${buildTaskDetailUrl(task)}">查看</a></td>
-            </tr>
-        `).join('');
-    }
-
-    function loadDashboard(showToast = false) {
-        ajaxRequest('/admin/api/dashboard/overview', 'GET', null, function(err, data) {
-            if (err || !data || !data.success) {
-                showNotification('加载仪表盘失败', 'error');
-                return;
-            }
-
-            window.dashboardData = data;
-            renderSummary(data.summary || {});
-            renderTrendChart(data.daily_trend || []);
-            renderDoughnutChart();
-            renderTypeChart();
-            renderActiveTasks(data.active_tasks || []);
-            renderRecentTasks(data.recent_tasks || []);
-            document.getElementById('dashboard-last-update').textContent = formatTime(data.checked_at);
-
-            if (showToast) {
-                showNotification('仪表盘已刷新', 'success');
-            }
-        });
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        loadDashboard(false);
-        ajaxRequest('/api/config', 'GET', null, function(err, data) {
-            const interval = (data && data.config && data.config.dashboard_refresh_interval)
-                ? data.config.dashboard_refresh_interval
-                : 30000;
-            dashboardRefreshTimer = setInterval(loadDashboard, interval);
-        });
-    });
-</script>
-{% endblock %}
+<script src="/static/js/pages/admin_dashboard.js"></script>
+</body>
+</html>

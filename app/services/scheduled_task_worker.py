@@ -14,8 +14,12 @@ from datetime import datetime, timedelta
 import json
 import time
 from app import create_app
-from app.extensions import db
-from app.models import ScheduledTask, TaskLog, TaskResult
+from app.repositories import (
+    scheduled_task_repository,
+    task_log_repository,
+    task_result_repository,
+)
+from app.services.task.data_cleanup import delete_task_result_dependencies
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -31,14 +35,12 @@ def cleanup_old_logs(params):
 
         total_deleted = 0
         while True:
-            batch_query = TaskLog.query.filter(TaskLog.timestamp < cutoff_date).limit(batch_size)
-            batch_ids = [log.id for log in batch_query.all()]
+            batch_ids = task_log_repository.list_ids_older_than(cutoff_date, batch_size)
 
             if not batch_ids:
                 break
 
-            deleted_count = TaskLog.query.filter(TaskLog.id.in_(batch_ids)).delete(synchronize_session=False)
-            db.session.commit()
+            deleted_count = task_log_repository.delete_by_ids(batch_ids)
 
             total_deleted += deleted_count
             logger.info(f"已清理 {deleted_count} 条日志，总计: {total_deleted}")
@@ -52,7 +54,6 @@ def cleanup_old_logs(params):
         return True
     except Exception as e:
         logger.error(f"清理日志失败: {e}")
-        db.session.rollback()
         return False
 
 
@@ -66,14 +67,13 @@ def cleanup_old_results(params):
 
         total_deleted = 0
         while True:
-            batch_query = TaskResult.query.filter(TaskResult.timestamp < cutoff_date).limit(batch_size)
-            batch_ids = [result.id for result in batch_query.all()]
+            batch_ids = task_result_repository.list_ids_older_than(cutoff_date, batch_size)
 
             if not batch_ids:
                 break
 
-            deleted_count = TaskResult.query.filter(TaskResult.id.in_(batch_ids)).delete(synchronize_session=False)
-            db.session.commit()
+            delete_task_result_dependencies(batch_ids)
+            deleted_count = task_result_repository.delete_by_ids(batch_ids)
 
             total_deleted += deleted_count
             logger.info(f"已清理 {deleted_count} 条结果，总计: {total_deleted}")
@@ -87,7 +87,6 @@ def cleanup_old_results(params):
         return True
     except Exception as e:
         logger.error(f"清理结果失败: {e}")
-        db.session.rollback()
         return False
 
 
@@ -103,15 +102,15 @@ def execute_task(task_id, instance_id):
 
     with app.app_context():
         try:
-            task = db.session.get(ScheduledTask, task_id)
+            task = scheduled_task_repository.get(task_id)
             if not task:
                 logger.error(f"任务 {task_id} 不存在")
                 return False
 
-            logger.info(f"[Worker] 开始执行任务: {task.name}")
+            logger.info(f"[Worker] 开始执行任务: {task['name']}")
 
-            function_name = task.task_function
-            params = json.loads(task.task_params) if task.task_params else {}
+            function_name = task['task_function']
+            params = json.loads(task['task_params']) if task['task_params'] else {}
 
             # 执行对应函数
             if function_name == 'cleanup_old_logs':
@@ -124,24 +123,18 @@ def execute_task(task_id, instance_id):
                 logger.error(f"未知函数: {function_name}")
                 success = False
 
-            # 释放锁
-            task.is_running = False
-            task.running_instance_id = None
-            db.session.commit()
+            # 释放锁（仅本实例持有者可释放）
+            scheduled_task_repository.release_run_lock(task_id, instance_id)
 
-            logger.info(f"[Worker] 任务执行{'成功' if success else '失败'}: {task.name}")
+            logger.info(f"[Worker] 任务执行{'成功' if success else '失败'}: {task['name']}")
             return success
 
         except Exception as e:
             logger.error(f"[Worker] 执行任务异常: {e}")
-            # 释放锁
+            # 释放锁（按实例条件释放，非持锁实例无副作用）
             try:
-                task = db.session.get(ScheduledTask, task_id)
-                if task and task.running_instance_id == instance_id:
-                    task.is_running = False
-                    task.running_instance_id = None
-                    db.session.commit()
-            except:
+                scheduled_task_repository.release_run_lock(task_id, instance_id)
+            except Exception:
                 pass
             return False
 

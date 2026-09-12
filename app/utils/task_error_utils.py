@@ -8,6 +8,8 @@ from tenacity import RetryError
 from urllib3.exceptions import ProtocolError
 
 NETWORK_ERROR_PREFIX = "[NETWORK_RETRYABLE]"
+WATCHDOG_RESTART_PREFIX = "[WATCHDOG_FORCE_RESTART]"
+GOOGLE_SHEET_EXECUTION_ERROR_PREFIX = "[GOOGLE_SHEET_RETRYABLE]"
 
 
 class RetryableNetworkTaskError(Exception):
@@ -82,13 +84,3 @@ def is_retryable_network_error(exc: BaseException | None) -> bool:
             return True
 
     return False
-
-
-def build_task_error_message(exc: BaseException | None) -> str:
-    root = unwrap_exception(exc)
-    if root is None:
-        return "未知错误"
-    message = f"{root.__class__.__name__}: {root}"
-    if is_retryable_network_error(exc):
-        return f"{NETWORK_ERROR_PREFIX} {message}"
-    return message

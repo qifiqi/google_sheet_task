@@ -99,7 +99,6 @@ const menuActiveTextColor = computed(() => (isDark.value ? '#f8fbff' : '#ffffff'
 .app-sidebar :deep(.el-sub-menu__title:hover) {
   background: var(--app-sidebar-hover-bg) !important;
   color: var(--app-sidebar-active-text) !important;
-  transform: translateX(2px);
 }
 
 .app-sidebar :deep(.el-menu-item.is-active) {

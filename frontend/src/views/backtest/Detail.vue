@@ -456,7 +456,6 @@ async function loadTask() {
   try {
     const res = await getTask(taskId)
     task.value = res.task || res
-    summary.value = res.result_summary || {}
   } catch {
     ElMessage.error('加载任务失败')
   }
@@ -482,8 +481,14 @@ async function loadResults() {
 
   try {
     const res = await getTaskResults(taskId, { page: resultPage.value, per_page: resultPageSize.value })
-    results.value = res.results || []
-    resultTotal.value = res.total || res.pagination?.total || 0
+    results.value = res.items || []
+    resultTotal.value = res.total || 0
+    const total = resultTotal.value
+    const successCount = results.value.filter((item) => item.success).length
+    summary.value = {
+      success_count: successCount,
+      failed_count: Math.max(total - successCount, 0),
+    }
   } catch {}
 }
 
@@ -503,7 +508,7 @@ async function loadC3Summary() {
 async function checkStatus() {
   try {
     const res = await apiCheckStatus(taskId)
-    ElMessage.info(`状态: ${res.status || '未知'}`)
+    ElMessage.info(`状态: ${res.db_status || '未知'}`)
     loadTask()
   } catch {
     ElMessage.error('检查状态失败')

@@ -138,9 +138,6 @@ async function loadData() {
   loading.value = true
   try {
     const res = await getGlobalPreview(taskId)
-    if (res.status !== 'success') {
-      throw new Error(res.message || '加载失败')
-    }
     taskName.value = res.task?.name || taskId
     summary.value = res.summary || {}
     groups.value = res.groups || []

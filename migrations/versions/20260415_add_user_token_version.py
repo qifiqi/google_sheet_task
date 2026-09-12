@@ -20,7 +20,15 @@ def upgrade():
     with op.batch_alter_table("user", schema=None) as batch_op:
         batch_op.add_column(sa.Column("token_version", sa.Integer(), nullable=True))
 
-    op.execute("UPDATE `user` SET token_version = 0 WHERE token_version IS NULL")
+    user_table = sa.table(
+        "user",
+        sa.column("token_version", sa.Integer()),
+    )
+    op.execute(
+        user_table.update()
+        .where(user_table.c.token_version.is_(None))
+        .values(token_version=0)
+    )
 
     with op.batch_alter_table("user", schema=None) as batch_op:
         batch_op.alter_column(

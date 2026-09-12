@@ -53,7 +53,7 @@ def get_logger(name: str) -> logging.Logger:
             file_handler = ConcurrentRotatingFileHandler(
                 filename=str(Config.LOG_FILE),
                 mode='a',
-                maxBytes=10 * 1024 * 1024,  # 10MB
+                maxBytes=30 * 1024 * 1024,  # 10MB
                 backupCount=30,
                 encoding='utf-8'
             )
@@ -125,28 +125,6 @@ class TaskLogger:
     def exception(self, message: str, *args, **kwargs):
         """记录异常信息"""
         self.logger.exception(self._format_message(message, *args), **kwargs)
-    
-    def step_info(self, step: int, total: int, message: str):
-        """记录执行步骤信息"""
-        step_msg = f"[Step {step}/{total}] {message}"
-        self.info(step_msg)
-    
-    def progress_info(self, percentage: float, message: str):
-        """记录进度信息"""
-        progress_msg = f"[Progress {percentage:.1f}%] {message}"
-        self.info(progress_msg)
-    
-    def api_info(self, action: str, details: str = ""):
-        """记录API调用信息"""
-        api_msg = f"[API] {action}"
-        if details:
-            api_msg += f" - {details}"
-        self.info(api_msg)
-    
-    def api_error(self, action: str, error: str):
-        """记录API错误信息"""
-        api_msg = f"[API_ERROR] {action} - {error}"
-        self.error(api_msg)
 
 
 def get_task_logger(task_id: str, logger_name: str = None) -> TaskLogger:

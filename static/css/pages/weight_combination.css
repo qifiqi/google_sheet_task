@@ -1,0 +1,205 @@
+/* =========================================================
+   权重组合分析页面样式（Tabulator 表头 / 排序 / 范围筛选弹窗）
+   ========================================================= */
+
+#results-table {
+    min-height: 400px;
+}
+
+/* -----------------------------------------
+   Tabulator 深色模式适配
+   ----------------------------------------- */
+html[data-bs-theme="dark"] .tabulator {
+    background-color: #182132;
+    color: #e5e7eb;
+    border-color: #2a3648;
+}
+html[data-bs-theme="dark"] .tabulator .tabulator-header {
+    background-color: #1f2937;
+    border-bottom-color: #334155;
+    color: #e5e7eb;
+}
+html[data-bs-theme="dark"] .tabulator .tabulator-header .tabulator-col {
+    background-color: #1f2937;
+    border-right-color: #334155;
+}
+html[data-bs-theme="dark"] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row {
+    background-color: #182132;
+    border-bottom-color: #334155;
+    color: #e5e7eb;
+}
+html[data-bs-theme="dark"] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:hover {
+    background-color: rgba(59, 130, 246, 0.1);
+}
+html[data-bs-theme="dark"] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.tabulator-row-even {
+    background-color: #111827;
+}
+
+/* -----------------------------------------
+   表头统一风格：标题 / 排序箭头 / 筛选按钮
+   ----------------------------------------- */
+#results-table .tabulator-header {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+#results-table .tabulator-header .tabulator-col .tabulator-col-content {
+    padding: 8px 12px;
+}
+
+/* 可排序列标题右侧预留排序箭头 + 筛选按钮的位置 */
+#results-table .tabulator-header .tabulator-col.tabulator-sortable .tabulator-col-title {
+    padding-right: 52px;
+}
+
+/* 激活排序列的标题高亮为主色 */
+#results-table .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="ascending"] .tabulator-col-title,
+#results-table .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-title {
+    color: var(--bs-primary, #0d6efd);
+}
+
+/* 排序箭头：默认浅色，hover 加深，激活为主色（三角方向沿用主题的 none/asc/desc 规则，只改颜色） */
+#results-table .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+    border-bottom-color: var(--bs-border-color, #dee2e6);
+}
+#results-table .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="none"]:hover .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+    border-bottom-color: var(--bs-secondary-color, #adb5bd);
+}
+#results-table .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="ascending"] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+    border-bottom-color: var(--bs-primary, #0d6efd);
+}
+#results-table .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+    border-top-color: var(--bs-primary, #0d6efd);
+}
+
+/* 范围筛选按钮：绝对定位于标题行右侧（排序箭头左侧），不再挤占第二行 */
+#results-table .tabulator-header .tabulator-col .tabulator-header-filter {
+    position: absolute;
+    right: 26px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: auto;
+    margin: 0;
+    line-height: 1;
+}
+
+.wc-filter-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 0.3rem;
+    background: transparent;
+    color: var(--bs-secondary-color, #6c757d);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+}
+.wc-filter-btn:hover {
+    background: var(--bs-tertiary-bg, #f8f9fa);
+    color: var(--bs-body-color, #212529);
+}
+.wc-filter-btn:focus-visible {
+    outline: 2px solid var(--bs-primary, #0d6efd);
+    outline-offset: 1px;
+}
+.wc-filter-btn.is-active {
+    background: var(--bs-primary, #0d6efd);
+    border-color: var(--bs-primary, #0d6efd);
+    color: #fff;
+}
+.wc-filter-btn.is-active:hover {
+    opacity: 0.85;
+}
+
+/* -----------------------------------------
+   范围筛选弹窗（挂在 body 下，fixed 定位）
+   ----------------------------------------- */
+.wc-filter-popup {
+    position: fixed;
+    z-index: 1080;
+    display: none;
+    width: 236px;
+    background: var(--bs-body-bg, #fff);
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.5rem;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    font-size: 13px;
+}
+.wc-filter-popup.show {
+    display: block;
+}
+
+.wc-filter-popup__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+    font-weight: 600;
+}
+.wc-filter-popup__title {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.wc-filter-popup__close {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 0.3rem;
+    background: transparent;
+    color: var(--bs-secondary-color, #6c757d);
+    font-size: 12px;
+    cursor: pointer;
+}
+.wc-filter-popup__close:hover {
+    background: var(--bs-tertiary-bg, #f8f9fa);
+    color: var(--bs-body-color, #212529);
+}
+
+.wc-filter-popup__body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 12px;
+}
+.wc-filter-popup__field label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: var(--bs-secondary-color, #6c757d);
+}
+.wc-filter-popup__input {
+    font-size: 13px;
+    padding: 3px 8px;
+    height: auto;
+}
+.wc-filter-popup__hint {
+    grid-column: 1 / -1;
+    display: none;
+    margin: 0;
+    font-size: 12px;
+    color: var(--bs-danger, #dc3545);
+}
+.wc-filter-popup__hint.is-visible {
+    display: block;
+}
+
+.wc-filter-popup__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 12px;
+    border-top: 1px solid var(--bs-border-color, #dee2e6);
+}

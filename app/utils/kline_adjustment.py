@@ -32,6 +32,17 @@ _EASTMONEY_FQT = {
     KLINE_ADJUSTMENT_NONE: "0",
 }
 
+# 新浪系接口（qq/akshare）的 adjust 参数映射；未知值由调用方的 default 决定
+# （qq 缺省 qfq，akshare 缺省不复权——保留各自原语义，ponytail 审计 C1）。
+_SINA_ADJUST = {
+    "1": "qfq",
+    "2": "hfq",
+    "0": "",
+    KLINE_ADJUSTMENT_FORWARD: "qfq",
+    KLINE_ADJUSTMENT_BACK: "hfq",
+    KLINE_ADJUSTMENT_NONE: "",
+}
+
 _YAHOO_ADJUST_FLAGS = {
     KLINE_ADJUSTMENT_FORWARD: {"auto_adjust": True, "back_adjust": False},
     KLINE_ADJUSTMENT_BACK: {"auto_adjust": False, "back_adjust": True},
@@ -46,6 +57,12 @@ def normalize_kline_adjustment(value):
 
 def eastmoney_fqt(value):
     return _EASTMONEY_FQT[normalize_kline_adjustment(value)]
+
+
+def sina_adjust(value, default=""):
+    """统一 adjust_type → 新浪系接口 adjust 参数；未知值返回 default。"""
+    normalized = str(value if value is not None else "").strip().lower()
+    return _SINA_ADJUST.get(normalized, default)
 
 
 def yahoo_adjust_flags(value):

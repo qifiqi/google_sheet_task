@@ -11,6 +11,7 @@
       </div>
     </div>
 
+    <el-form label-position="top" @submit.prevent>
     <el-card shadow="never" class="page-section">
       <div class="section-heading">
         <h3 class="section-title section-title--muted">任务基本信息</h3>
@@ -43,7 +44,7 @@
         </el-col>
         <el-col :xs="24" :sm="3">
           <el-form-item label="结束日期">
-            <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" class="full-width" placeholder="按后端默认值" />
+            <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" class="full-width" placeholder="默认最近工作日" />
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="3">
@@ -163,7 +164,7 @@
       <div class="panel-note task-create-batch__intro">每个参数支持一维或二维数组，如 `[1,2,3]` 或 `[[1,"A"],[2,"B"]]`。</div>
       <el-row :gutter="12">
         <el-col v-for="(p, i) in params" :key="i" :xs="24" :sm="12" class="task-create-batch__param-col">
-          <el-card shadow="never" class="task-create-batch__param-card" :style="{ borderColor: paramColors[i] }">
+          <el-card shadow="never" class="task-create-batch__param-card">
             <div class="task-create-batch__param-title">参数 {{ i + 1 }}</div>
             <el-input v-model="params[i]" type="textarea" :rows="3" :placeholder='`["A","B"] 或 [[1,"A"],[2,"B"]]`' />
           </el-card>
@@ -181,6 +182,8 @@
         </span>
       </div>
     </el-card>
+
+    </el-form>
 
     <el-card shadow="never">
       <div class="action-bar">
@@ -211,6 +214,7 @@ import { getGoogleSheets, getWorksheets, getTokens, importToken as apiImportToke
 import { batchCreateTasks, getTask } from '@/api/task'
 import { getTemplates, getTemplate, createTemplate } from '@/api/template'
 import { useResponsive } from '@/composables/useResponsive'
+import { formatDate, previousWeekday } from '@/utils/tradingDate'
 
 const route = useRoute()
 const router = useRouter()
@@ -218,7 +222,6 @@ const { isMobile } = useResponsive()
 
 const RANDOM_TOKEN = '__random__'
 const LS_KEY = 'google_sheet_c31_form_data'
-const paramColors = ['#409eff', '#67c23a', '#17a2b8', '#e6a23c', '#f56c6c', '#909399']
 
 const pageTitle = ref('创建批量任务 (C31)')
 const sheets = ref([])
@@ -242,6 +245,12 @@ const form = reactive({
 const sheetConfigs = ref([{ spreadsheet_id: '', title: '', sheet_name: '' }])
 const params = ref(['', '', '', '', '', ''])
 const templateForm = reactive({ name: '', description: '' })
+
+function initDefaultEndDate() {
+  if (!form.end_date) {
+    form.end_date = formatDate(previousWeekday())
+  }
+}
 
 function parseJsonArray(str) {
   if (!str || !str.trim()) return null
@@ -301,7 +310,7 @@ async function loadSheets() {
 
 async function loadTokens() {
   try {
-    const res = await getTokens()
+    const res = await getTokens({ task_type: 'google_sheet' })
     tokens.value = res.tokens || []
   } catch {}
 }
@@ -422,7 +431,7 @@ async function doImportToken() {
   }
   try {
     const res = await apiImportToken({ token_file: tokenImportPath.value.trim() })
-    ElMessage.success(res.message || 'Token 导入成功')
+    ElMessage.success('Token 导入成功')
     tokenImportPath.value = ''
     await loadTokens()
     if (res.token?.id) form.token_id = String(res.token.id)
@@ -505,7 +514,7 @@ async function submit() {
     clearSaved()
     setTimeout(() => router.push('/task/list?version=c31'), 800)
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '创建批量任务失败')
+    ElMessage.error(e?.message || '创建批量任务失败')
   } finally {
     submitting.value = false
   }
@@ -563,6 +572,7 @@ onMounted(async () => {
   } else {
     loadSavedFormData()
   }
+  initDefaultEndDate()
 })
 </script>
 

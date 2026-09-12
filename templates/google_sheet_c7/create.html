@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>创建任务 - Google Sheet C5 参数批量校验</title>
+<link href="/static/css/bootstrap.min.css" rel="stylesheet">
+<link href="/static/font/bootstrap-icons.css" rel="stylesheet">
+<link href="/static/css/template-auth.css" rel="stylesheet">
+<link href="/static/css/common/base.css" rel="stylesheet">
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+</head>
+<body class="template-auth-pending">
+    <div class="template-auth-loading" id="templateAuthLoading">
+        <div class="template-auth-loading__card">
+            <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+            <div class="template-auth-loading__label" id="templateAuthLoadingLabel">正在恢复登录状态...</div>
+        </div>
+    </div>
+
+    <div data-navbar></div>
+
+    <div class="container mt-4" data-template-main-content>
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="card-title mb-0">
+                    <i class="bi bi-plus-circle"></i> 创建新任务
+                </h4>
+            </div>
+            <div class="card-body">
+                <form id="parameter-form">
+                    <!-- 任务基本信息 -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card bg-body-tertiary border-0">
+                                <div class="card-body">
+                                    <h5 class="card-title mb-3">
+                                        <i class="bi bi-info-circle"></i> 任务基本信息
+                                    </h5>
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="task_template" class="form-label">选择模板</label>
+                                            <select class="form-select" id="task_template">
+                                                <option value="">不使用模板</option>
+                                                <!-- 模板列表将通过JavaScript动态加载 -->
+                                            </select>
+                                            <div class="form-text">选择一个已保存的任务模板来快速填充配置</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="task_name" class="form-label">任务名称</label>
+                                            <input type="text" class="form-control" id="task_name"
+                                                   placeholder="留空将自动生成任务名称"
+                                                   value="">
+                                            <div class="form-text">为您的任务起一个有意义的名称，留空将自动生成</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="task_description" class="form-label">任务描述 (可选)</label>
+                                            <textarea class="form-control" id="task_description" rows="2"
+                                                      placeholder="描述任务的目的或特殊要求"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Google Sheet 配置 -->
+                    <div class="card mb-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-table"></i> Google Sheet 配置
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="sheet-config-list">
+                                <div class="sheet-config-item border rounded p-3 mb-3" data-sheet-config-index="0">
+                                    <div class="row align-items-start">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="spreadsheet" class="form-label">
+                                                <i class="bi bi-link-45deg"></i> 选择 Google Sheet
+                                            </label>
+                                            <div class="input-group">
+                                                <select class="form-select google-sheet-select" id="spreadsheet" required>
+                                                    <option value="">请选择 Google Sheet</option>
+                                                </select>
+                                                <button class="btn btn-outline-secondary" type="button" id="refresh-google-sheets" title="刷新 Google Sheet 列表">
+                                                    <i class="bi bi-arrow-clockwise"></i>
+                                                </button>
+                                            </div>
+                                            <input type="hidden" id="google_sheet_id">
+                                            <div class="form-text" id="spreadsheet-help">
+                                                <i class="bi bi-info-circle"></i> 请从列表中选择可用的 Google Sheet
+                                            </div>
+                                        </div>
+                                        <div class="col-md-2 mb-3">
+                                            <label for="c7_model_version" class="form-label">
+                                                <i class="bi bi-diagram-3"></i> C7 模型版本
+                                            </label>
+                                            <select class="form-select c7-model-version-select" id="c7_model_version">
+                                                <option value="c7_0_2" selected>C7.0.2（两列K线）</option>
+                                                <option value="c7_0_3">C7.0.3（OHLC K线）</option>
+                                            </select>
+                                            <div class="form-text">按表标题自动识别，可手动调整</div>
+                                        </div>
+                                        <div class="col-md-2 mb-3">
+                                            <label for="spreadsheet_title" class="form-label">
+                                                <i class="bi bi-type"></i> 表标题（可选）
+                                            </label>
+                                            <input type="text" class="form-control spreadsheet-title-input" id="spreadsheet_title"
+                                                   placeholder="用于标记或显示的表名称">
+                                            <div class="form-text">将作为任务配置中的标题字段一并保存</div>
+                                        </div>
+                                        <div class="col-md-2 mb-3">
+                                            <label for="sheet_name" class="form-label">
+                                                <i class="bi bi-file-spreadsheet"></i> 工作表名称
+                                            </label>
+                                            <input type="text" class="form-control worksheet-name-input" id="sheet_name"
+                                                   placeholder="选择 Google Sheet 后自动带出" readonly>
+                                            <div class="form-text" id="sheet-name-help">默认展示接口返回的第一个工作表</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-center mb-3">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button" class="btn btn-outline-primary" id="add-sheet-config-btn">
+                                        <i class="bi bi-plus-circle"></i> 添加一组表格配置
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger" id="remove-sheet-config-btn">
+                                        <i class="bi bi-dash-circle"></i> 移除最后一组表格配置
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="border-top pt-3 mt-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="fw-semibold"><i class="bi bi-sliders"></i> 更多配置</span>
+                                    <button type="button" class="btn btn-link btn-sm p-0" id="toggle-advanced-config-btn">
+                                        <span id="advanced-config-toggle-text">展开</span>
+                                        <i class="bi bi-chevron-down ms-1" id="advanced-config-toggle-icon"></i>
+                                    </button>
+                                </div>
+                                <div id="advanced-config" class="d-none">
+                                    <div class="row mt-2">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="token_type" class="form-label">
+                                                <i class="bi bi-shield-lock"></i> 认证方式
+                                            </label>
+                                            <select class="form-select" id="token_type">
+                                                <option value="file">Token文件路径</option>
+                                                <option value="json">Token JSON字符串</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-6 mb-3" id="token_file_container">
+                                            <label for="token_id" class="form-label">
+                                                <i class="bi bi-file-earmark-lock"></i> Token选择
+                                            </label>
+                                            <select class="form-select mb-2" id="token_id">
+                                                <option value="">正在加载Token...</option>
+                                            </select>
+                                            <input type="hidden" id="token_file" value="">
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="token_import_path"
+                                                       placeholder="输入Token文件路径后点击导入">
+                                                <button type="button" class="btn btn-outline-primary" id="import-token-btn">
+                                                    导入
+                                                </button>
+                                            </div>
+                                            <div class="form-text">支持选择指定Token，或选择“随机Token（按最低使用数均衡分配）”</div>
+                                        </div>
+                                        <div class="col-md-6 mb-3 d-none" id="token_json_container">
+                                            <label for="token_json" class="form-label">
+                                                <i class="bi bi-code-square"></i> Token JSON字符串
+                                            </label>
+                                            <textarea class="form-control" id="token_json" rows="3"
+                                                      placeholder='{"installed": {"client_id": "...", "client_secret": "...", ...}}'></textarea>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="proxy_url" class="form-label">
+                                                <i class="bi bi-globe"></i> 代理URL (可选)
+                                            </label>
+                                            <input type="text" class="form-control" id="proxy_url"
+                                                   placeholder="请输入代理URL">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 产品配置 -->
+                    <div class="card mb-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-gear"></i> 产品配置
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <!-- 顶部两个参数卡片（参数2/参数3） -->
+                            <div class="row mb-3" id="extra-parameters-container">
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-success h-100">
+                                        <div class="card-header bg-success text-white">
+                                            <h6 class="mb-0">
+                                                <i class="bi bi-2-circle"></i> 参数2
+                                            </h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="mb-2">
+                                                <label class="form-label small text-muted">可选参数配置</label>
+                                                <textarea class="form-control parameter-input" id="param2" rows="3"
+                                                          placeholder='["v1", "v2"]'></textarea>
+                                                <div class="form-text">
+                                                    <i class="bi bi-code-slash"></i> JSON 数组格式，例如 ["v1", "v2"]
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-info h-100">
+                                        <div class="card-header bg-info text-white">
+                                            <h6 class="mb-0">
+                                                <i class="bi bi-3-circle"></i> 参数3
+                                            </h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="mb-2">
+                                                <label class="form-label small text-muted">可选参数配置</label>
+                                                <textarea class="form-control parameter-input" id="param3" rows="3"
+                                                          placeholder='["v1", "v2"]'></textarea>
+                                                <div class="form-text">
+                                                    <i class="bi bi-code-slash"></i> JSON 数组格式，例如 ["v1", "v2"]
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 原有产品配置内容 -->
+                            <div class="row" id="parameters-container">
+                                <div class="col-12 mb-3">
+                                    <div class="card border-primary product-config-card">
+                                        <div class="card-header bg-primary text-white">
+                                            <h6 class="mb-0">
+                                                <i class="bi bi-1-circle"></i> 主要配置
+                                            </h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <!-- 配置选项：统计方式 + 开盘/收盘 + 市场类型 -->
+                                            <div class="border-bottom pb-3 mb-3">
+                                                <h6 class="text-muted mb-3">
+                                                    <i class="bi bi-sliders"></i> 基础设置
+                                                </h6>
+                                                <div class="row g-3 align-items-center">
+                                                    <div class="col-md-3">
+                                                        <label class="form-label d-block">K线来源</label>
+                                                        <div class="btn-group d-flex" role="group" aria-label="Kline source">
+                                                            <input type="radio" class="btn-check" name="kline_source" id="kline_source_auto" value="auto" autocomplete="off" checked>
+                                                            <label class="btn btn-outline-primary flex-fill" for="kline_source_auto">自动K线</label>
+
+                                                            <input type="radio" class="btn-check" name="kline_source" id="kline_source_custom" value="custom" autocomplete="off">
+                                                            <label class="btn btn-outline-primary flex-fill" for="kline_source_custom">自定义K线</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label d-block">统计方式</label>
+                                                        <div class="btn-group d-flex" role="group" aria-label="Count mode">
+                                                            <input type="radio" class="btn-check" name="count_mode" id="count_mode_total" value="total" autocomplete="off" checked>
+                                                            <label class="btn btn-outline-primary flex-fill" for="count_mode_total">总数</label>
+
+                                                            <input type="radio" class="btn-check" name="count_mode" id="count_mode_n_plus_1" value="n_plus_1" autocomplete="off">
+                                                            <label class="btn btn-outline-primary flex-fill" for="count_mode_n_plus_1">N+1</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label" for="price_mode">价格类型</label>
+                                                        <select class="form-select" id="price_mode">
+                                                            <option value="vwap_price">加权平均价</option>
+                                                            <option value="kp_price">开盘价</option>
+                                                            <option value="sp_price" selected>收盘价</option>
+                                                            <option value="random_price">随机价</option>
+                                                            <option value="ohlc_price" disabled>OHLC（开高低收）</option>
+                                                        </select>
+<!--?                                                        <div class="form-text d-none" id="c7-price-mode-help">C7.0.3 固定使用 OHLC（开高低收）价格</div>-->
+                                                    </div>
+                                                    <div class="col-md-3 d-none random-price-option">
+                                                        <label class="form-label" for="random_price_range">随机价格范围</label>
+                                                        <select class="form-select" id="random_price_range">
+                                                            <option value="high_low" selected>最高价 - 最低价</option>
+                                                            <option value="open_close">开盘价 - 收盘价</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3 d-none random-price-option">
+                                                        <label class="form-label" for="random_group_count">随机组数</label>
+                                                        <input class="form-control" id="random_group_count" type="number" min="1" step="1" value="1">
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label d-block">市场类型</label>
+                                                        <select class="form-select" id="market_type"></select>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label" for="kline_adjustment">K线复权</label>
+                                                        <select class="form-select" id="kline_adjustment">
+                                                            <option value="forward" selected>前复权</option>
+                                                            <option value="back">后复权</option>
+                                                            <option value="none">不复权</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label" for="kline_data_source">K线数据源</label>
+                                                        <select class="form-select" id="kline_data_source">
+                                                            <option value="akshare" selected>AKShare（默认）</option><option value="dfcf">东方财富</option>
+                                                            <option value="qq">腾讯</option>
+                                                            <option value="yahoo">Yahoo</option>
+                                                            <option value="tdx">通达信（仅A股）</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <label class="form-label d-block">快速时间范围</label>
+                                                        <div class="btn-group d-flex" role="group" aria-label="Quick date range">
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input" type="checkbox" id="date_range_full" value="full">
+                                                                <label class="form-check-label" for="date_range_full">整年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0">
+                                                                <input class="form-check-input" type="checkbox" id="date_range_recent" value="recent">
+                                                                <label class="form-check-label" for="date_range_recent">近年</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-9 d-none" id="recent_years_container">
+                                                        <label class="form-label d-block text-danger fw-bold">选择要<u>移除</u>的近年区间</label>
+                                                        <div class="btn-group d-flex" role="group">
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_half" value="0.5">
+                                                                <label class="form-check-label" for="exclude_year_half">近半年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_1" value="1">
+                                                                <label class="form-check-label" for="exclude_year_1">近1年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_2" value="2">
+                                                                <label class="form-check-label" for="exclude_year_2">近2年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_3" value="3">
+                                                                <label class="form-check-label" for="exclude_year_3">近3年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_4" value="4">
+                                                                <label class="form-check-label" for="exclude_year_4">近4年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_5" value="5">
+                                                                <label class="form-check-label" for="exclude_year_5">近5年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_6" value="6">
+                                                                <label class="form-check-label" for="exclude_year_6">近6年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_7" value="7">
+                                                                <label class="form-check-label" for="exclude_year_7">近7年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_8" value="8">
+                                                                <label class="form-check-label" for="exclude_year_8">近8年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0 me-2">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_9" value="9">
+                                                                <label class="form-check-label" for="exclude_year_9">近9年</label>
+                                                            </div>
+                                                            <div class="form-check form-check-inline mb-0">
+                                                                <input class="form-check-input recent-year-checkbox" type="checkbox" id="exclude_year_10" value="10">
+                                                                <label class="form-check-label" for="exclude_year_10">近10年</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="form-text mt-2">勾选的年份区间将被<strong class="text-danger">移除</strong>，不参与计算</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- 时间范围详细配置 -->
+                                            <div class="border-bottom pb-3 mb-3">
+                                                <h6 class="text-muted mb-3">
+                                                    <i class="bi bi-calendar-range"></i> 时间范围设置
+                                                </h6>
+                                                <div class="row g-3 align-items-center">
+                                                    <div class="col-md-6">
+                                                        <label class="form-label" for="start_date">开始日期</label>
+                                                        <input type="date" class="form-control" id="start_date">
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <label class="form-label" for="end_date">结束日期</label>
+                                                        <input type="date" class="form-control" id="end_date">
+                                                    </div>
+                                                    <div class="col-12">
+                                                        <div class="form-text">结束日期默认昨天，开始日期默认结束日期往前推5年，可根据需要修改。可勾选上方"整年"或"近年"进行快速设置。</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- 产品代码输入与chips -->
+                                            <div class="mb-0">
+                                                <h6 class="text-muted mb-3">
+                                                    <i class="bi bi-tags"></i> 产品代码配置
+                                                </h6>
+                                                <div class="mb-3">
+                                                    <label class="form-label" for="product_code_input">
+                                                        <i class="bi bi-tag"></i> 股票/产品代码
+                                                    </label>
+                                                    <div class="input-group mb-2">
+                                                        <input type="text" class="form-control" id="product_code_input" 
+                                                               placeholder="如：600000,600001 或 600000 600001">
+                                                        <button class="btn btn-primary" type="button" id="add_product_code_btn">
+                                                            <i class="bi bi-plus-circle"></i> 添加
+                                                        </button>
+                                                    </div>
+                                                    <div class="form-text mb-2">
+                                                        <i class="bi bi-info-circle"></i> 支持逗号、空格等分隔符，一次可输入多个代码
+                                                    </div>
+                                                    <div id="product_code_chips" class="product-code-chips d-flex flex-wrap gap-1"></div>
+                                                </div>
+                                                <textarea class="form-control parameter-input d-none" id="param1" rows="3"></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 参数组合预览 -->
+                    <div class="card mb-4 d-none" id="combination-info">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-eye"></i> 参数组合预览
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-8">
+                                    <div class="alert alert-info mb-0">
+                                        <i class="bi bi-info-circle"></i>
+                                        <strong>参数组合信息：</strong>
+                                        <span id="combination-count" class="badge bg-primary ms-2">0</span> 个参数组合将被执行
+                                    </div>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <button type="button" class="btn btn-outline-info" onclick="showCombinationPreview()">
+                                        <i class="bi bi-eye"></i> 预览组合
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <!-- 操作按钮 -->
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                <a href="/google-sheet/?version=c7" class="btn btn-secondary me-md-2">
+                                    <i class="bi bi-arrow-left"></i> 返回首页
+                                </a>
+                                <button type="button" class="btn btn-outline-warning me-md-2" onclick="clearSavedFormData()" title="清除保存的表单数据">
+                                    <i class="bi bi-trash"></i> 清除数据
+                                </button>
+                                <button type="button" class="btn btn-outline-success me-md-2" onclick="Biz.taskSubmit.saveAsTemplate()" title="将当前配置保存为模板">
+                                    <i class="bi bi-save"></i> 保存为模板
+                                </button>
+                                <button type="button" class="btn btn-primary btn-lg" id="execute-btn">
+                                    <i class="bi bi-play-circle"></i> 创建任务并执行
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 参数组合预览模态框 -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="previewModalLabel">参数组合预览</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="combination-preview" id="combination-preview">
+                    <!-- 组合预览内容 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 第一次执行确认模态框 -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmModalLabel">第一次执行结果确认</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>执行参数:</h6>
+                        <pre id="confirm-params" class="bg-body-tertiary p-3 rounded"></pre>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>执行结果:</h6>
+                        <pre id="confirm-results" class="bg-body-tertiary p-3 rounded"></pre>
+                    </div>
+                </div>
+                <div class="alert alert-warning">
+                    请检查第一次执行的结果，确认无误后点击"继续执行"按钮，系统将自动执行剩余的参数组合。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancel-execution">停止执行</button>
+                <button type="button" class="btn btn-primary" id="confirm-continue">继续执行</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 保存模板模态框 -->
+<div class="modal fade" id="saveTemplateModal" tabindex="-1" aria-labelledby="saveTemplateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="saveTemplateModalLabel">保存为模板</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="saveTemplateForm">
+                    <div class="mb-3">
+                        <label for="templateName" class="form-label">模板名称</label>
+                        <input type="text" class="form-control" id="templateName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="templateDescription" class="form-label">模板描述</label>
+                        <textarea class="form-control" id="templateDescription" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="Biz.taskSubmit.submitTemplate()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 任务执行状态模态框 -->
+<div class="modal fade" id="taskStatusModal" tabindex="-1" aria-labelledby="taskStatusModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="taskStatusModalLabel">任务执行状态</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" id="task-progress-bar" style="width: 0%;">0%</div>
+                </div>
+                <div class="mt-3">
+                    <h6>任务状态</h6>
+                    <div id="task-status-message" class="border rounded p-2 bg-body-tertiary overflow-auto font-monospace small" style="height: 200px;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <a href="/google-sheet/detail?version=c7" class="btn btn-primary d-none" id="view-task-btn">查看任务详情</a>
+            </div>
+        </div>
+    </div>
+</div>
+    </div>
+
+    <script src="/static/js/template-auth.js?v=20260415_page_scope"></script>
+    <script src="/static/js/trading-date.js"></script>
+    <script src="/static/js/common/components/navbar.js"></script>
+    <script src="/static/js/common/api.js"></script>
+    <script src="/static/js/common/utils.js"></script>
+        <script src="/static/js/common/business/form-state.js"></script>
+    <script src="/static/js/common/business/task-submit.js"></script>
+    <script>
+        // 共享创建页控制器（Biz.ctaskCreate）的 C7 版本配置
+        window.__CTASK_CONFIG = {
+            versionQuery: 'c7',
+            taskType: 'google_sheet_C7',
+            templateTaskType: 'google_sheet_c7',
+            klineDataSourceDefault: 'akshare',
+            countRandomGroupsMultiplier: true,
+            modelVersion: { enabled: true, default: 'c7_0_2' }
+        };
+    </script>
+<script src="/static/js/pages/google_sheet_c7_create.js"></script>
+</body>
+</html>

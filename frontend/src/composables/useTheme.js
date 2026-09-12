@@ -16,7 +16,7 @@ function resolveInitialTheme() {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
-function applyTheme(nextTheme) {
+function applyTheme(nextTheme, { persist = true } = {}) {
   theme.value = nextTheme
 
   if (typeof document !== 'undefined') {
@@ -24,13 +24,21 @@ function applyTheme(nextTheme) {
     document.documentElement.classList.toggle('dark', nextTheme === 'dark')
   }
 
-  if (typeof window !== 'undefined') {
+  if (persist && typeof window !== 'undefined') {
     window.localStorage.setItem(THEME_KEY, nextTheme)
   }
 }
 
 if (typeof window !== 'undefined') {
-  applyTheme(resolveInitialTheme())
+  applyTheme(resolveInitialTheme(), { persist: false })
+
+  // 用户未显式选择主题时跟随系统明暗变化。
+  const media = window.matchMedia('(prefers-color-scheme: dark)')
+  media.addEventListener?.('change', (event) => {
+    if (!window.localStorage.getItem(THEME_KEY)) {
+      applyTheme(event.matches ? 'dark' : 'light', { persist: false })
+    }
+  })
 }
 
 export function useTheme() {

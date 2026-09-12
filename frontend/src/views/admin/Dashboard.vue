@@ -5,7 +5,6 @@
       :cards="summaryCards"
       :data="summary"
       :columns="{ xs: 12, sm: 4, md: 4 }"
-      variant="gradient"
       class="dashboard-metrics"
     />
 
@@ -26,7 +25,8 @@
       <el-col :xs="24" :md="8" style="margin-bottom: 12px">
         <el-card shadow="never">
           <template #header>状态分布</template>
-          <div class="chart-shell chart-shell--small">
+          <div v-if="!hasStatusData" class="empty-block">暂无状态数据</div>
+          <div v-else class="chart-shell chart-shell--small">
             <canvas ref="statusChartRef" height="220"></canvas>
           </div>
         </el-card>
@@ -37,7 +37,8 @@
       <el-col :xs="24" :md="10" style="margin-bottom: 12px">
         <el-card shadow="never">
           <template #header>任务类型分布</template>
-          <div class="chart-shell chart-shell--small">
+          <div v-if="!hasTypeData" class="empty-block">暂无任务数据</div>
+          <div v-else class="chart-shell chart-shell--small">
             <canvas ref="typeChartRef" height="200"></canvas>
           </div>
         </el-card>
@@ -114,19 +115,24 @@
             {{ row.duration_seconds != null ? `${row.duration_seconds}s` : '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="时间" width="170" />
+        <el-table-column label="时间" width="170">
+          <template #default="{ row }">
+            {{ formatDateTime(row.created_at) }}
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getDashboardOverview } from '@/api/admin'
 import StatusTag from '@/components/StatusTag.vue'
 import StatCardGrid from '@/components/StatCardGrid.vue'
 import TaskProgressCell from '@/components/TaskProgressCell.vue'
+import { formatDateTime } from '@/utils/format'
 import { useChartJs } from '@/composables/useChartJs'
 import { usePolling } from '@/composables/usePolling'
 
@@ -134,6 +140,8 @@ const loading = ref(false)
 const summary = ref({})
 const activeTasks = ref([])
 const recentTasks = ref([])
+const statusDistribution = ref({})
+const taskTypeDistribution = ref({})
 const checkedAt = ref('-')
 const trendChartRef = ref()
 const statusChartRef = ref()
@@ -141,13 +149,16 @@ const typeChartRef = ref()
 let charts = {}
 const { loadChartJs } = useChartJs()
 
+const hasStatusData = computed(() => Object.values(statusDistribution.value).some((v) => v > 0))
+const hasTypeData = computed(() => Object.values(taskTypeDistribution.value).some((v) => v > 0))
+
 const summaryCards = [
-  { key: 'total_tasks', label: '总任务数', hint: '全部历史任务规模', background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)' },
-  { key: 'completed_tasks', label: '已完成', hint: '成功结束的任务批次', background: 'linear-gradient(135deg, #15803d 0%, #22c55e 100%)' },
-  { key: 'running_tasks', label: '运行中', hint: '当前仍在执行中的任务', background: 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)' },
-  { key: 'error_tasks', label: '错误', hint: '需要优先关注与排查', background: 'linear-gradient(135deg, #b91c1c 0%, #ef4444 100%)' },
-  { key: 'cancelled_tasks', label: '已取消', hint: '人工或流程终止的任务', background: 'linear-gradient(135deg, #475569 0%, #64748b 100%)' },
-  { key: 'pending_tasks', label: '待执行', hint: '等待调度与开始运行', background: 'linear-gradient(135deg, #334155 0%, #475569 100%)' },
+  { key: 'total_tasks', label: '总任务数', hint: '全部历史任务规模', color: '#2563eb' },
+  { key: 'completed_tasks', label: '已完成', hint: '成功结束的任务批次', color: '#16a34a' },
+  { key: 'running_tasks', label: '运行中', hint: '当前仍在执行中的任务', color: '#f59e0b' },
+  { key: 'error_tasks', label: '错误', hint: '需要优先关注与排查', color: '#ef4444' },
+  { key: 'cancelled_tasks', label: '已取消', hint: '人工或流程终止的任务', color: '#64748b' },
+  { key: 'pending_tasks', label: '待执行', hint: '等待调度与开始运行', color: '#14b8a6' },
 ]
 
 async function loadDashboard(showMessage = false) {
@@ -157,7 +168,9 @@ async function loadDashboard(showMessage = false) {
     summary.value = data.summary || {}
     activeTasks.value = data.active_tasks || []
     recentTasks.value = data.recent_tasks || []
-    checkedAt.value = data.checked_at || '-'
+    statusDistribution.value = data.status_distribution || {}
+    taskTypeDistribution.value = data.task_type_distribution || {}
+    checkedAt.value = formatDateTime(data.checked_at)
     await nextTick()
     renderCharts(data)
     if (showMessage) {
@@ -215,14 +228,14 @@ async function renderCharts(data) {
     },
   })
 
-  const statusDistribution = data.status_distribution || {}
+  const statusDistributionData = data.status_distribution || {}
   upsertChart(ChartLib, 'status', statusChartRef.value, {
     type: 'doughnut',
     data: {
-      labels: Object.keys(statusDistribution),
+      labels: Object.keys(statusDistributionData),
       datasets: [
         {
-          data: Object.values(statusDistribution),
+          data: Object.values(statusDistributionData),
           backgroundColor: ['#2563eb', '#16a34a', '#f59e0b', '#ef4444', '#64748b', '#14b8a6'],
         },
       ],
@@ -234,15 +247,15 @@ async function renderCharts(data) {
     },
   })
 
-  const taskTypeDistribution = data.task_type_distribution || {}
+  const taskTypeDistributionData = data.task_type_distribution || {}
   upsertChart(ChartLib, 'type', typeChartRef.value, {
     type: 'bar',
     data: {
-      labels: Object.keys(taskTypeDistribution),
+      labels: Object.keys(taskTypeDistributionData),
       datasets: [
         {
           label: '任务数',
-          data: Object.values(taskTypeDistribution),
+          data: Object.values(taskTypeDistributionData),
           backgroundColor: '#1d4ed8',
         },
       ],
@@ -349,7 +362,7 @@ onUnmounted(() => {
   padding: 14px;
   height: 100%;
   box-sizing: border-box;
-  background: linear-gradient(180deg, #fff 0%, #f7faff 100%);
+  background: var(--app-surface);
 }
 
 .active-task-card__header {
