@@ -164,7 +164,7 @@ async function loadData() {
   loading.value = true
   try {
     const res = await getNavigationItems()
-    items.value = res.data || res.items || []
+    items.value = res.items || []
   } finally {
     loading.value = false
   }

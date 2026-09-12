@@ -13,10 +13,10 @@ export function useAuth() {
 
   async function login(username, password) {
     const res = await loginApi({ username, password })
-    localStorage.setItem(TOKEN_KEY, res.data.access_token)
-    localStorage.setItem(REFRESH_KEY, res.data.refresh_token)
-    user.value = res.data.user
-    permissions.value = res.data.user.permissions || []
+    localStorage.setItem(TOKEN_KEY, res.access_token)
+    localStorage.setItem(REFRESH_KEY, res.refresh_token)
+    user.value = res.user
+    permissions.value = res.user.permissions || []
     return res
   }
 
@@ -32,9 +32,9 @@ export function useAuth() {
     const rt = localStorage.getItem(REFRESH_KEY)
     if (!rt) throw new Error('No refresh token')
     const res = await refreshApi({ refresh_token: rt })
-    localStorage.setItem(TOKEN_KEY, res.data.access_token)
-    user.value = res.data.user
-    permissions.value = res.data.user.permissions || []
+    localStorage.setItem(TOKEN_KEY, res.access_token)
+    user.value = res.user
+    permissions.value = res.user.permissions || []
     return res
   }
 
@@ -45,8 +45,8 @@ export function useAuth() {
     fetchUserPromise = (async () => {
       try {
         const res = await getMe()
-        user.value = res.data
-        permissions.value = res.data.permissions || []
+        user.value = res
+        permissions.value = res.permissions || []
         return res
       } catch {
         logout()

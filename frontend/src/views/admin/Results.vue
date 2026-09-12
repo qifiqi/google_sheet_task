@@ -88,7 +88,7 @@ async function loadResults() {
     const params = { page: page.value, per_page: pageSize.value }
     if (taskIdFilter.value) params.task_id = taskIdFilter.value
     const res = await getResults(params)
-    results.value = res.results || []
+    results.value = res.items || []
     total.value = res.total || 0
   } finally {
     loading.value = false

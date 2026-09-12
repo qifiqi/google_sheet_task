@@ -43,9 +43,21 @@
           <TaskProgressCell :current-step="row.current_step || 0" :total-steps="row.total_steps || 0" />
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
-      <el-table-column prop="start_time" label="开始时间" width="160" show-overflow-tooltip />
-      <el-table-column prop="end_time" label="结束时间" width="160" show-overflow-tooltip />
+      <el-table-column label="创建时间" width="160" show-overflow-tooltip>
+        <template #default="{ row }">
+          {{ formatDateTime(row.created_at) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="开始时间" width="160" show-overflow-tooltip>
+        <template #default="{ row }">
+          {{ formatDateTime(row.start_time) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="结束时间" width="160" show-overflow-tooltip>
+        <template #default="{ row }">
+          {{ formatDateTime(row.end_time) }}
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="180">
         <template #default="{ row }">
           <el-button link type="primary" @click="$router.push(`/task/${row.id}`)">详情</el-button>
@@ -120,6 +132,7 @@ import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTasks, getTask, createTask, cancelTask, deleteTask, restartTask } from '@/api/task'
 import { getTaskRuntimeDetail } from '@/api/admin'
+import { formatDateTime } from '@/utils/format'
 import StatusTag from '@/components/StatusTag.vue'
 import PageToolbar from '@/components/PageToolbar.vue'
 import FilterToolbar from '@/components/FilterToolbar.vue'
@@ -184,8 +197,8 @@ async function loadTasks() {
     if (filters.value.task_type) params.task_type = filters.value.task_type
     if (filters.value.keyword) params.keyword = filters.value.keyword
     const res = await getTasks(params)
-    tasks.value = res.tasks || []
-    total.value = res.pagination?.total || 0
+    tasks.value = res.items || []
+    total.value = res.total || 0
   } finally { loading.value = false }
 }
 

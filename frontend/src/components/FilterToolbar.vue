@@ -85,8 +85,13 @@ function updateFilterDebounced(key, value) {
 
 .filter-toolbar__btns {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+
+  @media (min-width: 768px) {
+    margin-left: auto;
+  }
 }
 
 .full-width {

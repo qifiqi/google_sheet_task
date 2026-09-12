@@ -39,7 +39,11 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column prop="last_login" label="最后登录" width="180" />
+      <el-table-column label="最后登录" width="180">
+        <template #default="{ row }">
+          {{ formatDateTime(row.last_login) }}
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="160">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDialog(row)" v-permission="'user:manage'">编辑</el-button>
@@ -88,6 +92,7 @@ import { ref, reactive, computed } from 'vue'
 import { getUsers, createUser, updateUser, deleteUser, getRoles } from '@/api/auth'
 import { ElMessage } from 'element-plus'
 import { usePolling } from '@/composables/usePolling'
+import { formatDateTime } from '@/utils/format'
 import PageToolbar from '@/components/PageToolbar.vue'
 import DataTableCard from '@/components/DataTableCard.vue'
 
@@ -119,8 +124,8 @@ async function loadData() {
   loading.value = true
   try {
     const [uRes, rRes] = await Promise.all([getUsers(), getRoles()])
-    users.value = uRes.data || uRes.users || []
-    roles.value = rRes.data || rRes.roles || []
+    users.value = uRes || []
+    roles.value = rRes || []
   } finally {
     loading.value = false
   }

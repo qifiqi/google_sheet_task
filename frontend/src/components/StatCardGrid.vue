@@ -9,11 +9,7 @@
       class="stat-card-grid__col"
     >
       <slot name="card" :card="card" :value="data[card.key]">
-        <div
-          class="stat-card"
-          :class="[variant ? `stat-card--${variant}` : '']"
-          :style="cardStyle(card)"
-        >
+        <div class="stat-card" :style="{ '--accent': card.color || 'var(--app-primary)' }">
           <div class="stat-card__label">{{ card.label }}</div>
           <div class="stat-card__value">{{ data[card.key] ?? 0 }}</div>
           <div v-if="card.hint" class="stat-card__hint">{{ card.hint }}</div>
@@ -24,19 +20,11 @@
 </template>
 
 <script setup>
-const props = defineProps({
+defineProps({
   cards: { type: Array, required: true },
   data: { type: Object, default: () => ({}) },
   columns: { type: Object, default: () => ({ xs: 12, sm: 6, md: 6 }) },
-  variant: { type: String, default: '' },
 })
-
-function cardStyle(card) {
-  const style = {}
-  if (card.background) style.background = card.background
-  if (card.color) style.color = card.color
-  return style
-}
 </script>
 
 <style lang="scss" scoped>
@@ -44,12 +32,25 @@ function cardStyle(card) {
   margin-bottom: 12px;
 }
 
+// 全站统一的统计卡：surface 底 + 左侧彩色 accent 条，跨页风格一致
 .stat-card {
-  padding: 16px 20px;
+  position: relative;
+  padding: 14px 16px 14px 20px;
   border-radius: var(--el-border-radius-base);
   background: var(--app-surface);
   border: 1px solid var(--app-border);
+  overflow: hidden;
   transition: box-shadow 0.2s;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--accent);
+  }
 
   &:hover {
     box-shadow: var(--app-shadow-soft);
@@ -62,7 +63,7 @@ function cardStyle(card) {
   }
 
   &__value {
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 700;
     color: var(--app-text);
     line-height: 1.2;
@@ -72,20 +73,6 @@ function cardStyle(card) {
     font-size: 12px;
     color: var(--app-text-muted);
     margin-top: 4px;
-  }
-
-  &--gradient {
-    border: none;
-    color: #fff;
-
-    .stat-card__label,
-    .stat-card__hint {
-      color: rgba(255, 255, 255, 0.8);
-    }
-
-    .stat-card__value {
-      color: #fff;
-    }
   }
 }
 </style>

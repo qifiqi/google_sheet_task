@@ -11,123 +11,125 @@
       </div>
     </div>
 
-    <el-card shadow="never" class="page-section">
-      <div class="section-heading">
-        <h3 class="section-title section-title--muted">任务基本信息</h3>
-      </div>
-      <el-row :gutter="16">
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="选择模板">
-            <el-select v-model="selectedTemplate" placeholder="不使用模板" clearable class="full-width" @change="applyTemplate">
-              <el-option v-for="t in templates" :key="t.id" :value="t.id" :label="t.name" />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="任务名称">
-            <el-input v-model="form.name" placeholder="留空将自动生成" />
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="8">
-          <el-form-item label="任务描述">
-            <el-input v-model="form.description" type="textarea" :rows="1" placeholder="可选" />
-          </el-form-item>
-        </el-col>
-      </el-row>
-    </el-card>
-
-    <el-card shadow="never" class="page-section">
-      <div class="section-heading">
-        <h3 class="section-title section-title--muted">Google Sheet 配置</h3>
-      </div>
-      <el-row :gutter="16">
-        <el-col :xs="24" :sm="10">
-          <el-form-item label="选择 Google Sheet">
-            <div class="control-row control-row--stretch">
-              <el-select v-model="form.spreadsheet_id" placeholder="请选择" filterable class="full-width" @change="onSheetChange">
-                <el-option v-for="s in sheets" :key="s.spreadsheet_id" :value="s.spreadsheet_id" :label="`${s.name} (${s.spreadsheet_id})`" />
-              </el-select>
-              <el-button :loading="sheetListLoading" @click="refreshSheets">刷新</el-button>
-            </div>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="7">
-          <el-form-item label="表标题">
-            <el-input v-model="form.spreadsheet_title" placeholder="自动带出，可修改" />
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :sm="7">
-          <el-form-item label="工作表名称">
-            <el-input v-model="form.sheet_name" placeholder="选择后自动带出" :readonly="worksheetLoading" />
-          </el-form-item>
-        </el-col>
-      </el-row>
-
-      <el-collapse v-model="advancedOpen" class="task-create-page__collapse">
-        <el-collapse-item title="更多配置" name="advanced">
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="6">
-              <el-form-item label="认证方式">
-                <el-select v-model="form.token_type" class="full-width">
-                  <el-option value="file" label="Token 文件路径" />
-                  <el-option value="json" label="Token JSON 字符串" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col v-if="form.token_type === 'file'" :xs="24" :sm="18">
-              <el-form-item label="Token 选择">
-                <el-select v-model="form.token_id" class="full-width task-create-page__field-gap" placeholder="选择 Token">
-                  <el-option :value="RANDOM_TOKEN" label="随机 Token（系统自动选择未达上限的 Token）" />
-                  <el-option
-                    v-for="t in tokens"
-                    :key="t.id"
-                    :value="String(t.id)"
-                    :label="`${t.name} | 占用 ${t.current_in_use_count || 0} | 累计 ${t.task_usage_count} | 上限 ${t.max_usage_count > 0 ? t.max_usage_count : '无限'}`"
-                    :disabled="!t.is_available"
-                  />
-                </el-select>
-                <div class="control-row control-row--stretch">
-                  <el-input v-model="tokenImportPath" placeholder="输入 Token 文件路径后点击导入" />
-                  <el-button @click="importToken">导入</el-button>
-                </div>
-              </el-form-item>
-            </el-col>
-            <el-col v-else :xs="24" :sm="18">
-              <el-form-item label="Token JSON">
-                <el-input v-model="form.token_json" type="textarea" :rows="3" placeholder='{"installed": {...}}' />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="代理 URL">
-                <el-input v-model="form.proxy_url" placeholder="可选" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </el-collapse-item>
-      </el-collapse>
-    </el-card>
-
-    <el-card shadow="never" class="page-section">
-      <div class="section-heading">
-        <h3 class="section-title section-title--muted">参数配置</h3>
-        <div class="section-actions">
-          <el-button size="small" @click="addParam">添加参数</el-button>
-          <el-button size="small" @click="clearParams">清空所有</el-button>
+    <el-form label-position="top" @submit.prevent>
+      <el-card shadow="never" class="page-section">
+        <div class="section-heading">
+          <h3 class="section-title section-title--muted">任务基本信息</h3>
         </div>
-      </div>
-      <el-row :gutter="12">
-        <el-col v-for="(p, i) in params" :key="i" :xs="24" :sm="12" :md="8" class="task-create-page__param-col">
-          <el-card shadow="never" class="task-create-page__param-card" :style="{ borderColor: paramColors[i % paramColors.length] }">
-            <div class="section-heading task-create-page__param-head">
-              <span class="task-create-page__param-title">参数 {{ i + 1 }}</span>
-              <el-button link type="danger" size="small" @click="removeParam(i)">删除</el-button>
-            </div>
-            <el-input v-model="params[i]" type="textarea" :rows="3" :placeholder='`["value1", "value2"]`' @input="onParamChange" />
-            <div class="panel-note task-create-page__param-note">JSON 数组格式</div>
-          </el-card>
-        </el-col>
-      </el-row>
-    </el-card>
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="选择模板">
+              <el-select v-model="selectedTemplate" placeholder="不使用模板" clearable class="full-width" @change="applyTemplate">
+                <el-option v-for="t in templates" :key="t.id" :value="t.id" :label="t.name" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="任务名称">
+              <el-input v-model="form.name" placeholder="留空将自动生成" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="任务描述">
+              <el-input v-model="form.description" type="textarea" :rows="1" placeholder="可选" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-card>
+
+      <el-card shadow="never" class="page-section">
+        <div class="section-heading">
+          <h3 class="section-title section-title--muted">Google Sheet 配置</h3>
+        </div>
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="10">
+            <el-form-item label="选择 Google Sheet">
+              <div class="control-row control-row--stretch">
+                <el-select v-model="form.spreadsheet_id" placeholder="请选择" filterable class="full-width" @change="onSheetChange">
+                  <el-option v-for="s in sheets" :key="s.spreadsheet_id" :value="s.spreadsheet_id" :label="`${s.name} (${s.spreadsheet_id})`" />
+                </el-select>
+                <el-button :loading="sheetListLoading" @click="refreshSheets">刷新</el-button>
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="7">
+            <el-form-item label="表标题">
+              <el-input v-model="form.spreadsheet_title" placeholder="自动带出，可修改" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="7">
+            <el-form-item label="工作表名称">
+              <el-input v-model="form.sheet_name" placeholder="选择后自动带出" :readonly="worksheetLoading" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-collapse v-model="advancedOpen" class="task-create-page__collapse">
+          <el-collapse-item title="更多配置" name="advanced">
+            <el-row :gutter="16">
+              <el-col :xs="24" :sm="6">
+                <el-form-item label="认证方式">
+                  <el-select v-model="form.token_type" class="full-width">
+                    <el-option value="file" label="Token 文件路径" />
+                    <el-option value="json" label="Token JSON 字符串" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col v-if="form.token_type === 'file'" :xs="24" :sm="18">
+                <el-form-item label="Token 选择">
+                  <el-select v-model="form.token_id" class="full-width task-create-page__field-gap" placeholder="选择 Token">
+                    <el-option :value="RANDOM_TOKEN" label="随机 Token（系统自动选择未达上限的 Token）" />
+                    <el-option
+                      v-for="t in tokens"
+                      :key="t.id"
+                      :value="String(t.id)"
+                      :label="`${t.name} | 占用 ${t.current_in_use_count || 0} | 累计 ${t.task_usage_count} | 上限 ${t.max_usage_count > 0 ? t.max_usage_count : '无限'}`"
+                      :disabled="!t.is_available"
+                    />
+                  </el-select>
+                  <div class="control-row control-row--stretch">
+                    <el-input v-model="tokenImportPath" placeholder="输入 Token 文件路径后点击导入" />
+                    <el-button @click="importToken">导入</el-button>
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col v-else :xs="24" :sm="18">
+                <el-form-item label="Token JSON">
+                  <el-input v-model="form.token_json" type="textarea" :rows="3" placeholder='{"installed": {...}}' />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="代理 URL">
+                  <el-input v-model="form.proxy_url" placeholder="可选" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-collapse-item>
+        </el-collapse>
+      </el-card>
+
+      <el-card shadow="never" class="page-section">
+        <div class="section-heading">
+          <h3 class="section-title section-title--muted">参数配置</h3>
+          <div class="section-actions">
+            <el-button size="small" @click="addParam">添加参数</el-button>
+            <el-button size="small" @click="clearParams">清空所有</el-button>
+          </div>
+        </div>
+        <el-row :gutter="12">
+          <el-col v-for="(p, i) in params" :key="i" :xs="24" :sm="12" :md="8" class="task-create-page__param-col">
+            <el-card shadow="never" class="task-create-page__param-card">
+              <div class="section-heading task-create-page__param-head">
+                <span class="task-create-page__param-title">参数 {{ i + 1 }}</span>
+                <el-button link type="danger" size="small" @click="removeParam(i)">删除</el-button>
+              </div>
+              <el-input v-model="params[i]" type="textarea" :rows="3" :placeholder='`["value1", "value2"]`' @input="onParamChange" />
+              <div class="panel-note task-create-page__param-note">JSON 数组格式</div>
+            </el-card>
+          </el-col>
+        </el-row>
+      </el-card>
+    </el-form>
 
     <el-card v-if="combinationCount > 0" shadow="never" class="page-section">
       <div class="info-banner">
@@ -181,7 +183,6 @@ const { isMobile } = useResponsive()
 
 const RANDOM_TOKEN = '__random__'
 const LS_KEY = 'google_sheet_form_data'
-const paramColors = ['#409eff', '#67c23a', '#17a2b8', '#e6a23c', '#f56c6c', '#909399']
 
 const pageTitle = ref('创建新任务')
 const sheets = ref([])
@@ -294,7 +295,7 @@ async function importToken() {
   if (!tokenImportPath.value.trim()) { ElMessage.warning('请输入 Token 文件路径'); return }
   try {
     const res = await apiImportToken({ token_file: tokenImportPath.value.trim() })
-    ElMessage.success(res.message || 'Token 导入成功')
+    ElMessage.success('Token 导入成功')
     tokenImportPath.value = ''
     await loadTokens()
     if (res.token?.id) form.token_id = String(res.token.id)

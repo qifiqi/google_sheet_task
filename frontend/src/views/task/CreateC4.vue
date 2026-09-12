@@ -13,6 +13,7 @@
       </div>
     </div>
 
+    <el-form label-position="top" @submit.prevent>
     <el-card shadow="never" class="page-section">
       <div class="section-heading">
         <h3 class="section-title section-title--muted">任务基本信息</h3>
@@ -281,6 +282,8 @@
         </span>
       </div>
     </el-card>
+
+    </el-form>
 
     <el-card shadow="never">
       <div class="action-bar">
@@ -743,7 +746,7 @@ async function doImportToken() {
 
   try {
     const res = await apiImportToken({ token_file: tokenImportPath.value.trim() })
-    ElMessage.success(res.message || 'Token 导入成功')
+    ElMessage.success('Token 导入成功')
     tokenImportPath.value = ''
     await loadTokens()
     if (res.token?.id) form.token_id = String(res.token.id)

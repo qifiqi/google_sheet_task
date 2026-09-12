@@ -11,6 +11,7 @@
       </div>
     </div>
 
+    <el-form label-position="top" @submit.prevent>
     <el-card shadow="never" class="page-section">
       <div class="section-heading">
         <h3 class="section-title section-title--muted">任务基本信息</h3>
@@ -163,7 +164,7 @@
       <div class="panel-note task-create-batch__intro">每个参数支持一维或二维数组，如 `[1,2,3]` 或 `[[1,"A"],[2,"B"]]`。</div>
       <el-row :gutter="12">
         <el-col v-for="(p, i) in params" :key="i" :xs="24" :sm="12" class="task-create-batch__param-col">
-          <el-card shadow="never" class="task-create-batch__param-card" :style="{ borderColor: paramColors[i] }">
+          <el-card shadow="never" class="task-create-batch__param-card">
             <div class="task-create-batch__param-title">参数 {{ i + 1 }}</div>
             <el-input v-model="params[i]" type="textarea" :rows="3" :placeholder='`["A","B"] 或 [[1,"A"],[2,"B"]]`' />
           </el-card>
@@ -181,6 +182,8 @@
         </span>
       </div>
     </el-card>
+
+    </el-form>
 
     <el-card shadow="never">
       <div class="action-bar">
@@ -219,7 +222,6 @@ const { isMobile } = useResponsive()
 
 const RANDOM_TOKEN = '__random__'
 const LS_KEY = 'google_sheet_c31_form_data'
-const paramColors = ['#409eff', '#67c23a', '#17a2b8', '#e6a23c', '#f56c6c', '#909399']
 
 const pageTitle = ref('创建批量任务 (C31)')
 const sheets = ref([])
@@ -429,7 +431,7 @@ async function doImportToken() {
   }
   try {
     const res = await apiImportToken({ token_file: tokenImportPath.value.trim() })
-    ElMessage.success(res.message || 'Token 导入成功')
+    ElMessage.success('Token 导入成功')
     tokenImportPath.value = ''
     await loadTokens()
     if (res.token?.id) form.token_id = String(res.token.id)
@@ -512,7 +514,7 @@ async function submit() {
     clearSaved()
     setTimeout(() => router.push('/task/list?version=c31'), 800)
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '创建批量任务失败')
+    ElMessage.error(e?.message || '创建批量任务失败')
   } finally {
     submitting.value = false
   }

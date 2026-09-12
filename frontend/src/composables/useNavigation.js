@@ -9,6 +9,7 @@ const LEGACY_PATH_MAP = {
   '/google-sheet/?version=c3': '/task/list?version=c3',
   '/google-sheet/?version=c4': '/task/list?version=c4',
   '/google-sheet/?version=c5': '/task/list?version=c5',
+  '/google-sheet/?version=c7': '/task/list?version=c7',
   '/backtest-training/list': '/backtest/list',
   '/backtest-multi-product/list': '/backtest-multi/list',
 }
@@ -46,7 +47,7 @@ export function useNavigation() {
     if (!navPromise) {
       navPromise = getNav()
         .then((res) => {
-          const navigationData = res.data || {}
+          const navigationData = res || {}
           const raw = Array.isArray(navigationData)
             ? navigationData
             : navigationData.items || []

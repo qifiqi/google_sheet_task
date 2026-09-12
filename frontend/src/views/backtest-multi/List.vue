@@ -43,7 +43,11 @@
           <TaskProgressCell :current-step="row.current_step || 0" :total-steps="row.total_steps || 0" />
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
+      <el-table-column label="创建时间" width="160" show-overflow-tooltip>
+        <template #default="{ row }">
+          {{ formatDateTime(row.created_at) }}
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="80">
         <template #default="{ row }">
           <el-button link type="primary" @click="$router.push(`/backtest-multi/${row.id}`)">详情</el-button>
@@ -56,6 +60,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { getTasks } from '@/api/task'
+import { formatDateTime } from '@/utils/format'
 import PageToolbar from '@/components/PageToolbar.vue'
 import StatCardGrid from '@/components/StatCardGrid.vue'
 import FilterToolbar from '@/components/FilterToolbar.vue'
@@ -73,10 +78,10 @@ const stats = ref({})
 const filters = reactive({ status: '', keyword: '' })
 
 const statCards = [
-  { key: 'total', label: '任务总数' },
-  { key: 'running', label: '运行中' },
-  { key: 'completed', label: '已完成' },
-  { key: 'failed', label: '执行失败' },
+  { key: 'total', label: '任务总数', color: '#2563eb' },
+  { key: 'running', label: '运行中', color: '#f59e0b' },
+  { key: 'completed', label: '已完成', color: '#16a34a' },
+  { key: 'failed', label: '执行失败', color: '#ef4444' },
 ]
 
 const filterDefs = [
@@ -98,12 +103,12 @@ async function loadTasks() {
     if (filters.keyword) params.keyword = filters.keyword
 
     const res = await getTasks(params)
-    tasks.value = res.tasks || []
-    total.value = res.pagination?.total || 0
+    tasks.value = res.items || []
+    total.value = res.total || 0
 
     const s = res.statistics || {}
     stats.value = {
-      total: s.total_tasks ?? res.pagination?.total ?? 0,
+      total: s.total_tasks ?? res.total ?? 0,
       running: (s.running_tasks ?? 0) + (s.pending_tasks ?? 0),
       completed: s.completed_tasks ?? 0,
       failed: s.error_tasks ?? 0,

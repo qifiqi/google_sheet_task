@@ -1,10 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jaspil 任务平台</title>
+    <script>
+      // 主题引导：在应用挂载前同步设置 data-theme / .dark，避免暗色用户首屏闪白。
+      // 键名 app_theme 与 src/composables/useTheme.js 保持一致。
+      (function () {
+        try {
+          var saved = localStorage.getItem('app_theme');
+          var theme = saved === 'light' || saved === 'dark'
+            ? saved
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.classList.toggle('dark', theme === 'dark');
+        } catch (e) { /* localStorage 不可用时保持默认亮色 */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
