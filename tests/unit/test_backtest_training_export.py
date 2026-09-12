@@ -343,7 +343,7 @@ def test_single_global_preview_fallback_keeps_drawdown_values_negative(monkeypat
         "excess_drawdown_winning_rate": 0.75,
     }
     monkeypatch.setattr(
-        "app.routes.backtest_training.performance_analyzer.format_export_file_data",
+        "app.routes.pages.backtest_training.performance_analyzer.format_export_file_data",
         lambda _payload: (_ for _ in ()).throw(RuntimeError("format failed")),
     )
 

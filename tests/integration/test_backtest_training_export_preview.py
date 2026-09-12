@@ -145,7 +145,7 @@ def test_export_preview_download_uses_same_export_data(app_factory, monkeypatch)
             return BytesIO(b"csv-content"), "text/csv"
 
         monkeypatch.setattr(
-            "app.routes.backtest_training.performance_analyzer.export_file",
+            "app.routes.pages.backtest_training.performance_analyzer.export_file",
             fake_export_file,
         )
         response = app.test_client().get(
@@ -167,7 +167,7 @@ def test_export_preview_uses_task_name_as_download_name(app_factory, monkeypatch
         db.session.commit()
         _allow_backtest_view(monkeypatch)
         monkeypatch.setattr(
-            "app.routes.backtest_training.performance_analyzer.export_file",
+            "app.routes.pages.backtest_training.performance_analyzer.export_file",
             lambda _data: (BytesIO(b"csv-content"), "text/csv"),
         )
 

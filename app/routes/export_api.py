@@ -19,7 +19,7 @@ from app.schemas.backtest import StrategyBacktestReportSchema
 from app.schemas.task import TaskIdsBatchSchema
 from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema
 from app.services.export_service import export_service
-from app.services.export_file_service import sanitize_export_filename
+from app.services.export_workbook_service import sanitize_export_filename
 from app.services.task import task_manager
 from app.utils.auth import login_required
 from app.utils.logger import get_logger

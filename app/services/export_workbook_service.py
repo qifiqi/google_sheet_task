@@ -12,6 +12,13 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.constants.c_template_layout import (
+    C3_METRIC_CELLS,
+    C3_PARAM_CELL_MAP,
+    C3_PARAM_NAMES,
+    C5_EXPORT_METRIC_KEYS,
+    C7_ROW_SHIFT,
+)
 from app.exceptions import ValidationError
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
@@ -42,7 +49,8 @@ C5_EXPORT_COLUMNS = [
     "模型夏普",
 ]
 
-C5_EXPORT_METRIC_KEYS = ["D11", "D12", "D2", "D3", "D4", "D5", "D6", "D7", "D17", "D20"]
+# C5_EXPORT_METRIC_KEYS 来自 app/constants/c_template_layout 的 C4/C5 概念键派生；
+# C5_PERCENT_METRIC_KEYS 是导出侧专用的百分数格式集合。
 C5_PERCENT_METRIC_KEYS = frozenset(C5_EXPORT_METRIC_KEYS)
 
 PERCENT_COLUMN_NAMES = {
@@ -67,16 +75,9 @@ FOUR_DECIMAL_COLUMN_NAMES = {
     "模型夏普",
 }
 
-# C3 参数列名 → Google Sheet 单元格引用映射（与 _build_stock_param_result_payload 对应）
-C3_PARAM_CELL_MAP = [
-    ("xm",   "B6"),
-    ("tp1",  "B7"),
-    ("nl",   "B9"),
-    ("if",   "B10"),
-    ("ywfs", "B11"),
-    ("ywb",  "B12"),
-]
-C3_PARAM_NAMES = [name for name, _ in C3_PARAM_CELL_MAP]
+# C3 参数列名 → 单元格映射（C3_PARAM_CELL_MAP/C3_PARAM_NAMES）与导出键序列
+# （C5_EXPORT_METRIC_KEYS）已收敛至 app/constants/c_template_layout。
+# C3_PARAM_COUNT 当前无引用，保留待审计结论处理。
 C3_PARAM_COUNT = len(C3_PARAM_NAMES)
 
 # C3 指标列名 → Google Sheet 单元格引用映射（与 SQL / _build_stock_param_result_payload 对应）
@@ -507,7 +508,7 @@ def normalize_c7_model_metrics(metrics: Any) -> Any:
     source_metrics = normalize_c7_result_metrics(metrics)
     normalized = dict(source_metrics)
     for c5_index in range(2, 21):
-        c7_key = f"D{c5_index + 6}"
+        c7_key = f"D{c5_index + C7_ROW_SHIFT}"
         if c7_key in source_metrics:
             normalized_key = f"D{c5_index}"
             value = source_metrics[c7_key]
@@ -958,13 +959,13 @@ def c3_result_row(group: C3ResultGroup) -> list[Any]:
 
     # ── 指标列（从单元格引用读取，与 SQL 查询字段一一对应）──
     # 数据库存储原始小数（如 0.15），业务层 ×100 后展示为 15.00
-    annualized_rate      = _safe_multiply_100(_c3_cell_value(r, "I16", "annualized_rate"))
-    index_annualized_rate = _safe_multiply_100(_c3_cell_value(r, "I19", "index_annualized_rate"))
-    maxdd                = _safe_multiply_100(_c3_cell_value(r, "I17", "maxdd"))
-    max_index_dd         = _safe_multiply_100(_c3_cell_value(r, "I20", "max_index_dd"))
-    fee_total            = _safe_multiply_100(_c3_cell_value(r, "I21", "fee_total"))
-    fee_annualized       = _safe_multiply_100(_c3_cell_value(r, "I22", "fee_annualized"))
-    year_rate            = _c3_cell_value(r, "I23", "year_rate")  # 年换手率不乘100
+    annualized_rate      = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["annualized_rate"], "annualized_rate"))
+    index_annualized_rate = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["index_annualized_rate"], "index_annualized_rate"))
+    maxdd                = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["max_drawdown"], "maxdd"))
+    max_index_dd         = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["index_max_drawdown"], "max_index_dd"))
+    fee_total            = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["fee_total"], "fee_total"))
+    fee_annualized       = _safe_multiply_100(_c3_cell_value(r, C3_METRIC_CELLS["fee_annualized"], "fee_annualized"))
+    year_rate            = _c3_cell_value(r, C3_METRIC_CELLS["turnover_rate"], "year_rate")  # 年换手率不乘100
 
     # beats（收益差）和 beats_dd（回撤差）基于已乘 100 的值计算
     return_beats = _safe_subtract(annualized_rate, index_annualized_rate)
@@ -1010,8 +1011,8 @@ def _stock_code_priority(code: str) -> int:
 def _return_beats_value(result: dict[str, Any]) -> float:
     """从 result dict 计算 return_beats = (I16 - I19) * 100，无效时返回负无穷。"""
     val = _safe_subtract(
-        _c3_cell_value(result, "I16", "annualized_rate"),
-        _c3_cell_value(result, "I19", "index_annualized_rate"),
+        _c3_cell_value(result, C3_METRIC_CELLS["annualized_rate"], "annualized_rate"),
+        _c3_cell_value(result, C3_METRIC_CELLS["index_annualized_rate"], "index_annualized_rate"),
     )
     f = _safe_float(val)
     return f * 100 if f != float("-inf") else f
@@ -1081,5 +1082,3 @@ def build_c3_worksheets(results: list[dict[str, Any]]) -> list[WorksheetData]:
 
 def _task_name(task: Any) -> str:
     return str(getattr(task, "name", None) or getattr(task, "id", None) or "task_export")
-
-

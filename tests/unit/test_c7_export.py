@@ -5,7 +5,7 @@ from zipfile import ZipFile
 import pytest
 from openpyxl import load_workbook
 
-from app.services.export_file_service import build_c7_stock_code_export_archive, build_task_export
+from app.services.export_workbook_service import build_c7_stock_code_export_archive, build_task_export
 from app.services.google_sheet_tasks.c7 import C7Service
 from app.utils.c7_result_normalizer import normalize_c7_result_metrics
 
