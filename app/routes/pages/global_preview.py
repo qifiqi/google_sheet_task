@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from flask import Blueprint
 
-from app.routes.page_files import register_page_routes
+from app.routes.pages import register_page_routes
 from app.utils.auth import page_login_required
 
 

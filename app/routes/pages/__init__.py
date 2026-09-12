@@ -1,13 +1,14 @@
-"""静态页面文件助手（docs/design/frontend-refactor/05 §2.1）。
+"""静态页面路由包（docs/design/routes-restructure-2026-09/）。
 
-templates/ 目录就地静态化后，页面路由经此返回纯静态 HTML；
-send_from_directory 自带路径穿越防护（safe join）。
+templates/ 目录就地静态化后，页面路由统一收在本包：每个页面模块一张蓝图，
+全部经本文件助手返回纯静态 HTML；send_from_directory 自带路径穿越防护
+（safe join）。JSON API 一律不进本包，留在 app/routes/ 平级 *_api.py。
 """
 from pathlib import Path
 
 from flask import send_from_directory
 
-PAGES_DIR = Path(__file__).resolve().parents[2] / "templates"
+PAGES_DIR = Path(__file__).resolve().parents[3] / "templates"
 
 
 def send_page(relpath: str):

@@ -1,6 +1,6 @@
 from flask import Blueprint, request
 
-from app.routes.page_files import register_page_routes, send_page
+from app.routes.pages import register_page_routes, send_page
 from app.utils.auth import page_login_required
 from app.utils.logger import get_logger
 

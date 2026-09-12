@@ -1,29 +1,19 @@
+"""绩效分析 API（analyze / v1/analyze / v1/weight_combination；页面路由已归位
+app/routes/pages/performance_analysis.py，URL 前缀 /performance_analysis 不变）。"""
+
 import json
-from itertools import chain
 
-from flask import Blueprint, Response, stream_with_context, current_app
-
-from app.routes.page_files import register_page_routes
+from flask import Blueprint, Response, current_app, stream_with_context
 
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
 from app.schemas.performance_analysis import PerformanceAnalysisPayloadSchema, WeightCombinationSchema
 from app.services.performance_analysis.service import performance_analysis_service
 from app.utils.api_response import error, success
-from app.utils.auth import login_required, page_login_required
+from app.utils.auth import login_required
 from app.utils.request_parsing import parse_body
 
 
-performance_analysis_bp = Blueprint("performance_analysis", __name__)
-
-register_page_routes(
-    performance_analysis_bp,
-    [
-        ("/", "performance_analysis/index.html"),
-        ("/v2", "performance_analysis/v2.html"),
-        ("/weight_combination", "performance_analysis/weight_combination.html"),
-    ],
-    guard=page_login_required,
-)
+performance_analysis_bp = Blueprint("performance_analysis", __name__, url_prefix="/performance_analysis")
 
 
 def _run_analyze(analyze_fn):
@@ -91,6 +81,3 @@ def v1_weight_combination():
             'X-Accel-Buffering': 'no'  # 禁用 nginx 缓冲，确保流式传输
         }
     )
-
-
-
