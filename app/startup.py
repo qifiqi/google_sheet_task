@@ -795,7 +795,7 @@ def bootstrap_app(app):
         _recover_runtime_resources()
         # 启动期只补运行必需的 SystemConfig 默认值；admin/角色/权限路由等
         # 种子数据经 `flask init-rbac` 主动写入，重启不触碰这些表。
-        init_config()
+        # init_config()
 
     check_and_cleanup_dead_tasks(app)
-    _start_background_components(app)
+    # _start_background_components(app)

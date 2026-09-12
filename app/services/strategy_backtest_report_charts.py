@@ -17,8 +17,9 @@ from matplotlib import dates as mdates
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, MultipleLocator, PercentFormatter
+from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, MultipleLocator
 from numpy import linspace
 
 from app.utils.value_parser import parse_float
@@ -36,6 +37,10 @@ LIGHT_RED = "#EF6E6E"
 GRID = "#E1E6EC"
 TEXT = "#333333"
 BACKGROUND = "#FFFFFF"
+# 折线主线条宽（pt）：CHART_DPI=240 下 1pt ≈ 3.3 物理像素，视觉粗细按此换算。
+LINE_WIDTH = 0.8
+# 回撤面积图的描边线宽（pt），细于主折线以突出填充主体。
+AREA_EDGE_WIDTH = LINE_WIDTH
 # 使用项目根目录定位字体，避免依赖部署机器的 Windows 字体目录。
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FONTS_DIR = PROJECT_ROOT / "static" / "fonts"
@@ -62,24 +67,34 @@ def generate_report_charts(chart_data: dict[str, Any], output_dir: str | Path) -
     # 先校验字体，尽早失败并避免生成一组字体不一致的半成品图片。
     _ensure_fonts_available()
 
-    # 序列统一补齐到日期长度，保证每条曲线与横轴一一对应。
+    # 序列统一补齐到日期长度，保证每条曲线与横轴一一对应；
+    # 全部序列（含回撤）由服务端 _build_chart_data 预先算好，这里只负责渲染。
     index_nav = _numeric_series(chart_data.get("index_nav"), len(dates), 1.0)
     strategy_nav = _numeric_series(chart_data.get("strategy_nav"), len(dates), 1.0)
-    index_drawdown = _drawdown_series(index_nav)
-    strategy_drawdown = _drawdown_series(strategy_nav)
+    index_drawdown = _numeric_series(chart_data.get("index_drawdown"), len(dates), 0.0)
+    strategy_drawdown = _numeric_series(chart_data.get("strategy_drawdown"), len(dates), 0.0)
     excess_nav = _numeric_series(chart_data.get("excess_nav"), len(dates), 0.0)
     _draw_line_chart(
         charts["累计净值曲线"], "累计净值曲线", dates,
         [("指数", index_nav, BLUE), ("策略", strategy_nav, ORANGE)], "净值",
     )
-    _draw_line_chart(
+    # 最大回撤曲线按 DRAWDOWN_CHART_STYLE 在折线/面积两种渲染间切换。
+    _draw_drawdown_area_chart(
         charts["最大回撤曲线"], "最大回撤曲线", dates,
-        [("指数", index_drawdown, BLUE), ("策略", strategy_drawdown, ORANGE)], "回撤", percent=True,
+        [("指数回撤", index_drawdown, BLUE), ("策略回撤", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
     )
-    _draw_line_chart(
-        charts["超额收益曲线"], "累计超额收益曲线", dates,
-        [("累计超额收益", excess_nav, RED)], "超额收益", percent=True,
+    # _draw_line_chart(
+    #     charts["最大回撤曲线"], "最大回撤曲线", dates,
+    #     [("指数", index_drawdown, BLUE), ("策略", strategy_drawdown, ORANGE)], "回撤（%）", percent=True,
+    # )
+    _draw_excess_line_bar_chart(
+        charts["超额收益曲线"], "累计超额收益曲线", dates, excess_nav,
+        _numeric_series(chart_data.get("excess_daily_return"), len(dates), 0.0),
     )
+    # _draw_line_chart(
+    #     charts["超额收益曲线"], "累计超额收益曲线", dates,
+    #     [("累计超额收益", excess_nav, RED)], "超额收益（%）", percent=True,
+    # )
     _draw_grouped_bar_chart(charts["分年度收益"], "分年度收益", chart_data.get("annual_returns") or {})
     _draw_dual_histogram(
         charts["日收益分布"], "日收益率分布",
@@ -112,16 +127,6 @@ def _finite_values(values: Any) -> list[float]:
         if number is not None:
             result.append(number)
     return result or [0.0]
-
-
-def _drawdown_series(values: list[float]) -> list[float]:
-    """回撤以历史最高净值为基准，输出小于等于 0 的比例序列。"""
-    peak = values[0] if values else 1.0
-    result = []
-    for value in values:
-        peak = max(peak, value)
-        result.append(value / peak - 1 if peak else 0.0)
-    return result
 
 
 @lru_cache(maxsize=4)
@@ -169,8 +174,8 @@ def _set_axis_labels(axis: Any, x_label: str = "", y_label: str = "") -> None:
 
 
 def _set_percent_axis(axis: Any, axis_name: str) -> None:
-    # 回测收益数据以 0.01 表示 1%，PercentFormatter 将其显示为百分号刻度。
-    formatter = PercentFormatter(xmax=1, decimals=0)
+    # 回测收益数据以 0.01 表示 1%；刻度只显示数值，百分号单位由轴标题（%）说明。
+    formatter = FuncFormatter(lambda value, _position: f"{value * 100:g}")
     (axis.xaxis if axis_name == "x" else axis.yaxis).set_major_formatter(formatter)
 
 
@@ -186,7 +191,7 @@ def _draw_line_chart(
     figure = _new_figure()
     axis = figure.subplots()
     for name, values, color in series:
-        axis.plot(dates, values, label=name, color=color, linewidth=1.8)
+        axis.plot(dates, values, label=name, color=color, linewidth=LINE_WIDTH)
     _set_axis_labels(axis, y_label=y_label)
     axis.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=7))
     # 短周期显示日，长周期显示月份，避免短周期所有标签都重复为同一个月份。
@@ -199,6 +204,96 @@ def _draw_line_chart(
     # 图表标题由 Word 模板的 Heading 2 提供，PNG 内不重复绘制标题。
     axis.legend(frameon=False, loc="upper left", ncol=len(series), prop=_font(8))
     figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=0.96)
+    figure.autofmt_xdate(rotation=0, ha="center")
+    _save_figure(figure, path)
+
+
+def _draw_drawdown_area_chart(
+    path: Path,
+    title: str,
+    dates: list[date],
+    series: list[tuple[str, list[float], str]],
+    y_label: str,
+    *,
+    percent: bool = False,
+) -> None:
+    """最大回撤的面积图变体：各序列填充到 0 轴并保留细描边。
+
+    与 _draw_line_chart 保持相同签名和坐标轴风格，仅绘制方式不同，
+    便于在 generate_report_charts 入口通过 DRAWDOWN_CHART_STYLE 一键切换。
+    图例只保留填充色的一个条目，描边线不再重复注册 label。
+    """
+    figure = _new_figure()
+    axis = figure.subplots()
+    for name, values, color in series:
+        axis.fill_between(dates, values, 0, label=name, color=color, alpha=0.4, linewidth=0)
+        axis.plot(dates, values, color=color, linewidth=AREA_EDGE_WIDTH)
+    _set_axis_labels(axis, y_label=y_label)
+    axis.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=7))
+    # 与折线图一致：短周期显示日，长周期显示月份。
+    date_format = "%Y-%m" if (max(dates) - min(dates)).days > 90 else "%m-%d"
+    axis.xaxis.set_major_formatter(mdates.DateFormatter(date_format))
+    axis.margins(x=0.01, y=0.12)
+    if percent:
+        _set_percent_axis(axis, "y")
+    _style_axis(axis)
+    axis.legend(frameon=False, loc="upper left", ncol=len(series), prop=_font(8))
+    figure.subplots_adjust(left=0.12, right=0.98, bottom=0.18, top=0.96)
+    figure.autofmt_xdate(rotation=0, ha="center")
+    _save_figure(figure, path)
+
+
+def _draw_excess_line_bar_chart(
+    path: Path,
+    title: str,
+    dates: list[date],
+    excess_nav: list[float],
+    excess_daily: list[float],
+) -> None:
+    """超额收益的线柱组合图：累计超额折线（左轴）+ 日超额收益柱状（右轴）。
+
+    日超额量级远小于累计超额，双轴分别按百分数刻度展示；柱按正负
+    染色，沿用月度超额分布的绿/红约定。twinx 默认后建轴在上，手动
+    抬高主轴避免柱面遮挡折线。
+    """
+    figure = _new_figure()
+    line_axis = figure.subplots()
+    bar_axis = line_axis.twinx()
+    bar_colors = [GREEN if value >= 0 else LIGHT_RED for value in excess_daily]
+    bar_axis.bar(dates, excess_daily, color=bar_colors, width=1.0, alpha=0.7)
+    # 0 轴是正负超额的分界参照线，与月度超额分布保持同一风格。
+    bar_axis.axhline(0, color="#9EADBD", linewidth=0.9)
+    line_axis.plot(dates, excess_nav, color=RED, linewidth=LINE_WIDTH)
+    _set_axis_labels(line_axis, y_label="累计超额收益（%）")
+    _set_axis_labels(bar_axis, y_label="日超额收益（%）")
+    line_axis.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=7))
+    # 与折线图一致：短周期显示日，长周期显示月份。
+    date_format = "%Y-%m" if (max(dates) - min(dates)).days > 90 else "%m-%d"
+    line_axis.xaxis.set_major_formatter(mdates.DateFormatter(date_format))
+    line_axis.margins(x=0.01, y=0.12)
+    bar_axis.margins(x=0.01, y=0.12)
+    _set_percent_axis(line_axis, "y")
+    _set_percent_axis(bar_axis, "y")
+    _style_axis(line_axis)
+    # 双轴只保留主轴的 y 网格，右轴仅同步刻度字体与边框颜色。
+    bar_axis.grid(False)
+    bar_axis.tick_params(colors=TEXT, labelsize=8)
+    for label in bar_axis.get_yticklabels():
+        label.set_fontproperties(_font(8))
+    for spine in bar_axis.spines.values():
+        spine.set_color("#9EADBD")
+    line_axis.set_zorder(bar_axis.get_zorder() + 1)
+    line_axis.patch.set_visible(False)
+    line_axis.legend(
+        handles=[
+            Patch(facecolor=GREEN, label="日超额收益(正)"),
+            Patch(facecolor=LIGHT_RED, label="日超额收益(负)"),
+            Line2D([0], [0], color=RED, linewidth=LINE_WIDTH, label="累计超额收益"),
+        ],
+        frameon=False, loc="upper left", ncol=3, prop=_font(8),
+    )
+    # 右侧留出副轴标题与刻度的空间。
+    figure.subplots_adjust(left=0.12, right=0.87, bottom=0.18, top=0.96)
     figure.autofmt_xdate(rotation=0, ha="center")
     _save_figure(figure, path)
 
@@ -220,7 +315,7 @@ def _draw_grouped_bar_chart(path: Path, title: str, data: dict[str, list[Any]]) 
     axis.bar([position + bar_width / 2 for position in positions], strategy_returns, bar_width, label="策略", color=ORANGE)
     axis.axhline(0, color="#9EADBD", linewidth=0.8)
     axis.set_xticks(positions, years, fontproperties=_font(8))
-    _set_axis_labels(axis, y_label="收益率")
+    _set_axis_labels(axis, y_label="收益率（%）")
     _set_percent_axis(axis, "y")
     _style_axis(axis)
     axis.legend(frameon=False, loc="upper left", ncol=2, prop=_font(8))
@@ -296,7 +391,7 @@ def _percent_tick_step(span: float, max_intervals: int = 4) -> float:
 def _percent_tick_formatter(step: float, overflow_limit: float | None = None) -> FuncFormatter:
     """刻度只显示数值不显示百分号，单位由轴标题（%）说明。
 
-    overflow_limit 非空时，两端阈值刻度显示为 <-X%、>+X%，标明尾部
+    overflow_limit 非空时，两端阈值刻度显示为 <-X、>+X，标明尾部
     极端收益已归并进边缘箱。小数位取能精确表示步长百分数的最少位数
     （如 2.5% 保留 1 位），避免刻度全部取整为 0 或出现拖尾小数。
     """
@@ -308,18 +403,18 @@ def _percent_tick_formatter(step: float, overflow_limit: float | None = None) ->
     def format_tick(value: float, _position: Any) -> str:
         if overflow_limit is not None:
             if value == overflow_limit:
-                return f">+{overflow_limit * 100:.1f}%"
+                return f">+{overflow_limit * 100:.1f}"
             if value == -overflow_limit:
-                return f"<-{overflow_limit * 100:.1f}%"
+                return f"<-{overflow_limit * 100:.1f}"
         return f"{value * 100:.{decimals}f}"
 
     return FuncFormatter(format_tick)
 
 
 def _apply_symmetric_percent_ticks(axis: Any, symmetric_limit: float, mark_overflow: bool = False) -> None:
-    """X 轴使用关于 0 对称的百分号刻度，正负两侧刻度完全对齐。
+    """X 轴使用关于 0 对称的数值刻度（单位 % 由轴标题说明），正负两侧刻度完全对齐。
 
-    mark_overflow 时在两端阈值位置追加 <-X%、>+X% 边缘刻度，标明
+    mark_overflow 时在两端阈值位置追加 <-X、>+X 边缘刻度，标明
     极端收益已归并进边缘箱；阈值与最外侧刻度过近时后者让位，避免
     标签互相重叠。
     """
@@ -380,9 +475,9 @@ def _draw_dual_histogram(path: Path, title: str, data: dict[str, list[float]]) -
     overflow_count = sum(1 for value in values if not -symmetric_limit <= value <= symmetric_limit)
     figure = _new_figure()
     left_axis, right_axis = figure.subplots(1, 2, sharey=True)
-    for axis, series, color in (
-        (left_axis, data["index"], BLUE),
-        (right_axis, data["strategy"], ORANGE),
+    for axis, series, color, panel_title in (
+        (left_axis, data["index"], BLUE, "指数日收益分布"),
+        (right_axis, data["strategy"], ORANGE, "策略日收益分布"),
     ):
         clipped = [min(max(value, -symmetric_limit), symmetric_limit) for value in series]
         # 顶部多留 12% 余量，避免归并标注与最高柱重叠。
@@ -391,8 +486,8 @@ def _draw_dual_histogram(path: Path, title: str, data: dict[str, list[float]]) -
         axis.set_xlim(-symmetric_limit, symmetric_limit)
         # 0% 是收益率分布的关键参照点，使用浅色细线避免喧宾夺主。
         axis.axvline(0, color="#9EADBD", linewidth=0.8)
-        # 面板不绘制小标题，由 Word 图表标题与“指数=蓝、策略=橙”的
-        # 全局配色约定区分。
+        # 面板小标题标明左右各是指数/策略，配色约定照旧（指数=蓝、策略=橙）。
+        axis.set_title(panel_title, color=TEXT, fontproperties=_font(9), pad=8)
         _set_axis_labels(axis, x_label="日收益率（%）")
         _apply_symmetric_percent_ticks(axis, symmetric_limit, mark_overflow=overflow_count > 0)
         _style_axis(axis)

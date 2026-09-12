@@ -750,6 +750,16 @@ class StrategyBacktestReportService:
             result.append(parsed)
         return result
 
+    @staticmethod
+    def _drawdown_series(values: list[float]) -> list[float]:
+        """回撤以历史最高净值为基准，输出小于等于 0 的比例序列。"""
+        peak = values[0] if values else 1.0
+        result = []
+        for value in values:
+            peak = max(peak, value)
+            result.append(value / peak - 1 if peak else 0.0)
+        return result
+
     def _build_chart_data(self, result: Any) -> dict[str, Any]:
         # result_mapper 已提供累计收益对应的净值，不再对累计收益重复复利。
         """处理_build_chart_data相关逻辑。"""
@@ -765,11 +775,19 @@ class StrategyBacktestReportService:
         years = sorted(set(annual_index) | set(annual_start))
         if not years:
             years = sorted({str(value.year) for value in dates})
+
+        index_nav = self._net_values(index_df, "index_return")
+        strategy_nav = self._net_values(start_df, "start_return")
+        # excess_nav = self._net_values(excess_df, "excess_return")
+        excess_df.to_csv("excess_df.csv",index=False)
         return {
             "dates": dates,
-            "index_nav": self._net_values(index_df, "index_return"),
-            "strategy_nav": self._net_values(start_df, "start_return"),
-            "excess_nav": self._net_values(excess_df, "excess_return"),
+            "index_nav": index_nav,
+            "strategy_nav": strategy_nav,
+            "excess_nav": excess_df["excess_return_2"].tolist(),
+            "excess_daily_return": excess_df['daily_return'].tolist(),
+            "index_drawdown": self._drawdown_series(index_nav),
+            "strategy_drawdown": self._drawdown_series(strategy_nav),
             "index_daily_returns": index_df["daily_return"].tolist() if "daily_return" in index_df else [],
             "strategy_daily_returns": start_df["daily_return"].tolist() if "daily_return" in start_df else [],
             "monthly_excess_returns": [self._num(item.get("monthly_excess_return_diff")) for item in

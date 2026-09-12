@@ -22,3 +22,4 @@ services:
       - .env.production
       - .env
     stop_grace_period: 45s
+  

@@ -48,10 +48,23 @@ def _load_fixture_returns() -> dict:
 
 def _chart_data() -> dict:
     dates = [date(2025, 1, 1) + timedelta(days=index) for index in range(24)]
+    index_nav = [1 + index * 0.01 for index in range(24)]
+    strategy_nav = [1 + index * 0.012 for index in range(24)]
+
+    def drawdown(values: list[float]) -> list[float]:
+        peak, result = values[0], []
+        for value in values:
+            peak = max(peak, value)
+            result.append(value / peak - 1)
+        return result
+
     return {
         "dates": dates,
-        "index_nav": [1 + index * 0.01 for index in range(24)],
-        "strategy_nav": [1 + index * 0.012 for index in range(24)],
+        "index_nav": index_nav,
+        "strategy_nav": strategy_nav,
+        # 回撤序列由服务端 _build_chart_data 预先算好，画图模块只消费。
+        "index_drawdown": drawdown(index_nav),
+        "strategy_drawdown": drawdown(strategy_nav),
         "excess_nav": [index * 0.002 for index in range(24)],
         "annual_returns": {"years": ["2024", "2025"], "index": [0.1, -0.02], "strategy": [0.15, 0.04]},
         "index_daily_returns": [-0.02, -0.01, 0.0, 0.01, 0.02],
@@ -145,10 +158,44 @@ def test_percent_tick_formatter_shows_plain_numbers_without_percent_sign():
     # 2.5 一族步长需要一位小数。
     assert charts._percent_tick_formatter(0.025)(0.025, None) == "2.5"
     assert charts._percent_tick_formatter(0.025)(0.075, None) == "7.5"
-    # 阈值刻度显示为 <-X%、>+X%，标明尾部极值已归并进边缘箱。
-    assert charts._percent_tick_formatter(0.01, overflow_limit=0.032865)(0.032865, None) == ">+3.3%"
-    assert charts._percent_tick_formatter(0.01, overflow_limit=0.032865)(-0.032865, None) == "<-3.3%"
+    # 阈值刻度显示为 <-X、>+X，标明尾部极值已归并进边缘箱。
+    assert charts._percent_tick_formatter(0.01, overflow_limit=0.032865)(0.032865, None) == ">+3.3"
+    assert charts._percent_tick_formatter(0.01, overflow_limit=0.032865)(-0.032865, None) == "<-3.3"
     assert charts._percent_tick_formatter(0.01, overflow_limit=0.032865)(0.02, None) == "2"
+
+
+def test_percent_axes_put_unit_in_title_and_ticks_stay_plain(monkeypatch, tmp_path: Path):
+    captured = {}
+
+    def capture_figure(figure, path):
+        figure.canvas.draw()
+        axis = figure.axes[0]
+        captured[path.stem] = (
+            axis.get_ylabel(),
+            [label.get_text() for label in axis.get_yticklabels()],
+        )
+
+    monkeypatch.setattr(charts, "_save_figure", capture_figure)
+    dates = [date(2025, 1, 1) + timedelta(days=index) for index in range(24)]
+    charts._draw_line_chart(
+        tmp_path / "drawdown.png", "最大回撤曲线", dates,
+        [("策略", [-index * 0.01 for index in range(24)], charts.ORANGE)], "回撤（%）", percent=True,
+    )
+    charts._draw_line_chart(
+        tmp_path / "excess.png", "超额收益曲线", dates,
+        [("累计超额收益", [index * 0.002 for index in range(24)], charts.RED)], "超额收益（%）", percent=True,
+    )
+    charts._draw_grouped_bar_chart(
+        tmp_path / "annual.png", "分年度收益",
+        {"years": ["2024", "2025"], "index": [0.1, -0.02], "strategy": [0.15, 0.04]},
+    )
+
+    assert set(captured) == {"drawdown", "excess", "annual"}
+    for y_label, y_labels in captured.values():
+        # 百分号单位只在轴标题上，刻度是纯数值。
+        assert y_label.endswith("（%）")
+        assert y_labels
+        assert all("%" not in label for label in y_labels)
 
 
 def test_dual_histogram_percent_ticks_are_symmetric_around_zero(monkeypatch, tmp_path: Path):
@@ -179,9 +226,11 @@ def test_real_returns_dual_histogram_zooms_into_core_region(monkeypatch, tmp_pat
 
     def capture_figure(figure, path):
         figure.canvas.draw()
+        captured["limits"] = [axis.get_xlim() for axis in figure.axes]
         captured["ticks"] = [axis.get_xticks() for axis in figure.axes]
-        captured["labels"] = [label.get_text() for label in figure.axes[0].get_xticklabels()]
+        captured["labels"] = [[label.get_text() for label in axis.get_xticklabels()] for axis in figure.axes]
         captured["x_label"] = figure.axes[0].get_xlabel()
+        captured["titles"] = [axis.get_title() for axis in figure.axes]
         captured["bar_counts"] = [len(axis.patches) for axis in figure.axes]
         captured["height_sums"] = [sum(patch.get_height() for patch in axis.patches) for axis in figure.axes]
         captured["notes"] = [[text.get_text() for text in axis.texts] for axis in figure.axes]
@@ -193,19 +242,47 @@ def test_real_returns_dual_histogram_zooms_into_core_region(monkeypatch, tmp_pat
         {"index": returns["index_daily"], "strategy": returns["strategy_daily"]},
     )
 
-    index_ticks, strategy_ticks = captured["ticks"]
-    # 核心区间按各自分位数确定（指数 ±2.47%、策略 ±3.69%），刻度只显示数值。
-    assert [round(tick / 0.005) for tick in index_ticks] == list(range(-4, 5))
-    assert [round(tick / 0.01) for tick in strategy_ticks] == list(range(-3, 4))
+    # 核心区间按两组样本合并分位数确定（约 ±3.3%）并共用，超轴极端收益归并进边缘箱。
+    limit = charts._symmetric_histogram_limit(returns["index_daily"] + returns["strategy_daily"])
+    assert captured["limits"] == [(-limit, limit), (-limit, limit)]
+    # 刻度只显示数值（单位 % 由轴标题说明），两端阈值刻度以 <-X、>+X 标记归并边界。
     assert captured["x_label"] == "日收益率（%）"
-    assert captured["labels"] == ["-2.0", "-1.5", "-1.0", "-0.5", "0.0", "0.5", "1.0", "1.5", "2.0"]
-    # 核心区间内自适应细分行：指数 25 箱、策略 37 箱（约 0.2% 一箱）。
-    assert captured["bar_counts"] == [25, 37]
+    # 面板小标题标明左右各是指数/策略。
+    assert captured["titles"] == ["指数日收益分布", "策略日收益分布"]
+    assert captured["labels"] == [["<-3.3", "-2", "-1", "0", "1", "2", ">+3.3"]] * 2
+    assert captured["bar_counts"] == [33, 33]
     # 尾部极值归并进边缘箱：柱高之和仍等于样本总数，无数据被丢弃。
     assert captured["height_sums"] == [len(returns["index_daily"]), len(returns["strategy_daily"])]
-    # 归并数量在图内标注。
-    assert captured["notes"][0] == ["18 笔超出 ±2.5% 已并入两端"]
-    assert captured["notes"][1] == ["17 笔超出 ±3.7% 已并入两端"]
+    # 归并数量不在图内重复标注，由 Word 表格指标承载。
+    assert captured["notes"] == [[], []]
+
+
+def test_excess_combo_chart_overlays_daily_bars_on_cumulative_line(monkeypatch, tmp_path: Path):
+    captured = {}
+
+    def capture_figure(figure, path):
+        figure.canvas.draw()
+        captured["axes"] = len(figure.axes)
+        captured["line_colors"] = [line.get_color() for axis in figure.axes for line in axis.lines]
+        captured["bar_count"] = sum(len(axis.patches) for axis in figure.axes)
+        captured["y_labels"] = [axis.get_ylabel() for axis in figure.axes]
+        legend = figure.axes[0].get_legend()
+        captured["legend_labels"] = [text.get_text() for text in legend.get_texts()]
+
+    monkeypatch.setattr(charts, "_save_figure", capture_figure)
+    dates = [date(2025, 1, 1) + timedelta(days=index) for index in range(24)]
+    charts._draw_excess_line_bar_chart(
+        tmp_path / "excess-combo.png", "累计超额收益曲线", dates,
+        [index * 0.002 for index in range(24)],
+        [(-0.001, 0.002)[index % 2] for index in range(24)],
+    )
+
+    # 双轴：左轴累计超额折线（红），右轴日超额柱状（正绿负红）。
+    assert captured["axes"] == 2
+    assert charts.RED in captured["line_colors"]
+    assert captured["bar_count"] == 24
+    assert captured["y_labels"] == ["累计超额收益（%）", "日超额收益（%）"]
+    assert captured["legend_labels"] == ["日超额收益(正)", "日超额收益(负)", "累计超额收益"]
 
 
 def test_real_returns_monthly_excess_bars_match_template_style(monkeypatch, tmp_path: Path):

@@ -329,6 +329,15 @@ def generate_demo_charts(output_dir: str | Path) -> dict[str, str]:
         "index_nav": data["nav_curve"]["index"],
         "strategy_nav": data["nav_curve"]["strategy"],
         "excess_nav": data["excess_curve"]["excess"],
+        "index_drawdown": data["drawdown_curve"]["index"],
+        "strategy_drawdown": data["drawdown_curve"]["strategy"],
+        "excess_daily_return": [
+            strategy - index
+            for index, strategy in zip(
+                data["daily_return_distribution"]["index"],
+                data["daily_return_distribution"]["strategy"],
+            )
+        ],
         "index_daily_returns": data["daily_return_distribution"]["index"],
         "strategy_daily_returns": data["daily_return_distribution"]["strategy"],
         "monthly_excess_returns": data["monthly_excess_distribution"],

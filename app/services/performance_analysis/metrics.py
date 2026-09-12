@@ -917,13 +917,13 @@ class PerformanceMetricsMixin:
 
             # 先复制一份基础数据
             base_df = df.copy()
-            base_df['excess_return'] = base_df['start_return'] - base_df['index_return']
+            base_df['excess_return'] = round(base_df['start_return'] - base_df['index_return'],6)
 
             # 批量计算所有净值
             base_df['index_net'] = 1 * (1 + base_df['index_return'])
             base_df['start_net'] = 1 * (1 + base_df['start_return'])
             base_df['excess_nav'] = 1 * (1 + base_df['excess_return'])
-
+            base_df['excess_return_2'] = base_df['start_net']/base_df['index_net'] - 1
             # 如果需要分别提取（但建议直接用 base_df）
             index_df = base_df[
                 ['date', 'year', 'month', 'year_month', 'index_return', 'index_net']
@@ -932,7 +932,7 @@ class PerformanceMetricsMixin:
                 ['date', 'year', 'month', 'year_month', 'start_return', 'start_net']
             ].rename(columns={'start_net': 'net_value'})
             excess_df = base_df[
-                ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_nav']
+                ['date', 'year', 'month', 'year_month', 'excess_return', 'excess_nav',"excess_return_2"]
             ].rename(columns={'excess_nav': 'net_value'})
 
 
@@ -940,6 +940,7 @@ class PerformanceMetricsMixin:
             # 当天收益率 = (当天净值 / 前一天净值) - 1
             index_df['daily_return'] = (index_df['net_value'] / index_df['net_value'].shift(1)) - 1
             start_df['daily_return'] = (start_df['net_value'] / start_df['net_value'].shift(1)) - 1
+            excess_df['daily_return'] = start_df['daily_return'] - index_df['daily_return']
             # # 回撤
             # index_df['drawdown'] = index_df['net_value'] / index_df['net_value'].cummax() - 1
             # start_df['drawdown'] = start_df['net_value'] / start_df['net_value'].cummax() - 1
