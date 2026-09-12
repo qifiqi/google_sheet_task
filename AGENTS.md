@@ -48,7 +48,7 @@ Get-Content .\run.py -Encoding UTF8
 - **统一响应信封**（唯一格式 `{"status","code","message","data"}`）：唯一出口 `app/utils/api_response.py` 的 `success()/error()/paginated()`。routes 禁止手写响应字典；分页统一 `{items,total,pages,current_page,per_page}`。
 - **统一异常体系**：`app/exceptions/base.py` 的 `AppException` 层级（BadRequest 400 … ServiceError 500）。repositories 只抛 `NotFoundError`/`ConflictError`；services 抛业务子类；routes 原则上不 catch，交给 `app/errors.py` 全局处理器（仅 `/api` 前缀返回 JSON 信封，兜底 500 绝不 `str(e)` 下发）。任务线程域异常（`C5*`、`RetryableNetworkTaskError`、`[NETWORK_RETRYABLE]`）不并入 HTTP 语义体系。
 - **请求校验**：Pydantic v2。模型在 `app/schemas/`，解析经 `app/utils/request_parsing.py` 的 `parse_body/parse_query`。
-- **鉴权边界**：本项目后续作为**子服务接入主服务**（路由网关/鉴权/权限整体迁移），当前 RBAC/JWT 是历史产物，**不再新增权限类建设**。保持两个迁移接缝单一：服务端只经 `login_required` 装饰器，前端只经 `template-auth.js`；新增路由/页面不得自写鉴权逻辑。已知缺口登记于 `docs/design/api-model-query-audit/07-public-deployment-and-subservice.md`。
+- **鉴权边界**：本项目后续作为**子服务接入主服务**（路由网关/鉴权/权限整体迁移），当前 RBAC/JWT 是历史产物，**不再新增权限类建设**。保持两个迁移接缝单一：服务端只经 `login_required` 装饰器，前端只经 `template-auth.js`；新增路由/页面不得自写鉴权逻辑。主服务 SSO 已按入口换票接入（免登端点 `POST /api/auth/sso/exchange`，代码在 `app/routes/sso.py` + `app/services/sso_service.py`；默认角色 `main_service_user` 由 `flask init-rbac` 播种）。红线：任何外部令牌/凭据一律不写入源码、日志或测试，凭据仅来自环境变量或密钥服务，处理机制详见 `docs/design/sso-integration-2026-09/` §5。已知缺口登记于 `docs/design/api-model-query-audit/07-public-deployment-and-subservice.md`。
 - **限流**：Flask-Limiter（`app/extensions.py::limiter`，内存存储，默认无全局限流），不自行实现限流算法。
 
 ## 数据层分层规则
@@ -59,10 +59,11 @@ Get-Content .\run.py -Encoding UTF8
 - 写方法默认方法内 commit（签名带 `commit: bool = True`），异常 rollback 后裸 `raise`；跨 repository 原子流程用 `base.transaction()` 包裹、各步骤传 `commit=False`。
 - `config_manager → repository` 方向固定，禁止反向 import。
 - `app/startup.py`、`run.py`、`migrations/`、`tests/`、`scripts/` 不在分层收编范围。
+- **业务事实常量**（被多个模块依赖的静态表，如 C 系模板单元格语义、参数行序、导出键序列）统一放 `app/constants/`（现仅 `c_template_layout.py`）：纯数据、零 IO、零 Flask 依赖，任何层可 import，禁止反向依赖业务模块；派生视图必须逐值等价于消费方语义，禁止顺手改名。单模块私有常量留在各自文件，不进包。审计与遗留登记见 `docs/design/constants-audit-2026-09/`。
 
 ## 真实入口与启动流程
 
-`run.py` 只创建应用并调用 `bootstrap_app(app)`，启动编排全部在 `app/startup.py`：目录准备/日志 → 重置 token/Sheet 占用与回测锁 → 幂等播种 SystemConfig/RBAC/导航 → 清理死任务 → 启动调度器 + 看门狗。
+`run.py` 只创建应用并调用 `bootstrap_app(app)`，启动编排全部在 `app/startup.py`：目录准备/日志 → 重置 token/Sheet 占用与回测锁 → 幂等播种 SystemConfig（RBAC/导航种子**不在启动期**，需手动 `flask init-rbac`）→ 清理死任务 → 启动调度器 + 看门狗。
 
 注意：表结构不在启动期创建，新环境需先 `flask init_db` 或 `flask db upgrade`；运行时 ALTER TABLE 补列的 schema 修补逻辑只在 `app/startup.py`（`run.py` 仅是 27 行的干净入口，只 create_app + bootstrap），线上脏库问题直接看 `app/startup.py`。任何影响任务状态、token 占用、RBAC、看门狗的修改，都要评估 `app/startup.py`。
 
@@ -94,7 +95,7 @@ Get-Content .\run.py -Encoding UTF8
 
 ## 双前端
 
-1. **静态页面**（`templates/` 纯静态 HTML，2026-09 静态化完成，方案见 `docs/design/frontend-refactor/`）：全部页面零 Jinja 语法，页面路由经 `app/routes/page_files.py::send_page` 返回文件；同一产物支持 nginx 独立部署与 Flask 托管（`05-deployment.md`）。JS 分层：`static/js/common/{api,business,components,utils,admin-shell}.js`（接口唯一出口 api.js——页面禁手写 `/api/*` URL；跨页业务在 business/ 的 `Biz.*`；navbar.js 渲染 `data-navbar` 占位）+ `static/js/pages/<页>.js`（页面逻辑，普通 script 原位置，禁 defer/module）；CSS 在 `static/css/{common,pages}/`。改字段仍须同步检查：表单初始化、localStorage 恢复、模板回填、restart 回填、提交 payload，否则刷新后"变回旧字段"。google_sheet 版本分发走 `/google-sheet/{create,detail}` 的 dispatcher 页（缺 version 时前端查任务补参重定向）。
+1. **静态页面**（`templates/` 纯静态 HTML，2026-09 静态化完成，方案见 `docs/design/frontend-refactor/`）：全部页面零 Jinja 语法，页面路由统一在 `app/routes/pages/` 包（JSON API 留在 `app/routes/` 平级 `*_api.py`，结构约定见 `docs/design/routes-restructure-2026-09/`），经包内 `send_page`/`register_page_routes` 表驱动返回文件；同一产物支持 nginx 独立部署与 Flask 托管（`05-deployment.md`）。JS 分层：`static/js/common/{api,business,components,utils,admin-shell}.js`（接口唯一出口 api.js——页面禁手写 `/api/*` URL；跨页业务在 business/ 的 `Biz.*`；navbar.js 渲染 `data-navbar` 占位）+ `static/js/pages/<页>.js`（页面逻辑，普通 script 原位置，禁 defer/module）；CSS 在 `static/css/{common,pages}/`。改字段仍须同步检查：表单初始化、localStorage 恢复、模板回填、restart 回填、提交 payload，否则刷新后"变回旧字段"。google_sheet 版本分发走 `/google-sheet/{create,detail}` 的 dispatcher 页（缺 version 时前端查任务补参重定向）。
 2. **Vue 3 SPA**（`frontend/`，当前分支 dev_vue 主战场）：Vite dev proxy 到 Flask 5000；JWT 存 localStorage，401 自动 refresh 重试（`docs/前端Vue工程.md`）；其 `src/{api,composables,components}` 分层与静态版 common/ 对齐，迁移时是翻译不是重设计。
 
 ## 测试
