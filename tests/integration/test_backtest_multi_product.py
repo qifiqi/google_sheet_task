@@ -906,6 +906,7 @@ def _task_result_payload_with_year_drawdowns():
                     "year_maximum_drawdown": [
                         {"year": 2024, "drawdown": 0.10},
                     ],
+                    "total_maximum_drawdown": {"drawdown": 0.10},
                 },
                 "start_maximum_drawdown": {
                     "year_maximum_drawdown": [
@@ -913,6 +914,10 @@ def _task_result_payload_with_year_drawdowns():
                     ],
                     "total_maximum_drawdown": {"drawdown": 0.06},
                 },
+                "index_maximum_number_of_backtest_repair_days": 7,
+                "start_maximum_number_of_backtest_repair_days": 11,
+                "year_index_yearly_max_repair_days": {"2024": 5},
+                "year_start_yearly_max_repair_days": {"2024": 9},
                 "excess_drawdown_winning_rate": 0.75,
             }
         }
@@ -1304,6 +1309,21 @@ def test_build_multi_product_global_preview_derives_year_max_excess_drawdown(app
             if row["metric"] == "年最大回撤"
         )
         assert max_drawdown_row["product_values"][0]["result_value"] == "-6.00%"
+        assert max_drawdown_row["product_values"][0]["index_value"] == "-10.00%"
+        repair_days_row = next(
+            row
+            for row in payload["groups"][0]["rows"]
+            if row["metric"] == "最大修复天数"
+        )
+        assert repair_days_row["product_values"][0]["index_value"] == "7"
+        assert repair_days_row["product_values"][0]["result_value"] == "11"
+        yearly_repair_row = next(
+            row
+            for row in payload["groups"][0]["rows"]
+            if row["metric"] == "年最大回测修复天数"
+        )
+        assert yearly_repair_row["product_values"][0]["index_value"] == "5"
+        assert yearly_repair_row["product_values"][0]["result_value"] == "9"
 
 
 def test_multi_product_year_max_excess_drawdown_uses_zero_when_no_year_outperforms():

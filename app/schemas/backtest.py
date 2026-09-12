@@ -134,6 +134,18 @@ class UpdateRatiosSchema(APIModel):
     ratios: list[Any]
 
 
+class ReturnSeriesExportSchema(APIModel):
+    """POST /backtest-multi-product/api/global-preview/<task_id>/return-series。
+
+    纯数据载荷：直查 t_param_task_results_return 返回累计收益序列；
+    ratios 覆盖产品比例（未传用任务默认比例），group_key 过滤参数方案。
+    净值/当天收益率/比例组合等全部由前端 Excel 公式计算，后端零派生。
+    """
+
+    ratios: list[Any] | None = None
+    group_key: str | None = None
+
+
 class PreviewGroupSchema(APIModel):
     """POST /global-preview/api/tasks/<task_id>/preview-group。"""
 

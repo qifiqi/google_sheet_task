@@ -761,6 +761,7 @@ def _extract_summary_rows(calculate_metrics, model_name):
         max_drawdown = _derive_year_max_excess_drawdown(calculate_metrics)
 
         total_max_drawdown = ((calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown") or {})
+        index_total_max_drawdown = ((calculate_metrics.get("index_maximum_drawdown") or {}).get("total_maximum_drawdown") or {})
         year_index_max_repair_days = max_yearly_repair_days(
             calculate_metrics.get("year_index_yearly_max_repair_days")
         )
@@ -769,13 +770,9 @@ def _extract_summary_rows(calculate_metrics, model_name):
         )
 
         period_text = excess_all.get("start_end_date", "")
-        # 行标签取自 summary_contract 单一契约（前 15 项 + 单品专属"年最大回测修复天数" + 后 5 项），
+        # 行标签即 summary_contract 单一契约（21 项，已含"年最大回测修复天数"），
         # value_pairs 与标签按位置一一对应。
-        labels = [
-            *CONTRACT_SUMMARY_ROW_LABELS[:15],
-            ("回撤", "年最大回测修复天数"),
-            *CONTRACT_SUMMARY_ROW_LABELS[15:],
-        ]
+        labels = CONTRACT_SUMMARY_ROW_LABELS
         value_pairs = [
             (_fmt_percent(excess_all.get("index_annualized_return")), _fmt_percent(excess_all.get("start_annualized_return"))),
             (_fmt_percent(calculate_metrics.get("index_profit_annual")), _fmt_percent(calculate_metrics.get("start_profit_annual"))),
@@ -789,10 +786,10 @@ def _extract_summary_rows(calculate_metrics, model_name):
             ("", _fmt_percent(calculate_metrics.get("monthly_excess_volatility"))),
             ("", _percent_display(max_drawdown) if max_drawdown is not None else ""),
             ("", _percent_display(calculate_metrics.get("excess_drawdown_winning_rate")) if calculate_metrics.get("excess_drawdown_winning_rate") is not None else ""),
-            ("", _negative_percent_display(total_max_drawdown.get("drawdown"))) if total_max_drawdown.get("drawdown") is not None else ("", ""),
-            ("", str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or "")),
-            ("", str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or "")),
+            (_negative_percent_display(index_total_max_drawdown.get("drawdown")), _negative_percent_display(total_max_drawdown.get("drawdown"))),
+            (str(calculate_metrics.get("index_maximum_number_of_backtest_repair_days") or ""), str(calculate_metrics.get("start_maximum_number_of_backtest_repair_days") or "")),
             (str(year_index_max_repair_days) if year_index_max_repair_days is not None else "", str(year_start_max_repair_days) if year_start_max_repair_days is not None else ""),
+            ("", str(calculate_metrics.get("excess_maximum_number_of_backtest_repair_days") or "")),
             (_fmt_number(index_sharpe_all.get("sharpe_ratio")), _fmt_number(start_sharpe_all.get("sharpe_ratio"))),
             (_fmt_number(index_kama_all.get("kama_ratio")), _fmt_number(start_sharpe_all.get("kama_ratio"))),
             (_fmt_number(index_sortino_all.get("sortino_ratio")), _fmt_number(start_sortino_all.get("sortino_ratio"))),
@@ -1159,6 +1156,134 @@ def _append_global_summary_sheet(workbook, payload, styles):
     return sheet
 
 
+def _multi_product_payload(payload):
+    """多品载荷以顶层 products + 行内 product_values 组织，与单品 columns/values 区分。"""
+    return bool(payload.get("products"))
+
+
+def _ratio_number(value):
+    text = str(value if value is not None else "").strip().rstrip("%")
+    try:
+        return float(text or 0)
+    except ValueError:
+        return 0.0
+
+
+def _ratio_header_text(value):
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return "-"
+    return text if text.endswith("%") else f"{text}%"
+
+
+def _append_multi_product_summary_sheet(workbook, payload, styles):
+    """多品汇总页：21 项契约指标 × 各参数方案的比例组合结果矩阵。"""
+    groups = payload.get("groups") or []
+    sheet = workbook.create_sheet("汇总", 0)
+    if not groups:
+        sheet.append(["暂无可导出的分组数据"])
+        return sheet
+
+    task = payload.get("task") or {}
+    period = "/".join(
+        str(task.get(key) or "") for key in ("start_date", "end_date")
+    ).strip("/")
+    header = ["周期", "名称"] + [
+        group.get("group_label") or f"参数方案 {position}"
+        for position, group in enumerate(groups, start=1)
+    ]
+    sheet.append(header)
+    contract_rows = groups[0].get("rows") or []
+    for row_index, contract_row in enumerate(contract_rows):
+        values = [period, contract_row.get("metric") or ""]
+        for group in groups:
+            group_rows = group.get("rows") or []
+            group_row = group_rows[row_index] if row_index < len(group_rows) else {}
+            values.append(group_row.get("weighted_result_value") or "")
+        sheet.append(values)
+
+    sheet.freeze_panes = "C2"
+    sheet.column_dimensions["A"].width = 14
+    sheet.column_dimensions["B"].width = 28
+    for column_index in range(3, len(header) + 1):
+        sheet.column_dimensions[get_column_letter(column_index)].width = 18
+
+    sheet.row_dimensions[1].height = 24
+    for row_index in range(2, sheet.max_row + 1):
+        sheet.row_dimensions[row_index].height = 22
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.alignment = styles["center_alignment"]
+            cell.border = styles["thin_border"]
+            cell.font = styles["body_font"]
+            if cell.row == 1:
+                cell.fill = styles["header_fill"]
+                cell.font = styles["header_font"]
+            elif cell.column == 1:
+                cell.font = styles["header_font"]
+            if cell.column >= 3:
+                _format_excel_data_cell(cell)
+    return sheet
+
+
+def _write_multi_product_group_sheet(sheet, group, payload):
+    """多品分组页与预览页同构：每产品 指数/模型结果/比例后 三列 + 组合两列。
+
+    比例为 0 的产品不参与组合，与预览页一致不渲染其列组。
+    返回表头列数，供调用方设置列宽。
+    """
+    visible = [
+        {"position": position, "product": product}
+        for position, product in enumerate(payload.get("products") or [])
+        if _ratio_number(product.get("ratio")) > 0
+    ]
+    if not visible:
+        sheet.append([group.get("group_label") or "", "", ""])
+        sheet.append(["指标类型", "指标", "指数"])
+        sheet.append(["所有产品比例均为 0，没有可展示的产品"])
+        return 3
+
+    # 第 1 行：方案名占 指标类型/指标 两列，产品名各占 3 列，组合占 2 列。
+    title_row = [group.get("group_label") or "", ""]
+    for item in visible:
+        product = item["product"]
+        title_row.append(product.get("product_name") or product.get("stock_code") or "产品")
+        title_row += ["", ""]
+    title_row += ["比例计算", ""]
+    sheet.append(title_row)
+
+    header = ["指标类型", "指标"]
+    for item in visible:
+        header += ["指数", "模型结果", f"模型结果（{_ratio_header_text(item['product'].get('ratio'))}）"]
+    header += ["比例计算-指数", "比例计算-结果"]
+    sheet.append(header)
+
+    for row in group.get("rows") or []:
+        product_values = row.get("product_values") or []
+        values = [row.get("category") or "", row.get("metric") or ""]
+        for item in visible:
+            cell = product_values[item["position"]] or {}
+            values += [
+                cell.get("index_value") or "",
+                cell.get("result_value") or "",
+                cell.get("weighted_result_value") or "",
+            ]
+        values += [
+            row.get("weighted_index_value") or "",
+            row.get("weighted_result_value") or "",
+        ]
+        sheet.append(values)
+
+    sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=2)
+    column = 3
+    for _ in visible:
+        sheet.merge_cells(start_row=1, start_column=column, end_row=1, end_column=column + 2)
+        column += 3
+    sheet.merge_cells(start_row=1, start_column=column, end_row=1, end_column=column + 1)
+    sheet.freeze_panes = "C3"
+    return len(header)
+
+
 def _build_global_preview_workbook(payload):
     workbook = Workbook()
     default_sheet = workbook.active
@@ -1189,7 +1314,11 @@ def _build_global_preview_workbook(payload):
         sheet.append(["暂无可导出的分组数据"])
         return workbook
 
-    _append_global_summary_sheet(workbook, payload, styles)
+    is_multi_product = _multi_product_payload(payload)
+    if is_multi_product:
+        _append_multi_product_summary_sheet(workbook, payload, styles)
+    else:
+        _append_global_summary_sheet(workbook, payload, styles)
 
     used_sheet_names = set()
     for index, group in enumerate(groups, start=1):
@@ -1203,42 +1332,48 @@ def _build_global_preview_workbook(payload):
         used_sheet_names.add(sheet_name)
 
         sheet = workbook.create_sheet(sheet_name)
-        task = payload.get("task") or {}
-        stock_code = task.get("stock_code") or group.get("year") or task.get("name") or ""
-        columns = group.get("columns") or []
-        row_1 = [stock_code, "", ""]
-        for column in columns:
-            row_1.append(column.get("header") or f"结果 {column.get('result_id')}")
-        sheet.append(row_1)
-
-        header = ["指标类型", "指标", "指数"]
-        for column in columns:
-            model_label = column.get("model_name") or "模型"
-            if not column.get("success", True):
-                model_label = f"{model_label}(失败)"
-            header.append(model_label)
-        sheet.append(header)
-
-        for row in group.get("rows") or []:
-            values = [
-                row.get("category") or "",
-                row.get("metric") or "",
-                row.get("index_value") or "",
-            ]
+        if is_multi_product:
+            header_length = _write_multi_product_group_sheet(sheet, group, payload)
+            width_map = {"A": 14, "B": 22}
+            for column_index in range(3, header_length + 1):
+                width_map[get_column_letter(column_index)] = 16
+        else:
+            task = payload.get("task") or {}
+            stock_code = task.get("stock_code") or group.get("year") or task.get("name") or ""
+            columns = group.get("columns") or []
+            row_1 = [stock_code, "", ""]
             for column in columns:
-                values.append((row.get("values") or {}).get(column.get("column_key"), ""))
-            sheet.append(values)
+                row_1.append(column.get("header") or f"结果 {column.get('result_id')}")
+            sheet.append(row_1)
 
-        if columns:
-            sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=3)
-        sheet.freeze_panes = "A3"
-        width_map = {
-            "A": 14,
-            "B": 22,
-            "C": 14,
-        }
-        for column_index in range(4, len(header) + 1):
-            width_map[get_column_letter(column_index)] = 18
+            header = ["指标类型", "指标", "指数"]
+            for column in columns:
+                model_label = column.get("model_name") or "模型"
+                if not column.get("success", True):
+                    model_label = f"{model_label}(失败)"
+                header.append(model_label)
+            sheet.append(header)
+
+            for row in group.get("rows") or []:
+                values = [
+                    row.get("category") or "",
+                    row.get("metric") or "",
+                    row.get("index_value") or "",
+                ]
+                for column in columns:
+                    values.append((row.get("values") or {}).get(column.get("column_key"), ""))
+                sheet.append(values)
+
+            if columns:
+                sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=3)
+            sheet.freeze_panes = "A3"
+            width_map = {
+                "A": 14,
+                "B": 22,
+                "C": 14,
+            }
+            for column_index in range(4, len(header) + 1):
+                width_map[get_column_letter(column_index)] = 18
         for key, width in width_map.items():
             sheet.column_dimensions[key].width = width
 

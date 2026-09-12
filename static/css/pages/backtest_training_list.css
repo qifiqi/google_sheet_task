@@ -183,3 +183,26 @@
         border-color: rgba(134, 239, 172, 0.26);
         color: #bbf7d0;
     }
+
+/* 列表横向滚动：单元格不换行，长列以省略号收敛，容器整体出横向滚动条。 */
+.table-responsive .table > thead > tr > th,
+.table-responsive .table > tbody > tr > td {
+    white-space: nowrap;
+}
+
+.task-name-cell {
+    max-width: 360px;
+}
+
+.task-name-cell .fw-semibold,
+.task-name-cell .task-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.param-preview-cell {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

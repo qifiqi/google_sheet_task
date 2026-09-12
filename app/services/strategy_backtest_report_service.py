@@ -400,8 +400,11 @@ class StrategyBacktestReportService:
                 ["指标", "指数", "策略"], [
                     ["最大回撤(MDD)", self._pct(-self._num(index_drawdown)), self._pct(-self._num(strategy_drawdown))],
                     ["最大回撤修复天数(年度最大)",
-                     self._integer(metrics.get("index_maximum_number_of_backtest_repair_days")),
-                     self._integer(metrics.get("start_maximum_number_of_backtest_repair_days"))],
+                    #  self._integer(metrics.get("index_maximum_number_of_backtest_repair_days")),
+                    #  self._integer(metrics.get("start_maximum_number_of_backtest_repair_days"))],
+                    self._integer(max(metrics.get("year_index_yearly_max_repair_days").values(), default=0)),
+                    self._integer(max(metrics.get("year_start_yearly_max_repair_days").values(), default=0))],
+                    
                     [f"回撤发生次数(单日>{self._percent_label(daily_drawdown_threshold)})",
                      self._integer(metrics.get("index_dd_count")),
                      self._integer(metrics.get("start_dd_count"))],
@@ -689,7 +692,9 @@ class StrategyBacktestReportService:
 
     @classmethod
     def _integer(cls, value: Any) -> str:
-        """处理_integer相关逻辑。"""
+        """整数指标展示；None 是计算侧 NaN/inf 的统一口径（无法计算），显示 "-" 而非 "0"。"""
+        if value is None:
+            return "-"
         return str(int(cls._num(value)))
 
     @staticmethod

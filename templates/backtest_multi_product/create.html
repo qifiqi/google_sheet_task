@@ -84,6 +84,9 @@
                     <select class="form-select" id="tokenId">
                       <option value="">加载中...</option>
                     </select>
+                    <div class="form-text">
+                      仅展示回测可用的 Token（启用且未达占用上限）。
+                    </div>
                   </div>
                   <div class="col-md-2">
                     <div class="ratio-pill w-100 justify-content-center">
@@ -91,7 +94,62 @@
                       <strong id="ratioTotal">0%</strong>
                     </div>
                   </div>
+                </div>
+                <div class="row g-3 align-items-end mt-1">
+                  <div class="col-xl-4">
+                    <label class="form-label" for="globalSheetUrl"
+                      >全局 Google Sheet 链接</label
+                    >
+                    <input
+                      class="form-control"
+                      id="globalSheetUrl"
+                      autocomplete="off"
+                      placeholder="粘贴链接后，下方未填链接的产品自动继承（可单独覆盖）"
+                    />
+                  </div>
+                  <div class="col-xl-2">
+                    <label class="form-label" for="globalMarketType">市场</label>
+                    <select class="form-select" id="globalMarketType">
+                      <option value="cn" selected>A股</option>
+                    </select>
+                  </div>
+                  <div class="col-xl-2">
+                    <label class="form-label" for="globalKlineAdjustment"
+                      >K线复权</label
+                    >
+                    <select class="form-select" id="globalKlineAdjustment">
+                      <option value="forward" selected>前复权</option>
+                      <option value="back">后复权</option>
+                      <option value="none">不复权</option>
+                    </select>
+                  </div>
+                  <div class="col-xl-2">
+                    <label class="form-label" for="globalPriceMode"
+                      >价格模式</label
+                    >
+                    <select class="form-select" id="globalPriceMode">
+                      <option value="vwap_price">加权平均价</option>
+                      <option value="kp_price">开盘价</option>
+                      <option value="sp_price" selected>收盘价</option>
+                      <option value="ohlc_price">OHLC（开高低收）</option>
+                    </select>
+                  </div>
+                  <div class="col-xl-2">
+                    <label class="form-label" for="globalKlineDataSource"
+                      >K线数据源</label
+                    >
+                    <select class="form-select" id="globalKlineDataSource">
+                      <option value="akshare" selected>AKShare（默认）</option>
+                      <option value="dfcf">东方财富</option>
+                      <option value="qq">腾讯</option>
+                      <option value="yahoo">Yahoo</option>
+                      <option value="tdx">通达信（仅A股）</option>
+                    </select>
+                  </div>
                   <div class="col-12">
+                    <div class="form-text">
+                      以上全局设置会自动应用到全部产品；产品卡片内单独修改后，该字段不再跟随全局变化。
+                    </div>
                     <!-- 旧版累计收益直接加权算法已停用，仅保留日收益加权后复利一种算法。
                     <div class="form-check form-switch">
                         <input class="form-check-input" id="weightingModeLegacy" type="checkbox">

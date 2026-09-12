@@ -59,9 +59,50 @@ function buildDetailHref(taskId) {
     return `/backtest-multi-product/detail/${encodeURIComponent(taskId)}?${params.toString()}`;
 }
 
+// 按 config 内各产品 sheet 标题提取模型版本（与后端 get_backtest_model_version 同口径）。
+function extractModelVersionLabel(title) {
+    const normalized = String(title || '').toUpperCase();
+    if (normalized.includes('C7.0.3')) return 'C7.0.3';
+    if (normalized.includes('C7')) return 'C7';
+    if (normalized.includes('C5')) return 'C5';
+    if (normalized.includes('C4')) return 'C4';
+    if (normalized.includes('C3') || normalized.includes('CHARTING:3')) return 'C3';
+    return '';
+}
+
 function inferModelVersion(task) {
     const products = Array.isArray(task.config?.products) ? task.config.products : [];
-    return `多品 x ${products.length || '-'}`;
+    const versions = [...new Set(products
+        .map((product) => extractModelVersionLabel(product.sheet?.title))
+        .filter(Boolean))];
+    const versionText = versions.join('-') || '-';
+    return products.length ? `${versionText} · ${products.length}品` : versionText;
+}
+
+function buildKlineRangeText(task) {
+    const config = task.config || {};
+    if (!config.start_date && !config.end_date) {
+        return '-';
+    }
+    return `${config.start_date || '-'} ~ ${config.end_date || '-'}`;
+}
+
+// 执行参数跨产品去重：参数行完全相同只展示一次。
+function buildExecutionParamsText(task) {
+    const products = Array.isArray(task.config?.products) ? task.config.products : [];
+    const seen = new Set();
+    const uniqueRows = [];
+    products.forEach((product) => {
+        (Array.isArray(product.parameters) ? product.parameters : []).forEach((row) => {
+            const key = JSON.stringify(row);
+            if (seen.has(key)) {
+                return;
+            }
+            seen.add(key);
+            uniqueRows.push((Array.isArray(row) ? row : [row]).join('/'));
+        });
+    });
+    return uniqueRows.join('；');
 }
 
 function renderTaskCell(task) {
@@ -325,8 +366,10 @@ async function loadTasks(options = {}) {
             const detailHref = buildDetailHref(task.id);
             const row = `
                 <tr>
-                    <td class="ps-4">${renderTaskCell(task)}</td>
+                    <td class="ps-4 task-name-cell">${renderTaskCell(task)}</td>
                     <td><span class="badge rounded-pill text-bg-light border">${Biz.escapeHtml(inferModelVersion(task))}</span></td>
+                    <td>${Biz.escapeHtml(buildKlineRangeText(task))}</td>
+                    <td class="param-preview-cell" title="${Biz.escapeHtml(buildExecutionParamsText(task))}">${Biz.escapeHtml(buildExecutionParamsText(task)) || '-'}</td>
                     <td>${Biz.renderStatus(task.status)}</td>
                     <td>${Biz.renderTimeCell(task.created_at)}</td>
                     <td>${Biz.renderTimeCell(task.start_time)}</td>
@@ -354,7 +397,7 @@ async function loadTasks(options = {}) {
         if (!tasks.length) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="text-center text-body-secondary py-5">
+                    <td colspan="9" class="text-center text-body-secondary py-5">
                         当前还没有数据回测任务，点击右上角“创建新任务”开始。
                     </td>
                 </tr>

@@ -593,7 +593,7 @@
             pendingTokenSelection = { token_id: preferredValue };
         }
 
-        Api.endpoints.googleSheet.tokens('?task_type=google_sheet')
+        Api.endpoints.googleSheet.tokens('task_type=google_sheet')
             .then(data => {
                 googleSheetTokens = Array.isArray(data.tokens) ? data.tokens : [];
                 googleSheetRandomValue = data.random_value || '__random__';

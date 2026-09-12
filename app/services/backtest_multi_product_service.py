@@ -25,7 +25,7 @@ from app.services.task.error_handling import (
     summarize_task_exception,
 )
 from app.services.performance_analysis.analyzer import performance_analyzer
-from app.utils.formatting import parse_lenient_json
+from app.utils.formatting import max_yearly_repair_days, parse_lenient_json
 from app.utils.return_series import parse_return_series_fields
 from app.utils.backtest_report_metadata import get_backtest_model_version, get_price_type
 from app.utils.market import (
@@ -37,6 +37,7 @@ from app.services.performance_analysis.portfolio_combiner import (
     cumulative_to_daily as _canonical_cumulative_to_daily,
     daily_to_cumulative as _canonical_daily_to_cumulative,
     combine_product_returns as _canonical_combine_product_returns,
+    normalize_weight,
     normalize_weighting_mode,
 )
 from app.services.summary_contract import SUMMARY_ROW_CONTRACT as SUMMARY_ROW_DEFS
@@ -433,6 +434,22 @@ def _is_zero_ratio_product(product: Any) -> bool:
         return False
 
 
+def build_product_export_weights(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """导出侧产品权重说明（比例 0 产品不参与组合，权重取统一归一化入口）。"""
+    meta = []
+    for product in products:
+        included = not _is_zero_ratio_product(product)
+        meta.append({
+            "product_index": int(product["product_index"]),
+            "stock_code": product.get("stock_code"),
+            "product_name": product.get("product_name"),
+            "ratio": product.get("ratio"),
+            "weight": float(normalize_weight(product.get("ratio"))) if included else None,
+            "included": included,
+        })
+    return meta
+
+
 def _build_portfolio_return_date(
     product_results: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
@@ -528,6 +545,10 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
         (calculate_metrics.get("start_maximum_drawdown") or {}).get("total_maximum_drawdown")
         or {}
     )
+    index_total_max_drawdown = (
+        (calculate_metrics.get("index_maximum_drawdown") or {}).get("total_maximum_drawdown")
+        or {}
+    )
     year_max_excess_drawdown = _derive_year_max_excess_drawdown(calculate_metrics)
     return {
         "index_annualized_return": _first_value(excess_all.get("index_annualized_return"), _metric_value("index_annualized_return")),
@@ -550,8 +571,18 @@ def _derive_metrics(calculate_metrics: dict[str, Any]) -> dict[str, Any]:
         "start_max_drawdown": _canonical_drawdown(_first_value(
             total_max_drawdown.get("drawdown"), _metric_value("start_drawdown", "start_max_drawdown")
         )),
+        "index_max_drawdown": _canonical_drawdown(_first_value(
+            index_total_max_drawdown.get("drawdown"), _metric_value("index_drawdown", "index_max_drawdown")
+        )),
         "start_maximum_number_of_backtest_repair_days": calculate_metrics.get("start_maximum_number_of_backtest_repair_days"),
+        "index_maximum_number_of_backtest_repair_days": calculate_metrics.get("index_maximum_number_of_backtest_repair_days"),
         "excess_maximum_number_of_backtest_repair_days": calculate_metrics.get("excess_maximum_number_of_backtest_repair_days"),
+        "start_year_max_repair_days": max_yearly_repair_days(
+            calculate_metrics.get("year_start_yearly_max_repair_days")
+        ),
+        "index_year_max_repair_days": max_yearly_repair_days(
+            calculate_metrics.get("year_index_yearly_max_repair_days")
+        ),
         "index_sharpe_ratio": _first_value(index_sharpe_all.get("sharpe_ratio"), _metric_value("index_sharpe_ratio")),
         "start_sharpe_ratio": _first_value(start_sharpe_all.get("sharpe_ratio"), _metric_value("start_sharpe_ratio")),
         "index_kama_ratio": _first_value(index_kama_all.get("kama_ratio"), _metric_value("index_kama_ratio")),

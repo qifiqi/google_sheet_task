@@ -14,7 +14,7 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
 from app.exceptions import ValidationError
-from app.services.backtest_parameter_utils import (
+from app.utils.backtest_parameter_utils import (
     C3_PARAMETER_KEYS,
     normalize_c3_parameter_row,
 )

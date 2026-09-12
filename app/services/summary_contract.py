@@ -1,4 +1,4 @@
-"""20 项汇总指标契约（前后端共享行契约的单一来源，2026-09 审计 C6 批次）。
+"""21 项汇总指标契约（前后端共享行契约的单一来源，2026-09 审计 C6 批次）。
 
 行序即前端展示顺序；新增/调整指标只改本文件，两侧消费方
 （backtest_multi_product_service 的预览行、backtest_report_query_service
@@ -22,8 +22,9 @@ SUMMARY_ROW_CONTRACT = [
     ("相对收益", "月超额波动率", None, "monthly_excess_volatility", "percent"),
     ("回撤", "年最大超额回撤", None, "year_max_excess_drawdown", "percent"),
     ("回撤", "超额回撤胜率", None, "excess_drawdown_winning_rate", "percent"),
-    ("回撤", "年最大回撤", None, "start_max_drawdown", "percent"),
-    ("回撤", "最大修复天数", None, "start_maximum_number_of_backtest_repair_days", "number"),
+    ("回撤", "年最大回撤", "index_max_drawdown", "start_max_drawdown", "percent"),
+    ("回撤", "最大修复天数", "index_maximum_number_of_backtest_repair_days", "start_maximum_number_of_backtest_repair_days", "number"),
+    ("回撤", "年最大回测修复天数", "index_year_max_repair_days", "start_year_max_repair_days", "number"),
     ("回撤", "超额最大修复天数", None, "excess_maximum_number_of_backtest_repair_days", "number"),
     ("比率", "夏普比率", "index_sharpe_ratio", "start_sharpe_ratio", "number"),
     ("比率", "卡玛比率", "index_kama_ratio", "start_kama_ratio", "number"),
@@ -32,5 +33,6 @@ SUMMARY_ROW_CONTRACT = [
     ("索提诺", "超额索提诺比率", None, "excess_sortino", "number"),
 ]
 
-# 仅标签序列（单品 C3 摘要按此对齐行序后追加其专属行）。
+# 仅标签序列（单品摘要原在尾部追加专属"年最大回测修复天数"行，2026-09 起该行
+# 已收编进上方契约，两侧行序完全一致）。
 SUMMARY_ROW_LABELS = [(category, metric) for category, metric, *_ in SUMMARY_ROW_CONTRACT]

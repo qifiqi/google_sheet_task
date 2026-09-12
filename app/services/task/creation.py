@@ -17,7 +17,7 @@ from app.services.google_sheet_token_service import (
     RANDOM_TOKEN_VALUE,
     get_google_sheet_token_service,
 )
-from app.services.backtest_parameter_utils import normalize_backtest_training_config
+from app.utils.backtest_parameter_utils import normalize_backtest_training_config
 from app.services.stock_metadata_service import lookup_stock_metadata, upsert_stock_metadata_in_session
 from app.services.kline_service import KlineService
 from app.repositories import task_repository

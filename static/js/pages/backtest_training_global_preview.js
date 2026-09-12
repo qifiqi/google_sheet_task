@@ -22,6 +22,7 @@
         }
         loadGlobalPreview();
         document.getElementById('exportGlobalPreviewBtn')?.addEventListener('click', exportGlobalPreview);
+        document.getElementById('exportSeriesBtn')?.addEventListener('click', exportReturnSeries);
         document.getElementById('groupSelect')?.addEventListener('change', (event) => {
             activeGroupKey = event.target.value;
             renderActiveGroup();
@@ -45,13 +46,26 @@
         const container = document.getElementById('previewContainer');
         try {
             previewPayload = await Api.endpoints.backtest.globalPreview(encodeURIComponent(TASK_ID));
-            activeGroupKey = data.groups && data.groups.length ? data.groups[0].group_key : '';
+            activeGroupKey = previewPayload.groups && previewPayload.groups.length ? previewPayload.groups[0].group_key : '';
             renderSummary();
             renderGroupOptions();
             renderActiveGroup();
         } catch (error) {
             container.innerHTML = `<div class="empty-state text-danger">${escapeHtml(error.message || '加载失败')}</div>`;
         }
+    }
+
+    // 导出收益序列（Biz 公共组件：后端纯数据，Excel 公式自动计算）。
+    // 单品任务没有参数方案比例，导出该任务下全部收益序列（每条一个 sheet）。
+    function exportReturnSeries() {
+        Biz.returnSeriesExport
+            .exportAndDownload({
+                taskId: TASK_ID,
+                taskName: () => previewPayload?.task?.name || TASK_ID,
+                groupKey: null,
+                ratios: null,
+            })
+            .catch((error) => alert(error.message || '导出失败'));
     }
 
     async function exportGlobalPreview() {

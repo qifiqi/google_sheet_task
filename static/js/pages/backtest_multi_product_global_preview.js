@@ -439,6 +439,28 @@ async function exportPreview() {
   URL.revokeObjectURL(objectUrl);
 }
 
+// ===== 导出收益序列（Biz 公共组件：后端纯数据，Excel 公式自动计算） =====
+
+function exportReturnSeries() {
+  if (!activeGroupKey) {
+    alert("当前没有可导出的参数方案");
+    return;
+  }
+  Biz.returnSeriesExport
+    .exportAndDownload({
+      taskId: TASK_ID,
+      taskName: () => previewPayload?.task?.name || TASK_ID,
+      groupKey: () => activeGroupKey,
+      // 组合公式按当前页面比例写权重；页面不传时后端用任务默认比例。
+      ratios: () =>
+        collectRatioValues().map((ratio, index) => ({
+          product_index: index,
+          ratio,
+        })),
+    })
+    .catch((error) => alert(error.message || "导出失败"));
+}
+
 // async function exportWordReport() {
 //     if (!previewPayload || !activeGroupKey) {
 //         alert('当前没有可导出的参数方案');
@@ -649,6 +671,9 @@ document
   .addEventListener("click", applyRatioPreview);
 document.getElementById("saveRatiosBtn").addEventListener("click", saveRatios);
 document.getElementById("exportBtn").addEventListener("click", exportPreview);
+document
+  .getElementById("exportSeriesBtn")
+  .addEventListener("click", exportReturnSeries);
 // document.getElementById('exportWordBtn').addEventListener('click', exportWordReport);
 document
   .getElementById("exportWordBtn")

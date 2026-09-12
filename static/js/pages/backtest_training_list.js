@@ -66,6 +66,10 @@ function inferModelVersion(task) {
     const config = task.config || {};
     const sheet = config.sheet || {};
     const title = String(sheet.title || config.title || task.name || '').toUpperCase();
+    // 详细版本：标题带子版本号时一并展示（如 C7.0.3）。
+    if (title.includes('C7.0.3')) {
+        return 'C7.0.3';
+    }
     if (title.includes('C7')) {
         return 'C7';
     }
@@ -74,6 +78,9 @@ function inferModelVersion(task) {
     }
     if (title.includes('C4')) {
         return 'C4';
+    }
+    if (title.includes('C3') || title.includes('CHARTING:3')) {
+        return 'C3';
     }
 
     const parameters = Array.isArray(config.parameters) ? config.parameters : [];
@@ -106,6 +113,37 @@ function getTaskSecondaryText(task) {
         ? task.config.sheet.sheet_name
         : '-';
     return `ID: ${shortId} · Sheet: ${sheetName}`;
+}
+
+function buildKlineRangeText(task) {
+    const config = task.config || {};
+    const endDate = config.end_date || '';
+    const fullYears = Array.isArray(config.full_years) ? config.full_years.filter(Boolean) : [];
+    if (fullYears.length) {
+        const earliestYear = Math.min(...fullYears.map((year) => Number(year) || 0));
+        return `${earliestYear}-01-01 ~ ${endDate || '运行日前一日'}`;
+    }
+    if (config.recent_years) {
+        return `近 ${config.recent_years} 年 · 截至 ${endDate || '运行日'}`;
+    }
+    return endDate ? `截至 ${endDate}` : '-';
+}
+
+// 执行参数去重：完全相同的参数行只展示一次。
+function buildExecutionParamsText(task) {
+    const config = task.config || {};
+    const rows = Array.isArray(config.parameters) ? config.parameters : [];
+    const seen = new Set();
+    const uniqueRows = [];
+    rows.forEach((row) => {
+        const key = JSON.stringify(row);
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        uniqueRows.push((Array.isArray(row) ? row : [row]).join('/'));
+    });
+    return uniqueRows.join('；');
 }
 
 function getExportableTasks() {
@@ -350,8 +388,10 @@ async function loadTasks(options = {}) {
             const detailHref = buildDetailHref(task.id);
             const row = `
                 <tr>
-                    <td class="ps-4">${renderTaskCell(task)}</td>
+                    <td class="ps-4 task-name-cell">${renderTaskCell(task)}</td>
                     <td><span class="badge rounded-pill text-bg-light border">${Biz.escapeHtml(inferModelVersion(task))}</span></td>
+                    <td>${Biz.escapeHtml(buildKlineRangeText(task))}</td>
+                    <td class="param-preview-cell" title="${Biz.escapeHtml(buildExecutionParamsText(task))}">${Biz.escapeHtml(buildExecutionParamsText(task)) || '-'}</td>
                     <td>${Biz.renderStatus(task.status)}</td>
                     <td>${Biz.renderTimeCell(task.created_at)}</td>
                     <td>${Biz.renderTimeCell(task.start_time)}</td>
@@ -379,7 +419,7 @@ async function loadTasks(options = {}) {
         if (!tasks.length) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="text-center text-body-secondary py-5">
+                    <td colspan="9" class="text-center text-body-secondary py-5">
                         当前还没有数据回测任务，点击右上角“创建新任务”开始。
                     </td>
                 </tr>

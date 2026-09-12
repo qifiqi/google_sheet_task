@@ -271,10 +271,17 @@
         }
 
         const products = Array.isArray(config.products) ? config.products : [];
+        const weightingModeLabels = {
+            daily_compound: '日收益加权复利',
+            legacy_cumulative: '旧版累计收益加权（已停用）'
+        };
         const items = [
             { label: 'K线开始日期', value: config.start_date },
             { label: 'K线结束日期', value: config.end_date },
             { label: '产品数量', value: products.length },
+            { label: '加权算法', value: weightingModeLabels[config.weighting_mode] || config.weighting_mode },
+            { label: 'K线数据源', value: config.kline_data_source },
+            { label: '固定产品批次', value: config.fixed_product_batch_id },
             { label: 'Token ID', value: config.token_id },
             { label: 'Token 名称', value: config.token_name },
             { label: 'Token 类型', value: config.token_type },

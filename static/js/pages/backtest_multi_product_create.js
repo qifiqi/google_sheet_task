@@ -41,6 +41,12 @@ const productsContainer = document.getElementById('productsContainer');
 const tokenIdSelect = document.getElementById('tokenId');
 const ratioTotal = document.getElementById('ratioTotal');
 const createStatus = document.getElementById('createStatus');
+const globalSheetUrlInput = document.getElementById('globalSheetUrl');
+const globalMarketTypeSelect = document.getElementById('globalMarketType');
+const globalKlineAdjustmentSelect = document.getElementById('globalKlineAdjustment');
+const globalPriceModeSelect = document.getElementById('globalPriceMode');
+const globalKlineDataSourceSelect = document.getElementById('globalKlineDataSource');
+let globalSheetTimer = null;
 
 function extractSpreadsheetId(rawUrl) {
     const match = String(rawUrl || '').trim().match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -75,6 +81,28 @@ async function loadStockMarkets() {
     const payload = await Api.endpoints.meta.enums();
     stockMarkets = payload?.stock_markets || [];
     if (!stockMarkets.length) throw new Error('市场枚举为空');
+    if (globalMarketTypeSelect) {
+        globalMarketTypeSelect.innerHTML = marketOptionsHtml(globalMarketTypeSelect.value || 'cn');
+    }
+}
+
+// 继承自全局设置的当前取值；产品卡片创建时作为默认值。
+function getGlobalDefaults() {
+    return {
+        market_type: globalMarketTypeSelect?.value || 'cn',
+        kline_adjustment: globalKlineAdjustmentSelect?.value || 'forward',
+        price_mode: globalPriceModeSelect?.value || 'sp_price',
+        kline_data_source: globalKlineDataSourceSelect?.value || 'akshare'
+    };
+}
+
+// 产品 Sheet 链接的生效值：卡片自有链接优先，留空则继承全局链接。
+function getCardSheetUrl(card) {
+    const ownUrl = card.querySelector('.sheet-url')?.value.trim();
+    if (ownUrl) {
+        return ownUrl;
+    }
+    return globalSheetUrlInput?.value.trim() || '';
 }
 
 function getDefaultCommissionByMarket(marketType) {
@@ -217,6 +245,8 @@ function addProduct(defaults = {}) {
     productSeq += 1;
     const productId = `product-${productSeq}`;
     const fixedInputId = `fixedProduct${productSeq}`;
+    // 新产品继承当前全局设置；显式传入的 defaults 优先。
+    const inherited = { ...getGlobalDefaults(), ...defaults };
     const card = document.createElement('div');
     card.className = 'product-card';
     card.dataset.productId = productId;
@@ -233,13 +263,13 @@ function addProduct(defaults = {}) {
                     <div class="product-summary small">
                         <span class="product-summary-item summary-stock">未填写</span>
                         <span class="product-summary-item summary-market">A股 cn</span>
-                        <span class="product-summary-item summary-ratio">比例 ${escapeHtml(defaults.ratio ?? '') || '0'}%</span>
+                        <span class="product-summary-item summary-ratio">比例 ${escapeHtml(inherited.ratio ?? '') || '0'}%</span>
                     </div>
                 </div>
             </div>
             <div class="d-flex align-items-center gap-3 product-card-actions">
                 <div class="form-check form-switch fixed-product-switch">
-                    <input class="form-check-input fixed-product" id="${fixedInputId}" type="checkbox" role="switch" ${defaults.is_fixed ? 'checked' : ''}>
+                    <input class="form-check-input fixed-product" id="${fixedInputId}" type="checkbox" role="switch" ${inherited.is_fixed ? 'checked' : ''}>
                     <label class="form-check-label small text-body-secondary" for="${fixedInputId}">固定</label>
                 </div>
                 <button class="btn btn-sm btn-outline-danger delete-product" type="button" title="删除产品" aria-label="删除产品"><i class="bi bi-trash"></i></button>
@@ -249,19 +279,19 @@ function addProduct(defaults = {}) {
             <div class="row g-3 align-items-end">
                 <div class="col-xl-3">
                     <label class="form-label">产品名称</label>
-                    <input class="form-control product-name" value="${escapeHtml(defaults.product_name || `产品 ${productSeq}`)}">
+                    <input class="form-control product-name" value="${escapeHtml(inherited.product_name || `产品 ${productSeq}`)}">
                 </div>
                 <div class="col-xl-2">
                     <label class="form-label">股票代码</label>
                     <div class="stock-search-shell">
-                        <input class="form-control stock-code" autocomplete="off" value="${escapeHtml(defaults.stock_code || '')}">
+                        <input class="form-control stock-code" autocomplete="off" value="${escapeHtml(inherited.stock_code || '')}">
                         <div class="stock-search-results d-none"></div>
                     </div>
                 </div>
                 <div class="col-xl-2">
                     <label class="form-label">市场</label>
                     <select class="form-select market-type">
-                        ${marketOptionsHtml(defaults.market_type || 'cn')}
+                        ${marketOptionsHtml(inherited.market_type || 'cn')}
                     </select>
                 </div>
                 <div class="col-xl-2">
@@ -282,12 +312,22 @@ function addProduct(defaults = {}) {
                     </select>
                 </div>
                 <div class="col-xl-2">
+                    <label class="form-label">K线数据源</label>
+                    <select class="form-select kline-data-source">
+                        <option value="akshare">AKShare（默认）</option>
+                        <option value="dfcf">东方财富</option>
+                        <option value="qq">腾讯</option>
+                        <option value="yahoo">Yahoo</option>
+                        <option value="tdx">通达信（仅A股）</option>
+                    </select>
+                </div>
+                <div class="col-xl-2">
                     <label class="form-label">比例 %</label>
-                    <input class="form-control ratio-input" type="number" min="0" step="0.0001" value="${escapeHtml(defaults.ratio ?? '')}">
+                    <input class="form-control ratio-input" type="number" min="0" step="0.0001" value="${escapeHtml(inherited.ratio ?? '')}">
                 </div>
                 <div class="col-xl-3">
                     <label class="form-label">Google Sheet 链接</label>
-                    <input class="form-control sheet-url" value="${escapeHtml(defaults.sheet_url || '')}" placeholder="粘贴 Google Sheet 链接后自动识别">
+                    <input class="form-control sheet-url" value="${escapeHtml(inherited.sheet_url || '')}" placeholder="留空继承顶部全局链接">
                 </div>
             </div>
             <div class="small text-body-secondary sheet-info">尚未识别 Sheet</div>
@@ -309,8 +349,9 @@ function addProduct(defaults = {}) {
         </div>
     `;
     productsContainer.appendChild(card);
-    card.querySelector('.kline-adjustment').value = defaults.kline_adjustment || 'forward';
-    card.querySelector('.price-mode').value = defaults.price_mode || 'sp_price';
+    card.querySelector('.kline-adjustment').value = inherited.kline_adjustment || 'forward';
+    card.querySelector('.price-mode').value = inherited.price_mode || 'sp_price';
+    card.querySelector('.kline-data-source').value = inherited.kline_data_source || 'akshare';
     resetParameterTable(card, 'c3');
     initParameterHelpPopover(card);
     card.querySelector('.ratio-input').addEventListener('input', () => {
@@ -327,9 +368,8 @@ function addProduct(defaults = {}) {
         syncEmptyCommissionRows(card);
         updateProductSummary(card);
     });
-    if (defaults.sheet_url) {
-        scheduleSheetAnalyze(card, { immediate: true });
-    }
+    // 有自有链接直接识别；留空时按继承的全局链接识别（全局也为空则提示待填）。
+    scheduleSheetAnalyze(card, { immediate: true });
     updateRatioTotal();
     updateProductSummary(card);
 }
@@ -356,7 +396,7 @@ function clearSheetMeta(card) {
 }
 
 function scheduleSheetAnalyze(card, options = {}) {
-    const spreadsheetId = extractSpreadsheetId(card.querySelector('.sheet-url')?.value);
+    const spreadsheetId = extractSpreadsheetId(getCardSheetUrl(card));
     if (card.dataset.lastAnalyzedSpreadsheetId && card.dataset.lastAnalyzedSpreadsheetId !== spreadsheetId) {
         clearSheetMeta(card);
         setSheetInfo(card, spreadsheetId ? '等待自动识别 Sheet...' : '尚未识别 Sheet');
@@ -369,13 +409,14 @@ function scheduleSheetAnalyze(card, options = {}) {
 
 async function analyzeSheet(card, options = {}) {
     const urlInput = card.querySelector('.sheet-url');
-    const spreadsheetId = extractSpreadsheetId(urlInput.value);
+    const ownUrl = urlInput.value.trim();
+    const spreadsheetId = extractSpreadsheetId(getCardSheetUrl(card));
     if (!spreadsheetId) {
         clearSheetMeta(card);
-        if (urlInput.value.trim()) {
+        if (ownUrl) {
             setSheetInfo(card, '未识别到有效的 Google Sheet 链接', 'small text-danger sheet-info');
         } else {
-            setSheetInfo(card, '尚未识别 Sheet');
+            setSheetInfo(card, '尚未识别 Sheet（可留空继承顶部全局链接）');
         }
         return;
     }
@@ -658,6 +699,7 @@ function collectProducts() {
         market_type: card.querySelector('.market-type').value,
         exchange_market: card.dataset.exchangeMarket || undefined,
         kline_adjustment: card.querySelector('.kline-adjustment').value || 'forward',
+        kline_data_source: card.querySelector('.kline-data-source')?.value || 'akshare',
         price_mode: card.querySelector('.price-mode').value || 'sp_price',
         ratio: card.querySelector('.ratio-input').value.trim(),
         is_fixed: Boolean(card.querySelector('.fixed-product')?.checked),
@@ -717,8 +759,10 @@ function validatePayload(products) {
 
 async function loadBacktestTokens() {
     try {
-        const data = await Api.endpoints.googleSheet.tokens('?task_type=backtest_training');
-        const tokens = Array.isArray(data.tokens) ? data.tokens : [];
+        const data = await Api.endpoints.googleSheet.tokens('task_type=backtest_training');
+        const allTokens = Array.isArray(data.tokens) ? data.tokens : [];
+        // 只展示回测可用的 Token：启用且未达到最大占用。
+        const tokens = allTokens.filter((token) => token.is_active && token.is_available);
         tokenIdSelect.innerHTML = tokens.length ? tokens.map((token) => `
             <option value="${escapeHtml(token.id)}" ${token.is_available ? '' : 'disabled'}>
                 ${escapeHtml(token.name)} | 占用 ${escapeHtml(token.current_in_use_count || 0)}
@@ -814,6 +858,7 @@ productsContainer.addEventListener('click', (event) => {
         card.querySelector('.product-name').value = stockItem.dataset.name || stockItem.dataset.code || '';
         card.querySelector('.market-type').value = stockItem.dataset.market || 'cn';
         card.dataset.exchangeMarket = stockItem.dataset.exchangeMarket || '';
+        card.dataset.marketTouched = '1';
         syncEmptyCommissionRows(card);
         updateProductSummary(card);
         card.querySelector('.stock-search-results').classList.add('d-none');
@@ -824,6 +869,7 @@ productsContainer.addEventListener('input', (event) => {
     const sheetInput = event.target.closest('.sheet-url');
     if (sheetInput) {
         const card = event.target.closest('.product-card');
+        card.dataset.sheetTouched = '1';
         scheduleSheetAnalyze(card);
         return;
     }
@@ -835,12 +881,68 @@ productsContainer.addEventListener('input', (event) => {
     stockTimers[card.dataset.productId] = window.setTimeout(() => fetchStockSuggestions(card, stockInput.value), 600);
 });
 
+// 产品卡片内手动修改过的字段记为"已自定义"，不再跟随全局设置变化。
 productsContainer.addEventListener('change', (event) => {
-    if (!event.target.closest('.price-mode')) return;
     const card = event.target.closest('.product-card');
-    if (card) {
+    if (!card) return;
+    if (event.target.closest('.price-mode')) {
+        card.dataset.priceTouched = '1';
         card.dataset.priceModeTouched = '1';
+        return;
     }
+    if (event.target.closest('.market-type')) {
+        card.dataset.marketTouched = '1';
+        return;
+    }
+    if (event.target.closest('.kline-adjustment')) {
+        card.dataset.klineTouched = '1';
+        return;
+    }
+    if (event.target.closest('.kline-data-source')) {
+        card.dataset.sourceTouched = '1';
+    }
+});
+
+// 全局设置变化：同步到所有未被自定义覆盖的产品卡片。
+function applyGlobalSettingsToCards() {
+    const cards = getProductCards();
+    if (!cards.length) {
+        return;
+    }
+    cards.forEach((card) => {
+        if (card.dataset.marketTouched !== '1') {
+            const marketSelect = card.querySelector('.market-type');
+            if (marketSelect && marketSelect.value !== globalMarketTypeSelect.value) {
+                marketSelect.value = globalMarketTypeSelect.value;
+                syncEmptyCommissionRows(card);
+            }
+        }
+        if (card.dataset.klineTouched !== '1') {
+            const klineSelect = card.querySelector('.kline-adjustment');
+            if (klineSelect) klineSelect.value = globalKlineAdjustmentSelect.value;
+        }
+        if (card.dataset.priceTouched !== '1') {
+            const priceSelect = card.querySelector('.price-mode');
+            if (priceSelect) priceSelect.value = globalPriceModeSelect.value;
+        }
+        if (card.dataset.sourceTouched !== '1') {
+            const sourceSelect = card.querySelector('.kline-data-source');
+            if (sourceSelect) sourceSelect.value = globalKlineDataSourceSelect.value;
+        }
+        updateProductSummary(card);
+        if (!card.querySelector('.sheet-url').value.trim()) {
+            scheduleSheetAnalyze(card);
+        }
+    });
+}
+
+globalMarketTypeSelect?.addEventListener('change', applyGlobalSettingsToCards);
+globalKlineAdjustmentSelect?.addEventListener('change', applyGlobalSettingsToCards);
+globalPriceModeSelect?.addEventListener('change', applyGlobalSettingsToCards);
+globalKlineDataSourceSelect?.addEventListener('change', applyGlobalSettingsToCards);
+globalSheetUrlInput?.addEventListener('input', () => {
+    window.clearTimeout(globalSheetTimer);
+    globalSheetTimer = window.setTimeout(applyGlobalSettingsToCards, 500);
 });
 
 productsContainer.addEventListener('paste', (event) => {

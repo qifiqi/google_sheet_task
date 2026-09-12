@@ -72,6 +72,7 @@ CALCULATE_METRICS = {
     "excess_sortino": 1.4,
     "excess_drawdown_winning_rate": 0.7,
     "start_maximum_number_of_backtest_repair_days": 12,
+    "index_maximum_number_of_backtest_repair_days": 9,
     "excess_maximum_number_of_backtest_repair_days": 8,
     "year_index_yearly_max_repair_days": {"2024": 6, "2025": 9},
     "year_start_yearly_max_repair_days": {"2024": 15, "2025": 20},
@@ -93,16 +94,20 @@ MULTI_EXPECTED = _loads(
     ' "excess_drawdown_winning_rate": 0.7, "excess_maximum_number_of_backtest_repair_days": 8,'
     ' "excess_sharpe": 0.9, "excess_sortino": 1.4, "index_annualized_return": 0.08,'
     ' "index_avg_monthly_return": 0.02, "index_kama_ratio": 0.4,'
+    ' "index_max_drawdown": -0.12,'
+    ' "index_maximum_number_of_backtest_repair_days": 9,'
     ' "index_monthly_return_volatility": 0.03, "index_profit_annual": 0.6,'
     ' "index_profit_monthly_percentage": 0.55, "index_sharpe_ratio": 0.8,'
-    ' "index_sortino_ratio": 1.2, "monthly_excess_return_percentage": 0.66,'
+    ' "index_sortino_ratio": 1.2, "index_year_max_repair_days": 9,'
+    ' "monthly_excess_return_percentage": 0.66,'
     ' "monthly_excess_volatility": 0.02, "outperform_year": 3,'
     ' "start_annualized_return": 0.21, "start_avg_monthly_return": 0.03,'
     ' "start_kama_ratio": 0.5, "start_max_drawdown": -0.3,'
     ' "start_maximum_number_of_backtest_repair_days": 12,'
     ' "start_monthly_return_volatility": 0.045, "start_profit_annual": 0.75,'
     ' "start_profit_monthly_percentage": 0.62, "start_sharpe_ratio": 1.1,'
-    ' "start_sortino_ratio": 1.6, "year_max_excess_drawdown": -0.15}'
+    ' "start_sortino_ratio": 1.6, "start_year_max_repair_days": 20,'
+    ' "year_max_excess_drawdown": -0.15}'
 )
 
 RQ_EXPECTED = _loads(
@@ -119,10 +124,10 @@ RQ_EXPECTED = _loads(
     '{"category": "相对收益", "index_value": "", "metric": "月超额波动率", "model_value": "2.00%"},'
     '{"category": "回撤", "index_value": "", "metric": "年最大超额回撤", "model_value": "15.00%"},'
     '{"category": "回撤", "index_value": "", "metric": "超额回撤胜率", "model_value": "70.00%"},'
-    '{"category": "回撤", "index_value": "", "metric": "年最大回撤", "model_value": "-30.00%"},'
-    '{"category": "回撤", "index_value": "", "metric": "最大修复天数", "model_value": "12"},'
-    '{"category": "回撤", "index_value": "", "metric": "超额最大修复天数", "model_value": "8"},'
+    '{"category": "回撤", "index_value": "-12.00%", "metric": "年最大回撤", "model_value": "-30.00%"},'
+    '{"category": "回撤", "index_value": "9", "metric": "最大修复天数", "model_value": "12"},'
     '{"category": "回撤", "index_value": "9", "metric": "年最大回测修复天数", "model_value": "20"},'
+    '{"category": "回撤", "index_value": "", "metric": "超额最大修复天数", "model_value": "8"},'
     '{"category": "比率", "index_value": "0.8", "metric": "夏普比率", "model_value": "1.1"},'
     '{"category": "比率", "index_value": "0.4", "metric": "卡玛比率", "model_value": ""},'
     '{"category": "比率", "index_value": "1.2", "metric": "索提诺比率", "model_value": "1.6"},'

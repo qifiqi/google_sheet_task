@@ -756,8 +756,10 @@ function renderTokenOptions(tokens) {
 
 async function loadBacktestTokens() {
     try {
-        const data = await Api.endpoints.googleSheet.tokens('?task_type=backtest_training');
-        backtestTokens = Array.isArray(data.tokens) ? data.tokens : [];
+        const data = await Api.endpoints.googleSheet.tokens('task_type=backtest_training');
+        const allTokens = Array.isArray(data.tokens) ? data.tokens : [];
+        // 只展示回测可用的 Token：启用且未达到最大占用。
+        backtestTokens = allTokens.filter((token) => token.is_active && token.is_available);
         renderTokenOptions(backtestTokens);
     } catch (error) {
         tokenIdSelect.innerHTML = '<option value="">加载 Token 失败</option>';

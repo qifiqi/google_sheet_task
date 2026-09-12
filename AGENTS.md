@@ -10,8 +10,8 @@ Flask 长时运行任务平台（前后端分离），核心能力：Google Shee
 
 - `app/` — Flask 应用主体（routes / services / repositories / schemas / exceptions / utils）
 - `app/services/task/` — 任务主控门面（facade/runtime/creation/restart/occupancy/query/results）
-- `templates/` + `static/` — Jinja2 服务端渲染页面（Bootstrap 5 + 大量内联 JS）
-- `frontend/` — Vue 3 SPA（Vite + Element Plus/Naive UI，开发中）
+- `templates/` + `static/` — Jinja2 服务端渲染页面（Bootstrap 5 + 大量内联 JS） 
+- `frontend/` — Vue 3 SPA（Vite + Element Plus/Naive UI，开发中） 处理时统一排除这个
 - `ding_stream_service/` — 钉钉 Stream 独立微服务（不挂载到 run.py）
 - `stock_sdk/` — 内置K线库读写客户端（wire 字段 `stock_open/stock_max/...`）
 - `tests/`、`docs/`、`docs/design/`、`migrations/`、`scripts/`

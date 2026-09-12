@@ -199,6 +199,14 @@
           payload,
         );
       },
+      returnSeries: function (taskId, payload) {
+        return post(
+          "/backtest-multi-product/api/global-preview/" +
+            taskId +
+            "/return-series",
+          payload,
+        );
+      },
     },
     previewHub: {
       // 独立全局预览中心（/global-preview 自有 API）

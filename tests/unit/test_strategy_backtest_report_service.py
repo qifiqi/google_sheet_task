@@ -7,7 +7,7 @@ from app.services.strategy_backtest_report_service import StrategyBacktestReport
 
 def test_single_product_report_defaults_weight_to_100_percent():
     service = StrategyBacktestReportService()
-    request = type("Request", (), {"products": [], "weight_allocation": None})()
+    request = type("Request", (), {"products": [], "weight_allocation": None, "index_stock_code": None})()
 
     allocation = service._weight_allocation(request, "RPT-S")
 
@@ -19,6 +19,7 @@ def test_single_product_report_defaults_missing_product_weight_to_100_percent():
     request = type("Request", (), {
         "products": [{"stock_code": "SCHD.US", "product_name": "SCHD.US"}],
         "weight_allocation": None,
+        "index_stock_code": None,
     })()
 
     allocation = service._weight_allocation(request, "RPT-S")
@@ -31,6 +32,7 @@ def test_weight_allocation_adds_percent_suffix():
     request = type("Request", (), {
         "products": [{"stock_code": "600519", "product_name": "贵州茅台", "ratio": "100"}],
         "weight_allocation": None,
+        "index_stock_code": None,
     })()
 
     allocation = service._weight_allocation(request, "RPT-S")
@@ -46,6 +48,7 @@ def test_weight_allocation_drops_zero_ratio_products():
             {"stock_code": "SOXX", "product_name": "半导体ETF", "ratio": "0"},
         ],
         "weight_allocation": None,
+        "index_stock_code": None,
     })()
 
     allocation = service._weight_allocation(request, "RPT-M")

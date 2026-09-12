@@ -142,6 +142,20 @@ class TaskResultRepository(BaseRepository):
             return []
         return TaskResultReturn.query.filter(TaskResultReturn.id.in_(ids)).all()
 
+    def list_return_entities_in_write_order(self, task_id):
+        """按任务直查收益序列实体，主键升序（写入序）。
+
+        与 list_return_entities_by_task 的差异：后者按 stock_date 排序服务
+        V2 链路；本方法供收益序列导出按写入序归位参数方案（同一 stock_code
+        的第 N 次写入对应其第 N 个参数方案）。
+        """
+        return (
+            TaskResultReturn.query
+            .filter_by(task_id=task_id)
+            .order_by(TaskResultReturn.id.asc())
+            .all()
+        )
+
     def list_preview_entities(self, task_id, result_ids=None, success_only=False):
         """全局预览结果实体（load_only 精简列，主键精确读取避免扫描大 JSON）。"""
         query = (

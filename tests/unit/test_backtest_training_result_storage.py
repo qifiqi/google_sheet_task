@@ -3,7 +3,7 @@ import json
 from app.extensions import db
 from app.models import Task, TaskResult
 from app.services.backtest_report_query_service import _extract_task_result_payload
-from app.services.backtest_parameter_utils import normalize_c3_parameter_row
+from app.utils.backtest_parameter_utils import normalize_c3_parameter_row
 from app.services.backtest_training_service import BacktestTrainingService
 from app.services.task.facade import TaskManager
 

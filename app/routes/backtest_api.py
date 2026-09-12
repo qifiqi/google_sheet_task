@@ -14,9 +14,12 @@ from flask import Blueprint, current_app, request
 from app.exceptions import BadRequestError, NotFoundError, ValidationError
 from app.constants.c_template_layout import C3_PARAMETER_FIELDS
 from app.extensions import limiter, rate_limit_config, rate_limit_user_key
-from app.schemas.backtest import CalculateRatiosSchema, UpdateRatiosSchema
+from app.schemas.backtest import CalculateRatiosSchema, ReturnSeriesExportSchema, UpdateRatiosSchema
 from app.services.backtest_excel_service import BacktestExcelService
-from app.services.backtest_multi_product_preview import build_multi_product_global_preview_payload
+from app.services.backtest_multi_product_preview import (
+    build_multi_product_global_preview_payload,
+    build_return_series_export_payload,
+)
 from app.services.backtest_multi_product_service import (
     BACKTEST_MULTI_PRODUCT_TASK_TYPE,
     normalize_multi_product_config,
@@ -307,6 +310,32 @@ def bmp_update_ratios(task_id):
         data=_sanitize_json_value(payload or {}),
         message="比例已保存",
     )
+
+
+@bmp_api_bp.route("/api/global-preview/<task_id>/return-series", methods=["POST"])
+@login_required
+@limiter.limit(
+    lambda: f"{rate_limit_config('rate_limit_export', 10) or 10}/minute",
+    key_func=rate_limit_user_key,
+)
+def bmp_return_series_export(task_id):
+    """收益序列导出数据：直查收益表返回累计序列 + 产品比例（纯数据）。
+
+    净值/当天收益率/比例组合全部由前端写入 Excel 公式实时计算，后端零派生；
+    ratios 未传时使用任务默认比例，group_key 过滤参数方案。
+    """
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise NotFoundError(f"任务不存在: {task_id}")
+    data = parse_body(ReturnSeriesExportSchema)
+    payload = build_return_series_export_payload(
+        task_id,
+        ratios_override=data.ratios,
+        group_key=data.group_key,
+    )
+    if payload is None:
+        raise NotFoundError(f"任务不存在: {task_id}")
+    return success(data=_sanitize_json_value(payload))
 
 
 def _load_multi_product_task_or_raise(task_id: str):

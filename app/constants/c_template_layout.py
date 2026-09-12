@@ -176,7 +176,7 @@ C7_PERCENT_LEVERAGE_CELLS = frozenset(
 # ===========================================================================
 # 单品摘要 6 行（Excel"汇总" sheet 的行序 + 取数概念键）
 # ===========================================================================
-# 历史名 SUMMARY_ROW_LABELS 与 summary_contract.SUMMARY_ROW_LABELS（20 项契约）
+# 历史名 SUMMARY_ROW_LABELS 与 summary_contract.SUMMARY_ROW_LABELS（21 项契约）
 # 同名异义，此处更名单品摘要专用名；metric_key 配合 SUMMARY_METRIC_CELL_MAP 取数，
 # excess_return/excess_drawdown 两行由报表侧用相邻概念做差派生。
 SINGLE_PRODUCT_SUMMARY_ROW_LABELS = [

@@ -305,12 +305,25 @@
         }
 
         const sheet = config && typeof config.sheet === 'object' ? config.sheet : {};
+        const klineAdjustmentLabels = { forward: '前复权', back: '后复权', none: '不复权' };
+        const priceModeLabels = {
+            vwap_price: '加权平均价',
+            kp_price: '开盘价',
+            sp_price: '收盘价',
+            ohlc_price: 'OHLC（开高低收）'
+        };
         const items = [
             { label: '股票代码', value: config.stock_code },
+            { label: '股票名称', value: config.stock_name },
             { label: '市场类型', value: config.market_type },
+            { label: 'K线复权', value: klineAdjustmentLabels[config.kline_adjustment] || config.kline_adjustment },
+            { label: '价格模式', value: priceModeLabels[config.price_mode] || config.price_mode },
+            { label: 'K线数据源', value: config.kline_data_source },
+            { label: 'K线截至日期', value: config.end_date },
             { label: 'Spreadsheet ID', value: sheet.spreadsheet_id },
             { label: '工作表名称', value: sheet.sheet_name },
             { label: '表格标题', value: sheet.title },
+            { label: 'C7 模型版本', value: sheet.c7_model_version },
             { label: 'Token ID', value: config.token_id },
             { label: 'Token 名称', value: config.token_name },
             { label: 'Token 类型', value: config.token_type },
