@@ -45,8 +45,9 @@
           <code class="mono-inline">{{ row.current_task_id || '-' }}</code>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="120">
+      <el-table-column label="操作" width="200">
         <template #default="{ row }">
+          <el-button link type="success" :disabled="!row.spreadsheet_id" @click="openSpreadsheet(row)">跳转到模型</el-button>
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="danger" :disabled="row.is_in_use" @click="handleDelete(row.id)">删除</el-button>
         </template>
@@ -132,6 +133,13 @@ function extractSpreadsheetId(input) {
   if (!input) return ''
   const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
   return match ? match[1] : input.trim()
+}
+
+// 跳转到模型（对齐静态版 buildGoogleSheetUrl：新窗口打开 Google Sheet）
+function openSpreadsheet(row) {
+  const id = String(row.spreadsheet_id || '').trim()
+  if (!id) return
+  window.open(`https://docs.google.com/spreadsheets/d/${encodeURIComponent(id)}/edit`, '_blank', 'noopener')
 }
 
 async function loadSheets() {

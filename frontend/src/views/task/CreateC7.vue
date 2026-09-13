@@ -410,12 +410,16 @@
       :fullscreen="isMobile"
     >
       <div class="task-create-c7__preview">
-        <div v-for="(code, idx) in previewCombinations" :key="idx" class="task-create-c7__preview-item">
+        <div
+          v-for="(combination, idx) in previewCombinations.slice(0, 20)"
+          :key="idx"
+          class="task-create-c7__preview-item"
+        >
           <strong>组合 {{ idx + 1 }}:</strong>
-          <span class="panel-note">{{ code }}</span>
+          <span class="panel-note">{{ combination.join(', ') }}</span>
         </div>
-        <div v-if="previewTotal > previewCombinations.length" class="panel-note">
-          ... 还有 {{ previewTotal - previewCombinations.length }} 个组合
+        <div v-if="previewTotal > previewCombinations.slice(0, 20).length" class="panel-note">
+          ... 还有 {{ previewTotal - previewCombinations.slice(0, 20).length }} 个组合
         </div>
       </div>
       <template #footer>
@@ -555,8 +559,25 @@ const combinationCount = computed(() => {
   return productCodes.value.length * len2 * len3 * randomGroups
 })
 
-const previewCombinations = computed(() => productCodes.value.slice(0, 20))
-const previewTotal = computed(() => productCodes.value.length)
+// 预览：参数1(产品代码) × 参数2 × 参数3 笛卡尔积，只叠加非空参数组（对齐静态版 showCombinationPreview）
+const previewCombinations = computed(() => {
+  const arrays = [productCodes.value]
+  const parsedParam2 = parseJsonArrayStrict(param2.value)
+  const parsedParam3 = parseJsonArrayStrict(param3.value)
+  if (Array.isArray(parsedParam2) && parsedParam2.length) arrays.push(parsedParam2)
+  if (Array.isArray(parsedParam3) && parsedParam3.length) arrays.push(parsedParam3)
+
+  let result = [[]]
+  for (const arr of arrays) {
+    const next = []
+    for (const combo of result) {
+      for (const value of arr) next.push([...combo, value])
+    }
+    result = next
+  }
+  return result
+})
+const previewTotal = computed(() => previewCombinations.value.length)
 
 // 静态版 utils.js 同名函数：解析失败返回 null（供提交校验），空串返回 []
 function parseJsonArrayStrict(text) {

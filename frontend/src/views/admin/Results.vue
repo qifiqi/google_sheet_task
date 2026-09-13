@@ -34,7 +34,11 @@
           <el-tag :type="row.success ? 'success' : 'danger'" size="small">{{ row.success ? '成功' : '失败' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="timestamp" label="时间" width="180" />
+      <el-table-column label="时间" width="180">
+        <template #default="{ row }">
+          {{ formatDateTime(row.timestamp) }}
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="120">
         <template #default="{ row }">
           <el-button link type="primary" @click="viewResult(row.id)">查看</el-button>
@@ -46,11 +50,27 @@
     <el-drawer v-model="drawerVisible" title="结果详情" :size="isMobile ? '100%' : '600px'">
       <div v-if="currentResult" class="result-drawer">
         <section class="result-section">
+          <el-descriptions :column="2" size="small" border>
+            <el-descriptions-item label="结果 ID">{{ currentResult.id }}</el-descriptions-item>
+            <el-descriptions-item label="任务 ID">{{ currentResult.task_id }}</el-descriptions-item>
+            <el-descriptions-item label="步骤索引">{{ currentResult.step_index ?? '-' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <el-tag :type="currentResult.success ? 'success' : 'danger'" size="small">{{ currentResult.success ? '成功' : '失败' }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="时间" :span="2">{{ formatDateTime(currentResult.timestamp) }}</el-descriptions-item>
+          </el-descriptions>
+        </section>
+        <section class="result-section">
+          <div class="result-section__head">
+            <h4 class="section-label">执行结果</h4>
+            <el-button size="small" @click="copyResultJson">复制 JSON</el-button>
+          </div>
+        </section>
+        <section class="result-section">
           <h4 class="section-label">参数信息</h4>
           <pre class="mono-pre result-block result-block--limited">{{ JSON.stringify(currentResult.parameters, null, 2) }}</pre>
         </section>
         <section class="result-section">
-          <h4 class="section-label">执行结果</h4>
           <pre class="mono-pre result-block result-block--limited">{{ JSON.stringify(currentResult.result, null, 2) }}</pre>
         </section>
         <section v-if="currentResult.error_message" class="result-section">
@@ -67,6 +87,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getResults, getResult, deleteResult } from '@/api/template'
+import { formatDateTime } from '@/utils/format'
 import { useResponsive } from '@/composables/useResponsive'
 import PageToolbar from '@/components/PageToolbar.vue'
 import DataTableCard from '@/components/DataTableCard.vue'
@@ -110,6 +131,15 @@ async function viewResult(id) {
   }
 }
 
+async function copyResultJson() {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(currentResult.value, null, 2))
+    ElMessage.success('已复制结果 JSON')
+  } catch {
+    ElMessage.error('复制失败')
+  }
+}
+
 async function handleDelete(id) {
   await ElMessageBox.confirm('确定要删除这条结果记录吗？', '确认删除', { type: 'warning' })
   await deleteResult(id)
@@ -136,6 +166,12 @@ onMounted(() => {
 .result-section {
   display: grid;
   gap: 10px;
+}
+
+.result-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .result-block {

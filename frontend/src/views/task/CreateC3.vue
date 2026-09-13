@@ -98,7 +98,18 @@
                   <el-input v-model="form.token_json" type="textarea" :rows="3" placeholder='{"installed": {...}}' />
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="12">
+              <el-col :xs="24" :sm="6">
+                <el-form-item label="K线数据源">
+                  <el-select v-model="form.kline_data_source" class="full-width">
+                    <el-option value="akshare" label="AKShare（默认）" />
+                    <el-option value="dfcf" label="东方财富" />
+                    <el-option value="qq" label="腾讯" />
+                    <el-option value="yahoo" label="Yahoo" />
+                    <el-option value="tdx" label="通达信（仅A股）" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="6">
                 <el-form-item label="代理 URL">
                   <el-input v-model="form.proxy_url" placeholder="可选" />
                 </el-form-item>
@@ -141,7 +152,7 @@
     <el-card shadow="never">
       <div class="action-bar">
         <el-button @click="clearSaved">清除数据</el-button>
-        <el-button @click="saveTemplateVisible = true">保存为模板</el-button>
+        <el-button @click="openSaveTemplate">保存为模板</el-button>
         <el-button type="primary" :loading="submitting" @click="submit">创建任务并执行</el-button>
       </div>
     </el-card>
@@ -201,32 +212,43 @@ const tokenImportPath = ref('')
 const form = reactive({
   name: '', description: '',
   spreadsheet_id: '', spreadsheet_title: '', sheet_name: '',
-  token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: ''
+  token_type: 'file', token_id: RANDOM_TOKEN, token_file: '', token_json: '', proxy_url: '',
+  kline_data_source: 'akshare'
 })
 
 const params = ref(['', '', '', '', '', ''])
 const templateForm = reactive({ name: '', description: '' })
 
 function parseJsonArray(str) {
+  // 静态版 utils 同名语义：空串返回 []，非法 JSON 返回 null，非数组返回 null
   if (!str || !str.trim()) return []
-  try { const v = JSON.parse(str); return Array.isArray(v) ? v : [] } catch { return null }
+  try {
+    const v = JSON.parse(str)
+    return Array.isArray(v) ? v : null
+  } catch {
+    return null
+  }
 }
 
-const combinationCount = computed(() => {
-  const arrays = params.value.map(p => parseJsonArray(p) || []).filter(a => a.length > 0)
-  if (!arrays.length) return 0
-  return arrays.reduce((acc, a) => acc * a.length, 1)
-})
+// 组合数语义对齐静态版 calculateCombinations：固定组做笛卡尔积，任一组为空则总数为 0
+const parsedParams = computed(() => params.value.map((p) => parseJsonArray(p)))
+
+const combinationCount = computed(() =>
+  parsedParams.value.reduce((acc, arr) => acc * (Array.isArray(arr) ? arr.length : 0), 1)
+)
 
 const previewCombinations = computed(() => {
-  const arrays = params.value.map(p => parseJsonArray(p) || []).filter(a => a.length > 0)
-  if (!arrays.length) return []
-  const result = []
-  function gen(idx, cur) {
-    if (idx === arrays.length) { result.push([...cur]); return }
-    for (const v of arrays[idx]) { cur.push(v); gen(idx + 1, cur); cur.pop() }
+  const arrays = parsedParams.value
+  if (!arrays.length || arrays.some((a) => !Array.isArray(a))) return []
+  let result = [[]]
+  for (const arr of arrays) {
+    const next = []
+    for (const combo of result) {
+      for (const value of arr) next.push([...combo, value])
+    }
+    result = next
+    if (!result.length) break
   }
-  gen(0, [])
   return result
 })
 
@@ -302,12 +324,25 @@ async function importToken() {
   } catch { ElMessage.error('导入 Token 失败') }
 }
 
+// 对齐静态版 syncSelectedTokenMeta：选中 token 后解析 token_file 路径
+function syncTokenFile() {
+  if (form.token_type !== 'file') {
+    form.token_file = ''
+    return
+  }
+  const selected = tokens.value.find((t) => String(t.id) === String(form.token_id))
+  form.token_file = selected ? selected.token_file || '' : ''
+}
+
+watch(() => [form.token_type, form.token_id], syncTokenFile)
+
 async function applyTemplate(id) {
   if (!id) return
   try {
     const tpl = await getTemplate(id)
     const config = typeof tpl.config === 'string' ? JSON.parse(tpl.config) : (tpl.config || {})
     if (tpl.name) form.name = tpl.name
+    if (tpl.description) form.description = tpl.description
     if (config.spreadsheet_id) {
       ensureSheetOption(config.spreadsheet_id, config.title || config.spreadsheet_title)
       form.spreadsheet_id = config.spreadsheet_id
@@ -317,8 +352,10 @@ async function applyTemplate(id) {
     if (config.sheet_name) form.sheet_name = config.sheet_name
     if (config.token_type) form.token_type = config.token_type
     if (config.token_id) form.token_id = String(config.token_id)
+    if (config.token_file) form.token_file = config.token_file
     if (config.token_json) form.token_json = config.token_json
     if (config.proxy_url) form.proxy_url = config.proxy_url
+    if (config.kline_data_source) form.kline_data_source = config.kline_data_source
     if (Array.isArray(config.parameters)) {
       params.value = config.parameters.map(p => Array.isArray(p) ? JSON.stringify(p) : '')
     }
@@ -331,7 +368,8 @@ async function loadRestartTask(taskId) {
     const res = await getTask(taskId)
     const task = res.task || res
     const config = task.config || {}
-    pageTitle.value = '重启任务'
+    // 标题含原任务 ID（对齐静态版 loadRestartConfig 的“重启任务 (基于原任务: xxx)”）
+    pageTitle.value = `重启任务 (基于原任务: ${taskId})`
     if (task.name) form.name = `${task.name} (重启)`
     if (config.spreadsheet_id) {
       ensureSheetOption(config.spreadsheet_id, config.title || config.spreadsheet_title)
@@ -342,8 +380,10 @@ async function loadRestartTask(taskId) {
     if (config.sheet_name) form.sheet_name = config.sheet_name
     if (config.token_type) form.token_type = config.token_type
     if (config.token_id) form.token_id = String(config.token_id)
+    if (config.token_file) form.token_file = config.token_file
     if (config.token_json) form.token_json = config.token_json
     if (config.proxy_url) form.proxy_url = config.proxy_url
+    if (config.kline_data_source) form.kline_data_source = config.kline_data_source
     if (Array.isArray(config.parameters)) {
       params.value = config.parameters.map(p => Array.isArray(p) ? JSON.stringify(p) : '')
     }
@@ -351,9 +391,30 @@ async function loadRestartTask(taskId) {
   } catch { ElMessage.error('加载原任务失败') }
 }
 
+// 草稿字段名对齐静态版 google_sheet_form_data（task_name/task_description/spreadsheet/title/kline_data_source/param1..6），
+// 静态页与 Vue 页可互相恢复；额外参数组（param7+）存 params_extra
 function saveFormData() {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify({ ...form, params: params.value }))
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      task_name: form.name,
+      task_description: form.description,
+      spreadsheet: form.spreadsheet_id,
+      title: form.spreadsheet_title,
+      sheet_name: form.sheet_name,
+      token_type: form.token_type,
+      token_id: form.token_id,
+      token_file: form.token_file,
+      token_json: form.token_json,
+      proxy_url: form.proxy_url,
+      kline_data_source: form.kline_data_source,
+      param1: params.value[0] || '',
+      param2: params.value[1] || '',
+      param3: params.value[2] || '',
+      param4: params.value[3] || '',
+      param5: params.value[4] || '',
+      param6: params.value[5] || '',
+      params_extra: params.value.slice(6)
+    }))
   } catch {}
 }
 
@@ -362,8 +423,21 @@ function loadSavedFormData() {
     const saved = localStorage.getItem(LS_KEY)
     if (!saved) return
     const data = JSON.parse(saved)
-    Object.assign(form, { name: data.name || '', description: data.description || '', spreadsheet_id: data.spreadsheet_id || '', spreadsheet_title: data.spreadsheet_title || '', sheet_name: data.sheet_name || '', token_type: data.token_type || 'file', token_id: data.token_id || RANDOM_TOKEN, token_json: data.token_json || '', proxy_url: data.proxy_url || '' })
-    if (Array.isArray(data.params)) params.value = data.params
+    // 兼容旧 Vue 草稿字段（name/description/spreadsheet_id/spreadsheet_title/params）
+    const legacyParams = Array.isArray(data.params) ? data.params : []
+    form.name = data.task_name || data.name || ''
+    form.description = data.task_description || data.description || ''
+    form.spreadsheet_id = data.spreadsheet || data.spreadsheet_id || ''
+    form.spreadsheet_title = data.title || data.spreadsheet_title || ''
+    form.sheet_name = data.sheet_name || ''
+    form.token_type = data.token_type || 'file'
+    form.token_id = data.token_id || RANDOM_TOKEN
+    form.token_file = data.token_file || ''
+    form.token_json = data.token_json || ''
+    form.proxy_url = data.proxy_url || ''
+    form.kline_data_source = data.kline_data_source || 'akshare'
+    params.value = [1, 2, 3, 4, 5, 6].map((i) => data[`param${i}`] ?? legacyParams[i - 1] ?? '')
+    if (Array.isArray(data.params_extra)) params.value.push(...data.params_extra)
     if (form.spreadsheet_id) ensureSheetOption(form.spreadsheet_id, form.spreadsheet_title)
     ElMessage.info('表单数据已恢复')
   } catch {}
@@ -371,7 +445,7 @@ function loadSavedFormData() {
 
 function clearSaved() {
   localStorage.removeItem(LS_KEY)
-  Object.assign(form, { name: '', description: '', spreadsheet_id: '', spreadsheet_title: '', sheet_name: '', token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: '' })
+  Object.assign(form, { name: '', description: '', spreadsheet_id: '', spreadsheet_title: '', sheet_name: '', token_type: 'file', token_id: RANDOM_TOKEN, token_file: '', token_json: '', proxy_url: '', kline_data_source: 'akshare' })
   params.value = ['', '', '', '', '', '']
   ElMessage.success('已清除保存的表单数据')
 }
@@ -383,8 +457,8 @@ async function submit() {
   if (form.token_type === 'file' && !form.token_id) { ElMessage.error('请选择 Token'); return }
   if (form.token_type === 'json' && !form.token_json) { ElMessage.error('请输入 Token JSON'); return }
 
-  const parsedParams = params.value.map(p => parseJsonArray(p)).filter(a => a && a.length > 0)
-  if (parsedParams.some(p => p === null)) { ElMessage.error('参数格式错误，请检查 JSON 格式'); return }
+  const parsed = parsedParams.value
+  if (parsed.some(p => p === null)) { ElMessage.error('参数格式错误，请检查 JSON 格式'); return }
 
   submitting.value = true
   try {
@@ -398,36 +472,60 @@ async function submit() {
         sheet_name: form.sheet_name,
         token_type: form.token_type,
         token_id: form.token_type === 'file' ? form.token_id : null,
-        token_file: '',
+        token_file: form.token_file,
         token_json: form.token_json,
         proxy_url: form.proxy_url || null,
-        parameters: parsedParams
+        kline_data_source: form.kline_data_source || 'dfcf',
+        // 静态版语义：固定组全部提交，空组提交 []
+        parameters: parsed
       }
     })
     ElMessage.success('任务创建成功，正在跳转...')
     clearSaved()
     setTimeout(() => router.push(`/task/${res.task_id}`), 800)
-  } catch { ElMessage.error('创建任务失败') }
+  } catch (e) { ElMessage.error(e?.message || '创建任务失败') }
   finally { submitting.value = false }
+}
+
+// 对齐静态版 saveAsTemplate：用任务名预填模板名“任务名 模板”
+function openSaveTemplate() {
+  if (form.name.trim()) {
+    templateForm.name = `${form.name.trim()} 模板`
+  }
+  saveTemplateVisible.value = true
 }
 
 async function doSaveTemplate() {
   if (!templateForm.name) { ElMessage.warning('请输入模板名称'); return }
   if (!form.spreadsheet_id) { ElMessage.error('请先选择 Google Sheet'); return }
-  const parsedParams = params.value.map(p => parseJsonArray(p)).filter(a => a && a.length > 0)
+  const parsed = parsedParams.value
+  if (parsed.some(p => p === null)) { ElMessage.error('参数格式错误，请检查 JSON 格式'); return }
   savingTemplate.value = true
   try {
     await createTemplate({
       name: templateForm.name,
       description: templateForm.description,
-      config: { task_type: 'google_sheet', spreadsheet_id: form.spreadsheet_id, title: form.spreadsheet_title, sheet_name: form.sheet_name, token_type: form.token_type, token_id: form.token_id, token_json: form.token_json, proxy_url: form.proxy_url, parameters: parsedParams }
+      // 静态版 getCurrentConfig 语义：模板 config 带 token_file 与 kline_data_source，参数固定组全量提交
+      config: {
+        task_type: 'google_sheet',
+        spreadsheet_id: form.spreadsheet_id,
+        title: form.spreadsheet_title || null,
+        sheet_name: form.sheet_name,
+        token_type: form.token_type,
+        token_id: form.token_type === 'file' ? form.token_id : null,
+        token_file: form.token_file,
+        token_json: form.token_json,
+        proxy_url: form.proxy_url || null,
+        kline_data_source: form.kline_data_source || 'dfcf',
+        parameters: parsed
+      }
     })
     ElMessage.success('模板保存成功')
     saveTemplateVisible.value = false
     templateForm.name = ''
     templateForm.description = ''
     await loadTemplates()
-  } catch { ElMessage.error('保存模板失败') }
+  } catch (e) { ElMessage.error(e?.message || '保存模板失败') }
   finally { savingTemplate.value = false }
 }
 
@@ -437,6 +535,8 @@ onMounted(async () => {
   await Promise.all([loadSheets(), loadTokens(), loadTemplates()])
   const { template_id, restart_task_id } = route.query
   if (template_id) {
+    // 对齐静态版：从模板创建时更新页面标题
+    pageTitle.value = '从模板创建任务'
     selectedTemplate.value = template_id
     await applyTemplate(template_id)
   } else if (restart_task_id) {

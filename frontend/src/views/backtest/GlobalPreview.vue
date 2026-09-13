@@ -8,7 +8,8 @@
       </div>
       <div class="page-toolbar__actions">
         <el-button @click="exportXlsx">导出 XLSX</el-button>
-        <el-button class="page-back-button" @click="$router.push(`/backtest/${taskId}`)">返回详情</el-button>
+        <el-button @click="exportSeries">导出收益序列</el-button>
+        <el-button class="page-back-button" @click="$router.push({ path: `/backtest/${taskId}`, query: pagingQuery })">返回详情</el-button>
       </div>
     </div>
 
@@ -121,9 +122,21 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getGlobalPreview, exportGlobalPreview } from '@/api/backtest'
+import { exportReturnSeries } from '@/composables/useReturnSeriesExport'
+import { pickPagingQuery } from '@/utils/pageState'
 
 const route = useRoute()
+const pagingQuery = pickPagingQuery(route.query)
 const taskId = route.params.id
+
+// 收益序列导出（多 sheet Excel 公式工作簿）；单品任务不传 groupKey，导出全部序列
+async function exportSeries() {
+  try {
+    await exportReturnSeries({ taskId, taskName: taskName.value || taskId })
+  } catch (error) {
+    ElMessage.error(error.message || '导出失败')
+  }
+}
 const loading = ref(false)
 const taskName = ref('')
 const summary = ref({})
@@ -151,15 +164,16 @@ async function loadData() {
 
 async function exportXlsx() {
   try {
-    const blob = await exportGlobalPreview(taskId)
+    // api 层已解析 Content-Disposition（filename*/filename），失败回退 global_preview_{taskId}.xlsx
+    const { blob, filename } = await exportGlobalPreview(taskId)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `global_preview_${taskId}.xlsx`
+    link.download = filename
     link.click()
     URL.revokeObjectURL(url)
-  } catch {
-    ElMessage.error('导出失败')
+  } catch (error) {
+    ElMessage.error(error.message || '导出失败')
   }
 }
 

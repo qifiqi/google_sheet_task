@@ -177,11 +177,22 @@
         <h3 class="section-title section-title--muted">产品与参数配置</h3>
       </div>
 
+      <div class="sub-card task-create-c5__kline-card">
+        <div class="task-create-c5__config-title">K线来源</div>
+        <el-radio-group v-model="form.kline_source">
+          <el-radio-button value="auto">自动K线</el-radio-button>
+          <el-radio-button value="custom">自定义K线</el-radio-button>
+        </el-radio-group>
+        <div class="panel-note task-create-c5__note">
+          自定义K线直接读取 Sheet 输入列，下方行情相关字段将禁用，并随任务提交空值。
+        </div>
+      </div>
+
       <el-row :gutter="16">
         <el-col :xs="24" :lg="8">
           <div class="sub-card task-create-c5__config-card">
             <div class="task-create-c5__config-title">统计方式</div>
-            <el-radio-group v-model="form.count_mode">
+            <el-radio-group v-model="form.count_mode" :disabled="isCustomKline">
               <el-radio-button value="total">总数</el-radio-button>
               <el-radio-button value="n_plus_1">N+1</el-radio-button>
             </el-radio-group>
@@ -191,7 +202,7 @@
         <el-col :xs="24" :lg="8">
           <div class="sub-card task-create-c5__config-card">
             <div class="task-create-c5__config-title">市场类型</div>
-            <el-radio-group v-model="form.market_type">
+            <el-radio-group v-model="form.market_type" :disabled="isCustomKline">
               <el-radio-button value="us">美股</el-radio-button>
               <el-radio-button value="cn">A股</el-radio-button>
             </el-radio-group>
@@ -200,23 +211,66 @@
         </el-col>
         <el-col :xs="24" :lg="8">
           <div class="sub-card task-create-c5__config-card">
-            <div class="task-create-c5__config-title">价格模式</div>
-            <el-radio-group v-model="form.price_mode">
+            <div class="task-create-c5__config-title">价格类型</div>
+            <el-radio-group v-model="form.price_mode" :disabled="isCustomKline">
+              <el-radio-button value="vwap_price">加权平均价</el-radio-button>
               <el-radio-button value="kp_price">开盘价</el-radio-button>
               <el-radio-button value="sp_price">收盘价</el-radio-button>
+              <el-radio-button value="random_price">随机价</el-radio-button>
             </el-radio-group>
             <div class="panel-note task-create-c5__note">用于结果计算时的价格来源。</div>
           </div>
         </el-col>
       </el-row>
 
+      <el-row v-if="showRandomOptions" :gutter="16">
+        <el-col :xs="24" :sm="8">
+          <div class="sub-card task-create-c5__config-card">
+            <div class="task-create-c5__config-title">随机价格范围</div>
+            <el-select v-model="form.random_price_range" class="full-width">
+              <el-option value="high_low" label="最高价 - 最低价" />
+              <el-option value="open_close" label="开盘价 - 收盘价" />
+            </el-select>
+          </div>
+        </el-col>
+        <el-col :xs="24" :sm="8">
+          <div class="sub-card task-create-c5__config-card">
+            <div class="task-create-c5__config-title">随机组数</div>
+            <el-input-number
+              v-model="form.random_group_count"
+              :min="1"
+              :step="1"
+              :precision="0"
+              class="full-width"
+            />
+          </div>
+        </el-col>
+      </el-row>
+
       <div class="sub-card task-create-c5__adjust-card">
-        <div class="task-create-c5__config-title">K线复权</div>
-        <el-select v-model="form.kline_adjustment" class="full-width">
-          <el-option value="forward" label="前复权" />
-          <el-option value="back" label="后复权" />
-          <el-option value="none" label="不复权" />
-        </el-select>
+        <div class="task-create-c5__config-title">K线数据源 / K线复权</div>
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="K线数据源">
+              <el-select v-model="form.kline_data_source" class="full-width">
+                <el-option value="akshare" label="AKShare（默认）" />
+                <el-option value="dfcf" label="东方财富" />
+                <el-option value="qq" label="腾讯" />
+                <el-option value="yahoo" label="Yahoo" />
+                <el-option value="tdx" label="通达信（仅A股）" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="K线复权">
+              <el-select v-model="form.kline_adjustment" :disabled="isCustomKline" class="full-width">
+                <el-option value="forward" label="前复权" />
+                <el-option value="back" label="后复权" />
+                <el-option value="none" label="不复权" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
       </div>
 
       <div class="sub-card task-create-c5__range-card">
@@ -228,12 +282,12 @@
           <div class="control-row">
             <el-checkbox
               v-model="dateRangeFull"
-              :disabled="form.count_mode !== 'n_plus_1'"
+              :disabled="dateRangeDisabled"
               label="整年"
             />
             <el-checkbox
               v-model="dateRangeRecent"
-              :disabled="form.count_mode !== 'n_plus_1'"
+              :disabled="dateRangeDisabled"
               label="近年"
             />
           </div>
@@ -246,6 +300,7 @@
                 v-model="form.start_date"
                 type="date"
                 value-format="YYYY-MM-DD"
+                :disabled="isCustomKline"
                 class="full-width"
               />
             </el-form-item>
@@ -256,6 +311,7 @@
                 v-model="form.end_date"
                 type="date"
                 value-format="YYYY-MM-DD"
+                :disabled="isCustomKline"
                 class="full-width"
               />
             </el-form-item>
@@ -265,8 +321,8 @@
         <div v-if="dateRangeRecent" class="task-create-c5__exclude-wrap">
           <div class="task-create-c5__config-title">排除年份</div>
           <div class="tag-wall">
-            <el-checkbox v-for="year in 10" :key="year" v-model="excludeYears" :label="year">
-              {{ year }}年
+            <el-checkbox v-for="year in excludeYearOptions" :key="year" v-model="excludeYears" :label="year">
+              {{ year === 0.5 ? '近半年' : `${year}年` }}
             </el-checkbox>
           </div>
         </div>
@@ -326,6 +382,7 @@
           日期模式：
           <strong>{{ dateRangeModeLabel }}</strong>
         </span>
+        <el-button size="small" @click="previewVisible = true">预览组合</el-button>
       </div>
     </el-card>
 
@@ -358,6 +415,24 @@
         <el-button type="primary" :loading="savingTemplate" @click="doSaveTemplate">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 参数组合预览：产品代码 × 参数2 × 参数3 笛卡尔积前 20 条（对齐静态版 showCombinationPreview） -->
+    <el-dialog v-model="previewVisible" title="参数组合预览" width="600px" :fullscreen="isMobile">
+      <div
+        v-for="(combination, idx) in previewCombinations.slice(0, 20)"
+        :key="idx"
+        class="task-create-c5__preview-item"
+      >
+        <strong>组合 {{ idx + 1 }}:</strong>
+        <span class="panel-note">{{ combination.join(', ') }}</span>
+      </div>
+      <div v-if="previewCombinations.length > 20" class="panel-note panel-note--center">
+        ... 还有 {{ previewCombinations.length - 20 }} 个组合
+      </div>
+      <template #footer>
+        <el-button @click="previewVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -382,6 +457,8 @@ const { isMobile } = useResponsive()
 
 const RANDOM_TOKEN = '__random__'
 const LS_KEY = 'google_sheet_c5_form_data'
+// 静态版 __CTASK_CONFIG.klineDataSourceDefault = 'dfcf'
+const KLINE_DATA_SOURCE_DEFAULT = 'dfcf'
 
 const pageTitle = ref('创建新任务 (C5)')
 const sheets = ref([])
@@ -398,6 +475,9 @@ const productCodes = ref([])
 const dateRangeFull = ref(false)
 const dateRangeRecent = ref(false)
 const excludeYears = ref([])
+const previewVisible = ref(false)
+// 0.5 表示近半年（与静态版 exclude_recent_years 语义一致）
+const excludeYearOptions = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 const param2 = ref('')
 const param3 = ref('')
 
@@ -408,10 +488,14 @@ const form = reactive({
   token_id: RANDOM_TOKEN,
   token_json: '',
   proxy_url: '',
+  kline_source: 'auto',
   count_mode: 'total',
   market_type: 'cn',
   kline_adjustment: 'forward',
+  kline_data_source: KLINE_DATA_SOURCE_DEFAULT,
   price_mode: 'kp_price',
+  random_price_range: 'high_low',
+  random_group_count: 1,
   start_date: '',
   end_date: ''
 })
@@ -420,6 +504,10 @@ const sheetConfigs = ref([
   { spreadsheet_id: '', title: '', sheet_name: '', custom_sheet_name: '', worksheets: [] }
 ])
 const templateForm = reactive({ name: '', description: '' })
+
+const isCustomKline = computed(() => form.kline_source === 'custom')
+const dateRangeDisabled = computed(() => isCustomKline.value || form.count_mode !== 'n_plus_1')
+const showRandomOptions = computed(() => form.price_mode === 'random_price' && !isCustomKline.value)
 
 const validSheetCount = computed(() =>
   sheetConfigs.value.filter((sheet) => {
@@ -434,6 +522,42 @@ const dateRangeModeLabel = computed(() => {
   if (dateRangeRecent.value) labels.push('近年')
   return labels.length ? labels.join(' / ') : '默认整年'
 })
+
+// 参数组合预览：产品代码(param1) × 参数2 × 参数3，只叠加非空参数组（对齐静态版 showCombinationPreview）
+const previewCombinations = computed(() => {
+  const arrays = [productCodes.value]
+  const parsedParam2 = parseJsonArray(param2.value)
+  const parsedParam3 = parseJsonArray(param3.value)
+  if (parsedParam2.length) arrays.push(parsedParam2)
+  if (parsedParam3.length) arrays.push(parsedParam3)
+
+  let result = [[]]
+  for (const arr of arrays) {
+    const next = []
+    for (const combo of result) {
+      for (const value of arr) next.push([...combo, value])
+    }
+    result = next
+  }
+  return result
+})
+
+// 自定义K线联动（对齐静态版 updateCustomKlineModeAvailability）：强制 total、清空整年/近年勾选与近年排除
+watch(
+  () => [form.kline_source, form.count_mode, dateRangeRecent.value],
+  () => {
+    if (isCustomKline.value && form.count_mode !== 'total') form.count_mode = 'total'
+    const rangeEnabled = !isCustomKline.value && form.count_mode === 'n_plus_1'
+    if (!rangeEnabled) {
+      if (dateRangeFull.value) dateRangeFull.value = false
+      if (dateRangeRecent.value) dateRangeRecent.value = false
+    }
+    if ((isCustomKline.value || !dateRangeRecent.value) && excludeYears.value.length) {
+      excludeYears.value = []
+    }
+  },
+  { immediate: true }
+)
 
 function parseJsonArray(str) {
   if (!str || !str.trim()) return []
@@ -461,8 +585,19 @@ async function loadTokens() {
 
 async function loadTemplates() {
   try {
-    const res = await getTemplates({ task_type: 'google_sheet_C5' })
-    templates.value = res.templates || []
+    // 后端按 config.task_type 精确匹配：静态版存小写 google_sheet_c5，Vue 历史存 google_sheet_C5，
+    // 两种写法都查并按 id 去重合并（保存仍用 Vue 现有写法 google_sheet_C5）
+    const [upperRes, lowerRes] = await Promise.all([
+      getTemplates({ task_type: 'google_sheet_C5' }),
+      getTemplates({ task_type: 'google_sheet_c5' })
+    ])
+    const merged = new Map()
+    for (const list of [upperRes?.templates, lowerRes?.templates]) {
+      for (const tpl of list || []) {
+        if (!merged.has(tpl.id)) merged.set(tpl.id, tpl)
+      }
+    }
+    templates.value = Array.from(merged.values())
   } catch {}
 }
 
@@ -536,10 +671,14 @@ function applyConfig(config, name) {
   if (config.token_id) form.token_id = String(config.token_id)
   if (config.token_json) form.token_json = config.token_json
   if (config.proxy_url) form.proxy_url = config.proxy_url
+  if (config.kline_source) form.kline_source = config.kline_source
   if (config.count_mode) form.count_mode = config.count_mode
   if (config.market_type) form.market_type = config.market_type
   if (config.kline_adjustment) form.kline_adjustment = config.kline_adjustment
+  if (config.kline_data_source) form.kline_data_source = config.kline_data_source
   if (config.price_mode) form.price_mode = config.price_mode
+  if (config.random_price_range) form.random_price_range = config.random_price_range
+  if (config.random_group_count) form.random_group_count = Number(config.random_group_count) || 1
   if (config.start_date) form.start_date = config.start_date
   if (config.end_date) form.end_date = config.end_date
 
@@ -548,7 +687,7 @@ function applyConfig(config, name) {
     dateRangeRecent.value = config.date_range_mode.includes('recent')
   }
 
-  if (Array.isArray(config.exclude_years)) excludeYears.value = config.exclude_years
+  if (Array.isArray(config.exclude_recent_years)) excludeYears.value = config.exclude_recent_years
 
   if (Array.isArray(config.sheets) && config.sheets.length) {
     sheetConfigs.value = config.sheets.map((sheet) => ({
@@ -639,10 +778,14 @@ function loadSavedFormData() {
       token_id: data.token_id || RANDOM_TOKEN,
       token_json: data.token_json || '',
       proxy_url: data.proxy_url || '',
+      kline_source: data.kline_source || 'auto',
       count_mode: data.count_mode || 'total',
       market_type: data.market_type || 'cn',
       kline_adjustment: data.kline_adjustment || 'forward',
+      kline_data_source: data.kline_data_source || KLINE_DATA_SOURCE_DEFAULT,
       price_mode: data.price_mode || 'kp_price',
+      random_price_range: data.random_price_range || 'high_low',
+      random_group_count: Number(data.random_group_count) || 1,
       start_date: data.start_date || '',
       end_date: data.end_date || ''
     })
@@ -670,10 +813,14 @@ function clearSaved() {
     token_id: RANDOM_TOKEN,
     token_json: '',
     proxy_url: '',
+    kline_source: 'auto',
     count_mode: 'total',
     market_type: 'cn',
     kline_adjustment: 'forward',
+    kline_data_source: KLINE_DATA_SOURCE_DEFAULT,
     price_mode: 'kp_price',
+    random_price_range: 'high_low',
+    random_group_count: 1,
     start_date: '',
     end_date: ''
   })
@@ -711,14 +858,24 @@ async function submit() {
     return
   }
 
+  const custom = isCustomKline.value
+  const randomGroupCount = parseInt(form.random_group_count || 1, 10)
+  if (!custom && form.price_mode === 'random_price' && (!Number.isInteger(randomGroupCount) || randomGroupCount < 1)) {
+    ElMessage.error('随机组数必须是正整数')
+    return
+  }
+
+  // 每组都带 title（对齐静态版 submitTask 的 sheets 收集逻辑）
   const sheetsPayload = sheetConfigs.value
     .filter((sheet) => sheet.spreadsheet_id)
-    .map((sheet, index) => {
+    .map((sheet) => {
       const sheetName =
         sheet.sheet_name === '__custom__' ? sheet.custom_sheet_name : sheet.sheet_name
-      const result = { spreadsheet_id: sheet.spreadsheet_id, sheet_name: sheetName }
-      if (index === 0 && sheet.title) result.title = sheet.title
-      return result
+      return {
+        spreadsheet_id: sheet.spreadsheet_id,
+        title: sheet.title || '',
+        sheet_name: sheetName
+      }
     })
     .filter((sheet) => sheet.spreadsheet_id && sheet.sheet_name)
 
@@ -727,18 +884,17 @@ async function submit() {
     return
   }
 
+  // 自定义K线：日期模式/近年排除全部提交空值（对齐静态版 isCustomKline 分支）
   const dateRangeModes = []
-  if (dateRangeFull.value) dateRangeModes.push('full')
-  if (dateRangeRecent.value) dateRangeModes.push('recent')
+  if (!custom && dateRangeFull.value) dateRangeModes.push('full')
+  if (!custom && dateRangeRecent.value) dateRangeModes.push('recent')
 
+  // 参数只推非空组（对齐静态版：无 [] 占位）
   const parameters = [productCodes.value]
   const parsedParam2 = parseJsonArray(param2.value)
   const parsedParam3 = parseJsonArray(param3.value)
   if (parsedParam2.length) parameters.push(parsedParam2)
-  if (parsedParam3.length) {
-    if (!parsedParam2.length) parameters.push([])
-    parameters.push(parsedParam3)
-  }
+  if (parsedParam3.length) parameters.push(parsedParam3)
 
   submitting.value = true
   try {
@@ -752,14 +908,19 @@ async function submit() {
         token_file: '',
         token_json: form.token_json,
         proxy_url: form.proxy_url || null,
-        count_mode: form.count_mode,
-        market_type: form.market_type,
-        kline_adjustment: form.kline_adjustment,
-        price_mode: form.price_mode,
+        kline_source: form.kline_source || 'auto',
+        count_mode: custom ? 'total' : form.count_mode,
+        market_type: custom ? null : form.market_type,
+        kline_adjustment: custom ? null : form.kline_adjustment,
+        kline_data_source: form.kline_data_source || KLINE_DATA_SOURCE_DEFAULT,
+        price_mode: custom ? null : form.price_mode,
+        random_price_range:
+          !custom && form.price_mode === 'random_price' ? (form.random_price_range || 'high_low') : null,
+        random_group_count: !custom && form.price_mode === 'random_price' ? randomGroupCount : 1,
         date_range_mode: dateRangeModes.length ? dateRangeModes : ['full'],
-        start_date: form.start_date || null,
-        end_date: form.end_date || null,
-        exclude_years: dateRangeRecent.value ? excludeYears.value : [],
+        start_date: custom ? null : (form.start_date || null),
+        end_date: custom ? null : (form.end_date || null),
+        exclude_recent_years: !custom && dateRangeRecent.value ? excludeYears.value : [],
         parameters,
         sheets: sheetsPayload
       }
@@ -767,8 +928,8 @@ async function submit() {
     ElMessage.success('任务创建成功，正在跳转...')
     clearSaved()
     setTimeout(() => router.push(`/task/${res.task_id}`), 800)
-  } catch {
-    ElMessage.error('创建任务失败')
+  } catch (e) {
+    ElMessage.error(e?.message || '创建任务失败')
   } finally {
     submitting.value = false
   }
@@ -797,26 +958,32 @@ async function doSaveTemplate() {
     return
   }
 
+  const custom = isCustomKline.value
+  const randomGroupCount = parseInt(form.random_group_count || 1, 10)
+  if (!custom && form.price_mode === 'random_price' && (!Number.isInteger(randomGroupCount) || randomGroupCount < 1)) {
+    ElMessage.error('随机组数必须是正整数')
+    return
+  }
+
+  // 每组都带 title（对齐静态版 sheets 收集逻辑）
   const sheetsPayload = sheetConfigs.value
     .filter((sheet) => sheet.spreadsheet_id)
     .map((sheet) => ({
       spreadsheet_id: sheet.spreadsheet_id,
-      sheet_name: sheet.sheet_name === '__custom__' ? sheet.custom_sheet_name : sheet.sheet_name,
-      title: sheet.title
+      title: sheet.title || '',
+      sheet_name: sheet.sheet_name === '__custom__' ? sheet.custom_sheet_name : sheet.sheet_name
     }))
 
   const dateRangeModes = []
-  if (dateRangeFull.value) dateRangeModes.push('full')
-  if (dateRangeRecent.value) dateRangeModes.push('recent')
+  if (!custom && dateRangeFull.value) dateRangeModes.push('full')
+  if (!custom && dateRangeRecent.value) dateRangeModes.push('recent')
 
+  // 参数只推非空组（对齐静态版：无 [] 占位）
   const parameters = [productCodes.value]
   const parsedParam2 = parseJsonArray(param2.value)
   const parsedParam3 = parseJsonArray(param3.value)
   if (parsedParam2.length) parameters.push(parsedParam2)
-  if (parsedParam3.length) {
-    if (!parsedParam2.length) parameters.push([])
-    parameters.push(parsedParam3)
-  }
+  if (parsedParam3.length) parameters.push(parsedParam3)
 
   savingTemplate.value = true
   try {
@@ -829,14 +996,19 @@ async function doSaveTemplate() {
         token_id: form.token_id,
         token_json: form.token_json,
         proxy_url: form.proxy_url,
-        count_mode: form.count_mode,
-        market_type: form.market_type,
-        kline_adjustment: form.kline_adjustment,
-        price_mode: form.price_mode,
+        kline_source: form.kline_source || 'auto',
+        count_mode: custom ? 'total' : form.count_mode,
+        market_type: custom ? null : form.market_type,
+        kline_adjustment: custom ? null : form.kline_adjustment,
+        kline_data_source: form.kline_data_source || KLINE_DATA_SOURCE_DEFAULT,
+        price_mode: custom ? null : form.price_mode,
+        random_price_range:
+          !custom && form.price_mode === 'random_price' ? (form.random_price_range || 'high_low') : null,
+        random_group_count: !custom && form.price_mode === 'random_price' ? randomGroupCount : 1,
         date_range_mode: dateRangeModes,
-        start_date: form.start_date,
-        end_date: form.end_date,
-        exclude_years: excludeYears.value,
+        start_date: custom ? null : form.start_date,
+        end_date: custom ? null : form.end_date,
+        exclude_recent_years: !custom && dateRangeRecent.value ? excludeYears.value : [],
         parameters,
         sheets: sheetsPayload
       }
@@ -846,8 +1018,8 @@ async function doSaveTemplate() {
     templateForm.name = ''
     templateForm.description = ''
     await loadTemplates()
-  } catch {
-    ElMessage.error('保存模板失败')
+  } catch (e) {
+    ElMessage.error(e?.message || '保存模板失败')
   } finally {
     savingTemplate.value = false
   }
@@ -914,6 +1086,7 @@ onMounted(async () => {
 
 .task-create-c5__range-card,
 .task-create-c5__adjust-card,
+.task-create-c5__kline-card,
 .task-create-c5__product-block,
 .task-create-c5__param-row {
   margin-top: 16px;
@@ -934,5 +1107,12 @@ onMounted(async () => {
 
 .task-create-c5__summary {
   justify-content: center;
+}
+
+.task-create-c5__preview-item {
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
 }
 </style>

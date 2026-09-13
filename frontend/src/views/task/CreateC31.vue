@@ -64,6 +64,26 @@
             </el-select>
           </el-form-item>
         </el-col>
+        <el-col :xs="24" :sm="3">
+          <el-form-item label="价格类型">
+            <el-select v-model="form.price_mode" class="full-width">
+              <el-option value="vwap_price" label="加权平均价" />
+              <el-option value="kp_price" label="开盘价" />
+              <el-option value="sp_price" label="收盘价" />
+            </el-select>
+          </el-form-item>
+        </el-col>
+        <el-col :xs="24" :sm="3">
+          <el-form-item label="K线数据源">
+            <el-select v-model="form.kline_data_source" class="full-width">
+              <el-option value="akshare" label="AKShare（默认）" />
+              <el-option value="dfcf" label="东方财富" />
+              <el-option value="qq" label="腾讯" />
+              <el-option value="yahoo" label="Yahoo" />
+              <el-option value="tdx" label="通达信（仅A股）" />
+            </el-select>
+          </el-form-item>
+        </el-col>
       </el-row>
       <div class="tag-wall">
         <el-tag v-for="code in stockCodes" :key="code" closable @close="removeStockCode(code)">{{ code }}</el-tag>
@@ -180,6 +200,7 @@
           <el-tag type="warning">{{ sheetConfigs.filter((s) => s.spreadsheet_id).length }}</el-tag> 组表格
           = <el-tag>{{ combinationCount }}</el-tag> 个子任务
         </span>
+        <el-button size="small" @click="openPreview">预览组合</el-button>
       </div>
     </el-card>
 
@@ -201,6 +222,28 @@
       <template #footer>
         <el-button @click="saveTemplateVisible = false">取消</el-button>
         <el-button type="primary" :loading="savingTemplate" @click="doSaveTemplate">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 参数组合预览：笛卡尔积前 20 组 + 剩余数量（对齐静态版 showCombinationPreview） -->
+    <el-dialog v-model="previewVisible" title="参数组合预览" width="600px" :fullscreen="isMobile">
+      <div class="task-create-batch__preview-stock">
+        <strong>股票代码:</strong>
+        <div class="panel-note"><code>{{ stockCodes.join(', ') || '-' }}</code></div>
+      </div>
+      <div
+        v-for="(combination, idx) in previewCombinations"
+        :key="idx"
+        class="task-create-batch__preview-item"
+      >
+        <strong>参数组合 {{ idx + 1 }}:</strong>
+        <div class="panel-note"><code>{{ JSON.stringify(combination) }}</code></div>
+      </div>
+      <div v-if="combinationCount > previewCombinations.length" class="panel-note panel-note--center">
+        ... 还有 {{ combinationCount - previewCombinations.length }} 个组合
+      </div>
+      <template #footer>
+        <el-button @click="previewVisible = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -239,6 +282,7 @@ const stockCodes = ref([])
 
 const form = reactive({
   base_task_name: '', description: '', end_date: '', market_type: 'cn', kline_adjustment: 'forward',
+  price_mode: 'sp_price', kline_data_source: 'akshare',
   token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: ''
 })
 
@@ -272,6 +316,55 @@ const combinationCount = computed(() => {
   const validSheets = sheetConfigs.value.filter((s) => s.spreadsheet_id).length
   return stockCodes.value.length * singleCombinationCount.value * validSheets
 })
+
+// 预览组合：候选参数组（二维数组每行为一个候选）笛卡尔积，取前 20（对齐静态版 generateCombinations(groups, 20)）
+const previewVisible = ref(false)
+const previewCombinations = computed(() => {
+  const groups = params.value
+    .map((p) => parseJsonArray(p))
+    .filter((a) => Array.isArray(a) && a.length > 0)
+
+  let result = [[]]
+  for (const group of groups) {
+    const next = []
+    for (const combo of result) {
+      for (const value of group) {
+        next.push([...combo, value])
+        if (next.length >= 20) break
+      }
+      if (next.length >= 20) break
+    }
+    result = next
+    if (result.length >= 20) break
+  }
+  return result
+})
+
+// 打开预览前先做与提交一致的校验（对齐静态版 showCombinationPreview 的校验分支）
+function openPreview() {
+  if (!singleCombinationCount.value) {
+    ElMessage.error('请至少输入一组参数')
+    return
+  }
+  const titleRegex = new RegExp('.+-\\d+y-\\d+\\]$')
+  for (let i = 0; i < sheetConfigs.value.length; i++) {
+    const sheet = sheetConfigs.value[i]
+    if (!sheet.spreadsheet_id) continue
+    if (!titleRegex.test(String(sheet.title || '').trim())) {
+      ElMessage.error(`第${i + 1}个Sheet的表标题格式无效，必须以"任意前缀-数字y-数字]"结尾，例如：策略A-1y-3]`)
+      return
+    }
+  }
+  const paramComboCount = singleCombinationCount.value
+  const sheetCount = sheetConfigs.value.filter((s) => s.spreadsheet_id).length
+  const compatible = paramComboCount > 0 && sheetCount > 0 &&
+    (paramComboCount === sheetCount || paramComboCount % sheetCount === 0 || sheetCount % paramComboCount === 0)
+  if (!compatible) {
+    ElMessage.error(`参数组合数(${paramComboCount})与Sheet数(${sheetCount})必须相等，或其中一方是另一方的整数倍`)
+    return
+  }
+  previewVisible.value = true
+}
 
 function addStockCodes() {
   const parts = stockCodeInput.value.split(/[,\s]+/).map((p) => p.trim()).filter((p) => p)
@@ -474,7 +567,7 @@ function loadSavedFormData() {
 
 function clearSaved() {
   localStorage.removeItem(LS_KEY)
-  Object.assign(form, { base_task_name: '', description: '', end_date: '', market_type: 'cn', kline_adjustment: 'forward', token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: '' })
+  Object.assign(form, { base_task_name: '', description: '', end_date: '', market_type: 'cn', kline_adjustment: 'forward', price_mode: 'sp_price', kline_data_source: 'akshare', token_type: 'file', token_id: RANDOM_TOKEN, token_json: '', proxy_url: '' })
   sheetConfigs.value = [{ spreadsheet_id: '', title: '', sheet_name: '' }]
   stockCodes.value = []
   params.value = ['', '', '', '', '', '']
@@ -489,6 +582,26 @@ async function submit() {
   const parsedParams = params.value.map((p) => parseJsonArray(p)).filter((a) => a && a.length > 0)
   if (!parsedParams.length) { ElMessage.error('请至少输入一组参数'); return }
 
+  // 表标题格式校验（与静态版 isValidC31SheetTitle 一致）
+  const titleRegex = new RegExp('.+-\\d+y-\\d+\\]$')
+  for (let i = 0; i < sheetConfigs.value.length; i++) {
+    const sheet = sheetConfigs.value[i]
+    if (!sheet.spreadsheet_id) continue
+    if (!titleRegex.test(String(sheet.title || '').trim())) {
+      ElMessage.error(`第${i + 1}个Sheet的表标题格式无效，必须以"任意前缀-数字y-数字]"结尾，例如：策略A-1y-3]`)
+      return
+    }
+  }
+  // 参数组合数与 Sheet 数兼容校验（相等或整数倍，与静态版 isCountCompatible 一致）
+  const paramComboCount = singleCombinationCount.value
+  const sheetCount = sheetConfigs.value.filter((s) => s.spreadsheet_id).length
+  const compatible = paramComboCount > 0 && sheetCount > 0 &&
+    (paramComboCount === sheetCount || paramComboCount % sheetCount === 0 || sheetCount % paramComboCount === 0)
+  if (!compatible) {
+    ElMessage.error(`参数组合数(${paramComboCount})与Sheet数(${sheetCount})必须相等，或其中一方是另一方的整数倍`)
+    return
+  }
+
   submitting.value = true
   try {
     const res = await batchCreateTasks({
@@ -500,7 +613,10 @@ async function submit() {
         stock_codes: stockCodes.value,
         end_date: form.end_date || null,
         market_type: form.market_type,
+        price_mode: form.price_mode,
         kline_adjustment: form.kline_adjustment,
+        kline_data_source: form.kline_data_source,
+        parameter_dimensions: [1, 2],
         token_type: form.token_type,
         token_id: form.token_type === 'file' ? form.token_id : null,
         token_file: '',
@@ -512,7 +628,8 @@ async function submit() {
     })
     ElMessage.success(`批量任务创建成功，共 ${res.total_created || 0} 个子任务`)
     clearSaved()
-    setTimeout(() => router.push('/task/list?version=c31'), 800)
+    // C31 子任务是 google_sheet(C3) 类型，回 C3 列表才能看到（与静态版一致）
+    setTimeout(() => router.push('/task/list?version=c3'), 800)
   } catch (e) {
     ElMessage.error(e?.message || '创建批量任务失败')
   } finally {
@@ -538,7 +655,10 @@ async function doSaveTemplate() {
         stock_codes: stockCodes.value,
         end_date: form.end_date || null,
         market_type: form.market_type,
+        price_mode: form.price_mode,
         kline_adjustment: form.kline_adjustment,
+        kline_data_source: form.kline_data_source,
+        parameter_dimensions: [1, 2],
         token_type: form.token_type,
         token_id: form.token_type === 'file' ? form.token_id : null,
         token_json: form.token_json,
@@ -624,5 +744,21 @@ onMounted(async () => {
 
 .task-create-batch__summary {
   justify-content: center;
+  gap: 12px;
+}
+
+.task-create-batch__preview-stock {
+  padding: 8px;
+  margin-bottom: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+}
+
+.task-create-batch__preview-item {
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
 }
 </style>

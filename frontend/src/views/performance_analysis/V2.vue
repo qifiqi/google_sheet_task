@@ -98,7 +98,7 @@
               <el-col :xs="24" :lg="12">
                 <div class="performance-analyzer-v2-config-item">
                   <div class="performance-analyzer-v2-config-label">市场下跌阶段阈值（指数月收益 &lt;）</div>
-                  <el-input v-model="downturnThreshold" type="number" :step="0.1">
+                  <el-input v-model="downturnThreshold" type="number" :step="0.1" @change="saveRuntimeParams">
                     <template #append>%</template>
                   </el-input>
                   <div class="helper-text">七、极端行情表现 7.1 市场下跌阶段判定阈值，默认 -2%。</div>
@@ -107,7 +107,7 @@
               <el-col :xs="24" :lg="12">
                 <div class="performance-analyzer-v2-config-item">
                   <div class="performance-analyzer-v2-config-label">市场上涨阶段阈值（指数月收益 &gt;）</div>
-                  <el-input v-model="upturnThreshold" type="number" :step="0.1">
+                  <el-input v-model="upturnThreshold" type="number" :step="0.1" @change="saveRuntimeParams">
                     <template #append>%</template>
                   </el-input>
                   <div class="helper-text">七、极端行情表现 7.2 市场上涨阶段判定阈值，默认 2%。</div>
@@ -116,7 +116,7 @@
               <el-col :xs="24" :lg="12">
                 <div class="performance-analyzer-v2-config-item">
                   <div class="performance-analyzer-v2-config-label">极端单日涨跌阈值（单日涨/跌 &gt;）</div>
-                  <el-input v-model="dailyExtremeThreshold" type="number" :step="0.1">
+                  <el-input v-model="dailyExtremeThreshold" type="number" :step="0.1" @change="saveRuntimeParams">
                     <template #append>%</template>
                   </el-input>
                   <div class="helper-text">七、极端行情表现 7.3 涨幅/跌幅天数与涨跌比统计阈值，默认 2%。</div>
@@ -125,7 +125,7 @@
               <el-col :xs="24" :lg="12">
                 <div class="performance-analyzer-v2-config-item">
                   <div class="performance-analyzer-v2-config-label">单日回撤统计阈值（单日跌幅 &lt;）</div>
-                  <el-input v-model="dailyDrawdownThreshold" type="number" :step="0.1">
+                  <el-input v-model="dailyDrawdownThreshold" type="number" :step="0.1" @change="saveRuntimeParams">
                     <template #append>%</template>
                   </el-input>
                   <div class="helper-text">二、风险类指标 回撤发生次数/频率统计阈值，默认 5%。</div>
@@ -466,16 +466,16 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { analyzePerformanceAnalysisV1, analyzePerformanceAnalysis, exportPerformanceAnalysisResult, exportPerformanceAnalysisWordReport } from '@/api/performance_analysis'
+import { analyzePerformanceAnalysisV1, analyzePerformanceAnalysis, exportPerformanceAnalysisResult, exportPerformanceAnalysisWordReportResponse, searchStocksWithSignal } from '@/api/performance_analysis'
 import { getWorksheets } from '@/api/googleSheet'
-import { searchStocks } from '@/api/backtest'
 import { useChartJs } from '@/composables/useChartJs'
 
 const { loadChartJs } = useChartJs()
 
 // ── 常量 ─────────────────────────────────────────────────────
-// 阈值输入按百分比填写并持久化（键名加 vue_ 前缀与静态版区分）
-const RUNTIME_PARAMS_STORAGE_KEY = 'vue_v2_runtime_params'
+// 阈值输入按百分比填写并持久化；键名与静态版一致（v2_runtime_params），
+// 静态版与 Vue 版两版阈值互通。
+const RUNTIME_PARAMS_STORAGE_KEY = 'v2_runtime_params'
 
 const WORD_PRICE_TYPE_LABELS = {
   sp_price: '收盘价',
@@ -1252,22 +1252,49 @@ function resetWordDialog() {
   stockResults.value = []
 }
 
-async function searchWordExportStocks(keyword) {
+// 股票搜索：250ms 防抖 + AbortController 丢弃过期响应（静态 v2.js scheduleWordExportStockSearch）
+let stockSearchTimer = null
+let stockSearchAbortController = null
+
+function searchWordExportStocks(keyword) {
   const query = String(keyword ?? '').trim()
+  window.clearTimeout(stockSearchTimer)
   if (!query) {
     stockResults.value = []
     return
   }
+  stockSearchTimer = window.setTimeout(() => doSearchWordExportStocks(query), 250)
+}
+
+async function doSearchWordExportStocks(query) {
+  if (stockSearchAbortController) {
+    stockSearchAbortController.abort()
+  }
+  const controller = new AbortController()
+  stockSearchAbortController = controller
   stockSearching.value = true
   try {
-    const data = await searchStocks({ q: query, page_size: 10 })
+    const data = await searchStocksWithSignal({ q: query, page_size: 10 }, { signal: controller.signal })
     stockResults.value = Array.isArray(data?.results) ? data.results : []
   } catch (error) {
-    stockResults.value = []
-    ElMessage.error(error?.message || '股票搜索失败')
+    if (!isRequestCanceled(error)) {
+      stockResults.value = []
+      ElMessage.error(error?.message || '股票搜索失败')
+    }
   } finally {
-    stockSearching.value = false
+    // 仅最新一次请求负责收尾 loading，过期响应/取消不干扰当前状态
+    if (stockSearchAbortController === controller) {
+      stockSearching.value = false
+    }
   }
+}
+
+function isRequestCanceled(error) {
+  return error?.name === 'AbortError'
+    || error?.name === 'CanceledError'
+    || error?.code === 'ERR_CANCELED'
+    || error?.cause?.name === 'CanceledError'
+    || error?.cause?.code === 'ERR_CANCELED'
 }
 
 function onWordStockChange(code) {
@@ -1294,12 +1321,16 @@ async function confirmWordExport() {
 async function downloadWordReport(payload) {
   exportingWord.value = true
   try {
-    // blob 拦截器返回 Blob 本体（拿不到 Content-Disposition），沿用静态版默认文件名
-    const blob = await exportPerformanceAnalysisWordReport(payload)
+    // 走原始 Response 以解析 Content-Disposition 文件名（静态 v2.js downloadWordReport 同源）
+    const response = await exportPerformanceAnalysisWordReportResponse(payload)
+    const blob = await response.blob()
+    const filename = response.headers.get('Content-Disposition')
+      ?.match(/filename[^;=\n]*=(?:UTF-8''|\")?([^;\n\"]+)/i)?.[1]
+      || '策略回测绩效分析报告.docx'
     const objectUrl = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = objectUrl
-    link.download = '策略回测绩效分析报告.docx'
+    link.download = decodeURIComponent(filename.replace(/^"|"$/g, ''))
     document.body.appendChild(link)
     link.click()
     link.remove()
@@ -1550,6 +1581,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(urlDebounceTimer)
+  clearTimeout(stockSearchTimer)
+  stockSearchAbortController?.abort()
   destroyAllCharts()
 })
 </script>

@@ -39,6 +39,11 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
+      <el-table-column label="创建时间" width="180">
+        <template #default="{ row }">
+          {{ formatDateTime(row.created_at) }}
+        </template>
+      </el-table-column>
       <el-table-column label="最后登录" width="180">
         <template #default="{ row }">
           {{ formatDateTime(row.last_login) }}
@@ -143,6 +148,11 @@ function openDialog(user) {
 }
 
 async function handleSave() {
+  // 新增用户前端校验（对齐静态版：用户名/密码必填）
+  if (!editingUser.value && (!form.username || !form.password)) {
+    ElMessage.warning('新增用户时必须填写用户名和密码')
+    return
+  }
   saving.value = true
   try {
     const payload = {
@@ -157,8 +167,8 @@ async function handleSave() {
     ElMessage.success('保存成功')
     dialogVisible.value = false
     loadData()
-  } catch {
-    ElMessage.error('保存失败')
+  } catch (e) {
+    ElMessage.error(e.message || '保存失败')
   } finally {
     saving.value = false
   }

@@ -6,17 +6,62 @@
       </template>
     </PageToolbar>
 
+    <!-- 统计卡（对齐静态版：模板总数 / C5 / C4 / 最近更新） -->
+    <el-row :gutter="16" class="templates-stats">
+      <el-col :xs="12" :md="6" class="templates-stats__col">
+        <div class="templates-stat-card">
+          <div class="templates-stat-card__label">模板总数</div>
+          <div class="templates-stat-card__value">{{ templateStats.total }}</div>
+        </div>
+      </el-col>
+      <el-col :xs="12" :md="6" class="templates-stats__col">
+        <div class="templates-stat-card">
+          <div class="templates-stat-card__label">C5 模板</div>
+          <div class="templates-stat-card__value templates-stat-card__value--success">{{ templateStats.c5Count }}</div>
+        </div>
+      </el-col>
+      <el-col :xs="12" :md="6" class="templates-stats__col">
+        <div class="templates-stat-card">
+          <div class="templates-stat-card__label">C4 模板</div>
+          <div class="templates-stat-card__value templates-stat-card__value--info">{{ templateStats.c4Count }}</div>
+        </div>
+      </el-col>
+      <el-col :xs="12" :md="6" class="templates-stats__col">
+        <div class="templates-stat-card">
+          <div class="templates-stat-card__label">最近更新</div>
+          <div class="templates-stat-card__date">{{ templateStats.latestDate }}</div>
+          <div class="templates-stat-card__name">{{ templateStats.latestName }}</div>
+        </div>
+      </el-col>
+    </el-row>
+
+    <!-- 搜索 + 类型筛选（对齐静态版工具条） -->
+    <div class="templates-toolbar">
+      <el-input
+        v-model="searchKeyword"
+        placeholder="搜索模板名称、工作表、描述..."
+        clearable
+        style="max-width: 320px"
+      />
+      <el-radio-group v-model="activeTypeFilter">
+        <el-radio-button value="all">全部</el-radio-button>
+        <el-radio-button value="c3">C3</el-radio-button>
+        <el-radio-button value="c4">C4</el-radio-button>
+        <el-radio-button value="c5">C5</el-radio-button>
+      </el-radio-group>
+    </div>
+
     <div v-loading="loading">
       <el-row :gutter="16">
         <el-col v-for="entry in createEntries" :key="entry.version" :xs="24" :sm="12" :md="8" class="templates-col">
-          <el-card shadow="hover" class="template-entry-card" @click="$router.push(`/task/create?version=${entry.version}`)">
+          <el-card shadow="hover" class="template-entry-card" @click="$router.push(`/task/create/${entry.version}`)">
             <el-icon class="template-entry-card__icon" :color="entry.color"><Plus /></el-icon>
             <div class="template-entry-card__title">{{ entry.label }}</div>
             <div class="template-entry-card__desc">{{ entry.desc }}</div>
           </el-card>
         </el-col>
 
-        <el-col v-for="tpl in templates" :key="tpl.id" :xs="24" :sm="12" :md="8" class="templates-col">
+        <el-col v-for="tpl in filteredTemplates" :key="tpl.id" :xs="24" :sm="12" :md="8" class="templates-col">
           <el-card shadow="hover" class="template-card">
             <template #header>
               <div class="template-card__header">
@@ -43,8 +88,8 @@
           </el-card>
         </el-col>
 
-        <el-col v-if="!loading && !templates.length" :span="24">
-          <el-empty description="暂无模板，点击上方新建" />
+        <el-col v-if="!loading && !filteredTemplates.length" :span="24">
+          <el-empty :description="templates.length ? '暂无匹配模板，请调整搜索关键词或类型筛选' : '暂无模板，点击上方新建'" />
         </el-col>
       </el-row>
     </div>
@@ -70,13 +115,16 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, MoreFilled } from '@element-plus/icons-vue'
 import PageToolbar from '@/components/PageToolbar.vue'
 import { getTemplates, createTemplate, getTemplate, updateTemplate, deleteTemplate } from '@/api/template'
 import { useResponsive } from '@/composables/useResponsive'
 import { usePolling } from '@/composables/usePolling'
+
+const router = useRouter()
 
 const { isMobile } = useResponsive()
 const templates = ref([])
@@ -85,6 +133,8 @@ const saving = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref(null)
 const form = reactive({ name: '', description: '', config: '' })
+const searchKeyword = ref('')
+const activeTypeFilter = ref('all')
 
 const createEntries = [
   { version: 'c3', label: '新建模板', desc: '创建一个新的任务模板', color: '#409eff' },
@@ -92,37 +142,80 @@ const createEntries = [
   { version: 'c5', label: '新建 C5 模板', desc: '为 Google Sheet C5 任务创建专用模板', color: '#67c23a' },
 ]
 
-function parseConfigInfo(tpl) {
+// 模板元信息解析（对齐静态版 getTemplateMeta：类型/工作表/参数规模口径一致）
+function parseTemplateMeta(tpl) {
   try {
-    const cfg = typeof tpl.config === 'string' ? JSON.parse(tpl.config) : tpl.config
+    const cfg = typeof tpl.config === 'string' ? JSON.parse(tpl.config) : (tpl.config || {})
     const isC4 = cfg.task_type === 'google_sheet_C4'
     const isC5 = cfg.task_type === 'google_sheet_C5'
+    const type = isC4 ? 'c4' : (isC5 ? 'c5' : 'c3')
+    const sheetName = Array.isArray(cfg.sheets) && cfg.sheets.length
+      ? (cfg.sheets[0].sheet_name || '默认')
+      : (cfg.sheet_name || '默认')
+    let parameterValue = '0'
     if (isC4) {
-      const sheet = Array.isArray(cfg.sheets) && cfg.sheets.length ? cfg.sheets[0].sheet_name || '默认' : cfg.sheet_name || '默认'
-      const cnt = Array.isArray(cfg.parameters?.[0]) ? cfg.parameters[0].length : 0
-      return { type: 'C4', typeColor: '', info: `工作表: ${sheet}<br>产品代码数: ${cnt}` }
-    }
-    if (isC5) {
-      const sheet = Array.isArray(cfg.sheets) && cfg.sheets.length ? cfg.sheets[0].sheet_name || '默认' : cfg.sheet_name || '默认'
+      parameterValue = String(Array.isArray(cfg.parameters?.[0]) ? cfg.parameters[0].length : 0)
+    } else if (isC5) {
       const p1 = Array.isArray(cfg.parameters?.[0]) ? cfg.parameters[0].length : 0
       const p2 = Array.isArray(cfg.parameters?.[1]) ? cfg.parameters[1].length : 0
       const p3 = Array.isArray(cfg.parameters?.[2]) ? cfg.parameters[2].length : 0
-      return { type: 'C5', typeColor: 'success', info: `工作表: ${sheet}<br>参数1/2/3: ${p1}/${p2}/${p3}` }
+      parameterValue = `${p1}/${p2}/${p3}`
+    } else {
+      parameterValue = String(Array.isArray(cfg.parameters) ? cfg.parameters.filter(p => Array.isArray(p) && p.length).length : 0)
     }
-    const cnt = Array.isArray(cfg.parameters) ? cfg.parameters.filter(p => Array.isArray(p) && p.length).length : 0
-    return { type: '', typeColor: '', info: `工作表: ${cfg.sheet_name || '默认'}<br>参数组数: ${cnt}` }
+    return { type, typeLabel: type.toUpperCase(), sheetName, parameterValue }
   } catch {
-    return { type: '', typeColor: '', info: '' }
+    return { type: 'c3', typeLabel: 'C3', sheetName: '', parameterValue: '0' }
   }
+}
+
+const templateStats = computed(() => {
+  const metas = templates.value.map((t) => t._meta)
+  const latest = [...templates.value].sort(
+    (a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
+  )[0]
+  return {
+    total: templates.value.length,
+    c4Count: metas.filter((meta) => meta.type === 'c4').length,
+    c5Count: metas.filter((meta) => meta.type === 'c5').length,
+    latestDate: latest ? new Date(latest.updated_at || latest.created_at).toLocaleDateString() : '-',
+    latestName: latest ? latest.name : '暂无模板',
+  }
+})
+
+const filteredTemplates = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  return templates.value.filter((tpl) => {
+    const meta = tpl._meta
+    if (activeTypeFilter.value !== 'all' && meta.type !== activeTypeFilter.value) return false
+    if (!keyword) return true
+    const haystack = [tpl.name, tpl.description, meta.sheetName, meta.parameterValue, meta.typeLabel]
+      .join(' ')
+      .toLowerCase()
+    return haystack.includes(keyword)
+  })
+})
+
+function buildConfigInfo(meta) {
+  const sheetLine = `工作表: ${meta.sheetName || '默认'}`
+  if (meta.type === 'c4') return `${sheetLine}<br>产品代码数: ${meta.parameterValue}`
+  if (meta.type === 'c5') return `${sheetLine}<br>参数1/2/3: ${meta.parameterValue}`
+  return `${sheetLine}<br>参数组数: ${meta.parameterValue}`
 }
 
 async function loadTemplates() {
   loading.value = true
   try {
     const res = await getTemplates()
-    templates.value = (res.templates || []).map(t => {
-      const { type, typeColor, info } = parseConfigInfo(t)
-      return { ...t, _type: type, _typeColor: typeColor, _configInfo: info }
+    templates.value = (res.templates || []).map((t) => {
+      const meta = parseTemplateMeta(t)
+      return {
+        ...t,
+        _meta: meta,
+        _type: meta.typeLabel,
+        _typeColor: meta.type === 'c5' ? 'success' : '',
+        _configInfo: buildConfigInfo(meta),
+      }
     })
   } finally {
     loading.value = false
@@ -197,16 +290,80 @@ async function handleSave() {
 
 function useTemplate(tpl) {
   const cfg = typeof tpl.config === 'string' ? JSON.parse(tpl.config) : tpl.config
-  const isC4 = cfg?.task_type === 'google_sheet_C4'
-  const isC5 = cfg?.task_type === 'google_sheet_C5'
-  const version = isC4 ? 'c4' : isC5 ? 'c5' : 'c3'
-  window.location.href = `/task/create?version=${version}&template_id=${tpl.id}`
+  const versionMap = {
+    google_sheet: 'c3',
+    google_sheet_C4: 'c4',
+    google_sheet_C5: 'c5',
+    google_sheet_C31: 'c31',
+  }
+  const version = versionMap[cfg?.task_type] || 'c3'
+  // SPA 路由到版本化创建页；各创建页 onMounted 读取 template_id 自动回填
+  router.push({ path: `/task/create/${version}`, query: { template_id: String(tpl.id) } })
 }
 
 usePolling(loadTemplates, { interval: 60000 })
 </script>
 
 <style scoped>
+.templates-stats {
+  margin-bottom: 16px;
+}
+
+.templates-stats__col {
+  margin-bottom: 8px;
+}
+
+.templates-stat-card {
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--app-surface);
+  height: 100%;
+}
+
+.templates-stat-card__label {
+  font-size: var(--app-font-xs);
+  color: var(--app-text-muted);
+}
+
+.templates-stat-card__value {
+  margin-top: 6px;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.templates-stat-card__value--success {
+  color: #16a34a;
+}
+
+.templates-stat-card__value--info {
+  color: #0284c7;
+}
+
+.templates-stat-card__date {
+  margin-top: 6px;
+  font-size: var(--app-font-md, 16px);
+  font-weight: 700;
+}
+
+.templates-stat-card__name {
+  margin-top: 2px;
+  font-size: var(--app-font-xs);
+  color: var(--app-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.templates-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
 .templates-col {
   margin-bottom: 16px;
 }

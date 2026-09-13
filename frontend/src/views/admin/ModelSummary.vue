@@ -62,6 +62,7 @@
         <el-form-item label="任务类型">
           <el-select v-model="filters.taskType" style="width: 120px" clearable>
             <el-option label="C3" value="google_sheet" />
+            <el-option label="C4" value="google_sheet_C4" />
             <el-option label="C5" value="google_sheet_C5" />
             <el-option label="回测" value="backtest_training" />
           </el-select>
@@ -311,9 +312,9 @@ const exporting = ref(false)
 
 const rebuilding = ref(false)
 const rebuildJobId = ref('')
+// 重建任务链接指向真实任务 ID（对齐静态版 renderRebuildTaskLink：job.task_id 优先，回退 job_id）
+const rebuildTaskId = ref('')
 let rebuildTimer = null
-
-const rebuildTaskId = computed(() => rebuildJobId.value.slice(0, 8))
 
 const cnSharePercent = computed(() => percentOf(summary.value.cn_stock_count))
 const usSharePercent = computed(() => percentOf(summary.value.us_stock_count))
@@ -454,7 +455,12 @@ function validateFullQuery() {
 }
 
 async function loadSummary() {
-  validateFullQuery()
+  try {
+    validateFullQuery()
+  } catch (error) {
+    statusText.value = error.message
+    return
+  }
   loading.value = true
   statusText.value = '加载中...'
   try {
@@ -541,6 +547,7 @@ async function rebuildSummary() {
       reset: true,
     })
     rebuildJobId.value = data.job?.job_id || ''
+    rebuildTaskId.value = data.job?.task_id || data.job?.job_id || ''
     statusText.value = `重建任务已创建 ${rebuildJobId.value.slice(0, 8)}`
     pollRebuildStatus()
   } catch (error) {
@@ -561,8 +568,10 @@ async function pollRebuildStatus() {
     const job = data.job
     if (!job) {
       statusText.value = '暂无重建任务'
+      rebuildTaskId.value = ''
       return
     }
+    rebuildTaskId.value = job.task_id || job.job_id || ''
     if (job.status === 'completed') {
       const result = job.result || {}
       statusText.value = `重建完成：处理 ${result.processed_tasks || 0} 个任务、${result.processed || 0} 条结果，保留 ${result.indexed || 0} 条，去重 ${result.deduped || 0} 条`

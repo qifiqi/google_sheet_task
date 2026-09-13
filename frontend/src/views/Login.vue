@@ -81,7 +81,7 @@
               type="primary"
               size="large"
               class="login-form__submit"
-              :loading="loginLoading"
+              :loading="loginLoading || ssoLoading"
               @click="handleLogin"
             >
               登录
@@ -148,20 +148,23 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, reactive, ref } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Moon, Sunny } from '@element-plus/icons-vue'
 import { useAuth } from '@/composables/useAuth'
 import { useTheme } from '@/composables/useTheme'
+import { ssoExchange } from '@/api/auth'
 
 const router = useRouter()
-const { login } = useAuth()
+const route = useRoute()
+const { login, fetchUser, getToken, applyAuthData } = useAuth()
 const { switchValue } = useTheme()
 
 const isSignupMode = ref(false)
 const loginLoading = ref(false)
 const signupLoading = ref(false)
+const ssoLoading = ref(false)
 const loginFormRef = ref()
 const signupFormRef = ref()
 
@@ -206,6 +209,60 @@ function setMode(value) {
   isSignupMode.value = value
 }
 
+// next 仅允许同源相对路径（防开放重定向：/login?next= 是外部可达参数，
+// 拒绝 // 开头与 CR/LF，对齐静态版 sanitizeNextUrl）。
+function sanitizeNextUrl(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || /[\r\n]/.test(trimmed)) {
+    return null
+  }
+  return trimmed
+}
+
+function resolveNextUrl() {
+  return sanitizeNextUrl(route.query.next) || '/'
+}
+
+// 主服务 SSO 换票：/login#sso_token=<主服务Token>。fragment 不发给服务端、
+// 不进 Referer，读到后立即 replaceState 清掉；换票失败保留账号密码登录兜底。
+function consumeSsoTokenFromHash() {
+  const match = window.location.hash.match(/(?:^|#|&)sso_token=([^&]+)/)
+  if (!match) return null
+  let token = match[1]
+  try {
+    token = decodeURIComponent(token)
+  } catch {
+    // 保留原值：主服务侧未编码时仍可透传
+  }
+  window.history.replaceState(null, '', window.location.pathname + window.location.search)
+  return token
+}
+
+onMounted(async () => {
+  // SSO 分支优先于本地 token 恢复：携带 sso_token 进入即视为以主服务身份换票。
+  const ssoToken = consumeSsoTokenFromHash()
+  if (ssoToken) {
+    ssoLoading.value = true
+    try {
+      const data = await ssoExchange(ssoToken)
+      applyAuthData(data)
+      router.replace(resolveNextUrl())
+    } catch (error) {
+      ElMessage.error(error.response?.data?.message || error.message || '主服务登录失败，请使用账号密码登录')
+    } finally {
+      ssoLoading.value = false
+    }
+    return
+  }
+
+  // 已有本地 token：登录态恢复成功直接跳 next，失败由 fetchUser 清本地留在登录页。
+  if (getToken()) {
+    const me = await fetchUser()
+    if (me) router.replace(resolveNextUrl())
+  }
+})
+
 async function handleLogin() {
   const valid = await loginFormRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -213,9 +270,10 @@ async function handleLogin() {
   loginLoading.value = true
   try {
     await login(loginForm.username, loginForm.password)
-    router.push('/')
-  } catch {
-    ElMessage.error('登录失败，请检查用户名和密码')
+    // 支持 ?next= 登录后回跳原页面（仅同源相对路径，见 sanitizeNextUrl）
+    router.push(resolveNextUrl())
+  } catch (error) {
+    ElMessage.error(error.message || '登录失败，请检查用户名和密码')
   } finally {
     loginLoading.value = false
   }

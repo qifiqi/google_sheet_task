@@ -79,7 +79,6 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPreviewTask, previewGroup } from '@/api/globalPreview'
-import { rawApi } from '@/api'
 
 const taskIdInput = ref('')
 const currentTaskId = ref('')
@@ -208,18 +207,34 @@ async function exportPreview() {
   if (!currentTaskId.value) return
   exporting.value = true
   try {
-    const blob = await rawApi.get(`/api/exports/global-previews/${encodeURIComponent(currentTaskId.value)}`, {
-      params: exportName.value.trim() ? { export_name: exportName.value.trim() } : undefined,
-      responseType: 'blob',
+    // 与静态版 global_preview_index.js exportPreview 一致：走原始 Response，
+    // 解析 Content-Disposition（filename*=UTF-8'' 优先，filename 回退）取下载文件名
+    const query = exportName.value.trim() ? `?export_name=${encodeURIComponent(exportName.value.trim())}` : ''
+    const token = localStorage.getItem('access_token')
+    const response = await fetch(`/api/exports/global-previews/${encodeURIComponent(currentTaskId.value)}${query}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.message || `导出失败: ${response.status}`)
+    }
+    const contentDisposition = response.headers.get('Content-Disposition') || ''
+    const utf8Filename = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+    const fallbackFilename = contentDisposition.match(/filename="?([^";]+)"?/i)
+    const downloadName = utf8Filename
+      ? decodeURIComponent(utf8Filename[1])
+      : (fallbackFilename?.[1] || `${exportName.value.trim() || 'global_preview'}.xlsx`)
+    const blob = await response.blob()
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${exportName.value.trim() || 'global_preview'}.xlsx`
+    link.download = downloadName
+    document.body.appendChild(link)
     link.click()
+    link.remove()
     URL.revokeObjectURL(url)
-  } catch {
-    ElMessage.error('导出失败')
+  } catch (error) {
+    ElMessage.error(error?.message || '导出失败')
   } finally {
     exporting.value = false
   }

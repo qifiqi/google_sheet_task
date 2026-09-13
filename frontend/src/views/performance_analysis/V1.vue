@@ -33,6 +33,42 @@
           <el-button type="primary" :disabled="!sheetName" :loading="analyzing" @click="analyzeV1">分析</el-button>
         </el-col>
       </el-row>
+      <!-- 4 个阈值 runtime_params（与 V2.vue 参数配置对齐，静态 v2.js runAnalyzeV2Google 同源）-->
+      <el-row :gutter="12" class="performance-analyzer-v1-thresholds">
+        <el-col :xs="12" :sm="6">
+          <div class="performance-analyzer-v1-threshold">
+            <div class="performance-analyzer-v1-threshold__label">市场下跌阶段阈值（指数月收益 &lt;）</div>
+            <el-input v-model="downturnThreshold" type="number" :step="0.1" @change="saveRuntimeParams">
+              <template #append>%</template>
+            </el-input>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="performance-analyzer-v1-threshold">
+            <div class="performance-analyzer-v1-threshold__label">市场上涨阶段阈值（指数月收益 &gt;）</div>
+            <el-input v-model="upturnThreshold" type="number" :step="0.1" @change="saveRuntimeParams">
+              <template #append>%</template>
+            </el-input>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="performance-analyzer-v1-threshold">
+            <div class="performance-analyzer-v1-threshold__label">极端单日涨跌阈值（单日涨/跌 &gt;）</div>
+            <el-input v-model="dailyExtremeThreshold" type="number" :step="0.1" @change="saveRuntimeParams">
+              <template #append>%</template>
+            </el-input>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="performance-analyzer-v1-threshold">
+            <div class="performance-analyzer-v1-threshold__label">单日回撤统计阈值（单日跌幅 &lt;）</div>
+            <el-input v-model="dailyDrawdownThreshold" type="number" :step="0.1" @change="saveRuntimeParams">
+              <template #append>%</template>
+            </el-input>
+          </div>
+        </el-col>
+      </el-row>
+      <div class="helper-text">阈值与 V2 页共用保存，修改后重新点击「分析」按新阈值计算。</div>
     </el-card>
 
     <!-- 汇总卡片 -->
@@ -324,10 +360,58 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
 import { analyzePerformanceAnalysisV1, exportPerformanceAnalysisResult } from '@/api/performance_analysis'
+
+// ── 阈值 runtime_params（与 V2.vue 共用同一 localStorage 键，两页互通）───
+const RUNTIME_PARAMS_STORAGE_KEY = 'v2_runtime_params'
+
+const downturnThreshold = ref('-2')
+const upturnThreshold = ref('2')
+const dailyExtremeThreshold = ref('2')
+const dailyDrawdownThreshold = ref('5')
+
+function parseThresholdInput(raw, fallback) {
+  const text = String(raw ?? '').trim()
+  if (text === '') return fallback
+  const value = Number(text)
+  return Number.isFinite(value) ? value : fallback
+}
+
+function collectRuntimeParams() {
+  // 页面输入按百分比填写，payload 统一转换为小数阈值。
+  return {
+    market_downturn_threshold: parseThresholdInput(downturnThreshold.value, -2) / 100,
+    market_upturn_threshold: parseThresholdInput(upturnThreshold.value, 2) / 100,
+    daily_extreme_threshold: parseThresholdInput(dailyExtremeThreshold.value, 2) / 100,
+    daily_drawdown_threshold: parseThresholdInput(dailyDrawdownThreshold.value, 5) / 100,
+  }
+}
+
+function saveRuntimeParams() {
+  try {
+    localStorage.setItem(RUNTIME_PARAMS_STORAGE_KEY, JSON.stringify(collectRuntimeParams()))
+  } catch {
+    // localStorage 不可用（隐私模式等）时忽略，配置仅在当前页面生效。
+  }
+}
+
+function restoreRuntimeParams() {
+  let saved = null
+  try {
+    saved = JSON.parse(localStorage.getItem(RUNTIME_PARAMS_STORAGE_KEY) || 'null')
+  } catch {
+    saved = null
+  }
+  if (!saved || typeof saved !== 'object') return
+  const toPct = (value) => String(Number((value * 100).toFixed(6)))
+  if (Number.isFinite(saved.market_downturn_threshold)) downturnThreshold.value = toPct(saved.market_downturn_threshold)
+  if (Number.isFinite(saved.market_upturn_threshold)) upturnThreshold.value = toPct(saved.market_upturn_threshold)
+  if (Number.isFinite(saved.daily_extreme_threshold)) dailyExtremeThreshold.value = toPct(saved.daily_extreme_threshold)
+  if (Number.isFinite(saved.daily_drawdown_threshold)) dailyDrawdownThreshold.value = toPct(saved.daily_drawdown_threshold)
+}
 
 // ── state ────────────────────────────────────────────────────
 const gsUrl = ref('')
@@ -397,7 +481,8 @@ async function analyzeV1() {
     const payload = await analyzePerformanceAnalysisV1({
       google_sheet_url: url,
       spreadsheet_id: spreadsheetId,
-      google_sheet_name: sheetName.value
+      google_sheet_name: sheetName.value,
+      runtime_params: collectRuntimeParams()
     })
     result.value = payload?.result || payload
     ElMessage.success('分析完成')
@@ -460,22 +545,34 @@ const kamaRows = computed(() => {
 const sotinoRows = computed(() => {
   if (!result.value) return []
   const idxMap = new Map(); const stMap = new Map()
-  ;(result.value.index_sotino_ratio || []).forEach(x => { if (String(x.year) !== 'all') idxMap.set(String(x.year), x) })
-  ;(result.value.start_sotino_ratio || []).forEach(x => { if (String(x.year) !== 'all') stMap.set(String(x.year), x) })
+  ;(result.value.index_sortino_ratio || []).forEach(x => { if (String(x.year) !== 'all') idxMap.set(String(x.year), x) })
+  ;(result.value.start_sortino_ratio || []).forEach(x => { if (String(x.year) !== 'all') stMap.set(String(x.year), x) })
   const years = Array.from(new Set([...idxMap.keys(), ...stMap.keys()])).sort()
-  return years.map(y => { const i = idxMap.get(y); const s = stMap.get(y); return { year: y, index_sotino: i?.sotino_ratio, model_sotino: s?.sotino_ratio, index_avg_monthly: i?.average_monthly_annualized_return, model_avg_monthly: s?.average_monthly_annualized_return, index_downside_std: i?.downside_standard_deviation, model_downside_std: s?.downside_standard_deviation } })
+  return years.map(y => { const i = idxMap.get(y); const s = stMap.get(y); return { year: y, index_sotino: i?.sortino_ratio, model_sotino: s?.sortino_ratio, index_avg_monthly: i?.average_monthly_annualized_return, model_avg_monthly: s?.average_monthly_annualized_return, index_downside_std: i?.downside_standard_deviation, model_downside_std: s?.downside_standard_deviation } })
 })
+
+// 夏普区间键转显示标签（静态 v2.js formatSharpeKey："近N年"/年份）
+function formatSharpeKey(key) {
+  const k = String(key ?? '')
+  if (!k) return k
+  if (k === 'all') return 'all'
+  const mPast = k.match(/^past_(\d+)(?:_.*)?$/)
+  if (mPast) return `近${Number(mPast[1])}年`
+  const mYear = k.match(/^year_\d+_(\d{4})$/)
+  if (mYear) return mYear[1]
+  return k
+}
 
 const sharpeRows = computed(() => {
   if (!result.value) return []
   const idx = result.value.index_sharpe_ratios || {}; const st = result.value.start_sharpe_ratios || {}
   const keys = Array.from(new Set([...Object.keys(idx), ...Object.keys(st)])).sort()
-  return keys.map(k => { const i = idx[k]; const s = st[k]; const base = i || s; return { period: k, index_sharpe: i?.sharpe_ratio, model_sharpe: s?.sharpe_ratio, index_avg_monthly: i?.avg_monthly_return, model_avg_monthly: s?.avg_monthly_return, index_monthly_std: i?.monthly_std_dev, model_monthly_std: s?.monthly_std_dev, index_annual_std: i?.annual_std_dev, model_annual_std: s?.annual_std_dev, start_date: base?.start_date, end_date: base?.end_date } })
+  return keys.map(k => { const i = idx[k]; const s = st[k]; const base = i || s; return { period: formatSharpeKey(k), index_sharpe: i?.sharpe_ratio, model_sharpe: s?.sharpe_ratio, index_avg_monthly: i?.avg_monthly_return, model_avg_monthly: s?.avg_monthly_return, index_monthly_std: i?.monthly_std_dev, model_monthly_std: s?.monthly_std_dev, index_annual_std: i?.annual_std_dev, model_annual_std: s?.annual_std_dev, start_date: base?.start_date, end_date: base?.end_date } })
 })
 
 const excessMetricsRows = computed(() => {
   if (!result.value) return []
-  return [{ key: 'excess_sharp', value: fmtNum(result.value.excess_sharp, 6) }, { key: 'excess_of_promissory_note', value: fmtNum(result.value.excess_of_promissory_note, 6) }]
+  return [{ key: 'excess_sharpe', value: fmtNum(result.value.excess_sharpe, 6) }, { key: 'excess_sortino', value: fmtNum(result.value.excess_sortino, 6) }]
 })
 
 const repairDaysRows = computed(() => {
@@ -488,7 +585,7 @@ const profitAnnualRow = computed(() => {
   return [{ index: result.value.index_profit_annual, model: result.value.start_profit_annual }]
 })
 
-const SCALAR_NAME_MAP = { outperform_year: '跑赢年份', monthly_excess_volatility: '月超额波动率', excess_drawdown_winning_rate: '超额回撤胜率', excess_sharp: '超额夏普', excess_of_promissory_note: '超额索提诺', index_profit_annual: '指数盈利年百分比', start_profit_annual: '策略盈利年百分比', index_monthly_return_volatility: '指数月收益率波动率', start_monthly_return_volatility: '策略月收益率波动率', index_maximum_number_of_backtest_repair_days: '指数最大回测天数', start_maximum_number_of_backtest_repair_days: '策略最大回测天数', excess_maximum_number_of_backtest_repair_days: '超额最大回测天数' }
+const SCALAR_NAME_MAP = { outperform_year: '跑赢年份', monthly_excess_volatility: '月超额波动率', excess_drawdown_winning_rate: '超额回撤胜率', excess_sharpe: '超额夏普', excess_sortino: '超额索提诺', index_profit_annual: '指数盈利年百分比', start_profit_annual: '策略盈利年百分比', index_monthly_return_volatility: '指数月收益率波动率', start_monthly_return_volatility: '策略月收益率波动率', index_maximum_number_of_backtest_repair_days: '指数最大回测天数', start_maximum_number_of_backtest_repair_days: '策略最大回测天数', excess_maximum_number_of_backtest_repair_days: '超额最大回测天数' }
 
 const scalarsRows = computed(() => {
   if (!result.value) return []
@@ -528,6 +625,10 @@ async function copyRawJson() {
   try { await navigator.clipboard.writeText(JSON.stringify(result.value, null, 2)); ElMessage.success('复制成功') }
   catch { ElMessage.error('复制失败') }
 }
+
+onMounted(() => {
+  restoreRuntimeParams()
+})
 
 // ── charts (Chart.js loaded from CDN) ───────────────────────
 function loadChartJs() {
@@ -602,8 +703,8 @@ async function renderCharts(r) {
     { label: '模型Kama', data: labK.map(y => stK.map.get(y) ?? null), borderColor: '#6610f2', backgroundColor: 'rgba(102,16,242,0.08)', tension: 0.1, fill: true }
   ], { scales: { y: { title: { display: true, text: 'Kama Ratio' } } } })
 
-  // 5. sotino
-  const idxS = normYearSeries(r.index_sotino_ratio, 'sotino_ratio'); const stS = normYearSeries(r.start_sotino_ratio, 'sotino_ratio')
+  // 5. sotino（后端键为 index_sortino_ratio / start_sortino_ratio，子键 sortino_ratio）
+  const idxS = normYearSeries(r.index_sortino_ratio, 'sortino_ratio'); const stS = normYearSeries(r.start_sortino_ratio, 'sortino_ratio')
   const labS = Array.from(new Set([...idxS.labels, ...stS.labels])).sort()
   buildChart(Chart, chartSotino, 'sotino', 'line', labS, [
     { label: '指数Sotino', data: labS.map(y => idxS.map.get(y) ?? null), borderColor: '#20c997', backgroundColor: 'rgba(32,201,151,0.08)', tension: 0.1, fill: true },
@@ -631,9 +732,9 @@ async function renderCharts(r) {
     { label: '模型夏普', data: shKeys.map(k => stSh[k]?.sharpe_ratio ?? null), backgroundColor: 'rgba(25,135,84,0.45)', borderColor: '#198754', borderWidth: 1 }
   ], { scales: { y: { title: { display: true, text: 'Sharpe Ratio' } }, x: { ticks: { autoSkip: false, maxRotation: 60 } } } })
 
-  // 9. excess metrics
-  buildChart(Chart, chartExcessMetrics, 'excessMetrics', 'bar', ['excess_sharp', 'excess_of_promissory_note'], [
-    { label: 'Value', data: [r.excess_sharp ?? null, r.excess_of_promissory_note ?? null], backgroundColor: ['rgba(13,110,253,0.5)', 'rgba(25,135,84,0.5)'], borderColor: ['#0d6efd', '#198754'], borderWidth: 1 }
+  // 9. excess metrics（后端键为 excess_sharpe / excess_sortino）
+  buildChart(Chart, chartExcessMetrics, 'excessMetrics', 'bar', ['excess_sharpe', 'excess_sortino'], [
+    { label: 'Value', data: [r.excess_sharpe ?? null, r.excess_sortino ?? null], backgroundColor: ['rgba(13,110,253,0.5)', 'rgba(25,135,84,0.5)'], borderColor: ['#0d6efd', '#198754'], borderWidth: 1 }
   ], { scales: { y: { title: { display: true, text: 'Metric Value' } } } })
 
   // 10. repair days
@@ -659,6 +760,21 @@ async function renderCharts(r) {
 <style scoped>
 .performance-analyzer-v1-page__meta {
   min-height: 1.2em;
+}
+
+.performance-analyzer-v1-thresholds {
+  margin-top: 4px;
+}
+
+.performance-analyzer-v1-threshold {
+  margin-bottom: 8px;
+}
+
+.performance-analyzer-v1-threshold__label {
+  margin-bottom: 4px;
+  font-size: var(--app-font-xs);
+  font-weight: 600;
+  color: var(--app-text-soft);
 }
 
 .performance-analyzer-v1-summary-grid {

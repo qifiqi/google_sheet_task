@@ -29,6 +29,7 @@ const routes = [
       { path: 'task/create/c7',  name: 'TaskCreateC7',  component: () => import('@/views/task/CreateC7.vue'),  meta: { title: '创建C7任务',     permission: 'task:create' } },
       { path: 'task/create/c31', name: 'TaskCreateC31', component: () => import('@/views/task/CreateC31.vue'), meta: { title: '创建C31批量任务', permission: 'task:create' } },
       { path: 'task/create',     name: 'TaskCreate',    component: () => import('@/views/task/Create.vue'),    meta: { title: '创建任务',       permission: 'task:create' } },
+      { path: 'task/merge-export', name: 'TaskMergeExport', component: () => import('@/views/task/MergeExport.vue'), meta: { title: 'C3 合并导出', permission: 'task:view' } },
       { path: 'task/:id',        name: 'TaskDetail',    component: () => import('@/views/task/Detail.vue'),    meta: { title: '任务详情',       permission: 'task:view' } },
       // Backtest
       { path: 'backtest/create',            name: 'BacktestCreate',        component: () => import('@/views/backtest/Create.vue'),        meta: { title: '回测创建',   permission: 'backtest:create' } },
@@ -36,6 +37,7 @@ const routes = [
       { path: 'backtest/:id',               name: 'BacktestDetail',        component: () => import('@/views/backtest/Detail.vue'),        meta: { title: '回测详情',   permission: 'backtest:view' } },
       { path: 'backtest/:id/global-preview',name: 'BacktestGlobalPreview', component: () => import('@/views/backtest/GlobalPreview.vue'), meta: { title: '全局预览',   permission: 'backtest:view' } },
       { path: 'backtest/:id/result',        name: 'BacktestResult',        component: () => import('@/views/backtest/Result.vue'),        meta: { title: '回测结果',   permission: 'backtest:view' } },
+      { path: 'backtest/:id/result-export-preview', name: 'BacktestResultExportPreview', component: () => import('@/views/backtest/ResultExportPreview.vue'), meta: { title: '导出内容预览', permission: 'backtest:view' } },
       // Backtest Multi-Product
       { path: 'backtest-multi/list',              name: 'BacktestMultiList',          component: () => import('@/views/backtest-multi/List.vue'),          meta: { title: '多产品回测列表',   permission: 'backtest:view' } },
       { path: 'backtest-multi/create',            name: 'BacktestMultiCreate',        component: () => import('@/views/backtest-multi/Create.vue'),        meta: { title: '创建多产品回测',   permission: 'backtest:create' } },
@@ -46,6 +48,7 @@ const routes = [
       { path: 'performance_analysis',    name: 'PerformanceAnalysisIndex', component: () => import('@/views/performance_analysis/Index.vue'), meta: { title: '数据分析' } },
       { path: 'performance_analysis/v1', name: 'PerformanceAnalysisV1',   component: () => import('@/views/performance_analysis/V1.vue'),    meta: { title: 'V1 分析' } },
       { path: 'performance_analysis/v2', name: 'PerformanceAnalysisV2',   component: () => import('@/views/performance_analysis/V2.vue'),    meta: { title: 'V2 回测数据分析' } },
+      { path: 'performance_analysis/weight_combination', name: 'PerformanceAnalysisWeightCombination', component: () => import('@/views/performance_analysis/WeightCombination.vue'), meta: { title: '权重组合分析' } },
       // Admin
       { path: 'admin',                name: 'Dashboard',       component: () => import('@/views/admin/Dashboard.vue'),    meta: { title: '仪表盘' } },
       { path: 'admin/tasks',          name: 'AdminTasks',      component: () => import('@/views/admin/Tasks.vue'),        meta: { title: '任务管理',          permission: 'task:view' } },
@@ -75,7 +78,7 @@ router.beforeEach(async (to, _from, next) => {
   const token = localStorage.getItem('access_token')
 
   if (to.meta.public) return next()
-  if (!token) return next('/login')
+  if (!token) return next(`/login?next=${encodeURIComponent(to.fullPath)}`)
   if (to.path === '/login') return next('/')
 
   // 确保用户信息已加载（含 permissions）

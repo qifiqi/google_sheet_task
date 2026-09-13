@@ -89,9 +89,10 @@ watch(
   }
 )
 
-function handleCommand(command) {
+async function handleCommand(command) {
   if (command === 'logout') {
-    logout()
+    // 先调后端注销（logout 内部已兜底：失败也清本地态），再回登录页。
+    await logout()
     router.push('/login')
   }
 }

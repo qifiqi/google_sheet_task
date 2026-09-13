@@ -1,5 +1,8 @@
 <template>
   <div class="app-page dashboard-page">
+    <div class="dashboard-page__toolbar">
+      <el-button :loading="loading" @click="loadDashboard(true)">手动刷新</el-button>
+    </div>
 
     <StatCardGrid
       :cards="summaryCards"
@@ -66,6 +69,10 @@
                 <div class="inline-muted active-task-card__meta">
                   参数组 {{ task.config_summary?.parameter_groups ?? 0 }}
                 </div>
+                <div class="inline-muted active-task-card__meta">
+                  停止请求：<span :class="task.stop_confirmation?.stop_requested ? 'stop-flag--warn' : ''">{{ task.stop_confirmation?.stop_requested ? '已发出' : '未发出' }}</span>
+                  · 完全停止：<span :class="task.stop_confirmation?.stop_confirmed ? 'stop-flag--ok' : ''">{{ task.stop_confirmation?.stop_confirmed ? '是' : '否' }}</span>
+                </div>
                 <el-progress
                   :percentage="task.progress_percentage || 0"
                   :format="() => `${task.current_step || 0}/${task.total_steps || 0}`"
@@ -75,7 +82,7 @@
                   type="primary"
                   size="small"
                   class="active-task-card__action"
-                  @click="$router.push(`/task/${task.id}`)"
+                  @click="$router.push(taskDetailRoute(task))"
                 >
                   查看详情
                 </el-button>
@@ -100,6 +107,13 @@
             <StatusTag :status="row.status" />
           </template>
         </el-table-column>
+        <el-table-column label="停止状态" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.stop_confirmation?.stop_confirmed" type="success" size="small">已完全停止</el-tag>
+            <el-tag v-else-if="row.stop_confirmation?.stop_requested" type="warning" size="small">停止中</el-tag>
+            <el-tag v-else type="info" size="small">未停止</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="参数组" width="84">
           <template #default="{ row }">
             {{ row.config_summary?.parameter_groups ?? 0 }}
@@ -118,6 +132,11 @@
         <el-table-column label="时间" width="170">
           <template #default="{ row }">
             {{ formatDateTime(row.created_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="$router.push(taskDetailRoute(row))">查看</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -160,6 +179,14 @@ const summaryCards = [
   { key: 'cancelled_tasks', label: '已取消', hint: '人工或流程终止的任务', color: '#64748b' },
   { key: 'pending_tasks', label: '待执行', hint: '等待调度与开始运行', color: '#14b8a6' },
 ]
+
+// 按任务类型跳转专属详情页（对齐静态版 buildTaskDetailUrl）
+function taskDetailRoute(task) {
+  const type = String(task?.task_type || '')
+  if (type === 'backtest_training') return `/backtest/${task.id}`
+  if (type === 'backtest_multi_product') return `/backtest-multi/${task.id}`
+  return `/task/${task.id}`
+}
 
 async function loadDashboard(showMessage = false) {
   loading.value = true
@@ -316,6 +343,22 @@ onUnmounted(() => {
   color: #fff;
   font-family: 'Fira Code', monospace;
   font-size: 14px;
+}
+
+.dashboard-page__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.stop-flag--warn {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.stop-flag--ok {
+  color: #16a34a;
+  font-weight: 600;
 }
 
 .dashboard-metrics {

@@ -15,6 +15,23 @@
       <el-table-column prop="name" label="角色名称" />
       <el-table-column prop="code" label="编码" />
       <el-table-column prop="description" label="描述" />
+      <el-table-column label="权限" min-width="240">
+        <template #default="{ row }">
+          <span v-if="!row.permissions?.length" class="roles-page__muted">未分配</span>
+          <template v-else>
+            <el-tag
+              v-for="p in row.permissions.slice(0, 3)"
+              :key="p.id"
+              size="small"
+              class="roles-page__perm-tag"
+            >{{ p.name }}</el-tag>
+            <el-tag v-if="row.permissions.length > 3" size="small" type="info" effect="plain" class="roles-page__perm-tag">
+              +{{ row.permissions.length - 3 }}
+            </el-tag>
+            <el-button link type="primary" @click="openPermissionPreview(row)">查看详情</el-button>
+          </template>
+        </template>
+      </el-table-column>
       <el-table-column label="系统内置" width="90">
         <template #default="{ row }">
           <el-tag v-if="row.is_system" type="warning">内置</el-tag>
@@ -73,11 +90,24 @@
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 权限详情预览弹窗（对齐静态版：按 group 分组列出全部权限名/code） -->
+    <el-dialog v-model="previewVisible" :title="previewTitle" width="560px">
+      <div v-if="!previewGroups.length" class="roles-page__muted">暂无权限</div>
+      <template v-else>
+        <div v-for="[groupName, perms] in previewGroups" :key="groupName" class="roles-page__perm-group">
+          <div class="roles-page__perm-group-name">{{ groupName }} ({{ perms.length }})</div>
+          <div class="roles-page__perm-items">
+            <el-tag v-for="p in perms" :key="p.id" :title="p.code" size="small" class="roles-page__perm-item">{{ p.name }}</el-tag>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { getRoles, createRole, updateRole, deleteRole, getPermissions } from '@/api/auth'
 import { ElMessage } from 'element-plus'
 import { usePolling } from '@/composables/usePolling'
@@ -91,6 +121,29 @@ const saving = ref(false)
 const dialogVisible = ref(false)
 const editingRole = ref(null)
 const form = reactive({ name: '', code: '', description: '', permission_ids: [] })
+
+// 权限详情预览（对齐静态版 openPermissionPreview）
+const previewVisible = ref(false)
+const previewRole = ref(null)
+
+const previewTitle = computed(() => (previewRole.value ? `${previewRole.value.name} 权限详情` : '权限详情'))
+
+const previewGroups = computed(() => {
+  const permissions = previewRole.value?.permissions
+  if (!Array.isArray(permissions) || !permissions.length) return []
+  const grouped = permissions.reduce((result, permission) => {
+    const groupName = permission.group || 'other'
+    if (!result[groupName]) result[groupName] = []
+    result[groupName].push(permission)
+    return result
+  }, {})
+  return Object.entries(grouped)
+})
+
+function openPermissionPreview(role) {
+  previewRole.value = role || null
+  previewVisible.value = true
+}
 
 async function loadData() {
   loading.value = true
@@ -138,3 +191,34 @@ async function handleDelete(id) {
 
 usePolling(loadData, { interval: 30000 })
 </script>
+
+<style scoped>
+.roles-page__muted {
+  color: var(--app-text-muted);
+  font-size: var(--app-font-xs);
+}
+
+.roles-page__perm-tag {
+  margin-right: 6px;
+  margin-bottom: 2px;
+}
+
+.roles-page__perm-group {
+  margin-bottom: 14px;
+}
+
+.roles-page__perm-group-name {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.roles-page__perm-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.roles-page__perm-item {
+  max-width: 100%;
+}
+</style>

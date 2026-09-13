@@ -26,9 +26,9 @@
       </el-table-column>
       <el-table-column prop="path" label="路径" min-width="140" show-overflow-tooltip />
       <el-table-column prop="permission" label="权限" min-width="120" show-overflow-tooltip />
-      <el-table-column prop="parent_key" label="父级Key" width="120">
+      <el-table-column label="父级" width="140">
         <template #default="{ row }">
-          {{ row.parent_key || '-' }}
+          {{ parentLabel(row.parent_key) }}
         </template>
       </el-table-column>
       <el-table-column prop="sort_order" label="排序" width="80" />
@@ -73,7 +73,7 @@
             <el-option
               v-for="item in parentOptions"
               :key="item.key"
-              :label="item.label"
+              :label="`${item.label} (${item.key})`"
               :value="item.key"
             />
           </el-select>
@@ -122,12 +122,20 @@ const form = reactive({
   is_visible: true,
 })
 
+// 父级选项口径对齐静态版 getParentOptions：无 path 的项视为分组
 const parentOptions = computed(() => {
-  return items.value.filter(item => !item.parent_key)
+  return items.value.filter(item => !item.path)
 })
 
+// 父级列显示父级 label（对齐静态版 parentLabel：找不到回退 key）
+function parentLabel(parentKey) {
+  if (!parentKey) return '-'
+  const parent = items.value.find(item => item.key === parentKey)
+  return parent ? parent.label : parentKey
+}
+
 const filterConfig = computed(() => [
-  { key: 'keyword', type: 'input', placeholder: '名称 / Key / 路径', span: { xs: 24, sm: 8, md: 5 } },
+  { key: 'keyword', type: 'input', placeholder: '名称 / Key / 路径 / 权限', span: { xs: 24, sm: 8, md: 5 } },
   {
     key: 'parent', type: 'select', placeholder: '父级菜单',
     options: parentOptions.value.map(p => ({ value: p.key, label: p.label })),
@@ -146,7 +154,9 @@ const filteredItems = computed(() => {
     const matchKw = !kw ||
       (item.label || '').toLowerCase().includes(kw) ||
       (item.key || '').toLowerCase().includes(kw) ||
-      (item.path || '').toLowerCase().includes(kw)
+      (item.path || '').toLowerCase().includes(kw) ||
+      (item.permission || '').toLowerCase().includes(kw) ||
+      (item.parent_key || '').toLowerCase().includes(kw)
     const matchParent = !filters.parent || item.parent_key === filters.parent
     const matchVisibility = filters.visibility === '' ||
       String(Number(!!item.is_visible)) === filters.visibility

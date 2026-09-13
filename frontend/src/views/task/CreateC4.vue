@@ -207,6 +207,17 @@
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :sm="8">
+                <el-form-item label="K线数据源">
+                  <el-select v-model="form.kline_data_source" class="full-width">
+                    <el-option value="akshare" label="AKShare（默认）" />
+                    <el-option value="dfcf" label="东方财富" />
+                    <el-option value="qq" label="腾讯" />
+                    <el-option value="yahoo" label="Yahoo" />
+                    <el-option value="tdx" label="通达信（仅A股）" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
                 <el-form-item label="开始日期">
                   <el-date-picker
                     v-model="form.start_date"
@@ -280,6 +291,7 @@
           日期模式：
           <strong>{{ dateRangeModeLabel }}</strong>
         </span>
+        <el-button size="small" @click="previewVisible = true">预览组合</el-button>
       </div>
     </el-card>
 
@@ -310,6 +322,24 @@
       <template #footer>
         <el-button @click="saveTemplateVisible = false">取消</el-button>
         <el-button type="primary" :loading="savingTemplate" @click="doSaveTemplate">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 参数组合预览：C4 仅产品代码一维组合，展示前 20 条（对齐静态版 showCombinationPreview） -->
+    <el-dialog v-model="previewVisible" title="参数组合预览" width="600px" :fullscreen="isMobile">
+      <div
+        v-for="(combination, idx) in productCodes.slice(0, 20)"
+        :key="idx"
+        class="task-create-c4__preview-item"
+      >
+        <strong>组合 {{ idx + 1 }}:</strong>
+        <span class="panel-note">{{ combination }}</span>
+      </div>
+      <div v-if="productCodes.length > 20" class="panel-note panel-note--center">
+        ... 还有 {{ productCodes.length - 20 }} 个组合
+      </div>
+      <template #footer>
+        <el-button @click="previewVisible = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -345,6 +375,7 @@ const productCodeInput = ref('')
 const productCodes = ref([])
 const dateRangeFull = ref(false)
 const dateRangeRecent = ref(false)
+const previewVisible = ref(false)
 
 const form = reactive({
   name: '',
@@ -356,6 +387,7 @@ const form = reactive({
   count_mode: 'total',
   market_type: 'cn',
   kline_adjustment: 'forward',
+  kline_data_source: 'akshare',
   start_date: '',
   end_date: ''
 })
@@ -497,6 +529,7 @@ async function applyTemplate(id) {
     if (config.count_mode) form.count_mode = config.count_mode
     if (config.market_type) form.market_type = config.market_type
     if (config.kline_adjustment) form.kline_adjustment = config.kline_adjustment
+    if (config.kline_data_source) form.kline_data_source = config.kline_data_source
     if (config.start_date) form.start_date = config.start_date
     if (config.end_date) form.end_date = config.end_date
 
@@ -552,6 +585,7 @@ async function loadRestartTask(taskId) {
       count_mode: config.count_mode || 'total',
       market_type: config.market_type || 'cn',
       kline_adjustment: config.kline_adjustment || 'forward',
+      kline_data_source: config.kline_data_source || 'akshare',
       start_date: config.start_date || '',
       end_date: config.end_date || ''
     })
@@ -619,6 +653,7 @@ function loadSavedFormData() {
       count_mode: data.count_mode || 'total',
       market_type: data.market_type || 'cn',
       kline_adjustment: data.kline_adjustment || 'forward',
+      kline_data_source: data.kline_data_source || 'akshare',
       start_date: data.start_date || '',
       end_date: data.end_date || ''
     })
@@ -650,6 +685,7 @@ function clearSaved() {
     count_mode: 'total',
     market_type: 'cn',
     kline_adjustment: 'forward',
+    kline_data_source: 'akshare',
     start_date: '',
     end_date: ''
   })
@@ -720,6 +756,7 @@ async function submit() {
         count_mode: form.count_mode,
         market_type: form.market_type,
         kline_adjustment: form.kline_adjustment,
+        kline_data_source: form.kline_data_source || 'akshare',
         date_range_mode: dateRangeModes.length ? dateRangeModes : ['full'],
         start_date: form.start_date || null,
         end_date: form.end_date || null,
@@ -787,6 +824,7 @@ async function doSaveTemplate() {
         count_mode: form.count_mode,
         market_type: form.market_type,
         kline_adjustment: form.kline_adjustment,
+        kline_data_source: form.kline_data_source || 'akshare',
         date_range_mode: dateRangeModes,
         start_date: form.start_date,
         end_date: form.end_date,
@@ -876,5 +914,13 @@ onMounted(async () => {
 
 .task-create-c4__summary {
   justify-content: center;
+  gap: 12px;
+}
+
+.task-create-c4__preview-item {
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
 }
 </style>
