@@ -668,8 +668,9 @@ class StrategyBacktestReportService:
              self._decimal(self._year_all(strategy.get("start_sortino_ratio"), "sortino_ratio"))],
         ]
         for run, metrics, suffix in zip(runs, metrics_list, excess_row_suffixes):
-            rows.append([f"超额夏普比率{suffix}", "-", self._decimal(metrics.get("excess_sharpe"))])
-            rows.append([f"超额索提诺比率{suffix}", "-", self._decimal(metrics.get("excess_sortino"))])
+            # 行占位与列数联动：指标 + N 个指数列占位 + 该基准的超额值。
+            rows.append([f"超额夏普比率{suffix}", *["-"] * len(runs), self._decimal(metrics.get("excess_sharpe"))])
+            rows.append([f"超额索提诺比率{suffix}", *["-"] * len(runs), self._decimal(metrics.get("excess_sortino"))])
         return [{"table": self._table(["指标", *benchmark_headers, "策略"], rows)}]
 
     def _monthly_section(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:

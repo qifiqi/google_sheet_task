@@ -276,6 +276,143 @@ def test_risk_adjusted_section_splits_excess_rows_per_benchmark():
         "超额夏普比率(AAA.US)", "超额索提诺比率(AAA.US)",
         "超额夏普比率(BBB.US)", "超额索提诺比率(BBB.US)",
     ]
+    # 超额行的指数列占位随基准数补足，行宽与列数严格一致。
+    assert all(len(row) == 4 for row in table["rows"])
+
+
+def _rich_metrics(tag: float) -> dict:
+    """覆盖八章全部消费键的 V1 指标字典；数值按 tag 区分各基准。"""
+
+    def yearly(field, value):
+        return [{"year": "2024", field: value}, {"year": "all", field: value}]
+
+    return {
+        "index_cumulative_return": 0.10 + tag, "start_cumulative_return": 0.30,
+        "excess_cumulative_return": 0.20 - tag,
+        "index_annualized_rates": yearly("annualized_return", 0.10 + tag),
+        "start_annualized_rates": yearly("annualized_return", 0.30),
+        "index_sharpe_ratios": yearly("sharpe_ratio", 0.5 + tag) + yearly("annual_std_dev", 0.2)
+                               + yearly("avg_monthly_return", 0.01) + yearly("monthly_std_dev", 0.03),
+        "start_sharpe_ratios": yearly("sharpe_ratio", 0.9) + yearly("annual_std_dev", 0.25)
+                               + yearly("avg_monthly_return", 0.02) + yearly("monthly_std_dev", 0.04),
+        "index_kama_ratio": yearly("kama_ratio", 0.6 + tag),
+        "start_kama_ratio": yearly("kama_ratio", 0.8),
+        "index_sortino_ratio": yearly("sortino_ratio", 0.7 + tag),
+        "start_sortino_ratio": yearly("sortino_ratio", 0.9),
+        "index_returns_rate": yearly("annual_return", 0.12 + tag),
+        "start_returns_rate": yearly("annual_return", 0.32),
+        "index_maximum_drawdown": {"total_maximum_drawdown": {"drawdown": 0.15 + tag},
+                                   "year_maximum_drawdown": [{"year": "2024", "drawdown": 0.15 + tag}]},
+        "start_maximum_drawdown": {"total_maximum_drawdown": {"drawdown": 0.10},
+                                   "year_maximum_drawdown": [{"year": "2024", "drawdown": 0.10}]},
+        "year_index_yearly_max_repair_days": {"2024": 5},
+        "year_start_yearly_max_repair_days": {"2024": 3},
+        "daily_drawdown_threshold": 0.02,
+        "index_dd_count": 4, "start_dd_count": 2,
+        "excess_sharpe": 0.4 + tag, "excess_sortino": 0.5 + tag,
+        "index_monthly_distribution": [1, 2, 3, 4, 5, 6, 7],
+        "index_monthly_distribution_pct": [5, 10, 15, 20, 25, 15, 10],
+        "start_monthly_distribution": [2, 2, 2, 2, 2, 2, 2],
+        "start_monthly_distribution_pct": [10, 10, 10, 10, 10, 10, 40],
+        "total_months": 12,
+        "index_profit_months": 8, "start_profit_months": 9,
+        "index_loss_months": 4, "start_loss_months": 3,
+        "index_profit_percentage": 0.66, "start_profit_percentage": 0.75,
+        "index_max_monthly_return": 0.05, "start_max_monthly_return": 0.06,
+        "index_max_monthly_loss": -0.03, "start_max_monthly_loss": -0.02,
+        "index_monthly_return_skewness": 0.1 + tag, "start_monthly_return_skewness": 0.2,
+        "index_monthly_return_kurtosis": 0.3, "start_monthly_return_kurtosis": 0.4,
+        "index_days_distribution": [10, 20, 30, 40, 50, 60, 70, 80],
+        "index_days_distribution_pct": [5, 10, 10, 15, 15, 15, 15, 15],
+        "start_days_distribution": [5, 5, 5, 5, 5, 5, 5, 5],
+        "start_days_distribution_pct": [10, 10, 10, 10, 10, 10, 20, 20],
+        "total_trading_days": 240,
+        "index_profit_days": 130, "start_profit_days": 140,
+        "index_loss_days": 110, "start_loss_days": 100,
+        "index_days_profit_percentage": 0.54, "start_days_profit_percentage": 0.58,
+        "index_mean_daily_return": 0.0005, "start_mean_daily_return": 0.0008,
+        "index_daily_return_std": 0.01, "start_daily_return_std": 0.012,
+        "index_max_daily_gain": 0.03, "start_max_daily_gain": 0.035,
+        "index_max_daily_loss": -0.025, "start_max_daily_loss": -0.02,
+        "index_mean_daily_skewness": 0.05, "start_mean_daily_skewness": 0.06,
+        "index_mean_daily_kurtosis": 0.07, "start_mean_daily_kurtosis": 0.08,
+        "index_avg_profit_day_return": 0.01, "start_avg_profit_day_return": 0.012,
+        "index_avg_loss_day_return": -0.009, "start_avg_loss_day_return": -0.008,
+        "index_profit_loss_ratio": 1.1, "start_profit_loss_ratio": 1.3,
+        "index_max_profit_loss_ratio": 8.0, "start_max_profit_loss_ratio": 9.0,
+        "excess_returns": yearly("annualized_return_diff", 0.18 - tag),
+        "excess_distribution": [1, 2, 3, 4, 5],
+        "excess_distribution_pct": [10, 20, 30, 20, 20],
+        "average_monthly_excess_return": 0.004,
+        "monthly_excess_return_standard_deviation": 0.02,
+        "monthly_excess_win_rate": 0.6,
+        "max_monthly_excess": 0.03,
+        "excess_rolling_return_3_avg_return": 0.003, "excess_rolling_return_3_win_rate": 0.55,
+        "excess_rolling_return_6_avg_return": 0.004, "excess_rolling_return_6_win_rate": 0.6,
+        "excess_rolling_return_12_avg_return": 0.005, "excess_rolling_return_12_win_rate": 0.65,
+        "market_downturn_threshold": -0.05, "market_upturn_threshold": 0.05,
+        "daily_extreme_threshold": 0.03,
+        "index_downfall_months_len": 6, "start_downfall_months_len": 6,
+        "index_downfall_avg_return": -0.03, "start_downfall_avg_return": -0.01,
+        "downfall_excess_avg_return": 0.02, "downfall_outperform_count": 4, "downfall_win_rate": 0.66,
+        "index_upward_months_len": 6, "start_upward_months_len": 6,
+        "index_upward_avg_return": 0.04, "start_upward_avg_return": 0.05,
+        "upward_excess_avg_return": 0.01, "upward_outperform_count": 3, "upward_win_rate": 0.5,
+        "index_daily_gain_days": 60, "start_daily_gain_days": 65,
+        "index_daily_loss_days": 55, "start_daily_loss_days": 50,
+        "index_daily_gain_loss_ratio": 1.09, "start_daily_gain_loss_ratio": 1.3,
+        "index_net_value_left": 1.0, "start_net_value_left": 1.0,
+        "index_net_value_right": 1.10 + tag, "start_net_value_right": 1.30,
+        "index_consecutive": {"max_gain_months": 3, "max_loss_months": 2},
+        "start_consecutive": {"max_gain_months": 4, "max_loss_months": 1},
+        "index_new_high_avg_interval_months": 2.5, "start_new_high_avg_interval_months": 2.0,
+    }
+
+
+def _benchmark_runs_for_alignment(tag_a=0.0, tag_b=None):
+    runs = [SimpleNamespace(code="AAA.US", label="指数(AAA.US)",
+                            result=SimpleNamespace(metrics=_rich_metrics(tag_a), index_df=pd.DataFrame(
+                                {"date": pd.to_datetime(["2024-01-02", "2024-01-03"])})))]
+    if tag_b is not None:
+        runs.append(SimpleNamespace(code="BBB.US", label="指数(BBB.US)",
+                                    result=SimpleNamespace(metrics=_rich_metrics(tag_b), index_df=pd.DataFrame(
+                                        {"date": pd.to_datetime(["2024-01-02", "2024-01-03"])}))))
+    return runs
+
+
+def test_build_report_data_tables_keep_row_column_alignment(monkeypatch):
+    """N=1/N=2 全部 table 区块 rows 与 columns 列数一致（生产模板校验器口径）。
+
+    回归：三、风险调整收益章节的超额夏普/索提诺行在 N=2 时缺指数列占位，
+    触发 word_export_template 的"rows 必须与 columns 列数一致" 500。
+    """
+    from app.services.word_export_template import _validate_document_data
+
+    service = StrategyBacktestReportService()
+    monkeypatch.setattr(report_module, "_report_kline_service", lambda: _StubKlineService())
+    request = type("Request", (), {
+        "report_type": "RPT-M",
+        "title": "多基准报告",
+        "metadata": {},
+        "products": [
+            {"stock_code": "AAA.US", "product_name": "A", "ratio": "50"},
+            {"stock_code": "BBB.US", "product_name": "B", "ratio": "50"},
+        ],
+        "weight_allocation": None,
+        "index_stock_code": ["AAA.US", "BBB.US"],
+    })()
+
+    for runs in (_benchmark_runs_for_alignment(), _benchmark_runs_for_alignment(0.0, 0.02)):
+        report_data = service._build_report_data(request, runs)
+
+        tables = [(index, block) for index, block in enumerate(report_data["blocks"], start=1)
+                  if block["type"] == "table"]
+        assert len(tables) >= 14
+        for index, block in tables:
+            assert all(len(row) == len(block["columns"]) for row in block["rows"]), \
+                f"第 {index} 个 table 区块列数不一致: {block.get('title')}"
+        # 直接走生产模板的数据校验器，任何区块结构问题都在测试期暴露。
+        _validate_document_data(report_data)
 
 
 def test_conclusion_expands_per_benchmark_for_multiple_runs():
