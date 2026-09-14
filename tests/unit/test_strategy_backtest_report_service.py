@@ -91,8 +91,8 @@ def test_weight_allocation_fills_etf_total_assets_column():
 
     allocation = service._weight_allocation(
         request, "RPT-M",
-        {"600519": "2,000,000", "0700.HK": "3,000,000"},
-        {"600519": "1,234,567,890"},
+        volumes={"600519": "2,000,000", "0700.HK": "3,000,000"},
+        assets={"600519": "1,234,567,890"},
     )
 
     assert allocation["columns"] == ["股票代码", "股票名", "权重", "平均成交量(股)", "ETF资产总数"]
@@ -706,37 +706,47 @@ def test_correlation_matrix_skipped_without_products():
     assert StrategyBacktestReportService()._correlation_matrix(request, result) is None
 
 
-def test_product_volumes_passes_market_type_and_formats_average(monkeypatch):
+def test_weight_metric_texts_single_fetch_covers_volume_and_amount(monkeypatch):
+    """单次 K 线取数同时产出平均成交量与平均成交额；同标的策略/指数行共享。"""
     request = _correlation_request([
         _cumulative_product("600519.SS", "贵州茅台", "50", [0.01, 0.02, -0.015, 0.005]),
         _cumulative_product("0700.HK", "腾讯控股", "50", [0.005, -0.01, 0.03, -0.002], market_type="hk"),
+    ], index_benchmarks=[_entry("0700.HK", 30)])
+    stub = _StubKlineService(rows=[
+        {"volume": 1_000_000, "amount": 500_000_000},
+        {"volume": 3_000_000, "amount": 1_500_000_000},
     ])
-    result = SimpleNamespace(index_df=pd.DataFrame({
-        "date": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]),
-    }))
-    stub = _StubKlineService(rows=[{"volume": 1_000_000}, {"volume": 3_000_000}])
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    volumes = StrategyBacktestReportService()._product_volumes(request, "2024-01-01", "2024-01-04")
+    volumes, amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
 
-    assert volumes == {"600519.SS": "2,000,000", "0700.HK": "2,000,000"}
-    assert [(call["stock_code"], call["market_type"], call["start_date"], call["end_date"]) for call in stub.calls] == [
-        ("600519.SS", "cn", "2024-01-01", "2024-01-04"),
-        ("0700.HK", "hk", "2024-01-01", "2024-01-04"),
+    assert volumes == {
+        "600519.SS": "200.00万",
+        "0700.HK": "200.00万",
+        "0700.HK (指数)": "200.00万",
+    }
+    assert amounts == {
+        "600519.SS": "10.00亿",
+        "0700.HK": "10.00亿",
+        "0700.HK (指数)": "10.00亿",
+    }
+    # 每个标的只取数一次：策略行与指数行共享同一份 K 线结果。
+    assert [call["stock_code"] for call in stub.calls] == ["600519.SS", "0700.HK"]
+    assert [(call["market_type"], call["start_date"], call["end_date"]) for call in stub.calls] == [
+        ("cn", "2024-01-01", "2024-01-04"),
+        ("hk", "2024-01-01", "2024-01-04"),
     ]
 
 
-def test_product_volumes_degrades_to_dash_when_kline_fails(monkeypatch):
+def test_weight_metric_texts_degrades_to_dash_when_kline_fails(monkeypatch):
     request = _correlation_request([
         _cumulative_product("600519.SS", "贵州茅台", "50", [0.01, 0.02, -0.015, 0.005]),
     ])
-    result = SimpleNamespace(index_df=pd.DataFrame({
-        "date": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]),
-    }))
     stub = _StubKlineService(error=RuntimeError("kline unavailable"))
     monkeypatch.setattr(report_module, "_report_kline_service", lambda: stub)
 
-    volumes = StrategyBacktestReportService()._product_volumes(request, "2024-01-01", "2024-01-04")
+    volumes, amounts = StrategyBacktestReportService()._weight_metric_texts(request, "2024-01-01", "2024-01-04")
 
     assert volumes == {"600519.SS": "-"}
+    assert amounts == {"600519.SS": "-"}
 

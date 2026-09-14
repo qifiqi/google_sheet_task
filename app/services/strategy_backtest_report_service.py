@@ -33,6 +33,7 @@ from app.services.kline_service import KlineService
 from app.utils.logger import get_logger
 from app.utils.etf_total_assets import get_etf_total_assets
 from app.utils.market import normalize_market_type
+from app.utils.number_format import abbreviate_number
 
 logger = get_logger(__name__)
 
@@ -413,9 +414,11 @@ class StrategyBacktestReportService:
             {"label": "总交易日", "value": f"{len(result.index_df)} 天"},
             {"label": "无风险利率", "value": str(payload.metadata.get("risk_free_rate") or "0.00%")},
         ]
-        volume_texts = self._product_volumes(payload, first_date, last_date)
+        volume_texts, amount_texts = self._weight_metric_texts(payload, first_date, last_date)
         asset_texts = self._etf_total_assets_texts(payload)
-        weight_allocation = self._weight_allocation(payload, report_type, volume_texts, asset_texts)
+        weight_allocation = self._weight_allocation(
+            payload, report_type, volume_texts, amount_texts, asset_texts,
+        )
         sections = self._sections(runs)
         blocks: list[dict[str, Any]] = [
             {"type": "metadata", "items": metadata},
@@ -438,19 +441,23 @@ class StrategyBacktestReportService:
         payload: StrategyBacktestReportSchema,
         report_type: str,
         volumes: dict[str, str] | None = None,
+        amounts: dict[str, str] | None = None,
         assets: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """构造报告中的股票权重表格。
 
         无后缀行 = 策略权重（有效产品按配置比例）；"(指数)" 后缀行 =
         指数基准自身的比例权重（如 QQQ 100%、SOXX 30%），两套权重并列
-        展示，便于区分策略持仓与指数构成。平均成交量与 ETF 资产总数
-        按代码标签回填。
+        展示，便于区分策略持仓与指数构成。平均成交量/平均成交额/ETF
+        资产总数按代码标签回填。
         """
         raw = payload.weight_allocation
         if isinstance(raw, dict) and raw.get("columns") and isinstance(raw.get("rows"), list):
             return raw
         volume_texts = volumes or {}
+        # 平均成交额列暂缓展示：amount_texts 已随成交量单次取数产出，
+        # 恢复展示时放开下方两处注释即可。
+        amount_texts = amounts or {}
         asset_texts = assets or {}
         active = StrategyBacktestReportService._active_report_products(payload.products)
         rows = []
@@ -464,6 +471,7 @@ class StrategyBacktestReportService:
                     str(product.get("product_name") or ""),
                     StrategyBacktestReportService._weight_text(product, report_type),
                     volume_texts.get(code, "-"),
+                    # amount_texts.get(code, "-"),
                     asset_texts.get(code, "-"),
                 ])
         name_by_code: dict[str, str] = {}
@@ -477,6 +485,7 @@ class StrategyBacktestReportService:
                 name_by_code.get(code, ""),
                 f"{StrategyBacktestReportService._weight_percent_text(weight)}%",
                 volume_texts.get(f"{code} (指数)", "-"),
+                # amount_texts.get(f"{code} (指数)", "-"),
                 asset_texts.get(f"{code} (指数)", "-"),
             ])
         if not rows and report_type == "RPT-S":
@@ -517,36 +526,97 @@ class StrategyBacktestReportService:
             "matrix": pairwise_correlation_matrix([aligned[index] for index in indexes]),
         }
 
-    def _product_volumes(
+    def _weight_metric_texts(
         self,
         payload: StrategyBacktestReportSchema,
         first_date: str,
         last_date: str,
-    ) -> dict[str, str]:
-        """按代码标签取权重表全部行（策略行 + 指数基准行）的报告区间平均成交量。
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """单次 K 线取数同时产出权重表的平均成交量与平均成交额文本映射。
 
-        策略行以纯代码为键；指数基准行以 "代码 (指数)" 为键（同一标的，
-        成交量与策略行相同）。
+        同一标的只取数一次（同码的策略行/指数行/多比例行共享结果），
+        指数行标签为 "代码 (指数)"。
         """
         volumes: dict[str, str] = {}
+        amounts: dict[str, str] = {}
+        kline_texts: dict[str, tuple[str, str]] = {}
+
+        def metric_texts(code: str, product: dict[str, Any]) -> tuple[str, str]:
+            if code not in kline_texts:
+                kline_texts[code] = self._kline_average_texts(product, first_date, last_date)
+            return kline_texts[code]
+
         for product in self._active_report_products(payload.products):
             if not isinstance(product, dict):
                 continue
             code = str(product.get("stock_code") or product.get("product_name") or "").strip()
-            volumes.setdefault(code, self._average_volume(product, first_date, last_date))
+            if not code or code in kline_texts:
+                continue
+            volume_text, amount_text = metric_texts(code, product)
+            volumes[code] = volume_text
+            amounts[code] = amount_text
         for code, _weight in self._benchmark_entries(payload):
             label = f"{code} (指数)"
             if label in volumes:
                 continue
-            if code in volumes:
-                volumes[label] = volumes[code]
+            if code in kline_texts:
+                volumes[label], amounts[label] = kline_texts[code]
                 continue
             try:
                 product = self._find_product(payload, code)
-                volumes[label] = self._average_volume(product, first_date, last_date)
+                volume_text, amount_text = metric_texts(code, product)
             except ValueError:
-                volumes[label] = "-"
-        return volumes
+                volume_text, amount_text = "-", "-"
+            volumes[label] = volume_text
+            amounts[label] = amount_text
+        return volumes, amounts
+
+    def _kline_average_texts(
+        self,
+        product: dict[str, Any],
+        first_date: str,
+        last_date: str,
+    ) -> tuple[str, str]:
+        """单次 K 线取数计算平均成交量与平均成交额展示文本；失败降级 "-"。
+
+        market_type 取任务配置透传值并作为 get_kline_data 的推断缺省：
+        标准代码后缀推断优先，存储值兜底，避免港股等纯数字代码被误判为 A 股。
+        """
+        stock_code = str(product.get("stock_code") or "").strip()
+        if not stock_code:
+            return "-", "-"
+        try:
+            market_type = str(product.get("market_type") or "").strip() or "cn"
+            calendar_days = max(1, (parse_date(last_date) - parse_date(first_date)).days)
+            trading_days_per_year = 250 if normalize_market_type(market_type) == "cn" else 252
+            limit = max(300, math.ceil(calendar_days * trading_days_per_year / 365.25) + 120)
+            klines = _report_kline_service().get_kline_data(
+                stock_code,
+                market_type,
+                limit,
+                start_date=first_date,
+                end_date=last_date,
+                exchange_market=product.get("exchange_market"),
+            )
+            rows = klines or []
+            volume_text = abbreviate_number(self._average_field(rows, "volume")) or "-"
+            amount_text = abbreviate_number(self._average_field(rows, "amount")) or "-"
+            return volume_text, amount_text
+        except Exception:
+            logger.warning("报告平均成交量/成交额获取失败: %s", stock_code, exc_info=True)
+            return "-", "-"
+
+    @staticmethod
+    def _average_field(rows: list[dict[str, Any]], field: str) -> float | None:
+        """K 线行指定列的算术平均；全部缺失返回 None。"""
+        values = [
+            StrategyBacktestReportService._num(row.get(field))
+            for row in rows or []
+            if row.get(field) is not None
+        ]
+        if not values:
+            return None
+        return sum(values) / len(values)
 
     @staticmethod
     def _etf_total_assets_text(product: dict[str, Any]) -> str:
@@ -559,13 +629,7 @@ class StrategyBacktestReportService:
             product.get("market_type"),
             product.get("exchange_market"),
         )
-        if value is None:
-            return "-"
-        if abs(value) >= 1e8:
-            return f"{value / 1e8:.2f}亿"
-        if abs(value) >= 1e4:
-            return f"{value / 1e4:.2f}万"
-        return f"{value:,.0f}"
+        return abbreviate_number(value) or "-"
 
     def _etf_total_assets_texts(self, payload: StrategyBacktestReportSchema) -> dict[str, str]:
         """按权重表行标签取各标的 ETF 资产总数展示文本（策略行 + 指数基准行）。"""
@@ -596,40 +660,6 @@ class StrategyBacktestReportService:
         if code in StrategyBacktestReportService._benchmark_codes(payload):
             return f"{code} (指数)"
         return code
-
-    def _average_volume(self, product: dict[str, Any], first_date: str, last_date: str) -> str:
-        """报告区间内平均成交量（normalize 后统一为股）；取不到显示 "-"，不阻塞报告。
-
-        market_type 取任务配置透传值并作为 get_kline_data 的推断缺省：
-        标准代码后缀推断优先，存储值兜底，避免港股等纯数字代码被误判为 A 股。
-        """
-        stock_code = str(product.get("stock_code") or "").strip()
-        if not stock_code:
-            return "-"
-        try:
-            market_type = str(product.get("market_type") or "").strip() or "cn"
-            calendar_days = max(1, (parse_date(last_date) - parse_date(first_date)).days)
-            trading_days_per_year = 250 if normalize_market_type(market_type) == "cn" else 252
-            limit = max(300, math.ceil(calendar_days * trading_days_per_year / 365.25) + 120)
-            klines = _report_kline_service().get_kline_data(
-                stock_code,
-                market_type,
-                limit,
-                start_date=first_date,
-                end_date=last_date,
-                exchange_market=product.get("exchange_market"),
-            )
-            volumes = [
-                self._num(row.get("volume"))
-                for row in klines or []
-                if row.get("volume") is not None
-            ]
-            if not volumes:
-                return "-"
-            return f"{sum(volumes) / len(volumes):,.0f}"
-        except Exception:
-            logger.warning("报告平均成交量获取失败: %s", stock_code, exc_info=True)
-            return "-"
 
     def _sections(self, runs: list[_BenchmarkRun]) -> list[dict[str, Any]]:
         """按模板顺序合并各表格 JSON。"""
